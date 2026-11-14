@@ -7,9 +7,12 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
+import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
-import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
+import { usePdfDownload } from '@/hooks/usePdfDownload'
+import { parseFilename } from '@/lib/parseFilename'
 import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { formatQuantity } from '@/lib/formatQuantity'
@@ -35,7 +38,7 @@ import { DocumentForm } from './DocumentForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns, openingColumnSpecs, openingLineColumns } from './lineColumns'
-import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
+import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, documentPrintable, formatEventTime, isTwoSide, printErrorMessageId, sidesOf } from './documentsModel'
 import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 type AssetLine = AssetDocumentLine
@@ -88,6 +91,7 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
   }] })
   const doc = query.data
   const [editing, setEditing] = useState(false)
+  const pdf = usePdfDownload(parseFilename)
   const singleCardId = cardIds?.length === 1 ? (cardIds[0] ?? null) : null
   const cardQuery = useCardById(singleCardId)
   const cardNumber = cardQuery.data ? textOf(cardQuery.data, 'inventory_number') : null
@@ -209,6 +213,17 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
         actions={
           <>
             <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
+            {documentPrintable(doc) && (
+              <Button
+                variant="secondary"
+                icon={<Printer className="lf-icon" aria-hidden="true" />}
+                loading={pdf.busyKey === 'print'}
+                onClick={() => void pdf.run('print', () => assetDocumentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId)}
+                data-testid="document-print"
+              >
+                {t('assets.doc.print')}
+              </Button>
+            )}
             {cardIds && cardIds.length > 0 && access.can(ASSETS_CARD_WRITE) && (
               cardIds.length === 1 ? (
                 <Link
@@ -234,6 +249,7 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
           </>
         }
       >
+        {pdf.error !== null && <Banner tone="danger">{t(pdf.error)}</Banner>}
         {doc.posting_check === 'mismatch' && (
           <Banner tone="warning" title={t('assets.doc.mismatch.title')}>
             {t('assets.doc.mismatch.body')}

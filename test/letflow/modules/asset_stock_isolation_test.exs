@@ -41,6 +41,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:adoc, "PUT", "/documents/:id", :adoc_put, :call},
     {:adoc, "DELETE", "/documents/:id", nil, :call},
     {:adoc, "GET", "/documents/:id", nil, :call},
+    {:adoc, "GET", "/documents/:id/print", nil, :call},
     {:adoc, "POST", "/documents/:id/issue", nil, :call},
     {:adoc, "POST", "/documents/:id/check", nil, :call},
     {:adoc, "POST", "/documents/:id/reverse", :reverse, :call},

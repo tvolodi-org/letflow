@@ -3,7 +3,7 @@ Code.require_file("documents_fixture.exs", __DIR__)
 defmodule Letflow.Modules.Assets.UpgradeFrom018Test do
   @moduledoc """
   REQ-825 criterion 5 (PM rule D-139): a tenant that holds assets 0.18.0 WITH real cards (legacy
-  currency texts) takes the upgrade to 0.20.0 (C3 migration release task + C4 directory check,
+  currency texts) takes the upgrade to 0.21.0 (C3 migration release task + C4 directory check,
   code only, pack byte-identical) through the real tenant routes, and the cards survive untouched:
   the migration itself is a separate operator run. Committed tenants, Sandbox `:auto`, `async: false`.
   """
@@ -47,7 +47,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom018Test do
     plain = Cards.card!(ctx.schema, "U-2", %{"currency" => "KZT"}).record_id
 
     {:ok, entry} = Letflow.Modules.Catalog.fetch("assets")
-    assert entry.manifest().version == "0.20.0"
+    assert entry.manifest().version == "0.21.0"
 
     plan = post("/api/v1/tenant/modules/assets/upgrade/plan", ctx.tok_a, %{})
     assert plan.status == 200, plan.resp_body
@@ -65,7 +65,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom018Test do
     assert up.status == 200, up.resp_body
 
     assert Repo.get_by!(TenantModule, [module_id: "assets"], prefix: ctx.schema).version ==
-             "0.20.0"
+             "0.21.0"
 
     assert {:ok, %{"currency" => " Тенге "}} = ReadApi.lookup(ctx.schema, legacy, ["assets_card"])
     assert {:ok, %{"currency" => "KZT"}} = ReadApi.lookup(ctx.schema, plain, ["assets_card"])

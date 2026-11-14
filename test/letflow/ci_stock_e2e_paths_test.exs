@@ -3,7 +3,7 @@ defmodule Letflow.CiStockE2ePathsTest do
   T-1383: the selective rule of the CI job "Stock browser e2e (playwright)" (`scripts/ci_stock_e2e_paths.sh`) and the
   wiring of that job in `.github/workflows/stock-e2e.yml`. The browser specs themselves need a live stack and run in that job.
 
-    * P1 a stock web file, a GATE B spec, the e2e stack scripts or the rule itself -> `stock_web=true`;
+    * P1 a stock or asset web file (T-1915), a GATE B spec, the e2e stack scripts or the rule itself -> `stock_web=true`;
       docs, backend and other web files -> `stock_web=false`; an empty list -> false; always exit 0, one line;
     * W1 the job exists with the required-check name, runs on PR, merge queue, schedule and dispatch, decides per path
       through the script, runs the relogin spec only on schedule / dispatch, and fails (does not skip) a missing credential.
@@ -28,6 +28,7 @@ defmodule Letflow.CiStockE2ePathsTest do
   @cases [
     {"web/src/modules/stock/documents/Zz.tsx", "stock_web=true"},
     {"web/src/pages/tasks/Zz.tsx", "stock_web=true"},
+    {"web/src/modules/assets/documents/Zz.tsx", "stock_web=true"},
     {"web/tests/e2e/gate-b-zz.e2e.spec.ts", "stock_web=true"},
     {"web/tests/e2e/gate-b-yy.e2e.spec.ts", "stock_web=true"},
     {"web/tests/e2e/support/zz.ts", "stock_web=true"},

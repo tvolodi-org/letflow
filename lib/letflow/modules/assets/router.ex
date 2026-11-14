@@ -34,6 +34,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
   | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/3`, `DocumentPrint.build/3` | 200 `application/pdf` of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
@@ -104,6 +105,8 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
+  alias Letflow.Modules.Assets.DocumentPrint
+  alias Letflow.Modules.Assets.DocumentPrintSource
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Assets.XlsxExport
   alias Letflow.Modules.ReadApi
@@ -312,6 +315,16 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
+  # T-1915: the printed act of an issued commission, change, hand over or write-off; same guard as the read.
+  authz_get "/documents/:id/print", :AssetsRead do
+    with_doc_access(conn, :read, fn conn, access ->
+      case print_lang(Plug.Conn.fetch_query_params(conn).query_params["lang"]) do
+        {:ok, lang} -> print_document(conn, access.prefix, lang)
+        :invalid_lang -> unprocessable(conn, "invalid_lang")
+      end
+    end)
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers (GH #3890 / #3891) ------------------------------------------------------
@@ -443,6 +456,53 @@ defmodule Letflow.Modules.Assets.Router do
         Logger.error("assets xlsx write failed")
         Response.internal_error(conn)
     end
+  end
+
+  @print_langs %{"ru" => :ru, "kk" => :kk, "en" => :en}
+
+  defp print_lang(nil), do: {:ok, :ru}
+
+  defp print_lang(lang) when is_binary(lang) do
+    case Map.fetch(@print_langs, lang) do
+      {:ok, l} -> {:ok, l}
+      :error -> :invalid_lang
+    end
+  end
+
+  defp print_lang(_), do: :invalid_lang
+
+  defp print_document(conn, prefix, lang) do
+    tenant_id = conn.assigns |> Map.get(:auth_context, %{}) |> Map.get(:tenant_id)
+
+    with {:ok, %{issued: issued, names: names}} <-
+           DocumentPrintSource.read(prefix, conn.params["id"], tenant_id),
+         {:ok, pdf} <- DocumentPrint.build(issued, names, lang) do
+      send_pdf(conn, pdf, DocumentPrint.file_name(issued.number_label))
+    else
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, reason} when reason in [:print_not_available, :document_not_issued] ->
+        unprocessable(conn, Atom.to_string(reason))
+
+      {:error, :unsupported_glyph} ->
+        unprocessable(conn, "print_unsupported_character")
+
+      {:error, {:render_failed, rules}} ->
+        Logger.error(
+          "assets document print render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+        )
+
+        Response.internal_error(conn)
+    end
+  end
+
+  defp send_pdf(conn, binary, name) do
+    conn
+    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
   end
 
   @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

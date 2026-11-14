@@ -104,7 +104,7 @@ jobs:
           # a missing variable must fail the job, not skip the specs silently
           : "${E2E_ADMIN_USER:?the stack script did not export E2E_ADMIN_USER}"
           : "${E2E_ADMIN_PASSWORD:?the stack script did not export E2E_ADMIN_PASSWORD}"
-          npx playwright test --config=playwright.config.ts tests/e2e/gate-b-stock.e2e.spec.ts tests/e2e/gate-b-stock-print.e2e.spec.ts
+          npx playwright test --config=playwright.config.ts tests/e2e/gate-b-stock.e2e.spec.ts tests/e2e/gate-b-stock-print.e2e.spec.ts tests/e2e/gate-b-assets-print.e2e.spec.ts
 
       - name: Relogin check on the real identity provider (nightly and manual only)
         if: steps.decide.outputs.run == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
