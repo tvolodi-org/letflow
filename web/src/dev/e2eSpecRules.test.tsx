@@ -63,6 +63,21 @@ describe('GATE B e2e specs: rules that only fail in CI', () => {
   })
 })
 
+describe('Playwright test callbacks', () => {
+  // T-1994: Playwright refuses to load a spec whose test callback takes a plain identifier as its first argument
+  // ("First argument must use the object destructuring pattern"), which failed the whole stock e2e job on load.
+  it('take an object pattern as their first argument in every e2e spec', () => {
+    const all = readdirSync(E2E_DIR).filter((f) => /\.e2e\.spec\.ts$/.test(f))
+    const bad: string[] = []
+    for (const f of all) {
+      lines(f).forEach((l, i) => {
+        if (/\btest(?:\.\w+)?\(\s*['"`].*,\s*async\s*\(\s*[A-Za-z_$][\w$]*\s*[,)]/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad).toEqual([])
+  })
+})
+
 describe('DateTimeField labels the e2e helper relies on', () => {
   it('the group label is ambiguous, the "<label>, date" and "<label>, time" inputs are not', () => {
     render(<DateTimeField label="Time" value="2026-11-14T18:35" onChange={() => {}} />)
