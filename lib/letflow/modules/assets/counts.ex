@@ -5,7 +5,7 @@ defmodule Letflow.Modules.Assets.Counts do
   `low_value`, `intangible`), root locations (empty means the whole unit), a planned period and a
   commission (a chair and members, all employees). This module only keeps the order. The count sheet
   (open, book lines, typed input, close, sheet marks; K2, REQ-817) is `Letflow.Modules.Assets.CountSheet`;
-  differences, result, freeze and prints are slices K3 to K7. The order part is a copy of
+  differences, result and prints are slices K3, K4, K6 and K7; the freeze (K5) is `CountFreeze`. The order part is a copy of
   `Letflow.Modules.Stock.Counts` (assets does not call stock).
 
   Three module-managed record types (pack `priv/modules/assets/pack.json`): `assets_count_order`
@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Assets.Counts do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Assets
+  alias Letflow.Modules.Assets.CountFreeze
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Locations.Tree
   alias Letflow.Modules.Org
@@ -889,6 +890,7 @@ defmodule Letflow.Modules.Assets.Counts do
       "sheet_signed_at" => header["sheet_signed_at"],
       "sheet_signed_by" => header["sheet_signed_by"]
     }
+    |> Map.merge(CountFreeze.view_fields(header, DateTime.utc_now()))
   end
 
   defp actor!(opts) do

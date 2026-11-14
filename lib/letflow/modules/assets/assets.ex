@@ -98,6 +98,12 @@ defmodule Letflow.Modules.Assets do
   `sheet-signatures`, and the reads `lines`, `entries`, `sheet-document`). No new permission, setting or
   migration (class A). See `Letflow.Modules.Assets.CountSheet`.
 
+  **Asset count K5** (T-1929, version 0.24.0, REQ-820 / GH #4371): the freeze of the counted scope. Four
+  optional fields on `assets_count_order` (`freeze_started_at`, `freeze_until`, `freeze_whole_unit`,
+  `freeze_location_ids`); opening a freeze order stores them, and issuing an asset document with a side in the
+  frozen scope is refused `422 count_in_progress` inside the issue lock. No new permission, route, setting or
+  migration (class A). See `Letflow.Modules.Assets.CountFreeze`.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -250,7 +256,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.23.0",
+    version: "0.24.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],

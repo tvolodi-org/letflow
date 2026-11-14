@@ -10,7 +10,8 @@ defmodule Letflow.Modules.Assets.CountSheet do
       the book read at `{:event_time, cut_off, N}` with `Ledger.balances/4`, one line per balance
       with a positive quantity whose card kind is in the order's kinds and whose location is under a
       root of the order (a key with no location, an intangible, is kept). Assets has no
-      `posting_guard` yet, so the hold serialises nothing today; K5's freeze depends on it.
+      `posting_guard`, so the hold serialises nothing today; K5's freeze is checked at document issue
+      (`CountFreeze`), a freeze order takes the asset issue lock between the order lock and the hold.
     * `record_line/5`: a commission member types what was found on a line (replace semantics);
       `add_surplus_line/4` adds a line the book does not know; every input appends one entry to the
       append-only log.
@@ -31,7 +32,7 @@ defmodule Letflow.Modules.Assets.CountSheet do
   decimal, because the asset ledger policy refuses fractional quantities (a fractional count could
   never post in K4). Quantities and card money values are stored as text, exactly as the card holds
   them. A sheet is capped at 2000 lines (`count_too_large`). An order that asks for `freeze_locations`
-  is refused at open (`freeze_not_available`) until K5 builds the freeze. Scanner input (K3),
+  freezes its scope from the cut-off (`CountFreeze`, K5). Scanner input (K3),
   differences and result (K4) are later slices.
   """
 
@@ -43,7 +44,9 @@ defmodule Letflow.Modules.Assets.CountSheet do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Ledger
+  alias Letflow.Modules.Assets.CountFreeze
   alias Letflow.Modules.Assets.Counts
+  alias Letflow.Modules.Assets.Settings
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Locations
@@ -79,10 +82,14 @@ defmodule Letflow.Modules.Assets.CountSheet do
          {:ok, authorized} <- full_reader(prefix, Map.get(opts, :authorized)),
          :ok <- chair(prefix, header, actor),
          :ok <- status(header, "ordered"),
-         :ok <- due(header, DateTime.utc_now()),
-         :ok <- no_freeze(header) do
+         :ok <- due(header, DateTime.utc_now()) do
       Repo.transaction(fn ->
         Counts.lock_order!(prefix, header["record_id"])
+        # A freeze order also takes the asset issue lock: an issue either committed before the
+        # cut-off or waits and then sees the freeze (K5). Order lock, issue lock, ledger hold.
+        if header["freeze_locations"] == true,
+          do: Letflow.Modules.Assets.Documents.lock_issue!(prefix)
+
         Ledger.hold_exclusive!(prefix, "assets")
         now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
@@ -92,9 +99,11 @@ defmodule Letflow.Modules.Assets.CountSheet do
              {:ok, n, rows} <- read_book(authorized, fresh["org_unit_id"], now),
              {:ok, lines} <- build_lines(prefix, fresh, rows),
              :ok <- create_all(prefix, lines, actor),
+             {:ok, freeze} <- freeze_fields(prefix, fresh, now),
              fv =
                fresh
                |> Map.drop(@kept)
+               |> Map.merge(freeze)
                |> Map.merge(%{
                  "status" => "counting",
                  "cut_off_at" => DateTime.to_iso8601(now),
@@ -116,8 +125,16 @@ defmodule Letflow.Modules.Assets.CountSheet do
   defp full_reader(prefix, %{scope: :all, prefix: prefix} = authorized), do: {:ok, authorized}
   defp full_reader(_prefix, _other), do: {:error, :not_found}
 
-  defp no_freeze(%{"freeze_locations" => true}), do: {:error, :freeze_not_available}
-  defp no_freeze(_), do: :ok
+  defp freeze_fields(prefix, %{"freeze_locations" => true} = order, cut_off) do
+    CountFreeze.open_fields(
+      prefix,
+      scope_roots(prefix, order["record_id"]),
+      cut_off,
+      Settings.count_freeze_limit_minutes(prefix)
+    )
+  end
+
+  defp freeze_fields(_prefix, _order, _cut_off), do: {:ok, %{}}
 
   defp due(header, now) do
     with {:ok, a, _} <- DateTime.from_iso8601(to_string(header["planned_start"])),

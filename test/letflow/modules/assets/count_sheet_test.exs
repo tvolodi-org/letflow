@@ -612,11 +612,20 @@ defmodule Letflow.Modules.Assets.CountSheetTest do
       assert live(ctx.schema, "assets_count_line") == 0
     end
 
-    test "K2-Z1: an order that asks for a freeze is refused until K5", ctx do
+    test "K5-O1: opening a freeze order stores the fixed scope", ctx do
       id = ordered!(ctx, %{"freeze_locations" => true})
-      opts = %{actor_id: ctx.sw.chair_user, authorized: authorized!(ctx)}
-      assert {:error, :freeze_not_available} = CountSheet.open(ctx.schema, id, opts)
-      assert {:ok, %{"status" => "ordered"}} = Counts.get(ctx.schema, id, chair().(ctx))
+      open!(ctx, id)
+      {:ok, h} = Letflow.Modules.ReadApi.lookup(ctx.schema, id, ["assets_count_order"])
+      assert h["status"] == "counting" and h["freeze_started_at"] == h["cut_off_at"]
+      assert h["freeze_whole_unit"] == false
+      assert h["freeze_location_ids"] == [ctx.sw.w.a]
+    end
+
+    test "K5-O2: a whole-unit freeze order stores no location set", ctx do
+      id = ordered!(ctx, %{"freeze_locations" => true, "location_ids" => []})
+      open!(ctx, id)
+      {:ok, h} = Letflow.Modules.ReadApi.lookup(ctx.schema, id, ["assets_count_order"])
+      assert h["freeze_whole_unit"] == true and h["freeze_location_ids"] == []
     end
 
     test "K2-A1: the audit entries of a life carry status and line number only", ctx do

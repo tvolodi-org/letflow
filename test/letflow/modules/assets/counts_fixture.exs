@@ -100,6 +100,14 @@ defmodule Letflow.AssetsCountsFixture do
     :ok
   end
 
+  @doc "Sets one setting `key` (the other keys are kept)."
+  def put_setting!(schema, key, value) do
+    {:ok, _} =
+      Installs.put_settings("assets", Map.put(settings(schema), key, value), prefix: schema)
+
+    :ok
+  end
+
   @doc "Removes the flag key."
   def disable!(schema) do
     {:ok, _} =
