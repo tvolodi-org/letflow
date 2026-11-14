@@ -15,7 +15,10 @@ defmodule Letflow.Definitions.RoleBinding do
 
   import Ecto.Query, only: [from: 2]
 
+  require Logger
+
   alias Letflow.Definitions.Graph
+  alias Letflow.Engine.ApprovalRuleSetting
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.TenantRole
@@ -155,7 +158,16 @@ defmodule Letflow.Definitions.RoleBinding do
   @doc """
   One warning per (definition, unordered pair) whose role has exactly one
   member, definitions in input order. Zero candidate pairs across all
-  definitions: no query at all; otherwise one `member_counts/2` read in total.
+  definitions: no query at all; candidate pairs but no single-member role: one
+  `member_counts/2` read; at least one warning would be shown: that read plus ONE
+  four-eyes settings read in total (T-1986).
+
+  T-1986: a pair is not warned when EVERY node of the pair that lists the other in
+  `distinct_from` is switched OFF in that definition (the runtime check reads the
+  `distinct_from` of the node being completed, and OFF lets an interactive person
+  approve their own work, so "no second person can ever be found" no longer holds).
+  The warning is silenced regardless of credential. When the settings cannot be read
+  every warning is kept and one line is logged: a warning fails toward "shown".
   """
   @spec single_member_warnings_for_definitions(
           [{String.t(), Graph.t()}],
@@ -163,11 +175,13 @@ defmodule Letflow.Definitions.RoleBinding do
         ) :: [String.t()]
   def single_member_warnings_for_definitions(definitions, opts) do
     candidates =
-      Enum.map(definitions, fn {name, %Graph{} = graph} -> {name, single_member_pairs(graph)} end)
+      Enum.map(definitions, fn {name, %Graph{} = graph} ->
+        {name, graph, single_member_pairs(graph)}
+      end)
 
     role_names =
       candidates
-      |> Enum.flat_map(fn {_n, pairs} -> Enum.map(pairs, & &1.role_name) end)
+      |> Enum.flat_map(fn {_n, _g, pairs} -> Enum.map(pairs, & &1.role_name) end)
       |> Enum.uniq()
 
     if role_names == [] do
@@ -175,10 +189,56 @@ defmodule Letflow.Definitions.RoleBinding do
     else
       counts = member_counts(role_names, opts)
 
-      for {name, pairs} <- candidates,
-          pair <- pairs,
-          Map.get(counts, pair.role_name) == 1,
+      would_warn =
+        for {name, graph, pairs} <- candidates,
+            pair <- pairs,
+            Map.get(counts, pair.role_name) == 1,
+            do: {name, graph, pair}
+
+      off = off_steps_for(would_warn, opts)
+
+      for {name, graph, pair} <- would_warn,
+          not silenced?(off, name, listers(graph, pair)),
           do: format_single_member_warning(name, pair)
     end
+  end
+
+  # One bulk read, only when a warning would be shown. `nil` = unreadable (keep every warning).
+  defp off_steps_for([], _opts), do: MapSet.new()
+
+  defp off_steps_for(would_warn, opts) do
+    names = would_warn |> Enum.map(fn {name, _g, _p} -> name end) |> Enum.uniq()
+    query_opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+    case ApprovalRuleSetting.off_steps(Repo, Keyword.fetch!(opts, :prefix), names, query_opts) do
+      {:ok, off} ->
+        off
+
+      {:error, :unreadable} ->
+        Logger.warning(
+          "distinct_from single-member warning: four-eyes settings unreadable: :unreadable"
+        )
+
+        nil
+    end
+  end
+
+  defp silenced?(nil, _name, _listers), do: false
+  defp silenced?(_off, _name, []), do: false
+
+  defp silenced?(off, name, listers),
+    do: Enum.all?(listers, &MapSet.member?(off, {name, &1}))
+
+  # The nodes of the pair that list the other in `distinct_from` (same filter as
+  # `single_member_pairs/1`).
+  defp listers(%Graph{nodes: nodes}, %{node_ids: [x, y]}) do
+    for node <- Enum.uniq_by(nodes, & &1.id),
+        node.node_type == :HUMAN_TASK,
+        node.id in [x, y],
+        is_map(node.attributes),
+        is_list(listed = Map.get(node.attributes, "distinct_from")),
+        other = if(node.id == x, do: y, else: x),
+        other in listed,
+        do: node.id
   end
 end

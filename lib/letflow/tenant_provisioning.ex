@@ -998,7 +998,10 @@ defmodule Letflow.TenantProvisioning do
      "20261114100001_create_problem_reports.exs"},
     # T-1949: status of existing reports defaults to received.
     {20_261_114_200_001, Letflow.Repo.Migrations.AddProblemReportStatus,
-     "20261114200001_add_problem_report_status.exs"}
+     "20261114200001_add_problem_report_status.exs"},
+    # T-1986: approval_rule_settings (four-eyes switch). Empty for every tenant; no row = ON.
+    {20_261_114_300_001, Letflow.Repo.Migrations.CreateApprovalRuleSettings,
+     "20261114300001_create_approval_rule_settings.exs"}
   ]
 
   @doc """

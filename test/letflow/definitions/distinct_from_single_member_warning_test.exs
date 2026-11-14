@@ -418,7 +418,8 @@ defmodule Letflow.Definitions.DistinctFromSingleMemberWarningTest do
         {"d2", parsed!(seq_graph(role_b, role_b, %{}))}
       ]
 
-      assert {warnings, 1} =
+      # member counts + one four-eyes settings read (T-1986)
+      assert {warnings, 2} =
                count_queries(fn ->
                  RoleBinding.single_member_warnings_for_definitions(defs,
                    prefix: tenant.schema_name
@@ -441,7 +442,8 @@ defmodule Letflow.Definitions.DistinctFromSingleMemberWarningTest do
         {"paired", parsed!(seq_graph(role, role, %{}))}
       ]
 
-      assert {[warning], 1} =
+      # member counts + one four-eyes settings read (T-1986)
+      assert {[warning], 2} =
                count_queries(fn ->
                  RoleBinding.single_member_warnings_for_definitions(defs,
                    prefix: tenant.schema_name
@@ -787,6 +789,143 @@ defmodule Letflow.Definitions.DistinctFromSingleMemberWarningTest do
       _ = validate!(tenant.schema_name, definition)
       assert {:ok, reloaded} = Definitions.get_by_id(definition.id, prefix: tenant.schema_name)
       assert reloaded.graph == definition.graph
+    end
+  end
+
+  # =======================================================================================
+  # T-1986: a step switched OFF (four-eyes switch) silences the warning
+  # =======================================================================================
+
+  describe "T-1986 four-eyes OFF silences the warning" do
+    import ExUnit.CaptureLog
+
+    alias Letflow.Engine.ApprovalRuleSetting
+
+    defp put_setting!(schema, definition_name, node_id, four_eyes) do
+      Repo.insert!(
+        %ApprovalRuleSetting{
+          definition_name: definition_name,
+          node_id: node_id,
+          four_eyes: four_eyes,
+          changed_by: Ecto.UUID.generate(),
+          changed_at: DateTime.utc_now(),
+          reason: "t-1986 fixture"
+        },
+        prefix: schema
+      )
+    end
+
+    defp warn(defs, schema),
+      do: RoleBinding.single_member_warnings_for_definitions(defs, prefix: schema)
+
+    defp one_member_tenant!(slug) do
+      tenant = tenant!(slug)
+      role = unique("role-w")
+      _ = role_with_members!(tenant.schema_name, role, 1)
+      {tenant, role}
+    end
+
+    test "W1 OFF on the listing node silences the line; one counts read plus one settings read" do
+      {tenant, role} = one_member_tenant!("t1986-w1")
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+      put_setting!(tenant.schema_name, "d", "second-review", false)
+
+      assert {[], 2} = count_queries(fn -> warn(defs, tenant.schema_name) end)
+    end
+
+    test "W2 no row and a row four_eyes true keep the line" do
+      {tenant, role} = one_member_tenant!("t1986-w2")
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+
+      assert [_one] = warn(defs, tenant.schema_name)
+      put_setting!(tenant.schema_name, "d", "second-review", true)
+      assert [_one] = warn(defs, tenant.schema_name)
+    end
+
+    test "W3 OFF on the node that does not list the other keeps the line" do
+      {tenant, role} = one_member_tenant!("t1986-w3")
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+      put_setting!(tenant.schema_name, "d", "first-review", false)
+
+      assert [_one] = warn(defs, tenant.schema_name)
+    end
+
+    test "W4 a pair listed both ways needs both nodes OFF" do
+      {tenant, role} = one_member_tenant!("t1986-w4")
+      defs = [{"d", parsed!(loop_graph(role))}]
+      put_setting!(tenant.schema_name, "d", "loop-a", false)
+      assert [_one] = warn(defs, tenant.schema_name)
+
+      put_setting!(tenant.schema_name, "d", "loop-b", false)
+      assert [] = warn(defs, tenant.schema_name)
+    end
+
+    test "W5 another definition's, another step's and another tenant's OFF rows keep the line" do
+      {tenant, role} = one_member_tenant!("t1986-w5")
+      {other, _} = one_member_tenant!("t1986-w5b")
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+
+      put_setting!(tenant.schema_name, "other", "second-review", false)
+      put_setting!(tenant.schema_name, "d", "x", false)
+      put_setting!(other.schema_name, "d", "second-review", false)
+
+      assert [_one] = warn(defs, tenant.schema_name)
+    end
+
+    test "W6 an unreadable settings table keeps the line, logs once, and does not poison a transaction" do
+      {tenant, role} = one_member_tenant!("t1986-w6")
+      schema = tenant.schema_name
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+      put_setting!(schema, "d", "second-review", false)
+
+      Repo.query!(
+        ~s|ALTER TABLE "#{schema}".approval_rule_settings RENAME TO approval_rule_settings_x|
+      )
+
+      try do
+        log =
+          capture_log(fn ->
+            assert [_one] = warn(defs, schema)
+          end)
+
+        assert log =~ "four-eyes settings unreadable"
+        refute log =~ "second-review"
+
+        # inside an explicit transaction the read uses a savepoint: the next query still works
+        capture_log(fn ->
+          assert {:ok, :still_alive} =
+                   Repo.transaction(fn ->
+                     assert [_one] = warn(defs, schema)
+                     assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+                     :still_alive
+                   end)
+        end)
+      after
+        Repo.query!(
+          ~s|ALTER TABLE "#{schema}".approval_rule_settings_x RENAME TO approval_rule_settings|
+        )
+      end
+    end
+
+    test "W7 a two-member role gives no line and no settings read" do
+      tenant = tenant!("t1986-w7")
+      role = unique("role-w7")
+      _ = role_with_members!(tenant.schema_name, role, 2)
+      defs = [{"d", parsed!(seq_graph(role, role, %{}))}]
+      put_setting!(tenant.schema_name, "d", "second-review", false)
+
+      assert {[], 1} = count_queries(fn -> warn(defs, tenant.schema_name) end)
+    end
+
+    test "W8 the validate surface shows no warning for an OFF step" do
+      {tenant, role} = one_member_tenant!("t1986-w8")
+      definition = create!(tenant.schema_name, seq_graph(role, role, %{}))
+
+      assert lines(validate!(tenant.schema_name, definition).warnings) != []
+
+      put_setting!(tenant.schema_name, definition.name, "second-review", false)
+      result = validate!(tenant.schema_name, definition)
+      assert lines(result.warnings) == []
     end
   end
 end
