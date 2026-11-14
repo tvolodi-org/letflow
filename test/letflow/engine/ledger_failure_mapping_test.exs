@@ -195,7 +195,8 @@ defmodule Letflow.Engine.LedgerFailureMappingTest do
       log = capture_log([level: :info], fn -> assert complete(ctx).status == 409 end)
 
       refute log =~ marker
-      refute log =~ "37"
+      # log lines start with the wall-clock time, which can contain "37": strip it first
+      refute Letflow.LedgerFixture.strip_log_time(log) =~ "37"
       audits = refusal_audits(ctx.schema)
       assert [one] = audits
       refute one =~ marker

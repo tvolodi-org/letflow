@@ -30,6 +30,13 @@ defmodule Letflow.LedgerFixture do
     :ok
   end
 
+  @doc """
+  Captured log text without the leading wall-clock `HH:MM:SS.mmm` of each line, so a
+  `refute log =~ "37"` cannot match the time of day.
+  """
+  @spec strip_log_time(String.t()) :: String.t()
+  def strip_log_time(log), do: Regex.replace(~r/^\d{2}:\d{2}:\d{2}\.\d{3}/m, log, "")
+
   @doc "A committed tenant; returns its schema name. Dropped on exit."
   @spec tenant!() :: String.t()
   def tenant! do
