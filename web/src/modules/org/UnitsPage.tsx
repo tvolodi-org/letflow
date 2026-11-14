@@ -111,7 +111,11 @@ function UnitsInner() {
     )
     if (result === 'ok') {
       toast.success(t(isNew ? 'org.common.created' : 'org.common.saved'))
-      if (isNew) setPanel(null)
+      // T-1946: create selects the new record (its detail opens); edit keeps the same record selected
+      if (isNew) {
+        const id = write.lastId()
+        setPanel(id ? { kind: 'record', id } : null)
+      }
     }
     if (result === 'notFound') setPanel(null)
   }
@@ -214,6 +218,8 @@ function UnitsInner() {
       detail={detail}
       escapeCloses={retiring === null && moving === null}
       onClosePanel={() => openPanel(null)}
+      defaultSelectId={nodes[0]?.id ?? null}
+      onDefaultSelect={(id) => openPanel({ kind: 'record', id })}
       master={
         nodes.length === 0 ? (
           <OrgEmpty canWrite={canWrite} createLabel={createLabel} onCreate={() => openPanel({ kind: 'new', parent: '' })} />

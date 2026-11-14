@@ -45,6 +45,9 @@ export interface OrgScreenProps {
   /** Dialogs of the screen. */
   children?: ReactNode
   master: ReactNode
+  /** T-1946: first row of the list; ListDetail asks to open it the first time (wide host, nothing open). */
+  defaultSelectId?: string | null
+  onDefaultSelect?: (id: string) => void
 }
 
 /** The master column: skeleton while loading, a banner with Retry on a failed load, the content otherwise. */
@@ -116,6 +119,8 @@ export function OrgScreen(props: OrgScreenProps) {
       <ListDetail
         kind="tree"
         screen={props.screen}
+        defaultSelectId={props.defaultSelectId ?? null}
+        onDefaultSelect={props.onDefaultSelect}
         detailOpen={props.detail !== null}
         onClose={props.onClosePanel}
         escapeCloses={props.escapeCloses}
