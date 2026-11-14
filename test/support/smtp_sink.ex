@@ -15,7 +15,8 @@ defmodule Letflow.Test.SmtpSink do
     * `:accept` -- greet, EHLO (AUTH PLAIN LOGIN), AUTH, MAIL, RCPT, DATA, queue
     * `{:refuse_rcpt, text}` -- `550 <text> <rcpt>` at RCPT TO
     * `{:tempfail_rcpt, text}` -- `450 <text> <rcpt>` at RCPT TO
-    * `:refuse_connection` -- the listener is closed, the port number is kept
+    * `:refuse_connection` -- the port is bound but never listening: the OS refuses the
+      connection and no other process can take the port number
     * `:drop_after_greeting` -- `220`, then close
     * `{:starttls, :trusted | :untrusted}` -- advertise STARTTLS (AUTH only after the
       upgrade) with a certificate for `localhost`; `ca_der` in the returned map is the
@@ -44,7 +45,30 @@ defmodule Letflow.Test.SmtpSink do
           | :slow_drip
 
   @spec start(script()) :: {:ok, map()}
-  def start(script \\ :accept) do
+  def start(:refuse_connection) do
+    # T-1996: a listener that is merely closed frees its port number, and on a shared CI host
+    # another process (a parallel partition's sink, an outgoing ephemeral connection) can
+    # take it, so the "refused" connection hangs until the 10 s hard timeout (the flaky
+    # NotifierNoLeakTest case). Keep the port BOUND but never listening instead: the OS
+    # answers a connect with RST (ECONNREFUSED) and nobody else can bind it. The store agent
+    # owns the socket, so it is released when the sink's store ends.
+    {:ok, store} =
+      Agent.start_link(fn ->
+        {:ok, sock} = :socket.open(:inet, :stream)
+        :ok = :socket.bind(sock, %{family: :inet, addr: {127, 0, 0, 1}, port: 0})
+        {:ok, %{port: port}} = :socket.sockname(sock)
+        # held in the agent's process dictionary: the agent state stays the (empty)
+        # connection map every reader of the store expects
+        Process.put(:reserved_socket, sock)
+        Process.put(:reserved_port, port)
+        %{}
+      end)
+
+    port = Agent.get(store, fn _ -> Process.get(:reserved_port) end)
+    {:ok, %{port: port, pid: store, acceptor: nil, lsock: nil, ca_der: nil}}
+  end
+
+  def start(script) do
     {:ok, store} = Agent.start_link(fn -> %{} end)
     tls = tls_material(script)
 
@@ -61,13 +85,8 @@ defmodule Letflow.Test.SmtpSink do
     {:ok, port} = :inet.port(lsock)
     ca_der = tls && tls.ca_der
 
-    if script == :refuse_connection do
-      :gen_tcp.close(lsock)
-      {:ok, %{port: port, pid: store, acceptor: nil, lsock: nil, ca_der: nil}}
-    else
-      acceptor = spawn_link(fn -> accept_loop(lsock, script, tls, store, 1) end)
-      {:ok, %{port: port, pid: store, acceptor: acceptor, lsock: lsock, ca_der: ca_der}}
-    end
+    acceptor = spawn_link(fn -> accept_loop(lsock, script, tls, store, 1) end)
+    {:ok, %{port: port, pid: store, acceptor: acceptor, lsock: lsock, ca_der: ca_der}}
   end
 
   @doc "One record per message-bearing connection: `%{mail_from, rcpts, data}`."
