@@ -202,7 +202,8 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
       text = docx_text(docx)
       assert text =~ chair["full_name"] and text =~ "Кладовщик"
       # the count lines: counted and book quantity
-      assert text =~ "3.000000000"
+      refute text =~ ~r/\d\.\d{9}/
+      assert text =~ "3"
       # Inv-18: no invented sums; the account columns stay empty
       inv18 = form(id, "differences", "inv18", x.chair_tok, "&format=docx")
       assert docx_text(inv18) =~ "Итого"

@@ -254,7 +254,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/expire"},
       {"lib/letflow/routers/admin_v1.ex", "DELETE", "/tenants/:id"},
       # T-1948 (test CS2): the read-only problem-report export, behind `Letflow.Plugs.ReportExportAuth`
-      {"lib/letflow/routers/maintenance_v1.ex", "GET", "/problem-reports"}
+      {"lib/letflow/routers/maintenance_v1.ex", "GET", "/problem-reports"},
+      # T-1963 (test CS3): the owner-list import, behind the second credential class (`:owner_list`)
+      {"lib/letflow/routers/maintenance_owner_list_v1.ex", "POST", "/import"}
     ]
 
     defp scanned_files do
@@ -343,7 +345,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 7
+      assert length(@credential_allowlist) == 8
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
@@ -366,6 +368,22 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       router = File.read!("lib/letflow/router.ex")
       assert router =~ ~r/forward\(?\s*"\/maintenance\/v1"/
       refute File.read!("lib/letflow/plugs/api_pipeline.ex") =~ "MaintenanceV1"
+    end
+
+    test "CS3 the owner-list import sits behind the :owner_list credential, mounted above /maintenance/v1" do
+      source = File.read!("lib/letflow/routers/maintenance_owner_list_v1.ex")
+
+      {plug_at, _} =
+        :binary.match(source, "plug(Letflow.Plugs.ReportExportAuth, credential: :owner_list)")
+
+      {first_route, _} = ~r/^  (get|post) "/m |> Regex.run(source, return: :index) |> hd()
+      assert plug_at < first_route, "the credential plug must come before the first route"
+
+      router = File.read!("lib/letflow/router.ex")
+      {longer, _} = :binary.match(router, ~s|forward("/maintenance/v1/owner-list"|)
+      {shorter, _} = :binary.match(router, ~s|forward("/maintenance/v1",|)
+      assert longer < shorter, "the longer mount must be forwarded first"
+      refute File.read!("lib/letflow/plugs/api_pipeline.ex") =~ "OwnerListV1"
     end
   end
 
@@ -526,6 +544,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"GET", "/platform-problem-reports"},
     {"GET", "/platform-problem-reports/:id"},
     {"POST", "/platform-problem-reports/:id/decision"},
+    {"POST", "/platform-problem-reports/:id/comments"},
+    {"POST", "/platform-problem-reports/:id/state"},
+    {"GET", "/platform-problem-reports/:id/images/:image_id"},
     {"POST", "/tenants"},
     {"GET", "/tenants"},
     {"GET", "/tenants/:slug"},
@@ -564,13 +585,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 36 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 39 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 36
+      assert length(@platform_routes) == 39
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
