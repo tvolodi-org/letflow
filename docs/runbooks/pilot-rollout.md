@@ -27,6 +27,7 @@ Ordered steps. Each step is done once the one before it is done.
 3. Install the modules, in the order of the next subsection.
 4. Create the first users. Options: one by one on the Users screen, or the xlsx users import (`POST /identity/users/import`, permission `UsersManage`). Roles used by the pilot company are `TENANT_ADMIN` (the company administrator), `STOREKEEPER` (the storekeeper) and `TENANT_AUDITOR` (read-only). No user of the pilot company or of a dealer is given PLATFORM_ADMIN: platform authority belongs to the platform tenant only (`docs/roles.md`).
 5. Sign-in per company: pending the sign-in choice (task T-1359, held by the PM). Nothing is built for it here. Read `docs/runbooks/production-readiness.md`, section "Sign-in per company", and `docs/runbooks/pilot-first-month.md`, section "Interim sign-in path for created users".
+6. Four eyes, decided per company before its opening documents are issued: a company where one person both issues and approves needs the four-eyes rule of the opening approval switched off; otherwise it stays on (the default). The company administrator switches it, through the new tenant-wide permission of `docs/design/four-eyes-switch.md` (planned, not yet on main; working name `ApprovalRulesManage`), and gives a reason; afterwards check the audit log for one `approval_rule.changed` entry and, for each opening the same person approved, one entry with the note "self-approved, four-eyes off". Stock-only companies: see `docs/status/qoimeks-migration-readiness.md`, section 1.4.
 
 ### Module install order
 

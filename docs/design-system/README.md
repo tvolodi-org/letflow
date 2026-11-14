@@ -76,3 +76,9 @@ ratchet list is empty. The decision and the slice plan: [master-detail-verdict.m
 - [`page-header-actions.md`](page-header-actions.md): where the title, the primary actions and the filters sit on list and
   document screens, and the one "New" menu for many creation kinds (T-1953). The inventory is
   [`list-screen-layout-audit.md`](list-screen-layout-audit.md).
+
+## Owner review checklist
+
+Every finding the owner made in his reviews, each with the lesson added (a rule, a checklist line or a guard test),
+how a reviewer checks it at 1440 and 390 px, and the guard tests still missing. Every design gate and GUI review checks
+the whole list: [owner-review-checklist.md](owner-review-checklist.md) (D-145).
