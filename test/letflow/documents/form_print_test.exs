@@ -215,18 +215,22 @@ defmodule Letflow.Documents.FormPrintTest do
             "Транспортная организация",
             "Товарно-транспортная накладная (номер, дата)"
           ] do
-        assert {:field, ^label, ""} = List.keyfind(model, label, 1)
+        assert Enum.any?(model, fn
+                 {:boxed_pairs, cells} -> {label, ""} in cells
+                 _ -> false
+               end)
       end
 
       {:ok, docx} = FormPrint.build("z2", data(), "ru", :docx)
       {:ok, pdf} = FormPrint.build("z2", data(), "ru", :pdf)
-      assert docx_text(docx) =~ "Транспортная организация: ____________"
+      assert docx_text(docx) =~ "Транспортная организация"
       items = PdfProbe.items(pdf)
-      assert "Транспортная организация: ____________" in items
-      assert "Запасы получил: ____________ / ____________" in items
+      assert "Транспортная организация" in items
+      assert "Запасы получил" in items
+      assert "____________" in items
 
-      assert {:signature, "Запасы получил", ["", ""], _, nil} = List.last(model)
-      assert docx_text(docx) =~ "Запасы получил ____________ / ____________"
+      assert {:signature_table, "Запасы получил", ["", ""], _, nil} = List.last(model)
+      assert docx_text(docx) =~ "Запасы получил\n____________"
     end
 
     test "the total is the sum of the stored texts; an invalid text blanks it; no rows blanks it" do
