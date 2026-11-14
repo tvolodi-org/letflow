@@ -308,9 +308,13 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
 
       requests = fn ->
         Letflow.Api.Scope.ShadowEvidence.flush()
-        today = Date.utc_today()
 
-        Letflow.Api.Scope.ShadowEvidence.counts_between(fx.schema_name, today, today).requests
+        # whole-range read, not "today": crossing midnight UTC between the two reads cannot hide the delta
+        Letflow.Api.Scope.ShadowEvidence.counts_between(
+          fx.schema_name,
+          ~D[2000-01-01],
+          ~D[2999-12-31]
+        ).requests
       end
 
       # warm-up: the first request provisions the user
@@ -421,8 +425,13 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
 
       requests = fn ->
         Letflow.Api.Scope.ShadowEvidence.flush()
-        today = Date.utc_today()
-        Letflow.Api.Scope.ShadowEvidence.counts_between(fx.schema_name, today, today).requests
+
+        # whole-range read, not "today": crossing midnight UTC between the two reads cannot hide the delta
+        Letflow.Api.Scope.ShadowEvidence.counts_between(
+          fx.schema_name,
+          ~D[2000-01-01],
+          ~D[2999-12-31]
+        ).requests
       end
 
       _ = get(fx, "r546-sh-worker", "/api/v1/me/memberships")

@@ -246,8 +246,10 @@ defmodule Letflow.Ledger.TenancyTest do
       end)
 
     refute log =~ marker
-    refute log =~ "7.25"
-    refute log =~ "3.5"
+    # log lines start with the wall-clock time: strip it so "3.5" cannot match it
+    stripped = Fx.strip_log_time(log)
+    refute stripped =~ "7.25"
+    refute stripped =~ "3.5"
   end
 
   defp no_balance_leak(refusal) do

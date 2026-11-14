@@ -243,7 +243,8 @@ defmodule Letflow.Ledger.ReadTenancyTest do
 
     assert Enum.all?(results, &match?({:error, _}, &1))
     refute log =~ mk
-    refute log =~ "7.25"
+    # log lines start with the wall-clock time: strip it before looking for the number
+    refute Fx.strip_log_time(log) =~ "7.25"
     refute inspect(results) =~ mk
     refute inspect(results) =~ "7.25"
   end
