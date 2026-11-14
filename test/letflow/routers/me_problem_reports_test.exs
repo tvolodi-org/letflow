@@ -170,15 +170,16 @@ defmodule Letflow.Routers.MeProblemReportsTest do
     assert [_] = audits(p)
   end
 
-  test "X1 no route reads reports back: GET on the report path is not routed", %{a: a, b: b} do
+  test "M2 another company never reads the reporter’s rows", %{a: a, b: b} do
     {token_a, _} = caller!(a)
     {token_b, _} = caller!(b)
     resp = json(post(a, token_a, body()))
 
     get = :get |> Fixture.api_conn(@path, token_b, b.tenant.slug, nil) |> Fixture.dispatch_api()
 
-    # an unrouted method on an existing path is refused by the authz gate (403), never served
-    assert get.status in [403, 404, 405]
+    # The self-service read is filtered by tenant AND user.
+    assert get.status == 200
+    assert json(get) == %{"reports" => [], "has_more" => false}
     refute get.resp_body =~ resp["number"]
   end
 

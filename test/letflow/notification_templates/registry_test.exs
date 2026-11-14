@@ -9,9 +9,9 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
 
   @deny ~w(password token secret key api credential session sec)
 
-  test "R1 the four keys have the exact allow-lists" do
+  test "RG1 the seven keys have the exact allow-lists" do
     assert Registry.keys() ==
-             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result password_reset_hint task_assigned)
+             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result password_reset_hint problem_report_status task_assigned)
 
     for key <- ~w(exam_assigned exam_reminder),
         do:
@@ -27,6 +27,9 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
              ~w(asset_name asset_code expiry_date responsible_name tenant_name)
 
     assert Registry.placeholders("password_reset_hint") == ~w(user_name tenant_name)
+
+    assert Registry.placeholders("problem_report_status") ==
+             ~w(user_name report_number status_text reply_text tenant_name)
 
     assert Registry.fetch("other") == :error
     assert Registry.placeholders("other") == []

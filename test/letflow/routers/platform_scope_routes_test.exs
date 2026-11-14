@@ -32,6 +32,11 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
 
   # {router, method, declared local pattern, concrete local path, body, policy key}
   @routes [
+    {Letflow.Routers.PlatformProblemReports, :get, "/", "/", nil, :ProblemReportsManage},
+    {Letflow.Routers.PlatformProblemReports, :get, "/:id", "/" <> @unused_uuid, nil,
+     :ProblemReportsManage},
+    {Letflow.Routers.PlatformProblemReports, :post, "/:id/decision",
+     "/" <> @unused_uuid <> "/decision", %{}, :ProblemReportsManage},
     {Letflow.Routers.Tenants, :post, "/", "/", %{}, :TenantsManage},
     {Letflow.Routers.Tenants, :get, "/", "/", nil, :TenantsManage},
     {Letflow.Routers.Tenants, :get, "/:slug", "/no-such-slug", nil, :TenantsManage},
@@ -125,8 +130,8 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
   end
 
   describe "declared routes" do
-    test "the 30 snapshot rows declare the expected policy keys" do
-      assert length(@routes) == 30
+    test "the 33 snapshot rows declare the expected policy keys" do
+      assert length(@routes) == 33
 
       for {router, method, pattern, _path, _body, key} <- @routes do
         verb = method |> Atom.to_string() |> String.upcase()

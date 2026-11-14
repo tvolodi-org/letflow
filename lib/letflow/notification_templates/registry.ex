@@ -10,6 +10,12 @@ defmodule Letflow.NotificationTemplates.Registry do
   """
 
   @entries %{
+    "problem_report_status" => %{
+      placeholders: ~w(user_name report_number status_text reply_text tenant_name),
+      subject: "Your problem report {report_number}: {status_text}",
+      body:
+        "Hello {user_name}, your problem report {report_number} is now: {status_text}. {reply_text} {tenant_name}"
+    },
     "task_assigned" => %{
       placeholders: ~w(task_name process_name assignee_name due_date tenant_name),
       subject: "Task assigned: {task_name}",

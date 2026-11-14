@@ -146,6 +146,16 @@ defmodule Letflow.Notifications do
       :ok
   end
 
+  @doc "Whether a bell e-mail copy is enabled for this tenant and recipient; fails closed."
+  @spec email_copy_allowed?(String.t(), String.t(), String.t()) :: boolean()
+  def email_copy_allowed?(prefix, tenant_id, user_id) do
+    email_copy_enabled?(tenant_id) and not Letflow.UserPreferences.email_opt_out?(prefix, user_id)
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
   # Only a stored `true` enables; a missing tenant, nil settings or any other value is off.
   defp email_copy_enabled?(tenant_id) do
     case Repo.get(Tenant, tenant_id) do

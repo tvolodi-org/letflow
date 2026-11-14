@@ -103,6 +103,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.PublicReadHandles, "/public-read-handles", :post, "/", :route},
     {Letflow.Routers.Help, "/help", :post, "/resolved", :probe},
     {Letflow.Routers.PlatformMigrations, "/platform-migrations", :post, "/rollouts", :route},
+    {Letflow.Routers.PlatformProblemReports, "/platform-problem-reports", :get, "/", :route},
     {Letflow.Routers.PlatformModuleRollouts, "/platform-module-rollouts", :post, "/", :route},
     {Letflow.Routers.EventRetention, "/event-retention", :post, "/retirements", :route},
     {Letflow.Routers.PlatformStatus, "/platform-status", :get, "/backup", :route},
@@ -746,8 +747,9 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
       # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks; REQ-561: 36 with Letflow.Routers.ScheduledJobs; REQ-575: 37 with Letflow.Routers.NumberSequences.; REQ-570: 38 with Letflow.Routers.RecordTriggerBindings; REQ-590: 39 with Letflow.Routers.TenantLogo; REQ-584 part 2: 40 with Letflow.Routers.NotificationDeliveries; REQ-609: 41 with Letflow.Routers.EntityTypeExtensions; REQ-635: 42 with Letflow.Routers.EntityScopeDeclarations; T-1570: 43 with Letflow.Routers.TenantRoleGrants; RU-S6: 44 with Letflow.Routers.PlatformModuleRollouts; T-1607: 45 with Letflow.Routers.PlatformStatus; REQ-824: 46 with Letflow.Routers.Currencies.
+      # T-1949: 48 with Letflow.Routers.PlatformProblemReports.
       # T-1955: 47 with Letflow.Routers.DataExport.
-      assert length(named) == 47
+      assert length(named) == 48
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
