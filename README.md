@@ -145,6 +145,12 @@ of the Stage 3 engine build-out.
 
 ## Running it
 
+The Data export backend supports tenant-authorized exports of stock balances,
+stock movements and asset balances as xlsx, CSV or JSON, with capped rows and
+audited downloads. This first slice requires explicit machine-id mode; readable
+mode and the dedicated screen are follow-ups. See [Data export](docs/design/data-export.md)
+for the API, limits and remaining slices.
+
 ```
 docker compose up -d
 mix deps.get

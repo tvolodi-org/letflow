@@ -24,7 +24,7 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   @golden "priv/permission_matrix/effective.golden"
 
   test "W1 fourth-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-5) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-6) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
