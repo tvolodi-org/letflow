@@ -35,8 +35,11 @@ The answer, in short:
 5. **The audit sentence "official forms cannot be changed by a tenant" changes** once the slices land to: "a tenant
    may change the presentation of an official form through its own template; it cannot change or remove the legal
    skeleton." Until then the sentence stays true.
-6. **One open conflict:** decision 0068 D2 rejected uploaded files as templates. This design keeps 0068 for the generic
-   renderer and needs a **new decision record** for official forms before any code (slice S0).
+6. **One open conflict:** decision 0068 D2 rejected both a substitution-marker language (its option (b), the "template
+   injection" threat T10 of decision 0056) and uploaded files (its option (c)) as templates. Option A below is both: an
+   uploaded docx with `{{name}}` markers. This design keeps 0068 for the generic renderer and needs a **new decision
+   record** for official forms before any code (slice S0); that record states its difference to both rejected options
+   of 0068 D2 and addresses 0056 T10.
 
 ## Options table
 
@@ -106,12 +109,32 @@ Every refusal names a rule code and a place (paragraph or table cell index), nev
   this design changes 0068 for the generic renderer.
 * **Official form templates are a new, separate kind**, shown as a second section "Official forms" under the same
   admin menu entry (G: one place for "how our papers look"), with its own permission (section 4.6).
-* **Conflict to settle first:** 0068 D2 rejected option (c), "an uploaded file (PDF, DOCX or similar)", because it
-  "may carry active content", "cannot be checked against the projection" and "is a finished form with no field
-  substitution". This design answers each reason (sanitizer and re-written package, placeholder check against the
-  form's closed key list, placeholders as substitution) but it is still a different choice for a different object, so
-  it goes into a **new decision record** (slice S0), scoped to official forms, with SECURITY-REVIEWER sign-off. 0068
-  is not edited; 0068 is itself still PROPOSED (its status line, V).
+* **Conflict to settle first.** 0068 D2 ("Reasons", V) rejected two options, and option A of this design is both of them:
+  an uploaded docx (option (c)) filled through `{{name}}` substitution markers (option (b)).
+  - **Rejected (b)**, quoted: "a substitution-marker language is an expression surface, the 'template injection' threat
+    0056 T10 names; it needs its own escaping and sandbox and gives no static proof that only projected fields are
+    used." (0056 T10, `docs/migration/decisions/0056-versioned-documents.md`, threat list: "Template injection: module
+    template output from untrusted field values (PDF text only; no active content).") Answer, reason by reason:
+    1. *Expression surface:* the markers are bare names only, with no expressions, filters, conditions or loops
+       (section 4.2); the one repetition is the table repeat row, fixed by rule 4 of section 1.3, not by template
+       syntax. Nothing in a marker is evaluated.
+    2. *Own escaping and sandbox:* no new escaping is invented; every value goes in as a plain text run through the
+       existing `Docx.escape/1` and `FormPrint.clean/1` rules (section 4.2), the same path the platform docx uses
+       today, so a field value cannot open a new XML element, field code or relationship. No sandbox is needed
+       because nothing runs.
+    3. *No static proof that only projected fields are used:* the proof is the upload check, rule 3 of section 1.3:
+       a template holding any name outside the form's closed key list (appendix B plus the `legal.*`, `sig.*`,
+       `tenant.logo` sets) is refused before it is stored, and the key list is the data map the form mapper already
+       builds.
+  - **Rejected (c)**, quoted: "an uploaded file is an opaque artefact that may carry active content (PDF JavaScript,
+    macros), needs a scanner, cannot be checked against the projection, and is a finished form with no field
+    substitution rather than a template." Answer: active content and the scanner are the sanitizer, which re-writes
+    the package from an allow-list of parts (section 4.4); the projection check is rules 1 to 5 of section 1.3; the
+    markers are the field substitution.
+  - These answers make the choice defensible, but it is still a different choice for a different object, so it goes
+    into a **new decision record** (slice S0), scoped to official forms, with SECURITY-REVIEWER sign-off. That record
+    states its difference to **both** rejected options of 0068 D2 and addresses 0056 T10. 0068 is not edited; 0068 is
+    itself still PROPOSED (its status line, V).
 * **Open base versus closed extra.** The closed-candidate list (`docs/design/open-core-closed-candidates.md`, row 4,
   V) names a "Print template designer: a visual designer ... on top of today's layout format", where the open build
   keeps "per-tenant print-template overrides ... the JSON layout editor with live preview". Applied to official forms:
@@ -199,7 +222,7 @@ package from the allowed parts and that package is what is stored and later fill
 * **Rollback** writes a new version row whose bytes are a copy of the chosen earlier version (same sha256,
   `rollback_of` set) and activates it; history stays monotone.
 * **Printing:** official forms are rendered on demand from the issued document (the stock router calls
-  `FormPrint.build/5` (called with four arguments) per request, V, `lib/letflow/modules/stock/router.ex`), not stored. So a print uses the template
+  `FormPrint.build/4` (the default-opts form of `build/5`) per request, V, `lib/letflow/modules/stock/router.ex`), not stored. So a print uses the template
   active **at print time**, as a release changes the layout today. The activation audit trail shows which version was
   active when.
 * **Invalid at print** (a later release added a placeholder the form needs): fail closed with a plain message
@@ -254,7 +277,7 @@ Each is one change; SECURITY-REVIEWER on S0, S1, S3, S4 (untrusted file input, t
 
 | # | Slice | Contents | Effort (G) | After |
 |---|---|---|---|---|
-| S0 | Decision record | official-form templates: skeleton and skin, locked placeholders, sanitizer rules, storage, PDF stays platform; amends nothing in 0068, states the difference to 0068 D2 | S | none |
+| S0 | Decision record | official-form templates: skeleton and skin, locked placeholders, sanitizer rules, storage, PDF stays platform; amends nothing in 0068, states the difference to both rejected options (b) and (c) of 0068 D2 and addresses 0056 T10 (template injection) | S | none |
 | S1 | Sanitizer and legal-fields check (pure) | parse once, allow-list, caps, run joining, placeholder scan, rules 1.3, structure summary; tests on synthetic docx (macro part, external link, split placeholder, missing column, unknown name, zip bomb) | M | S0 |
 | S2 | Starter templates and filler (pure) | starter docx per form from the layout; fill = legal texts from the catalog, values, repeat rows, totals, kk draft notice appended | M | S1 |
 | S3 | Print integration | `FormPrint.build` uses the active company template for docx when present, fails closed when invalid; PDF unchanged | S | S2, S4 |
