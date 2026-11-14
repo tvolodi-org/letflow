@@ -38,6 +38,7 @@ export const officialFormsScreens: HarnessScreen[] = [
   { name: 'docs-z2-menu-open', routes: [], render: () => shell(<OfficialFormMenu forms={['z2']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'docs-z2-menu-right', routes: [], render: () => headed('Issue note', <OfficialFormMenu forms={['z2']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'docs-z5-menu-right', routes: [], render: () => headed('Transfer', <OfficialFormMenu forms={['z5']} busyKey={null} onPick={noop} initialOpen />) },
+  { name: 'docs-z6-menu-right', routes: [], render: () => headed('Write off', <OfficialFormMenu forms={['z6']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'docs-z1-menu-right', routes: [], render: () => headed('Receipt', <OfficialFormMenu forms={['z1']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'balances-z3-hint', routes: [], render: () => headed('Balances', <><OfficialFormMenu forms={['z3']} disabledForms={{ z3: 'stock.balances.cardHint' }} busyKey={null} onPick={noop} initialOpen /></>) },
   { name: 'balances-z3-ready', routes: [], render: () => headed('Balances', <OfficialFormMenu forms={['z3']} busyKey={null} onPick={noop} initialOpen />) },

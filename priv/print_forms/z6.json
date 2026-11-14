@@ -1,0 +1,65 @@
+{
+  "form_layout_version": 1,
+  "form": "z6",
+  "annex": 30,
+  "blocks": [
+    {"type": "text", "label": "z6.annex"},
+    {"type": "text", "label": "z6.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "signature", "label": "z6.approve", "key": "approver", "parts": ["signature", "name"]},
+    {"type": "text", "label": "z6.approve_date"},
+    {"type": "title", "label": "z6.title"},
+    {"type": "field", "label": "z6.number", "key": "number"},
+    {"type": "field", "label": "z2.date", "key": "date"},
+    {"type": "field", "label": "z6.unit", "key": "unit"},
+    {"type": "field", "label": "z5.basis", "key": "basis"},
+    {"type": "field", "label": "z6.responsible", "key": "responsible"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "totals": {"label": "z2.total", "sum": ["qty"], "mark": ["price"]},
+      "columns": [
+        {"key": "no", "label": "z2.c1"},
+        {"key": "name", "label": "z6.c2"},
+        {"key": "nom", "label": "z2.c3"},
+        {"key": "acquired", "label": "z6.c4"},
+        {"key": "life", "label": "z6.c5"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty", "label": "z6.c7"},
+        {"key": "price", "label": "z2.c7"},
+        {"key": "sum", "label": "z5.c8"},
+        {"key": "reason", "label": "z6.c10"}
+      ]
+    },
+    {"type": "text", "label": "z6.back"},
+    {"type": "field", "label": "z6.guilty_qty", "key": "guilty_qty"},
+    {"type": "field", "label": "z6.guilty_damage", "key": "guilty_damage"},
+    {"type": "field", "label": "z6.guilty_shortage", "key": "guilty_shortage"},
+    {"type": "field", "label": "z6.org_sum", "key": "org_sum"},
+    {"type": "field", "label": "z6.org_damage", "key": "org_damage"},
+    {"type": "field", "label": "z6.org_shortage", "key": "org_shortage"},
+    {"type": "field", "label": "z6.decision", "key": "decision"},
+    {"type": "text", "label": "z6.scrap_intro"},
+    {
+      "type": "table",
+      "rows": "scrap",
+      "totals": {"label": "z2.total", "mark": ["s_price"]},
+      "columns": [
+        {"key": "s_no", "label": "z2.c1"},
+        {"key": "s_name", "label": "z6.s2", "group": "z6.scrap"},
+        {"key": "s_nom", "label": "z6.s3", "group": "z6.scrap"},
+        {"key": "s_unit", "label": "z2.c4"},
+        {"key": "s_qty", "label": "z2.qty"},
+        {"key": "s_price", "label": "z2.c7"},
+        {"key": "s_sum", "label": "z5.c8"},
+        {"key": "s_order", "label": "z6.s8"}
+      ]
+    },
+    {"type": "field", "label": "z6.scrap_sum", "key": "scrap_sum"},
+    {"type": "signature", "label": "inv10.chair", "key": "chair", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "inv10.members", "key": "member1", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "inv10.members", "key": "member2", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z6.mol", "key": "mol", "parts": ["position", "signature", "name"]}
+  ]
+}

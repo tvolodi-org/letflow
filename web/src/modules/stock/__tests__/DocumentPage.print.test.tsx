@@ -140,6 +140,6 @@ describe('D5 model and catalogs', () => {
 it.each(DOC_KINDS.flatMap(kind => DOC_STATES.map(state => [kind, state])))('D6 %s %s print policy', (kind, state) => {
   const active = ['issued', 'posted', 'reversed'].includes(state)
   expect(documentPrintable({ kind, state })).toBe(kind !== 'opening' && active)
-  const form = ({ receipt: 'z1', issue: 'z2', transfer: 'z5' } as Record<string, string>)[kind]
+  const form = ({ receipt: 'z1', issue: 'z2', transfer: 'z5', write_off: 'z6' } as Record<string, string>)[kind]
   expect(formsForDocument({ kind, state })).toEqual(active && form ? [form] : [])
 })
