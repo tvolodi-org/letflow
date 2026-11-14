@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "da1",
   "annex": 16,
+  "page": {"orientation": "portrait", "margins_mm": [20, 15, 20, 22.5], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "da1.annex"},
     {"type": "text", "label": "da1.form_code"},
@@ -23,7 +24,7 @@
         {"key": "mol", "label": "da1.c4"},
         {"key": "name", "label": "da1.c5"},
         {"key": "acquired", "label": "da1.c6"},
-        {"key": "cost", "label": "da1.c7"}
+        {"key": "cost", "label": "da1.c7", "decimals": 2}
       ]
     },
     {"type": "text", "label": "da1.page2"},

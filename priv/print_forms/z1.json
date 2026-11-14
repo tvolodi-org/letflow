@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "z1",
   "annex": 25,
+  "page": {"orientation": "portrait", "margins_mm": [25, 15, 25, 25], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "z1.annex"},
     {"type": "text", "label": "z1.form_code"},
@@ -28,8 +29,8 @@
         {"key": "mass_doc", "label": "z1.mass", "group": "z1.by_doc"},
         {"key": "qty", "label": "z1.qty", "group": "z1.accepted"},
         {"key": "mass", "label": "z1.mass", "group": "z1.accepted"},
-        {"key": "price", "label": "z1.c8"},
-        {"key": "sum", "label": "z5.c8"},
+        {"key": "price", "label": "z1.c8", "decimals": 2},
+        {"key": "sum", "label": "z5.c8", "decimals": 2},
         {"key": "passport", "label": "z1.c10"},
         {"key": "card_no", "label": "z1.c11"}
       ]

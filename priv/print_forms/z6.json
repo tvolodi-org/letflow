@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "z6",
   "annex": 30,
+  "page": {"orientation": "portrait", "margins_mm": [25, 15, 25, 25], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "z6.annex"},
     {"type": "text", "label": "z6.form_code"},
@@ -27,8 +28,8 @@
         {"key": "life", "label": "z6.c5"},
         {"key": "unit", "label": "z2.c4"},
         {"key": "qty", "label": "z6.c7"},
-        {"key": "price", "label": "z2.c7"},
-        {"key": "sum", "label": "z5.c8"},
+        {"key": "price", "label": "z2.c7", "decimals": 2},
+        {"key": "sum", "label": "z5.c8", "decimals": 2},
         {"key": "reason", "label": "z6.c10"}
       ]
     },
@@ -51,8 +52,8 @@
         {"key": "s_nom", "label": "z6.s3", "group": "z6.scrap"},
         {"key": "s_unit", "label": "z2.c4"},
         {"key": "s_qty", "label": "z2.qty"},
-        {"key": "s_price", "label": "z2.c7"},
-        {"key": "s_sum", "label": "z5.c8"},
+        {"key": "s_price", "label": "z2.c7", "decimals": 2},
+        {"key": "s_sum", "label": "z5.c8", "decimals": 2},
         {"key": "s_order", "label": "z6.s8"}
       ]
     },
