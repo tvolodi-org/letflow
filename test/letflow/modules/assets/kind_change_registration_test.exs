@@ -29,7 +29,7 @@ defmodule Letflow.Modules.Assets.KindChangeRegistrationTest do
   test "R1 manifest: version, dependencies, both types managed and scoped by org_unit_id" do
     m = Assets.manifest()
     assert Version.compare(m.version, "0.7.0") == :gt
-    assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
+    assert m.depends_on == ["catalog_items", "codes", "locations", "org", "stock"]
 
     for type <- ["assets_kind_change", "assets_kind_change_line"] do
       assert type in m.manages_entity_types
