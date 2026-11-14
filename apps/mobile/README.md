@@ -338,7 +338,7 @@ app is installed to the home screen, no background sync.
 - **7-day warning**: in a browser tab (not installed to the home screen) the draft list shows that the
   browser may delete saved data after 7 days without use; the app also asks the browser for persistent
   storage (`navigator.storage.persist()`, best effort).
-- **Install hint**: on iPhone/iPad Safari and Android browsers the draft list shows once, in ru/kk/en, how to add the app to the home screen (static text, no `beforeinstallprompt`). "Got it" stores a flag in its own IndexedDB file (`letflow_install_hint`) that sign-out does not clear.
+- **Install hint**: the PWA home screen (not the document list) shows once, in ru/kk/en, how to add the app to the home screen (iPhone Safari, Android; static text, no `beforeinstallprompt`). "I have read it" stores a flag in its own IndexedDB file (`letflow_install_hint`) that sign-out does not clear; a one-line "Install on your phone" entry stays on the home screen and opens the how-to again. The web SPA tenant dashboard has the same card (flag in localStorage, per user).
 
 ### Scanner and voice on Safari (M4)
 

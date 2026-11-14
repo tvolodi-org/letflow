@@ -79,10 +79,9 @@ test('G2 S2 receipt issue claim complete', async () => {
   await row.getByLabel('Unit price').fill('100')
   await saveDocument(page)
   state.receiptUrl = page.url()
-  state.receiptNumber = await headerNumber(page)
   await issueDocument(page)
-
-  expect(state.receiptNumber, 'the receipt number is needed to find its own task').not.toBe('')
+  // a draft has no number: it is allocated at Issue (T-1964)
+  state.receiptNumber = await headerNumber(page)
   await claimAndComplete(page, state.receiptNumber)
   // Posting follows the task completion: reload the receipt until its header shows the posting.
   await expect(async () => {
@@ -145,8 +144,8 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
   await saveDocument(page)
   state.openingUrl = page.url()
-  const number = await headerNumber(page)
   await issueDocument(page)
+  const number = await headerNumber(page)
 
   // G3b: the issuer may not approve their own document
   await openRoute(page, '/tasks')
