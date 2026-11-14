@@ -1556,6 +1556,42 @@ defmodule Letflow.Routers.InstancesTest do
       assert item["actor_display_name"] == "Ada Lovelace"
     end
 
+    test "T-1968: history items carry actor_label: the display name, nil for an unknown actor" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1968-label")
+      {instance_id, _def} = start_instance!(tenant.schema_name)
+      named = create_named_user!(tenant.schema_name, "Saule Zhumabek")
+
+      for {u, seq} <- [{named.id, 20}, {Ecto.UUID.generate(), 22}] do
+        insert_raw_event!(tenant.schema_name, %{
+          instance_id: instance_id,
+          event_type: "TASK_COMPLETED",
+          payload: %{"task_id" => "t-#{seq}", "node_id" => "n"},
+          actor_id: u,
+          sequence_number: seq
+        })
+      end
+
+      conn =
+        build_conn("GET", "/#{instance_id}/history?page_size=50", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      items = Jason.decode!(conn.resp_body)["items"]
+
+      label = fn id ->
+        items |> Enum.find(&(&1["actor_id"] == id)) |> Map.fetch!("actor_label")
+      end
+
+      assert label.(named.id) == "Saule Zhumabek"
+
+      refute Enum.any?(
+               items,
+               &(&1["actor_id"] not in [nil, named.id] and &1["actor_label"] != nil)
+             )
+    end
+
     test "AC2 level 2: no actor id, metadata token_description resolves to that" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req200-ac2-l2")
       {instance_id, _def} = start_instance!(tenant.schema_name)

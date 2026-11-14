@@ -1101,13 +1101,16 @@ defmodule Letflow.Routers.Instances do
         with_hidden_labels(conn, fn hidden ->
           result = Instances.history(id, params, opts)
 
-          names =
+          {names, labels} =
             case result do
-              {:ok, %{items: items}} -> Instances.actor_display_names(items, opts)
-              _error -> %{}
+              {:ok, %{items: items}} ->
+                {Instances.actor_display_names(items, opts), Instances.actor_labels(items, opts)}
+
+              _error ->
+                {%{}, %{}}
             end
 
-          render_page_result(result, conn, &history_item_map(&1, names, hidden))
+          render_page_result(result, conn, &history_item_map(&1, names, labels, hidden))
         end)
       end)
     else
@@ -1127,11 +1130,12 @@ defmodule Letflow.Routers.Instances do
 
   # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/3`, never
   # emitted verbatim, so engine-written `_sys` values and record ids cannot reach a client.
-  defp history_item_map(event, display_names, hidden) do
+  defp history_item_map(event, display_names, labels, hidden) do
     %{
       "event_id" => event.event_id,
       "actor_id" => event.actor_id,
       "actor_display_name" => Map.get(display_names, event.actor_id),
+      "actor_label" => Map.get(labels, event.actor_id),
       "event_type" => event.event_type,
       "sequence_number" => event.sequence_number,
       "created_at" => DateTime.to_iso8601(event.created_at),
