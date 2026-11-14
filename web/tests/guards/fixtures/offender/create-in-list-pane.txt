@@ -1,0 +1,3 @@
+<section className="lf-card lf-doc__list">
+  <Button icon={<Plus className="lf-icon" aria-hidden="true" />}>New document</Button>
+</section>

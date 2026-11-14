@@ -87,6 +87,7 @@ import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
 import { currenciesScreens } from './fixtures/currencies'
+import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -371,5 +372,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
     ...listDetailSlice6Screens,
     ...listDetailSlice7Screens,
+    ...pageHeaderNewMenuScreens,
   ].map(s => [s.name, s]),
 )

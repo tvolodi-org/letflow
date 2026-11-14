@@ -212,6 +212,8 @@ saved sizes survive slice 1.
 
 ### 4.4 Registration in the design system
 
+Placement of the create action and the filters on these screens: `page-header-actions.md` (T-1953).
+
 The catalog is in the sibling repo; this task does not edit it. Proposed text for
 `~/dev/ai-dala/letflow-design/platform/NOTES.md`; the operator gives it to the design repo's owner:
 

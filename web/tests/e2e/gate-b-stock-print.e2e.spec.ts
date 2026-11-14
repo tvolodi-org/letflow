@@ -59,7 +59,8 @@ async function cancelDocument(number: string) {
 }
 async function createDocument(kind: string) {
   await openRoute(page, '/admin/stock/documents')
-  await page.getByRole('button', { name: 'New document', exact: true }).first().click()
+  await page.getByTestId('document-new').click()
+  await page.getByRole('menuitem', { name: kind, exact: true }).click()
   const form = page.getByTestId('document-form')
   await choose(form.getByLabel('Kind'), kind)
   if (['Receipt', 'Issue', 'Write off'].includes(kind)) {

@@ -102,12 +102,28 @@ describe('C2-d names', () => {
   })
 })
 
+describe('NM-S1 header New menu', () => {
+  it('lists the seven kinds in the header, none in the list pane, and the chosen kind opens its form', async () => {
+    clientMock.get.mockResolvedValue({ next_cursor: null, rows: [ROW] })
+    renderStock(LIST, withPost)
+    await screen.findAllByTestId('document-row')
+    expect(within(screen.getByTestId('document-list')).queryByRole('button', { name: /New document/ })).toBeNull()
+    fireEvent.click(within(screen.getByTestId('page-header-actions')).getByTestId('document-new'))
+    const items = within(screen.getByRole('menu', { name: 'New document' })).getAllByRole('menuitem')
+    expect(items).toHaveLength(7)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Transfer' }))
+    const form = await screen.findByTestId('document-form')
+    await waitFor(() => expect(within(form).getByLabelText('Kind')).toHaveValue('transfer'))
+  })
+})
+
 describe('C2-e states', () => {
   it('empty state, error with retry, not found, and the New button by atom', async () => {
     clientMock.get.mockResolvedValue({ next_cursor: null, rows: [] })
     renderStock(LIST, withPost)
     expect(await screen.findByText('No stock documents found.')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'New document' }).length).toBeGreaterThan(0)
+    expect(within(screen.getByTestId('page-header-actions')).getByTestId('document-new')).toBeInTheDocument()
     cleanup()
     renderStock(LIST, withAtom)
     await screen.findByText('No stock documents found.')

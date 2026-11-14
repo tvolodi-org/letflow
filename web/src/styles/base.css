@@ -327,3 +327,9 @@ samp {
 .lf-reg__details [data-testid="module-rollouts-outcomes"] { overflow-x: auto; max-width: 100%; scrollbar-color: var(--ink-muted) transparent; }
 .lf-reg__details .lf-detail-head { flex-wrap: wrap; min-width: 0; }
 .lf-reg__details .lf-detail-head__title { min-width: 0; }
+
+/* T-1953: the header's New menu takes the full width of the phone header, like the other header actions. */
+@media (max-width: 640px) {
+  .lf-pagehead__actions .lf-newmenu { flex: 1 1 auto; }
+  .lf-pagehead__actions .lf-newmenu > .lf-btn { width: 100%; justify-content: center; }
+}

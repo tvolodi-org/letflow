@@ -1,4 +1,4 @@
-/** DocumentList — T-1379 (GATE B rework R2). The list pane of the stock document workspace (`lf-doc__list`): filters
+/** DocumentList — T-1379 (GATE B rework R2). The list pane of the stock document workspace: filters
  *  kind, state and org unit, one button per document (number, state, kind, date, org unit), Load more, and the
  *  loading, empty and error states. The selected document is marked `aria-current`; a click opens it in the panel
  *  beside the list, which stays mounted. Times in the tenant time zone. */
@@ -6,7 +6,6 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
@@ -92,11 +91,6 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
           {Object.keys(params).length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setFilters(EMPTY)}>
               {t('stock.common.clear')}
-            </Button>
-          )}
-          {canPost && (
-            <Button variant="secondary" size="sm" icon={<Plus className="lf-icon" aria-hidden="true" />} onClick={newDoc}>
-              {t('stock.doc.new')}
             </Button>
           )}
         </div>
