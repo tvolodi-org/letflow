@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** W1–W8, U2 — T-1880 / D-135: the Actions menu and the Operations buttons of an asset card, the pre-filled document
+/** W1–W8, U2 — T-1880 / D-135: the Actions menu of an asset card (T-1954: the Operations row is gone), the pre-filled document
  *  form, Back to card and the `?card=` deep link (network mocked). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -70,39 +70,47 @@ const lineHas = async (number: string) => {
   return row
 }
 const item = (id: string) => screen.getByTestId(`card-action-${id}`)
-const op = (id: string) => screen.getByTestId(`card-op-${id}`)
+// the header Actions menu of the open card panel (T-1954: no Operations row any more)
+const openPanelMenu = async (cardId: string) => {
+  fireEvent.click(await screen.findByTestId(`card-actions-panel-${cardId}`))
+  await screen.findByRole('menu')
+}
 
-describe('W2 W5 card panel: Operations buttons and the header menu', () => {
+describe('W2 W5 card panel: header Actions menu', () => {
   it('a card in the register: Commission disabled with its reason, the other three open the form', async () => {
     renderAssets(CARDS, FULL)
     fireEvent.click(await screen.findByText('FA-1'))
-    const section = await screen.findByTestId('asset-operations')
-    await waitFor(() => expect(op('change')).toBeEnabled())
-    expect(within(section).getAllByRole('button')).toHaveLength(4)
-    expect(op('commission')).toBeDisabled()
-    expect(op('commission')).toHaveAttribute('title', en['assets.cardActions.reason.held'])
-    expect(screen.getByTestId('card-op-reason-commission')).toHaveTextContent(en['assets.cardActions.reason.held'])
-    expect(op('handover')).toBeEnabled()
-    expect(op('writeoff')).toBeEnabled()
-    expect(screen.getByTestId('card-actions-panel-c-1')).toBeInTheDocument()
+    await openPanelMenu('c-1')
+    await waitFor(() => expect(item('change')).not.toHaveAttribute('aria-disabled'))
+    expect(screen.getAllByRole('menuitem')).toHaveLength(4)
+    expect(item('commission')).toHaveAttribute('aria-disabled', 'true')
+    expect(item('commission')).toHaveAttribute('title', en['assets.cardActions.reason.held'])
+    expect(item('commission')).toHaveTextContent(en['assets.cardActions.reason.held'])
+    expect(item('handover')).not.toHaveAttribute('aria-disabled')
+    expect(item('writeoff')).not.toHaveAttribute('aria-disabled')
   })
 
   it('table: never commissioned, issued-not-posted and retired cards', async () => {
     renderAssets(CARDS, FULL)
     fireEvent.click(await screen.findByText('FA-3'))
-    await waitFor(() => expect(op('commission')).toBeEnabled())
-    expect(op('change')).toBeDisabled()
-    expect(op('change')).toHaveAttribute('title', en['assets.cardActions.reason.notInRegister'])
+    await openPanelMenu('c-3')
+    await waitFor(() => expect(item('commission')).not.toHaveAttribute('aria-disabled'))
+    expect(item('change')).toHaveAttribute('aria-disabled', 'true')
+    expect(item('change')).toHaveAttribute('title', en['assets.cardActions.reason.notInRegister'])
+    fireEvent.keyDown(item('change'), { key: 'Escape' })
     fireEvent.click(screen.getByText('FA-2'))
-    await waitFor(() => expect(op('change')).toHaveAttribute('title', en['assets.cardActions.reason.pendingPosting']))
-    expect(op('commission')).toBeDisabled()
+    await openPanelMenu('c-2')
+    await waitFor(() => expect(item('change')).toHaveAttribute('title', en['assets.cardActions.reason.pendingPosting']))
+    expect(item('commission')).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.keyDown(item('change'), { key: 'Escape' })
     fireEvent.click(screen.getByRole('checkbox', { name: en['assets.common.showRetired'] }))
     fireEvent.click(await screen.findByText('FA-8'))
-    await waitFor(() => expect(op('writeoff')).toHaveAttribute('title', en['assets.cardActions.reason.retired']))
-    for (const id of ['commission', 'change', 'handover', 'writeoff']) expect(op(id)).toBeDisabled()
+    await openPanelMenu('c-8')
+    await waitFor(() => expect(item('writeoff')).toHaveAttribute('title', en['assets.cardActions.reason.retired']))
+    for (const id of ['commission', 'change', 'handover', 'writeoff']) expect(item(id)).toHaveAttribute('aria-disabled', 'true')
   })
 
-  it('W4 each of the four buttons opens its document form with the card as the line', async () => {
+  it('W4 each of the four items openss its document form with the card as the line', async () => {
     for (const [id, card, kindText] of [
       ['commission', 'FA-3', 'Commission'],
       ['change', 'FA-1', 'Change'],
@@ -111,8 +119,9 @@ describe('W2 W5 card panel: Operations buttons and the header menu', () => {
     ] as const) {
       renderAssets(CARDS, FULL)
       fireEvent.click(await screen.findByText(card))
-      await waitFor(() => expect(op(id)).toBeEnabled())
-      fireEvent.click(op(id))
+      await openPanelMenu(card === 'FA-3' ? 'c-3' : 'c-1')
+      await waitFor(() => expect(item(id)).not.toHaveAttribute('aria-disabled'))
+      fireEvent.click(item(id))
       const form = await screen.findByTestId('document-form')
       expect(within(form).getByLabelText(/^Kind/)).toHaveDisplayValue(new RegExp(kindText, 'i'))
       await lineHas(card)
@@ -171,7 +180,7 @@ describe('U2 permissions', () => {
     renderAssets(CARDS, NO_POST)
     fireEvent.click(await screen.findByText('FA-1'))
     await screen.findByTestId('asset-holder')
-    expect(screen.queryByTestId('asset-operations')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('card-actions-panel-c-1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('card-actions-c-1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('asset-kind-change')).not.toBeInTheDocument()
   })
@@ -179,15 +188,15 @@ describe('U2 permissions', () => {
   it('without AssetsRead every action is disabled with the no-read reason and no read is made', async () => {
     renderAssets(CARDS, NO_READ)
     fireEvent.click(await screen.findByText('FA-1'))
-    const section = await screen.findByTestId('asset-operations')
-    for (const id of ['commission', 'change', 'handover', 'writeoff']) expect(within(section).getByTestId(`card-op-${id}`)).toBeDisabled()
-    expect(op('change')).toHaveAttribute('title', en['assets.cardActions.reason.noRead'])
+    await openPanelMenu('c-1')
+    for (const id of ['commission', 'change', 'handover', 'writeoff']) expect(item(id)).toHaveAttribute('aria-disabled', 'true')
+    expect(item('change')).toHaveAttribute('title', en['assets.cardActions.reason.noRead'])
     expect(reads('/lock')).toHaveLength(0)
   })
 
   it('the new sources name no role', () => {
     const dir = path.resolve(__dirname, '..')
-    const files = ['cardActions.ts', 'cardPrefill.ts', 'AssetCardActionsMenu.tsx', 'AssetCardOperations.tsx', 'documents/DocumentFromCards.tsx']
+    const files = ['cardActions.ts', 'cardPrefill.ts', 'AssetCardActionsMenu.tsx', 'documents/DocumentFromCards.tsx']
     expect(readdirSync(dir)).toContain('cardActions.ts')
     for (const f of files) expect(readFileSync(path.join(dir, f), 'utf-8')).not.toMatch(new RegExp(['STORE'+'KEEPER', 'TENANT'+'_ADMIN', 'PLATFORM'+'_ADMIN', 'AUDI'+'TOR'].join('|')))
   })
@@ -243,7 +252,7 @@ describe('W7 W8 Back to card and the deep link', () => {
     expect(link.tagName).toBe('A')
     await waitFor(() => expect(link).toHaveTextContent('FA-1'))
     fireEvent.click(link)
-    expect(await screen.findByTestId('asset-operations')).toBeInTheDocument()
+    expect(await screen.findByTestId('card-actions-panel-c-1')).toBeInTheDocument()
     expect(screen.getByText('Asset FA-1', { selector: 'h1, h2, h3, [class*=title]' })).toBeInTheDocument()
   })
 
@@ -273,8 +282,8 @@ describe('W7 W8 Back to card and the deep link', () => {
 
   it('?card= of a card outside the loaded list is read by id and opens its panel (a retired card too)', async () => {
     renderAssets(`${CARDS}?card=c-8`, FULL)
-    expect(await screen.findByTestId('asset-operations')).toBeInTheDocument()
-    await waitFor(() => expect(op('writeoff')).toHaveAttribute('title', en['assets.cardActions.reason.retired']))
+    await openPanelMenu('c-8')
+    await waitFor(() => expect(item('writeoff')).toHaveAttribute('title', en['assets.cardActions.reason.retired']))
   })
 
   it('an unknown ?card= leaves the panel closed, no error', async () => {

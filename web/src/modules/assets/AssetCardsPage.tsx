@@ -17,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
-import { ListDetail, useListSelection } from '@/components/ui/listDetail'
+import { DetailTabs, ListDetail, useListSelection } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -27,7 +27,6 @@ import { AssetCardFacts } from './AssetCardFacts'
 import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardActionsMenu } from './AssetCardActionsMenu'
-import { AssetCardOperations } from './AssetCardOperations'
 import { AssetCardSelectionBar } from './AssetCardSelectionBar'
 import { ASSETS_POST } from './assetsPermissions'
 import { newDocumentHref } from './cardActions'
@@ -45,7 +44,7 @@ function run(cmd: Cmd, key: string) {
   return assetsApi.retireCard(cmd.id, key)
 }
 
-function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initialSelectedId?: string; initialCreating?: boolean }) {
+function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCardTab }: { initialSelectedId?: string; initialCreating?: boolean; initialCardTab?: string }) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id }, values)
   const toast = useToast()
@@ -64,6 +63,8 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   const sel = useListSelection<true>(initialSelectedId ?? null, initialCreating ? true : null)
   const { selectedId } = sel
   const creating = sel.creating !== null
+  // T-1954: the card tab survives row clicks, Save and Retire; it resets to Main when the panel closes
+  const [cardTab, setCardTab] = useState(initialCardTab ?? 'main')
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
   const [chosen, setChosen] = useState<EntityRecord[]>([])
   const chosenFacts = useCardsFacts(chosen, chosen.length > 0 && can(ASSETS_POST))
@@ -94,6 +95,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
 
   function closePanel() {
     write.clearError()
+    setCardTab('main')
     sel.close()
   }
   function select(card: EntityRecord) {
@@ -236,13 +238,31 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
         />
         <div className="lf-card__body lf-form">
           {active ? (
-            <AssetCardForm key={selected.record_id} record={selected} write={write} onDone={formDone} onCancel={closePanel} />
+            <AssetCardForm
+              key={selected.record_id}
+              record={selected}
+              write={write}
+              onDone={formDone}
+              onCancel={closePanel}
+              tabs={{
+                selected: cardTab,
+                onChange: setCardTab,
+                label: t('assets.tabs.label'),
+                mainExtra: <AssetCardHolder cardId={selected.record_id} />,
+                accountingExtra: <AssetCardDepreciation record={selected} />,
+              }}
+            />
           ) : (
-            <AssetCardFacts record={selected} />
+            <DetailTabs
+              aria-label={t('assets.tabs.label')}
+              selected={cardTab}
+              onChange={setCardTab}
+              tabs={[
+                { id: 'main', label: t('assets.tabs.main'), panel: <><AssetCardFacts record={selected} part="main" /><AssetCardHolder cardId={selected.record_id} /></> },
+                { id: 'accounting', label: t('assets.tabs.accounting'), panel: <><AssetCardFacts record={selected} part="accounting" /><AssetCardDepreciation record={selected} /></> },
+              ]}
+            />
           )}
-          <AssetCardDepreciation record={selected} />
-          <AssetCardOperations card={selected} />
-          <AssetCardHolder cardId={selected.record_id} />
         </div>
       </section>
     )
@@ -395,11 +415,12 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
 }
 
 /** `initialSelectedId` opens the detail panel on a card, `initialCreating` on the empty create form, at first render
- *  (the screen harness uses them). */
-export default function AssetCardsPage({ initialSelectedId, initialCreating }: { initialSelectedId?: string; initialCreating?: boolean } = {}) {
+ *  (the screen harness uses them); `initialCardTab` opens the card on a tab.
+ *  T-1954: the card body is tabbed (Main, Accounting); the actions stay in the header, there is no Operations row. */
+export default function AssetCardsPage({ initialSelectedId, initialCreating, initialCardTab }: { initialSelectedId?: string; initialCreating?: boolean; initialCardTab?: string } = {}) {
   return (
     <AssetsIntlProvider>
-      <AssetCardsInner initialSelectedId={initialSelectedId} initialCreating={initialCreating} />
+      <AssetCardsInner initialSelectedId={initialSelectedId} initialCreating={initialCreating} initialCardTab={initialCardTab} />
     </AssetsIntlProvider>
   )
 }

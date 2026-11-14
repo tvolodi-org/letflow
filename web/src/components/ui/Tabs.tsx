@@ -16,6 +16,9 @@ export interface TabsProps {
   selected: string
   onChange: (id: string) => void
   'aria-label'?: string
+  /** Scopes the ids so two tab lists on one page do not clash: tab `<p>-tab-<id>`, `aria-controls` `<p>-panel-<id>`.
+   *  Without it the ids stay `tab-<id>` and no `aria-controls` is set. */
+  idPrefix?: string
 }
 
 export function Tabs(props: TabsProps): React.ReactElement {
@@ -50,7 +53,8 @@ export function Tabs(props: TabsProps): React.ReactElement {
           key={item.id}
           type="button"
           role="tab"
-          id={`tab-${item.id}`}
+          id={props.idPrefix ? `${props.idPrefix}-tab-${item.id}` : `tab-${item.id}`}
+          aria-controls={props.idPrefix ? `${props.idPrefix}-panel-${item.id}` : undefined}
           className="lf-tab"
           aria-selected={item.id === selected}
           tabIndex={index === tabbableIndex ? 0 : -1}
