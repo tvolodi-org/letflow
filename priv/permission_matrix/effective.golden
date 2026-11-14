@@ -1,12 +1,14 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.21.0,catalog_items@0.4.0,codes@0.4.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
+# modules: assets@0.22.0,catalog_items@0.4.0,codes@0.4.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 93
-# rows: 837
+# permissions: 95
+# rows: 855
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
+AGENT_RUNNER AssetsCountOrder false module:assets -
+AGENT_RUNNER AssetsCountRecord false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
 AGENT_RUNNER AssetsRead false module:assets -
 AGENT_RUNNER AssetsReconcile false module:assets -
@@ -100,6 +102,8 @@ AGENT_RUNNER TokensManage false core -
 AGENT_RUNNER UsersGroupsRolesManage false core -
 AGENT_RUNNER WebhooksManage false core -
 CANDIDATE AssetsCardWrite false module:assets -
+CANDIDATE AssetsCountOrder false module:assets -
+CANDIDATE AssetsCountRecord false module:assets -
 CANDIDATE AssetsPost false module:assets -
 CANDIDATE AssetsRead false module:assets -
 CANDIDATE AssetsReconcile false module:assets -
@@ -193,6 +197,8 @@ CANDIDATE TokensManage false core -
 CANDIDATE UsersGroupsRolesManage false core -
 CANDIDATE WebhooksManage false core -
 PLATFORM_ADMIN AssetsCardWrite true module:assets core
+PLATFORM_ADMIN AssetsCountOrder true module:assets core
+PLATFORM_ADMIN AssetsCountRecord true module:assets core
 PLATFORM_ADMIN AssetsPost true module:assets core
 PLATFORM_ADMIN AssetsRead true module:assets core
 PLATFORM_ADMIN AssetsReconcile true module:assets core
@@ -286,6 +292,8 @@ PLATFORM_ADMIN TokensManage true core core
 PLATFORM_ADMIN UsersGroupsRolesManage true core core
 PLATFORM_ADMIN WebhooksManage true core core
 PROCESS_DESIGNER AssetsCardWrite false module:assets -
+PROCESS_DESIGNER AssetsCountOrder false module:assets -
+PROCESS_DESIGNER AssetsCountRecord false module:assets -
 PROCESS_DESIGNER AssetsPost false module:assets -
 PROCESS_DESIGNER AssetsRead false module:assets -
 PROCESS_DESIGNER AssetsReconcile false module:assets -
@@ -379,6 +387,8 @@ PROCESS_DESIGNER TokensManage false core -
 PROCESS_DESIGNER UsersGroupsRolesManage false core -
 PROCESS_DESIGNER WebhooksManage false core -
 PROCESS_OPERATOR AssetsCardWrite false module:assets -
+PROCESS_OPERATOR AssetsCountOrder false module:assets -
+PROCESS_OPERATOR AssetsCountRecord false module:assets -
 PROCESS_OPERATOR AssetsPost false module:assets -
 PROCESS_OPERATOR AssetsRead false module:assets -
 PROCESS_OPERATOR AssetsReconcile false module:assets -
@@ -472,6 +482,8 @@ PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
 STOREKEEPER AssetsCardWrite false module:assets -
+STOREKEEPER AssetsCountOrder false module:assets -
+STOREKEEPER AssetsCountRecord false module:assets -
 STOREKEEPER AssetsPost false module:assets -
 STOREKEEPER AssetsRead false module:assets -
 STOREKEEPER AssetsReconcile false module:assets -
@@ -565,6 +577,8 @@ STOREKEEPER TokensManage false core -
 STOREKEEPER UsersGroupsRolesManage false core -
 STOREKEEPER WebhooksManage false core -
 TASK_WORKER AssetsCardWrite false module:assets -
+TASK_WORKER AssetsCountOrder false module:assets -
+TASK_WORKER AssetsCountRecord false module:assets -
 TASK_WORKER AssetsPost false module:assets -
 TASK_WORKER AssetsRead false module:assets -
 TASK_WORKER AssetsReconcile false module:assets -
@@ -658,6 +672,8 @@ TASK_WORKER TokensManage false core -
 TASK_WORKER UsersGroupsRolesManage false core -
 TASK_WORKER WebhooksManage false core -
 TENANT_ADMIN AssetsCardWrite true module:assets core
+TENANT_ADMIN AssetsCountOrder true module:assets core
+TENANT_ADMIN AssetsCountRecord true module:assets core
 TENANT_ADMIN AssetsPost true module:assets core
 TENANT_ADMIN AssetsRead true module:assets core
 TENANT_ADMIN AssetsReconcile true module:assets core
@@ -751,6 +767,8 @@ TENANT_ADMIN TokensManage true core core
 TENANT_ADMIN UsersGroupsRolesManage true core core
 TENANT_ADMIN WebhooksManage true core core
 TENANT_AUDITOR AssetsCardWrite false module:assets -
+TENANT_AUDITOR AssetsCountOrder false module:assets -
+TENANT_AUDITOR AssetsCountRecord false module:assets -
 TENANT_AUDITOR AssetsPost false module:assets -
 TENANT_AUDITOR AssetsRead false module:assets -
 TENANT_AUDITOR AssetsReconcile false module:assets -

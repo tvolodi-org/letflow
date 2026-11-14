@@ -34,7 +34,16 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
   | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
+  | `POST /counts`, `PUT /counts/:id` (whole-document replace of a draft), `POST /counts/:id/issue`, `POST /counts/:id/cancel` (empty bodies; REQ-816) | `AssetsCountOrder` | 201 / 200 `Counts` order view |
+  | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`), `GET /counts/:id` (REQ-816) | `AssetsRead` | 200 `rows, next_cursor` / order view |
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1\|da4&format=pdf\|docx&lang=ru\|kk` (T-1921, T-1922) `FormDa1.data/3`, `FormDa4.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+
+  Asset count routes (REQ-816, K1): after the `authz_*` permission check (403 for a caller whose roles lack it) every
+  count route asks `Access.check/2` and then the flag `Settings.count_enabled?/1`; a refusal or a flag that is off is
+  the same 404 `Response.not_found/1` as a tenant without the module (INV-5). Refusals of `Letflow.Modules.Assets.Counts`
+  are 422 with a fixed `reason` (`count_scope_overlaps`, `count_state_invalid`, `not_chair`, ...), `audit_failed` is 500.
+  The policy `POST /counts/:id/open` (`AssetsCountRecord`) in the manifest is a reservation for K2: this router has no
+  such route yet, so a request to it reaches the no-match fallback for every caller.
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
@@ -103,6 +112,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.Cards
+  alias Letflow.Modules.Assets.Counts
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
@@ -110,6 +120,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.FormDa4
   alias Letflow.Modules.Assets.DocumentPrint
   alias Letflow.Modules.Assets.DocumentPrintSource
+  alias Letflow.Modules.Assets.Settings
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Assets.XlsxExport
   alias Letflow.Modules.ReadApi
@@ -334,7 +345,67 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
+  # REQ-816 (asset count K1): the count order routes, behind the flag `count_enabled`.
+  authz_post "/counts", :AssetsCountOrder do
+    count_call(conn, :count_order, 201, fn prefix, opts ->
+      Counts.create(prefix, conn.body_params, opts)
+    end)
+  end
+
+  authz_put "/counts/:id", :AssetsCountOrder do
+    count_call(conn, :count_order, 200, fn prefix, opts ->
+      Counts.update(prefix, conn.params["id"], conn.body_params, opts)
+    end)
+  end
+
+  authz_post "/counts/:id/issue", :AssetsCountOrder do
+    count_call(conn, :count_order, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.issue(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_post "/counts/:id/cancel", :AssetsCountOrder do
+    count_call(conn, :count_order, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.cancel(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      Counts.list(prefix, Plug.Conn.fetch_query_params(conn).query_params, opts)
+    end)
+  end
+
+  authz_get "/counts/:id", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      Counts.get(prefix, conn.params["id"], opts)
+    end)
+  end
+
   authz_unmatched(:ordinary)
+
+  # -- count order handler (REQ-816) --------------------------------------------------------------
+
+  # 1. the guard of the purpose (a refusal is the 404 of a tenant without the module, INV-5);
+  # 2. the flag `count_enabled` (off is the same 404, equal to the modules gate's answer);
+  # 3. the call with the tenant of the token only (INV-1, INV-10).
+  defp count_call(conn, purpose, status, fun) do
+    with {:ok, access} <- Access.check(conn, purpose),
+         true <- Settings.count_enabled?(access.prefix) do
+      render(conn, fun.(access.prefix, %{actor_id: access.actor_id}), status)
+    else
+      _ -> Response.not_found(conn)
+    end
+  end
+
+  defp empty_body?(conn), do: conn.body_params in [%{}, nil]
+
+  defp first_key(%{} = body), do: body |> Map.keys() |> Enum.sort() |> List.first() |> to_string()
+  defp first_key(_), do: "body"
 
   # -- document handlers (GH #3890 / #3891) ------------------------------------------------------
 

@@ -1,0 +1,16 @@
+{
+  "name": "assets_count_member",
+  "display_name": "Asset count commission member",
+  "description": "REQ-816 / GH #4375. One member of the commission of an asset count order. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column; employee_id is a record id checked in code (0076 R6).",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "employee_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_assets_count_member_order_id", "field": "count_order_id", "references_entity": "assets_count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_count_member_order_id", "fields": ["count_order_id"]}
+  ]
+}

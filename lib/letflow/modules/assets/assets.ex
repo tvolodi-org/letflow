@@ -80,6 +80,18 @@ defmodule Letflow.Modules.Assets do
   version bump. T-1922: `form=da4` answers ДА-4 / ҰМА-4 (annex 19, `FormDa4`) of an issued change or hand over;
   the other official forms are later slices.
 
+  **Asset count K1** (T-1927, version 0.22.0, REQ-816 / GH #4375, owner decision D-128, spec
+  `docs/assets/asset-count.md`): the count ORDER of fixed assets. Record types `assets_count_order`,
+  `assets_count_scope` and `assets_count_member`, document types `assets_count.order` (ACO),
+  `assets_count.sheet` (ACS) and `assets_count.result` (ACR) (only the order is issued), permissions
+  `AssetsCountOrder` and `AssetsCountRecord` (no role grants, so TENANT_ADMIN and PLATFORM_ADMIN hold
+  them), settings `count_enabled` (default off: the six `/counts` routes answer the 404 of a tenant
+  without the module), `count_signer_role` (default `accountant`) and `count_freeze_limit_minutes`
+  (default 120), read by `Letflow.Modules.Assets.Settings`. See `Letflow.Modules.Assets.Counts`. The route
+  policy `POST /counts/:id/open` is a reservation for K2 and has no router route yet. Existing
+  installs take the new types by the in-place upgrade (class A); document types register lazily at the
+  first issue.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -131,7 +143,10 @@ defmodule Letflow.Modules.Assets do
     "assets_kind_change",
     "assets_kind_change_line",
     "assets_opening",
-    "assets_opening_line"
+    "assets_opening_line",
+    "assets_count_order",
+    "assets_count_scope",
+    "assets_count_member"
   ]
 
   # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
@@ -189,6 +204,33 @@ defmodule Letflow.Modules.Assets do
       number_pad: 6,
       legal_entity_required: false,
       declared_fields: %{}
+    },
+    %{
+      key: "assets_count.order",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "ACO",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    },
+    %{
+      key: "assets_count.sheet",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "ACS",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    },
+    %{
+      key: "assets_count.result",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "ACR",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
     }
   ]
 
@@ -199,12 +241,20 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.21.0",
+    version: "0.22.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
-    permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
+    permissions: [
+      :AssetsCardWrite,
+      :AssetsPost,
+      :AssetsReverse,
+      :AssetsRead,
+      :AssetsReconcile,
+      :AssetsCountOrder,
+      :AssetsCountRecord
+    ],
     role_grants: %{},
     required_roles: [],
     settings_schema: %{
@@ -212,6 +262,9 @@ defmodule Letflow.Modules.Assets do
       "properties" => %{
         "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3},
         "expiry_reminder_lead_days" => %{"type" => "integer", "minimum" => 1, "maximum" => 3650},
+        "count_enabled" => %{"type" => "boolean"},
+        "count_signer_role" => %{"type" => "string", "minLength" => 1, "maxLength" => 128},
+        "count_freeze_limit_minutes" => %{"type" => "integer", "minimum" => 1, "maximum" => 5760},
         "storekeeper_grants" => %{
           "type" => "array",
           "items" => %{"type" => "string", "enum" => ["AssetsRead", "AssetsPost"]},
@@ -236,7 +289,16 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/documents/:id/reverse", :AssetsReverse},
       {"GET", "/documents", :AssetsRead},
       {"GET", "/documents/:id", :AssetsRead},
-      {"GET", "/documents/:id/print", :AssetsRead}
+      {"GET", "/documents/:id/print", :AssetsRead},
+      {"POST", "/counts", :AssetsCountOrder},
+      {"PUT", "/counts/:id", :AssetsCountOrder},
+      {"POST", "/counts/:id/issue", :AssetsCountOrder},
+      {"POST", "/counts/:id/cancel", :AssetsCountOrder},
+      {"GET", "/counts", :AssetsRead},
+      {"GET", "/counts/:id", :AssetsRead},
+      # K2 (REQ-817) adds the route `POST /counts/:id/open`; the policy is reserved here so that
+      # `AssetsCountRecord` is named in route_policies (permission_matrix `not_routed_by_owner`).
+      {"POST", "/counts/:id/open", :AssetsCountRecord}
     ],
     manages_entity_types: [
       "assets_card",
@@ -252,7 +314,10 @@ defmodule Letflow.Modules.Assets do
       "assets_kind_change",
       "assets_kind_change_line",
       "assets_opening",
-      "assets_opening_line"
+      "assets_opening_line",
+      "assets_count_order",
+      "assets_count_scope",
+      "assets_count_member"
     ],
     scope_declarations: %{
       "assets_card" => {:column, "org_unit_id"},
@@ -268,7 +333,10 @@ defmodule Letflow.Modules.Assets do
       "assets_kind_change" => {:column, "org_unit_id"},
       "assets_kind_change_line" => {:column, "org_unit_id"},
       "assets_opening" => {:column, "org_unit_id"},
-      "assets_opening_line" => {:column, "org_unit_id"}
+      "assets_opening_line" => {:column, "org_unit_id"},
+      "assets_count_order" => {:column, "org_unit_id"},
+      "assets_count_scope" => {:column, "org_unit_id"},
+      "assets_count_member" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{

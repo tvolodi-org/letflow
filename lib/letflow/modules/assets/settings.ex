@@ -1,6 +1,7 @@
 defmodule Letflow.Modules.Assets.Settings do
   @moduledoc """
-  The two module-setting readers of `Letflow.Modules.Assets` (`currency/1`, `expiry_lead_days/1`),
+  The module-setting readers of `Letflow.Modules.Assets` (`currency/1`, `expiry_lead_days/1`, and since REQ-816 the
+  asset count settings `count_enabled?/1`, `count_signer_role/1`, `count_freeze_limit_minutes/1`),
   moved out of the entry file in C10 (GH #3890 / REQ-752): once the module declares write handlers,
   `handler_writes_callers_test` scans the entry file and forbids `alias Letflow.Repo` there. The
   entry file keeps its public names as `defdelegate`s; behaviour is unchanged. The tenant comes only
@@ -15,6 +16,8 @@ defmodule Letflow.Modules.Assets.Settings do
   alias Letflow.Repo
 
   @default_currency "KZT"
+  @default_signer_role "accountant"
+  @default_freeze_limit 120
 
   @doc """
   The tenant currency of `prefix` (C4 / REQ-826, D-097), in this order:
@@ -62,6 +65,43 @@ defmodule Letflow.Modules.Assets.Settings do
 
       _ ->
         nil
+    end
+  end
+
+  @doc """
+  REQ-816: the flag of the asset count routes. `true` only when the stored value is exactly `true`;
+  absent, `false`, any other value or a module that is not installed is `false` (default off).
+  """
+  @spec count_enabled?(prefix :: String.t()) :: boolean()
+  def count_enabled?(prefix) when is_binary(prefix) do
+    match?(%{"count_enabled" => true}, active_settings(prefix))
+  end
+
+  @doc "REQ-816: the role that signs a count sheet (1..128 codepoints); `\"accountant\"` when absent or invalid."
+  @spec count_signer_role(prefix :: String.t()) :: String.t()
+  def count_signer_role(prefix) when is_binary(prefix) do
+    case active_settings(prefix) do
+      %{"count_signer_role" => r} when is_binary(r) ->
+        if String.length(r) in 1..128, do: r, else: @default_signer_role
+
+      _ ->
+        @default_signer_role
+    end
+  end
+
+  @doc "REQ-816: the longest freeze of locations in minutes (1..5760); 120 when absent or invalid."
+  @spec count_freeze_limit_minutes(prefix :: String.t()) :: 1..5760
+  def count_freeze_limit_minutes(prefix) when is_binary(prefix) do
+    case active_settings(prefix) do
+      %{"count_freeze_limit_minutes" => m} when is_integer(m) and m >= 1 and m <= 5760 -> m
+      _ -> @default_freeze_limit
+    end
+  end
+
+  defp active_settings(prefix) do
+    case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
+      %TenantModule{settings: %{} = settings} -> settings
+      _ -> %{}
     end
   end
 end

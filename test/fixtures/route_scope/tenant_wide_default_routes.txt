@@ -32,6 +32,8 @@ GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/assets/balances AssetsRead
 GET /modules/assets/cards/:id/lock AssetsRead
+GET /modules/assets/counts AssetsRead
+GET /modules/assets/counts/:id AssetsRead
 GET /modules/assets/documents AssetsRead
 GET /modules/assets/documents/:id AssetsRead
 GET /modules/assets/documents/:id/print AssetsRead
@@ -134,6 +136,9 @@ POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
 POST /modules/assets/cards AssetsCardWrite
 POST /modules/assets/cards/:id/retire AssetsCardWrite
+POST /modules/assets/counts AssetsCountOrder
+POST /modules/assets/counts/:id/cancel AssetsCountOrder
+POST /modules/assets/counts/:id/issue AssetsCountOrder
 POST /modules/assets/documents AssetsPost
 POST /modules/assets/documents/:id/check AssetsPost
 POST /modules/assets/documents/:id/issue AssetsPost
@@ -250,6 +255,7 @@ POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
 PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
+PUT /modules/assets/counts/:id AssetsCountOrder
 PUT /modules/assets/documents/:id AssetsPost
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
