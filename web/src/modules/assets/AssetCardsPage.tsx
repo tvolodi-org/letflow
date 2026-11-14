@@ -28,7 +28,11 @@ import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardActionsMenu } from './AssetCardActionsMenu'
 import { AssetCardSelectionBar } from './AssetCardSelectionBar'
-import { ASSETS_POST } from './assetsPermissions'
+import { usePdfDownload } from '@/hooks/usePdfDownload'
+import { parseFilename } from '@/lib/parseFilename'
+import { ASSETS_POST, ASSETS_READ } from './assetsPermissions'
+import { AssetFormMenu } from './documents/AssetFormMenu'
+import { ASSET_FORM_SUFFIX, CARD_FORMS, cardPrintErrorMessageId } from './documents/assetForms'
 import { newDocumentHref } from './cardActions'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
@@ -60,6 +64,9 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
   const assetRows = useAssetRows({ kind, orgUnitId, showRetired }, search)
   const unitsQuery = useOrgUnitRows()
   const write = useAssetsWrite<Cmd>(run)
+  // T-1924: the official card form download; an error shows only on the card it was asked for.
+  const pdf = usePdfDownload(parseFilename)
+  const [printCardId, setPrintCardId] = useState<string | null>(null)
   const sel = useListSelection<true>(initialSelectedId ?? null, initialCreating ? true : null)
   const { selectedId } = sel
   const creating = sel.creating !== null
@@ -227,6 +234,21 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
           actions={
             <>
               <AssetCardActionsMenu card={selected} />
+              {can(ASSETS_READ) && (
+                <AssetFormMenu
+                  forms={[...CARD_FORMS]}
+                  busyKey={pdf.busyKey}
+                  onPick={(form, format, lang) => {
+                    setPrintCardId(selected.record_id)
+                    void pdf.run(
+                      `form-${form}-${format}`,
+                      () => assetsApi.printCardForm(selected.record_id, form, format, lang),
+                      `${textOf(selected, 'inventory_number') || selected.record_id}${ASSET_FORM_SUFFIX[form]}.${format}`,
+                      cardPrintErrorMessageId,
+                    )
+                  }}
+                />
+              )}
               {active && (
                 <Button variant="danger" size="sm" onClick={() => { write.clearError(); setRetiring(selected) }}>
                   {t('assets.common.retire')}
@@ -237,6 +259,11 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
           }
         />
         <div className="lf-card__body lf-form">
+          {pdf.error !== null && printCardId === selected.record_id && (
+            <div data-testid="card-print-error">
+              <Banner tone="danger">{t(pdf.error)}</Banner>
+            </div>
+          )}
           {active ? (
             <AssetCardForm
               key={selected.record_id}

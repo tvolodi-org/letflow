@@ -40,6 +40,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:card, "PATCH", "/cards/:id", :card_patch, :call},
     {:card, "POST", "/cards/:id/retire", :idem, :call},
     {:card, "GET", "/cards/:id/lock", nil, :call},
+    {:card, "GET", "/cards/:id/print", nil, :call},
     {:adoc, "PUT", "/documents/:id", :adoc_put, :call},
     {:adoc, "DELETE", "/documents/:id", nil, :call},
     {:adoc, "GET", "/documents/:id", nil, :call},

@@ -171,7 +171,7 @@ describe('W4 refusals', () => {
 describe('W5 catalogs', () => {
   it('every assets.doc.form* key and the new reasons exist in en, ru and kk', () => {
     const keys = Object.keys(docEn).filter((k) => k.startsWith('assets.doc.form') || /print\.reason\.invalid_(form|format)$/.test(k))
-    expect(keys.length).toBe(11)
+    expect(keys.length).toBe(13)
     for (const k of keys) {
       expect(docRu[k]?.trim(), k).toBeTruthy()
       expect(docKk[k]?.trim(), k).toBeTruthy()

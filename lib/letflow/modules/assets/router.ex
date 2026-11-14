@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `PATCH /cards/:id` | `AssetsCardWrite` | `update_card/4` | 200 |
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
   | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool, "held": bool}` |
+  | `GET /cards/:id/print[?form=da2&format=pdf\|docx&lang=ru\|kk]` (T-1924) | `AssetsRead` | `CardPrintSource.read/3`, `FormDa2.data/3`, `FormPrint.build/4` | 200 `application/pdf` or `.docx`; 404 as an unknown card; 422 `invalid_form`, `invalid_format`, `invalid_lang`, `print_unsupported_character` |
 
   Card locks (T-1490): a changed `inventory_number` or `kind` of a card with a posted document is 422
   `inventory_number_locked` / `kind_locked`; `GET /cards/:id/lock` tells the screen which case it is.
@@ -121,6 +122,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.CardLocks
+  alias Letflow.Modules.Assets.CardPrintSource
   alias Letflow.Modules.Assets.Cards
   alias Letflow.Modules.Assets.CountSheet
   alias Letflow.Modules.Assets.Counts
@@ -128,6 +130,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.FormDa1
+  alias Letflow.Modules.Assets.FormDa2
   alias Letflow.Modules.Assets.FormDa3
   alias Letflow.Modules.Assets.FormDa4
   alias Letflow.Modules.Assets.DocumentPrint
@@ -182,6 +185,17 @@ defmodule Letflow.Modules.Assets.Router do
           {:error, _} ->
             Response.not_found(conn)
         end
+
+      :error ->
+        Response.not_found(conn)
+    end
+  end
+
+  # T-1924: official form ДА-2 / ҰМА-2 (annex 17) of the card; same guard as the lock read.
+  authz_get "/cards/:id/print", :AssetsRead do
+    case Access.check(conn, :read) do
+      {:ok, access} ->
+        print_card(conn, access.prefix, Plug.Conn.fetch_query_params(conn).query_params)
 
       :error ->
         Response.not_found(conn)
@@ -707,6 +721,29 @@ defmodule Letflow.Modules.Assets.Router do
       {:invalid, reason} -> unprocessable(conn, reason)
     end
   end
+
+  # T-1924: the card form. The query is validated before the read, so an unknown and a foreign id answer alike (INV-5).
+  defp print_card(conn, prefix, query) do
+    with {:ok, "da2"} <- card_form_param(query["form"]),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      with {:ok, %{card: card, names: names}} <-
+             CardPrintSource.read(prefix, conn.params["id"], read_authorized(conn)),
+           {:ok, bin} <- FormPrint.build("da2", FormDa2.data(card, names, lang), lang, format) do
+        {type, ext} = form_type(format)
+        send_binary(conn, bin, type, form_file_name(card["inventory_number"], "_DA-2", ext))
+      else
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, reason} -> form_failure(conn, reason)
+      end
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  defp card_form_param(nil), do: {:ok, "da2"}
+  defp card_form_param("da2"), do: {:ok, "da2"}
+  defp card_form_param(_), do: {:invalid, "invalid_form"}
 
   defp form_failure(conn, reason) when reason in [:print_not_available, :document_not_issued],
     do: unprocessable(conn, Atom.to_string(reason))
