@@ -566,7 +566,13 @@ defmodule Letflow.ModuleUpgrade.FleetTest do
       assert journal_done(t2.schema_name) == []
       assert row(t1.schema_name).version == ctx.compiled_version
       # the response rows carry ids and codes only: no window value
-      refute inspect(r.outcomes) =~ "13:00"
+      # (compare field values, not inspect/1 text: timestamps such as 00:13:00 contain "13:00")
+      window_values = ["13:00", "17:00", win("13:00", "17:00")]
+
+      for o <- r.outcomes, {_k, v} <- Map.from_struct(o) do
+        refute v in window_values
+        refute is_map(v) and not is_struct(v) and Map.has_key?(v, "start")
+      end
 
       # still outside: stays deferred, rollout stays running
       assert {:ok, r2} = Fleet.start("stock", ctx.actor, opts ++ [now: @noon])
