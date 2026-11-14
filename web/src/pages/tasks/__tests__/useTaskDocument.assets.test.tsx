@@ -33,6 +33,7 @@ describe('useTaskContexts asset documents', () => {
     expect(doc?.number).toBe('AOP-2026-000001')
     expect(doc?.typeKey).toBe('assets_opening')
     expect(doc?.orgUnitId).toBe('u1')
-    expect(doc?.lines[0]?.assetName).toBe('FA-1 Van')
+    expect(doc?.lines[0]?.assetId).toBe('a1')
+    expect(doc?.lines[0]?.locationId).toBe('l1')
   })
 })
