@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { webhooksApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { WebhookDeliveryAttemptsTable } from '@/components/webhooks/WebhookDeliveryAttemptsTable'
-import { useModalFocus } from '@/components/ui/useModalFocus'
 import type { WebhookSubscription } from '@/types/api'
 import { formatDateTime } from '@/i18n/format'
 
@@ -39,7 +38,6 @@ export function WebhookSubscriptionDetailPanel({
   onClose,
 }: WebhookSubscriptionDetailPanelProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const boxRef = useRef<HTMLDivElement | null>(null)
   const subscriptionId = resolveSubscriptionId(subscription)
   const tenantKeys = useTenantScopedQueryKeys()
 
@@ -49,7 +47,6 @@ export function WebhookSubscriptionDetailPanel({
     enabled: isOpen,
   })
 
-  useModalFocus(boxRef, { open: isOpen, onClose })
   useEffect(() => {
     if (isOpen) closeButtonRef.current?.focus()
   }, [isOpen])
@@ -61,35 +58,15 @@ export function WebhookSubscriptionDetailPanel({
 
   if (!isOpen) return null
 
+  // T-1893: the record sits in the detail pane of ListDetail (owner rule 2a), no fixed overlay;
+  // Escape and the narrow back button belong to ListDetail.
   return (
-    <div
-      ref={boxRef}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
+    <aside
+      role="region"
       aria-labelledby="webhook-detail-title"
       data-testid="webhook-subscription-detail-panel"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'var(--surface-overlay-slate)',
-        display: 'flex',
-        justifyContent: 'flex-end',
-        zIndex: 1000,
-      }}
-      onClick={onClose}
+      style={{ padding: '1.25rem' }}
     >
-      <aside
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: 'min(560px, 100vw)',
-          height: '100%',
-          background: 'var(--surface-card)',
-          boxShadow: 'var(--shadow-panel)',
-          padding: '1.25rem',
-          overflowY: 'auto',
-        }}
-      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1rem' }}>
           <div>
             <h3 id="webhook-detail-title" style={{ margin: 0 }}>Subscription details</h3>
@@ -191,10 +168,11 @@ export function WebhookSubscriptionDetailPanel({
           ) : null}
 
           {!deliveriesQuery.isLoading && !deliveriesQuery.isError && deliveriesQuery.data && deliveriesQuery.data.items.length > 0 ? (
-            <WebhookDeliveryAttemptsTable attempts={deliveriesQuery.data.items} />
+            <div style={{ overflowX: 'auto' }}>
+              <WebhookDeliveryAttemptsTable attempts={deliveriesQuery.data.items} />
+            </div>
           ) : null}
         </section>
-      </aside>
-    </div>
+    </aside>
   )
 }

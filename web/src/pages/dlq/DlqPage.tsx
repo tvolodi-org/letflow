@@ -16,6 +16,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { JsonEditor } from '@/components/ui/JsonEditor'
+import { ListDetail } from '@/components/ui/listDetail'
 
 
 function parseJsonLike(value: unknown): unknown {
@@ -374,99 +375,106 @@ export default function DlqPage() {
           </Button>
         </FilterBar>
 
+        <ListDetail
+          screen="dlq.items"
+          listLabel="Dead-letter queue items"
+          listDefault={60}
+          listMin={320}
+          list={
         <QueryStateBoundary
           state={(isLoading ? 'loading' : isError ? classifyError(error) : 'success') as RendererState}
           onRetry={() => { void refetch() }}
           columns={[{ widthPercent: 20 }, { widthPercent: 40 }, { widthPercent: 10 }, { widthPercent: 15 }, { widthPercent: 15 }]}
         >
         {actionError && <p style={{ color: 'var(--color-error-dark)' }}>{actionError}</p>}
-
-        <DataTable<DlqEntry>
-          columns={columns}
-          data={rows}
-          emptyMessage="Queue is empty."
-          onRowClick={(e) => setSelectedId(e.id)}
-        />
-
-        <div style={{ marginTop: '.85rem' }}>
-          <PaginationControls
-            page={page}
-            pageSize={pageSize}
-            totalItems={null}
-            hasNextPage={hasNextPage}
-            onPageChange={(nextPage) => (nextPage > page ? goNext() : goPrev())}
+          <DataTable<DlqEntry>
+            columns={columns}
+            data={rows}
+            emptyMessage="Queue is empty."
+            onRowClick={(e) => setSelectedId(e.id)}
           />
-        </div>
-        </QueryStateBoundary>
-
-        {selected && (
-          <section data-testid="dlq-detail-panel" style={{ marginTop: '1rem', border: '1px solid var(--border-default)', borderRadius: '6px', padding: '1rem', background: 'var(--surface-card)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
-              <h3 style={{ margin: 0 }}>DLQ Item Detail</h3>
-              <Button variant="secondary" size="sm" onClick={clearSelection}>
-                Close
-              </Button>
-            </div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem', marginBottom: '.8rem' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                  <td style={{ width: '180px', color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Item ID</td>
-                  <td style={{ padding: '.45rem .55rem', fontFamily: 'monospace' }}>{selected.id}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                  <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Source</td>
-                  <td style={{ padding: '.45rem .55rem' }}>{selected.entry_type ?? selected.item_type ?? 'unknown'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                  <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Instance</td>
-                  <td style={{ padding: '.45rem .55rem' }}>{selected.instance_id ?? '—'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                  <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Status</td>
-                  <td style={{ padding: '.45rem .55rem' }}>
-                    <StatusBadge status={normalizeStatus(selected, transientStatusById[selected.id])} domain="dlq" />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h4 style={{ margin: '.4rem 0' }}>Full failure reason</h4>
-            <pre style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: '4px', padding: '.65rem', overflow: 'auto', fontSize: '.8rem' }}>
-              {extractFailureReason(selected)}
-            </pre>
-
-            <h4 style={{ margin: '.8rem 0 .4rem' }}>Retry history</h4>
-            {extractRetryHistory(selected).length > 0 ? (
-              <DataTable<RetryAttempt>
-                columns={retryHistoryColumns}
-                data={extractRetryHistory(selected)}
-                emptyMessage="No retry history available."
-              />
-            ) : (
-              <p style={{ margin: 0, color: 'var(--text-secondary)' }}>No retry history available.</p>
-            )}
-
-            <h4 style={{ margin: '.8rem 0 .4rem' }}>Context JSON</h4>
-            <JsonEditor
-              value={toPrettyJson(selected.context_json ?? selected.processor_metadata)}
-              onChange={() => {}}
-              label="Context JSON"
-              readOnly
-              height={160}
+          <div style={{ marginTop: '.85rem' }}>
+            <PaginationControls
+              page={page}
+              pageSize={pageSize}
+              totalItems={null}
+              hasNextPage={hasNextPage}
+              onPageChange={(nextPage) => (nextPage > page ? goNext() : goPrev())}
             />
-
-            <div style={{ marginTop: '.8rem' }}>
+          </div>
+        </QueryStateBoundary>
+          }
+          detailOpen={selected != null}
+          onClose={clearSelection}
+          detail={selected ? (
+  <section data-testid="dlq-detail-panel" style={{ padding: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
+                <h3 style={{ margin: 0 }}>DLQ Item Detail</h3>
+                <Button variant="secondary" size="sm" onClick={clearSelection}>
+                  Close
+                </Button>
+              </div>
+  
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem', marginBottom: '.8rem' }}>
+                <tbody>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ width: '180px', color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Item ID</td>
+                    <td style={{ padding: '.45rem .55rem', fontFamily: 'monospace' }}>{selected.id}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Source</td>
+                    <td style={{ padding: '.45rem .55rem' }}>{selected.entry_type ?? selected.item_type ?? 'unknown'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Instance</td>
+                    <td style={{ padding: '.45rem .55rem' }}>{selected.instance_id ?? '—'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ color: 'var(--text-secondary)', padding: '.45rem .55rem' }}>Status</td>
+                    <td style={{ padding: '.45rem .55rem' }}>
+                      <StatusBadge status={normalizeStatus(selected, transientStatusById[selected.id])} domain="dlq" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+  
+              <h4 style={{ margin: '.4rem 0' }}>Full failure reason</h4>
+              <pre style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: '4px', padding: '.65rem', overflow: 'auto', fontSize: '.8rem' }}>
+                {extractFailureReason(selected)}
+              </pre>
+  
+              <h4 style={{ margin: '.8rem 0 .4rem' }}>Retry history</h4>
+              {extractRetryHistory(selected).length > 0 ? (
+                <DataTable<RetryAttempt>
+                  columns={retryHistoryColumns}
+                  data={extractRetryHistory(selected)}
+                  emptyMessage="No retry history available."
+                />
+              ) : (
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>No retry history available.</p>
+              )}
+  
+              <h4 style={{ margin: '.8rem 0 .4rem' }}>Context JSON</h4>
               <JsonEditor
-                value={toPrettyJson(selected.source_payload ?? selected.original_payload)}
+                value={toPrettyJson(selected.context_json ?? selected.processor_metadata)}
                 onChange={() => {}}
-                label="Source payload"
+                label="Context JSON"
                 readOnly
                 height={160}
               />
-            </div>
-          </section>
-        )}
+  
+              <div style={{ marginTop: '.8rem' }}>
+                <JsonEditor
+                  value={toPrettyJson(selected.source_payload ?? selected.original_payload)}
+                  onChange={() => {}}
+                  label="Source payload"
+                  readOnly
+                  height={160}
+                />
+              </div>
+            </section>
+          ) : null}
+        />
 
         {discardConfirmItem && (
           <div
