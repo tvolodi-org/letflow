@@ -109,6 +109,13 @@ defmodule Letflow.Modules.Assets do
   frozen scope is refused `422 count_in_progress` inside the issue lock. No new permission, route, setting or
   migration (class A). See `Letflow.Modules.Assets.CountFreeze`.
 
+  **Asset count K4** (T-1930, version 0.26.0, REQ-819 / GH #4372): the RESULT of a count. Five optional fields on
+  `assets_count_order` (`result_decisions`, `result_document_id`, `result_number`, `signed_at`, `signed_by`) and
+  three routes under `/counts/:id/result` (read, `PUT lines/:line_no` decision, `sign`). The decision and the
+  signature need the tenant's configured signer role (`Letflow.Modules.Assets.CountSigner`); signing saves
+  DRAFT asset documents and issues `assets_count.result`, it never posts. No new permission, setting or
+  migration (class A). See `Letflow.Modules.Assets.CountResult`.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -261,7 +268,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.25.0",
+    version: "0.26.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -325,7 +332,11 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/counts/:id/sheet-signatures", :AssetsCountRecord},
       {"GET", "/counts/:id/lines", :AssetsRead},
       {"GET", "/counts/:id/entries", :AssetsRead},
-      {"GET", "/counts/:id/sheet-document", :AssetsRead}
+      {"GET", "/counts/:id/sheet-document", :AssetsRead},
+      # K4 (REQ-819): the count result (differences, decisions, signing by the configured role).
+      {"GET", "/counts/:id/result", :AssetsRead},
+      {"PUT", "/counts/:id/result/lines/:line_no", :AssetsRead},
+      {"POST", "/counts/:id/result/sign", :AssetsRead}
     ],
     manages_entity_types: [
       "assets_card",
