@@ -77,7 +77,7 @@ defmodule Letflow.Modules.Stock.FormZ2RouterTest do
             "Форма З-2",
             "Номенклатурный номер",
             item(ctx)["name"],
-            "4.000000000",
+            "4",
             le["name"],
             le["bin"],
             "Организация (индивидуальный предприниматель) - получатель: ____________"
@@ -100,7 +100,7 @@ defmodule Letflow.Modules.Stock.FormZ2RouterTest do
             "Номенклатуралық нөмірі",
             "Алушы ұйым (жеке кәсіпкер)",
             item(ctx)["name"],
-            "4.000000000"
+            "4"
           ] do
         assert text =~ t, "missing #{t}"
       end

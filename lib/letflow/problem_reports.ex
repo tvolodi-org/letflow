@@ -17,6 +17,9 @@ defmodule Letflow.ProblemReports do
       data left the company.
     * D8: at most 10 reports per user per rolling hour (counted in the platform table).
 
+  T-1963: every reader here (export, `list_mine/2`, the throttle) sees only `class = 'problem'` rows; the
+  owner list is `class = 'review'` and is read through `Letflow.ProblemReports.Review`.
+
   The export (`list_after/3`) feeds the PM handoff; the owner inbox and `list_mine/2` read
   status for the owner and the reporter respectively. Decisions are row-locked and audited without
   text (D9); bell/mail status is best effort after commit (D10). Nothing logs text, context or names.
@@ -86,8 +89,8 @@ defmodule Letflow.ProblemReports do
       Repo.aggregate(
         from(r in Report,
           where:
-            r.reporter_tenant_id == ^tenant_id and r.reporter_user_id == ^user_id and
-              r.inserted_at > ^since
+            r.class == "problem" and r.reporter_tenant_id == ^tenant_id and
+              r.reporter_user_id == ^user_id and r.inserted_at > ^since
         ),
         :count,
         prefix: platform_prefix
@@ -193,7 +196,7 @@ defmodule Letflow.ProblemReports do
       rows =
         Repo.all(
           from(r in Report,
-            where: r.seq > ^after_seq and r.inserted_at <= ^cutoff,
+            where: r.class == "problem" and r.seq > ^after_seq and r.inserted_at <= ^cutoff,
             order_by: [asc: r.seq],
             limit: ^limit
           ),
@@ -211,7 +214,9 @@ defmodule Letflow.ProblemReports do
       rows =
         Repo.all(
           from(r in Report,
-            where: r.reporter_tenant_id == ^tenant_id and r.reporter_user_id == ^user_id,
+            where:
+              r.class == "problem" and r.reporter_tenant_id == ^tenant_id and
+                r.reporter_user_id == ^user_id,
             order_by: [desc: r.seq],
             limit: 51
           ),

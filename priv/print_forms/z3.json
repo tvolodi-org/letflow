@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "z3",
   "annex": 27,
+  "page": {"orientation": "portrait", "margins_mm": [25, 15, 25, 25], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "z3.annex"},
     {"type": "text", "label": "z3.form_code"},

@@ -219,12 +219,14 @@ defmodule Letflow.Documents.FormPrintWideTest do
   end
 
   describe "T-1555 paper: landscape PDF, docx header rows and signature keep" do
-    test "W1 every official form (9 to 14 columns) prints on a landscape A4" do
+    test "W1 the PDF follows the layout's orientation (T-1971: shipped forms are portrait)" do
       {:ok, wide} = FormPrint.build("inv18", wide_data(), "ru", :pdf)
-      assert wide =~ "/MediaBox [0 0 842 595]"
+      assert wide =~ "/MediaBox [0 0 595 842]"
 
+      {:ok, layout} = FormPrint.layout("z2")
+      land = Map.put(layout, "page", %{"orientation" => "landscape"})
       data = %{"lines" => [%{"no" => "1", "name" => "A", "nom" => "B", "unit" => "pcs"}]}
-      {:ok, z2} = FormPrint.build("z2", data, "ru", :pdf)
+      {:ok, z2} = FormPrint.build("z2", data, "ru", :pdf, layout: land)
       assert z2 =~ "/MediaBox [0 0 842 595]"
     end
 
