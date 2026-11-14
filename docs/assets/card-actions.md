@@ -1,7 +1,7 @@
 # Asset card actions from the UI (T-1880, T-1904, owner decision D-135)
 
 Every operation on a fixed asset card starts from the UI, not from a typed address. Part 1 (T-1880) delivered
-the Actions menu, the card-panel button row, and the pre-filled document form. Part 2 (T-1904) delivered
+the Actions menu and the pre-filled document form (the card-panel button row was removed in T-1954; the Actions menu in the card header is the one panel entry). Part 2 (T-1904) delivered
 multi-select with an action bar and the back link with the card number. "Documents of this card" (part 3, needs a
 new `asset` filter on `GET /documents` with its own security review) is not delivered yet.
 
@@ -54,7 +54,7 @@ Statuses, derived in this order (`cardStatus` in `web/src/modules/assets/cardAct
 | Edit, Retire (existing) | card route `AssetsCardWrite` | `PATCH /cards/:id`, `POST /cards/:id/retire` |
 | Back to card | `can(AssetsCardWrite)` | none |
 
-With no `AssetsPost` the menu trigger and the button row are not rendered.
+With no `AssetsPost` the menu trigger is not rendered.
 
 ## 4. Pre-fill contract
 
@@ -92,14 +92,14 @@ output `asset_card_id`, so an existing card cannot be its line (`change-of-kind.
 ## 5. Extension (Opening, Count)
 
 The actions are one table, `CARD_ACTIONS` in `cardActions.ts`: `id`, document `kind`, label id, permission atom and a
-pure `rule(facts)`. The panel menu, the row menu and the button row render from it. Opening is one more entry plus its
+pure `rule(facts)`. The panel menu and the row menu render from it. Opening is one more entry plus its
 row in `cardPrefill.ts`; Count (another module's document) is an entry with an `href` builder instead of a `kind`.
 
 ## 6. No-typed-URL audit (owner walk `project/walkthrough-gates-cde.md`)
 
 | Walk step | Typed address today | Reachable after | Who |
 |---|---|---|---|
-| C2, C3 commission, change, hand over, write off | `/admin/assets/documents/new?kind=...` | Documents screen "New <kind>" (T-1875) and card Actions menu / buttons | T-1875 + this task |
+| C2, C3 commission, change, hand over, write off | `/admin/assets/documents/new?kind=...` | Documents screen "New <kind>" (T-1875) and card Actions menu | T-1875 + this task |
 | C4 change of kind | `.../documents/new?kind=kind_change` | Documents "New change of kind"; card screen button | T-1875 + this task |
 | E2 saved report | `/entities/assets_card/reports` | left menu Reports | T-1874 |
 | C7 groups switch | `/admin/groups` | menu Tenant administration, Groups | already |
@@ -109,3 +109,15 @@ row in `cardPrefill.ts`; Count (another module's document) is an entry with an `
 
 The runbooks (`docs/runbooks`, `docs/assets`) contain no typed `/admin/assets` address. Part 4 (audit fixes) has no
 open item.
+
+## Card tabs (T-1954)
+
+The card panel has two tabs under the header (`DetailTabs`, ids scoped per pane): **Main** (identity: number, name,
+kind, then the Holder block with org unit, location, responsible, user, quantity) and **Accounting** (acquisition date,
+currency, valid until, cost and depreciation fields, then the read-only depreciation block). A retired card shows the
+same split as read-only facts. One form spans both tabs, so one Save sends one PATCH; a refused Save or a server error
+on a field of the other tab switches to that tab and focuses the field. The chosen tab survives row clicks and Save and
+resets to Main when the panel closes. The create form has no tabs. The Actions menu and Retire stay in the card header.
+
+Documents of this card and History are not on the card yet: they need the part 3 backend reads (`asset` filter on
+`GET /documents` and on `GET /movements`).

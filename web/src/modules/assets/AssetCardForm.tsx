@@ -2,7 +2,7 @@
  *  new selection starts from its values. Kind is chosen on create and read-only afterwards (a change of kind is its
  *  own specification). The depreciation values are typed information: strings, checked against the strict decimal
  *  form, never converted to numbers. The server stays the authority. */
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
@@ -16,6 +16,7 @@ import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
 import { Select } from '@/components/ui/Select'
 import { useFocusFirstInvalid } from '@/components/ui/doc/useFocusFirstInvalid'
+import { DetailTabs } from '@/components/ui/listDetail'
 import type { EntityRecord } from '@/types/api'
 import type { CardBody } from './assets.api'
 import {
@@ -43,8 +44,21 @@ export type Write = ReturnType<typeof useAssetsWrite<Cmd>>
 
 export const unitName = (unit: EntityRecord) => textOf(unit, 'name') || textOf(unit, 'code')
 
+/** T-1954: the form spans two tabs, Main (identity) and Accounting (acquisition, depreciation). One form, one Save. */
+export interface CardFormTabs {
+  selected: string
+  onChange: (id: string) => void
+  /** aria-label of the tab list */
+  label: string
+  mainExtra?: ReactNode
+  accountingExtra?: ReactNode
+}
+
+const MAIN_FIELDS = ['inventory_number', 'name', 'kind']
+
 export function AssetCardForm(props: {
   record: EntityRecord | null
+  tabs?: CardFormTabs
   write: Write
   onDone: (result: AssetsWriteResult) => void
   onCancel: () => void
@@ -102,10 +116,25 @@ export function AssetCardForm(props: {
   const invalid = (name: string) => (fieldMarked(write.error, name) ? t('assets.common.fieldInvalid') : undefined)
   const decimalError_ = (key: (typeof DECIMAL_KEYS)[number]) => decimalProblem(key) ?? invalid(key)
 
+  // a server error on a field of the hidden tab: show that tab (Main is checked first, as in the DOM), then focus it
+  const tabsOnChange = props.tabs?.onChange
+  useEffect(() => {
+    if (!tabsOnChange || !write.error) return
+    const keys = [...MAIN_FIELDS, ...Object.keys(form).filter((k) => !MAIN_FIELDS.includes(k))]
+    const first = keys.find((k) => fieldMarked(write.error, k))
+    if (first === undefined) return
+    tabsOnChange(MAIN_FIELDS.includes(first) ? 'main' : 'accounting')
+    focusInvalid()
+    // only a new error triggers it, not every keystroke
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [write.error])
+
   async function save() {
     if (write.isPending) return
     if (!canSave) {
       setAttempted(true)
+      // an error on the hidden tab: show that tab first, the focus effect runs after the render
+      if (props.tabs) props.tabs.onChange(requiredFilled ? 'accounting' : 'main')
       focusInvalid()
       return
     }
@@ -122,15 +151,7 @@ export function AssetCardForm(props: {
     </Field>
   )
 
-  return (
-    <form
-      className="lf-form"
-      aria-label={isNew ? t('assets.page.createTitle') : form.name || form.inventory_number}
-      onSubmit={(e) => {
-        e.preventDefault()
-        void save()
-      }}
-    >
+  const identitySection = (
       <FormSection title={t('assets.section.identity')}>
         <FormRow>
           <Field label={t('assets.field.number')} width="m" mono error={required(form.inventory_number) ?? invalid('inventory_number')}>
@@ -159,6 +180,8 @@ export function AssetCardForm(props: {
           </p>
         )}
       </FormSection>
+  )
+  const acquisitionSection = (
       <FormSection title={t('assets.section.acquisition')}>
         <FormRow>
           <DateField
@@ -194,6 +217,8 @@ export function AssetCardForm(props: {
           </FormRow>
         )}
       </FormSection>
+  )
+  const depreciationSection = (
       <FormSection title={t('assets.section.depreciation')}>
         <p className="caption lf-faint">{t('assets.section.depHint')}</p>
         <FormRow>
@@ -228,6 +253,34 @@ export function AssetCardForm(props: {
           {decimalField('depreciation_rate', t('assets.field.depRate'))}
         </FormRow>
       </FormSection>
+  )
+
+  return (
+    <form
+      className="lf-form"
+      aria-label={isNew ? t('assets.page.createTitle') : form.name || form.inventory_number}
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+    >
+      {props.tabs ? (
+        <DetailTabs
+          aria-label={props.tabs.label}
+          selected={props.tabs.selected}
+          onChange={props.tabs.onChange}
+          tabs={[
+            { id: 'main', label: t('assets.tabs.main'), panel: <>{identitySection}{props.tabs.mainExtra}</> },
+            { id: 'accounting', label: t('assets.tabs.accounting'), panel: <>{acquisitionSection}{depreciationSection}{props.tabs.accountingExtra}</> },
+          ]}
+        />
+      ) : (
+        <>
+          {identitySection}
+          {acquisitionSection}
+          {depreciationSection}
+        </>
+      )}
       <FormActions
         dirty={dirty}
         saving={write.isPending}
