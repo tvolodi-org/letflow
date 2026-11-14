@@ -287,4 +287,46 @@ defmodule Letflow.Documents.FormPrintTest do
       assert a == b
     end
   end
+
+  describe "K9 PDF full cell grid (T-1972)" do
+    # Vertical rule: same x in both endpoints of a line segment — "0.5 w X Y1 m X Y2 l S".
+    # Horizontal rule: same y — "0.5 w X1 Y m X2 Y l S".  We detect vertical rules by
+    # backreference: the first coordinate (x) equals the third coordinate (also x).
+    @v_rule_re ~r/0\.5 w (-?\d+\.\d+) -?\d+\.\d+ m \1 -?\d+\.\d+ l S/
+
+    defp pdf_streams(bin) do
+      for [{s, l}, {ns, nl}, {ds, dl}] <-
+            Regex.scan(~r/(\d+) 0 obj\n<< ([^>]*)>>\nstream\n/, bin, return: :index) do
+        n = bin |> binary_part(ns, nl) |> String.to_integer()
+        [_, len] = Regex.run(~r/\/Length (\d+)/, binary_part(bin, ds, dl))
+        payload = binary_part(bin, s + l, String.to_integer(len))
+        {n, :zlib.uncompress(payload)}
+      end
+    end
+
+    defp has_vertical_rules?(pdf) do
+      all = pdf |> pdf_streams() |> Enum.map_join("\n", &elem(&1, 1))
+      Regex.match?(@v_rule_re, all)
+    end
+
+    test "z2 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z2", data(), "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z2 ru PDF: no vertical rules in content stream"
+    end
+
+    test "z1 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z1", %{}, "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z1 ru PDF: no vertical rules in content stream"
+    end
+
+    test "z3 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z3", %{}, "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z3 ru PDF: no vertical rules in content stream"
+    end
+
+    test "kk PDF also has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z2", data(), "kk", :pdf)
+      assert has_vertical_rules?(pdf), "z2 kk PDF: no vertical rules in content stream"
+    end
+  end
 end
