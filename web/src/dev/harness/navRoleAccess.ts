@@ -4,7 +4,7 @@
 import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
 export const MODULE_ATOMS_TENANT_ADMIN = [
-  'AssetsCardWrite', 'AssetsPost', 'AssetsRead', 'AssetsReconcile', 'AssetsReverse', 'CatalogLotsWrite', 'CodesRead', 'CodesWrite', 'CurrenciesManage',
+  'AssetsCardWrite', 'AssetsCountOrder', 'AssetsCountRecord', 'AssetsPost', 'AssetsRead', 'AssetsReconcile', 'AssetsReverse', 'CatalogLotsWrite', 'CodesRead', 'CodesWrite', 'CurrenciesManage',
   'DocumentHold', 'DocumentsRetentionManage', 'EntitiesExtensionsManage', 'EntitiesRecordsImportAnyType', 'EntitiesViewsManage', 'ExamGradingRead', 'ExamGradingWrite',
   'IntegrationMappingsManage', 'LabelsManage', 'LocationsWrite', 'NotificationTemplatesManage', 'NumberSequencesManage',
   'OrgEmployeesWrite', 'OrgStructureWrite', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
