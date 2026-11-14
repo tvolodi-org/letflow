@@ -42,7 +42,7 @@ defmodule Letflow.Modules.Assets.CountScanTest do
   end
 
   # An opened count of the given kinds over the roots `m.location` and `loc2`.
-  defp opened!(ctx, kinds \\ ["fixed", "low_value", "intangible"]) do
+  defp opened!(ctx, kinds) do
     input =
       F.input(
         ctx.sw.w,

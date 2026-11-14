@@ -73,7 +73,7 @@ defmodule Letflow.Modules.Assets.CountScanRouterTest do
     %{id: id, chair_tok: chair_tok, member_tok: member_tok, loc2: loc2}
   end
 
-  defp scan(ctx, c, text, tok \\ nil),
+  defp scan(_ctx, c, text, tok \\ nil),
     do: D.request(:post, "/counts/#{c.id}/scan", tok || c.member_tok, %{"text" => text})
 
   test "K3-RT1: a location, a number twice, unknown and out of scope, through the router", ctx do
