@@ -259,6 +259,8 @@ or an agent reads it).
 `problem_reports` in the platform company, the export `/maintenance/v1/problem-reports`, the PM handoff channel A (poll and
 forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web button and consent dialog follow in part B.
 
+Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; screenshots follow in part 2.
+
 ## 11. Open base or closed extra (requirement 10, note only)
 
 * Open base: the report button, the capture and consent, error grouping, the maintenance process definition, the owner
