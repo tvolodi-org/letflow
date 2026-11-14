@@ -41,7 +41,7 @@ defmodule Letflow.Modules.Assets.CountFreezeTest do
   end
 
   # An issued and opened count over the root `m.location`; returns the open answer.
-  defp open_count!(ctx, extra \\ %{}) do
+  defp open_count!(ctx, extra) do
     created =
       D.request(:post, "/counts", ctx.chair_tok, F.input(ctx.w, F.window(extra)))
       |> D.status!(201)
