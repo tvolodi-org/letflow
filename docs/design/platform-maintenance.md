@@ -245,7 +245,7 @@ Sizes: S = a few days, M = one to two weeks, for one developer with reviews.
 | 1 | Report row and route in the platform company; consent screen; capture of route, user, version, browser; server redaction | M | owner lines 1, 4 |
 | 2 | Client ring of last actions and request ids; error-boundary "Report this problem"; optional screenshot | S to M | slice 1, owner line 8 |
 | 3 | Server and web error capture with signature, grouping, throttle, alert | M | slice 1 |
-| 4 | Maintenance process definition, owner inbox with one-click decisions, user status in bell and mail | M | slices 1, 3 |
+| 4 | Part A: status column and backend owner decisions, own report list, bell/mail status (T-1949); process definition left out of the minimal slice. Owner inbox and reporter screens remain part B. | M | slices 1, 3 |
 | 5 | Routing table (owner/AI per class and company), audit of switches | S | slice 4 |
 | 6 | AI agent in shadow mode: read-only diagnostic view, closed action list, budget and cost cap, agreement rate | M | slice 5, owner lines 5, 7 |
 | 7 | AI live mode per class; "done by AI" list with undo | S | slice 6 and enough agreement |

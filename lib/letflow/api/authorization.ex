@@ -383,6 +383,7 @@ defmodule Letflow.Api.Authorization do
           | :MyPreferencesSet
           | :PlatformServicesManage
           | :ModuleRolloutsManage
+          | :ProblemReportsManage
           | :TenantSettingsManage
           | :PromotionsRead
           | :PromotionsManage
@@ -561,6 +562,8 @@ defmodule Letflow.Api.Authorization do
     :PlatformServicesManage,
     # RU-S6 (T-1594, decision 0055): the platform fleet driver. PLATFORM scope.
     :ModuleRolloutsManage,
+    # T-1949: owner inbox, PLATFORM scope.
+    :ProblemReportsManage,
     :TenantSettingsManage,
     :PromotionsRead,
     :PromotionsManage,
@@ -610,7 +613,12 @@ defmodule Letflow.Api.Authorization do
   # permission without a scope fails the suite. :MetricsRead is TENANT scope
   # (OQ-13, ratified: /health and /metrics routes are global-public and stay
   # outside the pin; only the permission atom is classified).
-  @platform_permissions [:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage]
+  @platform_permissions [
+    :TenantsManage,
+    :PlatformServicesManage,
+    :ModuleRolloutsManage,
+    :ProblemReportsManage
+  ]
 
   @permission_scope Map.new(
                       @permissions,
@@ -625,7 +633,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-three core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-four core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -659,6 +667,7 @@ defmodule Letflow.Api.Authorization do
   REQ-579's `:DocumentPrintTemplatesManage` (tenant print-template overrides under
   `/documents/print-overrides`) and REQ-596's `:SolutionOverridesManage` (tenant solution-pack
   overrides under `/solution-packs/:pack_id/overrides`), each TENANT_ADMIN through the derived rule,
+  plus T-1949's platform-scope `:ProblemReportsManage` (owner inbox),
   plus RU-S6's platform-scope `:ModuleRolloutsManage` (the fleet driver, PLATFORM_ADMIN only), plus
   roles stage 0 S0-1's `:EntitiesRecordsImportAnyType` (import of any entity type; TENANT_ADMIN through the
   derived rule; STOREKEEPER does not hold it), plus roles stage 0 S0-2's `:TasksWorkInScope` (scoped task
@@ -1521,7 +1530,15 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/me/notifications"), do: :MyAccessRead
   def endpoint_policy_key("POST", "/me/notifications/read"), do: :MyPreferencesSet
 
-  # T-1948: "Report a problem" (Letflow.Routers.Me); every role may report, same role-agnostic atom.
+  # T-1949: owner inbox; every route requires the platform-only atom.
+  def endpoint_policy_key("GET", "/platform-problem-reports"), do: :ProblemReportsManage
+  def endpoint_policy_key("GET", "/platform-problem-reports/:id"), do: :ProblemReportsManage
+
+  def endpoint_policy_key("POST", "/platform-problem-reports/:id/decision"),
+    do: :ProblemReportsManage
+
+  # T-1948/T-1949: own reports; role-agnostic self-service atoms.
+  def endpoint_policy_key("GET", "/me/problem-reports"), do: :MyAccessRead
   def endpoint_policy_key("POST", "/me/problem-reports"), do: :MyPreferencesSet
 
   # REQ-401 §4 — the Catalog-module route fallback. Every module route is
@@ -1703,6 +1720,7 @@ defmodule Letflow.Api.Authorization do
 
   def required_permission(:TenantsManage), do: :TenantsManage
   def required_permission(:ModuleRolloutsManage), do: :ModuleRolloutsManage
+  def required_permission(:ProblemReportsManage), do: :ProblemReportsManage
   # ISS-0993 identity clauses (policy-key name == permission name).
   def required_permission(:TenantSettingsManage), do: :TenantSettingsManage
   def required_permission(:PromotionsRead), do: :PromotionsRead

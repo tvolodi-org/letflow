@@ -17,8 +17,9 @@ defmodule Letflow.ProblemReports do
       data left the company.
     * D8: at most 10 reports per user per rolling hour (counted in the platform table).
 
-  The export (`list_after/3`) is the only reader of the table: it feeds the PM handoff
-  (`docs/runbooks/problem-report-handoff.md`). Nothing here logs the text, the context or a name.
+  The export (`list_after/3`) feeds the PM handoff; the owner inbox and `list_mine/2` read
+  status for the owner and the reporter respectively. Decisions are row-locked and audited without
+  text (D9); bell/mail status is best effort after commit (D10). Nothing logs text, context or names.
   """
 
   import Ecto.Query
@@ -148,6 +149,7 @@ defmodule Letflow.ProblemReports do
 
     case Repo.transaction(multi) do
       {:ok, %{report: stored}} ->
+        Letflow.ProblemReports.Status.notify(stored, :received)
         {:ok, %{id: stored.id, number: number(stored), received_at: stored.consented_at}}
 
       {:error, _step, _reason, _changes} ->
@@ -197,6 +199,42 @@ defmodule Letflow.ProblemReports do
       next_after = rows |> List.last() |> then(&if(&1, do: &1.seq, else: after_seq))
       {:ok, %{reports: Enum.map(rows, &export_map/1), next_after: next_after}}
     end
+  end
+
+  @doc "The reporter's newest 50 reports, filtering BOTH company and user ids from auth context."
+  def list_mine(tenant_id, user_id) do
+    with {:ok, prefix} <- platform_prefix() do
+      rows =
+        Repo.all(
+          from(r in Report,
+            where: r.reporter_tenant_id == ^tenant_id and r.reporter_user_id == ^user_id,
+            order_by: [desc: r.seq],
+            limit: 51
+          ),
+          prefix: prefix
+        )
+
+      {:ok,
+       %{"reports" => Enum.map(Enum.take(rows, 50), &own_map/1), "has_more" => length(rows) > 50}}
+    end
+  rescue
+    _ -> {:error, :internal}
+  end
+
+  defp own_map(r) do
+    question = r.status == "in_work" and r.last_action == "ask"
+
+    %{
+      "id" => r.id,
+      "number" => number(r),
+      "status" => r.status,
+      "question" => question,
+      "reply_text" =>
+        if(question or r.status in ~w(answered fixed not_done), do: r.reply_text, else: nil),
+      "text" => r.text,
+      "received_at" => r.consented_at,
+      "decided_at" => r.decided_at
+    }
   end
 
   defp export_map(%Report{} = report) do

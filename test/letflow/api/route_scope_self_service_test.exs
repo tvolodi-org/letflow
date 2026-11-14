@@ -45,6 +45,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     "PUT /me/preferences MyPreferencesSet",
     "GET /me/notifications MyAccessRead",
     "POST /me/notifications/read MyPreferencesSet",
+    "GET /me/problem-reports MyAccessRead",
     "POST /me/problem-reports MyPreferencesSet"
     | @filter_lines
   ]
@@ -435,6 +436,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    ruling: "SEC-T1561-notif-read"
                  },
                  %{
+                   route: "GET /me/problem-reports",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-T1949-report-list"
+                 },
+                 %{
                    route: "POST /me/problem-reports",
                    key: :MyPreferencesSet,
                    class: :self_service,
@@ -552,7 +559,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # The module rollback route (GH T-1549, decision 0055 D9) added one more (259 -> 260).
       # REQ-816 (GH #4375) added the six assets count lines (267 -> 273).
       # REQ-817 (GH #4374) added the eight assets count sheet lines (273 -> 281).
-      assert length(snapshot) == 281
+      assert length(snapshot) == 284
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 

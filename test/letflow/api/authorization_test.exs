@@ -80,6 +80,7 @@ defmodule Letflow.Api.AuthorizationTest do
       :EntitiesRestrictionsManage,
       :PlatformServicesManage,
       :ModuleRolloutsManage,
+      :ProblemReportsManage,
       :TenantSettingsManage,
       :PromotionsRead,
       :PromotionsManage,
@@ -512,7 +513,8 @@ defmodule Letflow.Api.AuthorizationTest do
           60 => "sixty",
           61 => "sixty-one",
           62 => "sixty-two",
-          63 => "sixty-three"
+          63 => "sixty-three",
+          64 => "sixty-four"
         }
         |> Map.get(actual_count)
 
@@ -1135,7 +1137,8 @@ defmodule Letflow.Api.AuthorizationTest do
           60 => "sixty",
           61 => "sixty-one",
           62 => "sixty-two",
-          63 => "sixty-three"
+          63 => "sixty-three",
+          64 => "sixty-four"
         }
         |> Map.get(actual_count)
 
@@ -1648,7 +1651,8 @@ defmodule Letflow.Api.AuthorizationTest do
           60 => "sixty",
           61 => "sixty-one",
           62 => "sixty-two",
-          63 => "sixty-three"
+          63 => "sixty-three",
+          64 => "sixty-four"
         }
         |> Map.get(actual_count)
 
@@ -2299,6 +2303,10 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/platform-migrations/rollouts/:id", :TenantsManage},
         {"POST", "/platform-migrations/rollouts/:id/resume", :TenantsManage},
         {"GET", "/platform-status/backup", :TenantsManage},
+        {"GET", "/platform-problem-reports", :ProblemReportsManage},
+        {"GET", "/platform-problem-reports/:id", :ProblemReportsManage},
+        {"POST", "/platform-problem-reports/:id/decision", :ProblemReportsManage},
+        {"GET", "/me/problem-reports", :MyAccessRead},
         {"POST", "/platform-module-rollouts", :ModuleRolloutsManage},
         {"GET", "/platform-module-rollouts", :ModuleRolloutsManage},
         {"GET", "/platform-module-rollouts/:id", :ModuleRolloutsManage},
@@ -2507,6 +2515,7 @@ defmodule Letflow.Api.AuthorizationTest do
                    # ISS-0993: appended core permissions
                    :PlatformServicesManage,
                    :ModuleRolloutsManage,
+                   :ProblemReportsManage,
                    :TenantSettingsManage,
                    :PromotionsRead,
                    :PromotionsManage,
