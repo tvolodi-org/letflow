@@ -143,7 +143,7 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await row.getByLabel('Quantity').fill('2')
   await choose(row.getByLabel('Location'), 'Showroom')
   await choose(row.getByLabel('Responsible'))
-  const received = row.getByLabel(/Received/)
+  const received = row.getByLabel(/Real receipt date/)
   await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
   await saveDocument(page)
   state.openingUrl = page.url()

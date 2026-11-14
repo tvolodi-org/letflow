@@ -157,7 +157,7 @@ test('P7 count order xlsx and pdf', async () => {
   await page.getByTestId('count-new').first().click()
   const form = page.getByTestId('count-order-form')
   await choose(form.getByLabel('Org unit'), 'Warehouse')
-  await form.getByLabel('Planned start').fill(localDateTime(1))
+  await form.getByLabel('Planned start').fill(localDateTime(-6)) // the server refuses to open a count before its planned start (count_not_due)
   await form.getByLabel('Planned end').fill(localDateTime(3))
   await choose(form.getByLabel('Chair of the commission'), 'Saule')
   await form.locator('fieldset', { hasText: 'Location roots' }).getByRole('checkbox', { name: /Central warehouse/ }).check()
