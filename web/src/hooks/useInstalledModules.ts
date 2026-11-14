@@ -6,14 +6,14 @@ import { meApi } from '@/api/me'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { useAuth } from '@/auth/AuthContext'
 
-export function useInstalledModules() {
+export function useInstalledModules({ enabled = true }: { enabled?: boolean } = {}) {
   const { isAuthenticated } = useAuth()
   const meKeys = useTenantScopedQueryKeys().me
 
   return useQuery({
     queryKey: meKeys.modules(),
     queryFn: () => meApi.listInstalledModules(),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && enabled,
     select: (data) => data.installed_modules,
   })
 }
