@@ -21,6 +21,7 @@ export function useCatalogItemsWrite<TBody>(call: (body: TBody, key: string) => 
   const [isPending, setPending] = useState(false)
   const pendingRef = useRef(false)
   const [error, setError] = useState<unknown>(null)
+  const lastId = useRef<string | null>(null)
 
   async function submit(body: TBody, target = ''): Promise<CatalogItemsWriteResult> {
     if (pendingRef.current) return 'error'
@@ -31,7 +32,9 @@ export function useCatalogItemsWrite<TBody>(call: (body: TBody, key: string) => 
     setPending(true)
     setError(null)
     try {
-      await call(body, key)
+      const answer = await call(body, key)
+      const rid = (answer as { record_id?: unknown } | null | undefined)?.record_id
+      lastId.current = typeof rid === 'string' ? rid : null
       attempt.current = null
       await queryClient.invalidateQueries({ queryKey: catalogItemsQueryKeys.all(tenantId) })
       return 'ok'
@@ -49,5 +52,5 @@ export function useCatalogItemsWrite<TBody>(call: (body: TBody, key: string) => 
     }
   }
 
-  return { submit, isPending, error, clearError: () => setError(null) }
+  return { submit, isPending, error, clearError: () => setError(null), lastId: () => lastId.current }
 }

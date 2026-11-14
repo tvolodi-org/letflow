@@ -17,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
-import { ListDetail } from '@/components/ui/listDetail'
+import { ListDetail, useListSelection } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -61,8 +61,9 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   const assetRows = useAssetRows({ kind, orgUnitId, showRetired }, search)
   const unitsQuery = useOrgUnitRows()
   const write = useAssetsWrite<Cmd>(run)
-  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
-  const [creating, setCreating] = useState(initialCreating ?? false)
+  const sel = useListSelection<true>(initialSelectedId ?? null, initialCreating ? true : null)
+  const { selectedId } = sel
+  const creating = sel.creating !== null
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
   const [chosen, setChosen] = useState<EntityRecord[]>([])
   const chosenFacts = useCardsFacts(chosen, chosen.length > 0 && can(ASSETS_POST))
@@ -93,19 +94,16 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
 
   function closePanel() {
     write.clearError()
-    setCreating(false)
-    setSelectedId(null)
+    sel.close()
   }
   function select(card: EntityRecord) {
     write.clearError()
-    setCreating(false)
-    setSelectedId(card.record_id)
+    sel.select(card.record_id)
     setPicked(card)
   }
   function startCreate() {
     write.clearError()
-    setSelectedId(null)
-    setCreating(true)
+    sel.startCreate()
   }
   function clearFilters() {
     setKind('')
@@ -116,11 +114,11 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   function formDone(result: AssetsWriteResult) {
     if (result === 'ok') {
       toast.success(t(creating ? 'assets.toast.created' : 'assets.toast.updated'))
-      closePanel()
+      // T-1946: create selects the new card, edit keeps the same card selected
+      sel.saved(creating ? { kind: 'create', id: write.lastId() } : { kind: 'edit' })
     } else if (result === 'notFound') {
       // the card is gone: close the panel but keep the error banner that says so
-      setCreating(false)
-      setSelectedId(null)
+      sel.close()
     }
   }
 
@@ -130,7 +128,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
     if (result !== 'error') {
       if (result === 'ok') {
         toast.success(t('assets.toast.retired'))
-        setSelectedId(null)
+        sel.saved({ kind: 'delete' })
       }
       setRetiring(null)
     }
