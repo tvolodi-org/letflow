@@ -23,6 +23,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # audit holds only ids, closed codes and run metadata).
   @audit_writers_mentioning_field_values [
     "letflow/modules/assets/cards.ex",
+    "letflow/modules/assets/counts.ex",
     "letflow/modules/assets/currency_migration.ex",
     "letflow/modules/catalog_items/import.ex",
     "letflow/modules/catalog_items/lots.ex",
