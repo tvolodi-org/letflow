@@ -10,6 +10,7 @@ import { referenceQueryKeys } from '@/lib/references/referenceQueryKeys'
 
 const STOCK_DOCUMENTS = '/api/v1/modules/stock/documents'
 const STOCK_COUNTS = '/api/v1/modules/stock/counts'
+const ASSET_DOCUMENTS = '/api/v1/modules/assets/documents'
 const CAP = 50
 
 export interface TaskDocLine {
@@ -18,11 +19,17 @@ export interface TaskDocLine {
   catalog_uom_id: string
   catalog_lot_id?: string | null
   quantity: string
+  /** Asset documents (assets_*): the line names a card, not a catalog item; the readable name, when the line has one. */
+  assetName?: string
+  assetId?: string
+  locationId?: string | null
 }
 
 /** The part of a stock document / count order the inbox shows. */
 export interface TaskDoc {
   type: 'document' | 'count'
+  /** `document_type` process variable (`stock_*`, `assets_*`); selects the kind word. */
+  typeKey?: string
   kind: string
   state: string
   number: string
@@ -70,6 +77,25 @@ function toDoc(type: 'document' | 'count', r: Raw): TaskDoc {
   }
 }
 
+/** An asset document (opening, commission, ...): the lines name asset cards. Same TaskDoc shape as a stock document. */
+function toAssetDoc(typeKey: string, r: Raw): TaskDoc {
+  const raw = Array.isArray(r['lines']) ? (r['lines'] as Raw[]) : []
+  const lines: TaskDocLine[] = raw.map((l, i) => {
+    const inv = s(l['inventory_number'])
+    const name = s(l['asset_name'])
+    return {
+      line_no: typeof l['line_no'] === 'number' ? (l['line_no'] as number) : i + 1,
+      catalog_item_id: '',
+      catalog_uom_id: '',
+      quantity: s(l['quantity']),
+      assetId: s(l['asset_id']),
+      assetName: [inv, name].filter((x) => x !== '').join(' ') || s(l['asset_id']),
+      locationId: sn(l['location_id']),
+    }
+  })
+  return { ...toDoc('document', r), typeKey, lines }
+}
+
 async function issuerOf(instanceId: string): Promise<string | null> {
   try {
     // Read by route: the instance history route, first event (the one that started the flow).
@@ -90,6 +116,7 @@ async function contextOf(instanceId: string): Promise<TaskContext> {
   let doc: TaskDoc | null = null
   try {
     if (orderId !== '') doc = toDoc('count', (await client.get<Raw>(`${STOCK_COUNTS}/${encodeURIComponent(orderId)}`)) ?? {})
+    else if (type.startsWith('assets_') && docId !== '') doc = toAssetDoc(type, (await client.get<Raw>(`${ASSET_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
     else if (type.startsWith('stock_') && docId !== '') doc = toDoc('document', (await client.get<Raw>(`${STOCK_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
   } catch {
     doc = null
