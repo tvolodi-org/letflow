@@ -65,6 +65,10 @@ const states = [
   ['writeoff-issued', 'write_off', 'issued'],
   ['issue-reversed', 'issue', 'reversed'],
   ['opening-posted', 'opening', 'posted'],
+  ['handover-issued', 'hand_over', 'issued'],
+  ['return-posted', 'return', 'posted'],
+  ['handover-reversed', 'hand_over', 'reversed'],
+  ['return-draft', 'return', 'draft'],
 ] as const
 export const stockPrintButtonsScreens: HarnessScreen[] = [
   ...states.map(([name, kind, state]) => {
@@ -74,9 +78,10 @@ export const stockPrintButtonsScreens: HarnessScreen[] = [
         return { status: 200, body: { items: MASTERS[b.entity_type ?? ''] ?? [], next_cursor: null } }
       } },
       { match: (p, m) => p === '/api/v1/modules/stock/documents/doc-transfer' && m === 'GET',
-        reply: () => ({ status: 200, body: { ...doc, kind, state, location_id: 'l1', responsible_id: 'e1', reason_code: 'damaged' } }) },
+        reply: () => ({ status: 200, body: { ...doc, kind, state, location_id: 'l1', responsible_id: 'e1', reason_code: 'damaged', ...(kind === 'return' ? { from_org_unit_id: 'u2' } : {}) } }) },
     ]
     return { name: `stock-print-${name}`, routes, initialPath: '/doc-transfer', routePattern: '/:id', render: () => withAuth(<DocumentPage />) }
   }),
+  { name: 'stock-print-z5-menu', routes: [], render: () => withAuth(<StockIntlProvider><OfficialFormMenu forms={['z5']} busyKey={null} onPick={() => undefined} initialOpen /></StockIntlProvider>) },
   { name: 'stock-print-issue-menu-kk', routes: [], render: () => withAuth(<StockIntlProvider><OfficialFormMenu forms={['z2']} busyKey={null} onPick={() => undefined} initialOpen /></StockIntlProvider>) },
 ]

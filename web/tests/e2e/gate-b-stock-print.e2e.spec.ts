@@ -136,14 +136,14 @@ for (const [step, kind, title, official] of [
   ['P2', 'Issue', 'Act of issue', 'z2'],
   ['P3', 'Write off', 'Act of write-off', 'z6'],
   ['P4', 'Transfer', 'Act of transfer', 'z5'],
-  ['P5', 'Hand over', 'Act of hand over', ''],
-  ['P6', 'Return', 'Act of return', ''],
+  ['P5', 'Hand over', 'Act of hand over', 'z5'],
+  ['P6', 'Return', 'Act of return', 'z5'],
 ]) {
   test(`${step} ${kind} print buttons`, async () => {
     test.setTimeout(120_000)
     const number = await createDocument(kind)
     await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print', title)
-    if (official) await formDownloads(official, official === 'z6' ? 'АКТ списания запасов' : undefined)
+    if (official) await formDownloads(official, official === 'z6' ? 'АКТ списания запасов' : official === 'z5' ? 'Накладная на внутреннее перемещение запасов' : undefined)
     else await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
     await cancelDocument(number)
   })

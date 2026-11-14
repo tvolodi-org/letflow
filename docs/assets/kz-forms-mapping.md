@@ -331,7 +331,7 @@ of section 2 with the owner question.
 | Form | Document | Fields we have | Fields missing | Owner question |
 |---|---|---|---|---|
 | Z-2 | issue | number, date, organisation name, BIN, responsible, item, unit, quantity | recipient, IIN, transport, TTN, "to release" quantity, price, VAT, sums, words, signers, power of attorney | Q1, Q3, Q4, Q5, Q7 to Q10 |
-| Z-5 | transfer (proposal: also hand over, return) | number, date, both units, responsible persons, item, unit, quantity | basis, "to release" quantity, price, sums, words, approver and checker | Q1, Q4, Q5, Q7, Q9, Q10, Q19 |
+| Z-5 | transfer, hand over, return (Q19 yes, T-1959) | number, date, both units, responsible persons, item, unit, quantity | basis, "to release" quantity, price, sums, words, approver and checker | Q1, Q4, Q5, Q7, Q9, Q10, Q19 |
 | Inv-18 | count differences sheet | number, dates, order, item, unit, surplus and shortage quantity, responsible person | sums, accounting corrections, regrading, accountant, IIN | Q1, Q4, Q5, Q6, Q15 |
 | Z-1 | receipt | number, date, supplier, accompanying document, items, quantity, price, sum, accepting employee | account, payment document, quantity by document versus accepted, mass, passport, card entry, "Сдал" | Q4, Q6, Q7, Q13 |
 | Z-3 | stock card (ledger read) | item, unit, lot, movements, balance | account, price, kind, sort, profile, size, control signature | Q5, Q6, Q13 |
@@ -423,11 +423,10 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
 
 ## 7. Z-3 and Z-5 on the print engine (E5c, T-1417)
 
-* **Built:** Z-5 (ru) / Q-5 (kk), annex 29, for an issued `transfer`: `GET /documents/:id/print?form=z5&format=pdf|docx&lang=ru|kk`
-  (permission `StockRead`; another kind answers 422 `print_not_available`; hand over and return keep the E1b act, open
-  question Q19). Z-3 (ru) / Q-3 (kk), annex 27, the stock card of one item at one place:
+* **Built:** Z-5 (ru) / Q-5 (kk), annex 29, for an issued `transfer`, `hand_over` or `return` (Q19 answered yes, T-1959): `GET /documents/:id/print?form=z5&format=pdf|docx&lang=ru|kk`
+  (permission `StockRead`; another kind answers 422 `print_not_available`). Z-3 (ru) / Q-3 (kk), annex 27, the stock card of one item at one place:
   `GET /modules/stock/stock-card/print?sku&location[&lot]&format=pdf|docx&lang=ru|kk` (permission `StockRead`).
-  Buttons: "Form Z-5" PDF/Word next to the print button of a transfer; "Stock card Z-3" PDF/Word on the balances screen,
+  Buttons: "Form Z-5" PDF/Word next to the print button of a transfer, hand over and return; "Stock card Z-3" PDF/Word on the balances screen,
   enabled once an item and a location are chosen. The English screen prints the Russian form (the forms exist in ru and kk).
   All new catalog entries are `kk_status: official` (kk text copied from the Adilet edition).
 * **Z-5 filled from Letflow:** organisation name and BIN of the sending unit's legal entity, number, date, sending and

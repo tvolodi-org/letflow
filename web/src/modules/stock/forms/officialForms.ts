@@ -39,7 +39,7 @@ export function officialFormLang(ui: string): OfficialFormLang {
 }
 
 /** Document forms share the act's issued, posted and reversed state policy. */
-const DOCUMENT_FORM_OF: Partial<Record<string, DocumentFormId>> = { receipt: 'z1', issue: 'z2', transfer: 'z5', write_off: 'z6' }
+const DOCUMENT_FORM_OF: Partial<Record<string, DocumentFormId>> = { receipt: 'z1', issue: 'z2', transfer: 'z5', hand_over: 'z5', return: 'z5', write_off: 'z6' }
 export function formsForDocument(doc: { kind: string; state: string }): DocumentFormId[] {
   const form = DOCUMENT_FORM_OF[doc.kind]
   return form && documentPrintable(doc) ? [form] : []

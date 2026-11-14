@@ -934,6 +934,7 @@
 21 test/letflow/modules/org/router_test.exs 50041.56
 21 test/letflow/modules/runtime_demo/separation_test.exs 18.32
 21 test/letflow/modules/stock/form_z5_router_test.exs 27329.07
+21 test/letflow/modules/stock/form_z5_test.exs 0.5
 21 test/letflow/modules/stock/ledger_policy_test.exs 96.55
 21 test/letflow/modules/stock/master_checks_test.exs 32336.30
 21 test/letflow/modules/stock/opening_posting_test.exs 127545.22
