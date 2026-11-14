@@ -34,7 +34,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
   | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1&format=pdf\|docx&lang=ru\|kk` (T-1921) `FormDa1.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1\|da4&format=pdf\|docx&lang=ru\|kk` (T-1921, T-1922) `FormDa1.data/3`, `FormDa4.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
@@ -107,6 +107,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.FormDa1
+  alias Letflow.Modules.Assets.FormDa4
   alias Letflow.Modules.Assets.DocumentPrint
   alias Letflow.Modules.Assets.DocumentPrintSource
   alias Letflow.Modules.Assets.Views
@@ -516,9 +517,13 @@ defmodule Letflow.Modules.Assets.Router do
   end
 
   # T-1921: the official forms printed from an asset document: kinds it may print, mapper, file suffix.
-  @document_forms %{"da1" => {["commission", "handover"], &FormDa1.data/3, "_DA-1"}}
+  # T-1922: ДА-4 / ҰМА-4 for a change of responsible and a hand over.
+  @document_forms %{
+    "da1" => {["commission", "handover"], &FormDa1.data/3, "_DA-1"},
+    "da4" => {["change", "handover"], &FormDa4.data/3, "_DA-4"}
+  }
 
-  # `?form=da1&format=pdf|docx&lang=ru|kk`: official form ДА-1 / ҰМА-1 of an issued commission or hand over.
+  # `?form=da1&format=pdf|docx&lang=ru|kk`: official form ДА-1 / ҰМА-1 or ДА-4 / ҰМА-4.
   # The query is validated before the read, so an unknown and a foreign id answer alike (INV-5).
   defp print_form(conn, prefix, query) do
     with {:ok, form} <- form_param(query["form"]),
@@ -557,7 +562,7 @@ defmodule Letflow.Modules.Assets.Router do
 
   defp form_failure(conn, _internal), do: Response.internal_error(conn)
 
-  defp form_param(form) when form in ["da1"], do: {:ok, form}
+  defp form_param(form) when form in ["da1", "da4"], do: {:ok, form}
   defp form_param(_), do: {:invalid, "invalid_form"}
 
   defp form_format(nil), do: {:ok, :pdf}

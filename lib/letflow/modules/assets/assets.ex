@@ -77,7 +77,8 @@ defmodule Letflow.Modules.Assets do
   or write-off, from the ISSUED version (`DocumentPrint`, `DocumentPrintSource`). Code and route only, no definition or
   pack change (class A). T-1921: the same route with `form=da1&format=pdf|docx&lang=ru|kk` answers the official form
   ДА-1 / ҰМА-1 (annex 16) of an issued commission or hand over (`FormDa1`, `priv/print_forms/da1.json`); code only, no
-  version bump; the other official forms are later slices.
+  version bump. T-1922: `form=da4` answers ДА-4 / ҰМА-4 (annex 19, `FormDa4`) of an issued change or hand over;
+  the other official forms are later slices.
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be

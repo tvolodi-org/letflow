@@ -5,12 +5,17 @@ import { ASSET_FORM_SUFFIX, assetFormLang, formsForAssetDocument } from '../docu
 describe('W1 formsForAssetDocument', () => {
   it.each([
     ['commission', 'issued'], ['commission', 'posted'], ['commission', 'reversed'],
-    ['handover', 'issued'], ['handover', 'posted'], ['handover', 'reversed'],
   ])('%s in %s offers DA-1', (kind, state) => {
     expect(formsForAssetDocument({ kind, state })).toEqual(['da1'])
   })
+  it.each([['handover', 'issued'], ['handover', 'posted'], ['handover', 'reversed']])('%s in %s offers DA-1 and DA-4', (kind, state) => {
+    expect(formsForAssetDocument({ kind, state })).toEqual(['da1', 'da4'])
+  })
+  it.each([['change', 'issued'], ['change', 'posted'], ['change', 'reversed']])('%s in %s offers DA-4 only', (kind, state) => {
+    expect(formsForAssetDocument({ kind, state })).toEqual(['da4'])
+  })
   it.each([
-    ['change', 'posted'], ['writeoff', 'issued'], ['kind_change', 'posted'], ['opening', 'posted'],
+    ['change', 'draft'], ['change', 'cancelled'], ['writeoff', 'issued'], ['kind_change', 'posted'], ['opening', 'posted'],
     ['commission', 'draft'], ['commission', 'cancelled'], ['handover', 'draft'],
   ])('%s in %s offers nothing', (kind, state) => {
     expect(formsForAssetDocument({ kind, state })).toEqual([])
@@ -20,7 +25,8 @@ describe('W1 formsForAssetDocument', () => {
     expect(assetFormLang('en')).toBe('ru')
     expect(assetFormLang('ru')).toBe('ru')
   })
-  it('the fallback file name suffix is _DA-1', () => {
+  it('the fallback file name suffixes', () => {
     expect(ASSET_FORM_SUFFIX.da1).toBe('_DA-1')
+    expect(ASSET_FORM_SUFFIX.da4).toBe('_DA-4')
   })
 })

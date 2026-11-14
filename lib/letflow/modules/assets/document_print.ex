@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Assets.DocumentPrint do
   prints as empty text, never as a raw id.
 
   Not an official form: the Russian and Kazakh wording is a machine draft for the native check
-  (UAT); the official forms (ДА-1, ДА-4, ДА-3, ДА-2) are later slices.
+  (UAT); ДА-1 and ДА-4 are built (T-1921, T-1922), ДА-3 and ДА-2 are later slices.
   """
 
   alias Letflow.Documents.PrintLayout

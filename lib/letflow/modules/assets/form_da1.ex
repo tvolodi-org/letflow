@@ -120,17 +120,19 @@ defmodule Letflow.Modules.Assets.FormDa1 do
 
   defp as_of_ok?(_, _), do: false
 
-  defp date(value) when is_binary(value) do
+  @doc false
+  def date(value) when is_binary(value) do
     case Regex.run(~r/\A(\d{4})-(\d{2})-(\d{2})/, value) do
       [_, y, m, d] -> "#{d}.#{m}.#{y}"
       _ -> value
     end
   end
 
-  defp date(_), do: ""
+  def date(_), do: ""
 
   # The local calendar date of the act's event instant (the tenant zone offset is in `names`).
-  defp local_date(value, names) do
+  @doc false
+  def local_date(value, names) do
     with {:ok, dt} <- instant(value),
          offset = names |> Map.get(:offsets, %{}) |> Map.get(:event_time, 0) do
       dt |> DateTime.add(offset, :second) |> DateTime.to_date()
@@ -151,25 +153,28 @@ defmodule Letflow.Modules.Assets.FormDa1 do
   defp instant(_), do: :error
 
   # `{position, full_name}` of an employee id; `{"", ""}` for an unknown id.
-  defp person(names, id) when is_binary(id) do
+  @doc false
+  def person(names, id) when is_binary(id) do
     case names |> Map.get(:employees, %{}) |> Map.get(id) do
       %{} = e -> {text(names |> Map.get(:positions, %{}) |> Map.get(id)), text(e[:full_name])}
       _ -> {"", ""}
     end
   end
 
-  defp person(_names, _id), do: {"", ""}
+  def person(_names, _id), do: {"", ""}
 
-  defp lookup(names, group, id) when is_binary(id) do
+  @doc false
+  def lookup(names, group, id) when is_binary(id) do
     case names |> Map.get(group, %{}) |> Map.get(id) do
       %{} = m -> m
       _ -> %{}
     end
   end
 
-  defp lookup(_names, _group, _id), do: %{}
+  def lookup(_names, _group, _id), do: %{}
 
-  defp text(v), do: DocumentPrint.text(v)
+  @doc false
+  def text(v), do: DocumentPrint.text(v)
 
   defp map(%{} = m), do: m
   defp map(_), do: %{}
