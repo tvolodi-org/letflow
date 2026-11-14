@@ -100,6 +100,17 @@ It opens exactly `GET /maintenance/v1/problem-reports?after=<seq>&limit=<1..100>
 route, no tenant parameter, no user route. A user or API token means nothing there (401). The route is rate
 limited (60 a minute) and answers `no-store`.
 
+## The owner-list credential (T-1963, part A)
+
+A second, **write** credential serves the owner list in the platform company: `LETFLOW_OWNER_LIST_SHA256`
+(SHA-256 of its token, 64 lowercase hex, never equal to the export hash: boot stops if they match). It opens
+`POST /maintenance/v1/owner-list/import` only (the JSON of the lab list, `format: "letflow-owner-list"`),
+is rate limited in a class of its own, and answers 404 while the variable is unset. Generate and store it like
+the export token (its own mode-600 file, only the hash in the environment). The export token is refused there
+and this token is refused on the export mount. The import is idempotent per `O-nnn` and all-or-nothing per
+request; a request whose body is over 45 MB answers 413 (use `--ids` of the lab export to split it). The full
+operator procedure (export, QA run, retiring the lab panel) is part D of T-1963.
+
 ## Never into a GitHub issue
 
 A report text, a name or a captured fact **never goes into a GitHub issue** or any public place. If a

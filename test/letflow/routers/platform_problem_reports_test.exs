@@ -49,7 +49,7 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
     assert summary["id"] == two["id"]
 
     assert Enum.sort(Map.keys(summary)) ==
-             ~w(decided_at id last_action number received_at reporter status text_preview)
+             ~w(class decided_at id last_action number received_at reporter status text_preview)
 
     before = json(conn)["next_before"]
     page = json(request(ctx.p, ctx.owner, :get, @path <> "?before=#{before}&limit=1"))
@@ -60,7 +60,7 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
     assert detail["reporter"]["tenant_name"] == ctx.a.tenant.display_name
 
     assert Enum.sort(Map.keys(detail)) ==
-             ~w(context decided_at decided_by_user_id dev_summary id last_action number received_at reply_text reporter server_version status text trace_id)
+             ~w(class context decided_at decided_by_user_id dev_summary id last_action number received_at reply_text reporter server_version status text trace_id)
 
     assert Enum.sort(Map.keys(detail["reporter"])) ==
              ~w(name permissions roles tenant_id tenant_name user_id)
