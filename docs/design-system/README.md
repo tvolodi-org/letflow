@@ -70,3 +70,9 @@ Contrast, dialog focus, reduced motion, headings and landmarks: [accessibility.m
 One shell for every list + record screen: `ListDetail` (divider, collapse, remembered size, Back under 900 px, Escape).
 The old `MasterDetail`, `masterDetailBack` and the hand-written `lf-md` rules are gone (slice 6, T-1892), and the guard's
 ratchet list is empty. The decision and the slice plan: [master-detail-verdict.md](master-detail-verdict.md).
+
+## Owner review checklist
+
+Every finding the owner made in his reviews, each with the lesson added (a rule, a checklist line or a guard test),
+how a reviewer checks it at 1440 and 390 px, and the guard tests still missing. Every design gate and GUI review checks
+the whole list: [owner-review-checklist.md](owner-review-checklist.md) (D-145).
