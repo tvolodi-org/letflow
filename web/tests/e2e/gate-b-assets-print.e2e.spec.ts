@@ -95,6 +95,8 @@ test('E1 a card, a commission started from it, issued', async ({}, testInfo) => 
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Org unit/).first(), 'Warehouse team')
+  // Location is required by the backend for fixed-kind cards (location_required check in Documents.Checks).
+  await choose(form.getByLabel(/^Location/).first(), 'Central')
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
   await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()

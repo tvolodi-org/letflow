@@ -52,7 +52,8 @@ async function cancelDocument(number: string) {
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Reason text').fill(`e2e ${ENV.runTag}`)
   await dialog.getByRole('button', { name: 'Cancel document', exact: true }).click()
-  await expect(page.getByTestId('document-header')).toContainText('Cancelled')
+  // 'Cancelled' appears in the status pill inside .lf-doc__bar, not in the document-header DL.
+  await expect(page.locator('.lf-doc__bar')).toContainText('Cancelled', { timeout: 10_000 })
   await expect(page.getByTestId('document-print')).toHaveCount(0)
   await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
   pending.delete(number)
