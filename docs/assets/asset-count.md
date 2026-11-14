@@ -1,6 +1,6 @@
 # Fixed asset count (Inv-8, annex 39): specification
 
-Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) are built, K3 to K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4); and an order with `freeze_locations` is refused at open (`freeze_not_available`) until K5 builds the freeze. Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
+Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0), K5 (freeze, REQ-820, T-1929, assets 0.24.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) are built, K3, K4, K6 and K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4). Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
 with this file) are the build slices. Written by the business analyst (task T-1844, 2026-11-13). Test tenant only;
 behind a per-tenant flag that is off by default. Nothing here touches production, demo, secrets, DNS, money or the
 MES work (`docs/design/mes`).
@@ -28,7 +28,7 @@ count design so no new owner question is needed; **[A]** UAT assumption, to be c
   `count_posting.ex`, `freeze_state.ex` and `freeze_guard.ex` (freeze of the counted locations, limit setting
   `count_freeze_limit_minutes`, default 120), `count_print.ex` (PDF in ru, kk, en), `form_count_inv10.ex` with
   `lib/letflow/documents/form_print.ex` (official forms, ru and kk only, `priv/print_forms/*.json`).
-- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.23.0; ledger `assets` with the slots
+- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.24.0; ledger `assets` with the slots
   asset, org_unit, location, material_responsible, actual_user; causes commission, change, handover, writeoff,
   kind_change_in; permissions AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile with no role
   grants; settings currency, expiry_reminder_lead_days, storekeeper_grants), `cards.ex` (the card has no location,
@@ -140,6 +140,17 @@ asset document whose side falls in the frozen scope (org unit and location subtr
 is refused `count_in_progress`. The check runs in the asset module's issue checks. The asset ledger is separate from
 the stock ledger; **no shared-ledger or stock-policy change is needed** (the ledger core has no count vocabulary, 0079
 section 4).
+
+Built (K5, T-1929, assets 0.24.0): `CountSheet.open/3` of a freeze order takes the asset issue lock between the
+order lock and `Ledger.hold_exclusive!`, and stores `freeze_started_at` (the cut-off), `freeze_until` (cut-off plus
+`count_freeze_limit_minutes`, fixed at open), `freeze_whole_unit` and `freeze_location_ids` (roots and all their
+sub-locations at the cut-off; at most 5000, else `count_too_large`). `Documents.issue/4` then refuses, inside the
+issue lock and before a number is taken, a document with a side in the frozen scope: `422 count_in_progress` with
+`held_by` (the order number). Drafts are never refused. The freeze ends when the order is `cancelled` or `signed` or
+the limit runs out. The order view shows `freeze_state`, `freeze_started_at`, `freeze_until`. The freeze does not read
+`count_enabled`: switching the flag off does not end a running freeze, the limit does. Known gap: a document issued
+before the cut-off whose posting completes during the freeze is not refused (it needs a posting guard on the ledger,
+a ledger-policy change); the book read stays exact because the hold and `cutoff_seq` leave later postings out.
 
 ## 7. Print [D]
 

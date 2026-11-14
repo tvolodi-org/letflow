@@ -1,7 +1,7 @@
 {
   "name": "assets_count_order",
   "display_name": "Asset count order",
-  "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. K2 (REQ-817) added the optional fields cut_off_at, cutoff_seq, opened_by (open), sheet_document_id, sheet_number, closed_at, closed_by (close) and sheet_signed_at, sheet_signed_by (sheet marks); later slices K3 to K5 add more optional fields (class A, optional_field_added).",
+  "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. K2 (REQ-817) added the optional fields cut_off_at, cutoff_seq, opened_by (open), sheet_document_id, sheet_number, closed_at, closed_by (close) and sheet_signed_at, sheet_signed_by (sheet marks); later slices K3 to K5 add more optional fields (class A, optional_field_added). K5 (REQ-820) added the freeze fields: freeze_started_at, freeze_until, freeze_whole_unit, freeze_location_ids (set at open of a freeze order).",
   "fields": [
     {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
     {"name": "kinds", "type": "json", "required": true},
@@ -11,6 +11,10 @@
     {"name": "note", "type": "string"},
     {"name": "status", "type": "enum", "required": true, "queried": true, "enum_values": ["draft", "ordered", "counting", "counted", "sheet_signed", "signed", "cancelled"]},
     {"name": "freeze_locations", "type": "boolean"},
+    {"name": "freeze_started_at", "type": "datetime"},
+    {"name": "freeze_until", "type": "datetime"},
+    {"name": "freeze_whole_unit", "type": "boolean"},
+    {"name": "freeze_location_ids", "type": "json"},
     {"name": "document_id", "type": "string"},
     {"name": "number", "type": "string", "queried": true},
     {"name": "issued_at", "type": "datetime"},

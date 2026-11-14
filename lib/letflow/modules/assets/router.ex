@@ -58,7 +58,7 @@ defmodule Letflow.Modules.Assets.Router do
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
   `posting_inconsistent`, `definition_not_active`, `register_unreadable` (an opening needs a tenant-wide ledger read); 503 `busy`; 422 with a fixed `reason` (and only the
-  extension keys `field` / `line_no`) for shape, master and reason refusals; 500 without detail. The
+  extension keys `field` / `line_no`, and `held_by` for `count_in_progress`, the issue refused by an active count freeze, K5) for shape, master and reason refusals; 500 without detail. The
   tenant is `Access.check/2`'s prefix only, never a path or body key (INV-1, INV-10).
 
   After the permission check every handler asks `Letflow.Modules.Assets.Access.check/1`: only an

@@ -65,6 +65,7 @@ defmodule Letflow.Modules.Assets.Documents do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Assets
+  alias Letflow.Modules.Assets.CountFreeze
   alias Letflow.Modules.Assets.Documents.CardMoves
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Kinds
@@ -356,6 +357,11 @@ defmodule Letflow.Modules.Assets.Documents do
         {:error, reason} -> Repo.rollback(reason)
       end
 
+      case CountFreeze.check(prefix, view, now()) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
       if Kinds.get(view.kind).posts? do
         case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
           :ok -> :ok
@@ -370,7 +376,13 @@ defmodule Letflow.Modules.Assets.Documents do
     end)
   end
 
-  defp lock_issue!(prefix) do
+  @doc """
+  Takes the per-tenant asset issue advisory lock (transaction scoped). Used by `issue/4` and by
+  `CountSheet.open/3` of a freeze order (K5), which takes it after the order lock and before the
+  ledger hold; the issue path never takes either of those, so the order cannot cycle.
+  """
+  @spec lock_issue!(String.t()) :: :ok
+  def lock_issue!(prefix) do
     case Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
            "assets_commission_issue:" <> prefix
          ]) do
