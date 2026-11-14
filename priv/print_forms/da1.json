@@ -1,0 +1,69 @@
+{
+  "form_layout_version": 1,
+  "form": "da1",
+  "annex": 16,
+  "blocks": [
+    {"type": "text", "label": "da1.annex"},
+    {"type": "text", "label": "da1.form_code"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "field", "label": "da1.sender", "key": "sender_name"},
+    {"type": "field", "label": "z2.receiver", "key": "receiver_name"},
+    {"type": "signature", "label": "da1.approve_sender", "key": "approver_sender", "parts": ["position", "signature", "name"], "stamp": "da1.mp"},
+    {"type": "text", "label": "da1.approve_date"},
+    {"type": "signature", "label": "da1.approve_receiver", "key": "approver_receiver", "parts": ["position", "signature", "name"], "stamp": "da1.mp"},
+    {"type": "text", "label": "da1.approve_date"},
+    {"type": "title", "label": "da1.title"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "columns": [
+        {"key": "b_name", "label": "da1.doc_name", "group": "da1.basis"},
+        {"key": "b_no", "label": "z2.number", "group": "da1.basis"},
+        {"key": "b_date", "label": "da1.doc_date", "group": "da1.basis"},
+        {"key": "mol", "label": "da1.c4"},
+        {"key": "name", "label": "da1.c5"},
+        {"key": "acquired", "label": "da1.c6"},
+        {"key": "cost", "label": "da1.c7"}
+      ]
+    },
+    {"type": "text", "label": "da1.page2"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "columns": [
+        {"key": "depr_life", "label": "da1.c8", "no": 8},
+        {"key": "depr", "label": "da1.c9", "no": 9},
+        {"key": "book", "label": "da1.c10", "no": 10},
+        {"key": "inv", "label": "da1.c11", "group": "da1.number", "no": 11},
+        {"key": "factory", "label": "da1.c12", "group": "da1.number", "no": 12},
+        {"key": "debit", "label": "da1.account", "group": "da1.debit", "no": 13},
+        {"key": "credit", "label": "da1.account", "group": "da1.credit", "no": 14},
+        {"key": "passport", "label": "da1.c15", "no": 15},
+        {"key": "sale", "label": "da1.c16", "no": 16}
+      ]
+    },
+    {"type": "text", "label": "da1.inspection"},
+    {"type": "field", "label": "da1.location", "key": "location"},
+    {"type": "field", "label": "da1.basis_move", "key": "basis"},
+    {"type": "field", "label": "da1.brief", "key": "brief"},
+    {"type": "field", "label": "da1.precious", "key": "precious"},
+    {"type": "field", "label": "da1.conform", "key": "conform"},
+    {"type": "field", "label": "da1.rework", "key": "rework"},
+    {"type": "field", "label": "da1.tests", "key": "tests"},
+    {"type": "field", "label": "da1.conclusion", "key": "conclusion"},
+    {"type": "field", "label": "da1.docs", "key": "docs"},
+    {"type": "signature", "label": "inv10.chair", "key": "chair", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "inv10.members", "key": "member1", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "inv10.members", "key": "member2", "parts": ["position", "signature", "name"]},
+    {"type": "text", "label": "da1.page3"},
+    {"type": "text", "label": "da1.asset"},
+    {"type": "signature", "label": "z1.handed_by", "key": "handed", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z1.accepted_by", "key": "accepted", "parts": ["position", "signature", "name"]},
+    {"type": "proxy", "label": "z2.proxy"},
+    {"type": "signature", "label": "da1.custody", "key": "custody", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "da1.acc_out", "key": "acc_out", "parts": ["signature", "name"]},
+    {"type": "signature", "label": "da1.acc_open", "key": "acc_open", "parts": ["signature", "name"]},
+    {"type": "text", "label": "da1.note1"},
+    {"type": "text", "label": "da1.note2"}
+  ]
+}

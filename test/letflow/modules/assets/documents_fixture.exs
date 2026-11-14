@@ -53,13 +53,13 @@ defmodule Letflow.AssetsDocsFixture do
   end
 
   @doc "A live org unit (no staff) in `schema`; returns its record id."
-  def unit!(schema) do
+  def unit!(schema, le_name \\ "LE") do
     n = System.unique_integer([:positive])
 
     {:ok, le} =
       Org.create_legal_entity(
         schema,
-        %{"code" => "LE#{n}", "name" => "LE", "bin" => String.pad_leading("#{n}", 12, "5")},
+        %{"code" => "LE#{n}", "name" => le_name, "bin" => String.pad_leading("#{n}", 12, "5")},
         opts()
       )
 
@@ -381,8 +381,8 @@ defmodule Letflow.AssetsDocsFixture do
   end
 
   @doc "A second place in `schema`: unit, linked location, one employee."
-  def place!(schema) do
-    unit = unit!(schema)
+  def place!(schema, le_name \\ "LE") do
+    unit = unit!(schema, le_name)
     %{unit: unit, location: location!(schema, unit), employee: employee!(schema, unit)}
   end
 

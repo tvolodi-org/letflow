@@ -14,19 +14,36 @@ let page: Page
 let number = ''
 const inventoryNumber = `E2E-${ENV.runTag}`
 
-async function download(click: () => Promise<void>) {
+type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string }
+const PLAIN: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print(?!.*form=)/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
+const FORM_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
+const FORM_DOCX: Kind = {
+  url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=docx/,
+  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK',
+}
+
+/** Clicks, waits for the print response and the browser download, checks status, type, name and magic bytes; the
+ *  returned text is the PDF's text items (a .docx has no text reader here: its bytes are checked only). */
+async function download(click: () => Promise<void>, kind: Kind = PLAIN) {
   const [response, file] = await Promise.all([
-    page.waitForResponse(r => /\/modules\/assets\/documents\/[^/]+\/print/.test(r.url())),
+    page.waitForResponse(r => kind.url.test(r.url())),
     page.waitForEvent('download'), click(),
   ])
   expect(response.status()).toBe(200)
-  expect(response.headers()['content-type']).toContain('application/pdf')
-  expect(file.suggestedFilename()).toMatch(/\.pdf$/)
+  expect(response.headers()['content-type']).toContain(kind.type)
+  expect(file.suggestedFilename()).toMatch(kind.ext === 'pdf' && kind !== PLAIN ? /_DA-1\.pdf$/ : kind.ext === 'docx' ? /_DA-1\.docx$/ : /\.pdf$/)
   const path = await file.path()
   expect(path).toBeTruthy()
   const bytes = readFileSync(path!)
-  expect(bytes.subarray(0, 4).toString()).toBe('%PDF')
-  return pdfTextItems(bytes).join('\n')
+  expect(bytes.subarray(0, kind.magic.length).toString()).toBe(kind.magic)
+  return kind.ext === 'pdf' ? pdfTextItems(bytes).join('\n') : ''
+}
+/** The "Official form" menu entry (no typed URL): open the menu, click the item. */
+async function pickForm(item: 'form-da1-pdf' | 'form-da1-docx', kind: Kind) {
+  return download(async () => {
+    await page.getByTestId('official-form-menu').click()
+    await page.getByTestId(item).click()
+  }, kind)
 }
 async function reopen() {
   await openRoute(page, '/admin/assets/documents')
@@ -92,4 +109,22 @@ test('E5 a draft has no print button', async () => {
   await openRoute(page, '/admin/assets/documents/new?kind=writeoff')
   await expect(page.getByTestId('document-form')).toBeVisible()
   await expect(page.getByTestId('document-print')).toHaveCount(0)
+  await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
+})
+
+test('E6 the official form DA-1 is reached through the menu: PDF with the ru title and the card, then .docx', async () => {
+  await reopen()
+  const text = await pickForm('form-da1-pdf', FORM_PDF)
+  expect(text).toContain('АКТ ПРИЕМКИ - ПЕРЕДАЧИ ДОЛГОСРОЧНЫХ АКТИВОВ')
+  expect(text).toContain(inventoryNumber)
+  await reopen()
+  await pickForm('form-da1-docx', FORM_DOCX)
+})
+
+test('E7 in the Kazakh UI the form is printed in Kazakh', async () => {
+  await setPrefs(page, { lang: 'kk' })
+  await reopen()
+  const text = await pickForm('form-da1-pdf', FORM_PDF)
+  expect(text).toContain('ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ҚАБЫЛДАП АЛУ-БЕРУ АКТІСІ')
+  await setPrefs(page, { lang: 'en' })
 })

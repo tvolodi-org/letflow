@@ -11,6 +11,12 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
   Name reads are one indexed read per distinct id (a document has at most 100 lines). A time zone
   offset is one bound-parameter statement per instant (INV-7).
 
+  `read/4` (T-1921, official form ДА-1) takes two options: `kinds:` (default the act kinds; the form
+  reads only commission and hand over) and `form: true`, which adds `names.legal_entities` (name and
+  BIN of the legal entity of the header `org_unit_id` and `to_org_unit_id`, keyed by the unit id),
+  `names.positions` (employee id => position name) and the money fields of each card. Plain act
+  reads do not change.
+
   The small zone, offset and issued-version reads are copies of the stock count paperwork ones:
   `core-extraction-design.md` section 2 says "down, never sideways", so assets does not call
   `Letflow.Modules.Stock.*`; moving them into the core is a follow-up slice.
@@ -33,28 +39,42 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
   @kinds DocumentPrint.kinds()
   @issued_states ["issued", "posted", "reversed"]
 
-  @spec read(String.t(), term(), term()) ::
+  @spec read(String.t(), term(), term(), keyword()) ::
           {:ok, %{issued: map(), names: map()}}
           | {:error, :not_found | :print_not_available | :document_not_issued}
-  def read(prefix, id, tenant_id) when is_binary(prefix) do
+  def read(prefix, id, tenant_id, opts \\ []) when is_binary(prefix) do
+    kinds = Keyword.get(opts, :kinds, @kinds)
+    form? = opts[:form] == true
+
     with {:ok, view} <- Documents.fetch(prefix, id),
-         :ok <- check_kind(view.kind),
+         :ok <- check_kind(view.kind, kinds),
          :ok <- check_state(view.state),
-         {:ok, issued} <- issued(prefix, view.id) do
-      {:ok, %{issued: issued, names: names(prefix, issued, tenant_id)}}
+         {:ok, issued} <- issued(prefix, view.id, kinds) do
+      names = names(prefix, issued, tenant_id, form?)
+
+      names =
+        if form?,
+          do:
+            Map.merge(names, %{
+              legal_entities: legal_entities(prefix, issued),
+              positions: positions(prefix, names.employees)
+            }),
+          else: names
+
+      {:ok, %{issued: issued, names: names}}
     end
   end
 
-  defp check_kind(kind) when kind in @kinds, do: :ok
-  defp check_kind(_), do: {:error, :print_not_available}
+  defp check_kind(kind, kinds),
+    do: if(kind in kinds, do: :ok, else: {:error, :print_not_available})
 
   defp check_state(state) when state in @issued_states, do: :ok
   defp check_state(_), do: {:error, :document_not_issued}
 
-  defp issued(prefix, doc_id) do
+  defp issued(prefix, doc_id, kinds) do
     with {:ok, summary} <- CoreDocuments.issued_summary(prefix, doc_id),
          %DocumentVersion{content: %{} = content} <- version(prefix, doc_id, summary.version_no),
-         true <- content["kind"] in @kinds do
+         true <- content["kind"] in kinds do
       {:ok, Map.put(summary, :content, content)}
     else
       _ -> {:error, :document_not_issued}
@@ -79,7 +99,7 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
 
   # -- names ----------------------------------------------------------------------------------
 
-  defp names(prefix, issued, tenant_id) do
+  defp names(prefix, issued, tenant_id, form?) do
     header = map(issued.content["header"])
     lines = lines(issued.content)
     zone = zone(tenant_id)
@@ -102,8 +122,43 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
           ~w(material_responsible_id actual_user_id from_material_responsible_id from_actual_user_id to_material_responsible_id to_actual_user_id)
         )
         |> resolve(&employee(prefix, &1)),
-      cards: lines |> Enum.map(& &1["asset_id"]) |> resolve(&card(prefix, &1))
+      cards: lines |> Enum.map(& &1["asset_id"]) |> resolve(&card(prefix, &1, form?))
     }
+  end
+
+  # The legal entity (name, BIN) of the header org units, keyed by the unit id. Two bound reads per
+  # unit, both through the tenant prefix (copy of the stock source: assets does not call stock).
+  defp legal_entities(prefix, issued) do
+    header = map(issued.content["header"])
+
+    ~w(org_unit_id to_org_unit_id)
+    |> Enum.map(&header[&1])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, &Map.merge(&2, legal_entity(prefix, &1)))
+  end
+
+  defp legal_entity(prefix, unit_id) do
+    with {:ok, unit} <- Org.lookup(prefix, unit_id),
+         le_id when is_binary(le_id) <- unit["legal_entity_id"],
+         {:ok, le} <- Org.lookup(prefix, le_id) do
+      %{unit_id => %{name: le["name"], bin: le["bin"]}}
+    else
+      _ -> %{}
+    end
+  end
+
+  # employee id => position name, for the employees already resolved by the header read.
+  defp positions(prefix, employees) do
+    for {id, %{}} <- employees, into: %{} do
+      with {:ok, e} <- Org.lookup(prefix, id),
+           pid when is_binary(pid) <- e["position_id"],
+           {:ok, p} <- Org.lookup(prefix, pid) do
+        {id, p["name"]}
+      else
+        _ -> {id, nil}
+      end
+    end
   end
 
   defp map(%{} = m), do: m
@@ -133,11 +188,27 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
     end
   end
 
-  defp card(prefix, id) do
+  defp card(prefix, id, form?) do
     case ReadApi.lookup(prefix, id, ["assets_card"]) do
-      {:ok, r} -> %{inventory_number: r["inventory_number"], name: r["name"]}
-      _ -> nil
+      {:ok, r} ->
+        base = %{inventory_number: r["inventory_number"], name: r["name"]}
+        if form?, do: Map.merge(base, card_money(r)), else: base
+
+      _ ->
+        nil
     end
+  end
+
+  # The live card values at print time (a card PATCH corrects them); T-1921 reads them only for the form.
+  defp card_money(r) do
+    %{
+      acquisition_date: r["acquisition_date"],
+      acquisition_cost: r["acquisition_cost"],
+      accumulated_depreciation: r["accumulated_depreciation"],
+      book_value: r["book_value"],
+      depreciation_as_of: r["depreciation_as_of"],
+      currency: r["currency"]
+    }
   end
 
   # -- time zone ------------------------------------------------------------------------------
