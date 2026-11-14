@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { rolesOf } from '@/auth/access/access'
 import { accessState } from '@/auth/access/fixtures'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
@@ -77,7 +78,9 @@ describe('what is sent (W7)', () => {
     const adds = screen.getByTestId('report-server-adds')
     expect(adds).toHaveTextContent('Aigerim Sarsenova')
     expect(adds).toHaveTextContent('Demo Holding')
-    expect(adds).toHaveTextContent('PLATFORM_ADMIN')
+    const fixtureRoles = rolesOf(accessState('platformAdmin'))
+    expect(fixtureRoles.length).toBeGreaterThan(0)
+    expect(adds).toHaveTextContent(fixtureRoles.join(', '))
     const summary = screen.getByTestId('report-summary')
     expect(summary).toHaveTextContent('2 recent actions')
     expect(summary).toHaveTextContent('1 recent requests, 1 with errors')
