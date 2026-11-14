@@ -11,7 +11,8 @@ sibling worktree adds a decision record: `git diff --name-only --diff-filter=A o
 over every `origin/team/*` branch printed nothing).
 
 Scope: the official forms printed by `Letflow.Documents.FormPrint` from `priv/print_forms/<form>.json` (today
-`FormPrint.forms/0` = `da1, da3, da4, inv10, inv18, z1, z2, z3, z5, z6`). The generic document renderer and its
+`FormPrint.forms/0` = `da1, da2, da3, da4, inv10, inv18, z1, z2, z3, z5, z6`, the sorted keys of the shipped
+`priv/print_forms/*.json` layouts). The generic document renderer and its
 overrides stay governed by [0068](0068-per-tenant-print-template-overrides.md); **this record amends no sentence of 0068
 and none of [0056](0056-versioned-documents.md).**
 
@@ -25,12 +26,13 @@ Opened for this record (V = read on origin/main `dc03badc8`):
 - [0068](0068-per-tenant-print-template-overrides.md) D1, D2 (decision and "Reasons"), D3, D5, D6, D7, V. 0068 is itself
   PROPOSED (its status line).
 - [0056](0056-versioned-documents.md) D5 "Rendering and templates (DIRECTION, non-binding)" and the threat list (T10), V.
-- `docs/status/official-forms-audit.md` summary and row D7, V.
+- `docs/status/official-forms-audit.md` summary (and row D7 in other words), V.
 - Code, V: `lib/letflow/documents/form_print.ex` (`forms/0`, `clean/1`), `lib/letflow/documents/form_print/docx.ex`
   (`escape/1`; moduledoc "There is no `docProps`"), `lib/letflow/documents/form_print/pdf.ex` (`blank/0`),
   `lib/letflow/identity/tenant_logo.ex` (`max_bytes/0`, `validate/2` and its scanner seam), `lib/letflow/api/authorization.ex`
   (`core_role_allows?/2`: the `:PLATFORM_ADMIN, _permission` catch-all and the `:TENANT_ADMIN, permission` clause
-  `permission_scope(permission) == :tenant`), `lib/letflow/modules/stock/router.ex` (`FormPrint.build/4` per request).
+  `permission_scope(permission) == :tenant`), `lib/letflow/modules/stock/router.ex` and `lib/letflow/modules/assets/router.ex`
+  (`FormPrint.build/4` per request), `lib/letflow/modules/assets/form_da2.ex` (`FormDa2.data/3`), `priv/print_forms/da2.json`.
 
 ## Decisions
 
@@ -63,7 +65,11 @@ loops, no includes, nothing evaluated. Three name sets exist, and the union is t
    `legal.colno.<table>.<n>`, `legal.total.<table>`, `legal.sig.<key>`, `legal.proxy`. The platform fills each from the
    catalog for the print language.
 2. Data names: the keys of the data map the form mapper already builds for `FormPrint.build/5`, listed per form in
-   appendix B of the design (`<key>`, `<rows>.<column key>`, `sig.<key>.<part>`).
+   appendix B of the design (`<key>`, `<rows>.<column key>`, `sig.<key>.<part>`). Appendix B has no da2 row (the design
+   predates form da2, #4469): da2's data names come from `priv/print_forms/da2.json` and
+   `Letflow.Modules.Assets.FormDa2.data/3` (`lib/letflow/modules/assets/form_da2.ex`; today `org_name`, `org_bin`, `unit`,
+   `mol`, `full_name` and the `lines` columns `name`, `cost`, `inv`, `acquired`, `depr`, `book`), and slice S1 adds them
+   to the closed key list.
 3. `tenant.logo`: the company logo already stored by `Letflow.Identity.TenantLogo`.
 
 The only repetition is the table **repeat row**: the one row whose cells hold `{{<rows>.<key>}}` names is copied once per
@@ -128,8 +134,10 @@ process owner, and S1 may only tighten it):
   the tenant `:prefix` (INV-1); the tenant comes from the auth context only, never from path, query or body (INV-10).
 - Activation requires a reason (UAT assumption, to be confirmed by the process owner). **Rollback** writes a new version
   whose bytes copy the chosen earlier version (same sha256, `rollback_of` set) and activates it.
-- Official forms are rendered on demand from the issued document (`FormPrint.build/4` per request in the stock router), not
-  stored; a print uses the template active **at print time**. The activation audit trail shows which version was active
+- Official forms are rendered on demand (`FormPrint.build/4` per request in `lib/letflow/modules/stock/router.ex` and
+  `lib/letflow/modules/assets/router.ex`), not stored: document forms from the issued document, and the card prints (z3 in
+  the stock router's card print, da2 in the assets router's `print_card`) from a stock or asset card, not from an issued
+  document; a print uses the template active **at print time**. The activation audit trail shows which version was active
   when. (This differs from 0068 D4, which pins an override to an issued 0056 document version; FormPrint forms are not
   0056 artefacts and have no stored bytes to pin.)
 - A template that no longer passes D3 at print (a later release added a name the form needs) **fails closed** with a plain
@@ -201,7 +209,7 @@ D5 (direction, non-binding): "Template output is PDF text only, no active conten
 
 ### D9. The audit sentence
 
-Today `docs/status/official-forms-audit.md` (summary and row D7) says: "A tenant cannot adjust an official form today."
+Today the summary of `docs/status/official-forms-audit.md` says (row D7 says the same in other words): "A tenant cannot adjust an official form today."
 That stays true until slice S3 (print integration) merges. The slice that ships the screen (S5) appends to that file
 (design section 3):
 
