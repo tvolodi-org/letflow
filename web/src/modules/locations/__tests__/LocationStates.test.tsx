@@ -116,14 +116,14 @@ describe('S5 retired records', () => {
 })
 
 describe('S6 success toast and busy state', () => {
-  it('shows a success toast after a save and closes the panel', async () => {
+  it('shows a success toast after a save and keeps the same record open (T-1946)', async () => {
     fakeServer(clientMock, DATA)
     renderLocations('/admin/locations')
     await screen.findByTitle('A')
     select('A')
     fireEvent.click(screen.getByTestId('loc-save'))
     expect(await screen.findByText('Location saved')).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
+    expect(screen.getByRole('form')).toBeInTheDocument()
   })
 
   it('shows the dirty hint once a value changed', async () => {

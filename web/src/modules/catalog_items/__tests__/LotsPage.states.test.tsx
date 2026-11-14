@@ -109,14 +109,14 @@ describe('detail panel (rule 2a)', () => {
     expect(screen.queryByTestId('lot-panel')).not.toBeInTheDocument()
   })
 
-  it('S8 a saved lot shows a success toast and closes the panel', async () => {
+  it('S8 a saved lot shows a success toast and keeps the same lot open (T-1946)', async () => {
     render_with_toasts()
     fireEvent.click(await screen.findByTestId('edit-LOT-A'))
     fireEvent.change(await screen.findByLabelText(/^Producer/), { target: { value: 'NewCo' } })
     fireEvent.click(screen.getByTestId('edit-submit'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
     expect(await screen.findByTestId('toast-message')).toHaveTextContent('Lot LOT-A saved.')
-    await waitFor(() => expect(screen.queryByTestId('lot-panel')).not.toBeInTheDocument())
+    expect(screen.getByTestId('lot-panel')).toBeInTheDocument()
   })
 
   it('S9 a create error about the item or code sits next to its field', async () => {

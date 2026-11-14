@@ -3,7 +3,7 @@
  *  list size is remembered per user and screen. Under 900 px of work area the record replaces the list,
  *  with a back button. Escape closes the record unless `escapeCloses === false` or already handled.
  *  Design verdict: docs/design-system/master-detail-verdict.md sections 4.1–4.5. */
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Tabs, type TabItem } from '../Tabs'
 import { SplitWrap, useSplit } from '../layout/Splitter'
 import { useLayoutMessages } from '../layout/layoutMessages'
@@ -59,6 +59,12 @@ export interface ListDetailProps {
   /** 'tabs' layout only. */
   sectionTabs?: RegistrySectionTab[]
   defaultTab?: string
+  /** T-1946: id of the first item of the list (null while loading or when the list is empty). The first time the
+   *  screen shows a list with no record open, on a wide host, the component asks the screen to select it through
+   *  `onDefaultSelect`. A record the URL or the screen already opened wins; a narrow host (single pane) keeps the
+   *  list first; after a close or a delete the component never re-selects. */
+  defaultSelectId?: string | null
+  onDefaultSelect?: (id: string) => void
 }
 
 /** Preset split options used by ListDetail (LIST_SPLIT). Exported so tests can reference the id. */
@@ -83,6 +89,8 @@ export function ListDetail({
   listLabel,
   sectionTabs,
   defaultTab,
+  defaultSelectId,
+  onDefaultSelect,
 }: ListDetailProps) {
   const asTabs = REGISTRY_LAYOUTS[layout].sectionsAsTabs
   const [tab, setTab] = useState(defaultTab ?? 'overview')
@@ -113,6 +121,20 @@ export function ListDetail({
     },
     enabled: () => isWideHost(gridRef.current),
   })
+
+  // Default selection: decided once per mount. Any open record (URL, create form, a click) ends the chance.
+  const defaultDone = useRef(false)
+  useEffect(() => {
+    if (defaultDone.current) return
+    if (detailOpen) {
+      defaultDone.current = true
+      return
+    }
+    if (!defaultSelectId || !onDefaultSelect) return
+    defaultDone.current = true
+    if (!isWideHost(gridRef.current)) return
+    onDefaultSelect(defaultSelectId)
+  }, [detailOpen, defaultSelectId, onDefaultSelect])
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Escape' || !detailOpen) return

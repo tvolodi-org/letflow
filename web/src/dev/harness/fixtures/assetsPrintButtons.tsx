@@ -54,4 +54,5 @@ export const assetsPrintButtonsScreens: HarnessScreen[] = [
   menuOpen('asset-form-commission-open', 'print-commission-issued'),
   menuOpen('asset-form-handover-open', 'print-handover-posted'),
   menuOpen('asset-form-change-open', 'print-change-posted'),
+  menuOpen('asset-form-writeoff-open', 'doc-reversed'),
 ]

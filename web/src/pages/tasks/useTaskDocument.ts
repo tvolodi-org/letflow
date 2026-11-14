@@ -19,8 +19,7 @@ export interface TaskDocLine {
   catalog_uom_id: string
   catalog_lot_id?: string | null
   quantity: string
-  /** Asset documents (assets_*): the line names a card, not a catalog item; the readable name, when the line has one. */
-  assetName?: string
+  /** Asset documents (assets_*): the line names a card (resolved to "inventory number - name" by the reference labels), not a catalog item. */
   assetId?: string
   locationId?: string | null
 }
@@ -81,15 +80,12 @@ function toDoc(type: 'document' | 'count', r: Raw): TaskDoc {
 function toAssetDoc(typeKey: string, r: Raw): TaskDoc {
   const raw = Array.isArray(r['lines']) ? (r['lines'] as Raw[]) : []
   const lines: TaskDocLine[] = raw.map((l, i) => {
-    const inv = s(l['inventory_number'])
-    const name = s(l['asset_name'])
     return {
       line_no: typeof l['line_no'] === 'number' ? (l['line_no'] as number) : i + 1,
       catalog_item_id: '',
       catalog_uom_id: '',
       quantity: s(l['quantity']),
       assetId: s(l['asset_id']),
-      assetName: [inv, name].filter((x) => x !== '').join(' ') || s(l['asset_id']),
       locationId: sn(l['location_id']),
     }
   })

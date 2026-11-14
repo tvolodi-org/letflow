@@ -1,5 +1,5 @@
 /** T-1875: the document list card of the `.lf-doc` screens (asset and stock documents) is visible and usable at every
- *  desktop width: taller than its tools block, with the New buttons and the first row inside it. jsdom has no layout.
+ *  desktop width: taller than its tools block, with the first row inside it; the creation entry is the page header's New menu (T-1953). jsdom has no layout.
  *  Runs against the dev-only screen harness (/__harness/<screen>, no login, no backend). Not a CI gate (ci.yml does not
  *  run the general e2e suite); its proof is the local run:
  *    cd web && LF_CHROMIUM=<chromium path> npx playwright test tests/e2e/doc-list-layout.e2e.spec.ts --config=playwright.config.ts
@@ -31,16 +31,16 @@ async function shoot(page: Page, info: TestInfo, name: string) {
 }
 
 const SCREENS = [
-  { screen: 'asset-documents', open: false, newButtons: 5 },
-  { screen: 'stock-documents', open: false, newButtons: 0 },
-  { screen: 'asset-document-draft', open: true, newButtons: 5 },
-  { screen: 'stock-document-draft', open: true, newButtons: 0 },
+  { screen: 'asset-documents', open: false },
+  { screen: 'stock-documents', open: false },
+  { screen: 'asset-document-draft', open: true },
+  { screen: 'stock-document-draft', open: true },
 ]
 
 test.describe('document list card layout', () => {
   for (const size of SIZES) {
     for (const s of SCREENS) {
-      test(`E1 ${s.screen} at ${size.width}x${size.height}: the list card is visible, taller than its tools, with buttons and a row inside`, async ({ page }, info) => {
+      test(`E1 ${s.screen} at ${size.width}x${size.height}: the list card is visible, taller than its tools, with a row inside`, async ({ page }, info) => {
         // one column (<= 900 px): an open document replaces the list, so there is no list card to measure
         test.skip(s.open && size.width <= 900, 'an open document replaces the list on one column')
         await page.setViewportSize(size)
@@ -52,12 +52,11 @@ test.describe('document list card layout', () => {
         const tools = await box(page.locator('.lf-doc__tools'))
         expect(lb.height).toBeGreaterThanOrEqual(tools.height + 40)
         if (size.width > 900 && s.open) expect(lb.height).toBeGreaterThanOrEqual(Math.min(640, size.height - 32) - 1)
-        const buttons = page.locator('[data-testid="document-new"] button')
-        await expect(buttons).toHaveCount(s.newButtons)
-        for (let i = 0; i < s.newButtons; i++) {
-          await expect(buttons.nth(i)).toBeVisible()
-          expect(inside(await box(buttons.nth(i)), lb)).toBe(true)
-        }
+        // T-1953: one New menu trigger, in the page header, not in the list card
+        const trigger = page.getByTestId('document-new')
+        await expect(trigger).toHaveCount(1)
+        await expect(page.getByTestId('page-header-actions').getByTestId('document-new')).toBeVisible()
+        expect(intersects(await box(trigger), lb)).toBe(false)
         expect(inside(await box(page.locator('.lf-doc__item')), lb)).toBe(true)
         if (s.open && size.width > 900) {
           for (const other of ['.lf-doc__header', '.lf-doc__lines']) {
@@ -70,15 +69,14 @@ test.describe('document list card layout', () => {
     }
   }
 
-  test('E2 the empty state stays clear: the first-use text and all five New buttons sit inside the list card', async ({ page }) => {
+  test('E2 the empty state stays clear: the first-use text sits inside the list card, the New menu stays in the header', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/__harness/asset-documents?state=empty')
     const lb = await box(page.locator('.lf-doc__list'))
     await expect(page.getByTestId('empty-first')).toBeVisible()
     expect(inside(await box(page.getByTestId('empty-first')), lb)).toBe(true)
-    const buttons = page.locator('[data-testid="document-new"] button')
-    await expect(buttons).toHaveCount(5)
-    for (let i = 0; i < 5; i++) expect(inside(await box(buttons.nth(i)), lb)).toBe(true)
+    await expect(page.getByTestId('page-header-actions').getByTestId('document-new')).toBeVisible()
+    await expect(page.locator('.lf-doc__list [data-testid="document-new"]')).toHaveCount(0)
   })
 
   for (const size of [{ width: 1024, height: 768 }, { width: 1280, height: 800 }]) {

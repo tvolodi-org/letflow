@@ -78,7 +78,8 @@ defmodule Letflow.Modules.Assets do
   pack change (class A). T-1921: the same route with `form=da1&format=pdf|docx&lang=ru|kk` answers the official form
   ДА-1 / ҰМА-1 (annex 16) of an issued commission or hand over (`FormDa1`, `priv/print_forms/da1.json`); code only, no
   version bump. T-1922: `form=da4` answers ДА-4 / ҰМА-4 (annex 19, `FormDa4`) of an issued change or hand over;
-  the other official forms are later slices.
+  T-1923: `form=da3` answers ДА-3 / ҰМА-3 (annex 18, `FormDa3`) of an issued write-off, the commission block
+  printing blank until REQ-777; the other official forms are later slices.
 
   **Asset count K1** (T-1927, version 0.22.0, REQ-816 / GH #4375, owner decision D-128, spec
   `docs/assets/asset-count.md`): the count ORDER of fixed assets. Record types `assets_count_order`,

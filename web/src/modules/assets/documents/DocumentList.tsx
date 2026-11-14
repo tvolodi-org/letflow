@@ -1,8 +1,8 @@
 /** DocumentList — T-1334 / C14. The list pane of the asset document workspace (`lf-doc__list`): filters kind, state and
  *  org unit (the only keys the list route takes), one button per document (number, state, kind, date, org unit),
  *  Load more, and the loading, empty and error states. The selected document is marked `aria-current`; a click opens
- *  it in the panel beside the list, which stays mounted. Times in the tenant time zone. Users with AssetsPost get one New
- *  button per kind (the draft form, T-1469). */
+ *  it in the panel beside the list, which stays mounted. Times in the tenant time zone. Creating a document is the header's New
+ *  menu (T-1953, page-header-actions.md R2), not a control of this pane. */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useNavigate } from 'react-router-dom'
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { ASSETS_CARD_WRITE, ASSETS_POST } from '../assetsPermissions'
+import { ASSETS_CARD_WRITE } from '../assetsPermissions'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
 import { usePickerOptions, anyPickerTruncated } from '../assetsPickers'
@@ -62,15 +62,6 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
     <section className="lf-card lf-doc__list" aria-label={t('assets.doc.title')} data-testid="document-list">
       {anyPickerTruncated(orgUnits) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       <div className="lf-doc__tools">
-        {can(ASSETS_POST) && (
-          <div className="lf-btn-row" data-testid="document-new" role="group" aria-label={t('assets.doc.action.new')}>
-            {DOC_KINDS.map((k) => (
-              <Button key={k} variant="secondary" size="sm" onClick={() => navigate(`${DOCUMENTS_PATH}/new?kind=${k}`)}>
-                {t(`assets.doc.new.${k}`)}
-              </Button>
-            ))}
-          </div>
-        )}
         <Select
           label={t('assets.doc.col.kind')}
           value={filters.kind}

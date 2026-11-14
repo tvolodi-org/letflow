@@ -16,6 +16,7 @@ import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
+import { NewMenu } from '@/components/ui/NewMenu'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
@@ -322,6 +323,13 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
           <Button variant="ghost" onClick={() => store.resetScreen(DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
             {lm.resetLayout}
           </Button>
+          {can(STOCK_POST) && (
+            <NewMenu
+              label={t('stock.doc.new')}
+              data-testid="document-new"
+              items={DOC_KINDS.map((k) => ({ id: k, label: t(`stock.doc.kind.${k}`), onSelect: () => navigate(`${DOCUMENTS_PATH}/new?kind=${k}`) }))}
+            />
+          )}
           </>
         }
       />

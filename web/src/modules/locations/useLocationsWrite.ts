@@ -21,6 +21,7 @@ export function useLocationsWrite<TBody>(call: (body: TBody, key: string) => Pro
   const [isPending, setPending] = useState(false)
   const pendingRef = useRef(false)
   const [error, setError] = useState<unknown>(null)
+  const lastId = useRef<string | null>(null)
 
   async function submit(body: TBody, target = ''): Promise<LocationsWriteResult> {
     if (pendingRef.current) return 'error'
@@ -31,7 +32,9 @@ export function useLocationsWrite<TBody>(call: (body: TBody, key: string) => Pro
     setPending(true)
     setError(null)
     try {
-      await call(body, key)
+      const answer = await call(body, key)
+      const rid = (answer as { record_id?: unknown } | null | undefined)?.record_id
+      lastId.current = typeof rid === 'string' ? rid : null
       attempt.current = null
       await queryClient.invalidateQueries({ queryKey: locationsQueryKeys.all(tenantId) })
       return 'ok'
@@ -49,5 +52,6 @@ export function useLocationsWrite<TBody>(call: (body: TBody, key: string) => Pro
     }
   }
 
-  return { submit, isPending, error, clearError: () => setError(null) }
+  /** `lastId`: record_id of the last accepted answer (the created record), or null. */
+  return { submit, isPending, error, clearError: () => setError(null), lastId: () => lastId.current }
 }

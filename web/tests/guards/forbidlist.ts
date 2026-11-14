@@ -234,6 +234,18 @@ export const PATTERNS: GuardPattern[] = [
     ],
     rationale: 'T-1885',
   },
+  {
+    // T-1953: screen-level creation lives in the page header (docs/design-system/page-header-actions.md R2).
+    // A file that draws a list pane (lf-doc__list / lf-doc__tools / lf-reg__list / lf-reg__tools / lf-reg__listhead)
+    // must not, after that class, contain a create control: a <Plus> icon, a <NewMenu>, or a '/new' route literal.
+    // Not caught (named limitation): a create button handed to ListDetail's tools/listHeader props from a file
+    // without the pane class names. Ratchet: allowedPaths only shrinks; each entry carries a reason comment.
+    name: 'create-in-list-pane',
+    regex: /\blf-(?:doc|reg)__(?:list|tools|listhead)\b[\s\S]*?(?:<Plus\b|<NewMenu\b|\/new[?`'"/])/,
+    appliesTo: 'source',
+    allowedPaths: [],
+    rationale: 'T-1953',
+  },
 ]
 
 // GH #2470: undefined-token guard (token-scan.spec.ts). Regexes live here with the other patterns.

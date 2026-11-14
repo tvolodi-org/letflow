@@ -11,7 +11,7 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
   Name reads are one indexed read per distinct id (a document has at most 100 lines). A time zone
   offset is one bound-parameter statement per instant (INV-7).
 
-  `read/4` (T-1921, official form ДА-1; T-1922 ДА-4 uses it with change and hand over) takes two options: `kinds:` (default the act kinds; the form
+  `read/4` (T-1921, official form ДА-1; T-1922 ДА-4 uses it with change and hand over; T-1923 ДА-3 with write-off) takes two options: `kinds:` (default the act kinds; the form
   reads only commission and hand over) and `form: true`, which adds `names.legal_entities` (name and
   BIN of the legal entity of the header `org_unit_id` and `to_org_unit_id`, keyed by the unit id),
   `names.positions` (employee id => position name) and the money fields of each card. Plain act

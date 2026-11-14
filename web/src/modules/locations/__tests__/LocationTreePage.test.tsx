@@ -149,7 +149,8 @@ describe('T5 edit and retire', () => {
     expect(edit.body).toMatchObject({ name: 'Renamed', address: null, location_type: 'pick', segment: '1' })
     await waitFor(() => expect(queryBodies(clientMock, 'location_node').length).toBeGreaterThan(before))
 
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
+    // T-1946: an edit keeps the same record selected, its form stays open
+    expect(screen.getByRole('form')).toBeInTheDocument()
     selectRow('B')
     fireEvent.click(screen.getByRole('button', { name: 'Retire' }))
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'))

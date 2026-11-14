@@ -253,14 +253,15 @@ describe('F8 lines editor', () => {
 })
 
 describe('F9 list and routes', () => {
-  it('the New buttons show with AssetsPost only and open the form of the kind', async () => {
+  it('the header New menu shows with AssetsPost only and opens the form of the kind', async () => {
     clientMock.get.mockResolvedValue({ rows: [], next_cursor: null })
     renderAssets(LIST, withRead)
     await screen.findByText('No asset documents yet')
     expect(screen.queryByTestId('document-new')).not.toBeInTheDocument()
     cleanup()
     renderAssets(LIST, withPost)
-    fireEvent.click(await screen.findByRole('button', { name: 'New write off' }))
+    fireEvent.click(await screen.findByTestId('document-new'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Write off' }))
     expect(await screen.findByTestId('document-form')).toBeInTheDocument()
     await waitFor(() => expect(form().getByLabelText('Kind')).toHaveValue('writeoff'))
   })

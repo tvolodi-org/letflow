@@ -14,6 +14,11 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-assets' }, isAuthenticated: true }),
 }))
+const locale = vi.hoisted(() => ({ current: 'en' }))
+vi.mock('@/i18n/uiLocaleStore', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useUiLocale: () => locale.current,
+}))
 const clientMock = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
@@ -22,6 +27,7 @@ const BUTTONS = ['Issue', 'Discard', 'Reverse', 'Edit', 'Retry posting', 'Cancel
 const present = () => BUTTONS.filter((b) => screen.queryByRole('button', { name: b }) !== null)
 
 beforeEach(() => {
+  locale.current = 'en'
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
   fakeDocument(clientMock, assetDoc())
@@ -59,11 +65,34 @@ describe('L1 list', () => {
     })
     renderAssets(LIST, withPost)
     expect(await screen.findAllByTestId('document-row')).toHaveLength(2)
-    const group = screen.getByTestId('document-new')
-    const buttons = within(group).getAllByRole('button')
-    expect(buttons.map((b) => b.textContent)).toEqual(DOC_KINDS.map((k) => assetsMessages.en[`assets.doc.new.${k}`]))
-    fireEvent.click(buttons[DOC_KINDS.indexOf('handover')]!)
+    // NM-A1: the creation entry is the header's New menu, not a control of the list pane
+    const trigger = within(screen.getByTestId('page-header-actions')).getByTestId('document-new')
+    expect(within(screen.getByTestId('document-list')).queryByRole('button', { name: /^New/ })).toBeNull()
+    expect(within(screen.getByTestId('document-list')).queryByTestId('document-new')).toBeNull()
+    fireEvent.click(trigger)
+    const items = within(screen.getByRole('menu', { name: 'New document' })).getAllByRole('menuitem')
+    expect(items.map((b) => b.textContent)).toEqual(DOC_KINDS.map((k) => assetsMessages.en[`assets.doc.kind.${k}`]))
+    // NM-A2: choosing a kind opens its form
+    fireEvent.click(items[DOC_KINDS.indexOf('handover')]!)
     await screen.findByTestId('document-form')
+  })
+  it('NM-A2 the Opening item opens the opening form', async () => {
+    renderAssets(LIST, withPost)
+    fireEvent.click(await screen.findByTestId('document-new'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opening' }))
+    expect(await screen.findByTestId('opening-time-info')).toBeInTheDocument()
+  })
+  it('NM-A3 the menu is in Russian and Kazakh', async () => {
+    for (const l of ['ru', 'kk'] as const) {
+      locale.current = l
+      renderAssets(LIST, withPost)
+      const trigger = await screen.findByTestId('document-new')
+      expect(trigger).toHaveTextContent(assetsMessages[l]['assets.doc.action.new'])
+      fireEvent.click(trigger)
+      const items = within(screen.getByRole('menu')).getAllByRole('menuitem')
+      expect(items.map((b) => b.textContent)).toEqual(DOC_KINDS.map((k) => assetsMessages[l][`assets.doc.kind.${k}`]))
+      cleanup()
+    }
   })
   it('sends only kind, state and org_unit_id, and the cursor of Load more', async () => {
     clientMock.get.mockResolvedValueOnce({ rows: [{ id: 'd1', kind: 'change', state: 'draft', number: null, org_unit_id: 'u1', event_time: null }], next_cursor: 'c1' })
