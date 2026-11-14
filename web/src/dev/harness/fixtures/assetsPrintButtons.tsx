@@ -53,4 +53,5 @@ export const assetsPrintButtonsScreens: HarnessScreen[] = [
   view('asset-print-kind-change-posted', 'print-kind-change-posted'),
   menuOpen('asset-form-commission-open', 'print-commission-issued'),
   menuOpen('asset-form-handover-open', 'print-handover-posted'),
+  menuOpen('asset-form-change-open', 'print-change-posted'),
 ]

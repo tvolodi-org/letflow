@@ -1,0 +1,47 @@
+{
+  "form_layout_version": 1,
+  "form": "da4",
+  "annex": 19,
+  "blocks": [
+    {"type": "text", "label": "da4.annex"},
+    {"type": "text", "label": "da4.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "field", "label": "da4.sender", "key": "sender_unit"},
+    {"type": "field", "label": "da4.receiver", "key": "receiver_unit"},
+    {"type": "field", "label": "da4.responsible", "key": "responsible"},
+    {"type": "title", "label": "da4.title"},
+    {"type": "field", "label": "da4.basis", "key": "basis"},
+    {"type": "field", "label": "da4.number", "key": "number"},
+    {"type": "field", "label": "da4.date", "key": "date"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "totals": {"label": "z2.total", "sum": ["qty"], "mark": ["price"]},
+      "columns": [
+        {"key": "no", "label": "z2.c1"},
+        {"key": "name", "label": "da4.c2"},
+        {"key": "acquired", "label": "da4.c3"},
+        {"key": "inv", "label": "da1.c11", "group": "da1.number"},
+        {"key": "factory", "label": "da4.c5", "group": "da1.number"},
+        {"key": "passport", "label": "da4.c6", "group": "da1.number"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty", "label": "da4.c8"},
+        {"key": "price", "label": "da4.c9"},
+        {"key": "cost", "label": "da4.c10"}
+      ]
+    },
+    {"type": "field", "label": "da4.words_qty", "key": "words_qty"},
+    {"type": "field", "label": "z2.words_sum", "key": "words_sum"},
+    {"type": "text", "label": "da4.back"},
+    {"type": "field", "label": "da4.note", "key": "note"},
+    {"type": "signature", "label": "z1.handed_by", "key": "handed", "parts": ["position", "signature", "name"]},
+    {"type": "text", "label": "da4.sign_date"},
+    {"type": "signature", "label": "z1.accepted_by", "key": "accepted", "parts": ["position", "signature", "name"]},
+    {"type": "text", "label": "da4.sign_date"},
+    {"type": "text", "label": "da4.acc_mark"},
+    {"type": "signature", "label": "da4.chief_acc", "key": "chief_acc", "parts": ["signature", "name"]},
+    {"type": "text", "label": "da4.sign_date"},
+    {"type": "text", "label": "da4.note1"}
+  ]
+}
