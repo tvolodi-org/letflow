@@ -102,4 +102,7 @@ export const assetDocumentsApi = {
     client.post<AssetDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
   /** T-1915: the printed act (PDF) of an issued document; no tenant identifier is sent. */
   print: (id: string, lang: UiLocale) => client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { lang }),
+  /** T-1921: an official form (`form=da1`, .docx or PDF) of an issued commission or hand over; no tenant identifier. */
+  printForm: (id: string, form: string, format: string, lang: string) =>
+    client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { form, format, lang }),
 }

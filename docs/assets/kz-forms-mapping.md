@@ -667,3 +667,41 @@ responsible person (G4).
 
 **Proof:** `test/letflow/modules/stock/form_z6_test.exs`, `test/letflow/modules/stock/form_z6_router_test.exs`, the
 P3 step of `web/tests/e2e/gate-b-stock-print.e2e.spec.ts`.
+
+
+### 7.3 ДА-1 / ҰМА-1 on the print engine (T-1921)
+
+`GET /api/v1/modules/assets/documents/:id/print?form=da1&format=pdf|docx&lang=ru|kk` prints an issued, posted or
+reversed **commission** or **hand over** on form ДА-1 (ru) / ҰМА-1 (kk), annex 16 of order No. 562 "act of acceptance
+and transfer of long-term assets". Same route and permission (`AssetsRead`) as the plain act (T-1915); no `form` key
+keeps the plain act. Other kinds answer 422 `print_not_available`, a draft `document_not_issued`, a bad `form`,
+`format` or `lang` (`en` is refused: the form has no English) 422 `invalid_form`, `invalid_format`, `invalid_lang`.
+The screen offers it in the "Official form" menu next to Print. Layout `priv/print_forms/da1.json`, mapper
+`Letflow.Modules.Assets.FormDa1`, read `DocumentPrintSource.read/4` (`form: true`).
+
+**Filled in (stored facts only):** BIN and name of the legal entity of the unit (receiving side on a commissioning;
+giving and receiving side on a hand over), the location (`location_id`, on a hand over `to_location_id`; empty prints
+blank, no fallback), "Сдал" / "Принял" with name and position, column 4 (the giving side's materially responsible
+person, hand over only), per card name, inventory number, acquisition date, and the money columns 7, 9 and 10.
+
+**Money rules:** the headers say "в теңге", so the values print only when the card currency is KZT. Depreciation and
+book value print only when the card's `depreciation_as_of` is empty or not later than the act's local date. The card
+values are the live card values at print time.
+
+**Blank (gaps):** basis columns 1-3 and the basis of the move (G7), useful life (col 8), factory and passport numbers
+(cols 12 and 15, G11), debit and credit accounts (G6), sale value with VAT (col 16), both head approvals (G4), the
+inspection order, brief characteristic, precious materials, conformity, rework, tests, conclusion and document list,
+the commission chair and members, the power of attorney, custody and both chief accountant marks. A commissioning has no
+giving side (the supplier is not stored): giving organisation, "Сдал" and column 4 are blank.
+
+**Q21 (inter-organisation transfer) stays open:** the receiver BIN, both approvals, the sale value with VAT and the
+power of attorney print blank. The receiving organisation's name is printed from the legal entity of the receiving
+unit, because that is a stored fact.
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-1 is the right form for commissioning,
+and that ДА-1 is printed on an in-tenant hand over (the audit names ДА-4 for internal moves, slice 6; both will then be
+offered on a hand over).
+
+**Proof:** `test/letflow/modules/assets/form_da1_test.exs`, `test/letflow/modules/assets/form_da1_router_test.exs`
+(real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E6 and E7 of
+`web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
