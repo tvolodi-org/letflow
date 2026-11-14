@@ -81,7 +81,7 @@ test.afterAll(async () => {
   await context?.close()
 })
 
-test('E1 a card, a commission started from it, issued', async (_fixtures, testInfo) => {
+test('E1 a card, a commission started from it, issued', async ({}, testInfo) => {
   inventoryNumber = `E2E-${ENV.runTag}-${testInfo.retry}`
   await openRoute(page, '/admin/assets/cards')
   await page.getByTestId('asset-create').first().click()
