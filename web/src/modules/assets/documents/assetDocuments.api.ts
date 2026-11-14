@@ -2,6 +2,7 @@
  *  (T-1469: the draft forms), discard, issue and reverse. No call sends a tenant identifier; the
  *  document routes take no idempotency key. */
 import { client } from '@/api/client'
+import type { UiLocale } from '@/i18n/uiLocaleStore'
 
 const BASE = '/api/v1/modules/assets/documents'
 
@@ -99,4 +100,6 @@ export const assetDocumentsApi = {
   check: (id: string) => client.post<OpeningCheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
   reverse: (id: string, body: { reason_code: string; reason_text?: string }) =>
     client.post<AssetDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
+  /** T-1915: the printed act (PDF) of an issued document; no tenant identifier is sent. */
+  print: (id: string, lang: UiLocale) => client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { lang }),
 }

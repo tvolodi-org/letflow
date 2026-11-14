@@ -72,6 +72,11 @@ defmodule Letflow.Modules.Assets do
   (owner decision D-111): a `low_value` card is not moved here (its split by a partial hand over is a follow-up).
   Cards already moved or posted before this version are not touched.
 
+  **Document print** (T-1915, version 0.21.0): `GET /documents/:id/print[?lang=ru|kk|en]` (`AssetsRead`, the guard of
+  `GET /documents/:id`) answers the plain A4 act (PDF) of an issued, posted or reversed commission, change, hand over
+  or write-off, from the ISSUED version (`DocumentPrint`, `DocumentPrintSource`). Code and route only, no definition or
+  pack change (class A); the official forms are later slices.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -191,7 +196,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.20.0",
+    version: "0.21.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -227,7 +232,8 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/documents/:id/check", :AssetsPost},
       {"POST", "/documents/:id/reverse", :AssetsReverse},
       {"GET", "/documents", :AssetsRead},
-      {"GET", "/documents/:id", :AssetsRead}
+      {"GET", "/documents/:id", :AssetsRead},
+      {"GET", "/documents/:id/print", :AssetsRead}
     ],
     manages_entity_types: [
       "assets_card",

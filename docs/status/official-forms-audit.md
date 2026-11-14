@@ -13,8 +13,9 @@ or **no printout at all**:
 
 * A **goods receipt has no printout at all**, so the warehouse receipt order (Приходный ордер, form З-1, annex 25) does
   not exist yet. The owner's example is confirmed.
-* **Write-off, opening balance, count posting and every asset document print nothing.** The asset screens have no
-  print button of any kind; the asset module has no print route.
+* **Write-off (stock), opening balance and count posting print nothing.** Since T-1915 (D4, slice 4) an issued asset
+  commission, change, hand over or write-off prints a plain machine-draft act (ru/kk/en) with a "Печать (PDF)" button on
+  the asset document screen; change of kind, opening and the asset card still print nothing.
 * Transfer, hand over and return print a plain "act" (Акт перемещения / передачи / возврата) in ru, kk and en, which
   says in its own code that it is a machine draft, not an official form.
 * One wrong label: the Kazakh menu calls the Z-2 form **"Ж-2 нысаны"**. The correct Kazakh code is **Қ-2** (the printed
@@ -44,10 +45,10 @@ table means verified in the code and file named in section 2; "G" means a propos
 | Commission protocol | not a document type on main V; the commission's result is printed on Инв-10 (count), and is asked for on З-6 and ДА-3 (write-offs) | n/a | n/a | n/a | n/a | no separate document; see REQ-776, REQ-777 |
 | Stock movements / stock card (stock) | З-3 Карточка учета запасов (annex 27) | З-3 / Қ-3 V; movements and balances xlsx V | "Официальная форма" → "Форма З-3" on the balances screen, enabled once an item and a place are chosen V; "Выгрузить в Excel" xlsx V | form ru/kk; xlsx en-keyed V | PDF, .docx, xlsx V | header is plain lines, not the official multi-cell layout V; counterparty blank |
 | Stock balances (stock) | З-7 Ведомость учета остатков запасов на складе (annex 31) | xlsx only V | "Выгрузить в Excel" ("Export to Excel") on the balances screen V | xlsx | xlsx | no З-7 form |
-| Commissioning (asset, `commission`) | ДА-1 Акт приемки-передачи долгосрочных активов (annex 16) G (mapping: hand over "and commissioning") | **none** V | **none** V | none | none | no asset print route at all |
-| Change of responsible or user (asset, `change`) | ДА-4 Накладная на внутреннее перемещение долгосрочных активов (annex 19) G | **none** V | **none** V | none | none | as above |
-| Hand over (asset, `handover`) | ДА-1 (annex 16) between organisations, ДА-4 (annex 19) inside one G (Q21 open) | **none** V | **none** V | none | none | as above |
-| Write-off (asset, `writeoff`) | ДА-3 Акт на выбытие (списание) долгосрочных активов (annex 18) | **none** V | **none** V | none | none | commission of ДА-3 not built (REQ-777) V |
+| Commissioning (asset, `commission`) | ДА-1 Акт приемки-передачи долгосрочных активов (annex 16) G (mapping: hand over "and commissioning") | plain act V (T-1915) | "Печать (PDF)" V (T-1915) | act ru/kk/en V | PDF V | no asset print route at all |
+| Change of responsible or user (asset, `change`) | ДА-4 Накладная на внутреннее перемещение долгосрочных активов (annex 19) G | plain act V (T-1915) | "Печать (PDF)" V (T-1915) | act ru/kk/en V | PDF V | as above |
+| Hand over (asset, `handover`) | ДА-1 (annex 16) between organisations, ДА-4 (annex 19) inside one G (Q21 open) | plain act V (T-1915) | "Печать (PDF)" V (T-1915) | act ru/kk/en V | PDF V | as above |
+| Write-off (asset, `writeoff`) | ДА-3 Акт на выбытие (списание) долгосрочных активов (annex 18) | plain act V (T-1915) | "Печать (PDF)" V (T-1915) | act ru/kk/en V | PDF V | commission of ДА-3 not built (REQ-777) V |
 | Change of kind (asset, `kind_change`) | no form in order No. 562; nearest А-1/С-1 Бухгалтерская справка (annex 51) G, to be confirmed by an accountant | **none** V | **none** V | none | none | not in the forms mapping before this audit |
 | Opening (asset, `opening`) | no primary form; nearest А-1/С-1 Бухгалтерская справка (annex 51) G, to be confirmed by an accountant | **none** V | **none** V | none | none | no print |
 | Asset card (asset) | ДА-2 Инвентарная карточка учета долгосрочных активов (annex 17) | **none** V | **none** V | none | none | many card fields missing (G11) |
@@ -82,8 +83,8 @@ table means verified in the code and file named in section 2; "G" means a propos
 | Count plain prints are a machine draft | `lib/letflow/modules/stock/count_print.ex` moduledoc |
 | Layouts of the five official forms | `priv/print_forms/z2.json`, `z3.json`, `z5.json`, `inv10.json`, `inv18.json`, `messages.json` |
 | English refused by the official forms (`invalid_lang`) | `docs/assets/kz-forms-mapping.md` 6.1; web `officialFormLang/1` sends kk for a Kazakh UI and ru otherwise (`web/src/modules/stock/forms/officialForms.ts`) |
-| Asset module has no print route; only `GET /balances?format=xlsx` | `lib/letflow/modules/assets/router.ex` (`authz_get`/`authz_post` lines, `format/1`) |
-| Asset screens have no print button | `grep -rln -i 'print\|Printer' web/src/modules/assets` finds only `useAssetsWrite.ts`, and its hits are the word "fingerprint" |
+| Before T-1915 the asset module had no print route; only `GET /balances?format=xlsx`. Now `GET /documents/:id/print` (`AssetsRead`) | `lib/letflow/modules/assets/router.ex` (`authz_get`/`authz_post` lines, `format/1`) |
+| Before T-1915 the asset screens had no print button (now `data-testid="document-print"` in `DocumentView.tsx`) | `grep -rln -i 'print\|Printer' web/src/modules/assets` finds only `useAssetsWrite.ts`, and its hits are the word "fingerprint" |
 | Stock document screen: "Печать (PDF)" shown when `documentPrintable` (transfer, hand_over, return in issued, posted, reversed); menu "Официальная форма" with З-2 for an issued or posted issue and З-5 for a printable transfer | `web/src/modules/stock/documents/DocumentsWorkspace.tsx`, `documentsModel.ts` (`PRINT_KINDS`, `PRINT_STATES`, `documentHasZ5`), `forms/officialForms.ts` (`formsForDocument`) |
 | Count screen buttons per issued paperwork: xlsx download, plain PDF print, official form menu (Инв-10 needs the sheet, Инв-18 the differences) | `web/src/modules/stock/counts/PaperworkButtons.tsx`, `countsModel.ts` (`paperworkAvailable`), mounted in `CountDetail.tsx` |
 | Balances screen: "Export" xlsx and the З-3 menu, disabled until an item and a place are chosen | `web/src/modules/stock/register/BalancesPage.tsx` |
@@ -101,7 +102,7 @@ table means verified in the code and file named in section 2; "G" means a propos
 | D1 | No printout of a stock receipt: the warehouse receipt order З-1 / Қ-1 (annex 25) does not exist | stock print route, receipt screen | major |
 | D2 | Kazakh menu label of Z-2 is "Ж-2 нысаны"; the Kazakh code is Қ-2 (section 3.7 of the mapping; the print says Қ-2) | `web/src/modules/stock/forms/officialFormMessages.ts` | minor |
 | D3 | No printout of a stock write-off (З-6), opening, or count posting | stock print route, document screen | major (З-6), minor (others) |
-| D4 | No print route and no print button for any asset document (commissioning, change, hand over, write-off, change of kind, opening) or the asset card (ДА-2) | `lib/letflow/modules/assets/router.ex`, `web/src/modules/assets` | major |
+| D4 | Slice 4 (T-1915) added the plain act and the button for commissioning, change, hand over and write-off; still no print route or button for change of kind, opening or the asset card (ДА-2); the official forms ДА-1/ДА-4/ДА-3/ДА-2 are slices 5-8 | `lib/letflow/modules/assets/router.ex`, `web/src/modules/assets` | major |
 | D5 | Hand over and return print only the machine-draft act; no official form (Q19 open) | `document_print.ex`, router form map | minor until Q19 is answered |
 | D6 | The З-2 menu appears for issued and posted issues but not for reversed ones, while the З-5 menu and the act also appear for reversed documents | `formsForDocument` versus `documentPrintable` | minor (inconsistent) |
 | D7 | The Print templates screen cannot change any official form or act (overrides do not reach module prints), and its title is English only | `PrintTemplatesPage.tsx`; override path in `documents.ex` | minor (title); the capability gap is an owner question (section 5) |

@@ -706,7 +706,7 @@ the code that holds it; paths are cited without line numbers.
    `org_unit_id` and `note` (no `event_time`: a body carrying one is `field_not_allowed`); a line is `asset_id`,
    `material_responsible_id`, `quantity` and the optional `location_id` and `actual_user_id` (one line per card and
    placement; a low-value asset may be split over placements). It is saved, replaced, discarded, fetched and listed on the
-   `/documents` routes. `POST /documents/:id/check` (`AssetsPost`, drafts of an opening only; writes nothing, takes no
+   `/documents` routes. `GET /documents/:id/print[?lang=ru|kk|en]` (`AssetsRead`, assets 0.21.0, T-1915) answers the plain A4 act (PDF) of an issued, posted or reversed commission, change, hand over or write-off from the issued version (422 `invalid_lang`, `print_not_available`, `document_not_issued`, `print_unsupported_character`; 404 as the read). `POST /documents/:id/check` (`AssetsPost`, drafts of an opening only; writes nothing, takes no
    lock) answers `ok`, the `header` reasons and, per line, all `reasons` and `fields`
    (`lib/letflow/modules/assets/documents/opening_checks.ex`). Issue runs the same checks and refuses with the first
    failing line (422 `reason`, `line_no`, `field`); a clean opening is issued (G5 part 2, assets 0.18.0) and starts the process

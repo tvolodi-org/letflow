@@ -68,6 +68,23 @@ export function documentErrorMessageId(err: unknown): string {
   return 'assets.doc.error.generic'
 }
 
+export const PRINT_KINDS = ['commission', 'change', 'handover', 'writeoff'] as const
+export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+
+/** T-1915: the plain act exists for an issued, posted or reversed commission, change, hand over or write-off. */
+export function documentPrintable(doc: { kind: string; state: string }): boolean {
+  return (PRINT_KINDS as readonly string[]).includes(doc.kind) && (PRINT_STATES as readonly string[]).includes(doc.state)
+}
+
+/** Message id of a refused print: its own 422 reason, 404 not found, anything else (403 included) the generic message. */
+export function printErrorMessageId(err: unknown): string {
+  const info = documentErrorInfo(err)
+  if (info.status === 422 && info.reason !== undefined && (PRINT_REASONS as readonly string[]).includes(info.reason)) return `assets.doc.print.reason.${info.reason}`
+  if (info.status === 404) return 'assets.doc.error.notFound'
+  return 'assets.doc.error.generic'
+}
+
 export function formatEventTime(iso: string | null | undefined, locale: string, dash: string, tz: string = ASSETS_TIME_ZONE): string {
   if (!iso) return dash
   return formatDateTimeInZone(iso, { timeZone: tz, locale })

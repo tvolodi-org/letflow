@@ -130,7 +130,7 @@ log "== 0. modules"
 api GET /me/modules
 [ "$STATUS" = 200 ] || die "GET /me/modules: HTTP $STATUS (token or tenant problem)"
 installed=$(jq -r '.installed_modules[].module_id' "$RESP")
-for m in org locations catalog_items codes stock; do   # stock depends on the other four
+for m in org locations catalog_items codes stock assets; do   # stock depends on the other four, assets on those and stock
   if printf '%s\n' "$installed" | grep -qx "$m"; then
     log "skip module $m (installed)"
     continue

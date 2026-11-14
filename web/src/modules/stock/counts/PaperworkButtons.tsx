@@ -7,11 +7,12 @@ import { Download, Printer } from 'lucide-react'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
-import { usePdfDownload } from '../register/usePdfDownload'
+import { usePdfDownload } from '@/hooks/usePdfDownload'
+import { parseFilename } from '@/lib/parseFilename'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
 import { OFFICIAL_FORMS, formsForOrder, type OfficialFormFormat, type OfficialFormId, type OfficialFormLang } from '../forms/officialForms'
 import { countsApi, type CountForm, type CountOrder, type PaperworkKind } from './counts.api'
-import { paperworkAvailable, parseFilename, printReasonMessageId, reasonMessageId } from './countsModel'
+import { paperworkAvailable, printReasonMessageId, reasonMessageId } from './countsModel'
 
 const KINDS: PaperworkKind[] = ['order', 'sheet', 'differences']
 

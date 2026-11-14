@@ -18,7 +18,7 @@ fi
 
 CHANGED=$(cat) || exit 1
 
-STOCK_E2E_RE='^(web/src/modules/stock/|web/src/pages/tasks/|web/tests/e2e/gate-b-|web/tests/e2e/support/|web/tests/e2e/helpers\.ts$|web/playwright\.config\.ts$|scripts/e2e/|scripts/ci_stock_e2e_paths\.sh$)'
+STOCK_E2E_RE='^(web/src/modules/stock/|web/src/modules/assets/|web/src/pages/tasks/|web/tests/e2e/gate-b-|web/tests/e2e/support/|web/tests/e2e/helpers\.ts$|web/playwright\.config\.ts$|scripts/e2e/|scripts/ci_stock_e2e_paths\.sh$)'
 
 grep -qE "$STOCK_E2E_RE" <<<"$CHANGED"
 case "$?" in

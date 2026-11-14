@@ -1,6 +1,6 @@
 /** M1–M4 — GH 3735 / REQ-702: pure helpers of the count screens. */
 import { describe, expect, it } from 'vitest'
-import { COUNT_CONFLICTS, COUNT_REASONS, canIssueDifferences, canIssuePostingRecord, canPost, canReverse, canSignDifferences, canSignSheet, paperworkAvailable, parseFilename, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, orderFormProblems, EMPTY_ORDER_FORM } from '../counts/countsModel'
+import { COUNT_CONFLICTS, COUNT_REASONS, canIssueDifferences, canIssuePostingRecord, canPost, canReverse, canSignDifferences, canSignSheet, paperworkAvailable, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, orderFormProblems, EMPTY_ORDER_FORM } from '../counts/countsModel'
 import type { CountOrder } from '../counts/counts.api'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
@@ -65,12 +65,6 @@ describe('M5 REQ-720 helpers', () => {
       { id: 'e1', role: 'chair' }, { id: 'e2', role: 'member' }, { id: 'e4', role: 'responsible' },
     ])
     expect(requiredSigners({ ...o, chair_employee_id: null, member_employee_ids: [] }, [])).toEqual([])
-  })
-  it('parseFilename reads filename, filename* and falls back', () => {
-    expect(parseFilename('attachment; filename="a b.xlsx"', 'f.xlsx')).toBe('a b.xlsx')
-    expect(parseFilename("attachment; filename*=UTF-8''%D0%B0.xlsx", 'f.xlsx')).toBe('а.xlsx')
-    expect(parseFilename(null, 'f.xlsx')).toBe('f.xlsx')
-    expect(parseFilename('attachment', 'f.xlsx')).toBe('f.xlsx')
   })
   it('paperworkAvailable and the can* helpers follow the order fields', () => {
     const rec = () => true
