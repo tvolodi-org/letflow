@@ -10,8 +10,8 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/stock/documents/offline_providers.dart';
 import '../i18n/i18n.dart';
+import 'install_hint_providers.dart';
 import 'install_state.dart';
 
 class InstallHintCard extends ConsumerStatefulWidget {
@@ -50,7 +50,7 @@ class _InstallHintCardState extends ConsumerState<InstallHintCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isWeb = ref.read(offlineQueueEnabledProvider);
+    final isWeb = ref.read(installHintEnabledProvider);
     final state = ref.read(installStateProvider);
     final platform = ref.read(installPlatformProvider);
     if (!isWeb || state != InstallState.browser) {

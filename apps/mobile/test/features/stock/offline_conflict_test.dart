@@ -129,6 +129,7 @@ void main() {
           stockGatewayProvider.overrideWithValue(gw),
           offlineQueueProvider.overrideWithValue(q),
           offlineQueueEnabledProvider.overrideWithValue(web),
+          installHintEnabledProvider.overrideWithValue(web),
           installPlatformProvider.overrideWithValue(platform),
           installStateProvider.overrideWithValue(state),
           installHintStoreProvider.overrideWithValue(store),

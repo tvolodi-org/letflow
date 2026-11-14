@@ -19,6 +19,7 @@ void main() {
       ProviderScope(
         overrides: [
           offlineQueueEnabledProvider.overrideWithValue(web),
+          installHintEnabledProvider.overrideWithValue(web),
           installPlatformProvider.overrideWithValue(platform),
           installStateProvider.overrideWithValue(state),
           installHintStoreProvider.overrideWithValue(store),
