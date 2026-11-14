@@ -78,7 +78,7 @@ it('C4 receive then assign carries exact bodies and refreshes the shared prefix'
   await waitFor(() => expect(screen.queryByTestId('record-codes-dialog')).toBeNull())
   const key = writes()[0][1].idempotency_key
   expect(writes()).toEqual([['/api/v1/modules/codes/receive', { entries: [{ value: ' X-1 ', kind: 'qr' }], idempotency_key: key }], ['/api/v1/modules/codes/new-code/assign', { target_type: 'catalog_item', target_id: 'item-a', idempotency_key: `${key}-assign` }]])
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['codes', 'tenant-a'] }); expect(readCount).toBeGreaterThan(2)
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: recordCodesKeys.all('tenant-a') }); expect(readCount).toBeGreaterThan(2)
   expect(getToastSnapshot()[0]?.message).toBe('Code created and attached.')
 })
 it('C5 retries a partial receive with the same keys and changes keys on edit', async () => {
