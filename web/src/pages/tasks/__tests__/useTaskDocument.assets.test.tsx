@@ -19,11 +19,11 @@ describe('useTaskContexts asset documents', () => {
     get.mockImplementation(async (path: string) => {
       if (path === '/api/v1/modules/assets/documents/op1') {
         return {
-          id: 'op1', kind: 'opening', state: 'issued', number: 'AOP-2026-000001', org_unit_id: 'u1',
+          id: 'op1', kind: 'opening', state: 'issued', number: 'AOP-2026-000001', org_unit_id: 'u1', issued_at: '2026-11-14T08:00:00Z',
           lines: [{ line_no: 1, asset_id: 'a1', quantity: '1', location_id: 'l1', inventory_number: 'FA-1', asset_name: 'Van' }],
         }
       }
-      return { items: [{ actor_id: 'u9' }] }
+      return { items: [{ actor_id: 'u9', actor_label: 'Saule Zhumabek' }] }
     })
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>
@@ -33,6 +33,8 @@ describe('useTaskContexts asset documents', () => {
     expect(doc?.number).toBe('AOP-2026-000001')
     expect(doc?.typeKey).toBe('assets_opening')
     expect(doc?.orgUnitId).toBe('u1')
+    expect(doc?.eventTime).toBe('2026-11-14T08:00:00Z')
+    expect(result.current('i1')?.issuerLabel).toBe('Saule Zhumabek')
     expect(doc?.lines[0]?.assetId).toBe('a1')
     expect(doc?.lines[0]?.locationId).toBe('l1')
   })

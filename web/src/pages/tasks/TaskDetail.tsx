@@ -43,8 +43,9 @@ function docIds(doc: TaskDoc | null): ReferenceIds {
 
 const fmt = (v: string, locale: string) => formatDateTimeInZone(v, { timeZone: TASKS_TIME_ZONE, locale })
 
-function DocumentSummary({ doc, m, refMsg, label, locale }: {
+function DocumentSummary({ doc, m, refMsg, label, locale, issuer }: {
   locale: string
+  issuer: string
   doc: TaskDoc
   m: TaskMessages
   refMsg: (typeof REFERENCE_MESSAGES)['en']
@@ -62,6 +63,7 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
   if (doc.locationIds.length > 0) rows.push([m.location, doc.locationIds.map((id) => label('location_node', id)).join(', ')])
   if (doc.eventTime) rows.push([m.created, fmt(doc.eventTime, locale)])
   if (doc.plannedStart && doc.plannedEnd) rows.push([m.plannedPeriod, `${fmt(doc.plannedStart, locale)} – ${fmt(doc.plannedEnd, locale)}`])
+  if (issuer !== '') rows.push([m.issuedBy, issuer])
   if (doc.note) rows.push([m.note, doc.note])
   return (
     <>
@@ -229,7 +231,8 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
       <div data-testid="instance-variables" className="lf-form__section">
         <h3 className="lf-form__title">{m.documentHeading}</h3>
         {doc ? (
-          <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} locale={locale} />
+          <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} locale={locale}
+            issuer={ctx?.issuerId ? (ctx.issuerId === userId ? refMsg.you : (ctx.issuerLabel ?? refMsg.anotherUser)) : ''} />
         ) : (
           ctx !== undefined && <p className="lf-muted">{m.documentUnavailable}</p>
         )}
