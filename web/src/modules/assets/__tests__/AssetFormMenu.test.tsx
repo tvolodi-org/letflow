@@ -50,13 +50,27 @@ describe('W2 menu and labels', () => {
     expect(screen.getByTestId('form-da1-docx')).toHaveTextContent(label)
     expect(screen.getByTestId('official-form-lang')).toBeInTheDocument()
   })
-  it('a posted hand over shows the menu', async () => {
+  it('a posted hand over shows the menu with DA-1 and DA-4 (four items)', async () => {
     fakeDocument(clientMock, assetDoc({ kind: 'handover', state: 'posted', number: 'AHO-1' }))
     renderAssets(VIEW, withAll)
-    expect(await screen.findByTestId('official-form-menu')).toBeInTheDocument()
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    for (const id of ['form-da1-pdf', 'form-da1-docx', 'form-da4-pdf', 'form-da4-docx']) expect(screen.getByTestId(id)).toBeInTheDocument()
   })
   it.each([
-    ['change', 'posted'], ['writeoff', 'issued'], ['commission', 'draft'], ['opening', 'posted'], ['kind_change', 'issued'],
+    ['en', 'DA-4 form'],
+    ['ru', 'Форма ДА-4'],
+    ['kk', 'ҰМА-4 нысаны'],
+  ] as const)('W2b an issued change offers DA-4 only, labelled in %s', async (loc, label) => {
+    useUiLocaleStore.getState().setLocaleTransient(loc)
+    fakeDocument(clientMock, assetDoc({ kind: 'change', state: 'issued', number: 'ACH-1' }))
+    renderAssets(VIEW, withAll)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-da4-pdf')).toHaveTextContent(label)
+    expect(screen.getByTestId('form-da4-docx')).toHaveTextContent(label)
+    expect(screen.queryByTestId('form-da1-pdf')).toBeNull()
+  })
+  it.each([
+    ['change', 'draft'], ['writeoff', 'issued'], ['commission', 'draft'], ['opening', 'posted'], ['kind_change', 'issued'],
   ])('%s in %s has no menu', async (kind, state) => {
     fakeDocument(clientMock, assetDoc({ kind, state }))
     renderAssets(VIEW, withAll)
@@ -97,6 +111,26 @@ describe('W3 download', () => {
   })
 })
 
+describe('W3b DA-4 download', () => {
+  it('picking DA-4 calls the print route with form da4 and saves under the header name', async () => {
+    fakeDocument(clientMock, assetDoc({ kind: 'change', state: 'issued', number: 'ACH-1' }))
+    clientMock.getBlob.mockResolvedValue(file('attachment; filename="ACH-1_DA-4.pdf"'))
+    renderAssets(VIEW, withAll)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-da4-pdf'))
+    await waitFor(() => expect(downloads).toEqual(['ACH-1_DA-4.pdf']))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'da4', format: 'pdf', lang: 'ru' })
+  })
+  it('without Content-Disposition the fallback name is ACH-1_DA-4.pdf', async () => {
+    fakeDocument(clientMock, assetDoc({ kind: 'change', state: 'posted', number: 'ACH-1' }))
+    clientMock.getBlob.mockResolvedValue(file(null))
+    renderAssets(VIEW, withAll)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-da4-pdf'))
+    await waitFor(() => expect(downloads).toEqual(['ACH-1_DA-4.pdf']))
+  })
+})
+
 describe('W4 refusals', () => {
   it('a 422 invalid_form shows the localized banner', async () => {
     fakeDocument(clientMock, assetDoc({ state: 'issued', number: 'ACM-1' }))
@@ -111,7 +145,7 @@ describe('W4 refusals', () => {
 describe('W5 catalogs', () => {
   it('every assets.doc.form* key and the new reasons exist in en, ru and kk', () => {
     const keys = Object.keys(docEn).filter((k) => k.startsWith('assets.doc.form') || /print\.reason\.invalid_(form|format)$/.test(k))
-    expect(keys.length).toBe(9)
+    expect(keys.length).toBe(10)
     for (const k of keys) {
       expect(docRu[k]?.trim(), k).toBeTruthy()
       expect(docKk[k]?.trim(), k).toBeTruthy()

@@ -36,7 +36,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
   | `POST /counts`, `PUT /counts/:id` (whole-document replace of a draft), `POST /counts/:id/issue`, `POST /counts/:id/cancel` (empty bodies; REQ-816) | `AssetsCountOrder` | 201 / 200 `Counts` order view |
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`), `GET /counts/:id` (REQ-816) | `AssetsRead` | 200 `rows, next_cursor` / order view |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1&format=pdf\|docx&lang=ru\|kk` (T-1921) `FormDa1.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1\|da4&format=pdf\|docx&lang=ru\|kk` (T-1921, T-1922) `FormDa1.data/3`, `FormDa4.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
 
   Asset count routes (REQ-816, K1): after the `authz_*` permission check (403 for a caller whose roles lack it) every
   count route asks `Access.check/2` and then the flag `Settings.count_enabled?/1`; a refusal or a flag that is off is
@@ -117,6 +117,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.FormDa1
+  alias Letflow.Modules.Assets.FormDa4
   alias Letflow.Modules.Assets.DocumentPrint
   alias Letflow.Modules.Assets.DocumentPrintSource
   alias Letflow.Modules.Assets.Settings
@@ -587,9 +588,13 @@ defmodule Letflow.Modules.Assets.Router do
   end
 
   # T-1921: the official forms printed from an asset document: kinds it may print, mapper, file suffix.
-  @document_forms %{"da1" => {["commission", "handover"], &FormDa1.data/3, "_DA-1"}}
+  # T-1922: ДА-4 / ҰМА-4 for a change of responsible and a hand over.
+  @document_forms %{
+    "da1" => {["commission", "handover"], &FormDa1.data/3, "_DA-1"},
+    "da4" => {["change", "handover"], &FormDa4.data/3, "_DA-4"}
+  }
 
-  # `?form=da1&format=pdf|docx&lang=ru|kk`: official form ДА-1 / ҰМА-1 of an issued commission or hand over.
+  # `?form=da1&format=pdf|docx&lang=ru|kk`: official form ДА-1 / ҰМА-1 or ДА-4 / ҰМА-4.
   # The query is validated before the read, so an unknown and a foreign id answer alike (INV-5).
   defp print_form(conn, prefix, query) do
     with {:ok, form} <- form_param(query["form"]),
@@ -628,7 +633,7 @@ defmodule Letflow.Modules.Assets.Router do
 
   defp form_failure(conn, _internal), do: Response.internal_error(conn)
 
-  defp form_param(form) when form in ["da1"], do: {:ok, form}
+  defp form_param(form) when form in ["da1", "da4"], do: {:ok, form}
   defp form_param(_), do: {:invalid, "invalid_form"}
 
   defp form_format(nil), do: {:ok, :pdf}

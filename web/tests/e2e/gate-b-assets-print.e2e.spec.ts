@@ -12,14 +12,20 @@ test.skip(!hasAdmin, SKIP_REASON)
 let context: BrowserContext
 let page: Page
 let number = ''
+let changeNumber = ''
 const inventoryNumber = `E2E-${ENV.runTag}`
 
-type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string }
+type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string; name?: RegExp }
 const PLAIN: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print(?!.*form=)/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
-const FORM_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
+const FORM_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF', name: /_DA-1\.pdf$/ }
+const DA4_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da4.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF', name: /_DA-4\.pdf$/ }
+const DA4_DOCX: Kind = {
+  url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da4.*format=docx/,
+  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-4\.docx$/,
+}
 const FORM_DOCX: Kind = {
   url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=docx/,
-  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK',
+  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-1\.docx$/,
 }
 
 /** Clicks, waits for the print response and the browser download, checks status, type, name and magic bytes; the
@@ -31,7 +37,7 @@ async function download(click: () => Promise<void>, kind: Kind = PLAIN) {
   ])
   expect(response.status()).toBe(200)
   expect(response.headers()['content-type']).toContain(kind.type)
-  expect(file.suggestedFilename()).toMatch(kind.ext === 'pdf' && kind !== PLAIN ? /_DA-1\.pdf$/ : kind.ext === 'docx' ? /_DA-1\.docx$/ : /\.pdf$/)
+  expect(file.suggestedFilename()).toMatch(kind.name ?? /\.pdf$/)
   const path = await file.path()
   expect(path).toBeTruthy()
   const bytes = readFileSync(path!)
@@ -39,15 +45,15 @@ async function download(click: () => Promise<void>, kind: Kind = PLAIN) {
   return kind.ext === 'pdf' ? pdfTextItems(bytes).join('\n') : ''
 }
 /** The "Official form" menu entry (no typed URL): open the menu, click the item. */
-async function pickForm(item: 'form-da1-pdf' | 'form-da1-docx', kind: Kind) {
+async function pickForm(item: 'form-da1-pdf' | 'form-da1-docx' | 'form-da4-pdf' | 'form-da4-docx', kind: Kind) {
   return download(async () => {
     await page.getByTestId('official-form-menu').click()
     await page.getByTestId(item).click()
   }, kind)
 }
-async function reopen() {
+async function reopen(hint = number) {
   await openRoute(page, '/admin/assets/documents')
-  await page.getByTestId('document-row').filter({ hasText: number }).first().click()
+  await page.getByTestId('document-row').filter({ hasText: hint }).first().click()
   await expect(page.getByTestId('document-header')).toBeVisible()
 }
 
@@ -126,5 +132,37 @@ test('E7 in the Kazakh UI the form is printed in Kazakh', async () => {
   await reopen()
   const text = await pickForm('form-da1-pdf', FORM_PDF)
   expect(text).toContain('ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ҚАБЫЛДАП АЛУ-БЕРУ АКТІСІ')
+  await setPrefs(page, { lang: 'en' })
+})
+
+test('E8 a change of responsible from the card: DA-4 is reached through the menu, PDF then .docx', async () => {
+  await openRoute(page, '/admin/assets/cards')
+  await page.getByRole('row').filter({ hasText: inventoryNumber }).first().click()
+  await page.getByTestId('card-op-change').click()
+  const form = page.getByTestId('document-form')
+  await expect(form).toBeVisible()
+  await choose(form.getByTestId('side-from').getByLabel(/^Material responsible/), 'Saule Zhumabek')
+  await choose(form.getByTestId('side-to').getByLabel(/^Material responsible/), 'Yerlan Mukanov')
+  await form.getByLabel('Time').fill(localDateTime(-1))
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
+  await issueDocument(page)
+  changeNumber = await headerNumber(page)
+  expect(changeNumber).not.toBe('')
+  await expect(page.getByTestId('official-form-menu')).toBeVisible()
+  await page.getByTestId('official-form-menu').click()
+  await expect(page.getByTestId('form-da1-pdf')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const text = await pickForm('form-da4-pdf', DA4_PDF)
+  expect(text).toContain('НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ')
+  expect(text).toContain(inventoryNumber)
+  await pickForm('form-da4-docx', DA4_DOCX)
+})
+
+test('E9 in the Kazakh UI the DA-4 form is printed in Kazakh', async () => {
+  await setPrefs(page, { lang: 'kk' })
+  await reopen(changeNumber)
+  const text = await pickForm('form-da4-pdf', DA4_PDF)
+  expect(text).toContain('ІШКІ ӨТКІЗУГЕ')
   await setPrefs(page, { lang: 'en' })
 })

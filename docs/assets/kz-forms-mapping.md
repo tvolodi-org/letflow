@@ -699,9 +699,33 @@ power of attorney print blank. The receiving organisation's name is printed from
 unit, because that is a stored fact.
 
 **To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-1 is the right form for commissioning,
-and that ДА-1 is printed on an in-tenant hand over (the audit names ДА-4 for internal moves, slice 6; both will then be
-offered on a hand over).
+and that ДА-1 is printed on an in-tenant hand over (the audit names ДА-4 for internal moves; both are offered on a hand
+over since T-1922).
 
 **Proof:** `test/letflow/modules/assets/form_da1_test.exs`, `test/letflow/modules/assets/form_da1_router_test.exs`
 (real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E6 and E7 of
+`web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
+
+### 7.4 ДА-4 / ҰМА-4 on the print engine (T-1922)
+
+**Route:** `GET /api/v1/modules/assets/documents/:id/print?form=da4&format=pdf|docx&lang=ru|kk` (permission
+`AssetsRead`, same route as ДА-1). Kinds: `change` and `handover`, in issued, posted and reversed state. Layout
+`priv/print_forms/da4.json` (annex 19), data `Letflow.Modules.Assets.FormDa4`. Web: the "Official form" menu of the
+document screen; a change offers ДА-4 only, a hand over offers ДА-1 and ДА-4.
+
+**Filled, from stored facts:** name and BIN of the giving unit's legal entity, sender and receiver unit and location,
+the giving materially responsible person ("Ответственный за поставку"), the document's own number and date, the note,
+"Сдал" and "Принял" with positions, and per card the name, acquisition date, inventory number and the quantity.
+
+**Blank (never invented):** price and cost (**Q22**, which cost goes there, is open; the total row shows the quantity
+and `х` under the price), factory and passport numbers, unit of measure (the card has none), the basis, the amounts in
+words and the chief accountant mark. A hand over between two legal entities (Q21) prints the giving unit's
+organisation; the form has no field for the receiving one.
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-4 is the right form for a change of
+responsible and for an in-tenant hand over; that the number and date under "Основание" are the invoice's own (the Z-5
+precedent); that "Ответственный за поставку" is the giving materially responsible person.
+
+**Proof:** `test/letflow/modules/assets/form_da4_test.exs`, `test/letflow/modules/assets/form_da4_router_test.exs`
+(real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E8 and E9 of
 `web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
