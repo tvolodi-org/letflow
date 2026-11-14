@@ -101,6 +101,9 @@ defmodule Letflow.MixProject do
       # Apache-2.0 xlsx reader (saxy, MIT, comes with it), used only by
       # `Letflow.Entities.XlsxImport` for the record import route.
       {:xlsx_reader, "~> 0.8"},
+      # T-1981 (0089 D4): template XML parser; already locked via xlsx_reader.
+      # MIT licence recorded in decision 0077. No new package enters the release.
+      {:saxy, "~> 1.7"},
       # REQ-653 (decision 0077 D8): pure-Elixir MIT xlsx writer, used only by
       # `Letflow.Entities.XlsxExport` for ?format=xlsx on the record export.
       {:elixlsx, "~> 0.6"},
