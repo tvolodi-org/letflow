@@ -356,6 +356,11 @@ app is installed to the home screen, no background sync.
   starts at once as before. A refusal says how to allow the camera; no camera, a non-HTTPS page or an
   unsupported browser has its own text. The typed field works in every state.
   `mobile_scanner_source.dart` reads the start error the package stores (it does not throw it).
+  Each scan screen creates and disposes its own camera source; the shared provider holds
+  only the factory, so leaving a scan screen cannot leave the next count with a disposed
+  controller. `test/features/stock/count_camera_lifecycle_test.dart` exercises reopening
+  counts, switching from codes to counts, document scan dismissal, permission denial and
+  no-camera errors through the real scanner controller with a fake device platform.
 - **Voice on web.** `voice_source_platform.dart` picks the recorder at compile time: native records
   AAC-LC into a temporary file as before; web (`web_voice_source.dart`, `web_recorder_port_web.dart`)
   records in memory with the encoder chosen at run time: Opus where the browser records it (Chrome,

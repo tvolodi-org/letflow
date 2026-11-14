@@ -49,7 +49,8 @@ abstract class ScanSource {
   void dispose();
 }
 
-/// Tests override this with a fake source.
-final Provider<ScanSource> scanSourceProvider = Provider<ScanSource>(
-  (ref) => MobileScannerSource(),
-);
+/// Each scan screen owns and disposes its source. Cache the factory, never a
+/// source: reusing a disposed controller prevents the next count from opening
+/// the camera. Tests override the factory with a fake device.
+final Provider<ScanSource Function()> scanSourceProvider =
+    Provider<ScanSource Function()>((ref) => MobileScannerSource.new);

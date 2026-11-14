@@ -119,5 +119,9 @@ same split as read-only facts. One form spans both tabs, so one Save sends one P
 on a field of the other tab switches to that tab and focuses the field. The chosen tab survives row clicks and Save and
 resets to Main when the panel closes. The create form has no tabs. The Actions menu and Retire stay in the card header.
 
+**Official form (T-1924).** The card header also holds the "Official form" menu (`AssetFormMenu`, the one of the document
+screen) with the DA-2 / ҰМА-2 inventory card as .docx and PDF, shown with `AssetsRead` (atom, not role), for active and
+retired cards. It calls `GET /cards/:id/print`; an error shows as a banner on that card only. Not in the row menu.
+
 Documents of this card and History are not on the card yet: they need the part 3 backend reads (`asset` filter on
 `GET /documents` and on `GET /movements`).

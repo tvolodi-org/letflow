@@ -756,3 +756,37 @@ value as of the act date).
 **Proof:** `test/letflow/modules/assets/form_da3_test.exs`, `test/letflow/modules/assets/form_da3_router_test.exs`
 (real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E10 and E11 of
 `web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
+
+### 7.6 ДА-2 / ҰМА-2 on the print engine (T-1924)
+
+**Route:** `GET /api/v1/modules/assets/cards/:id/print?form=da2&format=pdf|docx&lang=ru|kk` (permission `AssetsRead`, the
+guard of `GET /cards/:id/lock`). `form` is optional and defaults to `da2`; `format` defaults to pdf, `lang` to ru (`en` is
+refused). The query is checked before the card is read, so a bad query answers alike for every id; an unknown, malformed,
+deleted or other-tenant id is the one 404. A card form, so it is a card route, not the document route (`form=da2` on a
+document is 422 `invalid_form`). Layout `priv/print_forms/da2.json` (annex 17), data `Letflow.Modules.Assets.FormDa2`, read
+`Letflow.Modules.Assets.CardPrintSource`. Web: the "Official form" menu in the card header, for active and retired cards.
+
+**Filled, from stored facts:** name and BIN of the legal entity, the unit, the materially responsible person, the card
+name, inventory number and acquisition date, and for a KZT card the original cost, accumulated depreciation and book
+value (the live card values; the form has no as-of field).
+
+**Holder rule:** unit and person come from the asset register (`asset-register.md` section 7.2) only when the card has
+exactly one non-zero row. A never commissioned, written-off or split low-value card takes the unit from the card's own
+`org_unit_id` and prints the person blank. A refused or unreadable register read prints the person blank.
+
+**Blank (never invented):** manufacturer, model, factory and passport number, release year, acquisition document name and
+number (G7), useful life, liquidation value, impairment, ownership, the commissioning act (column 3) and the disposal
+columns 16-18 (a follow-up "ДА-2 history" slice: `GET /movements` has no asset filter), precious materials, the repair,
+revaluation, movement and characteristics tables (headers only), the document number and compile date, and "Карточку
+заполнил" (G4). Gaps G11.
+
+**Layout limits:** the ru line "продолжение таблицы" has no counterpart in the official kk text and is left out; the
+official characteristics table is numbered 1-6 but names three columns, so it has three; the engine has one header level.
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-2 is printed for every card kind,
+low-value included; that the live card values are what the card shows, with no as-of date; that the document number and
+date stay blank for a system card; that the register's single holder is the "Материально – ответственное лицо".
+
+**Proof:** `test/letflow/modules/assets/form_da2_test.exs`, `test/letflow/modules/assets/form_da2_router_test.exs` (real
+tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/CardFormPrint.test.tsx`, E12 and E13 of
+`web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
