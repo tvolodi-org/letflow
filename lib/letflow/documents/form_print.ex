@@ -36,6 +36,13 @@ defmodule Letflow.Documents.FormPrint do
   position part from the data key `<key>_position`; a totals block may set `"skip_blank": true`
   so blank cells add nothing to a sum.
 
+  Page (T-1971): an optional layout key `"page"` (`orientation`, `margins_mm` as top/right/bottom/left,
+  `font_pt`, `table_font_pt`; default A4 portrait with the template margins, see `page/1`) is honoured
+  by the `.docx` in full and by the PDF for orientation and, as one margin, the widest of the four;
+  the PDF font is the bundled DejaVu Sans at the renderer's fixed size (no serif face is shipped,
+  none was installed). A table column may carry `"decimals"`; quantities lose the stored trailing
+  zeros (`number/2`), so no output holds nine decimals.
+
   The PDF side reuses `Letflow.Documents.PrintLayout` unchanged (closed one-row table header: a
   grouped header is flattened to `group: label`, the column number is a prefix); the `.docx` has
   the true merged header and the numbers row. No dependency is added: the `.docx` is a zip of
@@ -55,7 +62,15 @@ defmodule Letflow.Documents.FormPrint do
     "proxy" => ["type", "label"]
   }
   @parts ["position", "signature", "name"]
-  @layout_keys ["form_layout_version", "form", "annex", "blocks"]
+  @layout_keys ["form_layout_version", "form", "annex", "page", "blocks"]
+  @page_keys ["orientation", "margins_mm", "font_pt", "table_font_pt"]
+  # The page a layout without a "page" key gets: the Ministry templates are A4 portrait.
+  @default_page %{
+    orientation: "portrait",
+    margins_mm: [20, 15, 20, 22.5],
+    font_pt: 12,
+    table_font_pt: 10
+  }
   @max_columns 14
 
   @catalog_path Path.join([__DIR__, "..", "..", "..", "priv", "print_forms", "messages.json"])
@@ -97,7 +112,8 @@ defmodule Letflow.Documents.FormPrint do
     with :ok <- known_keys(layout, @layout_keys, []),
          :ok <- check(layout["form_layout_version"] == 1, :bad_version, []),
          :ok <- check(is_binary(layout["form"]), :bad_form, []),
-         :ok <- check(is_list(layout["blocks"]) and layout["blocks"] != [], :bad_blocks, []) do
+         :ok <- check(is_list(layout["blocks"]) and layout["blocks"] != [], :bad_blocks, []),
+         :ok <- page_rules(layout["page"]) do
       layout["blocks"]
       |> Enum.with_index()
       |> Enum.reduce_while(:ok, fn {b, i}, :ok ->
@@ -110,6 +126,40 @@ defmodule Letflow.Documents.FormPrint do
   end
 
   def validate_layout(_, _), do: {:error, {:bad_layout, []}}
+
+  defp page_rules(nil), do: :ok
+
+  defp page_rules(%{} = p) do
+    num? = fn v, lo, hi -> is_number(v) and v >= lo and v <= hi end
+
+    with :ok <- known_keys(p, @page_keys, ["page"]),
+         :ok <-
+           check(p["orientation"] in [nil, "portrait", "landscape"], :bad_orientation, ["page"]),
+         :ok <-
+           check(
+             is_nil(p["margins_mm"]) or
+               (is_list(p["margins_mm"]) and length(p["margins_mm"]) == 4 and
+                  Enum.all?(p["margins_mm"], &num?.(&1, 0, 50))),
+             :bad_margins,
+             ["page"]
+           ),
+         :ok <- check(is_nil(p["font_pt"]) or num?.(p["font_pt"], 6, 24), :bad_font_pt, ["page"]) do
+      check(is_nil(p["table_font_pt"]) or num?.(p["table_font_pt"], 5, 24), :bad_font_pt, ["page"])
+    end
+  end
+
+  defp page_rules(_), do: {:error, {:bad_page, ["page"]}}
+
+  @doc """
+  The page of a layout: `%{orientation, margins_mm: [top, right, bottom, left], font_pt,
+  table_font_pt}`, missing keys filled from the default (A4 portrait, the template margins).
+  """
+  @spec page(map()) :: map()
+  def page(layout) do
+    given = layout["page"] || %{}
+
+    Map.new(@default_page, fn {k, default} -> {k, Map.get(given, Atom.to_string(k), default)} end)
+  end
 
   defp block(%{"type" => type} = b, catalog, path) when is_map_key(@block_keys, type) do
     with :ok <- known_keys(b, Map.fetch!(@block_keys, type), path),
@@ -157,9 +207,16 @@ defmodule Letflow.Documents.FormPrint do
     |> Enum.reduce_while(:ok, fn {col, i}, :ok ->
       p = path ++ ["columns", i]
 
-      with :ok <- known_keys(col, ["key", "label", "group", "no"], p),
+      with :ok <- known_keys(col, ["key", "label", "group", "no", "decimals"], p),
            :ok <- check(is_binary(col["key"]), :bad_key, p),
            :ok <- check(is_nil(col["no"]) or is_integer(col["no"]), :bad_column_no, p),
+           :ok <-
+             check(
+               is_nil(col["decimals"]) or
+                 (is_integer(col["decimals"]) and col["decimals"] in 0..6),
+               :bad_decimals,
+               p
+             ),
            :ok <- label_present(col["label"], catalog, p),
            :ok <- if(col["group"], do: label_present(col["group"], catalog, p), else: :ok) do
         {:cont, :ok}
@@ -275,7 +332,36 @@ defmodule Letflow.Documents.FormPrint do
   end
 
   defp clean_row(row, columns),
-    do: Map.new(columns, fn col -> {col["key"], clean(row[col["key"]])} end)
+    do:
+      Map.new(columns, fn col -> {col["key"], number(clean(row[col["key"]]), col["decimals"])} end)
+
+  @doc """
+  Prints a plain decimal text the way a form shows it: the stored texts carry nine decimals
+  (`5.000000000`), so trailing zeros go (`5`, `1.5`; a text with fewer than three fraction digits is left alone); with `decimals` the value is rounded to and
+  padded with exactly that many places (`12.50`). Anything that is not a plain decimal is returned
+  unchanged.
+  """
+  @spec number(String.t(), non_neg_integer() | nil) :: String.t()
+  def number(text, decimals \\ nil)
+
+  def number(text, decimals) when is_binary(text) do
+    # without `decimals` only a text with three or more fraction digits is touched, so an
+    # identifier such as "0012" or a version "1.50" prints as stored
+    with true <-
+           Regex.match?(
+             if(is_integer(decimals), do: ~r/^-?\d+(\.\d+)?$/, else: ~r/^-?\d+\.\d{3,}$/),
+             text
+           ),
+         {%Decimal{} = d, ""} <- Decimal.parse(text) do
+      if is_integer(decimals),
+        do: d |> Decimal.round(decimals) |> Decimal.to_string(:normal),
+        else: d |> Decimal.normalize() |> Decimal.to_string(:normal)
+    else
+      _ -> text
+    end
+  end
+
+  def number(other, _), do: other
 
   defp total(nil, _cols, _rows, _lang, _c), do: nil
 
@@ -295,7 +381,8 @@ defmodule Letflow.Documents.FormPrint do
             true -> ""
           end
 
-        {k, v}
+        dec = col["decimals"]
+        {k, if(k in sums, do: number(v, dec), else: v)}
       end)
 
     label_col = (Enum.at(columns, 1) || hd(columns))["key"]
@@ -343,7 +430,7 @@ defmodule Letflow.Documents.FormPrint do
 
   defp text(catalog, key, lang), do: catalog |> Map.fetch!(key) |> Map.fetch!(lang)
 
-  defp value(data, key), do: clean(data[key])
+  defp value(data, key), do: data[key] |> clean() |> number()
 
   @doc """
   The one cleaning of a data value: text only, XML-illegal characters dropped, line breaks and
@@ -387,8 +474,8 @@ defmodule Letflow.Documents.FormPrint do
       model = resolve(layout, data, lang, catalog)
 
       case format do
-        :pdf -> Pdf.render(model, footer(catalog, lang))
-        :docx -> Docx.render(model)
+        :pdf -> Pdf.render(model, footer(catalog, lang), page(layout))
+        :docx -> Docx.render(model, footer(catalog, lang), page(layout))
       end
     else
       {:lang, false} -> {:error, :lang_not_supported}

@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "da4",
   "annex": 19,
+  "page": {"orientation": "portrait", "margins_mm": [20, 15, 20, 22.5], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "da4.annex"},
     {"type": "text", "label": "da4.form_code"},
@@ -27,8 +28,8 @@
         {"key": "passport", "label": "da4.c6", "group": "da1.number"},
         {"key": "unit", "label": "z2.c4"},
         {"key": "qty", "label": "da4.c8"},
-        {"key": "price", "label": "da4.c9"},
-        {"key": "cost", "label": "da4.c10"}
+        {"key": "price", "label": "da4.c9", "decimals": 2},
+        {"key": "cost", "label": "da4.c10", "decimals": 2}
       ]
     },
     {"type": "field", "label": "da4.words_qty", "key": "words_qty"},

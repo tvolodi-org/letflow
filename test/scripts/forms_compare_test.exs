@@ -88,12 +88,12 @@ defmodule Letflow.Scripts.FormsCompareTest do
     Jason.decode!(out)
   end
 
-  test "T1 summary of a generated Z-2 (landscape, TNR 10 pt, table columns from the layout)" do
+  test "T1 summary of a generated Z-2 (portrait, TNR 12 pt, table columns from the layout)" do
     s = json!(["summary", gen("ru"), "--json"])
     sec = hd(s["sections"])
-    assert {sec["page_w"], sec["page_h"], sec["orientation"]} == {16838, 11906, "landscape"}
-    assert sec["margins"]["top"] == 720 and sec["margins"]["left"] == 720
-    assert s["default_font"] == %{"name" => "Times New Roman", "size_half_pt" => 20}
+    assert {sec["page_w"], sec["page_h"], sec["orientation"]} == {11906, 16838, "portrait"}
+    assert sec["margins"]["top"] == 1134 and sec["margins"]["left"] == 1276
+    assert s["default_font"] == %{"name" => "Times New Roman", "size_half_pt" => 24}
     assert s["tables"] != []
 
     {:ok, layout} = FormPrint.layout("z2")
@@ -128,11 +128,12 @@ defmodule Letflow.Scripts.FormsCompareTest do
     assert Enum.any?(lines, &String.starts_with?(&1, "TEXT_MISSING"))
   end
 
-  test "T4 diff of reference against generated Z-2 reports page, margins, font, table, text" do
+  test "T4 diff of reference against generated Z-2 reports footer, font, table, text" do
     {out, 0} = run(["diff", ref(), gen("ru")])
     lines = String.split(out, "\n", trim: true)
-    assert Enum.any?(lines, &(&1 =~ ~r/^PAGE\t.*portrait.*landscape/))
-    assert Enum.any?(lines, &String.starts_with?(&1, "MARGIN"))
+    # T-1971: page and margins now equal the reference; the footer differs (ref has none)
+    refute Enum.any?(lines, &String.starts_with?(&1, ~w(PAGE MARGIN)))
+    assert Enum.any?(lines, &(&1 =~ ~r/^HEADER_FOOTER\t.*has_footer: ref False, gen True/))
     assert Enum.any?(lines, &(&1 =~ ~r/^FONT\t.*Arial.*Times New Roman/))
     assert Enum.any?(lines, &(&1 =~ ~r/^TABLE\t.*columns ref 3/))
     assert Enum.any?(lines, &(&1 =~ ~r/^TEXT_MISSING\t.*тестовая строка шаблона/))
