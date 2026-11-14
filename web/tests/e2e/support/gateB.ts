@@ -112,10 +112,23 @@ export const ROLE_ENV = {
   scoped: { user: process.env.E2E_SCOPED_USER ?? '', pw: process.env.E2E_SCOPED_PASSWORD ?? '' },
 }
 
-/** The document number from the header card (the value after the "Number" label). */
+/** The document number from the header card: the value of its first row (the "Number" row, same on the stock and asset
+ *  screens). A draft has NO number (the gap-free number is allocated at Issue), so call this after `issueDocument`; it
+ *  throws on an empty or placeholder value instead of returning '' or a word picked from another row (T-1964). */
 export async function headerNumber(p: Page): Promise<string> {
-  const text = (await p.getByTestId('document-header').innerText()).replace(/\s+/g, ' ')
-  return /([A-Z]{1,6}[-/]?\d[\w-]*)/.exec(text)?.[1] ?? ''
+  const value = (await p.getByTestId('document-header').locator('dd').first().innerText()).trim()
+  if (!/^[A-Z]{1,6}[-/]?\d[\w-]*$/.test(value)) {
+    throw new Error(`the header has no document number yet (got "${value}"): read it after the document is issued`)
+  }
+  return value
+}
+
+/** Fill a date-and-time field (`DateTimeField`: two inputs "<label>, date" and "<label>, time") from a local
+ *  `YYYY-MM-DDTHH:mm` value (English UI date format). `getByLabel(label)` alone matches four elements (strict mode). */
+export async function fillDateTime(scope: Page | Locator, label: string, local: string): Promise<void> {
+  const [date, time] = local.split('T')
+  await scope.getByLabel(`${label}, date`, { exact: true }).fill(date)
+  await scope.getByLabel(`${label}, time`, { exact: true }).fill(time)
 }
 
 export async function saveDocument(p: Page): Promise<void> {
