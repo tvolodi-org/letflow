@@ -26,6 +26,7 @@ import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineCol
 import { buildCatalog, itemLabel } from './linesCatalog'
 import { documentsApi, type StockDocument } from './documents.api'
 import { OPENING_LINE_TYPE, importErrorText, summariseImport } from './openingImport'
+import { useTenantCurrency } from '@/hooks/useTenantCurrency'
 import { MAX_FILE_BYTES } from '@/pages/admin/import/importModel'
 import { runImport } from '@/pages/admin/import/importApi'
 
@@ -100,9 +101,10 @@ export function LinesEditor(props: {
   const nameOf = (opts: readonly PickerOption[], id: string) => opts.find((o) => o.value === id)?.label ?? ''
   const dash = t('stock.common.dash')
   const withValue = kind === 'receipt' || opening
+  const { code: currency } = useTenantCurrency()
 
   const columns = useMemo<LeColumn<LineForm>[]>(() => {
-    const base = lineColumns(kind, (id) => intl.formatMessage({ id }))
+    const base = lineColumns(kind, (id) => intl.formatMessage({ id }), currency)
     const num = (field: 'quantity' | 'unitPrice' | 'lineValue', label: string) => (ctx: LeCellCtx<LineForm>): ReactNode => (
       <div className="lf-control lf-control--num">
         <input
@@ -177,7 +179,7 @@ export function LinesEditor(props: {
     }
     return base.map((c) => ({ key: c.key, colId: c.colId, label: c.label, num: c.num, view: () => dash, ...byKey[c.key] }) as LeColumn<LineForm>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, catalog, uoms, locations, employees, locale, intl])
+  }, [kind, catalog, uoms, locations, employees, locale, intl, currency])
 
   const errors = useMemo(() => {
     const out: Record<number, LeError[]> = {}

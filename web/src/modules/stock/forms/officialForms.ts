@@ -1,3 +1,5 @@
+import { documentPrintable } from '../documents/documentsModel'
+
 /** Registry of the official KZ forms the stock screens can print (T-1434, E5e). Data only: a form is one row here plus
  *  its message ids. Only the forms the backend serves today are listed (Z-1 on /documents/:id/print for receipts T-1912;
  *  Z-2 on /documents/:id/print, Inv-10 and Inv-18 on /counts/:id/print/:kind); Z-3 (balances) and Z-5 (transfer) joined
@@ -34,13 +36,11 @@ export function officialFormLang(ui: string): OfficialFormLang {
   return ui === 'kk' ? 'kk' : 'ru'
 }
 
-/** Z-1 is the receipt order: on a `receipt` document once it is issued or posted.
- *  Z-2 is the issue note: on an `issue` document once it is issued or posted. */
+/** Document forms share the act's issued, posted and reversed state policy. */
+const DOCUMENT_FORM_OF: Partial<Record<string, DocumentFormId>> = { receipt: 'z1', issue: 'z2', transfer: 'z5' }
 export function formsForDocument(doc: { kind: string; state: string }): DocumentFormId[] {
-  const active = doc.state === 'issued' || doc.state === 'posted'
-  if (doc.kind === 'receipt' && active) return ['z1']
-  if (doc.kind === 'issue' && active) return ['z2']
-  return []
+  const form = DOCUMENT_FORM_OF[doc.kind]
+  return form && documentPrintable(doc) ? [form] : []
 }
 
 /** The count order offers both count forms in one menu; which are usable depends on the issued paperwork. */

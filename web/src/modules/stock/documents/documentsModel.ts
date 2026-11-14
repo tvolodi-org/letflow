@@ -78,18 +78,13 @@ export function documentErrorMessageId(err: unknown): string {
   return 'stock.doc.error.generic'
 }
 
-export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
+export const PRINT_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return'] as const
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
 export const PRINT_REASONS = [
   'document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format', 'card_too_long',
 ] as const
 
-/** T-1417: Z-5 (internal movement invoice) exists for a transfer that has been issued. */
-export function documentHasZ5(doc: { kind: string; state: string }): boolean {
-  return doc.kind === 'transfer' && documentPrintable(doc)
-}
-
-/** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
+/** The PDF exists for every issued stock kind except opening. */
 export function documentPrintable(doc: { kind: string; state: string }): boolean {
   return (PRINT_KINDS as readonly string[]).includes(doc.kind) && (PRINT_STATES as readonly string[]).includes(doc.state)
 }

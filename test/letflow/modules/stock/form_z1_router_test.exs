@@ -201,9 +201,10 @@ defmodule Letflow.Modules.Stock.FormZ1RouterTest do
       conn = print(ctx, other["id"], "form=z1&format=docx")
       assert conn.status == 422 and S.json(conn)["reason"] == "print_not_available"
 
-      # Receipt without form=z1: still print_not_available (plain print not available for receipt)
+      # Receipt without form=z1 prints the plain act
       conn = print(ctx, doc["id"], "")
-      assert conn.status == 422 and S.json(conn)["reason"] == "print_not_available"
+      assert conn.status == 200
+      assert Plug.Conn.get_resp_header(conn, "content-type") |> hd() =~ "application/pdf"
     end
   end
 

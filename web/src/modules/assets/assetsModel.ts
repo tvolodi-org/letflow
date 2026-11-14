@@ -19,6 +19,7 @@ export const ASSET_REASONS = [
   'inventory_number_locked',
   'kind_locked',
   'currency_mismatch',
+  'currency_unknown',
   'card_inactive',
   'idempotency_key_reuse',
   'request_refused',
@@ -179,6 +180,7 @@ const REASON_FIELD: Record<string, string> = {
   inventory_number_locked: 'inventory_number',
   kind_locked: 'kind',
   currency_mismatch: 'currency',
+  currency_unknown: 'currency',
 }
 
 /** True when the error marks this input. */

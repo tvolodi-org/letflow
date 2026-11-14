@@ -176,10 +176,10 @@ defmodule Letflow.Modules.Stock.FormZ2RouterTest do
   end
 
   describe "R6 without form" do
-    test "an issue without form is still print_not_available; a transfer prints as before", ctx do
+    test "an issue without form prints the plain act; a transfer prints as before", ctx do
       doc = issued(ctx)
       conn = print(ctx, doc["id"], "")
-      assert conn.status == 422 and S.json(conn)["reason"] == "print_not_available"
+      assert conn.status == 200 and header(conn, "content-type") =~ "application/pdf"
 
       {from, to} = {ctx.ma, T.b2!(ctx)}
       t = T.issue!(ctx, T.body("transfer", ctx.ma, from, to))

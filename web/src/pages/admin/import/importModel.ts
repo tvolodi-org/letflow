@@ -69,6 +69,7 @@ export const ROW_REASON_TYPES = [
   'asset_kind_locked',
   'asset_inventory_number_locked',
   'asset_currency_mismatch',
+  'asset_currency_unknown',
   'asset_inventory_number_taken',
   'asset_row_invalid',
   'asset_field_required',

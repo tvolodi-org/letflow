@@ -42,7 +42,6 @@ import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import {
   DOC_KINDS,
   DOC_STATES,
-  documentHasZ5,
   documentPrintable,
   formatEventTime,
   isOpening,
@@ -202,7 +201,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
               </Button>
             )}
             <OfficialFormMenu
-              forms={[...formsForDocument(doc), ...(documentHasZ5(doc) ? (['z5'] as const) : [])]}
+              forms={formsForDocument(doc)}
               busyKey={pdf.busyKey}
               onPick={(form, format, lang) => {
                 if (!isDocumentForm(form)) return
