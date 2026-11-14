@@ -1006,7 +1006,10 @@ defmodule Letflow.TenantProvisioning do
     # T-1963: owner list as class 'review' of problem_reports, plus the thread and image tables. Existing rows
     # stay class 'problem' by the column default; written only in the platform company's schema.
     {20_261_115_100_001, Letflow.Repo.Migrations.AddOwnerReviewItems,
-     "20261115100001_add_owner_review_items.exs"}
+     "20261115100001_add_owner_review_items.exs"},
+    # T-1982 (0089 D5): official_form_templates, created empty; no existing row is altered.
+    {20_261_115_300_001, Letflow.Repo.Migrations.CreateOfficialFormTemplates,
+     "20261115300001_create_official_form_templates.exs"}
   ]
 
   @doc """
