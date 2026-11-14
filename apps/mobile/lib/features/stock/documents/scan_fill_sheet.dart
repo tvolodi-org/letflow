@@ -40,7 +40,7 @@ class _ScanFillBodyState extends ConsumerState<_ScanFillBody> {
   @override
   void initState() {
     super.initState();
-    _source = ref.read(scanSourceProvider);
+    _source = ref.read(scanSourceProvider)();
     _controller = CodesScanController(
       resolver: CodesResolver(ref.read(stockGatewayProvider)),
       source: _source,
@@ -67,6 +67,7 @@ class _ScanFillBodyState extends ConsumerState<_ScanFillBody> {
       ..removeListener(_onChange)
       ..dispose();
     unawaited(_source.stop());
+    _source.dispose();
     _typed.dispose();
     super.dispose();
   }

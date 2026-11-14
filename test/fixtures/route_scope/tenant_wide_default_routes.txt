@@ -32,6 +32,7 @@ GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/assets/balances AssetsRead
 GET /modules/assets/cards/:id/lock AssetsRead
+GET /modules/assets/cards/:id/print AssetsRead
 GET /modules/assets/counts AssetsRead
 GET /modules/assets/counts/:id AssetsRead
 GET /modules/assets/counts/:id/entries AssetsRead
