@@ -18,6 +18,7 @@ defmodule Letflow.Routers.Me do
   | handle_put_preferences | `PUT /me/preferences` | `Letflow.UserPreferences.put/3` | `:MyPreferencesSet` | 200 / 422 |
   | handle_list_notifications | `GET /me/notifications` | `Letflow.UserNotifications.list/3` | `:MyAccessRead` | 200 |
   | handle_read_notifications | `POST /me/notifications/read` | `Letflow.UserNotifications.mark_read/3`, `mark_all_read/2` | `:MyPreferencesSet` | 200 / 422 |
+  | own report list | `GET /me/problem-reports` | `Letflow.ProblemReports.list_mine/2` | `:MyAccessRead` | 200 / 503 |
   | handle_submit_problem_report | `POST /me/problem-reports` | `Letflow.ProblemReports.submit/4` | `:MyPreferencesSet` | 201 / 422 / 429 / 503 |
 
   ## `GET /me/modules` (REQ-403)
@@ -138,12 +139,28 @@ defmodule Letflow.Routers.Me do
     handle_submit_problem_report(conn)
   end
 
+  authz_get "/problem-reports", :MyAccessRead, scope: :self_service do
+    auth = conn.assigns.auth_context
+    conn = put_resp_header(conn, "cache-control", "no-store")
+
+    case ProblemReports.list_mine(auth.tenant_id, auth.user_id) do
+      {:ok, result} ->
+        Response.ok(conn, result)
+
+      {:error, :unavailable} ->
+        Response.service_unavailable(conn, "Problem reports are not available.")
+
+      {:error, _} ->
+        Response.internal_error(conn)
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # ── POST /me/problem-reports (T-1948) ────────────────────────────────────
   # "Report a problem": the caller's own report goes to the platform company's schema, only with
   # `consent: true`. Every reporter fact comes from the auth context; ids in the body are ignored
-  # (INV-10). The answer carries only `{id, number, received_at}`; no route reads reports back.
+  # (INV-10). The answer carries only `{id, number, received_at}`; the GET route reads only the caller’s own reports.
 
   defp handle_submit_problem_report(conn) do
     {prefix, _user_id} = preferences_identity(conn)

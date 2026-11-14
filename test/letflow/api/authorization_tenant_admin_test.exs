@@ -69,10 +69,11 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
                  :TenantsManage,
                  :PlatformServicesManage,
                  :ModuleRolloutsManage,
+                 :ProblemReportsManage,
                  :TasksWorkInScope
                ])
 
-      assert length(granted) == length(permissions) - 4
+      assert length(granted) == length(permissions) - 5
     end
 
     test "Catalog (module) permissions are granted to TENANT_ADMIN: tenant scope, independent of any manifest role_grants" do
@@ -123,7 +124,12 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
     end
 
     test "TENANT_ADMIN is never allowed a platform-scope permission, with platform_tenant? true or false" do
-      for permission <- [:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage],
+      for permission <- [
+            :TenantsManage,
+            :PlatformServicesManage,
+            :ModuleRolloutsManage,
+            :ProblemReportsManage
+          ],
           flag <- [true, false] do
         refute Authorization.has_permission_in_scope?([:TENANT_ADMIN], permission, flag),
                "has_permission_in_scope? #{inspect(permission)} flag=#{flag}"

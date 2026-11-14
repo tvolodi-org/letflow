@@ -113,7 +113,12 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
       tenant = Enum.filter(core, &(Authorization.permission_scope(&1) == :tenant))
 
       assert Enum.sort(platform) ==
-               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
+               Enum.sort([
+                 :TenantsManage,
+                 :PlatformServicesManage,
+                 :ModuleRolloutsManage,
+                 :ProblemReportsManage
+               ])
 
       assert Enum.sort(tenant) == Enum.sort(@tenant_scope_core)
       assert length(platform) + length(tenant) == length(core)
@@ -127,7 +132,12 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
 
     test "platform_permissions/0 is the exact platform list" do
       assert Enum.sort(Authorization.platform_permissions()) ==
-               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
+               Enum.sort([
+                 :TenantsManage,
+                 :PlatformServicesManage,
+                 :ModuleRolloutsManage,
+                 :ProblemReportsManage
+               ])
     end
 
     test "every Catalog (module) permission is tenant scope" do
@@ -178,7 +188,12 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
 
   describe "has_permission_in_scope?/3" do
     test "platform scope: PLATFORM_ADMIN only, and only with platform_tenant? true" do
-      for permission <- [:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage] do
+      for permission <- [
+            :TenantsManage,
+            :PlatformServicesManage,
+            :ModuleRolloutsManage,
+            :ProblemReportsManage
+          ] do
         assert Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], permission, true)
         refute Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], permission, false)
         refute Authorization.has_permission_in_scope?([], permission, true)

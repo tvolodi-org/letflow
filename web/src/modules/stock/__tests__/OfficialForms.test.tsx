@@ -51,8 +51,8 @@ describe('F1/F2 which documents show the menu', () => {
   it.each([
     ['draft', 'issue'],
     ['draft', 'receipt'],
-    ['issued', 'hand_over'],
-    ['issued', 'return'],
+    ['draft', 'hand_over'],
+    ['cancelled', 'return'],
   ])('state %s, kind %s: none', async (state, kind) => {
     await open(state, kind)
     expect(screen.queryByTestId('official-form-menu')).toBeNull()
@@ -64,6 +64,16 @@ describe('F1/F2 which documents show the menu', () => {
     expect(screen.queryByTestId('form-z2-pdf')).toBeNull()
     expect(screen.queryByTestId('document-print-z5-pdf')).toBeNull()
   })
+  it.each([['hand_over', 'issued'], ['hand_over', 'posted'], ['return', 'reversed'], ['return', 'issued']])(
+    'W-Z5HR-1 a %s in %s shows Z-5 only',
+    async (kind, state) => {
+      await open(state, kind)
+      await userEvent.click(screen.getByTestId('official-form-menu'))
+      expect(screen.getByTestId('form-z5-pdf')).toBeInTheDocument()
+      expect(screen.getByTestId('form-z5-docx')).toBeInTheDocument()
+      for (const f of ['z1', 'z2', 'z6']) expect(screen.queryByTestId(`form-${f}-pdf`)).toBeNull()
+    },
+  )
   it('the registry rules', () => {
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
     expect(formsForOrder()).toEqual(['inv10', 'inv18'])
@@ -126,6 +136,8 @@ describe('W4 formsForDocument', () => {
     expect(formsForDocument({ kind: 'receipt', state: 'reversed' })).toEqual(['z1'])
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
     expect(formsForDocument({ kind: 'issue', state: 'posted' })).toEqual(['z2'])
+    expect(formsForDocument({ kind: 'hand_over', state: 'posted' })).toEqual(['z5'])
+    expect(formsForDocument({ kind: 'return', state: 'draft' })).toEqual([])
   })
 })
 

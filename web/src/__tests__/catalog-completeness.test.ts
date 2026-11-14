@@ -28,6 +28,7 @@ import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessages'
 import { catalogItemsItemsMessages } from '@/modules/catalog_items/catalogItemsItemsMessages'
+import { recordCodesMessages } from '@/components/record-codes/recordCodesMessages'
 import { codesMessages } from '@/modules/codes/codesMessages'
 import { examMessages } from '@/modules/exam/examMessages'
 import {
@@ -366,6 +367,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('codesMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('codes', codesMessages)
+    checkFlatCatalog('recordCodes', recordCodesMessages)
   })
 
   it('examMessages (includes questionMessages): all en keys in ru/kk, no empty values', () => {
@@ -497,6 +499,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['currencies', currenciesMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
+      ['recordCodes', recordCodesMessages],
       ['codes', codesMessages],
       ['exam', examMessages],
       ['locations', locationsMessages],

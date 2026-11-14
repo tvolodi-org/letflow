@@ -1,6 +1,6 @@
 /** ItemsPage — T-1402. The Items (catalog) screen on the lf-registry layout: a compact list on the left (code, title,
  *  unit, tracking, status; search, tracking filter, Show retired, sort, pager), the record on the right (Overview,
- *  Related, History). Under 900 px the selected record replaces the list (ListDetail back button; Escape closes the record). The selected item lives in
+ *  Related, History). Under 900 px the selected record replaces the list (ListDetail back button; Escape closes the record unless the codes dialog is open). The selected item lives in
  *  the URL (`?item=<record id>`), so Back and a reload keep it.
  *
  *  Read only: no write route exists for catalog_item (the generic entity routes answer 403 entity_type_managed and
@@ -32,7 +32,9 @@ const FILTERS = [DELETED_FALSE]
 /** Layout screen id: splitter and column widths are remembered under it (ui.layout). */
 const ITEMS_SCREEN = 'stock.registry.items'
 
-function ItemsInner({ initialItemId }: { initialItemId?: string }) {
+interface ItemsProps { initialItemId?: string; initialCodesDialog?: "new" | "pick" }
+
+function ItemsInner({ initialItemId, initialCodesDialog }: ItemsProps) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `catalog_items.items.${id}` }, values)
   const [params, setParams] = useSearchParams()
@@ -47,6 +49,7 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [page, setPage] = useState(1)
 
+  const [codesDialogOpen, setCodesDialogOpen] = useState(false)
   const query = useLotRows(CATALOG_ITEM, 'items', FILTERS, { sortField: 'code' })
   const all = useMemo(() => (query.data ?? []).map(toItemRow), [query.data])
   const filtered = useMemo(() => filterItems(all, { q, tracking, showRetired }), [all, q, tracking, showRetired])
@@ -172,10 +175,11 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   if (!detailOpen) details = null
   else if (query.isPending) details = <RegistryDetailsSkeleton />
   else if (!selected) details = <ItemNotFound />
-  else details = <ItemDetails key={selected.id} item={selected} />
+  else details = <ItemDetails key={selected.id} item={selected} initialCodesDialog={initialCodesDialog} onCodesDialogChange={setCodesDialogOpen} />
 
   return (
     <ListDetail
+      escapeCloses={!codesDialogOpen}
       screen={ITEMS_SCREEN}
       listLabel={t('listTitle')}
       listPane={list}
@@ -187,13 +191,13 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   )
 }
 
-export default function ItemsPage({ initialItemId }: { initialItemId?: string } = {}) {
+export default function ItemsPage({ initialItemId, initialCodesDialog }: ItemsProps = {}) {
   const query = useLotRows(CATALOG_ITEM, 'items', FILTERS, { sortField: 'code' })
   return (
     <CatalogItemsIntlProvider>
       <ItemsHeader />
       <CatalogItemsBoundary queries={[query]}>
-        <ItemsInner initialItemId={initialItemId} />
+        <ItemsInner initialItemId={initialItemId} initialCodesDialog={initialCodesDialog} />
       </CatalogItemsBoundary>
     </CatalogItemsIntlProvider>
   )
