@@ -90,7 +90,11 @@ Today (before the QA flag is on, or for plans the boot leaves for the administra
   serves every slug (one demo realm)", which holds only when the tenants share a realm).
 
 What stays manual in every environment:
-- any plan with a class B or C change, or with a data step (the apply refuses data steps today: `upgrade_needs_runner`);
+- any plan with a class B or C change, or with a data step (the boot never applies a plan with a step; an administrator can apply
+  declarative steps (`set_default`, `backfill_from_constant`, `copy_field`, REQ-773) up to the record cap
+  `Letflow.ModuleUpgrade.Settings.one_tx_max_records/0`, starting value 1000 per decision 0080 Q5, in the apply's one
+  transaction; a code step, a step outside that vocabulary or a plan over the cap is refused with `upgrade_needs_runner`,
+  `lib/letflow/module_upgrade/apply.ex` moduledoc);
 - the acknowledgement of a destructive change (`ack_destructive`); neither the boot nor the fleet ever sends it;
 - activating the new process definition drafts an upgrade creates (decision 0055 D2 open point 7, confirmed by 0080 Q2);
 - a rollback (`POST /api/v1/tenant/modules/:module_id/rollback`, per tenant, `:ModulesManage`); after a rollback the boot
