@@ -58,7 +58,7 @@ export function TaskList(p: TaskListProps) {
             const where = [p.label('org_unit', doc?.orgUnitId), p.label('location_node', doc?.locationId ?? doc?.fromLocationId ?? doc?.locationIds[0])]
               .filter((x) => x !== '')
               .join(' · ')
-            const issuer = ctx?.issuerId ? (ctx.issuerId === p.userId ? p.refMsg.you : p.refMsg.anotherUser) : ''
+            const issuer = ctx?.issuerId ? (ctx.issuerId === p.userId ? p.refMsg.you : (ctx.issuerLabel ?? p.refMsg.anotherUser)) : ''
             const selected = p.selectedId === task.id
             const summary = linesSummary(ctx, m, p.label, p.locale)
             return (
@@ -92,6 +92,11 @@ export function TaskList(p: TaskListProps) {
                   {task.assignee_ref && (
                     <div className="lf-muted">
                       {p.refMsg.assignedTo}: <span data-testid="task-assignee">{p.assigneeText(task)}</span>
+                    </div>
+                  )}
+                  {doc?.eventTime && (
+                    <div className="lf-muted" data-testid="task-doc-date">
+                      {m.created}: {formatDateTimeInZone(doc.eventTime, { timeZone: TASKS_TIME_ZONE, locale: p.locale })}
                     </div>
                   )}
                   {issuer !== '' && <div className="lf-muted" data-testid="task-issuer">{m.issuedBy}: {issuer}</div>}

@@ -48,6 +48,8 @@ export interface TaskDoc {
 export interface TaskContext {
   doc: TaskDoc | null
   issuerId: string | null
+  /** Display name (else login name) of the issuer, from the instance history; `null` when the server could not resolve it. */
+  issuerLabel: string | null
 }
 
 type Raw = Record<string, unknown>
@@ -89,17 +91,20 @@ function toAssetDoc(typeKey: string, r: Raw): TaskDoc {
       locationId: sn(l['location_id']),
     }
   })
-  return { ...toDoc('document', r), typeKey, lines }
+  const base = toDoc('document', r)
+  // the document date: the event time when the document carries one, else the issue time
+  return { ...base, typeKey, lines, eventTime: base.eventTime ?? sn(r['issued_at']) }
 }
 
-async function issuerOf(instanceId: string): Promise<string | null> {
+async function issuerOf(instanceId: string): Promise<{ id: string | null; label: string | null }> {
   try {
     // Read by route: the instance history route, first event (the one that started the flow).
     const res = (await client.get<unknown>(`/api/v1/instances/${encodeURIComponent(instanceId)}/history`, { limit: 1 })) as unknown
     const list = Array.isArray(res) ? res : ((res as { items?: unknown[] } | null)?.items ?? [])
-    return sn((list[0] as { actor_id?: unknown } | undefined)?.actor_id)
+    const first = list[0] as { actor_id?: unknown; actor_label?: unknown; actor_display_name?: unknown } | undefined
+    return { id: sn(first?.actor_id), label: sn(first?.actor_label) ?? sn(first?.actor_display_name) }
   } catch {
-    return null
+    return { id: null, label: null }
   }
 }
 
@@ -117,7 +122,8 @@ async function contextOf(instanceId: string): Promise<TaskContext> {
   } catch {
     doc = null
   }
-  return { doc, issuerId: await issuerOf(instanceId) }
+  const issuer = await issuerOf(instanceId)
+  return { doc, issuerId: issuer.id, issuerLabel: issuer.label }
 }
 
 /** instance id -> context; `undefined` while loading, `null` when the instance cannot be read. */

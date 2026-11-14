@@ -113,7 +113,7 @@ function installBackend() {
     }
     m = path.match(/^\/api\/v1\/instances\/([^/]+)(\/history)?$/)
     if (m) {
-      if (m[2]) return reply(200, [{ actor_id: ISSUER }])
+      if (m[2]) return reply(200, [{ actor_id: ISSUER, actor_label: 'gate-b6-admin' }])
       const isPost = m[1] === I_POST
       return reply(200, { id: m[1], variables: { document_id: isPost ? D_POST : D_APPROVE, document_type: 'stock_issue' } })
     }
@@ -169,6 +169,17 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(screen.getAllByTestId('task-age')[0]).toHaveTextContent(/3 minutes ago/)
     await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2 pcs, +1 more'))
     expect(noUuidInDom(container)).toBe(true)
+  })
+
+  it('T-1968 another user issuer is named, with the document date, in the row and the panel', async () => {
+    const { container } = renderPage(SECOND)
+    await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('Issued by: gate-b6-admin'))
+    expect(container.textContent).not.toContain('Another user')
+    await waitFor(() => expect(screen.getAllByTestId('task-doc-date')[0]).toBeInTheDocument())
+    const user = userEvent.setup()
+    await user.click((await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_APPROVE)!)
+    const header = await screen.findByTestId('task-document-header')
+    await waitFor(() => expect(within(header).getByText('gate-b6-admin')).toBeInTheDocument())
   })
 
   it('T3 the detail shows the document header and lines read-only, no uuid', async () => {
