@@ -150,6 +150,7 @@ POST /modules/assets/counts/:id/close AssetsCountRecord
 POST /modules/assets/counts/:id/issue AssetsCountOrder
 POST /modules/assets/counts/:id/open AssetsCountRecord
 POST /modules/assets/counts/:id/result/sign AssetsRead
+POST /modules/assets/counts/:id/scan AssetsCountRecord
 POST /modules/assets/counts/:id/sheet-signatures AssetsCountRecord
 POST /modules/assets/counts/:id/surplus-lines AssetsCountRecord
 POST /modules/assets/documents AssetsPost
