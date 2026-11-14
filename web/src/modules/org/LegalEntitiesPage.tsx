@@ -141,6 +141,8 @@ function LegalEntitiesInner() {
       detail={detail}
       escapeCloses={retiring === null}
       onClosePanel={() => openPanel(null)}
+      defaultSelectId={nodes[0]?.id ?? null}
+      onDefaultSelect={(id) => openPanel({ kind: 'record', id })}
       master={
         nodes.length === 0 ? (
           <OrgEmpty canWrite={canWrite} createLabel={createLabel} onCreate={() => openPanel({ kind: 'new' })} />

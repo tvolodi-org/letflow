@@ -501,6 +501,8 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
       <CatalogItemsBoundary queries={[itemsQuery, lotsQuery]}>
         <ListDetail
           screen="catalog.lots"
+          defaultSelectId={lots[0]?.record_id ?? null}
+          onDefaultSelect={canWrite ? (id) => setPanel({ mode: 'open', id }) : undefined}
           listLabel={t('catalog_items.lots.listPane')}
           listDefault={50}
           listMin={320}

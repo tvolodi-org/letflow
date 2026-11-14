@@ -46,3 +46,17 @@ test('S2 edit: the same card stays selected and the list scroll position is unch
   await expect(page.getByTestId('registry')).toHaveAttribute('data-detail', 'open')
   expect(await scrollTop()).toBe(before)
 })
+
+test('S3 open a directory: the first item is selected and its detail is open', async ({ page }) => {
+  await page.setViewportSize(DESKTOP)
+  await page.goto('/__harness/list-detail-save-cards')
+  await expect(page.getByTestId('registry')).toHaveAttribute('data-detail', 'open')
+  await expect(page.getByTestId('registry-details').getByLabel('Name', { exact: true })).toHaveValue('Asset card 0001')
+})
+
+test('S4 open at 390 px: the list is shown, no detail is opened', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/__harness/list-detail-save-cards')
+  await expect(page.getByRole('row').filter({ hasText: 'FA-0001' }).first()).toBeVisible()
+  await expect(page.getByTestId('registry')).toHaveAttribute('data-detail', 'closed')
+})

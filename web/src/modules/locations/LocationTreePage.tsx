@@ -425,6 +425,8 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
         <ListDetail
           kind="tree"
           screen="locations.tree"
+          defaultSelectId={treeNodes[0]?.id ?? null}
+          onDefaultSelect={sel.select}
           detailOpen={panelOpen}
           onClose={closePanel}
           escapeCloses={!dialogOpen}

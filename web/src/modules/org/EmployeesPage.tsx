@@ -225,6 +225,8 @@ function EmployeesInner() {
       detail={detail}
       escapeCloses={retiring === null && transferring === null}
       onClosePanel={() => openPanel(null)}
+      defaultSelectId={nodes[0]?.id ?? null}
+      onDefaultSelect={(id) => openPanel({ kind: 'record', id })}
       master={
         <>
           <OrgUnitFilter value={unitFilter} onChange={setUnitFilter} options={unitOptions(unitRows)} />

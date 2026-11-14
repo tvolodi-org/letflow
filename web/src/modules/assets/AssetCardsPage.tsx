@@ -327,6 +327,8 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
       ) : (
         <ListDetail
           screen="assets.cards"
+          defaultSelectId={cards[0]?.record_id ?? null}
+          onDefaultSelect={sel.select}
           listLabel={t('assets.page.listPane')}
           listDefault={50}
           listMin={380}

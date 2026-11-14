@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** T-1946: the one selection rule of list + detail screens: create selects the new record, edit keeps the same
  *  record (and the list pane stays mounted, so its scroll position stays), delete clears the selection. */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { ListDetail } from '../ListDetail'
@@ -79,5 +79,62 @@ describe('useListSelection in ListDetail', () => {
     act(() => result.current.saved({ kind: 'create', id: 'x' }))
     expect(result.current.creating).toBeNull()
     expect(result.current.selectedId).toBe('x')
+  })
+})
+
+describe('default first-item selection (T-1946 owner addition)', () => {
+  function Dir({ ids, initial = null }: { ids: string[]; initial?: string | null }) {
+    const sel = useListSelection(initial)
+    return (
+      <ListDetail
+        screen="test.dir"
+        listLabel="Items"
+        list={<div>list</div>}
+        detail={<p data-testid="record">{`record ${sel.selectedId}`}</p>}
+        detailOpen={sel.selectedId !== null || sel.creating !== null}
+        onClose={sel.close}
+        defaultSelectId={ids[0] ?? null}
+        onDefaultSelect={sel.select}
+      />
+    )
+  }
+  let width = 1200
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => width })
+  })
+  afterEach(() => {
+    if (original) Object.defineProperty(HTMLElement.prototype, 'clientWidth', original)
+    width = 1200
+  })
+
+  it('wide host: the first item is selected and its detail opens', () => {
+    render(<Dir ids={['f1', 'f2']} />)
+    expect(screen.getByTestId('record')).toHaveTextContent('record f1')
+    expect(screen.getByTestId('registry')).toHaveAttribute('data-detail', 'open')
+  })
+
+  it('empty list: nothing is selected, the empty state stays', () => {
+    render(<Dir ids={[]} />)
+    expect(screen.queryByTestId('record')).toBeNull()
+    expect(screen.getByTestId('list-detail-empty')).toBeInTheDocument()
+  })
+
+  it('a record the URL gave wins over the first item', () => {
+    render(<Dir ids={['f1', 'f2']} initial="f2" />)
+    expect(screen.getByTestId('record')).toHaveTextContent('record f2')
+  })
+
+  it('narrow host (single pane): the list stays first, no detail opens', () => {
+    width = 600
+    render(<Dir ids={['f1', 'f2']} />)
+    expect(screen.queryByTestId('record')).toBeNull()
+    expect(screen.getByTestId('registry')).toHaveAttribute('data-detail', 'closed')
+  })
+
+  it('after a close the first item is not selected again', () => {
+    render(<Dir ids={['f1']} />)
+    fireEvent.click(screen.getByTestId('list-detail-back'))
+    expect(screen.queryByTestId('record')).toBeNull()
   })
 })
