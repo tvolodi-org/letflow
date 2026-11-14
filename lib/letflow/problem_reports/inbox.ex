@@ -3,13 +3,17 @@ defmodule Letflow.ProblemReports.Inbox do
   T-1949: owner inbox in the configured platform company. Decisions serialize on the report
   row; their audit holds only status and length, never retained customer or reply text.
   Authorization belongs to the platform-scope `ProblemReportsManage` routes.
+
+  T-1963: the same routes serve a second class of row, `review` (the owner list,
+  `Letflow.ProblemReports.Review`): `list/1` takes `class=problem|review` (default `problem`), `get/1`
+  answers either class, and `decide/3` is for problem reports only (a review row is a 404).
   """
 
   import Ecto.Query
   require Logger
 
   alias Letflow.{Audit, PlatformTenant, ProblemReports, Repo}
-  alias Letflow.ProblemReports.{Capture, Report, Status}
+  alias Letflow.ProblemReports.{Capture, Report, Review, Status}
 
   @actions ~w(answer develop reject ask fixed)
   @closed ~w(answered fixed not_done)
@@ -91,11 +95,21 @@ defmodule Letflow.ProblemReports.Inbox do
 
   @doc "Newest first, keyset-paged owner summaries."
   def list(params) do
+    case Map.get(params, "class", "problem") do
+      "problem" -> list_problems(params)
+      "review" -> Review.list(params)
+      _ -> {:error, :invalid_query}
+    end
+  end
+
+  defp list_problems(params) do
     with {:ok, prefix} <- prefix(),
          {:ok, status} <- filter(Map.get(params, "status", "open")),
          {:ok, limit} <- integer(Map.get(params, "limit", "50"), 1, 100),
          {:ok, before} <- before_seq(Map.get(params, "before")) do
-      query = from(r in Report, order_by: [desc: r.seq], limit: ^limit)
+      query =
+        from(r in Report, where: r.class == "problem", order_by: [desc: r.seq], limit: ^limit)
+
       query = if status == [], do: query, else: from(r in query, where: r.status in ^status)
       query = if before, do: from(r in query, where: r.seq < ^before), else: query
       rows = Repo.all(query, prefix: prefix)
@@ -127,7 +141,7 @@ defmodule Letflow.ProblemReports.Inbox do
     with {:ok, prefix} <- prefix(),
          {:ok, id} <- cast_id(id),
          %Report{} = report <- Repo.get(Report, id, prefix: prefix) do
-      {:ok, detail(report)}
+      if report.class == "review", do: Review.get(id), else: {:ok, detail(report)}
     else
       nil -> {:error, :not_found}
       error -> error
@@ -142,7 +156,10 @@ defmodule Letflow.ProblemReports.Inbox do
       result =
         Repo.transaction(fn ->
           report =
-            Repo.one(from(r in Report, where: r.id == ^id, lock: "FOR UPDATE"), prefix: prefix)
+            Repo.one(
+              from(r in Report, where: r.id == ^id and r.class == "problem", lock: "FOR UPDATE"),
+              prefix: prefix
+            )
 
           if is_nil(report), do: Repo.rollback(:not_found)
           action = Map.get(body, "action")
@@ -224,6 +241,7 @@ defmodule Letflow.ProblemReports.Inbox do
     %{
       "id" => r.id,
       "number" => ProblemReports.number(r),
+      "class" => "problem",
       "status" => r.status,
       "last_action" => r.last_action,
       "received_at" => r.consented_at,
