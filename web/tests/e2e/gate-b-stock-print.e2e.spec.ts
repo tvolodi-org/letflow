@@ -86,9 +86,8 @@ async function createDocument(kind: string) {
   await row.getByLabel('Quantity').fill(kind === 'Receipt' ? '5' : '1')
   if (kind === 'Receipt') await row.getByLabel('Unit price').fill('100')
   await saveDocument(page)
-  const number = await headerNumber(page)
-  expect(number).not.toBe('')
   await issueDocument(page)
+  const number = await headerNumber(page) // a draft has no number: it is allocated at Issue (T-1964)
   if (kind !== 'Receipt') pending.add(number)
   await reopen(number)
   return number
