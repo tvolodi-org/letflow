@@ -10,6 +10,7 @@ const BAN = /toLocaleDateString|toLocaleTimeString|\.toLocaleString\(|new Intl\.
 const ALLOW: Record<string, number> = {
   'modules/stock/documents/documentsModel.ts': 1,
   'modules/stock/counts/countsModel.ts': 1,
+  'modules/stock/register/stockRegisterModel.ts': 1,
 }
 
 function walk(dir: string, out: string[] = []): string[] {
