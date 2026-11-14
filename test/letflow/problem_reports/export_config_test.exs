@@ -20,4 +20,26 @@ defmodule Letflow.ProblemReports.ExportConfigTest do
       refute message =~ bad
     end
   end
+
+  test "EC1 parse_hash/2 names its own variable and never the value" do
+    assert ExportConfig.parse_hash(@hash, ExportConfig.owner_list_var()) == {:ok, @hash}
+    assert ExportConfig.parse_hash(nil, "X") == {:ok, nil}
+
+    assert {:error, message} =
+             ExportConfig.parse_hash("plain-secret", ExportConfig.owner_list_var())
+
+    assert message =~ "LETFLOW_OWNER_LIST_SHA256"
+    refute message =~ "plain-secret"
+  end
+
+  test "EC2 distinct/2 refuses equal hashes without echoing either" do
+    other = String.duplicate("cd", 32)
+    assert ExportConfig.distinct(@hash, other) == :ok
+    assert ExportConfig.distinct(nil, @hash) == :ok
+    assert ExportConfig.distinct(@hash, nil) == :ok
+    assert ExportConfig.distinct(nil, nil) == :ok
+    assert {:error, message} = ExportConfig.distinct(@hash, @hash)
+    refute message =~ @hash
+    assert message =~ "LETFLOW_OWNER_LIST_SHA256"
+  end
 end
