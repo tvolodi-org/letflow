@@ -1,5 +1,5 @@
 /** T-1880 / D-135: the asset card actions in a real browser. Each of Commission, Change responsible, Hand over and
- *  Write off is started from the card panel (Operations button and header Actions menu) and from a card-list row, at
+ *  Write off is started from the card panel (header Actions menu) and from a card-list row, at
  *  desktop width and on a phone (390 px, touch); the document form opened from a card carries the card as its line and
  *  the holder as its From side. Runs against the dev-only screen harness (/__harness/<screen>, no login, no backend).
  *  Not a CI gate (ci.yml does not run the general e2e suite); its proof is the local run:
@@ -28,18 +28,8 @@ function trackUrls(page: Page): string[] {
 const expected = (kind: string, card: string) => `/admin/assets/documents/new?kind=${kind}&asset=${card}`
 const reached = (urls: string[], path: string) => urls.some((u) => u.endsWith(path))
 
-test.describe('P1 P2 card panel: Operations buttons and header Actions menu', () => {
+test.describe('P2 E1 card panel: tabs and header Actions menu', () => {
   for (const kind of KINDS) {
-    test(`P1 ${kind}: the Operations button opens the form address with the card`, async ({ page }) => {
-      await page.setViewportSize(DESKTOP)
-      await page.goto(`/__harness/${PANEL[kind]}`)
-      const button = page.getByTestId(`card-op-${kind}`)
-      await expect(button).toBeEnabled()
-      const urls = trackUrls(page)
-      await button.click()
-      await expect.poll(() => reached(urls, expected(kind, CARD_OF[kind]))).toBe(true)
-    })
-
     test(`P2 ${kind}: the header Actions menu item opens the form address with the card`, async ({ page }) => {
       await page.setViewportSize(DESKTOP)
       await page.goto(`/__harness/${PANEL[kind]}`)
@@ -53,12 +43,23 @@ test.describe('P1 P2 card panel: Operations buttons and header Actions menu', ()
     })
   }
 
-  test('P1 the rule shows: Commission is disabled on a card in the register, with its reason as visible text', async ({ page }) => {
+  test('E1 open a card, switch tabs, then the header Actions menu opens the form address with the card', async ({ page }) => {
     await page.setViewportSize(DESKTOP)
     await page.goto('/__harness/asset-card-actions')
-    await expect(page.getByTestId('card-op-change')).toBeEnabled()
-    await expect(page.getByTestId('card-op-commission')).toBeDisabled()
-    await expect(page.getByTestId('card-op-reason-commission')).toBeVisible()
+    await expect(page.getByTestId('asset-holder')).toBeVisible()
+    await page.getByRole('tab', { name: 'Accounting' }).click()
+    await expect(page.locator('[name="acquisition_cost"]')).toBeVisible()
+    await expect(page.getByTestId('asset-holder')).toBeHidden()
+    await page.getByRole('tab', { name: 'Main' }).click()
+    await expect(page.getByTestId('asset-holder')).toBeVisible()
+    await page.getByTestId('card-actions-panel-c-1').click()
+    const urls = trackUrls(page)
+    await page.getByTestId('card-action-handover').click()
+    await expect.poll(() => reached(urls, expected('handover', 'c-1'))).toBe(true)
+    // the pre-filled draft half: the form opened from the card has the card as its line, nothing posted
+    await page.goto('/__harness/asset-doc-from-card-handover')
+    await expect(page.getByTestId('document-form')).toBeVisible()
+    await expect(page.getByTestId('line-editor-row').first().getByLabel('Asset')).toHaveValue(/FA-0001/)
   })
 })
 
@@ -133,13 +134,16 @@ test.describe('P4 phone: touch at 390 px', () => {
     await expect.poll(() => reached(urls, expected('change', 'c-1'))).toBe(true)
   })
 
-  test('the Operations buttons on the card panel can be tapped', async ({ page }) => {
+  test('E2 phone: switching tabs leaves no horizontal page scroll, the header menu can be tapped', async ({ page }) => {
     await page.goto('/__harness/asset-card-actions')
-    const button = page.getByTestId('card-op-handover')
-    await expect(button).toBeVisible()
+    await page.getByRole('tab', { name: 'Accounting' }).tap()
+    await page.getByRole('tab', { name: 'Main' }).tap()
+    const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    expect(fits).toBe(true)
+    await page.getByTestId('card-actions-panel-c-1').tap()
     const urls = trackUrls(page)
-    await button.tap()
-    await expect.poll(() => reached(urls, expected('handover', 'c-1'))).toBe(true)
+    await page.getByTestId('card-action-change').tap()
+    await expect.poll(() => reached(urls, expected('change', 'c-1'))).toBe(true)
   })
 })
 

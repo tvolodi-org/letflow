@@ -3,7 +3,9 @@
 export const cardActionsEn: Record<string, string> = {
   'assets.cardActions.menu': 'Actions',
   'assets.cardActions.rowLabel': 'Actions: {number}',
-  'assets.cardActions.title': 'Operations',
+  'assets.tabs.label': 'Card sections',
+  'assets.tabs.main': 'Main',
+  'assets.tabs.accounting': 'Accounting',
   'assets.cardActions.kindChange': 'Change of kind (from stock)',
   'assets.cardActions.action.commission': 'Commission',
   'assets.cardActions.action.change': 'Change responsible',
@@ -34,7 +36,9 @@ export const cardActionsEn: Record<string, string> = {
 export const cardActionsRu: Record<string, string> = {
   'assets.cardActions.menu': 'Действия',
   'assets.cardActions.rowLabel': 'Действия: {number}',
-  'assets.cardActions.title': 'Операции',
+  'assets.tabs.label': 'Разделы карточки',
+  'assets.tabs.main': 'Основное',
+  'assets.tabs.accounting': 'Учёт',
   'assets.cardActions.kindChange': 'Смена вида (со склада)',
   'assets.cardActions.action.commission': 'Ввести в эксплуатацию',
   'assets.cardActions.action.change': 'Сменить МОЛ',
@@ -65,7 +69,9 @@ export const cardActionsRu: Record<string, string> = {
 export const cardActionsKk: Record<string, string> = {
   'assets.cardActions.menu': 'Әрекеттер',
   'assets.cardActions.rowLabel': 'Әрекеттер: {number}',
-  'assets.cardActions.title': 'Операциялар',
+  'assets.tabs.label': 'Карточка бөлімдері',
+  'assets.tabs.main': 'Негізгі',
+  'assets.tabs.accounting': 'Есеп',
   'assets.cardActions.kindChange': 'Түрін өзгерту (қоймадан)',
   'assets.cardActions.action.commission': 'Пайдалануға беру',
   'assets.cardActions.action.change': 'МЖТ ауыстыру',

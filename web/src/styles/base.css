@@ -333,3 +333,8 @@ samp {
   .lf-pagehead__actions .lf-newmenu { flex: 1 1 auto; }
   .lf-pagehead__actions .lf-newmenu > .lf-btn { width: 100%; justify-content: center; }
 }
+
+/* T-1954: tabs inside a detail pane (DetailTabs). min-width 0 keeps the tab row's sideways scroll inside the pane. */
+.lf-detail-tabs { display: grid; gap: var(--space-4); min-width: 0; }
+.lf-detail-tabs__panel { display: grid; gap: var(--space-4); min-width: 0; }
+.lf-detail-tabs__panel[hidden] { display: none; }

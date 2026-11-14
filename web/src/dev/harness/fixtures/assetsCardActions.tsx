@@ -1,5 +1,5 @@
-/** Harness fixtures of the asset card actions (T-1880 / D-135): the card panel with its Operations buttons and Actions
- *  menu, the row menu, and the document form opened from a card with the card as its line. Invented data only. Own file
+/** Harness fixtures of the asset card actions (T-1880 / D-135): the card panel (tabs Main and Accounting, Actions menu in
+ *  the header), the row menu, and the document form opened from a card with the card as its line. Invented data only. Own file
  *  (one registry line). The balances answer is per screen (the harness routes see the path, not the query string). */
 import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
@@ -139,11 +139,11 @@ function TickTestIds({ ids, children }: { ids: string[]; children: ReactElement 
   return children
 }
 
-const panel = (name: string, cardId: string, routes: FixtureRoute[], open?: string): HarnessScreen => ({
+const panel = (name: string, cardId: string, routes: FixtureRoute[], open?: string, tab?: string): HarnessScreen => ({
   name,
   routes,
   render: () => {
-    const page = <AssetCardsPage initialSelectedId={cardId} />
+    const page = <AssetCardsPage initialSelectedId={cardId} initialCardTab={tab} />
     return withAuth(open ? <ClickTestId id={open}>{page}</ClickTestId> : page)
   },
 })
@@ -166,6 +166,10 @@ export const assetsCardActionsScreens: HarnessScreen[] = [
   panel('asset-card-actions-lowvalue-menu', 'c-4', TWO_ROWS, 'card-actions-panel-c-4'),
   panel('asset-card-actions-retired', 'c-8', NO_ROWS),
   panel('asset-card-actions-retired-menu', 'c-8', NO_ROWS, 'card-actions-panel-c-8'),
+  panel('asset-card-tabs-main', 'c-1', IN_REGISTER),
+  panel('asset-card-tabs-accounting', 'c-1', IN_REGISTER, undefined, 'accounting'),
+  panel('asset-card-tabs-retired-main', 'c-8', NO_ROWS),
+  panel('asset-card-tabs-retired-accounting', 'c-8', NO_ROWS, undefined, 'accounting'),
   { name: 'asset-card-rows', routes: IN_REGISTER, render: () => withAuth(<AssetCardsPage />) },
   { name: 'asset-card-row-menu', routes: IN_REGISTER, render: () => withAuth(<ClickTestId id="card-actions-c-1"><AssetCardsPage /></ClickTestId>) },
   fromCard('asset-doc-from-card-commission', 'commission', 'c-3', NO_ROWS),
