@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.22.0"
+    assert m.version == "0.23.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -57,14 +57,22 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"POST", "/counts/:id/cancel", :AssetsCountOrder},
              {"GET", "/counts", :AssetsRead},
              {"GET", "/counts/:id", :AssetsRead},
-             {"POST", "/counts/:id/open", :AssetsCountRecord}
+             {"POST", "/counts/:id/open", :AssetsCountRecord},
+             {"PUT", "/counts/:id/lines/:line_no", :AssetsCountRecord},
+             {"POST", "/counts/:id/surplus-lines", :AssetsCountRecord},
+             {"POST", "/counts/:id/close", :AssetsCountRecord},
+             {"POST", "/counts/:id/sheet-signatures", :AssetsCountRecord},
+             {"GET", "/counts/:id/lines", :AssetsRead},
+             {"GET", "/counts/:id/entries", :AssetsRead},
+             {"GET", "/counts/:id/sheet-document", :AssetsRead}
            ]
 
     assert m.manages_entity_types ==
              ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
                 assets_handover assets_handover_line assets_writeoff assets_writeoff_line
                 assets_posting_mark assets_kind_change assets_kind_change_line assets_opening assets_opening_line
-                assets_count_order assets_count_scope assets_count_member)
+                assets_count_order assets_count_scope assets_count_member
+                assets_count_line assets_count_entry assets_count_signature)
 
     assert m.scope_declarations ==
              Map.new(m.manages_entity_types, &{&1, {:column, "org_unit_id"}})

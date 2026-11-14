@@ -42,8 +42,18 @@ defmodule Letflow.Modules.Assets.Router do
   count route asks `Access.check/2` and then the flag `Settings.count_enabled?/1`; a refusal or a flag that is off is
   the same 404 `Response.not_found/1` as a tenant without the module (INV-5). Refusals of `Letflow.Modules.Assets.Counts`
   are 422 with a fixed `reason` (`count_scope_overlaps`, `count_state_invalid`, `not_chair`, ...), `audit_failed` is 500.
-  The policy `POST /counts/:id/open` (`AssetsCountRecord`) in the manifest is a reservation for K2: this router has no
-  such route yet, so a request to it reaches the no-match fallback for every caller.
+
+  REQ-817 (K2) count sheet routes, a thin layer over `Letflow.Modules.Assets.CountSheet`, same guard order:
+
+  | Route | Permission | Delegate | Ok |
+  |---|---|---|---|
+  | `POST /counts/:id/open` (empty body; also needs a tenant-wide ledger read) | `AssetsCountRecord` | `CountSheet.open/3` | 200 order view |
+  | `PUT /counts/:id/lines/:line_no` (replaces the line's input) | `AssetsCountRecord` | `record_line/5` | 200 line view |
+  | `POST /counts/:id/surplus-lines` | `AssetsCountRecord` | `add_surplus_line/4` | 201 line view |
+  | `POST /counts/:id/close` (empty body) | `AssetsCountRecord` | `close/3` | 200 order view |
+  | `POST /counts/:id/sheet-signatures` | `AssetsCountRecord` | `mark_sheet_signed/4` | 200 order view |
+  | `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit`, `cursor`) | `AssetsRead` | `lines/4`, `entries/4` | 200 `rows, next_cursor` |
+  | `GET /counts/:id/sheet-document` | `AssetsRead` | `sheet_document/3` | 200 summary / 404 |
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
@@ -112,6 +122,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.Cards
+  alias Letflow.Modules.Assets.CountSheet
   alias Letflow.Modules.Assets.Counts
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Checks
@@ -383,6 +394,80 @@ defmodule Letflow.Modules.Assets.Router do
   authz_get "/counts/:id", :AssetsRead do
     count_call(conn, :read, 200, fn prefix, opts ->
       Counts.get(prefix, conn.params["id"], opts)
+    end)
+  end
+
+  # REQ-817 (asset count K2): the count sheet routes, behind the flag `count_enabled`.
+  authz_post "/counts/:id/open", :AssetsCountRecord do
+    count_call(conn, :count_record, 200, fn prefix, opts ->
+      with true <-
+             empty_body?(conn) || {:error, {:field_not_allowed, first_key(conn.body_params)}},
+           {:ok, authorized} <- Ledger.authorize(conn, @ledger, :read) do
+        CountSheet.open(prefix, conn.params["id"], Map.put(opts, :authorized, authorized))
+      else
+        :error -> {:error, :not_found}
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  authz_put "/counts/:id/lines/:line_no", :AssetsCountRecord do
+    count_call(conn, :count_record, 200, fn prefix, opts ->
+      CountSheet.record_line(
+        prefix,
+        conn.params["id"],
+        conn.params["line_no"],
+        conn.body_params,
+        opts
+      )
+    end)
+  end
+
+  authz_post "/counts/:id/surplus-lines", :AssetsCountRecord do
+    count_call(conn, :count_record, 201, fn prefix, opts ->
+      CountSheet.add_surplus_line(prefix, conn.params["id"], conn.body_params, opts)
+    end)
+  end
+
+  authz_post "/counts/:id/close", :AssetsCountRecord do
+    count_call(conn, :count_record, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: CountSheet.close(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_post "/counts/:id/sheet-signatures", :AssetsCountRecord do
+    count_call(conn, :count_record, 200, fn prefix, opts ->
+      CountSheet.mark_sheet_signed(prefix, conn.params["id"], conn.body_params, opts)
+    end)
+  end
+
+  authz_get "/counts/:id/lines", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      CountSheet.lines(
+        prefix,
+        conn.params["id"],
+        Plug.Conn.fetch_query_params(conn).query_params,
+        opts
+      )
+    end)
+  end
+
+  authz_get "/counts/:id/entries", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      CountSheet.entries(
+        prefix,
+        conn.params["id"],
+        Plug.Conn.fetch_query_params(conn).query_params,
+        opts
+      )
+    end)
+  end
+
+  authz_get "/counts/:id/sheet-document", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      CountSheet.sheet_document(prefix, conn.params["id"], opts)
     end)
   end
 

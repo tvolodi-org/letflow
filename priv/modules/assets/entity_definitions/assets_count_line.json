@@ -1,0 +1,34 @@
+{
+  "name": "assets_count_line",
+  "display_name": "Asset count sheet line",
+  "description": "REQ-817 / GH #4374 (asset count K2, D-128). One line of the count sheet of an asset count order: a book line (read from the asset ledger at the cut-off, the card values copied as stored) or a surplus line (a card with no book line, or a described thing). counted_quantity is the typed input (1 or 0 for a fixed or intangible line, a whole number for a low-value one). Quantities and card money values are TEXT, not decimal: the asset ledger carries whole numbers only and the card values are kept exactly as stored. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column; master ids are checked in code (0076 R6).",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true, "queried": true},
+    {"name": "kind", "type": "enum", "required": true, "enum_values": ["book", "surplus"]},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "asset_id", "type": "string", "queried": true},
+    {"name": "asset_kind", "type": "enum", "enum_values": ["fixed", "low_value", "intangible"]},
+    {"name": "inventory_number", "type": "string"},
+    {"name": "name", "type": "string"},
+    {"name": "acquisition_date", "type": "string"},
+    {"name": "acquisition_cost", "type": "string"},
+    {"name": "book_value", "type": "string"},
+    {"name": "description", "type": "string"},
+    {"name": "book_location_id", "type": "string"},
+    {"name": "book_material_responsible_id", "type": "string"},
+    {"name": "book_actual_user_id", "type": "string"},
+    {"name": "book_quantity", "type": "string", "required": true},
+    {"name": "counted_quantity", "type": "string"},
+    {"name": "observed_location_id", "type": "string"},
+    {"name": "observed_material_responsible_id", "type": "string"},
+    {"name": "observed_actual_user_id", "type": "string"},
+    {"name": "condition", "type": "enum", "enum_values": ["in_use", "not_in_use", "damaged"]}
+  ],
+  "foreign_keys": [
+    {"name": "fk_assets_count_line_order_id", "field": "count_order_id", "references_entity": "assets_count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_count_line_order_line", "fields": ["count_order_id", "line_no"]}
+  ]
+}

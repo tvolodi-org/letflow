@@ -1,6 +1,6 @@
 # Fixed asset count (Inv-8, annex 39): specification
 
-Status: specification; slice K1 (the count order, REQ-816) is built (T-1927, assets 0.22.0), K2 to K7 are not. Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
+Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) are built, K3 to K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4); and an order with `freeze_locations` is refused at open (`freeze_not_available`) until K5 builds the freeze. Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
 with this file) are the build slices. Written by the business analyst (task T-1844, 2026-11-13). Test tenant only;
 behind a per-tenant flag that is off by default. Nothing here touches production, demo, secrets, DNS, money or the
 MES work (`docs/design/mes`).
@@ -28,7 +28,7 @@ count design so no new owner question is needed; **[A]** UAT assumption, to be c
   `count_posting.ex`, `freeze_state.ex` and `freeze_guard.ex` (freeze of the counted locations, limit setting
   `count_freeze_limit_minutes`, default 120), `count_print.ex` (PDF in ru, kk, en), `form_count_inv10.ex` with
   `lib/letflow/documents/form_print.ex` (official forms, ru and kk only, `priv/print_forms/*.json`).
-- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.22.0; ledger `assets` with the slots
+- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.23.0; ledger `assets` with the slots
   asset, org_unit, location, material_responsible, actual_user; causes commission, change, handover, writeoff,
   kind_change_in; permissions AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile with no role
   grants; settings currency, expiry_reminder_lead_days, storekeeper_grants), `cards.ex` (the card has no location,
