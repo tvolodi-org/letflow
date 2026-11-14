@@ -57,7 +57,7 @@ defmodule Letflow.ProblemReports do
          {:ok, platform_prefix} <- platform_prefix(),
          {:ok, platform_tenant_id} <- platform_tenant_id(platform_prefix),
          now = Keyword.get(opts, :now, DateTime.utc_now()),
-         :ok <- check_throttle(platform_prefix, auth_context.user_id, now) do
+         :ok <- check_throttle(platform_prefix, auth_context.tenant_id, auth_context.user_id, now) do
       insert(auth_context, caller_prefix, platform_prefix, platform_tenant_id, parsed, now, opts)
     end
   end
@@ -79,12 +79,16 @@ defmodule Letflow.ProblemReports do
     end
   end
 
-  defp check_throttle(platform_prefix, user_id, now) do
+  defp check_throttle(platform_prefix, tenant_id, user_id, now) do
     since = DateTime.add(now, -3600, :second)
 
     count =
       Repo.aggregate(
-        from(r in Report, where: r.reporter_user_id == ^user_id and r.inserted_at > ^since),
+        from(r in Report,
+          where:
+            r.reporter_tenant_id == ^tenant_id and r.reporter_user_id == ^user_id and
+              r.inserted_at > ^since
+        ),
         :count,
         prefix: platform_prefix
       )

@@ -408,6 +408,7 @@ defmodule Letflow.Api.Authorization do
           | :TasksReassignRouted
           | :TasksReadAll
           | :CurrenciesManage
+          | :DataExport
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -605,7 +606,9 @@ defmodule Letflow.Api.Authorization do
     # Roles stage 0 S0-5 (decision 0088, docs/design/storekeeper-task-visibility-ruling.md): read every task of the tenant. Tenant scope; PLATFORM_ADMIN, TENANT_ADMIN (catch-alls), PROCESS_DESIGNER, PROCESS_OPERATOR, TENANT_AUDITOR.
     :TasksReadAll,
     # Currency directory C2 (REQ-824, GH #4393, D-134): switch a currency on or off, make it the tenant currency. Tenant scope; PLATFORM_ADMIN and TENANT_ADMIN through the derived rule, no role grants.
-    :CurrenciesManage
+    :CurrenciesManage,
+    # T-1955 data export: tenant scope, admin catch-alls; dataset read authority is checked separately.
+    :DataExport
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -678,6 +681,7 @@ defmodule Letflow.Api.Authorization do
   away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-5's `:TasksReadAll`
   (read every task of the tenant; the five roles that saw all tasks before), plus REQ-824's `:CurrenciesManage`
   (the tenant currency switches under `/currencies`, TENANT_ADMIN through the derived rule).
+  Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`.
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1422,6 +1426,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/labels"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/labels/:message_id"), do: :LabelsManage
   def endpoint_policy_key("DELETE", "/labels/:message_id"), do: :LabelsManage
+  # T-1955: dataset discovery and download, each also checks dataset read authority.
+  def endpoint_policy_key("GET", "/data-export/datasets"), do: :DataExport
+  def endpoint_policy_key("POST", "/data-export"), do: :DataExport
+
   # REQ-824 (GH #4393): the currency directory. The read reuses the role-agnostic :MyAccessRead.
   def endpoint_policy_key("GET", "/currencies"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/currencies/:code"), do: :CurrenciesManage
@@ -1783,6 +1791,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
   def required_permission(:IntegrationMappingsManage), do: :IntegrationMappingsManage
   def required_permission(:LabelsManage), do: :LabelsManage
+  def required_permission(:DataExport), do: :DataExport
   def required_permission(:CurrenciesManage), do: :CurrenciesManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage

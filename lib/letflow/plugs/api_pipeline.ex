@@ -173,6 +173,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/tenant/settings", to: Letflow.Routers.TenantSettings)
   forward("/tenant/logo", to: Letflow.Routers.TenantLogo)
   forward("/labels", to: Letflow.Routers.Labels)
+  forward("/data-export", to: Letflow.Routers.DataExport)
   forward("/currencies", to: Letflow.Routers.Currencies)
   forward("/notification-templates", to: Letflow.Routers.NotificationTemplates)
   forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries)

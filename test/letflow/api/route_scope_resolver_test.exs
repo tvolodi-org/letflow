@@ -310,7 +310,9 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # The module rollback route (GH T-1549, decision 0055 D9) added one more (259 -> 260).
       # REQ-816 (GH #4375) added the six assets count lines (267 -> 273).
       # REQ-817 (GH #4374) added the eight assets count sheet lines (273 -> 281).
-      assert length(snapshot) == 284
+      # T-1924 added the asset card print route line (281 -> 282).
+      # T-1949 added the three owner problem-report route lines (282 -> 285).
+      assert length(snapshot) == 285
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 

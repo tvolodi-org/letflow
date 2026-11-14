@@ -81,6 +81,11 @@ defmodule Letflow.Modules.Assets do
   T-1923: `form=da3` answers ДА-3 / ҰМА-3 (annex 18, `FormDa3`) of an issued write-off, the commission block
   printing blank until REQ-777; the other official forms are later slices.
 
+  **Card print** (T-1924, version 0.25.0): `GET /cards/:id/print?form=da2&format=pdf|docx&lang=ru|kk` (`AssetsRead`, the
+  guard of `GET /cards/:id/lock`) answers the official form ДА-2 / ҰМА-2 (annex 17) of a card (`CardPrintSource`,
+  `FormDa2`, `priv/print_forms/da2.json`); unit and materially responsible person come from the register when the card
+  has exactly one row. Code and route only, no definition or pack change (class A).
+
   **Asset count K1** (T-1927, version 0.22.0, REQ-816 / GH #4375, owner decision D-128, spec
   `docs/assets/asset-count.md`): the count ORDER of fixed assets. Record types `assets_count_order`,
   `assets_count_scope` and `assets_count_member`, document types `assets_count.order` (ACO),
@@ -256,7 +261,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.24.0",
+    version: "0.25.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -293,6 +298,7 @@ defmodule Letflow.Modules.Assets do
       {"PATCH", "/cards/:id", :AssetsCardWrite},
       {"POST", "/cards/:id/retire", :AssetsCardWrite},
       {"GET", "/cards/:id/lock", :AssetsRead},
+      {"GET", "/cards/:id/print", :AssetsRead},
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
       {"GET", "/reconcile", :AssetsReconcile},

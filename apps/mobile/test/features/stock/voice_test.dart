@@ -109,7 +109,7 @@ Future<void> _count(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        scanSourceProvider.overrideWithValue(scan),
+        scanSourceProvider.overrideWithValue(() => scan),
         counts.stockGatewayProvider.overrideWithValue(cg),
         voiceSourceProvider.overrideWithValue(voice),
         voiceUiLocaleProvider.overrideWithValue(_ui),
@@ -173,7 +173,7 @@ Future<void> _form(WidgetTester tester, String kind) async {
     ProviderScope(
       overrides: [
         docs.stockGatewayProvider.overrideWithValue(gw),
-        scanSourceProvider.overrideWithValue(scan),
+        scanSourceProvider.overrideWithValue(() => scan),
         voiceSourceProvider.overrideWithValue(voice),
         voiceUiLocaleProvider.overrideWithValue(_ui),
       ],

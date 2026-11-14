@@ -1,6 +1,6 @@
 /** W1 — T-1921: which official forms the asset document screen offers. Pure. */
 import { describe, expect, it } from 'vitest'
-import { ASSET_FORM_SUFFIX, assetFormLang, formsForAssetDocument } from '../documents/assetForms'
+import { ASSET_FORM_SUFFIX, CARD_FORMS, assetFormLang, cardPrintErrorMessageId, formsForAssetDocument } from '../documents/assetForms'
 
 describe('W1 formsForAssetDocument', () => {
   it.each([
@@ -32,5 +32,22 @@ describe('W1 formsForAssetDocument', () => {
     expect(ASSET_FORM_SUFFIX.da1).toBe('_DA-1')
     expect(ASSET_FORM_SUFFIX.da3).toBe('_DA-3')
     expect(ASSET_FORM_SUFFIX.da4).toBe('_DA-4')
+  })
+})
+
+describe('W1 card forms (T-1924)', () => {
+  const kinds = ['commission', 'handover', 'change', 'writeoff', 'kind_change', 'opening']
+  const states = ['draft', 'issued', 'posted', 'reversed', 'cancelled']
+  it('DA-2 is never offered for a document', () => {
+    for (const kind of kinds) for (const state of states) expect(formsForAssetDocument({ kind, state })).not.toContain('da2')
+  })
+  it('the card forms and suffix', () => {
+    expect(CARD_FORMS).toEqual(['da2'])
+    expect(ASSET_FORM_SUFFIX.da2).toBe('_DA-2')
+  })
+  it('the card print error ids', () => {
+    expect(cardPrintErrorMessageId({ status: 422, message: 'x', code: '422', details: { reason: 'print_unsupported_character' } })).toBe('assets.doc.print.reason.print_unsupported_character')
+    expect(cardPrintErrorMessageId({ status: 404, message: 'x', code: '404', details: {} })).toBe('assets.doc.form.cardNotFound')
+    expect(cardPrintErrorMessageId({ status: 500, message: 'x', code: '500', details: {} })).toBe('assets.doc.error.generic')
   })
 })

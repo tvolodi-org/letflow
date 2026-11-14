@@ -96,7 +96,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :TenantSecurityManage,
     # Roles stage 0 S0-4: held by TENANT_ADMIN only.
     :TasksReassignRouted,
-    :CurrenciesManage
+    :CurrenciesManage,
+    :DataExport
   ]
 
   @link_route {"POST", "/instances/:id/attachments/:attachment_id/link"}

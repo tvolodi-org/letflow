@@ -41,7 +41,7 @@ defmodule Letflow.Api.ImportAnyTypeTest do
 
   test "P1 fifth-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
     assert @perm in Authorization.core_permissions()
-    assert Authorization.core_permissions() |> Enum.take(-6) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-7) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
