@@ -1,0 +1,24 @@
+{
+  "name": "assets_count_entry",
+  "display_name": "Asset count entry",
+  "description": "REQ-817 / GH #4374 (asset count K2, D-128). One entry of the append-only log of an asset count order: who typed which input on which sheet line and when, with the value before and after. entry_no is 1..n per order. No function of module assets updates or deletes an entry. method is typed now; scan is declared for K3 so that slice needs no enum widening. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "entry_no", "type": "integer", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "action", "type": "enum", "required": true, "enum_values": ["recorded", "surplus_added"]},
+    {"name": "method", "type": "enum", "required": true, "enum_values": ["typed", "scan"]},
+    {"name": "value_before", "type": "json"},
+    {"name": "value_after", "type": "json", "required": true},
+    {"name": "entered_by", "type": "string", "required": true},
+    {"name": "entered_by_employee_id", "type": "string"},
+    {"name": "entered_at", "type": "datetime", "required": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_assets_count_entry_order_id", "field": "count_order_id", "references_entity": "assets_count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_count_entry_order_entry", "fields": ["count_order_id", "entry_no"]}
+  ]
+}

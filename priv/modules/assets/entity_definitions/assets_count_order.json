@@ -1,7 +1,7 @@
 {
   "name": "assets_count_order",
   "display_name": "Asset count order",
-  "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. Later slices K2 to K5 add optional fields (class A, optional_field_added).",
+  "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. K2 (REQ-817) added the optional fields cut_off_at, cutoff_seq, opened_by (open), sheet_document_id, sheet_number, closed_at, closed_by (close) and sheet_signed_at, sheet_signed_by (sheet marks); later slices K3 to K5 add more optional fields (class A, optional_field_added).",
   "fields": [
     {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
     {"name": "kinds", "type": "json", "required": true},
@@ -16,7 +16,16 @@
     {"name": "issued_at", "type": "datetime"},
     {"name": "issued_by", "type": "string"},
     {"name": "cancelled_at", "type": "datetime"},
-    {"name": "cancelled_by", "type": "string"}
+    {"name": "cancelled_by", "type": "string"},
+    {"name": "cut_off_at", "type": "datetime"},
+    {"name": "cutoff_seq", "type": "integer"},
+    {"name": "opened_by", "type": "string"},
+    {"name": "sheet_document_id", "type": "string"},
+    {"name": "sheet_number", "type": "string", "queried": true},
+    {"name": "closed_at", "type": "datetime"},
+    {"name": "closed_by", "type": "string"},
+    {"name": "sheet_signed_at", "type": "datetime"},
+    {"name": "sheet_signed_by", "type": "string"}
   ],
   "indexes": [
     {"name": "idx_assets_count_order_unit_status", "fields": ["org_unit_id", "status"]}

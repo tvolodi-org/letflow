@@ -34,8 +34,8 @@ function docIds(doc: TaskDoc | null): ReferenceIds {
   return {
     org_unit: orgUnits,
     location_node: locations,
-    catalog_item: doc.lines.map((l) => l.catalog_item_id),
-    catalog_uom: doc.lines.map((l) => l.catalog_uom_id),
+    catalog_item: doc.lines.map((l) => l.catalog_item_id).filter((x) => x !== ''),
+    catalog_uom: doc.lines.map((l) => l.catalog_uom_id).filter((x) => x !== ''),
     catalog_lot: doc.lines.map((l) => l.catalog_lot_id).filter((x): x is string => !!x),
   }
 }
@@ -50,7 +50,9 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
   label: ReturnType<typeof useReferenceLabels>
 }) {
   const rows: [string, string][] = []
-  const kindWord = refMsg.docType[doc.type === 'count' ? 'count' : `stock_${doc.kind}`] ?? doc.kind
+  // Asset documents name cards, not catalog items: no unit and lot columns.
+  const isAsset = doc.typeKey?.startsWith('assets_') === true
+  const kindWord = refMsg.docType[doc.type === 'count' ? 'count' : (doc.typeKey ?? `stock_${doc.kind}`)] ?? doc.kind
   rows.push([m.number, doc.number], [m.kind, kindWord], [m.state, m.states[doc.state] ?? doc.state])
   if (doc.orgUnitId) rows.push([m.orgUnit, label('org_unit', doc.orgUnitId)])
   if (doc.locationId) rows.push([m.location, label('location_node', doc.locationId)])
@@ -79,17 +81,17 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
             <thead>
               <tr>
                 <th scope="col">{m.colItem}</th>
-                <th scope="col">{m.colUnit}</th>
-                <th scope="col">{m.colLot}</th>
+                {!isAsset && <th scope="col">{m.colUnit}</th>}
+                {!isAsset && <th scope="col">{m.colLot}</th>}
                 <th scope="col" className="is-end">{m.colQuantity}</th>
               </tr>
             </thead>
             <tbody>
               {doc.lines.map((l) => (
                 <tr key={l.line_no}>
-                  <td>{label('catalog_item', l.catalog_item_id)}</td>
-                  <td>{label('catalog_uom', l.catalog_uom_id)}</td>
-                  <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>
+                  <td>{l.assetName !== undefined ? l.assetName : label('catalog_item', l.catalog_item_id)}</td>
+                  {!isAsset && <td>{label('catalog_uom', l.catalog_uom_id)}</td>}
+                  {!isAsset && <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>}
                   <td className="is-num">{formatQuantity(l.quantity, locale)}</td>
                 </tr>
               ))}

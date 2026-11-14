@@ -61,7 +61,7 @@ export default function TaskInboxPage() {
       if (d.orgUnitId) org.push(d.orgUnitId)
       for (const l of [d.locationId, d.fromLocationId, ...d.locationIds]) if (l) loc.push(l)
       const first = d.lines[0]
-      if (first) {
+      if (first && first.assetName === undefined) {
         item.push(first.catalog_item_id)
         uom.push(first.catalog_uom_id)
       }

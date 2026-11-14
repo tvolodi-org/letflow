@@ -87,10 +87,15 @@ defmodule Letflow.Modules.Assets do
   `AssetsCountOrder` and `AssetsCountRecord` (no role grants, so TENANT_ADMIN and PLATFORM_ADMIN hold
   them), settings `count_enabled` (default off: the six `/counts` routes answer the 404 of a tenant
   without the module), `count_signer_role` (default `accountant`) and `count_freeze_limit_minutes`
-  (default 120), read by `Letflow.Modules.Assets.Settings`. See `Letflow.Modules.Assets.Counts`. The route
-  policy `POST /counts/:id/open` is a reservation for K2 and has no router route yet. Existing
+  (default 120), read by `Letflow.Modules.Assets.Settings`. See `Letflow.Modules.Assets.Counts`. Existing
   installs take the new types by the in-place upgrade (class A); document types register lazily at the
   first issue.
+
+  **Asset count K2** (T-1928, version 0.23.0, REQ-817 / GH #4374): the count SHEET. Record types
+  `assets_count_line`, `assets_count_entry` and `assets_count_signature`, nine optional fields on
+  `assets_count_order`, eight routes under `/counts/:id` (open, `PUT lines/:line_no`, `surplus-lines`, close,
+  `sheet-signatures`, and the reads `lines`, `entries`, `sheet-document`). No new permission, setting or
+  migration (class A). See `Letflow.Modules.Assets.CountSheet`.
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
@@ -146,7 +151,10 @@ defmodule Letflow.Modules.Assets do
     "assets_opening_line",
     "assets_count_order",
     "assets_count_scope",
-    "assets_count_member"
+    "assets_count_member",
+    "assets_count_line",
+    "assets_count_entry",
+    "assets_count_signature"
   ]
 
   # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
@@ -241,7 +249,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.22.0",
+    version: "0.23.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -296,9 +304,15 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/counts/:id/cancel", :AssetsCountOrder},
       {"GET", "/counts", :AssetsRead},
       {"GET", "/counts/:id", :AssetsRead},
-      # K2 (REQ-817) adds the route `POST /counts/:id/open`; the policy is reserved here so that
-      # `AssetsCountRecord` is named in route_policies (permission_matrix `not_routed_by_owner`).
-      {"POST", "/counts/:id/open", :AssetsCountRecord}
+      # K2 (REQ-817): the count sheet routes (open, typed input, surplus, close, sheet marks, reads).
+      {"POST", "/counts/:id/open", :AssetsCountRecord},
+      {"PUT", "/counts/:id/lines/:line_no", :AssetsCountRecord},
+      {"POST", "/counts/:id/surplus-lines", :AssetsCountRecord},
+      {"POST", "/counts/:id/close", :AssetsCountRecord},
+      {"POST", "/counts/:id/sheet-signatures", :AssetsCountRecord},
+      {"GET", "/counts/:id/lines", :AssetsRead},
+      {"GET", "/counts/:id/entries", :AssetsRead},
+      {"GET", "/counts/:id/sheet-document", :AssetsRead}
     ],
     manages_entity_types: [
       "assets_card",
@@ -317,7 +331,10 @@ defmodule Letflow.Modules.Assets do
       "assets_opening_line",
       "assets_count_order",
       "assets_count_scope",
-      "assets_count_member"
+      "assets_count_member",
+      "assets_count_line",
+      "assets_count_entry",
+      "assets_count_signature"
     ],
     scope_declarations: %{
       "assets_card" => {:column, "org_unit_id"},
@@ -336,7 +353,10 @@ defmodule Letflow.Modules.Assets do
       "assets_opening_line" => {:column, "org_unit_id"},
       "assets_count_order" => {:column, "org_unit_id"},
       "assets_count_scope" => {:column, "org_unit_id"},
-      "assets_count_member" => {:column, "org_unit_id"}
+      "assets_count_member" => {:column, "org_unit_id"},
+      "assets_count_line" => {:column, "org_unit_id"},
+      "assets_count_entry" => {:column, "org_unit_id"},
+      "assets_count_signature" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{

@@ -61,6 +61,14 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:acount, "GET", "/counts/:id", nil, :call},
     {:acount, "POST", "/counts/:id/issue", :empty, :call},
     {:acount, "POST", "/counts/:id/cancel", :empty, :call},
+    {:acount, "POST", "/counts/:id/open", :empty, :call},
+    {:acount, "GET", "/counts/:id/lines", nil, :call},
+    {:acount, "PUT", "/counts/:id/lines/:line_no", :acount_line, :call},
+    {:acount, "POST", "/counts/:id/surplus-lines", :acount_surplus, :call},
+    {:acount, "GET", "/counts/:id/entries", nil, :call},
+    {:acount, "POST", "/counts/:id/close", :empty, :call},
+    {:acount, "GET", "/counts/:id/sheet-document", nil, :none},
+    {:acount, "POST", "/counts/:id/sheet-signatures", :signers, :call},
     {:count, "PUT", "/counts/:id", :count_put, :call},
     {:count, "GET", "/counts/:id", nil, :call},
     {:count, "POST", "/counts/:id/issue", :empty, :call},
@@ -186,6 +194,12 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
       :counted ->
         %{"counted_quantity" => "1"}
+
+      :acount_line ->
+        %{"found" => true}
+
+      :acount_surplus ->
+        %{"description" => "x", "counted_quantity" => "1"}
 
       :scan ->
         %{"scanned_text" => "x", "location_id" => ctx.wb.a, "scan_id" => Ecto.UUID.generate()}
@@ -400,6 +414,42 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
         ok.(call(@stock, "GET", fill(route, id2), chair_tok), 200)
         probe.("GET", route, id2, nil, read)
       end
+    end
+  end
+
+  describe "I2c the assets count sheet routes, with a real A-side answer" do
+    @describetag timeout: 600_000
+
+    # A count of tenant A driven to `counted` (zero book lines: the unit holds nothing), so that
+    # `GET /counts/:id/sheet-document` has a real 200 for A. Then B must get the uniform 404.
+    test "sheet-document of a closed count", ctx do
+      s = ctx.aa.schema_name
+      chair_tok = S.token(ctx, :aa, ["TENANT_ADMIN"], sub: "chair-isc")
+      assert call(@assets, "GET", "/counts", chair_tok).status == 200
+      cu = Repo.one!(from(u in User, where: u.username == "chair-isc"), prefix: s)
+      w = ACF.world!(s, cu.id)
+
+      ok = fn conn, status ->
+        assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
+        S.json(conn)
+      end
+
+      id = ok.(call(@assets, "POST", "/counts", chair_tok, ACF.input(w, ACF.window())), 201)["id"]
+      ok.(call(@assets, "POST", "/counts/#{id}/issue", chair_tok, %{}), 200)
+      ok.(call(@assets, "POST", "/counts/#{id}/open", chair_tok, %{}), 200)
+      assert ok.(call(@assets, "GET", "/counts/#{id}/lines", chair_tok), 200)["rows"] == []
+      ok.(call(@assets, "POST", "/counts/#{id}/close", chair_tok, %{}), 200)
+
+      route = "/counts/:id/sheet-document"
+      ok.(call(@assets, "GET", fill(route, id), chair_tok), 200)
+
+      unknown = call(@assets, "GET", fill(route, Ecto.UUID.generate()), ctx.tok_ab)
+      assert unknown.status == 404
+      before = strip(call(@assets, "GET", "/counts/#{id}", chair_tok))
+      foreign = call(@assets, "GET", fill(route, id), ctx.tok_ab)
+      assert foreign.status == 404
+      assert strip(foreign) == strip(unknown)
+      assert strip(call(@assets, "GET", "/counts/#{id}", chair_tok)) == before
     end
   end
 

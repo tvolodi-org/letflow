@@ -47,7 +47,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom019Test do
     plain = Cards.card!(ctx.schema, "U19-1", %{"currency" => "KZT"}).record_id
 
     {:ok, entry} = Letflow.Modules.Catalog.fetch("assets")
-    assert entry.manifest().version == "0.22.0"
+    assert entry.manifest().version == "0.23.0"
 
     plan = post("/api/v1/tenant/modules/assets/upgrade/plan", ctx.tok_a, %{})
     assert plan.status == 200, plan.resp_body
@@ -65,7 +65,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom019Test do
     assert up.status == 200, up.resp_body
 
     assert Repo.get_by!(TenantModule, [module_id: "assets"], prefix: ctx.schema).version ==
-             "0.22.0"
+             "0.23.0"
 
     assert {:ok, %{"currency" => "KZT"}} = ReadApi.lookup(ctx.schema, plain, ["assets_card"])
   end
