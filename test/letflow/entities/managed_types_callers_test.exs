@@ -65,6 +65,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # REQ-750: the asset card writers write under the assets Owner.
   @assets_cards "lib/letflow/modules/assets/cards.ex"
   # REQ-816: the asset count order writers write under the assets Owner.
+  @assets_count_sheet "lib/letflow/modules/assets/count_sheet.ex"
   @assets_counts "lib/letflow/modules/assets/counts.ex"
   # REQ-825: the currency migration release task rewrites card currencies under the assets Owner.
   @assets_currency_migration "lib/letflow/modules/assets/currency_migration.ex"
@@ -126,6 +127,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @authority_callers [
                        @handler_writes,
                        @assets_cards,
+                       @assets_count_sheet,
                        @assets_counts,
                        @assets_currency_migration,
                        @assets_documents,
@@ -735,6 +737,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert owner_for_callers(files) ==
                [
                  @assets_cards,
+                 @assets_count_sheet,
                  @assets_counts,
                  @assets_currency_migration,
                  @assets_documents,

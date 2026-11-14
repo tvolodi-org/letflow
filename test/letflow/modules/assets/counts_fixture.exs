@@ -129,4 +129,44 @@ defmodule Letflow.AssetsCountsFixture do
 
     :ok
   end
+
+  @doc "An order window around now: started an hour ago, ends in 20 hours (K2 opens inside it)."
+  def window(extra \\ %{}) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Map.merge(
+      %{
+        "planned_start" => DateTime.to_iso8601(DateTime.add(now, -3600)),
+        "planned_end" => DateTime.to_iso8601(DateTime.add(now, 20 * 3600))
+      },
+      extra
+    )
+  end
+
+  @doc """
+  REQ-817 (asset count K2): the people and places of a count over the masters `m` of
+  `AssetsDocsFixture` (`ctx.ma`): a chair, one member and one other employee, each linked to a user,
+  and a second linked location `loc2` of the unit. `w` is the world map `input/2` takes (root `a` is
+  the master location).
+  """
+  def sheet_world!(schema, m) do
+    chair_user = Ecto.UUID.generate()
+    member_user = Ecto.UUID.generate()
+    other_user = Ecto.UUID.generate()
+    chair = employee!(schema, m.unit, chair_user)
+    member = employee!(schema, m.unit, member_user)
+    other = employee!(schema, m.unit, other_user)
+
+    %{
+      m: m,
+      chair: chair,
+      chair_user: chair_user,
+      member: member,
+      member_user: member_user,
+      other: other,
+      other_user: other_user,
+      loc2: AD.location!(schema, m.unit),
+      w: %{unit: m.unit, chair: chair, members: [member], a: m.location}
+    }
+  end
 end

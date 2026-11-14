@@ -3,8 +3,9 @@ defmodule Letflow.Modules.Assets.Counts do
   REQ-816 / GH #4375 (asset count slice K1, owner decision D-128, spec `docs/assets/asset-count.md`): the
   count ORDER of module `assets`. An order is issued for ONE org unit: the kinds to count (`fixed`,
   `low_value`, `intangible`), root locations (empty means the whole unit), a planned period and a
-  commission (a chair and members, all employees). This module only keeps the order. No book lines, no
-  sheet, no signing, no freeze and no ledger call (slices K2 to K7). The order part is a copy of
+  commission (a chair and members, all employees). This module only keeps the order. The count sheet
+  (open, book lines, typed input, close, sheet marks; K2, REQ-817) is `Letflow.Modules.Assets.CountSheet`;
+  differences, result, freeze and prints are slices K3 to K7. The order part is a copy of
   `Letflow.Modules.Stock.Counts` (assets does not call stock).
 
   Three module-managed record types (pack `priv/modules/assets/pack.json`): `assets_count_order`
@@ -877,7 +878,16 @@ defmodule Letflow.Modules.Assets.Counts do
       "issued_at" => header["issued_at"],
       "issued_by" => header["issued_by"],
       "cancelled_at" => header["cancelled_at"],
-      "cancelled_by" => header["cancelled_by"]
+      "cancelled_by" => header["cancelled_by"],
+      "cut_off_at" => header["cut_off_at"],
+      "cutoff_seq" => header["cutoff_seq"],
+      "opened_by" => header["opened_by"],
+      "sheet_document_id" => header["sheet_document_id"],
+      "sheet_number" => header["sheet_number"],
+      "closed_at" => header["closed_at"],
+      "closed_by" => header["closed_by"],
+      "sheet_signed_at" => header["sheet_signed_at"],
+      "sheet_signed_by" => header["sheet_signed_by"]
     }
   end
 

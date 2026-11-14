@@ -1451,7 +1451,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. Later slices K2 to K5 add optional fields (class A, optional_field_added).",
+        "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. K2 (REQ-817) added the optional fields cut_off_at, cutoff_seq, opened_by (open), sheet_document_id, sheet_number, closed_at, closed_by (close) and sheet_signed_at, sheet_signed_by (sheet marks); later slices K3 to K5 add more optional fields (class A, optional_field_added).",
         "display_name": "Asset count order",
         "fields": [
           {
@@ -1530,6 +1530,43 @@
           {
             "name": "cancelled_by",
             "type": "string"
+          },
+          {
+            "name": "cut_off_at",
+            "type": "datetime"
+          },
+          {
+            "name": "cutoff_seq",
+            "type": "integer"
+          },
+          {
+            "name": "opened_by",
+            "type": "string"
+          },
+          {
+            "name": "sheet_document_id",
+            "type": "string"
+          },
+          {
+            "name": "sheet_number",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "closed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "closed_by",
+            "type": "string"
+          },
+          {
+            "name": "sheet_signed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "sheet_signed_by",
+            "type": "string"
           }
         ],
         "indexes": [
@@ -1545,7 +1582,7 @@
       },
       "display_name": "Asset count order",
       "entity_definition_id": "8cd065ce-16b3-dfd7-f0f8-3fa624c3b233",
-      "logical_shape_version": "b3d25abc463d92ed333d3a6da080634d73c234b253b879043b59c6cb5738a305",
+      "logical_shape_version": "b9e256ae1e0ac5de8f2e23f158a9b516347db6a070d8f637ca5f9fa214e6cb94",
       "name": "assets_count_order"
     },
     {
@@ -1639,6 +1676,322 @@
       "entity_definition_id": "9fe096c8-7c82-ac94-d974-c0c1822de996",
       "logical_shape_version": "b6857dd4e28cdd4c83f5818dcc61b63d18388c453cd73fe0cd4e783a64080e38",
       "name": "assets_count_member"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One line of the count sheet of an asset count order: a book line (read from the asset ledger at the cut-off, the card values copied as stored) or a surplus line (a card with no book line, or a described thing). counted_quantity is the typed input (1 or 0 for a fixed or intangible line, a whole number for a low-value one). Quantities and card money values are TEXT, not decimal: the asset ledger carries whole numbers only and the card values are kept exactly as stored. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column; master ids are checked in code (0076 R6).",
+        "display_name": "Asset count sheet line",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "book",
+              "surplus"
+            ],
+            "name": "kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "fixed",
+              "low_value",
+              "intangible"
+            ],
+            "name": "asset_kind",
+            "type": "enum"
+          },
+          {
+            "name": "inventory_number",
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "acquisition_date",
+            "type": "string"
+          },
+          {
+            "name": "acquisition_cost",
+            "type": "string"
+          },
+          {
+            "name": "book_value",
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "name": "book_location_id",
+            "type": "string"
+          },
+          {
+            "name": "book_material_responsible_id",
+            "type": "string"
+          },
+          {
+            "name": "book_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "book_quantity",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "counted_quantity",
+            "type": "string"
+          },
+          {
+            "name": "observed_location_id",
+            "type": "string"
+          },
+          {
+            "name": "observed_material_responsible_id",
+            "type": "string"
+          },
+          {
+            "name": "observed_actual_user_id",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "in_use",
+              "not_in_use",
+              "damaged"
+            ],
+            "name": "condition",
+            "type": "enum"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_line_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "line_no"
+            ],
+            "name": "idx_assets_count_line_order_line"
+          }
+        ],
+        "name": "assets_count_line"
+      },
+      "display_name": "Asset count sheet line",
+      "entity_definition_id": "8e38f7fd-2f61-56f6-0bfd-e6630529f445",
+      "logical_shape_version": "0906b96545207098b2fd46e29790eb476c577eb161fc4da4c41a01c9ba58aeeb",
+      "name": "assets_count_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One entry of the append-only log of an asset count order: who typed which input on which sheet line and when, with the value before and after. entry_no is 1..n per order. No function of module assets updates or deletes an entry. method is typed now; scan is declared for K3 so that slice needs no enum widening. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
+        "display_name": "Asset count entry",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entry_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "recorded",
+              "surplus_added"
+            ],
+            "name": "action",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "enum_values": [
+              "typed",
+              "scan"
+            ],
+            "name": "method",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "value_before",
+            "type": "json"
+          },
+          {
+            "name": "value_after",
+            "required": true,
+            "type": "json"
+          },
+          {
+            "name": "entered_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entered_by_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "entered_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_entry_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "entry_no"
+            ],
+            "name": "idx_assets_count_entry_order_entry"
+          }
+        ],
+        "name": "assets_count_entry"
+      },
+      "display_name": "Asset count entry",
+      "entity_definition_id": "95790b20-f0d2-c8c4-173e-5ea9da143d77",
+      "logical_shape_version": "36219305bb80d776c496fb5987aac78f550a86ea3540dc06b17faa114cbb2163",
+      "name": "assets_count_entry"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One row per signer of a count document: the chair records that the person signed the printout on paper (the system does not verify the signature). Append-only: no function of module assets updates or deletes a row. document_kind is sheet now; result is declared for K4 so that slice needs no enum widening. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column. document_id and version_no name the issued document version that was signed.",
+        "display_name": "Asset count signature",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "sheet",
+              "result"
+            ],
+            "name": "document_kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "chair",
+              "member",
+              "responsible"
+            ],
+            "name": "signer_role",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_signature_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "document_kind"
+            ],
+            "name": "idx_assets_count_signature_order_kind"
+          }
+        ],
+        "name": "assets_count_signature"
+      },
+      "display_name": "Asset count signature",
+      "entity_definition_id": "f97c011b-1015-e83f-fedc-21b679b8c15e",
+      "logical_shape_version": "b12be3bae9e8ab683e3983e6fd45dc63dcdc982a1a29bd3b64b1a2571b2022b9",
+      "name": "assets_count_signature"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",
