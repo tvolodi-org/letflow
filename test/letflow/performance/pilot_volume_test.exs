@@ -25,6 +25,7 @@ defmodule Letflow.Performance.PilotVolumeTest do
   alias Letflow.AssetsRegisterFixture, as: S
   alias Letflow.Repo
   alias Letflow.Support.TokenMintFixture
+  alias Letflow.TenantDate
 
   @moduletag :pilot_volume
   @moduletag timeout: 600_000
@@ -303,7 +304,7 @@ defmodule Letflow.Performance.PilotVolumeTest do
 
     {r, _} =
       measure("P5d", "assets balances at cutoff (as_of_date)", fn ->
-        get(base <> "/balances?as_of_date=#{Date.utc_today()}", tok)
+        get(base <> "/balances?as_of_date=#{TenantDate.default_today()}", tok)
       end)
 
     rows = [r | rows]

@@ -20,6 +20,7 @@ defmodule Letflow.Modules.Assets.XlsxExportTest do
   alias Letflow.Modules.Assets.XlsxExport
   alias Letflow.ScopeNodePaths
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
+  alias Letflow.TenantDate
 
   @a1 "11111111-1111-4111-8111-111111111111"
   @a2 "12121212-1212-4212-8212-121212121212"
@@ -180,7 +181,7 @@ defmodule Letflow.Modules.Assets.XlsxExportTest do
 
     test "C18-BAL-2c as_of_date adds the as_of_date row", ctx do
       seed!(ctx.a.schema_name)
-      day = Date.utc_today() |> Date.to_iso8601()
+      day = TenantDate.default_today() |> Date.to_iso8601()
       conn = assert_status(S.get("/balances?format=xlsx&as_of_date=#{day}", ctx.tok_a), 200)
       assert report(sheets(conn.resp_body))["as_of_date"] == day
     end
