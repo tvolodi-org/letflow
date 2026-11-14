@@ -17,7 +17,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
   `names.positions` (employee id => position name) and the money fields of each card. Plain act
   reads do not change.
 
-  `legal_entity/2` is also read by `CardPrintSource` (T-1924).
+  `legal_entity/2` is also read by `CardPrintSource` (T-1924). `version/3`, `zone/1` and `offset/2` are also
+  read by `CountPrintSource` (T-1932).
 
   The small zone, offset and issued-version reads are copies of the stock count paperwork ones:
   `core-extraction-design.md` section 2 says "down, never sideways", so assets does not call
@@ -83,7 +84,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
     end
   end
 
-  defp version(prefix, doc_id, version_no) do
+  @doc false
+  def version(prefix, doc_id, version_no) do
     with {:ok, id} <- Ecto.UUID.cast(doc_id) do
       Repo.one(
         from(v in DocumentVersion,
@@ -216,7 +218,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
 
   # -- time zone ------------------------------------------------------------------------------
 
-  defp zone(tenant_id) do
+  @doc false
+  def zone(tenant_id) do
     with {:ok, tenant} <- Identity.get_tenant(tenant_id),
          name = TenantTimezone.of(tenant),
          true <- TenantTimezone.known_zone?(name) do
@@ -226,7 +229,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
     end
   end
 
-  defp offset(zone, value) do
+  @doc false
+  def offset(zone, value) do
     with {:ok, at} <- instant(value),
          {:ok, %{rows: [[seconds]]}} when is_integer(seconds) <-
            Repo.query(
