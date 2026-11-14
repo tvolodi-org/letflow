@@ -66,6 +66,7 @@ defmodule Letflow.Supervisor.Infrastructure do
   5. `Letflow.Registry` (generic `Registry`)
   6. `Letflow.Metrics.Registry`
   7. `Letflow.Api.Scope.ShadowEvidence` (REQ-517 2b: shadow-evidence ETS counters + flush)
+  7a. `Letflow.ErrorCapture.Buffer` (T-1951: server error capture ETS + flush; live total 29)
   8. `Letflow.Plugs.PublicReadRateLimit.Bucket`
   9. `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` (REQ-436)
   9a. `Letflow.Plugs.AuthAttemptLimit.Bucket` (GH T-1558; live total 28)
@@ -262,6 +263,9 @@ defmodule Letflow.Supervisor.Infrastructure do
       # shadow-evidence counters (ETS + 30 s flush into a tenant table). A leaf with no ordering
       # dependency; the request path only touches its ETS table and never calls the process.
       Letflow.Api.Scope.ShadowEvidence,
+      # T-1951 (maintenance slice 3): ETS tables of the server error capture + the flush into
+      # `error_groups` of the platform company. A leaf; the request path only touches its ETS tables.
+      Letflow.ErrorCapture.Buffer,
       # REQ-352 (design req352-unauthenticated-read-platform.md §11.3): the
       # ETS-backed token bucket behind Letflow.Plugs.PublicReadRateLimit. A
       # leaf, independently-startable component with no startup-order

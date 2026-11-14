@@ -347,7 +347,17 @@ defmodule Letflow.Plugs.ApiPipeline do
   # generated call/2 unconditionally re-raises after this returns, so Bandit's
   # existing crash-response path is unaffected.
   @impl Plug.ErrorHandler
-  def handle_errors(conn, %{kind: _kind, reason: reason, stack: _stack}) do
+  def handle_errors(conn, %{kind: kind, reason: reason, stack: stack}) do
+    # T-1951: an unhandled raise (status 5xx only) is grouped; the marker stops the before_send path of
+    # `Letflow.Plugs.ErrorCapture` from counting the 500 sent below a second time. Never raises.
+    conn =
+      if is_integer(conn.status) and conn.status >= 500 do
+        Letflow.ErrorCapture.record_exception(conn, kind, reason, stack)
+        Plug.Conn.put_private(conn, :letflow_error_captured, true)
+      else
+        conn
+      end
+
     Letflow.Plugs.Admission.release_pending_refs()
     respond_scope_set_error(conn, reason)
   end
