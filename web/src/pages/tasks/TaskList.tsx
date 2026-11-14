@@ -31,7 +31,10 @@ function linesSummary(ctx: TaskContext | null | undefined, m: TaskMessages, labe
   const lines = ctx?.doc?.lines ?? []
   if (lines.length === 0) return ''
   const first = lines[0]
-  const head = `${label('catalog_item', first.catalog_item_id)} × ${formatQuantity(first.quantity, locale)} ${label('catalog_uom', first.catalog_uom_id)}`.trim()
+  const head =
+    first.assetName !== undefined
+      ? `${first.assetName} × ${formatQuantity(first.quantity, locale)}`
+      : `${label('catalog_item', first.catalog_item_id)} × ${formatQuantity(first.quantity, locale)} ${label('catalog_uom', first.catalog_uom_id)}`.trim()
   const count = lines.length === 1 ? m.linesOne : fill(m.linesMany, lines.length)
   return lines.length > 1 ? `${count}: ${head}, ${fill(m.moreLines, lines.length - 1)}` : `${count}: ${head}`
 }
