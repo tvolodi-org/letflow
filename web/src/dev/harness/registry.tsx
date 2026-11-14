@@ -76,6 +76,7 @@ import { listDetailSlice2Screens } from './fixtures/listDetailSlice2'
 import { listDetailSlice3Screens } from './fixtures/listDetailSlice3'
 import { listDetailSlice4Screens } from './fixtures/listDetailSlice4'
 import { listDetailSlice6Screens } from './fixtures/listDetailSlice6'
+import { listDetailSlice7Screens } from './fixtures/listDetailSlice7'
 import { listDetailSlice5Screens, slice5TaskRoutes, slice5RolloutRoutes } from './fixtures/listDetailSlice5'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -365,5 +366,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...currenciesScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
     ...listDetailSlice6Screens,
+    ...listDetailSlice7Screens,
   ].map(s => [s.name, s]),
 )
