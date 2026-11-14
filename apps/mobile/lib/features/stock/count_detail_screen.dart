@@ -40,7 +40,7 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _source = ref.read(scanSourceProvider);
+    _source = ref.read(scanSourceProvider)();
     final gateway = ref.read(stockGatewayProvider);
     _gateway = gateway;
     _c = CountDetailController(

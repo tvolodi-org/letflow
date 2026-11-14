@@ -39,7 +39,7 @@ class _CodesScanScreenState extends ConsumerState<CodesScanScreen> {
   @override
   void initState() {
     super.initState();
-    _source = ref.read(scanSourceProvider);
+    _source = ref.read(scanSourceProvider)();
     _controller = CodesScanController(
       resolver: CodesResolver(ref.read(codesGatewayProvider)),
       source: _source,
