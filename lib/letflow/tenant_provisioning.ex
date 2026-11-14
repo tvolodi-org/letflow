@@ -995,7 +995,10 @@ defmodule Letflow.TenantProvisioning do
     # T-1948: problem_reports (maintenance slice 1). Created empty in every schema, written only in the
     # platform company's schema; nothing to backfill.
     {20_261_114_100_001, Letflow.Repo.Migrations.CreateProblemReports,
-     "20261114100001_create_problem_reports.exs"}
+     "20261114100001_create_problem_reports.exs"},
+    # T-1949: status of existing reports defaults to received.
+    {20_261_114_200_001, Letflow.Repo.Migrations.AddProblemReportStatus,
+     "20261114200001_add_problem_report_status.exs"}
   ]
 
   @doc """

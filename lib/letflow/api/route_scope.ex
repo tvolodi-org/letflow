@@ -304,6 +304,12 @@ defmodule Letflow.Api.RouteScope do
       ruling: "SEC-T1948-report-post"
     },
     %{
+      route: "GET /me/problem-reports",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-T1949-report-list"
+    },
+    %{
       route: "GET /help/resolved",
       key: :HelpRead,
       class: :self_service,

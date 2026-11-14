@@ -12,6 +12,9 @@ export function resolveUiLocale(candidates?: readonly string[]): LocationsUiLoca
 }
 
 const en: Record<string, string> = {
+  'locations.tree.tabDetails': 'Details',
+  'locations.tree.tabCodes': 'Codes',
+  'locations.tree.tabsLabel': 'Location sections',
   'locations.common.code': 'Code',
   'locations.common.name': 'Name',
   'locations.common.kind': 'Kind',
@@ -111,6 +114,9 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'locations.tree.tabDetails': 'Сведения',
+  'locations.tree.tabCodes': 'Коды',
+  'locations.tree.tabsLabel': 'Разделы места',
   'locations.common.code': 'Код',
   'locations.common.name': 'Наименование',
   'locations.common.kind': 'Вид',
@@ -210,6 +216,9 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'locations.tree.tabDetails': 'Мәліметтер',
+  'locations.tree.tabCodes': 'Кодтар',
+  'locations.tree.tabsLabel': 'Орын бөлімдері',
   'locations.common.code': 'Код',
   'locations.common.name': 'Атауы',
   'locations.common.kind': 'Түрі',
