@@ -145,6 +145,8 @@ export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards-dep-single', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-9" />) },
   { name: 'asset-cards-dep-legacy', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-5" />) },
   { name: 'asset-cards-dep-none', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-2" />) },
+  { name: 'asset-cards-dep-single-accounting', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-9" initialCardTab="accounting" />) },
+  { name: 'asset-cards-intangible-accounting', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-6" initialCardTab="accounting" />) },
   { name: 'asset-cards-intangible', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-6" />) },
   { name: 'asset-cards-currency-legacy', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-10" />) },
   { name: 'asset-card-facts', routes, render: () => withAuth(<AssetsIntlProvider><AssetCardFacts record={CARDS[7]!} /></AssetsIntlProvider>) },
