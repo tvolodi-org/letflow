@@ -150,6 +150,38 @@ describe('O-F3 edit keeps the external pairs', () => {
 })
 
 describe('O-CH check, O-I1 issue, O-V views', () => {
+  it('T-1943 checking a draft never claims issuance; confirming Issue posts its id and reloads the issued number', async () => {
+    const draft = OPENING()
+    let current = draft
+    clientMock.get.mockImplementation(async (path: string) => path === `${DOCS}/d1`
+      ? current : { rows: [current], next_cursor: null })
+    const masters = clientMock.post.getMockImplementation()!
+    clientMock.post.mockImplementation(async (path: string, body: Record<string, unknown>) => {
+      if (path === `${DOCS}/d1/check`) return { ok: true, header: [], lines: [] }
+      if (path === `${DOCS}/d1/issue`) {
+        current = OPENING({ state: 'issued', number: 'AOP-2026-000001', issued_at: '2026-11-14T08:00:00Z' })
+        return current
+      }
+      return masters(path, body)
+    })
+    renderAssets(`${LIST}/d1`, withPost)
+    fireEvent.click(await screen.findByRole('button', { name: 'Check all lines' }))
+    await screen.findByText('All lines pass the checks.')
+    expect(screen.queryByRole('link', { name: 'Open the inbox' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Issue' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(postsTo(clientMock, 'd1/issue')).toHaveLength(0)
+    expect(screen.queryByRole('link', { name: 'Open the inbox' })).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Issue' }))
+    await waitFor(() => expect(postsTo(clientMock, 'd1/issue')).toEqual([[`${DOCS}/d1/issue`]]))
+    await waitFor(() => expect(screen.getByTestId('document-header')).toHaveTextContent('AOP-2026-000001'))
+    expect(await screen.findByText('Waiting for a second person to approve the opening in Tasks.')).toBeInTheDocument()
+    expect(screen.queryByText('The document is issued and waits for its post task in the inbox.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Issue' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('document-workspace').querySelector('.lf-doc__bar')).toHaveTextContent('Issued')
+    expect(current['state']).toBe('issued')
+  })
+
   it('O-CH1 Check all lines lists every reason with the opening texts; O-CH2 an all-clear answer says so', async () => {
     serve(OPENING())
     clientMock.post.mockImplementation(async (p: string) => {
