@@ -8,7 +8,7 @@ defmodule Letflow.AddOwnerReviewItemsTest do
 
   @version 20_261_115_100_001
 
-  defp q(sql, params \\ []), do: Repo.query(sql, params)
+  defp q(sql, params), do: Repo.query(sql, params)
 
   defp insert_review(schema, tenant_id, overrides \\ []) do
     o = Map.merge(%{ref: "O-001", kind: "review", status: "for_review"}, Map.new(overrides))
