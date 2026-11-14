@@ -106,6 +106,9 @@ defmodule Letflow.Router do
 
   plug(Letflow.Plugs.Cors)
   plug(Letflow.Plugs.HttpMetrics)
+
+  # T-1951: groups every sent 5xx answer (off unless LETFLOW_ERROR_CAPTURE_ENABLED); never changes the conn.
+  plug(Letflow.Plugs.ErrorCapture)
   plug(:match)
   plug(:dispatch)
 

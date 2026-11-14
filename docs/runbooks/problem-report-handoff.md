@@ -119,3 +119,29 @@ The implement host has no QA credentials, so this is run by the operator:
    `/admin/assets/documents`.
 
 The button in the app (the owner's own click) comes with the web part of the slice (a follow-up task).
+
+## Error groups (slice 3)
+
+The server groups its own failures (`Letflow.ErrorCapture`, T-1951). An unhandled raise under `/api/v1` and
+every sent 5xx answer (503 excepted: admission shedding and `/ready` are designed refusals) get a signature
+of source, kind, method, route template, error type, top `Letflow.*` function and status. No exception
+message, no argument value and no user text is read or stored. Groups live in the platform company's table
+`error_groups`; the buffer writes one row update per signature every 60 seconds while the counter keeps
+counting.
+
+* Switch: `LETFLOW_ERROR_CAPTURE_ENABLED=true` (default off; QA only for now).
+* Alert threshold: `LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR` (positive integer, default 20): one alert when a
+  group is new and one per group per clock hour when its hour count exceeds the limit. The alert is the
+  seventh trigger `error_group_alert` of the operator alert hooks (always one error log line, plus the
+  hooks when they are configured). It carries no company ids, trace ids or text.
+* Read: `GET /maintenance/v1/error-groups?limit=<1..100>` with the same bearer token as the problem-report
+  export, e.g. `curl -H "Authorization: Bearer $(cat ~/.config/letflow/problem-report-export.token)"
+  https://<qa host>/maintenance/v1/error-groups`. Each item shows `EG-<n>`, route, error type, top frame,
+  status, counts, `tenants_affected` (a number, never the ids), the last 5 trace ids and first/last seen.
+* After 90 days without a new occurrence the company ids and trace ids of a group are cleared; counts stay.
+* A group is **never copied verbatim into a GitHub issue**: write our own words only (owner decision,
+  2026-11-14).
+* Not captured: unhandled raises outside `/api/v1`, and web errors (a follow-up task).
+
+QA check (operator step): set `LETFLOW_ERROR_CAPTURE_ENABLED=true` on `gate-b6`, restart, wait for the next
+real server error (or one 5xx), wait 60 seconds, and read `/maintenance/v1/error-groups`.

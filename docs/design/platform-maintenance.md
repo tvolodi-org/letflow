@@ -261,6 +261,8 @@ forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web butt
 
 Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; screenshots follow in part 2.
 
+Slice 3 part A (server error capture, grouping, throttle, `error_group_alert`, `GET /maintenance/v1/error-groups`) is built in T-1951; web capture (`window.onerror`, rejections, boundary, `POST /api/v1/me/client-errors`) is part B, a follow-up task.
+
 ## 11. Open base or closed extra (requirement 10, note only)
 
 * Open base: the report button, the capture and consent, error grouping, the maintenance process definition, the owner

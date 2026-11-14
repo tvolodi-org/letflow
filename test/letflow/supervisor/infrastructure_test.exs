@@ -82,7 +82,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 28 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 29 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -104,6 +104,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              # REQ-517 PR 2b: persisted shadow-evidence counters (ETS + flush). A leaf,
              # placed directly after Letflow.Metrics.Registry.
              Letflow.Api.Scope.ShadowEvidence,
+             Letflow.ErrorCapture.Buffer,
              # REQ-352: ETS-backed token bucket behind
              # Letflow.Plugs.PublicReadRateLimit. No ordering dependency --
              # mirrors Letflow.Metrics.Registry's own "leaf,
@@ -149,7 +150,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 28
+    assert length(ids) == 29
   end
 
   test "REQ-772: the upgrade-on-deploy child follows MigrationReplayBoot and is temporary" do
@@ -160,7 +161,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     assert Enum.at(ids, replay + 1) == Letflow.ModuleUpgrade.Boot
     spec = Enum.at(specs, replay + 1)
     assert spec.restart == :temporary
-    # an :ignore child is not listed by which_children, so the 28-id list above is unchanged
+    # an :ignore child is not listed by which_children, so the 29-id list above is unchanged
     refute Letflow.ModuleUpgrade.Boot in Enum.map(
              Supervisor.which_children(Letflow.Supervisor.Infrastructure),
              &elem(&1, 0)

@@ -998,7 +998,11 @@ defmodule Letflow.TenantProvisioning do
      "20261114100001_create_problem_reports.exs"},
     # T-1949: status of existing reports defaults to received.
     {20_261_114_200_001, Letflow.Repo.Migrations.AddProblemReportStatus,
-     "20261114200001_add_problem_report_status.exs"}
+     "20261114200001_add_problem_report_status.exs"},
+    # T-1951: error_groups (maintenance slice 3). Created empty in every schema, written only in the
+    # platform company's schema; nothing to backfill.
+    {20_261_114_300_001, Letflow.Repo.Migrations.CreateErrorGroups,
+     "20261114300001_create_error_groups.exs"}
   ]
 
   @doc """
