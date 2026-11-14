@@ -5,6 +5,9 @@
  *  retired switch off only active rows are loaded, so an active child of a retired parent shows as a root; the
  *  move picker is built from the loaded active rows and the server's cycle answer stays the authority. Move and
  *  retire are short single-answer actions, so they are dialogs. */
+import { RecordCodes } from "@/components/record-codes/RecordCodes"
+import { useCodesAvailable, useRecordCodes } from "@/hooks/useRecordCodes"
+import { DetailTabs } from "@/components/ui/listDetail/DetailTabs"
 import { Fragment, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Plus, X } from 'lucide-react'
@@ -253,7 +256,9 @@ function NodeFacts({ record, nodes }: { record: EntityRecord; nodes: EntityRecor
   )
 }
 
-function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }) {
+interface LocationProps { initialSelectedId?: string; initialTab?: "details" | "codes"; initialCodesDialog?: "new" | "pick" }
+
+function LocationTreeInner({ initialSelectedId, initialTab, initialCodesDialog }: LocationProps) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id }, values)
   const toast = useToast()
@@ -270,12 +275,16 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
   const [moving, setMoving] = useState<EntityRecord | null>(null)
   const [moveTo, setMoveTo] = useState('')
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
+  const codesAvailable = useCodesAvailable()
+  const [tab, setTab] = useState<'details' | 'codes'>(initialTab ?? 'details')
+  const [codesDialogOpen, setCodesDialogOpen] = useState(false)
 
   const nodes = rows.data ?? []
   const treeNodes = toTreeNodes(nodes)
   const expandable = new Set(nodes.map((n) => textOf(n, 'parent_id')).filter((p) => p !== ''))
   const expandedIds = [...expandable].filter((id) => !collapsed.has(id))
   const selected = nodes.find((n) => n.record_id === selectedId) ?? null
+  const codes = useRecordCodes("location_node", selectedId ?? "", codesAvailable && selected !== null && creating === null)
   const panelOpen = creating !== null || selected !== null
 
   function select(id: string) {
@@ -353,6 +362,7 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
     )
   } else if (selected !== null) {
     const active = isActive(selected)
+    const facts = active ? <NodeForm key={selected.record_id} record={selected} parent="" nodes={nodes} write={write} onDone={formDone} onCancel={closePanel} /> : <NodeFacts record={selected} nodes={nodes} />
     detail = (
       <>
         <DetailHeader
@@ -390,13 +400,10 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
             </>
           }
         />
-        <div className="lf-card__body">
-          {active ? (
-            <NodeForm key={selected.record_id} record={selected} parent="" nodes={nodes} write={write} onDone={formDone} onCancel={closePanel} />
-          ) : (
-            <NodeFacts record={selected} nodes={nodes} />
-          )}
-        </div>
+        {codesAvailable ? <DetailTabs selected={tab} onChange={(id) => setTab(id as "details" | "codes")} aria-label={t("locations.tree.tabsLabel")} tabs={[
+          { id: "details", label: t("locations.tree.tabDetails"), panel: <div className="lf-card__body">{facts}</div> },
+          { id: "codes", label: t("locations.tree.tabCodes"), count: codes.data?.rows.length, panel: <RecordCodes key={selected.record_id} targetType="location_node" targetId={selected.record_id} targetActive={active} data={codes} initialDialog={initialCodesDialog} onDialogChange={setCodesDialogOpen} /> },
+        ]} /> : <div className="lf-card__body">{facts}</div>}
       </>
     )
   }
@@ -429,7 +436,7 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
           onDefaultSelect={sel.select}
           detailOpen={panelOpen}
           onClose={closePanel}
-          escapeCloses={!dialogOpen}
+          escapeCloses={!dialogOpen && !codesDialogOpen}
           listLabel={t('locations.tree.treeLabel')}
           tools={
             <div className="lf-btn-row lf-btn-row--between" data-testid="locations-retired-row">
@@ -507,10 +514,10 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
 }
 
 /** `initialSelectedId` opens the detail panel on a record at first render (the screen harness uses it). */
-export default function LocationTreePage({ initialSelectedId }: { initialSelectedId?: string } = {}) {
+export default function LocationTreePage(props: LocationProps = {}) {
   return (
     <LocationsIntlProvider>
-      <LocationTreeInner initialSelectedId={initialSelectedId} />
+      <LocationTreeInner {...props} />
     </LocationsIntlProvider>
   )
 }
