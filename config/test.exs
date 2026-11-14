@@ -405,6 +405,10 @@ config :letflow, :exam_snapshot_complete, true
 # `terminate/2` via the supervisor) explicitly.
 config :letflow, :scope_shadow_flush_interval_ms, 3_600_000
 
+# T-1951: no timer flush of the error-capture buffer lands inside a test (tests flush explicitly and
+# MERGE their overrides into this list).
+config :letflow, :error_capture, flush_interval_ms: 3_600_000
+
 # REQ-542 / GH #3164: compiles the document org-resolver test seam (a resolver double named in the
 # test process dictionary). Set to true here and nowhere else; in every other build the branch is
 # not compiled, so no runtime setting can choose the resolver.

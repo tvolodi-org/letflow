@@ -255,6 +255,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/admin_v1.ex", "DELETE", "/tenants/:id"},
       # T-1948 (test CS2): the read-only problem-report export, behind `Letflow.Plugs.ReportExportAuth`
       {"lib/letflow/routers/maintenance_v1.ex", "GET", "/problem-reports"},
+      {"lib/letflow/routers/maintenance_v1.ex", "GET", "/error-groups"},
       # T-1963 (test CS3): the owner-list import, behind the second credential class (`:owner_list`)
       {"lib/letflow/routers/maintenance_owner_list_v1.ex", "POST", "/import"}
     ]
@@ -345,7 +346,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 8
+      assert length(@credential_allowlist) == 9
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
