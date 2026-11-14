@@ -36,7 +36,7 @@ late FakePostCapableHttpGateway gateway;
 
 Widget _app() => ProviderScope(
   overrides: [
-    scanSourceProvider.overrideWithValue(source),
+    scanSourceProvider.overrideWithValue(() => source),
     codesGatewayProvider.overrideWithValue(gateway),
   ],
   child: const MaterialApp(home: CodesScanScreen()),

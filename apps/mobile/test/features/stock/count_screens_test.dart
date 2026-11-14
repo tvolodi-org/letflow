@@ -21,7 +21,7 @@ late FakeScanSource source;
 
 Widget _app(FakePutCapableHttpGateway g, Widget home) => ProviderScope(
   overrides: [
-    scanSourceProvider.overrideWithValue(source),
+    scanSourceProvider.overrideWithValue(() => source),
     stockGatewayProvider.overrideWithValue(g),
   ],
   child: MaterialApp(home: home),
