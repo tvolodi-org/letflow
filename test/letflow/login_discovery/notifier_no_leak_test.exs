@@ -332,16 +332,12 @@ defmodule Letflow.LoginDiscovery.NotifierNoLeakTest do
           entry.text =~ "Start Call: Task.Supervised.start_link/?"
       end
 
-      # Only the hard-timeout cases are EXPECTED to produce the kill report. In any other case
-      # the same supervisor report can still appear when the hard timeout fires under host
-      # load (T-1996: connection_refused on a loaded CI shard); it is the supervisor's own
-      # data-free shutdown line (no arguments, no reason text) and `assert_clean/3` above has
-      # already proved it carries no secret. Every OTHER error-level event (a crash report,
-      # a logged exception) still fails the case.
-      unexpected = Enum.reject(errors, killed_report?)
-
-      assert unexpected == [],
-             "#{name}: unexpected error event(s): #{inspect(unexpected)}"
+      if name in [:hang, :slow_drip] do
+        assert Enum.all?(errors, killed_report?),
+               "#{name}: unexpected error event(s): #{inspect(errors)}"
+      else
+        assert errors == [], "#{name}: error-level event(s): #{inspect(errors)}"
+      end
     end
   end
 
