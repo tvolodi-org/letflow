@@ -991,7 +991,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-823 / GH #4394: tenant_currencies (switches over the platform currency list). Empty for
     # existing tenants; no row altered; no tenant row reads KZT.
     {20_261_113_100_001, Letflow.Repo.Migrations.CreateTenantCurrencies,
-     "20261113100001_create_tenant_currencies.exs"}
+     "20261113100001_create_tenant_currencies.exs"},
+    # T-1948: problem_reports (maintenance slice 1). Created empty in every schema, written only in the
+    # platform company's schema; nothing to backfill.
+    {20_261_114_100_001, Letflow.Repo.Migrations.CreateProblemReports,
+     "20261114100001_create_problem_reports.exs"}
   ]
 
   @doc """

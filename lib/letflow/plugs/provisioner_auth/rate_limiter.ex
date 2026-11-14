@@ -1,7 +1,7 @@
 defmodule Letflow.Plugs.ProvisionerAuth.RateLimiter do
   @moduledoc """
   REQ-572 / decision 0072 P10: the fixed-window rate limit of the provisioner credential, one budget
-  per credential class (`:write`, `:read`). Only an ACCEPTED credential consumes the budget, so a
+  per credential class (`:write`, `:read`, and `:report_export` of T-1948's problem-report export). Only an ACCEPTED credential consumes the budget, so a
   flood of bad credentials costs nothing here.
 
   Config (`config :letflow, Letflow.Plugs.ProvisionerAuth`): `limit` (default 60), `window_seconds`
@@ -31,8 +31,8 @@ defmodule Letflow.Plugs.ProvisionerAuth.RateLimiter do
   Counts one request for `class`. `:ok`, or `{:error, retry_after}` with whole seconds to the end of
   the window, clamped to `1..window`.
   """
-  @spec hit(:write | :read) :: :ok | {:error, pos_integer()}
-  def hit(class) when class in [:write, :read] do
+  @spec hit(:write | :read | :report_export) :: :ok | {:error, pos_integer()}
+  def hit(class) when class in [:write, :read, :report_export] do
     config = Application.get_env(:letflow, Letflow.Plugs.ProvisionerAuth, [])
     limit = Keyword.get(config, :limit, @default_limit)
     window = Keyword.get(config, :window_seconds, @default_window)

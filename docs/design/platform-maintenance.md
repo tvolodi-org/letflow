@@ -255,6 +255,10 @@ Sizes: S = a few days, M = one to two weeks, for one developer with reviews.
 Each slice is one requirement; the security review is mandatory for slices 1, 2, 3, 6 (tenant data leaves its company,
 or an agent reads it).
 
+**Status (2026-11-14):** slice 1 part A is built in T-1948: report route `POST /api/v1/me/problem-reports`, the table
+`problem_reports` in the platform company, the export `/maintenance/v1/problem-reports`, the PM handoff channel A (poll and
+forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web button and consent dialog follow in part B.
+
 ## 11. Open base or closed extra (requirement 10, note only)
 
 * Open base: the report button, the capture and consent, error grouping, the maintenance process definition, the owner
