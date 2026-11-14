@@ -187,4 +187,62 @@ defmodule Letflow.MaintenanceV1Test do
     Fixture.unpin!()
     assert call(@path).status == 503
   end
+
+  describe "T-1951 error groups export" do
+    @groups_path "/maintenance/v1/error-groups"
+
+    test "EC-12 newest first, a count of companies and no company ids", %{p: p, a: a} do
+      now = DateTime.utc_now()
+
+      for {route, age} <- [{"/old", 100}, {"/new", 1}] do
+        Repo.insert!(
+          %Letflow.ErrorCapture.Group{
+            tenant_id: p.tenant_id,
+            signature: Base.encode16(:crypto.strong_rand_bytes(32), case: :lower),
+            source: "server",
+            kind: "exception",
+            method: "GET",
+            route: route,
+            error_type: "KeyError",
+            top_frame: "Letflow.Foo.bar/1",
+            status: 500,
+            count: 3,
+            hour_bucket: now,
+            hour_count: 3,
+            tenant_ids: [a.tenant_id],
+            last_trace_ids: ["t1"],
+            first_seen_at: now,
+            last_seen_at: DateTime.add(now, -age, :second)
+          },
+          prefix: p.schema_name
+        )
+      end
+
+      conn = call(@groups_path)
+      assert conn.status == 200
+      assert ["no-store"] = Plug.Conn.get_resp_header(conn, "cache-control")
+      assert %{"groups" => [first, second]} = json(conn)
+      assert {first["route"], second["route"]} == {"/new", "/old"}
+      assert first["tenants_affected"] == 1
+      assert first["number"] =~ ~r/^EG-\d+$/
+      refute Map.has_key?(first, "tenant_ids")
+      refute conn.resp_body =~ a.tenant_id
+    end
+
+    test "EC-12 a bad limit is 400, no credential is 401, an unhashed mount is the plain 404" do
+      assert call(@groups_path <> "?limit=0").status == 400
+      assert call(@groups_path <> "?limit=x").status == 400
+      assert call(@groups_path <> "?limit=101").status == 400
+      assert call(@groups_path, nil).status == 401
+      assert call(@groups_path, "wrong-token").status == 401
+
+      Application.delete_env(:letflow, Letflow.Plugs.ReportExportAuth)
+      assert call(@groups_path, nil).status == 404
+    end
+
+    test "EC-13 no platform company answers 503" do
+      Fixture.unpin!()
+      assert call(@groups_path).status == 503
+    end
+  end
 end
