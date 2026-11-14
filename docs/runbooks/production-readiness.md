@@ -62,6 +62,8 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_AUTH_FAILURES_PER_MIN` | no | nothing written; the limiter keeps its built-in defaults; a non-positive-integer value raises | `config/runtime.exs`, `Letflow.Plugs.AuthAttemptLimit` |
 | `LETFLOW_BACKUP_STATUS_DIR` | no | nil: the readiness answer says backup status is "not configured here" | `config/runtime.exs`, `docs/runbooks/backup-restore.md` |
 | `LETFLOW_BUILD_SHA` | no | nil: `GET /health` reports `sha` as null | `config/runtime.exs`, `deploy/Dockerfile` |
+| `LETFLOW_ERROR_CAPTURE_ENABLED` | no | off: no server error is captured or grouped | `config/runtime.exs`, `docs/runbooks/problem-report-handoff.md` |
+| `LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR` | no | 20 per hour per group; a non-positive-integer value is ignored | `config/runtime.exs`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_INCLUDE_RUNTIME_DEMO` | no | not read by the code, mentioned in a comment (a build-time switch of the QA-only demo module) | `config/runtime.exs` comment |
 | `LETFLOW_LOGIN_DIRECTORY_LEGAL_CONFIRMATION` | only when the login discovery mount is enabled | nil; with the mount enabled outside dev and test a missing or too short marker raises | `config/runtime.exs`, `Letflow.LoginDiscovery.BootCheck` |
 | `LETFLOW_LOGIN_DIRECTORY_PEPPER` | yes (every environment) | raises at boot; must be a secret of 64 lowercase hex characters, distinct from the master key | `config/runtime.exs` (REQ-435) |

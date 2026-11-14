@@ -14,7 +14,7 @@ defmodule Letflow.Obs.Alerts do
   |---|---|---|
   | Audience | Platform operator diagnostics | Tenant-facing event delivery |
   | Configuration | Application config — no API, no route | Tenant API (`POST /webhooks/subscriptions`) |
-  | Triggers | Fixed set of six: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused`, `script_hmac_secret_missing` (GH 2534 7c, fired by the script dispatcher, not by `run_detection/2`), `record_trigger_dead` (REQ-638, fired by the record-trigger result module, not by `run_detection/2`) | Any domain event type |
+  | Triggers | Fixed set of seven: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused`, `script_hmac_secret_missing` (GH 2534 7c, fired by the script dispatcher, not by `run_detection/2`), `record_trigger_dead` (REQ-638, fired by the record-trigger result module, not by `run_detection/2`), `error_group_alert` (T-1951, fired by `Letflow.ErrorCapture.Buffer`: a new error group, or one that grew past the hourly limit) | Any domain event type |
   | Signing | None (optional `auth_secret_ref` via REQ-190) | HMAC-SHA256 `X-Letflow-Signature` mandatory |
   | Auto-pause | No | Yes — `consecutive_failures >= 5` → PAUSED |
   | Delivery failure terminal action | Log via REQ-193 and drop | Land in `dlq_entries` |
@@ -536,6 +536,13 @@ defmodule Letflow.Obs.Alerts do
     subscription_id
   end
 
+  # T-1951: emission state is keyed by (hook_id, trigger_key) and trigger_key carries the group id; without
+  # this clause ONE group's emissions share the fallback key "unknown", so its growth alert (and every
+  # later hour's) would be dropped as already emitted after its "new" alert.
+  defp build_emitted_key("error_group_alert:" <> _group_id, payload) do
+    "#{Map.get(payload, "reason", "")}:#{Map.get(payload, "hour", "")}"
+  end
+
   defp build_emitted_key(_trigger_key, _payload), do: "unknown"
 
   @spec deliver_with_retry(AlertHookConfig.t(), map(), String.t(), pos_integer()) ::
@@ -807,6 +814,43 @@ defmodule Letflow.Obs.Alerts do
           updated_at: now
         },
         tenant_schema
+      )
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  # T-1951: the seventh trigger, error_group_alert. Called ONLY by `Letflow.ErrorCapture.Buffer`, after the
+  # group row's conditional UPDATE won (so the de-duplication lives in the group row: one "new" per group,
+  # one "growth" per group per clock hour). One error line, plus the alert hooks when enabled. The payload
+  # carries no company ids, no trace ids and no text. Never raises.
+  @doc """
+  A new error group appeared, or one grew past the hourly limit: logs one error line and fires the alert
+  hooks when enabled. `payload` is a string-keyed map. Never raises.
+  """
+  @spec notify_error_group(platform_schema :: String.t(), payload :: map()) :: :ok
+  def notify_error_group(platform_schema, %{} = payload) when is_binary(platform_schema) do
+    reason = Map.get(payload, "reason")
+    group = Map.get(payload, "group")
+
+    Logger.error(
+      "error group alert reason=#{reason} group=#{group}",
+      component: "error_capture",
+      trigger: "error_group_alert",
+      reason: reason,
+      group: group
+    )
+
+    cfg = Application.get_env(:letflow, :alert_hooks, [])
+
+    if Keyword.get(cfg, :enabled, false) do
+      fire_hooks(
+        build_hooks(cfg),
+        "error_group_alert:" <> to_string(Map.get(payload, "group_id")),
+        payload,
+        platform_schema
       )
     end
 

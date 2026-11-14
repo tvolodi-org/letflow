@@ -211,6 +211,10 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
     ["0.5 w ", num(x1), " ", num(y), " m ", num(x2), " ", num(y), " l S\n"]
   end
 
+  defp op({:vrule, x, y1, y2}, _cids) do
+    ["0.5 w ", num(x), " ", num(y1), " m ", num(x), " ", num(y2), " l S\n"]
+  end
+
   # A filled rectangle (x, y, width, height), same 1/100 pt units; default fill is black.
   defp op({:rect, x, y, w, h}, _cids) do
     [num(x), " ", num(y), " ", num(w), " ", num(h), " re f\n"]
