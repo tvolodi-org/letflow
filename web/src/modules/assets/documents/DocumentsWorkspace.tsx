@@ -6,6 +6,7 @@
 import { useIntl } from 'react-intl'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
+import { NewMenu } from '@/components/ui/NewMenu'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
@@ -56,6 +57,7 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const { id } = useParams()
   const [viewParams] = useSearchParams()
   const navigate = useNavigate()
+  const { can } = useAccess()
   const back = () => navigate(DOCUMENTS_PATH)
   const layout = useDocumentLayout()
   const store = useLayoutPrefs()
@@ -72,6 +74,13 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
           <Button variant="ghost" onClick={() => store.resetScreen(ASSET_DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
             {lm.resetLayout}
           </Button>
+          {can(ASSETS_POST) && (
+            <NewMenu
+              label={t('assets.doc.action.new')}
+              data-testid="document-new"
+              items={DOC_KINDS.map((k) => ({ id: k, label: t(`assets.doc.kind.${k}`), onSelect: () => navigate(`${DOCUMENTS_PATH}/new?kind=${k}`) }))}
+            />
+          )}
           </>
         }
       />

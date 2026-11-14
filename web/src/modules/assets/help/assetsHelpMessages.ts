@@ -29,7 +29,7 @@ const en: Topics = {
     title: 'Help: asset documents',
     purpose: 'Documents record what happens to an asset: commission, change of holder, hand over, change of kind and write off. A draft changes nothing until it is issued.',
     tasks: [
-      'Choose a document kind, fill the header and the lines, and save the draft.',
+      'Press "New document", choose the kind, fill the header and the lines, and save the draft.',
       'Press "Issue" on a draft to post it to the register.',
       'Press "Reverse" on a posted document to undo it with a reversing entry.',
     ],
@@ -88,7 +88,7 @@ const ru: Topics = {
     title: 'Справка: документы по активам',
     purpose: 'Документы фиксируют, что происходит с активом: ввод в эксплуатацию, смена держателя, передача, смена вида и списание. Черновик ничего не меняет, пока его не выпустят.',
     tasks: [
-      'Выберите вид документа, заполните шапку и строки, сохраните черновик.',
+      'Нажмите «Новый документ», выберите вид, заполните шапку и строки, сохраните черновик.',
       'Нажмите «Выпустить» на черновике, чтобы провести его в реестр.',
       'Нажмите «Сторнировать» на проведённом документе, чтобы отменить его сторно-записью.',
     ],
@@ -147,7 +147,7 @@ const kk: Topics = {
     title: 'Анықтама: актив құжаттары',
     purpose: 'Құжаттар активке не болатынын тіркейді: пайдалануға беру, ұстаушыны ауыстыру, тапсыру, түрді ауыстыру және есептен шығару. Жоба шығарылғанша ештеңені өзгертпейді.',
     tasks: [
-      'Құжат түрін таңдап, тақырыбы мен жолдарын толтырып, жобаны сақтаңыз.',
+      '«Жаңа құжат» батырмасын басып, түрін таңдап, тақырыбы мен жолдарын толтырып, жобаны сақтаңыз.',
       'Жобаны тізілімге өткізу үшін «Шығару» батырмасын басыңыз.',
       'Өткізілген құжатты кері жазбамен болдырмау үшін «Сторнолау» батырмасын басыңыз.',
     ],

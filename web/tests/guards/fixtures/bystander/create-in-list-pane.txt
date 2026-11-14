@@ -1,0 +1,4 @@
+<PageHeader actions={<Button icon={<Plus className="lf-icon" aria-hidden="true" />}>New document</Button>} />
+<section className="lf-card lf-doc__list">
+  <div className="lf-doc__tools"><Select label="Kind" /></div>
+</section>

@@ -75,11 +75,11 @@ async function openEdit(doc: Record<string, unknown>, state: AccessState = withI
 }
 
 describe('O-L1/O-L2 the sixth kind', () => {
-  it('the list has six New buttons, the last is New opening and leads to ?kind=opening', async () => {
+  it('the header New menu has six kinds, the last is Opening and leads to ?kind=opening', async () => {
     renderAssets(LIST, withPost)
-    const btn = await screen.findByRole('button', { name: 'New opening' })
-    expect(screen.getAllByRole('button', { name: /^New (commission|change of holder|hand over|write off|change of kind|opening)$/ })).toHaveLength(6)
-    fireEvent.click(btn)
+    fireEvent.click(await screen.findByTestId('document-new'))
+    expect(screen.getAllByRole('menuitem')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opening' }))
     expect(await screen.findByTestId('opening-time-info')).toBeInTheDocument()
   })
   it('the direct address shows org unit, note, external pair, the time info line, no time field, and the opening columns', async () => {
