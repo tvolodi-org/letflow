@@ -515,7 +515,8 @@ defmodule Letflow.Api.AuthorizationTest do
           61 => "sixty-one",
           62 => "sixty-two",
           63 => "sixty-three",
-          64 => "sixty-four"
+          64 => "sixty-four",
+          65 => "sixty-five"
         }
         |> Map.get(actual_count)
 
@@ -1139,7 +1140,8 @@ defmodule Letflow.Api.AuthorizationTest do
           61 => "sixty-one",
           62 => "sixty-two",
           63 => "sixty-three",
-          64 => "sixty-four"
+          64 => "sixty-four",
+          65 => "sixty-five"
         }
         |> Map.get(actual_count)
 
@@ -1653,7 +1655,8 @@ defmodule Letflow.Api.AuthorizationTest do
           61 => "sixty-one",
           62 => "sixty-two",
           63 => "sixty-three",
-          64 => "sixty-four"
+          64 => "sixty-four",
+          65 => "sixty-five"
         }
         |> Map.get(actual_count)
 
