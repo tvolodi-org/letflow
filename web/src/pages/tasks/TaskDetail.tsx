@@ -50,6 +50,8 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
   label: ReturnType<typeof useReferenceLabels>
 }) {
   const rows: [string, string][] = []
+  // Asset documents name cards, not catalog items: no unit and lot columns.
+  const isAsset = doc.typeKey?.startsWith('assets_') === true
   const kindWord = refMsg.docType[doc.type === 'count' ? 'count' : (doc.typeKey ?? `stock_${doc.kind}`)] ?? doc.kind
   rows.push([m.number, doc.number], [m.kind, kindWord], [m.state, m.states[doc.state] ?? doc.state])
   if (doc.orgUnitId) rows.push([m.orgUnit, label('org_unit', doc.orgUnitId)])
@@ -79,8 +81,8 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
             <thead>
               <tr>
                 <th scope="col">{m.colItem}</th>
-                <th scope="col">{m.colUnit}</th>
-                <th scope="col">{m.colLot}</th>
+                {!isAsset && <th scope="col">{m.colUnit}</th>}
+                {!isAsset && <th scope="col">{m.colLot}</th>}
                 <th scope="col" className="is-end">{m.colQuantity}</th>
               </tr>
             </thead>
@@ -88,8 +90,8 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
               {doc.lines.map((l) => (
                 <tr key={l.line_no}>
                   <td>{l.assetName !== undefined ? l.assetName : label('catalog_item', l.catalog_item_id)}</td>
-                  <td>{l.assetName !== undefined ? '' : label('catalog_uom', l.catalog_uom_id)}</td>
-                  <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>
+                  {!isAsset && <td>{label('catalog_uom', l.catalog_uom_id)}</td>}
+                  {!isAsset && <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>}
                   <td className="is-num">{formatQuantity(l.quantity, locale)}</td>
                 </tr>
               ))}
