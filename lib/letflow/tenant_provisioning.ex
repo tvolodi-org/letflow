@@ -999,6 +999,10 @@ defmodule Letflow.TenantProvisioning do
     # T-1949: status of existing reports defaults to received.
     {20_261_114_200_001, Letflow.Repo.Migrations.AddProblemReportStatus,
      "20261114200001_add_problem_report_status.exs"},
+    # T-1951: error_groups (maintenance slice 3). Created empty in every schema, written only in the
+    # platform company's schema; nothing to backfill.
+    {20_261_114_300_001, Letflow.Repo.Migrations.CreateErrorGroups,
+     "20261114300001_create_error_groups.exs"},
     # T-1963: owner list as class 'review' of problem_reports, plus the thread and image tables. Existing rows
     # stay class 'problem' by the column default; written only in the platform company's schema.
     {20_261_115_100_001, Letflow.Repo.Migrations.AddOwnerReviewItems,

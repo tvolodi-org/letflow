@@ -162,6 +162,7 @@ defmodule Letflow.TenantFixture do
     "entity_type_restrictions",
     "entity_type_write_restrictions",
     "entity_views",
+    "error_groups",
     "event_idempotency",
     "event_payload_store",
     "event_type_registry",

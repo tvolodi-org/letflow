@@ -320,9 +320,11 @@ defmodule Letflow.Documents.PrintLayout.Flow do
           st
       end
 
-    st = row(st, geo, header, path)
+    st = row(st, geo, header, path, nil, first: true)
 
-    Enum.reduce(rows, st, fn r, st -> row(st, geo, data_cells(r, cols, geo, path), path, rep) end)
+    Enum.reduce(rows, st, fn r, st ->
+      row(st, geo, data_cells(r, cols, geo, path), path, rep, [])
+    end)
   end
 
   # Geometry (column x/width/index), header cells and columns of a table block.
@@ -445,14 +447,14 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   defp row_h(wrapped),
     do: wrapped |> Enum.map(&length/1) |> Enum.max() |> Kernel.*(@line_h) |> Kernel.+(2 * @pad)
 
-  defp row(st, geo, cells, path, rep \\ nil) do
+  defp row(st, geo, cells, path, rep, opts) do
     case for({:error, v} <- cells, do: v) do
-      [] -> place_row(st, geo, Enum.map(cells, &elem(&1, 1)), path, rep)
+      [] -> place_row(st, geo, Enum.map(cells, &elem(&1, 1)), path, rep, opts)
       vs -> Enum.reduce(vs, st, &violate(&2, &1))
     end
   end
 
-  defp place_row(st, geo, cell_cps, path, rep) do
+  defp place_row(st, geo, cell_cps, path, rep, opts) do
     avail = if rep, do: st.ch - rep.h, else: st.ch
     max_lines = max_lines_for(avail)
     st = Enum.reduce(cell_cps, st, &mark_used(&2, &1))
@@ -466,19 +468,22 @@ defmodule Letflow.Documents.PrintLayout.Flow do
       st =
         if st.used + h > st.ch and st.used > 0 do
           st = new_page(st)
-          if rep, do: draw_row(st, geo, rep.wrapped, rep.h), else: st
+          if rep, do: draw_row(st, geo, rep.wrapped, rep.h, first: true), else: st
         else
           st
         end
 
-      draw_row(st, geo, wrapped, h)
+      draw_row(st, geo, wrapped, h, opts)
     end
   end
 
-  defp draw_row(st, geo, wrapped, h) do
+  # Draws one table row: text items, one bottom horizontal rule, vertical rules at every column
+  # border (left, separators, right), and—for the first row of a table or a repeated header on a
+  # new page—a top horizontal rule so the full cell grid matches the `.docx` and the template.
+  defp draw_row(st, geo, wrapped, h, opts) do
     top = st.used + @pad
 
-    ops =
+    text_ops =
       for {{x, _w, _j}, lines} <- Enum.zip(geo, wrapped), lines != [] do
         items =
           for {line, k} <- Enum.with_index(lines), line != [] do
@@ -488,11 +493,20 @@ defmodule Letflow.Documents.PrintLayout.Flow do
         {:item, items}
       end
 
-    ops = Enum.reject(ops, &match?({:item, []}, &1))
+    text_ops = Enum.reject(text_ops, &match?({:item, []}, &1))
     x_end = geo |> List.last() |> then(fn {x, w, _} -> x + w end)
     x_start = geo |> hd() |> elem(0)
-    rule = {:rule, x_start, x_end, st.ph - st.m - st.used - h}
-    %{st | ops: [rule | Enum.reverse(ops, st.ops)], used: st.used + h}
+    y_bottom = st.ph - st.m - st.used - h
+    y_top = st.ph - st.m - st.used
+
+    top_rule = if opts[:first], do: [{:rule, x_start, x_end, y_top}], else: []
+
+    v_xs = Enum.map(geo, fn {x, _w, _j} -> x end) ++ [x_end]
+    v_rules = Enum.map(v_xs, fn x -> {:vrule, x, y_bottom, y_top} end)
+
+    border_ops = top_rule ++ [{:rule, x_start, x_end, y_bottom} | v_rules]
+
+    %{st | ops: border_ops ++ Enum.reverse(text_ops, st.ops), used: st.used + h}
   end
 
   # -- violations ------------------------------------------------------------------------------

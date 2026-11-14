@@ -673,6 +673,23 @@ case Letflow.ProblemReports.ExportConfig.parse_hash(
     raise message
 end
 
+# T-1951 (maintenance slice 3): server error capture. OFF unless LETFLOW_ERROR_CAPTURE_ENABLED is "true".
+# OPTIONAL LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR: a positive integer; anything else keeps the default (20).
+error_capture_cfg = Application.get_env(:letflow, :error_capture, [])
+
+error_capture_cfg =
+  if System.get_env("LETFLOW_ERROR_CAPTURE_ENABLED") == "true",
+    do: Keyword.put(error_capture_cfg, :enabled, true),
+    else: error_capture_cfg
+
+error_capture_cfg =
+  case Integer.parse(System.get_env("LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR") || "") do
+    {n, ""} when n > 0 -> Keyword.put(error_capture_cfg, :growth_alert_per_hour, n)
+    _ -> error_capture_cfg
+  end
+
+config :letflow, :error_capture, error_capture_cfg
+
 # T-1963: OPTIONAL LETFLOW_OWNER_LIST_SHA256, the SHA-256 of the WRITE token of the owner list
 # (`/maintenance/v1/owner-list`: the import now, the team writes of part B). Unset or blank: that mount
 # answers 404. Invalid, or equal to the export hash: boot stops WITHOUT echoing a value (INV-4).
