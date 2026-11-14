@@ -91,7 +91,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
   | `GET /counts/:id/paperwork/:kind[?lang=ru\|kk\|en]` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document (labels and times localized with `lang`, snake_case keys without), 422 `document_not_issued` or `invalid_lang` |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, T-1417; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character` |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`; T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
@@ -190,11 +190,11 @@ defmodule Letflow.Modules.Stock.Router do
   @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor format scope_subtree) ++ @slots
   @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @slots ++ @text_filters
   @card_keys ~w(sku location lot format lang)
-  # T-1416/T-1417/T-1912/T-1914: the official forms printed from a document: kinds it may print, mapper, file suffix.
+  # T-1416/T-1417/T-1912/T-1914/T-1959: the official forms printed from a document: kinds it may print, mapper, file suffix.
   @document_forms %{
     "z1" => {["receipt"], &FormZ1.data/2, "_Z-1"},
     "z2" => {["issue"], &FormZ2.data/2, "_Z-2"},
-    "z5" => {["transfer"], &FormZ5.data/2, "_Z-5"},
+    "z5" => {["transfer", "hand_over", "return"], &FormZ5.data/2, "_Z-5"},
     "z6" => {["write_off"], &FormZ6.data/3, "_Z-6"}
   }
 
@@ -949,7 +949,7 @@ defmodule Letflow.Modules.Stock.Router do
   end
 
   # T-1416/T-1417/T-1912/T-1914: `?form=z1|z2|z5|z6&format=pdf|docx&lang=ru|kk`, the official form Z-1 / Қ-1 of an
-  # issued `receipt`, Z-2 / Q-2 of an issued `issue`, Z-5 / Q-5 of an issued `transfer`, or Z-6 / Қ-6 of an issued
+  # issued `receipt`, Z-2 / Q-2 of an issued `issue`, Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, or Z-6 / Қ-6 of an issued
   # `write_off`. A mapper of arity 3 also takes the language (Z-6 prints a translated reason).
   defp print_form(conn, prefix, query) do
     with {:ok, form} <- form_param(query["form"]),

@@ -523,6 +523,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   # --------------------------------------------------------------------------
 
   @platform_routes [
+    {"GET", "/platform-problem-reports"},
+    {"GET", "/platform-problem-reports/:id"},
+    {"POST", "/platform-problem-reports/:id/decision"},
     {"POST", "/tenants"},
     {"GET", "/tenants"},
     {"GET", "/tenants/:slug"},
@@ -561,13 +564,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 33 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 36 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 33
+      assert length(@platform_routes) == 36
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
@@ -587,9 +590,14 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       assert non_platform == [{"POST", "/tenants/:test_tenant_id/promote/:process_key"}]
     end
 
-    test "platform_permissions/0 is exactly :TenantsManage and :PlatformServicesManage" do
+    test "platform_permissions/0 is the four platform atoms" do
       assert Enum.sort(Authorization.platform_permissions()) ==
-               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
+               Enum.sort([
+                 :TenantsManage,
+                 :PlatformServicesManage,
+                 :ModuleRolloutsManage,
+                 :ProblemReportsManage
+               ])
 
       for permission <- Authorization.platform_permissions() do
         assert Authorization.permission_scope(permission) == :platform
@@ -615,6 +623,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
                :AdminServicesManage,
                :AdminServicesRead,
                :ModuleRolloutsManage,
+               :ProblemReportsManage,
                :TenantsManage
              ]
 

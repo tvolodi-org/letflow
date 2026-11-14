@@ -138,7 +138,7 @@ columns of every form (Q5, REQ-778 for З-2), and the forms whose Letflow docume
 
 ## 5. Open questions for the owner (not decided here)
 
-* Q19 (from the mapping): may hand over and return print on З-5?
+* Q19 (from the mapping): may hand over and return print on З-5? Answered yes (owner via PM, 2026-11-14), built by T-1959.
 * Should a tenant be able to adjust an official form (wording, logo, extra lines) through Print templates? Today it
   cannot (D7); decision 0068 governs overrides of the generic renderer, not the module forms.
 * An accountant confirms: З-1 for every receipt (also a receipt with no supplier); Бухгалтерская справка for openings,
@@ -162,5 +162,7 @@ Slice 5 built by T-1921 (2026-11-14): `form=da1&format=pdf|docx&lang=ru|kk` on t
 Slice 6 built by T-1922 (2026-11-14): `form=da4&format=pdf|docx&lang=ru|kk` on the asset print route, `priv/print_forms/da4.json`, menu entry "Official form" on the change and hand over screens in issued, posted and reversed state. Price and cost (Q22) and every gap print blank. **ДА-4: to be confirmed by accountant** (PM decision 2026-11-14: not blocking), including that the number and date under "Основание" are the invoice's own. The tables above describe main before this change.
 
 Slice 7 built by T-1923 (2026-11-14): `form=da3&format=pdf|docx&lang=ru|kk` on the asset print route, `priv/print_forms/da3.json`, menu entry "Official form" on the write-off screen in issued, posted and reversed state. The commission block (order, chair, members, inspection, state, conclusion) prints blank until REQ-777; the approver, factory number, release date, actual service life, accessories, precious materials, costs and income and the chief accountant print blank; no value is invented. **ДА-3: to be confirmed by accountant** (PM decision 2026-11-14: not blocking). The tables above describe main before this change.
+
+Slice 11 built by T-1959 (2026-11-14): `form=z5` now also for issued, posted and reversed `hand_over` and `return` (Q19 answered yes by the owner via PM, 2026-11-14), menu entry "Official form" on both screens with the same state policy as every kind (D6). Both sides come from `Kinds.sides/2`, so a return prints the returning unit as sender; the organisation block is the legal entity of the filing unit (`org_unit_id`). Basis, planned quantity, price, sums, words, positions and every other gap print blank; no value is invented. D5 closed. **Z-5 for hand over and return: to be confirmed by accountant** (PM decision 2026-11-14: not blocking). The tables above describe main before this change.
 
 Slice 8 built by T-1924 (2026-11-14): `GET /cards/:id/print?form=da2&format=pdf|docx&lang=ru|kk`, `priv/print_forms/da2.json`, menu entry "Official form" in the asset card header (active and retired cards). Filled from stored facts: organisation and BIN, unit, materially responsible person (register, one row), name, inventory number, acquisition date, cost, depreciation and book value (KZT cards). Every other cell prints blank (G11, G4, G5, G7); the commissioning act and the disposal columns are a follow-up; no value is invented. **ДА-2: to be confirmed by accountant** (PM decision 2026-11-14: not blocking). The tables above describe main before this change.

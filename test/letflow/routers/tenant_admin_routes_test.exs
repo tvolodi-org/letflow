@@ -271,9 +271,9 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   end
 
   describe "AC2: every platform-scope route answers 403 to a TENANT_ADMIN" do
-    test "the inventory is the 33 platform routes (REQ-580 added purge, T-1607 the backup line) and spans exactly the six platform prefixes" do
+    test "the inventory is the 36 platform routes (REQ-580 added purge, T-1607 the backup line) and spans exactly the eight platform prefixes" do
       routes = platform_routes()
-      assert length(routes) == 33
+      assert length(routes) == 36
 
       prefixes =
         routes
@@ -289,17 +289,18 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
                  "onboarding",
                  "platform-migrations",
                  "platform-module-rollouts",
+                 "platform-problem-reports",
                  "event-retention",
                  "platform-status",
                  "admin"
                ])
     end
 
-    test "all 33 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
+    test "all 36 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
          ctx do
       before = state_snapshot()
       routes = platform_routes()
-      assert length(routes) == 33
+      assert length(routes) == 36
 
       for {fixture, label} <- [{ctx.a, "ordinary tenant"}, {ctx.p, "platform tenant"}],
           {router, method, local, full} <- routes do
@@ -320,6 +321,7 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
             {Letflow.Routers.Tenants, "/x/y/z"},
             {Letflow.Routers.Onboarding, "/x/y/z"},
             {Letflow.Routers.PlatformMigrations, "/x/y/z"},
+            {Letflow.Routers.PlatformProblemReports, "/x/y/z"},
             {Letflow.Routers.PlatformModuleRollouts, "/x/y/z"},
             {Letflow.Routers.EventRetention, "/x/y/z"},
             {Letflow.Routers.AdminServices, "/x/y/z"},

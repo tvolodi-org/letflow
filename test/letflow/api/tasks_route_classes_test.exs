@@ -122,8 +122,9 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # REQ-816 (GH #4375) added the six assets count lines (267 -> 273).
       # REQ-817 (GH #4374) added the eight assets count sheet lines (273 -> 281).
       # T-1924 added the asset card print route line (281 -> 282).
-      # REQ-819 (GH #4372) added the three assets count result lines (282 -> 285).
-      assert length(snapshot) == 285
+      # T-1949 added the three owner problem-report route lines (282 -> 285).
+      # REQ-819 (GH #4372) added the three assets count result lines (285 -> 288).
+      assert length(snapshot) == 288
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
