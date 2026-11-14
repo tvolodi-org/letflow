@@ -17,11 +17,14 @@
  *     `removeQueries` call, which covers the *query cache* but not
  *     component-local state a screen might have derived from an earlier
  *     tenant-A response.
+ *
+ *  T-1950: a crash shows the localised `ShellCrashPanel` (with "Report this problem"), passed as the boundary's `fallback`.
  */
 import { useAuth } from '@/auth/AuthContext'
 import { TenantSwitchTransitionScreen } from '@/auth/TenantSwitchTransitionScreen'
 import { AppShell } from './AppShell'
 import { ErrorBoundary } from './ErrorBoundary'
+import { ShellCrashPanel } from './ShellCrashPanel'
 import { LayoutPrefsProvider } from '@/hooks/useLayoutPrefs'
 
 export function AuthenticatedShellRoot(): JSX.Element {
@@ -32,7 +35,7 @@ export function AuthenticatedShellRoot(): JSX.Element {
   }
 
   return (
-    <ErrorBoundary key={session?.tenant_id ?? 'anonymous'}>
+    <ErrorBoundary key={session?.tenant_id ?? 'anonymous'} fallback={(error, reset) => <ShellCrashPanel error={error} reset={reset} />}>
       <LayoutPrefsProvider>
         <AppShell />
       </LayoutPrefsProvider>

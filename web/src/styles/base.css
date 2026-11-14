@@ -342,3 +342,13 @@ samp {
 /* O-003: the install how-to (or its one-line entry) on the main screen. */
 .lf-install-hint { margin-block-end: var(--space-6); }
 .lf-install-hint ol { list-style: decimal; margin: var(--space-1) 0 var(--space-2); padding-inline-start: var(--space-6); }
+
+/* T-1950: "Report a problem" dialog. The preview wraps (390 px: no sideways scroll). */
+.lf-report__h { font: var(--type-label); margin: var(--space-3) 0 var(--space-2); }
+.lf-report__list { list-style: disc; margin: 0; padding-inline-start: var(--space-4); font: var(--type-body-s); }
+.lf-report__list code { font: var(--type-mono-s); overflow-wrap: anywhere; }
+.lf-report__details { margin-top: var(--space-3); }
+.lf-report__pre { font: var(--type-mono); background: var(--paper-sunken); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3); max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lf-report__crash { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-6); }
+.lf-report__card { width: 100%; max-width: 520px; padding: var(--space-6); display: grid; gap: var(--space-4); }
+.lf-report__crash .lf-btn-row { justify-content: center; flex-wrap: wrap; }

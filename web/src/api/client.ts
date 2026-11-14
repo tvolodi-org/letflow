@@ -8,6 +8,7 @@
 
 import type { ApiError } from '@/types/api'
 import { renewSession } from '@/auth/sessionRenewal'
+import { noteRequestError, recordRequest } from '@/lib/problemReport/capture'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -128,10 +129,12 @@ async function throwOnErrorResponse(response: Response): Promise<void> {
     } catch {
       /* not JSON */
     }
+    const conflictCode = (body['type'] as string) ?? (body['code'] as string) ?? 'STALE_VERSION'
+    noteRequestError(response, conflictCode, typeof body['trace_id'] === 'string' ? body['trace_id'] : undefined)
     throw buildError(response, {
       status: 409,
       message: (body['title'] as string) ?? (body['message'] as string) ?? 'Conflict',
-      code: (body['type'] as string) ?? (body['code'] as string) ?? 'STALE_VERSION',
+      code: conflictCode,
       details: {
         xResourceVersion: xResourceVersion ?? null,
         ...(Object.keys(body).length > 0 ? body : {}),
@@ -164,10 +167,12 @@ async function throwOnErrorResponse(response: Response): Promise<void> {
       })
     }
 
+    const errorCode = (body['type'] as string) ?? (body['code'] as string) ?? String(response.status)
+    noteRequestError(response, errorCode, typeof body['trace_id'] === 'string' ? body['trace_id'] : undefined)
     throw buildError(response, {
       status: response.status,
       message: (body['title'] as string) ?? (body['message'] as string) ?? response.statusText,
-      code: (body['type'] as string) ?? (body['code'] as string) ?? String(response.status),
+      code: errorCode,
       details,
     })
   }
@@ -210,22 +215,40 @@ async function authedFetch(
   explicit = false,
 ): Promise<Response> {
   const sent = explicit ? null : getToken()
-  const response = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
-  if (response.status !== 401 || explicit || !sent) return response
+  const method = init.method ?? 'GET'
+  // T-1950: the final response (or a network failure) goes into the problem-report ring; capture never throws.
+  const done = (r: Response): Response => {
+    recordRequest(r, method, url, r.status, r?.headers?.get?.('x-trace-id') ?? null)
+    return r
+  }
+  let response: Response
+  try {
+    response = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
+  } catch (err) {
+    recordRequest(null, method, url, 0, null)
+    throw err
+  }
+  if (response.status !== 401 || explicit || !sent) return done(response)
 
   if (getToken() === sent) {
     const outcome = await renewSession()
     if (outcome.kind === 'terminal') {
       dispatchSessionExpired('refresh_failed')
-      return response
+      return done(response)
     }
-    if (outcome.kind === 'transient') return response
+    if (outcome.kind === 'transient') return done(response)
   }
   // A renewal landed (ours or a concurrent one): replay once with the current token.
-  if (!getToken()) return response
-  const replay = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
+  if (!getToken()) return done(response)
+  let replay: Response
+  try {
+    replay = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
+  } catch (err) {
+    recordRequest(null, method, url, 0, null)
+    throw err
+  }
   if (replay.status === 401) dispatchSessionExpired('replay_unauthorized')
-  return replay
+  return done(replay)
 }
 
 async function request<T>(
