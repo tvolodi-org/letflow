@@ -12,6 +12,7 @@ import { PageLayout } from '@/components/ui/PageLayout'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { ListDetail } from '@/components/ui/listDetail'
 
 type CreateFormState = {
   targetUrl: string
@@ -194,7 +195,7 @@ export default function WebhooksPage() {
         const nextStatus: 'ACTIVE' | 'PAUSED' = isPaused ? 'ACTIVE' : 'PAUSED'
         return (
           <div style={{ display: 'flex', gap: '.4rem' }}>
-            <Button variant="secondary" size="sm" onClick={() => openDetails(id)}>
+            <Button variant="secondary" size="sm" data-testid={`webhook-view-${id}`} onClick={() => openDetails(id)}>
               View details
             </Button>
             <Button variant="secondary" size="sm" onClick={() => updateWebhook.mutate({ id, nextStatus })}>
@@ -300,25 +301,34 @@ export default function WebhooksPage() {
         </div>
       )}
 
-      <QueryStateBoundary
-        state={(isLoading ? 'loading' : isError ? classifyError(error) : 'success') as RendererState}
-        onRetry={() => { void refetch() }}
-        columns={[{ widthPercent: 35 }, { widthPercent: 25 }, { widthPercent: 10 }, { widthPercent: 15 }, { widthPercent: 15 }]}
-      >
-      <DataTable<WebhookSubscription>
-        columns={columns}
-        data={subscriptions}
-        emptyMessage="No webhook subscriptions."
+      <ListDetail
+        screen="dlq.webhooks"
+        listLabel="Webhook subscriptions"
+        listDefault={60}
+        listMin={320}
+        list={
+          <QueryStateBoundary
+            state={(isLoading ? 'loading' : isError ? classifyError(error) : 'success') as RendererState}
+            onRetry={() => { void refetch() }}
+            columns={[{ widthPercent: 35 }, { widthPercent: 25 }, { widthPercent: 10 }, { widthPercent: 15 }, { widthPercent: 15 }]}
+          >
+            <DataTable<WebhookSubscription>
+              columns={columns}
+              data={subscriptions}
+              emptyMessage="No webhook subscriptions."
+            />
+          </QueryStateBoundary>
+        }
+        detailOpen={selectedSubscription != null}
+        onClose={closeDetails}
+        detail={selectedSubscription ? (
+          <WebhookSubscriptionDetailPanel
+            subscription={selectedSubscription}
+            isOpen={true}
+            onClose={closeDetails}
+          />
+        ) : null}
       />
-      </QueryStateBoundary>
-
-      {selectedSubscription ? (
-        <WebhookSubscriptionDetailPanel
-          subscription={selectedSubscription}
-          isOpen={true}
-          onClose={closeDetails}
-        />
-      ) : null}
     </PageLayout>
   )
 }

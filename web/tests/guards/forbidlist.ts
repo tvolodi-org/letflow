@@ -194,6 +194,13 @@ export const PATTERNS: GuardPattern[] = [
     rationale: 'T-1885',
   },
   {
+    // T-1893 (slice 7) exceptions, screens that are deliberately NOT on ListDetail (they match no pattern here, so
+    // no path needs allowing; the record is docs/design-system/master-detail-verdict.md section 8):
+    //  - web/src/pages/admin/PrintTemplatesPage.tsx: the layout editor is also the create form and must stay
+    //    reachable with no record chosen; ListDetail shows the list alone on a phone, which would hide it.
+    //  - web/src/pages/admin/UsersPage.tsx (+ user detail), web/src/pages/definitions/ (+ editor) and
+    //    web/src/pages/instances/ (+ instance detail): list then a separate route per record; a full editor or an
+    //    instance board needs the whole width and the URL per record is a contract, so they stay as they are.
     // T-1885 / T-1886: a screen must not attach the splitter (useSplit or SplitWrap) itself; ListDetail
     // owns the divider. The layout primitives and the reference harness are exempt.
     name: 'list-detail-direct-split',
