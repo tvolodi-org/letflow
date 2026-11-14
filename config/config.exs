@@ -198,6 +198,14 @@ config :letflow, :tenant_logo_upload_enabled, false
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()
 
+# T-1951 (maintenance slice 3): server error capture, OFF by default (see Letflow.ErrorCapture).
+config :letflow, :error_capture,
+  enabled: false,
+  flush_interval_ms: 60_000,
+  growth_alert_per_hour: 20,
+  retention_days: 90,
+  max_signatures: 1_000
+
 import_config "#{config_env()}.exs"
 
 # Data export providers live in their owner modules (boundary Rule 5).

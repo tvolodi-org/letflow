@@ -9,6 +9,7 @@ defmodule Letflow.Routers.MaintenanceV1 do
   | Route | Answer |
   |---|---|
   | `GET /problem-reports?after=<seq>&limit=<1..100>` | 200 `{reports: [...], next_after: n}`; 400 `invalid_request` for a bad `after`/`limit`; 503 `unavailable` when no platform company is configured |
+  | `GET /error-groups?limit=<1..100>` | T-1951: 200 `{groups: [...]}` newest first, with the NUMBER of affected companies, never their ids; 400 `invalid_request` for a bad `limit`; 503 `unavailable` when no platform company is configured |
   | anything else | 404 `not_found` |
 
   GET only, no body is read, no tenant identifier is taken, no write route exists. Reports younger than
@@ -22,6 +23,7 @@ defmodule Letflow.Routers.MaintenanceV1 do
   import Plug.Conn
 
   alias Letflow.Api.Response
+  alias Letflow.ErrorCapture
   alias Letflow.Plugs.ReportExportAuth
   alias Letflow.ProblemReports
 
@@ -56,6 +58,31 @@ defmodule Letflow.Routers.MaintenanceV1 do
           "invalid_request",
           "after/limit must be integers"
         )
+    end
+  end
+
+  get "/error-groups" do
+    conn = fetch_query_params(conn)
+
+    case int_param(conn.query_params["limit"], 50, 1, 100) do
+      {:ok, limit} ->
+        case ErrorCapture.list_recent(limit) do
+          {:ok, groups} ->
+            conn
+            |> put_resp_header("cache-control", "no-store")
+            |> Response.send_json(200, %{groups: groups})
+
+          {:error, :unavailable} ->
+            ReportExportAuth.send_error(
+              conn,
+              503,
+              "unavailable",
+              "error groups are not available"
+            )
+        end
+
+      :error ->
+        ReportExportAuth.send_error(conn, 400, "invalid_request", "limit must be an integer")
     end
   end
 
