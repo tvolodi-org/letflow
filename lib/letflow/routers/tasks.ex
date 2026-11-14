@@ -115,6 +115,11 @@ defmodule Letflow.Routers.Tasks do
   See `Letflow.Tasks`'s own moduledoc ("Form version pinning") for why this
   is a new read rather than a new instance of `Letflow.Engine.PinResolver`'s
   machinery.
+
+  Read responses additionally carry `assignee_name` (T-1994): display name, else
+  login name, or null for an unresolved/non-user assignee. Names are batched only
+  for the authorized page, in the request's tenant schema; no user-directory
+  permission or email exposure is involved.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -289,9 +294,14 @@ defmodule Letflow.Routers.Tasks do
   # ── Shared list/inbox result handling (design §5.2 points 5-6) ─────────
 
   defp handle_list_result({:ok, %{items: items, next_cursor: next_cursor}}, conn) do
+    names = assignee_names(Enum.map(items, &elem(&1, 0)), conn.assigns.scoped_opts)
+
     Response.ok(conn, %{
       "items" =>
-        Enum.map(items, fn {task, form_version} -> task_list_item_map(task, form_version) end),
+        Enum.map(items, fn {task, form_version} ->
+          task_list_item_map(task, form_version)
+          |> Map.put("assignee_name", assignee_name(task, names))
+        end),
       "next_cursor" => next_cursor,
       "count" => length(items)
     })
@@ -322,7 +332,13 @@ defmodule Letflow.Routers.Tasks do
 
     case Tasks.get_task(id, get_opts) do
       {:ok, {task, correlation_key, form_version}} ->
-        Response.ok(conn, task_detail_map(task, correlation_key, form_version))
+        names = assignee_names([task], opts)
+
+        Response.ok(
+          conn,
+          task_detail_map(task, correlation_key, form_version)
+          |> Map.put("assignee_name", assignee_name(task, names))
+        )
 
       {:error, :not_found} ->
         Response.not_found(conn)
@@ -757,6 +773,22 @@ defmodule Letflow.Routers.Tasks do
   defp non_empty(value) when is_binary(value), do: value
 
   # ── Response allowlists (design §5.5, INV-2, AC5) ───────────────────────
+
+  # Only USER refs on already-authorized tasks are eligible. A malformed legacy
+  # ref cannot crash the typed UUID lookup; role/group refs remain unchanged.
+  defp assignee_names(tasks, opts) do
+    ids =
+      for %{assignee_type: "USER", assignee_ref: ref} <- tasks,
+          {:ok, id} <- [Ecto.UUID.cast(ref)],
+          do: id
+
+    Letflow.Audit.user_names(Enum.uniq(ids), Keyword.fetch!(opts, :prefix))
+  end
+
+  defp assignee_name(%{assignee_type: "USER", assignee_ref: ref}, names),
+    do: Map.get(names, ref)
+
+  defp assignee_name(_task, _names), do: nil
 
   @doc false
   # Nine base keys, hand-built -- never a Jason.Encoder derivation over

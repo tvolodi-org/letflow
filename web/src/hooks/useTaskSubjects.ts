@@ -10,9 +10,10 @@ import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { referenceQueryKeys } from '@/lib/references/referenceQueryKeys'
 import { isUuid } from '@/lib/references/referenceLabel'
 
-// The core inbox cannot import a module (lint rule), so the two stock reads go through the client by route.
+// The core inbox cannot import a module (lint rule), so document reads go through the client by route.
 const STOCK_DOCUMENTS = '/api/v1/modules/stock/documents'
 const STOCK_COUNTS = '/api/v1/modules/stock/counts'
+const ASSET_DOCUMENTS = '/api/v1/modules/assets/documents'
 
 /** The inbox shows at most this many rows; the lookups follow it. */
 const CAP = 50
@@ -29,6 +30,7 @@ async function subjectOf(instanceId: string): Promise<{ number: string; type: st
   const orderId = str(vars['count_order_id'])
   let number = ''
   if (orderId !== '') number = str((await client.get<{ number?: string | null }>(`${STOCK_COUNTS}/${encodeURIComponent(orderId)}`))?.number)
+  else if (type.startsWith('assets_') && docId !== '') number = str((await client.get<{ number?: string | null }>(`${ASSET_DOCUMENTS}/${encodeURIComponent(docId)}`))?.number)
   else if (type.startsWith('stock_') && docId !== '') number = str((await client.get<{ number?: string | null }>(`${STOCK_DOCUMENTS}/${encodeURIComponent(docId)}`))?.number)
   if (type === '' && number === '') return null
   return { number, type: orderId !== '' && type === '' ? 'count' : type }
