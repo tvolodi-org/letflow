@@ -70,7 +70,21 @@ describe('W2 menu and labels', () => {
     expect(screen.queryByTestId('form-da1-pdf')).toBeNull()
   })
   it.each([
-    ['change', 'draft'], ['writeoff', 'issued'], ['commission', 'draft'], ['opening', 'posted'], ['kind_change', 'issued'],
+    ['en', 'DA-3 form'],
+    ['ru', 'Форма ДА-3'],
+    ['kk', 'ҰМА-3 нысаны'],
+  ] as const)('W2c an issued write-off offers DA-3 only, labelled in %s', async (loc, label) => {
+    useUiLocaleStore.getState().setLocaleTransient(loc)
+    fakeDocument(clientMock, assetDoc({ kind: 'writeoff', state: 'issued', number: 'AWO-1' }))
+    renderAssets(VIEW, withAll)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-da3-pdf')).toHaveTextContent(label)
+    expect(screen.getByTestId('form-da3-docx')).toHaveTextContent(label)
+    expect(screen.queryByTestId('form-da1-pdf')).toBeNull()
+    expect(screen.queryByTestId('form-da4-pdf')).toBeNull()
+  })
+  it.each([
+    ['change', 'draft'], ['writeoff', 'draft'], ['commission', 'draft'], ['opening', 'posted'], ['kind_change', 'issued'],
   ])('%s in %s has no menu', async (kind, state) => {
     fakeDocument(clientMock, assetDoc({ kind, state }))
     renderAssets(VIEW, withAll)
@@ -131,6 +145,18 @@ describe('W3b DA-4 download', () => {
   })
 })
 
+describe('W3c DA-3 download', () => {
+  it('picking DA-3 calls the print route with form da3 and the fallback name is AWO-1_DA-3.docx', async () => {
+    fakeDocument(clientMock, assetDoc({ kind: 'writeoff', state: 'issued', number: 'AWO-1' }))
+    clientMock.getBlob.mockResolvedValue(file(null))
+    renderAssets(VIEW, withAll)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-da3-docx'))
+    await waitFor(() => expect(downloads).toEqual(['AWO-1_DA-3.docx']))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'da3', format: 'docx', lang: 'ru' })
+  })
+})
+
 describe('W4 refusals', () => {
   it('a 422 invalid_form shows the localized banner', async () => {
     fakeDocument(clientMock, assetDoc({ state: 'issued', number: 'ACM-1' }))
@@ -145,7 +171,7 @@ describe('W4 refusals', () => {
 describe('W5 catalogs', () => {
   it('every assets.doc.form* key and the new reasons exist in en, ru and kk', () => {
     const keys = Object.keys(docEn).filter((k) => k.startsWith('assets.doc.form') || /print\.reason\.invalid_(form|format)$/.test(k))
-    expect(keys.length).toBe(10)
+    expect(keys.length).toBe(11)
     for (const k of keys) {
       expect(docRu[k]?.trim(), k).toBeTruthy()
       expect(docKk[k]?.trim(), k).toBeTruthy()

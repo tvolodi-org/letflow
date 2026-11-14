@@ -105,20 +105,22 @@ defmodule Letflow.Modules.Assets.FormDa1 do
     end)
   end
 
-  defp money(nil, _lang), do: ""
-  defp money(value, lang), do: DocumentPrint.number(value, lang)
+  @doc false
+  def money(nil, _lang), do: ""
+  def money(value, lang), do: DocumentPrint.number(value, lang)
 
   # An empty as-of keeps the value; a later as-of than the act date is a value from after the act.
-  defp as_of_ok?(as_of, _act) when as_of in [nil, ""], do: true
+  @doc false
+  def as_of_ok?(as_of, _act) when as_of in [nil, ""], do: true
 
-  defp as_of_ok?(as_of, act_date) when is_binary(as_of) do
+  def as_of_ok?(as_of, act_date) when is_binary(as_of) do
     case {Date.from_iso8601(String.slice(as_of, 0, 10)), act_date} do
       {{:ok, d}, %Date{} = a} -> Date.compare(d, a) != :gt
       _ -> false
     end
   end
 
-  defp as_of_ok?(_, _), do: false
+  def as_of_ok?(_, _), do: false
 
   @doc false
   def date(value) when is_binary(value) do

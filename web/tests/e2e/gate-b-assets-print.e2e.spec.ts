@@ -13,6 +13,7 @@ let context: BrowserContext
 let page: Page
 let number = ''
 let changeNumber = ''
+let writeoffNumber = ''
 const inventoryNumber = `E2E-${ENV.runTag}`
 
 type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string; name?: RegExp }
@@ -22,6 +23,11 @@ const DA4_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form
 const DA4_DOCX: Kind = {
   url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da4.*format=docx/,
   type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-4\.docx$/,
+}
+const DA3_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da3.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF', name: /_DA-3\.pdf$/ }
+const DA3_DOCX: Kind = {
+  url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da3.*format=docx/,
+  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-3\.docx$/,
 }
 const FORM_DOCX: Kind = {
   url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=docx/,
@@ -45,7 +51,9 @@ async function download(click: () => Promise<void>, kind: Kind = PLAIN) {
   return kind.ext === 'pdf' ? pdfTextItems(bytes).join('\n') : ''
 }
 /** The "Official form" menu entry (no typed URL): open the menu, click the item. */
-async function pickForm(item: 'form-da1-pdf' | 'form-da1-docx' | 'form-da4-pdf' | 'form-da4-docx', kind: Kind) {
+async function pickForm(
+  item: 'form-da1-pdf' | 'form-da1-docx' | 'form-da3-pdf' | 'form-da3-docx' | 'form-da4-pdf' | 'form-da4-docx', kind: Kind,
+) {
   return download(async () => {
     await page.getByTestId('official-form-menu').click()
     await page.getByTestId(item).click()
@@ -164,5 +172,39 @@ test('E9 in the Kazakh UI the DA-4 form is printed in Kazakh', async () => {
   await reopen(changeNumber)
   const text = await pickForm('form-da4-pdf', DA4_PDF)
   expect(text).toContain('ІШКІ ӨТКІЗУГЕ')
+  await setPrefs(page, { lang: 'en' })
+})
+
+// The write-off is last: it takes the card out of use. The register holder is still Saule Zhumabek (E8 only issued).
+test('E10 a write-off from the card: DA-3 is reached through the menu, PDF then .docx', async () => {
+  await openRoute(page, '/admin/assets/cards')
+  await page.getByRole('row').filter({ hasText: inventoryNumber }).first().click()
+  await page.getByTestId('card-op-writeoff').click()
+  const form = page.getByTestId('document-form')
+  await expect(form).toBeVisible()
+  await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
+  await choose(form.getByLabel('Reason'), 'Broken')
+  await form.getByLabel('Time').fill(localDateTime(-1))
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
+  await issueDocument(page)
+  writeoffNumber = await headerNumber(page)
+  expect(writeoffNumber).not.toBe('')
+  await expect(page.getByTestId('official-form-menu')).toBeVisible()
+  await page.getByTestId('official-form-menu').click()
+  await expect(page.getByTestId('form-da1-pdf')).toHaveCount(0)
+  await expect(page.getByTestId('form-da4-pdf')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const text = await pickForm('form-da3-pdf', DA3_PDF)
+  expect(text).toContain('АКТ НА ВЫБЫТИЕ')
+  expect(text).toContain(inventoryNumber)
+  await pickForm('form-da3-docx', DA3_DOCX)
+})
+
+test('E11 in the Kazakh UI the DA-3 form is printed in Kazakh', async () => {
+  await setPrefs(page, { lang: 'kk' })
+  await reopen(writeoffNumber)
+  const text = await pickForm('form-da3-pdf', DA3_PDF)
+  expect(text).toContain('ІСТЕН ШЫҒАРУ')
   await setPrefs(page, { lang: 'en' })
 })

@@ -729,3 +729,30 @@ precedent); that "Ответственный за поставку" is the givin
 **Proof:** `test/letflow/modules/assets/form_da4_test.exs`, `test/letflow/modules/assets/form_da4_router_test.exs`
 (real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E8 and E9 of
 `web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
+
+### 7.5 ДА-3 / ҰМА-3 on the print engine (T-1923)
+
+**Route:** `GET /api/v1/modules/assets/documents/:id/print?form=da3&format=pdf|docx&lang=ru|kk` (permission
+`AssetsRead`, same route as ДА-1). Kind: `writeoff`, in issued, posted and reversed state. Layout
+`priv/print_forms/da3.json` (annex 18), data `Letflow.Modules.Assets.FormDa3`. Web: the "Official form" menu of the
+document screen; a write-off offers ДА-3 only.
+
+**Filled, from stored facts:** name and BIN of the unit's legal entity, the document's own number and date, the
+write-off reason in the form language (label, then the free text), the materially responsible person with position,
+and per card the name, acquisition date, inventory number, original cost, accumulated depreciation and book value
+(the ДА-1 rule: KZT cards only; depreciation and book value only when `depreciation_as_of` is not after the act date).
+
+**Blank (never invented):** the whole commission block (order, chair, members, inspection, asset state, conclusion)
+until **REQ-777** stores it; the approver and date, release date, actual service life (the commissioning date is not
+stored), factory number, accessories and precious materials, repairs, the attached document list, the costs and income
+of the write-off and the chief accountant mark. Layout limits: the engine has one header level, so the nested header
+"Запасы" of the costs/income table is folded into its column labels, and the "Итого" row of that table is left out
+(it has no data).
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-3 is the right form for an asset
+write-off; that the stored write-off reason goes in "Причина списания"; that the live card money is printed (not a
+value as of the act date).
+
+**Proof:** `test/letflow/modules/assets/form_da3_test.exs`, `test/letflow/modules/assets/form_da3_router_test.exs`
+(real tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/AssetFormMenu.test.tsx`, E10 and E11 of
+`web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
