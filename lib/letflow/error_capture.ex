@@ -21,7 +21,7 @@ defmodule Letflow.ErrorCapture do
 
   ## Decisions
 
-  * Only code names, the route template, method, status, the opaque trace id and the company id are kept.
+  * Only code names, the route template, method, status, a trace id only in the server's own hex/dash shape (a client-sent value of any other shape is dropped) and the company id are kept.
     That is treated as operational telemetry, not "captured facts" of owner line 4 (security review confirms).
   * The affected-company set is capped at 100 per signature per window. Two concurrent first sightings of the
     same company may both bump the window's tenant counter, so the cap can be reached a little early; the
@@ -168,10 +168,15 @@ defmodule Letflow.ErrorCapture do
 
   defp trace_of(conn) do
     case Map.get(conn.assigns, :trace_id) do
-      id when is_binary(id) -> String.slice(id, 0, 64)
+      id when is_binary(id) -> if opaque_trace_id?(id), do: id, else: nil
       _ -> nil
     end
   end
+
+  # The trace id may be a client `x-trace-id` header, so it is kept only in the opaque shape the server
+  # generates (hex and dashes). Anything else is dropped: it could carry text meant for the agent that
+  # reads the export, or invalid bytes.
+  defp opaque_trace_id?(id), do: Regex.match?(~r/\A[0-9a-fA-F-]{8,64}\z/, id)
 
   @doc """
   The export: newest `last_seen_at` first, at most `limit` (1..100) groups as plain maps. The number of

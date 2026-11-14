@@ -125,7 +125,7 @@ The button in the app (the owner's own click) comes with the web part of the sli
 The server groups its own failures (`Letflow.ErrorCapture`, T-1951). An unhandled raise under `/api/v1` and
 every sent 5xx answer (503 excepted: admission shedding and `/ready` are designed refusals) get a signature
 of source, kind, method, route template, error type, top `Letflow.*` function and status. No exception
-message, no argument value and no user text is read or stored. Groups live in the platform company's table
+message, no argument value and no user text is read or stored; a trace id is kept only in the server's own hex/dash shape, so a forged `x-trace-id` header is dropped. Groups live in the platform company's table
 `error_groups`; the buffer writes one row update per signature every 60 seconds while the counter keeps
 counting.
 
