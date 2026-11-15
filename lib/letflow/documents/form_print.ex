@@ -3,7 +3,8 @@ defmodule Letflow.Documents.FormPrint do
   T-1416 (phase E, E5b): the print engine for official forms, ru and kk, `.docx` and `.pdf`.
 
   A form is DATA: a layout file under `priv/print_forms/<form>.json` (closed schema "form layout
-  v1": block types `text`, `title`, `field`, `table`, `signature`, `proxy`) and the message
+  v1": block types `text`, `title`, `field`, `table`, `signature`, `proxy`,
+  `boxed_pairs`, `annex_line`, `signature_table`) and the message
   catalog `priv/print_forms/messages.json` (`key -> {ru, kk, kk_status}`). The layout holds no
   wording, only catalog keys; it reproduces the arrangement of an official form as our own data,
   the MinFin files themselves are never copied. Both files are read at compile time
@@ -36,6 +37,12 @@ defmodule Letflow.Documents.FormPrint do
   position part from the data key `<key>_position`; a totals block may set `"skip_blank": true`
   so blank cells add nothing to a sum.
 
+  Title blocks (T-1973): `boxed_pairs` has 2–8 `cells` (`label` catalog key and data `key`),
+  labels above values in a bordered table. `annex_line` prints its catalog label right-aligned.
+  `signature_table` takes the same keys as `signature`, but prints a cell per part, a ruled
+  signing line above each caption, and the optional stamp after the table. Z-2 pilots these
+  blocks in both languages; the other forms keep their existing arrangements.
+
   Page (T-1971): an optional layout key `"page"` (`orientation`, `margins_mm` as top/right/bottom/left,
   `font_pt`, `table_font_pt`; default A4 portrait with the template margins, see `page/1`) is honoured
   by the `.docx` in full and by the PDF for orientation and, as one margin, the widest of the four;
@@ -59,6 +66,9 @@ defmodule Letflow.Documents.FormPrint do
     "field" => ["type", "label", "key"],
     "table" => ["type", "rows", "totals", "columns"],
     "signature" => ["type", "label", "key", "parts", "stamp"],
+    "signature_table" => ["type", "label", "key", "parts", "stamp"],
+    "boxed_pairs" => ["type", "cells"],
+    "annex_line" => ["type", "label"],
     "proxy" => ["type", "label"]
   }
   @parts ["position", "signature", "name"]
@@ -172,7 +182,7 @@ defmodule Letflow.Documents.FormPrint do
 
   defp block_rules("field", b, _c, path), do: check(is_binary(b["key"]), :bad_key, path)
 
-  defp block_rules("signature", b, c, path) do
+  defp block_rules(type, b, c, path) when type in ["signature", "signature_table"] do
     with :ok <- check(is_binary(b["key"]), :bad_key, path),
          :ok <-
            check(
@@ -181,6 +191,24 @@ defmodule Letflow.Documents.FormPrint do
              path
            ) do
       if b["stamp"], do: label_present(b["stamp"], c, path ++ ["stamp"]), else: :ok
+    end
+  end
+
+  defp block_rules("boxed_pairs", b, c, path) do
+    with :ok <- check(is_list(b["cells"]) and length(b["cells"]) in 2..8, :bad_cells, path) do
+      b["cells"]
+      |> Enum.with_index()
+      |> Enum.reduce_while(:ok, fn {cell, i}, :ok ->
+        p = path ++ ["cells", i]
+
+        with :ok <- known_keys(cell, ["key", "label"], p),
+             :ok <- check(is_binary(cell["key"]), :bad_key, p),
+             :ok <- label_present(cell["label"], c, p) do
+          {:cont, :ok}
+        else
+          err -> {:halt, err}
+        end
+      end)
     end
   end
 
@@ -242,6 +270,7 @@ defmodule Letflow.Documents.FormPrint do
   defp totals_rules(_, _, p), do: {:error, {:bad_totals, p}}
 
   defp labels(%{"type" => "table"}, _catalog, _path), do: :ok
+  defp labels(%{"type" => "boxed_pairs"}, _catalog, _path), do: :ok
   defp labels(%{"label" => _} = b, catalog, path), do: label_present(b["label"], catalog, path)
   defp labels(_, _, path), do: {:error, {:missing_label, path}}
 
@@ -274,6 +303,8 @@ defmodule Letflow.Documents.FormPrint do
   The document model both renderers read: a list of `{:text, s}`, `{:title, s}`, `{:field, label,
   value}` (value `""` = blank line), `{:signature, label, value_parts, captions}`, `{:proxy, s}`,
   `{:table, %{columns, rows, total}}` and, last, `{:notice, s}` when a kk draft label was used.
+  Title blocks resolve to `{:boxed_pairs, [{label, value}]}`, `{:annex_line, text}` and
+  `{:signature_table, label, values, captions, stamp}` (the legacy signature also has `stamp`).
   """
   @spec resolve(map(), map(), String.t(), map()) :: [tuple()]
   def resolve(layout, data, lang, catalog) when lang in @langs do
@@ -288,10 +319,16 @@ defmodule Letflow.Documents.FormPrint do
   defp item(%{"type" => "title"} = b, _d, lang, c), do: {:title, text(c, b["label"], lang)}
   defp item(%{"type" => "proxy"} = b, _d, lang, c), do: {:proxy, text(c, b["label"], lang)}
 
+  defp item(%{"type" => "annex_line"} = b, _d, lang, c),
+    do: {:annex_line, text(c, b["label"], lang)}
+
+  defp item(%{"type" => "boxed_pairs", "cells" => cells}, d, lang, c),
+    do: {:boxed_pairs, Enum.map(cells, &{text(c, &1["label"], lang), value(d, &1["key"])})}
+
   defp item(%{"type" => "field"} = b, d, lang, c),
     do: {:field, text(c, b["label"], lang), value(d, b["key"])}
 
-  defp item(%{"type" => "signature"} = b, d, lang, c) do
+  defp item(%{"type" => type} = b, d, lang, c) when type in ["signature", "signature_table"] do
     parts = b["parts"]
     name = value(d, b["key"])
     position = value(d, b["key"] <> "_position")
@@ -305,7 +342,8 @@ defmodule Letflow.Documents.FormPrint do
 
     captions = Enum.map(parts, &text(c, "cap." <> &1, lang))
     stamp = if b["stamp"], do: text(c, b["stamp"], lang)
-    {:signature, text(c, b["label"], lang), values, captions, stamp}
+    tag = if type == "signature_table", do: :signature_table, else: :signature
+    {tag, text(c, b["label"], lang), values, captions, stamp}
   end
 
   defp item(%{"type" => "table"} = b, d, lang, c) do
@@ -412,6 +450,8 @@ defmodule Letflow.Documents.FormPrint do
       _ -> ""
     end
   end
+
+  defp draft?(%{"cells" => cells}, c), do: Enum.any?(cells, &draft_key?(&1["label"], c))
 
   defp draft?(%{"label" => l} = b, c),
     do: draft_key?(l, c) or draft_key?(b["stamp"], c) or columns_draft?(b, c)

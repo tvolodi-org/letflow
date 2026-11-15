@@ -64,7 +64,7 @@ describe('role-based sidebar (golden-backed)', () => {
       'Instances', 'My Tasks', 'Definitions', 'Reports', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
       'Legal companies', 'Sites', 'Org units', 'Positions', 'Employees', 'Locations', 'Location links',
       'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts',
-      'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements',
+      'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements', 'Asset counts',
       'Promotion Reviews', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Print Templates',
       'Currencies', 'Import data', 'Metrics', 'Solution Packs',
     ])

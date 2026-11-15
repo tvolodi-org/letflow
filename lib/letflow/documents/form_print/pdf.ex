@@ -88,6 +88,21 @@ defmodule Letflow.Documents.FormPrint.Pdf do
           {:notice, s} ->
             {[text(s), spacer(3) | blocks], doc, tables}
 
+          {:annex_line, s} ->
+            {[Map.put(text(s), "align", "right") | blocks], doc, tables}
+
+          {:boxed_pairs, cells} ->
+            {block, entry} = cell_table(cells, "b#{i}")
+            {[spacer(3), block | blocks], doc, Map.put(tables, "b#{i}", entry)}
+
+          {:signature_table, label, values, captions, stamp} ->
+            {block, entry} = cell_table(Enum.zip(captions, values), "s#{i}")
+            block = Map.put(block, "header_position", "bottom")
+            tail = if stamp, do: [text(stamp)], else: []
+
+            {tail ++ [spacer(3), block, text(label) | blocks], doc,
+             Map.put(tables, "s#{i}", entry)}
+
           {:field, label, value} ->
             name = "f#{i}"
             {[field(label, name) | blocks], Map.put(doc, name, or_blank(value)), tables}
@@ -142,6 +157,21 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   end
 
   defp text(s), do: %{"type" => "text", "text" => s}
+
+  defp cell_table(cells, et) do
+    indexed = Enum.with_index(cells)
+
+    columns =
+      Enum.map(indexed, fn {{label, _}, i} ->
+        %{"field_name" => "c#{i}", "header" => label, "width" => 1}
+      end)
+
+    row = Map.new(indexed, fn {{_, value}, i} -> {"c#{i}", or_blank(value)} end)
+
+    {%{"type" => "table", "entity_type" => et, "columns" => columns},
+     {[row], Enum.map(columns, & &1["field_name"])}}
+  end
+
   defp spacer(mm), do: %{"type" => "spacer", "height_mm" => mm}
 
   defp field(label, name),

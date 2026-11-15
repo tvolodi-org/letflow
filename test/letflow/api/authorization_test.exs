@@ -109,7 +109,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :TasksReadAll,
       :CurrenciesManage,
       :DataExport,
-      :ApprovalRulesManage
+      :ApprovalRulesManage,
+      :OfficialFormTemplatesManage
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -518,7 +519,8 @@ defmodule Letflow.Api.AuthorizationTest do
           63 => "sixty-three",
           64 => "sixty-four",
           65 => "sixty-five",
-          66 => "sixty-six"
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1144,7 +1146,8 @@ defmodule Letflow.Api.AuthorizationTest do
           63 => "sixty-three",
           64 => "sixty-four",
           65 => "sixty-five",
-          66 => "sixty-six"
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1660,7 +1663,8 @@ defmodule Letflow.Api.AuthorizationTest do
           63 => "sixty-three",
           64 => "sixty-four",
           65 => "sixty-five",
-          66 => "sixty-six"
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -2557,7 +2561,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    :TasksReadAll,
                    :CurrenciesManage,
                    :DataExport,
-                   :ApprovalRulesManage
+                   :ApprovalRulesManage,
+                   :OfficialFormTemplatesManage
                  ]
 
       pair_count = length(pre_storekeeper_roles()) * length(@pre_req401_permissions)

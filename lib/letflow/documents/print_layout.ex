@@ -12,6 +12,11 @@ defmodule Letflow.Documents.PrintLayout do
   link, script or expression: any key outside the allow-list of its map is `:unknown_key`.
   The layout is data and is never evaluated; no atom is created from it.
 
+  Text optionally sets `align` to `left` (default) or `right`. Tables optionally set
+  `header_position` to `top` (default, repeated on page breaks) or `bottom` (captions below
+  the values, for official signature cells; no repeated header). Both keep the same projection
+  restrictions and full cell grid.
+
   `validate/3` is the projection boundary: a field or column must be declared in
   `declared_fields` (`%{entity_type => [field_name]}`), must not be in `opts.restricted`, and
   every pair of `opts.locked` must be referenced by a field block (table columns do not count).
@@ -65,9 +70,9 @@ defmodule Letflow.Documents.PrintLayout do
   @layout_keys ["layout_schema_version", "blocks"]
   @allowed %{
     "page" => ["type", "size", "margin_mm", "font"],
-    "text" => ["type", "text"],
+    "text" => ["type", "text", "align"],
     "field" => ["type", "entity_type", "field_name", "label", "show_if_nonempty"],
-    "table" => ["type", "entity_type", "columns"],
+    "table" => ["type", "entity_type", "columns", "header_position"],
     "spacer" => ["type", "height_mm"]
   }
   @required %{
@@ -214,7 +219,8 @@ defmodule Letflow.Documents.PrintLayout do
     size ++ margin ++ font
   end
 
-  defp check_type("text", block, path, _ctx), do: literal(block, "text", path)
+  defp check_type("text", block, path, _ctx),
+    do: literal(block, "text", path) ++ optional_choice(block, "align", ["left", "right"], path)
 
   defp check_type("spacer", block, path, _ctx) do
     field_check(block, "height_mm", path, &in_range?(&1, 0, 200, false))
@@ -251,7 +257,7 @@ defmodule Letflow.Documents.PrintLayout do
           [v(:invalid_value, path ++ ["columns"])]
       end
 
-    et ++ cols
+    et ++ cols ++ optional_choice(block, "header_position", ["top", "bottom"], path)
   end
 
   defp check_columns(columns, _et, path, _ctx) when length(columns) > @max_columns do
@@ -292,6 +298,12 @@ defmodule Letflow.Documents.PrintLayout do
   defp projection(_et, _fname, _path, _ctx), do: []
 
   # -- helpers ---------------------------------------------------------------------------------
+
+  defp optional_choice(block, key, choices, path) do
+    if Map.has_key?(block, key),
+      do: field_check(block, key, path, &(&1 in choices)),
+      else: []
+  end
 
   # Unknown keys: the key name goes into the path only when it is a short binary.
   defp check_keys(map, allowed, path) do

@@ -99,7 +99,9 @@ defmodule Letflow.Scripts.FormsCompareTest do
     {:ok, layout} = FormPrint.layout("z2")
     table_block = Enum.find(layout["blocks"], &(&1["type"] == "table"))
     assert table_block, "z2 layout has a table block"
-    assert hd(s["tables"])["columns"] == length(table_block["columns"])
+    # T-1973: three facts tables precede the nine-column stock table.
+    assert Enum.map(Enum.take(s["tables"], 3), & &1["columns"]) == [2, 2, 5]
+    assert Enum.at(s["tables"], 3)["columns"] == length(table_block["columns"])
 
     first = Enum.find(s["blocks"], &(&1["kind"] == "p"))
     assert first["text"] =~ "Приложение 26"
