@@ -84,6 +84,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
   # -- blocks -----------------------------------------------------------------------------------
 
   defp block({:text, s}, _pg), do: para([run(s)])
+  defp block({:page_break}, _pg), do: "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
   defp block({:title, s}, _pg), do: para([run(s, bold: true, size: 28)], center: true)
   defp block({:proxy, s}, _pg), do: para([run(s)])
   defp block({:notice, s}, _pg), do: para([run(s, italic: true)])
@@ -123,31 +124,44 @@ defmodule Letflow.Documents.FormPrint.Docx do
   end
 
   defp block({:table, %{columns: columns, rows: rows, total: total}}, pg) do
-    grouped? = Enum.any?(columns, & &1.group)
-    chunks = chunk(columns)
+    compact? = Enum.any?(columns, &(Map.get(&1, :groups, []) != []))
+    cells = FormPrint.header_cells(columns)
+    depth = cells |> Enum.map(&(&1.row + &1.rowspan)) |> Enum.max()
 
     header =
-      if grouped? do
-        top =
-          Enum.map(chunks, fn
-            {nil, [c]} -> cell(c.label, merge: :restart, bold: true, ts: pg.ts)
-            {group, cs} -> cell(group, span: length(cs), bold: true, ts: pg.ts)
-          end)
+      for level <- 0..(depth - 1) do
+        cells
+        |> Enum.filter(&(&1.row <= level and &1.row + &1.rowspan > level))
+        |> Enum.sort_by(& &1.start)
+        |> Enum.map(fn c ->
+          merge =
+            cond do
+              c.row < level -> :continue
+              c.rowspan > 1 -> :restart
+              true -> nil
+            end
 
-        bottom =
-          Enum.flat_map(chunks, fn
-            {nil, [_]} -> [cell("", merge: :continue)]
-            {_group, cs} -> Enum.map(cs, &cell(&1.label, bold: true, ts: pg.ts))
-          end)
-
-        [row(top, :head), row(bottom, :head)]
-      else
-        [row(Enum.map(columns, &cell(&1.label, bold: true, ts: pg.ts)), :head)]
+          cell(if(c.row < level, do: "", else: c.text),
+            span: if(c.span > 1, do: c.span),
+            merge: merge,
+            bold: true,
+            compact: compact?,
+            ts: pg.ts
+          )
+        end)
+        |> row(:head)
       end
 
     numbers =
       row(
-        Enum.map(columns, fn c -> cell(Integer.to_string(c.no), center: true, ts: pg.ts) end),
+        Enum.map(columns, fn c ->
+          cell(Integer.to_string(c.no),
+            center: true,
+            ts: pg.ts,
+            no_wrap: compact?,
+            compact: compact?
+          )
+        end),
         :head
       )
 
@@ -155,7 +169,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
 
     data_rows =
       Enum.map(rows ++ List.wrap(total), fn r ->
-        row(Enum.map(keys, &cell(r[&1] || "", ts: pg.ts)))
+        row(Enum.map(keys, &cell(r[&1] || "", ts: pg.ts, compact: compact?)))
       end)
 
     grid = Enum.map(col_widths(columns, pg.page_w), fn w -> ~s(<w:gridCol w:w="#{w}"/>) end)
@@ -196,23 +210,6 @@ defmodule Letflow.Documents.FormPrint.Docx do
       "</w:tbl>",
       para([])
     ]
-  end
-
-  # Consecutive columns with the same group label form one chunk; no group = a chunk of one.
-  defp chunk(columns) do
-    columns
-    |> Enum.chunk_while(
-      nil,
-      fn
-        c, nil -> {:cont, {c.group, [c]}}
-        %{group: g} = c, {g, cs} when not is_nil(g) -> {:cont, {g, cs ++ [c]}}
-        c, acc -> {:cont, acc, {c.group, [c]}}
-      end,
-      fn
-        nil -> {:cont, nil}
-        acc -> {:cont, acc, nil}
-      end
-    )
   end
 
   # Column widths (twips) of one table: 1 is the row number (900), 2 the name (3000 while the other
@@ -325,7 +322,8 @@ defmodule Letflow.Documents.FormPrint.Docx do
           :restart -> ~s(<w:vMerge w:val="restart"/>)
           :continue -> "<w:vMerge/>"
           _ -> nil
-        end
+        end,
+        if(opts[:no_wrap], do: "<w:noWrap/>")
       ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join()
@@ -335,6 +333,11 @@ defmodule Letflow.Documents.FormPrint.Docx do
     [
       "<w:tc><w:tcPr>",
       pr,
+      if(opts[:compact],
+        do:
+          "<w:tcMar><w:top w:w=\"15\" w:type=\"dxa\"/><w:left w:w=\"15\" w:type=\"dxa\"/><w:bottom w:w=\"15\" w:type=\"dxa\"/><w:right w:w=\"15\" w:type=\"dxa\"/></w:tcMar>",
+        else: []
+      ),
       "</w:tcPr>",
       para([run(text, bold: opts[:bold], size: cell_size(opts))], jc),
       "</w:tc>"

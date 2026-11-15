@@ -114,6 +114,27 @@ Everything below can be re-run; raw outputs of this run are in the task folder `
 
 ## Limits
 
+### Inv-10 / Inv-18 follow-up (T-1977)
+
+The original table above is the `cbe12af93` snapshot, not a statement of the current printers.
+Inv-10 and Inv-18 now use boxed organisation/BIN and document-number/date pairs and right-aligned
+annex/form-code blocks. Their column grids use the reference proportions; the reverse-side tables
+start on a new page. Both formats retain fractional quantities without nine stored trailing decimals.
+Inv-18 now has the three-level results/adjustments header and the Пересортица group, with all fourteen
+front columns together in PDF as well as Word. Word uses the reference's 15-twip cell padding;
+PDF merged tables honor the layout's table font size so two-digit column numbers remain intact.
+
+Correction to the Inv-18 row: annex 49's **header** has six `gridSpan` cells and twelve `vMerge`
+elements; eight is the whole-table count, including the totals label and the instruction row
+“и т. д. линовка до конца листа”. The generated header has six/twelve; the reverse header matches
+the reference's five/twelve. No instruction row is printed as business data.
+
+Recheck with `python3 -I -B scripts/forms_compare.py diff <template_application_ru41.docx|template_application_ru49.docx> <generated.docx>`
+for both ru and kk. The Russian diff no longer reports missing Inv-18 results/regrading header labels or
+main-table width differences; kk uses the same layout with its catalog wording. Remaining shared differences include the simplified annex/title
+arrangement, font sizes, the PDF's bundled sans face and common margin, repeated header rows and
+unmerged totals labels. This slice does not claim pixel equality with the Ministry files.
+
 - kk has no layout reference, only the Adilet text; kk layout is assumed equal to ru (one layout file).
 - LibreOffice renders `.docx` differently from Word; pixel positions were not compared, structure was.
 - Data values (names, numbers, dates of the QA sample) are ignored; the report quotes none.

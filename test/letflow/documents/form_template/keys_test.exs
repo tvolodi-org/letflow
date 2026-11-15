@@ -86,6 +86,37 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
     assert {:error, [%{code: :unknown_form, rule: "D3"}]} = FormTemplate.check("nope", "x")
   end
 
+  test "K6 inventory page breaks add no keys and nested legal groups are locked" do
+    {:ok, inv10} = Keys.for_form("inv10")
+
+    assert Enum.filter(inv10.legal, &String.starts_with?(&1, "legal.group.")) ==
+             ~w(legal.group.1.1 legal.group.1.2)
+
+    {:ok, inv18} = Keys.for_form("inv18")
+
+    assert Enum.filter(hd(inv18.tables).headings, fn {key, _} ->
+             String.starts_with?(key, "legal.group.")
+           end) ==
+             [
+               {"legal.group.1.1", 4},
+               {"legal.group.1.2", 4},
+               {"legal.group.1.3", 6},
+               {"legal.group.1.4", 8},
+               {"legal.group.1.5", 8},
+               {"legal.group.1.6", 11}
+             ]
+
+    for n <- 1..5, do: assert("legal.group.2.#{n}" in inv18.legal)
+
+    for f <- ~w(inv10 inv18) do
+      assert {:ok, _} =
+               FormTemplate.check(
+                 f,
+                 Letflow.FormTemplateDocx.valid(f) |> Letflow.FormTemplateDocx.zip()
+               )
+    end
+  end
+
   test "K5 pilot blocks retain field, annex and signature placeholders" do
     assert {:ok, keys} = Keys.for_form("z2")
     assert "legal.annex" in keys.legal
