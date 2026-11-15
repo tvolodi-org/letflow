@@ -158,6 +158,10 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.currencies.all(tenantId),
       list: () => queryKeys.currencies.list(tenantId),
     },
+    approvalRules: {
+      all: () => queryKeys.approvalRules.all(tenantId),
+      list: () => queryKeys.approvalRules.list(tenantId),
+    },
     // NOT tenant-scoped — passed through unchanged.
     onboarding: queryKeys.onboarding,
     me: {

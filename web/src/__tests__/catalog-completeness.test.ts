@@ -26,6 +26,7 @@ import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
+import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import {
   countsEn as assetCountsEn,
@@ -358,6 +359,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('currencies', currenciesMessages)
   })
 
+  it('approvalRulesMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('approvalRules', approvalRulesMessages)
+  })
+
   it('processDiagramMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('processDiagram', processDiagramMessages)
   })
@@ -514,6 +519,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['audit', auditMessages],
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
+      ['approvalRules', approvalRulesMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
       ['recordCodes', recordCodesMessages],
