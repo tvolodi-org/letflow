@@ -80,6 +80,49 @@ describe('GATE B e2e specs: rules that only fail in CI', () => {
     expect(bad).toEqual([])
   })
 
+  // T-1994 (CI run 43665551852, G2): `openRoute` to the document already on screen is an in-app navigation that serves
+  // the cached document, so a poll for Posted built on it never fetches again (no document request after the completion).
+  it('never polls for Posted by re-routing to the same document', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      const ls = lines(f)
+      ls.forEach((l, i) => {
+        if (/await openRoute\(/.test(l) && /getByTestId\('document-header'\)\)\.toContainText\(\/Posted/.test(ls[i + 1] ?? '')) {
+          bad.push(`${f}:${i + 1}`)
+        }
+      })
+    }
+    expect(bad, 'inside toPass, open the list and click the document row so the screen remounts and fetches').toEqual([])
+  })
+
+  // T-1994 (CI run 43665551852, P8): the count form reads the typed window in the tenant zone, not the runner's UTC; a
+  // count that a spec opens must hold now in every zone (UTC-12..UTC+14), so its window reaches at least 14 h either side.
+  it('gives a count that is opened a window around now in every zone', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      const src = readFileSync(join(E2E_DIR, f), 'utf8')
+      if (!src.includes("getByTestId('count-open').click()")) continue
+      lines(f).forEach((l, i) => {
+        const m = /getByLabel\('Planned (start|end)'\)\.fill\(localDateTime\((-?\d+)\)\)/.exec(l)
+        if (!m) return
+        const hours = Number(m[2])
+        if ((m[1] === 'start' && hours > -14) || (m[1] === 'end' && hours < 14)) bad.push(`${f}:${i + 1}: ${l.trim()}`)
+      })
+    }
+    expect(bad).toEqual([])
+  })
+
+  // T-1994 (CI run 43665551852, E10): a bare 'Reason' label also matches the optional "Reason details" textarea.
+  it('names the Reason select exactly', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      lines(f).forEach((l, i) => {
+        if (/getByLabel\('Reason'\)/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad, "use getByLabel('Reason', { exact: true })").toEqual([])
+  })
+
   it('makes the asset inventory number unique per attempt', () => {
     const src = readFileSync(join(E2E_DIR, 'gate-b-assets-print.e2e.spec.ts'), 'utf8')
     expect(src).toMatch(/inventoryNumber = `E2E-\$\{ENV\.runTag\}-\$\{testInfo\.retry\}`/)

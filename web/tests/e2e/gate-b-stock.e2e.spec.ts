@@ -169,8 +169,13 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   const second = await newSession(browser, ENV.admin2, ENV.admin2Pw)
   try {
     await claimAndComplete(second.page, number || 'Laptop')
-    await openRoute(second.page, state.openingUrl)
-    await expect(second.page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
+    // One fetch of the document right after the completion can still be "Issued", and an in-app route change to the
+    // same screen never fetches again: reopen it from the list until it shows the posting (the G2 S2 pattern).
+    await expect(async () => {
+      await openRoute(second.page, '/admin/stock/documents')
+      await second.page.getByTestId('document-row').filter({ hasText: number }).first().click()
+      await expect(second.page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+    }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
   } finally {
     await second.context.close()
   }
