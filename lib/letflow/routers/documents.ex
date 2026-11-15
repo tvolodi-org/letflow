@@ -16,6 +16,7 @@ defmodule Letflow.Routers.Documents do
   | `GET /official-form-templates` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates/:id` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates/:id/download` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
+  | `GET /official-form-templates/:id/preview` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `POST /official-form-templates` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `POST /official-form-templates/:id/activate` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `POST /official-form-templates/:id/retire` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
@@ -32,6 +33,9 @@ defmodule Letflow.Routers.Documents do
   text), rollback answers 201 with the new row, download sends the stored bytes as an attachment,
   and a database failure of the audit write is a detail-free 500. Same order of checks and the same
   not-found rule as below.
+
+  Preview (T-2004, S4c) fills the template with `FormTemplate.Sample` in ru or kk;
+  it reads no tenant data besides the template and writes nothing.
 
   Order of checks (0063 S7): the permission at `Letflow.Plugs.Authorize` first (the same 403 for
   an existing and an absent id, since the plug does not look at the id), then body validation
@@ -106,6 +110,11 @@ defmodule Letflow.Routers.Documents do
   authz_get "/official-form-templates/:id/download", :OfficialFormTemplatesManage,
     scope: :tenant_wide do
     handle_template_download(conn, conn.params["id"])
+  end
+
+  authz_get "/official-form-templates/:id/preview", :OfficialFormTemplatesManage,
+    scope: :tenant_wide do
+    handle_template_preview(conn, conn.params["id"])
   end
 
   authz_post "/official-form-templates", :OfficialFormTemplatesManage, scope: :tenant_wide do
@@ -317,6 +326,54 @@ defmodule Letflow.Routers.Documents do
       other ->
         reply_template_error(conn, other)
     end
+  end
+
+  defp handle_template_preview(conn, id) do
+    conn = fetch_query_params(conn)
+    lang = conn.query_params["lang"]
+
+    if lang in [nil, "ru", "kk"] do
+      case OFT.get(prefix(conn), id) do
+        {:ok, row} ->
+          if row.locale in ["ru", "kk"] and lang != nil and lang != row.locale do
+            Response.unprocessable(conn, "lang does not match the template locale")
+          else
+            lang = lang || if(row.locale in ["ru", "kk"], do: row.locale, else: "ru")
+            send_template_preview(conn, row, lang)
+          end
+
+        other ->
+          reply_template_error(conn, other)
+      end
+    else
+      Response.unprocessable(conn, "invalid lang")
+    end
+  end
+
+  defp send_template_preview(conn, row, lang) do
+    case preview_bytes(row, lang) do
+      {:ok, bytes} ->
+        name = "#{row.form_id}-#{row.locale}-v#{row.version_no}-preview-#{lang}.docx"
+
+        conn
+        |> put_resp_content_type(@docx_type, nil)
+        |> put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+        |> put_resp_header("cache-control", "no-store")
+        |> send_resp(200, bytes)
+
+      {:error, refusals} when is_list(refusals) ->
+        reply_template_error(conn, {:error, {:refused, refusals}})
+
+      _ ->
+        Response.internal_error(conn)
+    end
+  end
+
+  # Stored bytes are re-verified by the filler. Unexpected failures expose no detail (INV-8).
+  defp preview_bytes(row, lang) do
+    FormTemplate.preview(row.form_id, row.content, lang)
+  rescue
+    _ -> {:error, :internal}
   end
 
   # Only `form`, `locale` and `file` are read, by name. The size is checked from the file's stat

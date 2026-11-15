@@ -20,7 +20,7 @@ adapter for broader malware detection. S2 (T-1984) adds `FormTemplate.starter/2`
 language-free starter DOCX files from the shipped layouts, and filling with catalog legal texts,
 cleaned values, repeated rows, totals and the appended Kazakh draft notice. Filling rechecks the
 template and consumes the same verified XML tree; invalid templates fail closed.
-S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes and permission are S4b (T-2003, done); preview is S4c.
+S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes and permission are S4b (T-2003, done); preview is S4c (T-2004, done).
 
 S2 records two deviations from decision 0089 D2: values are escaped once by the Saxy text
 writer in `Package.write/1`, rather than also by `Docx.escape/1`; missing table and total
@@ -200,6 +200,7 @@ The Print templates part of D7 (overrides do not reach module prints) stays true
    of refusals (rule code, place, plain-language hint, for example "column 5 of the lines table is missing").
 4. "Preview" downloads the draft filled with a **synthetic sample** (fixed fake data per form, no company data),
    ru or kk. There is no in-browser docx rendering in the first step (it needs the converter of S6).
+   The sample is `FormTemplate.Sample`: each value shows its own key in brackets, two lines per table.
 5. "Activate" makes the draft the one used for prints; a reason is required (A). "Roll back" activates an earlier
    version again (section 4.5).
 
