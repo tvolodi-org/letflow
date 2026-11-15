@@ -108,7 +108,7 @@ describe('ISS-0728 — candidate Exams nav entry (module-driven after REQ-412)',
     await waitFor(() => expect(screen.getByText('Exams')).toBeInTheDocument())
     expect(screen.queryByText('Instances')).not.toBeInTheDocument()
     expect(screen.queryByText('My Tasks')).not.toBeInTheDocument()
-    expect(screen.queryByText('Definitions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Business processes')).not.toBeInTheDocument()
     expect(screen.queryByText('DLQ')).not.toBeInTheDocument()
     expect(screen.queryByText('Webhooks')).not.toBeInTheDocument()
     expect(screen.queryByText('Users')).not.toBeInTheDocument()
@@ -123,7 +123,7 @@ describe('ISS-0728 — candidate Exams nav entry (module-driven after REQ-412)',
 
   it('designer does NOT see "Exams"', async () => {
     await renderAppShellAs('designer')
-    await waitFor(() => expect(screen.getByText('Definitions')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Business processes')).toBeInTheDocument())
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })
 

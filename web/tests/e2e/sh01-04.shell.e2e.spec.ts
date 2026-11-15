@@ -145,7 +145,7 @@ test.describe('SH-02 — Session expiry handling', () => {
 
 test.describe('SH-03 — Role-aware navigation', () => {
   const ALL_NAV_LABELS = [
-    'Instances', 'My Tasks', 'Definitions', 'DLQ', 'Webhooks',
+    'Instances', 'My Tasks', 'Business processes', 'DLQ', 'Webhooks',
     'Users', 'Groups', 'Tokens', 'Audit', 'Health', 'Metrics',
   ]
 
@@ -186,7 +186,7 @@ test.describe('SH-03 — Role-aware navigation', () => {
 
     // Visible items
     await expect(page.getByRole('link', { name: 'Instances' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Definitions' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Business processes' })).toBeVisible()
 
     // Items that must not appear
     const absent = ['My Tasks', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Health', 'Metrics']

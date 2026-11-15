@@ -37,7 +37,7 @@ import { AppShell } from '@/components/layout/AppShell'
 afterEach(cleanup)
 
 const PLATFORM_ENTRIES = ['Tenants', 'Register Tenant', 'Services', 'Health', 'Platform Migrations', 'Event Retention']
-const ADMIN_ENTRIES = ['Users', 'Groups', 'Tokens', 'Webhooks', 'DLQ', 'Audit', 'Metrics', 'Definitions', 'Instances', 'My Tasks']
+const ADMIN_ENTRIES = ['Users', 'Groups', 'Tokens', 'Webhooks', 'DLQ', 'Audit', 'Metrics', 'Business processes', 'Instances', 'My Tasks']
 
 function renderShell(state: AccessState) {
   return render(
@@ -92,7 +92,7 @@ describe('AppShell nav from /me/access', () => {
     renderShell(accessState('storekeeper'))
     const labels = navLabels()
     expect(labels).toContain('My Tasks')
-    for (const l of ['Users', 'Groups', 'Tokens', 'Webhooks', 'DLQ', 'Audit', 'Definitions', 'Instances', ...PLATFORM_ENTRIES]) {
+    for (const l of ['Users', 'Groups', 'Tokens', 'Webhooks', 'DLQ', 'Audit', 'Business processes', 'Instances', ...PLATFORM_ENTRIES]) {
       expect(labels).not.toContain(l)
     }
   })
@@ -160,14 +160,14 @@ describe('AppShell nav groups from /me/access (GH 2238 slice 2b)', () => {
 
   it('platform-tenant platform admin: all three groups with their entries', () => {
     renderShell(accessState('platformAdmin'))
-    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Business processes', 'Reports'])
     expect(linksIn(TENANT_ADMIN)).toEqual(expect.arrayContaining(['Users', 'Tokens', 'Audit', 'Promotion Reviews']))
     expect(linksIn(PLATFORM)).toEqual(expect.arrayContaining(PLATFORM_ENTRIES))
   })
 
   it('auditor: read pages only (no write-surface entries, no Platform group)', () => {
     renderShell(accessState('auditor'))
-    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Business processes', 'Reports'])
     expect(linksIn(TENANT_ADMIN)).toEqual(['Promotion Reviews', 'Audit', 'Metrics'])
   })
 

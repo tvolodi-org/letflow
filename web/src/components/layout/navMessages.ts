@@ -24,7 +24,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
     items: {
       '/instances': 'Instances',
       '/tasks': 'My Tasks',
-      '/definitions': 'Definitions',
+      '/definitions': 'Business processes',
       '/reports': 'Reports',
       '/promotions': 'Promotion Reviews',
       '/dlq': 'DLQ',
@@ -81,7 +81,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
     items: {
       '/instances': 'Экземпляры',
       '/tasks': 'Мои задачи',
-      '/definitions': 'Определения',
+      '/definitions': 'Бизнес-процессы',
       '/reports': 'Отчёты',
       '/promotions': 'Проверка переноса',
       '/dlq': 'Очередь ошибок',
@@ -138,7 +138,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
     items: {
       '/instances': 'Орындалып жатқан процестер',
       '/tasks': 'Менің тапсырмаларым',
-      '/definitions': 'Анықтамалар',
+      '/definitions': 'Бизнес-процестер',
       '/reports': 'Есептер',
       '/promotions': 'Көшірмені тексеру',
       '/dlq': 'Қателер кезегі',

@@ -101,7 +101,7 @@ describe('REQ-343 AC5 — Question Bank nav entry role gating', () => {
 
   it('designer (no :EntitiesRecordsWrite) does NOT see the nav entry', async () => {
     await renderAppShellAs('designer')
-    await waitFor(() => expect(screen.getByText('Definitions')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Business processes')).toBeInTheDocument())
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()
   })
 
