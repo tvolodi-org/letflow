@@ -1,6 +1,6 @@
 # Fixed asset count (Inv-8, annex 39): specification
 
-Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0), K5 (freeze, REQ-820, T-1929, assets 0.24.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) and K4 (differences, decisions, signing by the configured role, drafts, REQ-819, T-1930, assets 0.26.0) are built, K3, K6 and K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4). Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
+Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0), K5 (freeze, REQ-820, T-1929, assets 0.24.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) and K4 (differences, decisions, signing by the configured role, drafts, REQ-819, T-1930, assets 0.26.0) and K3 (scanner input, REQ-818, T-1931, assets 0.27.0) are built, K6 and K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4). Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
 with this file) are the build slices. Written by the business analyst (task T-1844, 2026-11-13). Test tenant only;
 behind a per-tenant flag that is off by default. Nothing here touches production, demo, secrets, DNS, money or the
 MES work (`docs/design/mes`).
@@ -28,7 +28,7 @@ count design so no new owner question is needed; **[A]** UAT assumption, to be c
   `count_posting.ex`, `freeze_state.ex` and `freeze_guard.ex` (freeze of the counted locations, limit setting
   `count_freeze_limit_minutes`, default 120), `count_print.ex` (PDF in ru, kk, en), `form_count_inv10.ex` with
   `lib/letflow/documents/form_print.ex` (official forms, ru and kk only, `priv/print_forms/*.json`).
-- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.26.0; ledger `assets` with the slots
+- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.27.0; ledger `assets` with the slots
   asset, org_unit, location, material_responsible, actual_user; causes commission, change, handover, writeoff,
   kind_change_in; permissions AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile with no role
   grants; settings currency, expiry_reminder_lead_days, storekeeper_grants), `cards.ex` (the card has no location,
@@ -84,6 +84,14 @@ in `draft`, `ordered`, `counting`, `counted` and `sheet_signed`, refused from `s
   label carries the inventory number; asset cards as code targets are out of scope.
   A second scan of a found fixed asset is answered "already counted" and logged, not counted twice; a scan on a
   low-value line adds one. A scanned asset whose card has no book key in the scope becomes a surplus line.
+  Built (K3, REQ-818, `POST /counts/:id/scan`, body `{"text"}`, permission `AssetsCountRecord`, answer 200 for every
+  outcome: `location_set`, `counted`, `already_counted`, `surplus_added`): the current location is the scanning user's
+  latest `location_set` entry of the count's entry log (no separate record), so it is per user and per count. An
+  inventory number of a card with several book lines (low value, several keys) is narrowed by the current location,
+  else refused `scan_ambiguous`; a surplus scan of a fixed or low-value card with no current location is refused
+  `location_not_set`, a card of a kind the order does not count `kind_not_in_count`. A location outside the scope
+  and an unknown text both answer `unknown_code`. A retired, conflicting or unassigned code is refused with its own
+  reason. A refusal stores nothing; every accepted scan is one log entry (`method` scan, `scan_outcome`) and one audit entry.
 - **Surplus line**: an active card found in the scope with no book line, or an object with no card (free description
   only, up to 500 characters).
 - Every entry is stored with user and server time in an append-only log. **Close** issues the sheet document from the

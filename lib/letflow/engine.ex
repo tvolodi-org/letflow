@@ -3517,9 +3517,21 @@ defmodule Letflow.Engine do
     |> Multi.run(:completion_guards, fn repo,
                                         %{
                                           task: task,
-                                          snapshot_and_state: %{graph: graph}
+                                          snapshot_and_state: %{
+                                            graph: graph,
+                                            definition_name: definition_name
+                                          }
                                         } ->
-      check_completion_guards(repo, graph, task, output_variables, actor_id, prefix, plan)
+      check_completion_guards(
+        repo,
+        graph,
+        task,
+        output_variables,
+        actor_id,
+        prefix,
+        plan,
+        %{definition_name: definition_name, credential: credential}
+      )
     end)
     |> maybe_redacted_sentinel_check(hidden_check, output_variables)
     |> maybe_form_validation_hook(hook, output_variables, completed_at, prefix)
@@ -4504,7 +4516,8 @@ defmodule Letflow.Engine do
   # tasks/tokens/instance_projections rows -- not a full REQ-053 event-log
   # replay (design doc §6, MAJOR OQ-2).
   defp build_snapshot_and_state(repo, %Task{} = task, %InstanceProjection{} = projection, prefix) do
-    with {:ok, graph, definition_version} <- fetch_graph_and_version(task.instance_id, prefix) do
+    with {:ok, graph, definition_version, definition_name} <-
+           fetch_graph_and_version(task.instance_id, prefix) do
       active_token_records = load_active_tokens(repo, task.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
 
@@ -4515,6 +4528,8 @@ defmodule Letflow.Engine do
         {:ok,
          %{
            graph: graph,
+           # T-1986: the pinned definition's name (the four-eyes setting is per process and step).
+           definition_name: definition_name,
            # GH #3409 (F-3): the snapshot row's `definition_ver`, a fact of the form hook (no query).
            definition_version: definition_version,
            seed_instance_state: seed_instance_state,
@@ -4548,7 +4563,7 @@ defmodule Letflow.Engine do
     case SnapshotStore.get_by_instance_id(instance_id, prefix: prefix) do
       {:ok, snapshot} ->
         with {:ok, graph} <- build_graph(snapshot.graph),
-             do: {:ok, graph, snapshot.definition_ver}
+             do: {:ok, graph, snapshot.definition_ver, snapshot.definition_name}
 
       {:error, reason} ->
         {:error, reason}
@@ -8081,9 +8096,10 @@ defmodule Letflow.Engine do
           map(),
           Ecto.UUID.t() | nil,
           String.t(),
-          entity_plan() | nil
+          entity_plan() | nil,
+          map()
         ) ::
-          {:ok, :guards_passed | :no_guards}
+          {:ok, :guards_passed | :no_guards | {:self_approved, map()}}
           | {:error, {:completion_refused, completion_refusal()}}
   defp check_completion_guards(
          repo,
@@ -8092,14 +8108,23 @@ defmodule Letflow.Engine do
          output_variables,
          actor_id,
          prefix,
-         plan
+         plan,
+         sod_context
        ) do
     # GH #2587 PR B2 (CDV M1, D-B.3): AFTER separation of duties and required outputs, a
     # node that declares `entity_writes` while this completion has NO plan is refused
     # fail-closed (nothing committed, 500 through `entity_write_failed`). A node without
     # lines takes no new branch, so a completion without lines is byte-identical to before.
     with {:ok, _passed} = passed <-
-           existing_completion_guards(repo, graph, task, output_variables, actor_id, prefix),
+           existing_completion_guards(
+             repo,
+             graph,
+             task,
+             output_variables,
+             actor_id,
+             prefix,
+             sod_context
+           ),
          :ok <- check_entity_writes_planned(graph, task, plan) do
       passed
     end
@@ -8125,21 +8150,41 @@ defmodule Letflow.Engine do
     end
   end
 
-  defp existing_completion_guards(repo, graph, %Task{} = task, output_variables, actor_id, prefix) do
-    case SeparationOfDuties.check(repo, graph, task, actor_id, prefix) do
+  defp existing_completion_guards(
+         repo,
+         graph,
+         %Task{} = task,
+         output_variables,
+         actor_id,
+         prefix,
+         sod_context
+       ) do
+    case SeparationOfDuties.check(repo, graph, task, actor_id, prefix, sod_context) do
       {:error, {:separation_of_duties, _blocking_node_ids} = refusal} ->
         {:error, {:completion_refused, refusal}}
 
       :ok ->
-        case RequiredOutputs.required_outputs(find_node(graph, task.node_id)) do
-          [] ->
-            guards_passed_or_none(graph, task)
+        required_outputs_guard(graph, task, output_variables, nil)
 
-          required ->
-            case RequiredOutputs.missing_keys(required, output_variables) do
-              [] -> {:ok, :guards_passed}
-              missing -> {:error, {:completion_refused, {:output_refused, missing, []}}}
-            end
+      # T-1986: the step is switched OFF and an interactive person approves their own work. The
+      # info is audited by the success tail; a missing required output is still refused first.
+      {:self_approved, _info} = self_approved ->
+        required_outputs_guard(graph, task, output_variables, self_approved)
+    end
+  end
+
+  defp required_outputs_guard(graph, task, output_variables, self_approved) do
+    case RequiredOutputs.required_outputs(find_node(graph, task.node_id)) do
+      [] when is_nil(self_approved) ->
+        guards_passed_or_none(graph, task)
+
+      [] ->
+        {:ok, self_approved}
+
+      required ->
+        case RequiredOutputs.missing_keys(required, output_variables) do
+          [] -> {:ok, self_approved || :guards_passed}
+          missing -> {:error, {:completion_refused, {:output_refused, missing, []}}}
         end
     end
   end
@@ -8889,6 +8934,9 @@ defmodule Letflow.Engine do
     |> Multi.merge(fn changes ->
       record_task_complete_audit(normalized_changes.task, changes, actor_id, prefix)
     end)
+    |> Multi.merge(fn _tail_changes ->
+      self_approved_audit_multi(normalized_changes, actor_id, prefix)
+    end)
     |> Multi.merge(fn _tail_changes -> form_hook_run_audit_multi(changes, actor_id, prefix) end)
     |> append_entity_write_tail(
       Map.get(changes, :entity_writes),
@@ -9362,6 +9410,39 @@ defmodule Letflow.Engine do
       prefix
     )
   end
+
+  # T-1986: "self-approved, four-eyes off". Only when the completion guard returned
+  # `{:self_approved, info}`; appended to the same completion transaction, so nothing is written
+  # when the completion fails or is refused.
+  defp self_approved_audit_multi(
+         %{completion_guards: {:self_approved, info}, task: task},
+         actor_id,
+         prefix
+       ) do
+    Audit.append_multi(
+      Multi.new(),
+      :self_approved_audit,
+      %{
+        actor_id: actor_id,
+        action: "task.self_approved",
+        resource_type: "task",
+        resource_id: task.id,
+        before_state: nil,
+        after_state: %{
+          "note" => "self-approved, four-eyes off",
+          "four_eyes" => "off",
+          "definition_name" => info.definition_name,
+          "node_id" => info.node_id,
+          "same_person_as" => Enum.sort(info.same_person_as),
+          "setting_changed_at" => DateTime.to_iso8601(info.setting_changed_at)
+        },
+        trace_id: nil
+      },
+      prefix
+    )
+  end
+
+  defp self_approved_audit_multi(_changes, _actor_id, _prefix), do: Multi.new()
 
   defp complete_task_row(repo, %Task{} = task, actor_id, output_variables, completed_at, prefix) do
     attrs = %{
