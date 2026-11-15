@@ -1006,7 +1006,10 @@ defmodule Letflow.TenantProvisioning do
     # T-1963: owner list as class 'review' of problem_reports, plus the thread and image tables. Existing rows
     # stay class 'problem' by the column default; written only in the platform company's schema.
     {20_261_115_100_001, Letflow.Repo.Migrations.AddOwnerReviewItems,
-     "20261115100001_add_owner_review_items.exs"}
+     "20261115100001_add_owner_review_items.exs"},
+    # T-1986: approval_rule_settings (four-eyes switch). Empty for every tenant; no row = ON.
+    {20_261_115_200_001, Letflow.Repo.Migrations.CreateApprovalRuleSettings,
+     "20261115200001_create_approval_rule_settings.exs"}
   ]
 
   @doc """

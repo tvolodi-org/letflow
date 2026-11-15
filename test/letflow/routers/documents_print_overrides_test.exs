@@ -340,7 +340,7 @@ defmodule Letflow.Routers.DocumentsPrintOverridesTest do
     test "the permission is the last core permission, tenant scope" do
       assert Authorization.permission_scope(@perm) == :tenant
 
-      assert Authorization.core_permissions() |> Enum.take(-10) == [
+      assert Authorization.core_permissions() |> Enum.take(-11) == [
                @perm,
                :SolutionOverridesManage,
                :EntitiesExtensionsManage,
@@ -350,7 +350,8 @@ defmodule Letflow.Routers.DocumentsPrintOverridesTest do
                :TasksReassignRouted,
                :TasksReadAll,
                :CurrenciesManage,
-               :DataExport
+               :DataExport,
+               :ApprovalRulesManage
              ]
 
       assert Authorization.required_permission(@perm) == @perm

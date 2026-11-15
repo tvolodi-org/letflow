@@ -15,7 +15,8 @@ defmodule Letflow.Definitions.ValidationWarnings do
 
     3. `Letflow.Definitions.RoleBinding.single_member_warnings_for_definitions/2`
        -- the `distinct_from_single_member_role:` lines (REQ-464 check 4; one
-       counts-only read, and none when no definition has a candidate pair).
+       counts-only read, none when no definition has a candidate pair, plus one
+       four-eyes settings read only when a line would be produced, T-1986).
 
   The warnings type stays `[String.t()]`.
   """
