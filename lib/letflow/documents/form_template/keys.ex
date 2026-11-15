@@ -27,6 +27,8 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   defp block(%{"type" => "field", "key" => key}, {keys, seen}),
     do: {%{keys | legal: keys.legal ++ ["legal.label." <> key], data: keys.data ++ [key]}, seen}
 
+  defp block(%{"type" => "page_break"}, acc), do: acc
+
   defp block(%{"type" => "boxed_pairs", "cells" => cells}, acc) do
     Enum.reduce(cells, acc, fn cell, acc -> block(Map.put(cell, "type", "field"), acc) end)
   end
@@ -55,8 +57,14 @@ defmodule Letflow.Documents.FormTemplate.Keys do
     groups =
       cols
       |> Enum.with_index()
-      |> Enum.filter(fn {c, _} -> c["group"] end)
-      |> Enum.uniq_by(fn {c, _} -> c["group"] end)
+      |> Enum.flat_map(fn {c, start} ->
+        path = c["groups"] || List.wrap(c["group"])
+
+        path
+        |> Enum.with_index(1)
+        |> Enum.map(fn {_, level} -> {Enum.take(path, level), start} end)
+      end)
+      |> Enum.uniq_by(&elem(&1, 0))
       |> Enum.with_index(1)
       |> Enum.map(fn {{_, start}, g} -> {"legal.group.#{t}.#{g}", start} end)
 

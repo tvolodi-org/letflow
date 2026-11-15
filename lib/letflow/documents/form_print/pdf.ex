@@ -2,12 +2,12 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   @moduledoc """
   The PDF side of `Letflow.Documents.FormPrint`: compiles the resolved document model to a closed
   `Letflow.Documents.PrintLayout` layout plus projection and renders it with
-  `PrintLayout.render/3` (E1a/E1b code, unchanged; embeds DejaVu Sans, which has the Kazakh
+  `PrintLayout.render/3` (embeds DejaVu Sans, which has the Kazakh
   letters).
 
-  The closed layout has one header row per table and no merged cells, so a grouped column header
-  is flattened to `group: label` and the column number is a prefix (`5. ...`); the `.docx` has
-  the true two-row header. Same words, two shapes. Values come only through the projection; every
+  Columns with `groups` use merged header rectangles, preserving all levels and the official
+  numbers row, in one table (up to 15 columns). Legacy `group` headers are flattened to
+  `group: label` with a column-number prefix. Values come only through the projection; every
   literal is a catalog label. Render errors keep the E1b mapping: `:unsupported_glyph` or
   `{:render_failed, rule_atoms}` (rule atoms only, never a value).
   """
@@ -24,12 +24,17 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   # The layout's `page` decides the paper: orientation from it, and `PrintLayout` takes one margin
   # for all four sides, so the widest of the four margins is used. The font is the bundled DejaVu
   # Sans at the renderer's fixed size: the font set has no serif face and `PrintLayout` has no size
-  # option (see the moduledoc of `FormPrint`).
+  # option for body text; merged tables honour table_font_pt (see `FormPrint`).
   @spec render([tuple()], %{word: String.t(), of: String.t()} | nil, map() | nil) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
   def render(model, footer \\ nil, page \\ nil) do
     {blocks, doc, tables} = compile(model)
     page = page || FormPrint.page(%{})
+
+    blocks =
+      Enum.map(blocks, fn b ->
+        if Map.has_key?(b, "header_cells"), do: Map.put(b, "font_pt", page.table_font_pt), else: b
+      end)
 
     size = if page.orientation == "landscape", do: "A4-landscape", else: "A4"
     margin = page.margins_mm |> Enum.max() |> margin_mm()
@@ -68,7 +73,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   @doc false
   # Test seam: the blocks, document fields and the tables, `entity_type => {rows, declared keys}`.
   # Every table of the model gets its own entity types `t<i>c<j>` (table item index `i`, column
-  # chunk `j`): the closed layout allows 12 columns per table, a wider table is cut into chunks
+  # chunk `j`): legacy tables allow 12 columns, a wider legacy table is cut into chunks
   # that repeat column 1 so a reader can match the rows. Header numbers stay the official ones.
   def compile(model) do
     {rev, doc, tables} =
@@ -76,6 +81,9 @@ defmodule Letflow.Documents.FormPrint.Pdf do
       |> Enum.with_index()
       |> Enum.reduce({[], %{}, %{}}, fn {item, i}, {blocks, doc, tables} ->
         case item do
+          {:page_break} ->
+            {[%{"type" => "page_break"} | blocks], doc, tables}
+
           {:text, s} ->
             {[text(s) | blocks], doc, tables}
 
@@ -138,7 +146,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   defp chunks(tcols) do
     numbered = Enum.map(tcols, &{&1, &1.no})
 
-    if length(numbered) <= @max_chunk do
+    if length(numbered) <= @max_chunk or Enum.any?(tcols, &(Map.get(&1, :groups, []) != [])) do
       [numbered]
     else
       [first | _] = numbered
@@ -188,7 +196,32 @@ defmodule Letflow.Documents.FormPrint.Pdf do
         %{"field_name" => c.key, "header" => "#{n}. " <> header, "width" => c.width || width(n)}
       end)
 
-    %{"type" => "table", "entity_type" => entity_type, "columns" => columns}
+    block = %{"type" => "table", "entity_type" => entity_type, "columns" => columns}
+
+    if Enum.any?(cols, fn {c, _} -> Map.get(c, :groups, []) != [] end) do
+      cs = Enum.map(cols, &elem(&1, 0))
+
+      cells =
+        Enum.map(FormPrint.header_cells(cs), fn c ->
+          Map.new(c, fn {k, v} -> {Atom.to_string(k), v} end)
+        end)
+
+      depth = cells |> Enum.map(&(&1["row"] + &1["rowspan"])) |> Enum.max()
+
+      numbers =
+        for {c, i} <- Enum.with_index(cs),
+            do: %{
+              "text" => Integer.to_string(c.no),
+              "start" => i,
+              "span" => 1,
+              "row" => depth,
+              "rowspan" => 1
+            }
+
+      Map.put(block, "header_cells", cells ++ numbers)
+    else
+      block
+    end
   end
 
   # By the official column number: 1 is the row number, 2 the name, the rest equal.

@@ -4,7 +4,7 @@ defmodule Letflow.Documents.FormPrint do
 
   A form is DATA: a layout file under `priv/print_forms/<form>.json` (closed schema "form layout
   v1": block types `text`, `title`, `field`, `table`, `signature`, `proxy`,
-  `boxed_pairs`, `annex_line`, `signature_table`) and the message
+  `boxed_pairs`, `annex_line`, `signature_table`, `page_break`) and the message
   catalog `priv/print_forms/messages.json` (`key -> {ru, kk, kk_status}`). The layout holds no
   wording, only catalog keys; it reproduces the arrangement of an official form as our own data,
   the MinFin files themselves are never copied. Both files are read at compile time
@@ -32,30 +32,30 @@ defmodule Letflow.Documents.FormPrint do
   A column may carry `"no"`, its official column number, when the table does not start at 1 (the
   back side of Inv-18 is columns 15 to 26); default is the position.
 
-  Wider than 12 columns (Inv-18 has 14): the layout allows #{14}, the `.docx` keeps them in one
-  table and the PDF cuts the table into column chunks (see `Pdf`). A signature block reads its
-  position part from the data key `<key>_position`; a totals block may set `"skip_blank": true`
-  so blank cells add nothing to a sum.
+  A column may set `groups` to one or two catalog keys (ancestor first), instead of the legacy
+  `group` key. Both formats merge adjacent matching ancestors, and vertically merge leaf cells
+  over unused header levels. Inv-18 uses three header levels, including Пересортица on the back;
+  its 14-column front stays in one table in both formats. Legacy wide tables still use PDF
+  chunks (see `Pdf`). A signature reads its position from `<key>_position`; totals may set
+  `skip_blank` so missing cells add nothing. `page_break` starts the reverse side in both formats.
 
-  Title blocks (T-1973): `boxed_pairs` has 2–8 `cells` (`label` catalog key and data `key`),
-  labels above values in a bordered table. `annex_line` prints its catalog label right-aligned.
-  `signature_table` takes the same keys as `signature`, but prints a cell per part, a ruled
-  signing line above each caption, and the optional stamp after the table. Z-2 pilots these
-  blocks in both languages; the other forms keep their existing arrangements.
+  Title blocks: `boxed_pairs` has 2–8 label/value cells in a bordered table; `annex_line` is
+  right-aligned. `signature_table` prints a ruled signing line above each caption and the optional
+  stamp after the table. Inv-10 and Inv-18 use the boxed organisation/BIN and number/date pairs.
 
   Page (T-1971): an optional layout key `"page"` (`orientation`, `margins_mm` as top/right/bottom/left,
   `font_pt`, `table_font_pt`; default A4 portrait with the template margins, see `page/1`) is honoured
   by the `.docx` in full and by the PDF for orientation and, as one margin, the widest of the four;
-  the PDF font is the bundled DejaVu Sans at the renderer's fixed size (no serif face is shipped,
-  none was installed). A table column may omit `"label"` (a blank header cell, as in the template's precious-materials table) and may carry `"width"` (a relative weight, taken from the
+  the PDF font is bundled DejaVu Sans (body 10 pt, merged tables at `table_font_pt`; no serif
+  face is shipped).  A table column may omit `"label"` (a blank header cell, as in the template's precious-materials table) and may carry `"width"` (a relative weight, taken from the
   reference template's column grid; used by `.docx` and PDF only when every column of the table has
   one) and `"decimals"`; quantities lose the stored trailing
   zeros (`number/2`), so no output holds nine decimals.
 
-  The PDF side reuses `Letflow.Documents.PrintLayout` unchanged (closed one-row table header: a
-  grouped header is flattened to `group: label`, the column number is a prefix); the `.docx` has
-  the true merged header and the numbers row. No dependency is added: the `.docx` is a zip of
-  XML written with OTP `:zip`.
+  The PDF side uses `Letflow.Documents.PrintLayout`: `groups` headers become validated merged
+  rectangles (up to 15 columns and four header rows including official numbers); legacy `group`
+  headers remain flattened. The `.docx` uses `w:gridSpan` / `w:vMerge`. No dependency is added:
+  the `.docx` is a zip of XML written with OTP `:zip`.
   """
 
   alias Letflow.Documents.FormPrint.{Docx, Pdf}
@@ -71,6 +71,7 @@ defmodule Letflow.Documents.FormPrint do
     "signature_table" => ["type", "label", "key", "parts", "stamp"],
     "boxed_pairs" => ["type", "cells"],
     "annex_line" => ["type", "label"],
+    "page_break" => ["type"],
     "proxy" => ["type", "label"]
   }
   @parts ["position", "signature", "name"]
@@ -237,7 +238,9 @@ defmodule Letflow.Documents.FormPrint do
     |> Enum.reduce_while(:ok, fn {col, i}, :ok ->
       p = path ++ ["columns", i]
 
-      with :ok <- known_keys(col, ["key", "label", "group", "no", "decimals", "width"], p),
+      with :ok <-
+             known_keys(col, ["key", "label", "group", "groups", "no", "decimals", "width"], p),
+           :ok <- groups_rule(col, catalog, p),
            :ok <- check(is_binary(col["key"]), :bad_key, p),
            :ok <-
              check(
@@ -262,6 +265,24 @@ defmodule Letflow.Documents.FormPrint do
     end)
   end
 
+  defp groups_rule(%{"groups" => groups} = col, catalog, path) do
+    with :ok <-
+           check(
+             is_list(groups) and length(groups) in 1..2 and not Map.has_key?(col, "group"),
+             :bad_groups,
+             path
+           ) do
+      Enum.reduce_while(groups, :ok, fn key, :ok ->
+        case label_present(key, catalog, path ++ ["groups"]) do
+          :ok -> {:cont, :ok}
+          err -> {:halt, err}
+        end
+      end)
+    end
+  end
+
+  defp groups_rule(_, _, _), do: :ok
+
   defp totals_rules(nil, _c, _p), do: :ok
 
   defp totals_rules(%{} = t, c, p) do
@@ -278,6 +299,7 @@ defmodule Letflow.Documents.FormPrint do
   defp totals_rules(_, _, p), do: {:error, {:bad_totals, p}}
 
   defp labels(%{"type" => "table"}, _catalog, _path), do: :ok
+  defp labels(%{"type" => "page_break"}, _catalog, _path), do: :ok
   defp labels(%{"type" => "boxed_pairs"}, _catalog, _path), do: :ok
   defp labels(%{"label" => _} = b, catalog, path), do: label_present(b["label"], catalog, path)
   defp labels(_, _, path), do: {:error, {:missing_label, path}}
@@ -324,6 +346,7 @@ defmodule Letflow.Documents.FormPrint do
   end
 
   defp item(%{"type" => "text"} = b, _d, lang, c), do: {:text, text(c, b["label"], lang)}
+  defp item(%{"type" => "page_break"}, _d, _lang, _c), do: {:page_break}
   defp item(%{"type" => "title"} = b, _d, lang, c), do: {:title, text(c, b["label"], lang)}
   defp item(%{"type" => "proxy"} = b, _d, lang, c), do: {:proxy, text(c, b["label"], lang)}
 
@@ -370,6 +393,7 @@ defmodule Letflow.Documents.FormPrint do
           no: col["no"] || i,
           label: if(col["label"], do: text(c, col["label"], lang), else: ""),
           group: col["group"] && text(c, col["group"], lang),
+          groups: Enum.map(col["groups"] || [], &text(c, &1, lang)),
           width: col["width"]
         }
       end)
@@ -468,11 +492,45 @@ defmodule Letflow.Documents.FormPrint do
   defp draft?(b, c), do: columns_draft?(b, c)
 
   defp columns_draft?(%{"columns" => cols} = b, c) when is_list(cols) do
-    Enum.any?(cols, &(draft_key?(&1["label"], c) or draft_key?(&1["group"], c))) or
+    Enum.any?(
+      cols,
+      &(draft_key?(&1["label"], c) or draft_key?(&1["group"], c) or
+          Enum.any?(&1["groups"] || [], fn k -> draft_key?(k, c) end))
+    ) or
       draft_key?(get_in(b, ["totals", "label"]), c)
   end
 
   defp columns_draft?(_, _), do: false
+
+  @doc false
+  # Header rectangles shared by Word and PDF. A short path's leaf spans the remaining
+  # rows; groups merge only adjacent columns with the same complete ancestor path.
+  def header_cells(columns) do
+    paths =
+      Enum.map(columns, fn c ->
+        (Map.get(c, :groups, []) ++ List.wrap(c.group)) ++ [c.label]
+      end)
+
+    depth = paths |> Enum.map(&length/1) |> Enum.max()
+
+    for level <- 0..(depth - 1),
+        chunk <-
+          paths
+          |> Enum.with_index()
+          |> Enum.chunk_by(fn {path, i} ->
+            if level < length(path) - 1, do: Enum.take(path, level + 1), else: {:leaf, i}
+          end),
+        {path, start} = hd(chunk),
+        level < length(path) do
+      %{
+        text: Enum.at(path, level),
+        start: start,
+        span: length(chunk),
+        row: level,
+        rowspan: if(level == length(path) - 1, do: depth - level, else: 1)
+      }
+    end
+  end
 
   defp draft_key?(nil, _c), do: false
   defp draft_key?(key, c), do: get_in(c, [key, "kk_status"]) == "machine_draft"
