@@ -197,9 +197,11 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
     ops |> Enum.map(&op(&1, cids)) |> IO.iodata_to_binary()
   end
 
-  defp op({:item, lines}, cids) do
+  defp op({:item, lines}, cids), do: op({:item, lines, 10}, cids)
+
+  defp op({:item, lines, size}, cids) do
     [
-      "BT\n/F1 10 Tf\n",
+      "BT\n/F1 #{size} Tf\n",
       for {x, y, cps} <- lines do
         ["1 0 0 1 ", num(x), " ", num(y), " Tm\n<", hex_run(cps, cids), "> Tj\n"]
       end,

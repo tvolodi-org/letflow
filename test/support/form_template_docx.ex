@@ -70,37 +70,57 @@ defmodule Letflow.FormTemplateDocx do
 
   defp table(b, t) do
     cols = b["columns"]
-    grouped = Enum.any?(cols, & &1["group"])
-    groups = cols |> Enum.map(& &1["group"]) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    paths = Enum.map(cols, &(&1["groups"] || List.wrap(&1["group"])))
 
-    {top, lower, _} =
-      Enum.reduce(Enum.with_index(cols, 1), {[], [], nil}, fn {c, n}, {top, lower, prev} ->
-        g = c["group"]
-
-        cond do
-          is_nil(g) ->
-            heading = cell("legal.col.#{t}.#{n}")
-
-            heading =
-              if grouped,
-                do:
-                  String.replace(heading, "</w:tcPr>", ~s(<w:vMerge w:val="restart"/></w:tcPr>)),
-                else: heading
-
-            continuation = "<w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>"
-            {top ++ [heading], lower ++ [continuation], nil}
-
-          g == prev ->
-            {top, lower ++ [cell("legal.col.#{t}.#{n}")], g}
-
-          true ->
-            gi = Enum.find_index(groups, &(&1 == g)) + 1
-            span = Enum.count(cols, &(&1["group"] == g))
-
-            {top ++ [cell("legal.group.#{t}.#{gi}", span)],
-             lower ++ [cell("legal.col.#{t}.#{n}")], g}
-        end
+    groups =
+      paths
+      |> Enum.flat_map(fn path ->
+        path |> Enum.with_index(1) |> Enum.map(fn {_, level} -> Enum.take(path, level) end)
       end)
+      |> Enum.uniq()
+
+    columns =
+      for {c, n} <- Enum.with_index(cols, 1),
+          do: %{label: "legal.col.#{t}.#{n}", group: c["group"], groups: c["groups"] || []}
+
+    cells = Letflow.Documents.FormPrint.header_cells(columns)
+    depth = cells |> Enum.map(&(&1.row + &1.rowspan)) |> Enum.max()
+
+    headers =
+      for level <- 0..(depth - 1) do
+        cells
+        |> Enum.filter(&(&1.row <= level and &1.row + &1.rowspan > level))
+        |> Enum.sort_by(& &1.start)
+        |> Enum.map(fn c ->
+          text =
+            cond do
+              c.row < level ->
+                ""
+
+              String.starts_with?(c.text, "legal.col.") ->
+                c.text
+
+              true ->
+                prefix = Enum.at(paths, c.start) |> Enum.take(c.row + 1)
+                "legal.group.#{t}.#{Enum.find_index(groups, &(&1 == prefix)) + 1}"
+            end
+
+          xml =
+            if text == "",
+              do: String.replace(cell(text, c.span), "{{}}", ""),
+              else: cell(text, c.span)
+
+          merge =
+            cond do
+              c.row < level -> "<w:vMerge/>"
+              c.rowspan > 1 -> ~s(<w:vMerge w:val="restart"/>)
+              true -> ""
+            end
+
+          String.replace(xml, "</w:tcPr>", merge <> "</w:tcPr>")
+        end)
+        |> row()
+      end
 
     grid = "<w:tblGrid>" <> Enum.map_join(cols, fn _ -> "<w:gridCol/>" end) <> "</w:tblGrid>"
     numbers = for n <- 1..length(cols), do: cell("legal.colno.#{t}.#{n}")
@@ -109,8 +129,7 @@ defmodule Letflow.FormTemplateDocx do
 
     "<w:tbl>" <>
       grid <>
-      row(top) <>
-      if(grouped, do: row(lower), else: "") <>
+      Enum.join(headers) <>
       row(numbers) <> row(data) <> total <> "</w:tbl>"
   end
 

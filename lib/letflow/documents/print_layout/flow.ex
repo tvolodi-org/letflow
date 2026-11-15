@@ -46,7 +46,8 @@ defmodule Letflow.Documents.PrintLayout.Flow do
       ops: [],
       used: 0,
       cps: MapSet.new(),
-      vs: []
+      vs: [],
+      table_font_pt: 10
     }
 
     indexed = Enum.with_index(blocks, 1)
@@ -78,6 +79,9 @@ defmodule Letflow.Documents.PrintLayout.Flow do
       {:error, v} -> violate(st, v)
     end
   end
+
+  defp block(%{"type" => "page_break"}, _i, _proj, st, _next),
+    do: if(st.used > 0, do: new_page(st), else: st)
 
   defp block(%{"type" => "spacer", "height_mm" => mm}, _i, _proj, st, _next) do
     used = st.used + mm_to_u(mm)
@@ -308,6 +312,45 @@ defmodule Letflow.Documents.PrintLayout.Flow do
 
   # -- tables ----------------------------------------------------------------------------------
 
+  defp table(st, %{"font_pt" => size} = b, rows, path) do
+    previous = st.table_font_pt
+    st = table(%{st | table_font_pt: size}, Map.delete(b, "font_pt"), rows, path)
+    %{st | table_font_pt: previous}
+  end
+
+  defp table(st, %{"header_cells" => cells} = b, rows, path) do
+    {geo, _header, cols} = table_geo(st, b, path)
+
+    case merged_header(st, geo, cells, path) do
+      {:ok, rep} ->
+        first =
+          case rows do
+            [r | _] -> data_cells(r, cols, geo, path)
+            [] -> []
+          end
+
+        first_h =
+          if Enum.all?(first, &match?({:ok, _}, &1)) and first != [],
+            do:
+              row_h(wrap_cells(geo, Enum.map(first, &elem(&1, 1)), max_lines_for(st.ch), st), st),
+            else: 0
+
+        if rep.h + first_h > st.ch do
+          violate(st, v(:row_too_tall, path))
+        else
+          st = if st.used + rep.h + first_h > st.ch, do: new_page(st), else: st
+          st = draw_merged_header(st, rep)
+
+          Enum.reduce(rows, st, fn r, acc ->
+            row(acc, geo, data_cells(r, cols, geo, path), path, rep, [])
+          end)
+        end
+
+      {:error, violations} ->
+        Enum.reduce(violations, st, &violate(&2, &1))
+    end
+  end
+
   defp table(st, b, rows, path) do
     {geo, header, cols} = table_geo(st, b, path)
     rep = repeat_header(st, geo, header)
@@ -338,6 +381,61 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     end
   end
 
+  # One rectangle per merged cell; allocate enough height across its row span.
+  # Repeating this same object after a page break preserves every header level.
+  defp merged_header(st, geo, cells, path) do
+    prepared =
+      Enum.map(cells, fn c ->
+        {x, _, _} = Enum.at(geo, c["start"])
+        w = geo |> Enum.slice(c["start"], c["span"]) |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+        {c, [{x, w, 0}], prepare(c["text"], path ++ ["header_cells"])}
+      end)
+
+    errors = for {_, _, {:error, v}} <- prepared, do: v
+
+    if errors != [] do
+      {:error, errors}
+    else
+      wrapped =
+        Enum.map(prepared, fn {c, g, {:ok, cps}} ->
+          {c, g, wrap_cells(g, [cps], max_lines_for(st.ch), st), cps}
+        end)
+
+      depth = cells |> Enum.map(&(&1["row"] + &1["rowspan"])) |> Enum.max()
+
+      heights =
+        Enum.reduce(wrapped, List.duplicate(table_line_h(st) + 2 * @pad, depth), fn {c, _, lines,
+                                                                                     _},
+                                                                                    hs ->
+          need = div(row_h(lines, st) + c["rowspan"] - 1, c["rowspan"])
+
+          Enum.with_index(hs)
+          |> Enum.map(fn {h, i} ->
+            if i >= c["row"] and i < c["row"] + c["rowspan"], do: max(h, need), else: h
+          end)
+        end)
+
+      {:ok, %{merged: wrapped, heights: heights, h: Enum.sum(heights)}}
+    end
+  end
+
+  defp draw_merged_header(st, rep) do
+    base = st.used
+
+    st =
+      Enum.reduce(rep.merged, st, fn {c, geo, lines, cps}, acc ->
+        offset = rep.heights |> Enum.take(c["row"]) |> Enum.sum()
+        h = rep.heights |> Enum.slice(c["row"], c["rowspan"]) |> Enum.sum()
+
+        acc
+        |> Map.put(:used, base + offset)
+        |> mark_used(cps)
+        |> draw_row(geo, lines, h, first: true)
+      end)
+
+    %{st | used: base + rep.h}
+  end
+
   # Geometry (column x/width/index), header cells and columns of a table block.
   defp table_geo(st, b, path) do
     cols = b["columns"]
@@ -350,7 +448,7 @@ defmodule Letflow.Documents.PrintLayout.Flow do
         prepare(Map.get(col, "header", ""), path ++ ["columns", j, "header"])
       end
 
-    widths = fit_header_words(widths, header, st.cw)
+    widths = if b["header_cells"], do: widths, else: fit_header_words(widths, header, st.cw)
     {xs, _} = Enum.map_reduce(widths, st.m, fn w, x -> {x, x + w} end)
     {Enum.zip([xs, widths, 0..(length(cols) - 1)]), header, cols}
   end
@@ -415,12 +513,33 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   defp repeat_header(st, geo, header) do
     if Enum.all?(header, &match?({:ok, _}, &1)) do
       cps = Enum.map(header, &elem(&1, 1))
-      wrapped = wrap_cells(geo, cps, max_lines_for(st.ch))
-      %{wrapped: wrapped, h: row_h(wrapped)}
+      wrapped = wrap_cells(geo, cps, max_lines_for(st.ch), st)
+      %{wrapped: wrapped, h: row_h(wrapped, st)}
     end
   end
 
   # Space needed to start a table: whole table when small, else header and first row.
+  defp table_need(st, %{"font_pt" => size} = b, rows, path),
+    do: table_need(%{st | table_font_pt: size}, Map.delete(b, "font_pt"), rows, path)
+
+  defp table_need(st, %{"header_cells" => cells} = b, rows, path) do
+    {geo, _, cols} = table_geo(st, b, path)
+    first = if length(rows) <= @small_table_rows, do: rows, else: Enum.take(rows, 1)
+    data = Enum.map(first, &data_cells(&1, cols, geo, path))
+
+    with {:ok, rep} <- merged_header(st, geo, cells, path),
+         true <- Enum.all?(data, fn r -> Enum.all?(r, &match?({:ok, _}, &1)) end) do
+      h =
+        Enum.reduce(data, rep.h, fn r, sum ->
+          sum + row_h(wrap_cells(geo, Enum.map(r, &elem(&1, 1)), max_lines_for(st.ch), st), st)
+        end)
+
+      {:ok, h}
+    else
+      _ -> :skip
+    end
+  end
+
   defp table_need(st, b, rows, path) do
     {geo, header, cols} = table_geo(st, b, path)
     max_lines = max_lines_for(st.ch)
@@ -431,8 +550,8 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     if Enum.all?(all, fn r -> Enum.all?(r, &match?({:ok, _}, &1)) end) do
       hs =
         for r <- all do
-          wrapped = wrap_cells(geo, Enum.map(r, &elem(&1, 1)), max_lines)
-          if Enum.any?(wrapped, &(length(&1) > max_lines)), do: :tall, else: row_h(wrapped)
+          wrapped = wrap_cells(geo, Enum.map(r, &elem(&1, 1)), max_lines, st)
+          if Enum.any?(wrapped, &(length(&1) > max_lines)), do: :tall, else: row_h(wrapped, st)
         end
 
       if :tall in hs do
@@ -450,13 +569,20 @@ defmodule Letflow.Documents.PrintLayout.Flow do
 
   defp max_lines_for(avail), do: max(1, div(avail - 2 * @pad, @line_h))
 
-  defp wrap_cells(geo, cell_cps, max_lines) do
+  defp wrap_cells(geo, cell_cps, max_lines, st) do
     for {{_x, w, _j}, cps} <- Enum.zip(geo, cell_cps),
-        do: wrap(cps, w - 2 * @pad, max_lines + 1)
+        do: wrap(cps, round((w - 2 * @pad) * 10 / st.table_font_pt), max_lines + 1)
   end
 
-  defp row_h(wrapped),
-    do: wrapped |> Enum.map(&length/1) |> Enum.max() |> Kernel.*(@line_h) |> Kernel.+(2 * @pad)
+  defp table_line_h(st), do: max(@line_h, round(st.table_font_pt * 120))
+
+  defp row_h(wrapped, st),
+    do:
+      wrapped
+      |> Enum.map(&length/1)
+      |> Enum.max()
+      |> Kernel.*(table_line_h(st))
+      |> Kernel.+(2 * @pad)
 
   defp row(st, geo, cells, path, rep, opts) do
     case for({:error, v} <- cells, do: v) do
@@ -469,17 +595,23 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     avail = if rep, do: st.ch - rep.h, else: st.ch
     max_lines = max_lines_for(avail)
     st = Enum.reduce(cell_cps, st, &mark_used(&2, &1))
-    wrapped = wrap_cells(geo, cell_cps, max_lines)
+    wrapped = wrap_cells(geo, cell_cps, max_lines, st)
 
-    if Enum.any?(wrapped, &(length(&1) > max_lines)) or (rep && rep.h + row_h(wrapped) > st.ch) do
+    if Enum.any?(wrapped, &(length(&1) > max_lines)) or row_h(wrapped, st) > st.ch or
+         (rep && rep.h + row_h(wrapped, st) > st.ch) do
       violate(st, v(:row_too_tall, path))
     else
-      h = row_h(wrapped)
+      h = row_h(wrapped, st)
 
       st =
         if st.used + h > st.ch and st.used > 0 do
           st = new_page(st)
-          if rep, do: draw_row(st, geo, rep.wrapped, rep.h, first: true), else: st
+
+          cond do
+            rep && Map.has_key?(rep, :merged) -> draw_merged_header(st, rep)
+            rep -> draw_row(st, geo, rep.wrapped, rep.h, first: true)
+            true -> st
+          end
         else
           st
         end
@@ -498,10 +630,12 @@ defmodule Letflow.Documents.PrintLayout.Flow do
       for {{x, _w, _j}, lines} <- Enum.zip(geo, wrapped), lines != [] do
         items =
           for {line, k} <- Enum.with_index(lines), line != [] do
-            {x + @pad, baseline(st, top + k * @line_h), line}
+            {x + @pad,
+             baseline(st, top + k * table_line_h(st)) -
+               max(0, round((st.table_font_pt - 10) * 100)), line}
           end
 
-        {:item, items}
+        if st.table_font_pt == 10, do: {:item, items}, else: {:item, items, st.table_font_pt}
       end
 
     text_ops = Enum.reject(text_ops, &match?({:item, []}, &1))

@@ -66,17 +66,21 @@ defmodule Letflow.Documents.PageFurnitureTest do
       {:ok, files} = :zip.unzip(docx, [:memory])
       {_, xml} = Enum.find(files, fn {n, _} -> n == ~c"word/document.xml" end)
 
-      [grid | _] = Regex.scan(~r{<w:tblGrid>(.*?)</w:tblGrid>}s, xml, capture: :all_but_first)
+      # T-1977: the boxed title pair is the first table; the lines table is the one with 14 columns
+      grids =
+        Regex.scan(~r{<w:tblGrid>(.*?)</w:tblGrid>}s, xml, capture: :all_but_first)
+        |> Enum.map(fn [g] ->
+          Regex.scan(~r/w:w="(\d+)"/, g) |> Enum.map(&String.to_integer(List.last(&1)))
+        end)
 
-      widths =
-        Regex.scan(~r/w:w="(\d+)"/, hd(grid)) |> Enum.map(&String.to_integer(List.last(&1)))
+      widths = Enum.find(grids, [], &(length(&1) == 14))
 
       assert length(widths) == 14
 
       # T-1971: A4 portrait, margins 15 mm right and 22.5 mm left: the text area is 9 780 twips and
-      # the 14 columns share it (the template's narrow columns); a long header word may break
+      # the 14 columns share it (the template's narrow columns, the narrowest 332 twips as in annex 49); a long header word may break
       assert Enum.sum(widths) <= 9_780
-      assert Enum.all?(widths, &(&1 >= 500))
+      assert Enum.all?(widths, &(&1 >= 300))
     end
   end
 end
