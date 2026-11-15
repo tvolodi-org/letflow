@@ -26,6 +26,14 @@ defmodule Letflow.Engine.SeparationOfDuties do
       wins (rework loops); `CANCELLED` and `PENDING` rows are never completions.
     * A named node that has not completed imposes no constraint; parallel
       branches compare with whatever completions exist when the check runs.
+    * Four-eyes switch (T-1986, D-144): the setting `Letflow.Engine.ApprovalRuleSetting` is
+      read ONLY on a would-be refusal (so the default-off and different-person paths keep their
+      query counts). A stored `four_eyes: false` for the step lets the same person through
+      when the caller signed in interactively (`credential == :oidc`) and the definition name is
+      known; API tokens, service principals, scripts and timers still need a second person.
+      The admin-flagged service-principal user flag is deliberately NOT read. No row, a
+      row `true`, a missing name or a failed read all refuse (fails closed; a failed read logs
+      one warning). Completion returns `{:self_approved, info}` so the engine audits it.
     * Default off: a node without a non-empty `distinct_from`, or an
       `actor_id` that is not a binary, returns `:ok` with ZERO queries.
     * The blocking node ids reach only the audit record, never a response.
@@ -39,6 +47,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
   alias Letflow.Definitions.Graph.Node
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Engine
+  alias Letflow.Engine.ApprovalRuleSetting
   alias Letflow.Engine.Task
   alias Letflow.Repo
 
@@ -57,6 +66,68 @@ defmodule Letflow.Engine.SeparationOfDuties do
   def check(repo, graph, task, actor_id, prefix),
     do: run_check(repo, graph, task, actor_id, prefix, [])
 
+  @type context :: %{
+          optional(:definition_name) => String.t() | nil,
+          optional(:credential) => atom() | nil
+        }
+  @type self_approval :: %{
+          definition_name: String.t(),
+          node_id: String.t(),
+          same_person_as: [String.t()],
+          setting_changed_at: DateTime.t()
+        }
+
+  @doc """
+  The completion-time check with the four-eyes switch: as `check/5`, but a would-be refusal is
+  turned into `{:self_approved, info}` when the step is switched OFF and `context.credential`
+  is `:oidc`. Anything else refuses (fails closed).
+  """
+  @spec check(
+          repo :: module(),
+          graph :: Graph.t(),
+          task :: Task.t(),
+          actor_id :: Ecto.UUID.t() | String.t() | nil,
+          prefix :: String.t(),
+          context :: context()
+        ) ::
+          :ok
+          | {:self_approved, self_approval()}
+          | {:error, {:separation_of_duties, blocking_node_ids :: [String.t()]}}
+  def check(repo, graph, %Task{} = task, actor_id, prefix, context) when is_map(context) do
+    case run_check(repo, graph, task, actor_id, prefix, []) do
+      {:error, {:separation_of_duties, blocking}} = refusal ->
+        if Map.get(context, :credential) == :oidc and
+             non_empty_binary?(Map.get(context, :definition_name)) do
+          name = Map.fetch!(context, :definition_name)
+
+          case ApprovalRuleSetting.read(repo, prefix, name, task.node_id, savepoint_opts()) do
+            {:ok, %ApprovalRuleSetting{four_eyes: false} = setting} ->
+              {:self_approved,
+               %{
+                 definition_name: name,
+                 node_id: task.node_id,
+                 same_person_as: blocking,
+                 setting_changed_at: setting.changed_at
+               }}
+
+            {:ok, _on} ->
+              refusal
+
+            {:error, :unreadable} ->
+              warn_setting_unreadable(task)
+              refusal
+          end
+        else
+          refusal
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp non_empty_binary?(value), do: is_binary(value) and value != ""
+
   @doc """
   The claim-time check: loads the instance snapshot graph itself, then applies
   the same comparison as `check/5`. Total -- never raises, fails open.
@@ -74,7 +145,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
          {:ok, graph} <- Engine.build_graph(snapshot.graph) do
       case run_check(Repo, graph, task, actor_id, prefix, savepoint_opts()) do
         :ok -> :ok
-        {:error, {:separation_of_duties, _ids}} -> {:error, :separation_of_duties}
+        {:error, {:separation_of_duties, _ids}} -> claim_refusal(task, snapshot, prefix)
       end
     else
       {:error, reason} ->
@@ -92,6 +163,20 @@ defmodule Letflow.Engine.SeparationOfDuties do
   end
 
   def check_for_claim(_task, _actor_id, _prefix), do: :ok
+
+  # T-1986: a step switched OFF lets the completer of the named step claim it (early feedback; the
+  # completion re-checks with the credential). No row, ON or an unreadable setting keep the refusal.
+  defp claim_refusal(%Task{} = task, snapshot, prefix) do
+    name = snapshot.definition_name
+
+    with true <- non_empty_binary?(name),
+         {:ok, %ApprovalRuleSetting{four_eyes: false}} <-
+           ApprovalRuleSetting.read(Repo, prefix, name, task.node_id, savepoint_opts()) do
+      :ok
+    else
+      _ -> {:error, :separation_of_duties}
+    end
+  end
 
   # The snapshot read of the claim path, inlined here (rather than through
   # `SnapshotStore.get_by_instance_id/2`, which takes no per-query options) so
@@ -160,6 +245,12 @@ defmodule Letflow.Engine.SeparationOfDuties do
 
   defp failure_tag(:snapshot_not_found), do: :snapshot_not_found
   defp failure_tag({:graph_structure_invalid, _}), do: :graph_structure_invalid
+
+  defp warn_setting_unreadable(%Task{id: task_id}) do
+    Logger.warning(
+      "separation_of_duties four-eyes setting unreadable for task #{task_id}: :unreadable"
+    )
+  end
 
   defp warn_fail_open(%Task{id: task_id}, tag) do
     Logger.warning(

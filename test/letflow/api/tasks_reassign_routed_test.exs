@@ -24,7 +24,7 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   @golden "priv/permission_matrix/effective.golden"
 
   test "R1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-4) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-5) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
@@ -66,7 +66,9 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   end
 
   test "R4 the false clause is narrow: no other permission changes for PLATFORM_ADMIN or TENANT_ADMIN" do
-    for p <- Authorization.permissions() -- [:TasksWorkInScope, :TenantSecurityManage, @perm] do
+    for p <-
+          Authorization.permissions() --
+            [:TasksWorkInScope, :TenantSecurityManage, @perm, :ApprovalRulesManage] do
       assert Authorization.role_allows?(:PLATFORM_ADMIN, p), inspect(p)
     end
 

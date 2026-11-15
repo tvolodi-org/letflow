@@ -1,0 +1,95 @@
+defmodule Letflow.ApprovalRulesTest do
+  @moduledoc """
+  T-1986 (four-eyes switch, slice 1): `Letflow.ApprovalRules` and its table. M1 the table exists and
+  is empty in a fresh tenant, L1 `list/1`, U1 `put/5` validation order (nothing written before the
+  last step). The routes are covered in `test/letflow/routers/approval_rules_test.exs`.
+  """
+
+  use Letflow.DataCase, async: false
+
+  alias Letflow.ApprovalRules
+  alias Letflow.Audit.Entry
+  alias Letflow.Engine.ApprovalRuleSetting
+  alias Letflow.Repo
+  alias Letflow.SodSupport, as: S
+  alias Letflow.TenantFixture
+
+  @n1 S.n1()
+  @n2 S.n2()
+
+  defp case!(attrs \\ %{"distinct_from" => [@n1]}),
+    do: S.new_case!(S.seq_graph(attrs), %{}, %{"seed" => "value"})
+
+  defp actor, do: %{user_id: Ecto.UUID.generate(), trace_id: nil}
+
+  test "M1 a fresh tenant has the empty table, and it is in the expected table list" do
+    ctx = case!()
+    assert Repo.all(ApprovalRuleSetting, prefix: ctx.schema_name) == []
+    assert "approval_rule_settings" in TenantFixture.expected_tenant_tables()
+  end
+
+  test "L1 only a step with distinct_from is listed (ON); a stored row of no active step shows as inactive" do
+    plain = case!(%{})
+    assert ApprovalRules.list(plain.schema_name) == []
+
+    ctx = case!()
+    assert [item] = ApprovalRules.list(ctx.schema_name)
+
+    assert %{node_id: @n2, four_eyes: true, in_active_definition: true, changed_at: nil} = item
+    assert item.definition_name == ctx.definition.name
+
+    Repo.insert!(
+      %ApprovalRuleSetting{
+        definition_name: "gone",
+        node_id: "x",
+        four_eyes: false,
+        changed_by: Ecto.UUID.generate(),
+        changed_at: DateTime.utc_now(),
+        reason: "r"
+      },
+      prefix: ctx.schema_name
+    )
+
+    assert [%{definition_name: "gone", in_active_definition: false, four_eyes: false}, _] =
+             Enum.sort_by(ApprovalRules.list(ctx.schema_name), & &1.definition_name)
+  end
+
+  test "U1 bad body, then bad reason, then unknown step: each writes nothing" do
+    ctx = case!()
+    schema = ctx.schema_name
+    name = ctx.definition.name
+    audit_before = Repo.aggregate(Entry, :count, prefix: schema)
+
+    assert {:error, :invalid_body} =
+             ApprovalRules.put(
+               schema,
+               name,
+               "nope",
+               %{"four_eyes" => 1, "reason" => "x"},
+               actor()
+             )
+
+    assert {:error, :invalid_reason} =
+             ApprovalRules.put(
+               schema,
+               name,
+               "nope",
+               %{"four_eyes" => false, "reason" => ""},
+               actor()
+             )
+
+    assert {:error, :not_a_four_eyes_step} =
+             ApprovalRules.put(
+               schema,
+               name,
+               "nope",
+               %{"four_eyes" => false, "reason" => "x"},
+               actor()
+             )
+
+    assert {:error, :invalid_body} = ApprovalRules.put(schema, name, @n2, "string", actor())
+
+    assert Repo.all(ApprovalRuleSetting, prefix: schema) == []
+    assert Repo.aggregate(Entry, :count, prefix: schema) == audit_before
+  end
+end
