@@ -48,6 +48,7 @@ import { assetsPrintButtonsScreens } from './fixtures/assetsPrintButtons'
 import { assetsCountsScreens } from './fixtures/assetsCounts'
 import { responsibleProposalScreens } from './fixtures/responsibleProposal'
 import { stockScreens } from './fixtures/stock'
+import { fourEyesTaskScreens } from './fixtures/fourEyesTask'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
 import { stockBalancesShellScreens } from './fixtures/stockBalancesShell'
@@ -380,6 +381,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
     ...currenciesScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
+    ...fourEyesTaskScreens,
     ...listDetailSlice6Screens,
     ...listDetailSlice7Screens,
     ...pageHeaderNewMenuScreens,
