@@ -81,7 +81,9 @@ test.afterAll(async () => {
   await context?.close()
 })
 
-test('E1 a card, a commission started from it, issued', async (_fixtures, testInfo) => {
+// Playwright demands an object destructuring pattern as the first parameter; no fixture is used here.
+// eslint-disable-next-line no-empty-pattern
+test('E1 a card, a commission started from it, issued', async ({}, testInfo) => {
   inventoryNumber = `E2E-${ENV.runTag}-${testInfo.retry}`
   await openRoute(page, '/admin/assets/cards')
   await page.getByTestId('asset-create').first().click()
@@ -93,6 +95,8 @@ test('E1 a card, a commission started from it, issued', async (_fixtures, testIn
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Org unit/).first(), 'Warehouse team')
+  // Location is required by the backend for fixed-kind cards (location_required check in Documents.Checks).
+  await choose(form.getByLabel(/^Location/).first(), 'Central')
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
   await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -193,7 +197,7 @@ test('E10 a write-off from the card: DA-3 is reached through the menu, PDF then 
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
-  await choose(form.getByLabel('Reason'), 'Broken')
+  await choose(form.getByLabel('Reason', { exact: true }), 'Broken')
   await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
