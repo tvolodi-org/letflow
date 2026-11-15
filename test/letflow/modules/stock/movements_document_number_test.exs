@@ -24,7 +24,15 @@ defmodule Letflow.Modules.Stock.MovementsDocumentNumberTest do
     [row | _] = P.movements(ctx, doc["id"])
     assert row["document_id"] == doc["id"]
     assert row["document_number"] == posted["number"]
-    assert row["document_number"] == "RCP-#{Date.utc_today().year}-000001"
+
+    # # the number year is the UTC+5 year of the issue instant (Documents.period_of): read it from issued_at, not the test clock
+    assert row["document_number"] == "RCP-#{issued_year(doc)}-000001"
+  end
+
+  # %{"issued_at" => iso} -> UTC+5 calendar year, as Letflow.Documents numbers it
+  defp issued_year(%{"issued_at" => iso}) do
+    {:ok, at, _} = DateTime.from_iso8601(iso)
+    at |> DateTime.add(5 * 3600, :second) |> Map.fetch!(:year)
   end
 
   test "A-2 the posted document names who posted it, and the id stays", ctx do
