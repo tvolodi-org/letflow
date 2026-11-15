@@ -1,0 +1,17 @@
+{
+ "form": "z2",
+ "annex": 26,
+ "fingerprint_version": 1,
+ "page": {"height": 16838, "orientation": "portrait", "width": 11906},
+ "margins": {"bottom": 1134, "left": 1276, "right": 850, "top": 1134},
+ "tables": [
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [100.0]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [60.5, 39.5]},
+  {"columns": 3, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [50.5, 22.5, 27.0]},
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 2, "shares": [100.0]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [49.8, 50.2]},
+  {"columns": 5, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [22.7, 22.5, 20.8, 15.3, 18.8]},
+  {"columns": 9, "head_merged": {"gridspan": 1, "vmerge": 14}, "nested_in": null, "shares": [9.4, 17.0, 11.9, 11.7, 10.9, 11.1, 10.9, 8.7, 8.5]},
+  {"columns": 4, "head_merged": {"gridspan": 3, "vmerge": 0}, "nested_in": null, "shares": [42.8, 17.9, 26.5, 12.7]}
+ ]
+}

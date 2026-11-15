@@ -6,6 +6,7 @@ Used to compare the official forms we print with the Ministry reference template
 
   forms_compare.py summary FILE.docx [--json]
   forms_compare.py diff REF.docx GEN.docx [--json]
+  forms_compare.py fingerprint FILE.docx
   forms_compare.py text GEN.docx REF.txt [--from MARKER] [--to MARKER] [--json]
 
 Exit 0: ran (differences are output, not failure). Exit 2: unreadable input, one
@@ -177,6 +178,7 @@ def summarize_table(tbl, index, nested_in, default):
     rows = tbl.findall(q("tr"))
     span = vmerge = hdr = 0
     heights, texts, head = [], [], []
+    head_span = head_vm = 0
     max_cols = 0
     for ri, tr in enumerate(rows):
         trpr = tr.find(q("trPr"))
@@ -192,8 +194,12 @@ def summarize_table(tbl, index, nested_in, default):
             if gs and gs > 1:
                 span += 1
             cols += gs or 1
+            if gs and gs > 1 and ri < 3:
+                head_span += 1
             if tcpr is not None and tcpr.find(q("vMerge")) is not None:
                 vmerge += 1
+                if ri < 3:
+                    head_vm += 1
             t = " ".join(para_text(p) for p in tc.findall(q("p")) if para_text(p))
             rowtexts.append(t)
             if t:
@@ -205,6 +211,7 @@ def summarize_table(tbl, index, nested_in, default):
         "index": index, "nested_in": nested_in, "grid": grid, "columns": len(grid) or max_cols,
         "rows": len(rows), "header_rows": hdr,
         "merged": {"gridspan": span, "vmerge": vmerge}, "row_heights": heights,
+        "head_merged": {"gridspan": head_span, "vmerge": head_vm},
         "head_text": head, "cell_text": texts,
     }
 
@@ -484,6 +491,30 @@ def text_check(gen, ref_text, marker_from, marker_to):
     return out
 
 
+# ---------------------------------------------------------------- fingerprint
+
+
+def fingerprint(s):
+    """The structure of a form without any text or row data (T-1979): page, margins, and per
+    table the column count, the column shares (percent of the grid, one decimal) and the merged cells of the first three rows (the header block, not the data rows)."""
+    sec = s["sections"][0] if s["sections"] else {}
+    tables = []
+    for t in s["tables"]:
+        total = sum(t["grid"]) or 1
+        tables.append({
+            "nested_in": t["nested_in"], "columns": t["columns"],
+            "shares": [round(100.0 * g / total, 1) for g in t["grid"]],
+            "head_merged": t["head_merged"],
+        })
+    return {
+        "fingerprint_version": 1,
+        "page": {"width": sec.get("page_w"), "height": sec.get("page_h"),
+                 "orientation": sec.get("orientation")},
+        "margins": {k: (sec.get("margins") or {}).get(k) for k in ("top", "right", "bottom", "left")},
+        "tables": tables,
+    }
+
+
 # ---------------------------------------------------------------- cli
 
 
@@ -505,6 +536,8 @@ def main(argv):
     b.add_argument("ref")
     b.add_argument("gen")
     b.add_argument("--json", action="store_true")
+    f = sub.add_parser("fingerprint")
+    f.add_argument("file")
     c = sub.add_parser("text")
     c.add_argument("gen")
     c.add_argument("reftxt")
@@ -520,6 +553,8 @@ def main(argv):
                 print(json.dumps(s, ensure_ascii=False))
             else:
                 print("\n".join(text_report(s)))
+        elif args.cmd == "fingerprint":
+            print(json.dumps(fingerprint(summarize(args.file)), ensure_ascii=False, sort_keys=True))
         elif args.cmd == "diff":
             path = args.ref
             r = summarize(args.ref)
