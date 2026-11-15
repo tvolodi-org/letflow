@@ -119,13 +119,13 @@ defmodule Letflow.Modules.Assets.FormDa2Test do
              {"repairs", 8},
              {"revaluations", 3},
              {"moves", 5},
-             {"elements", 3}
+             {"elements", 6}
            ]
 
     [t1, t2 | _] = tables
 
     keys = fn t, g ->
-      t["columns"] |> Enum.filter(&(&1["group"] == g)) |> Enum.map(& &1["key"])
+      t["columns"] |> Enum.filter(&(g in (&1["groups"] || []))) |> Enum.map(& &1["key"])
     end
 
     assert keys.(t1, "da1.number") == ["inv", "factory", "passport"]

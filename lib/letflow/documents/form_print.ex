@@ -239,7 +239,11 @@ defmodule Letflow.Documents.FormPrint do
       p = path ++ ["columns", i]
 
       with :ok <-
-             known_keys(col, ["key", "label", "group", "groups", "no", "decimals", "width"], p),
+             known_keys(
+               col,
+               ["key", "label", "group", "groups", "no", "decimals", "width", "span"],
+               p
+             ),
            :ok <- groups_rule(col, catalog, p),
            :ok <- check(is_binary(col["key"]), :bad_key, p),
            :ok <-
@@ -394,6 +398,7 @@ defmodule Letflow.Documents.FormPrint do
           label: if(col["label"], do: text(c, col["label"], lang), else: ""),
           group: col["group"] && text(c, col["group"], lang),
           groups: Enum.map(col["groups"] || [], &text(c, &1, lang)),
+          span: col["span"] == true,
           width: col["width"]
         }
       end)
@@ -512,15 +517,18 @@ defmodule Letflow.Documents.FormPrint do
       end)
 
     depth = paths |> Enum.map(&length/1) |> Enum.max()
+    indexed = columns |> Enum.zip(paths) |> Enum.with_index()
 
     for level <- 0..(depth - 1),
         chunk <-
-          paths
-          |> Enum.with_index()
-          |> Enum.chunk_by(fn {path, i} ->
-            if level < length(path) - 1, do: Enum.take(path, level + 1), else: {:leaf, i}
+          Enum.chunk_by(indexed, fn {{col, path}, i} ->
+            cond do
+              level < length(path) - 1 -> Enum.take(path, level + 1)
+              Map.get(col, :span) == true -> {:leaf_span, path}
+              true -> {:leaf, i}
+            end
           end),
-        {path, start} = hd(chunk),
+        {{_col, path}, start} = hd(chunk),
         level < length(path) do
       %{
         text: Enum.at(path, level),

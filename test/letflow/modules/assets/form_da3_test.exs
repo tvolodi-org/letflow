@@ -161,7 +161,7 @@ defmodule Letflow.Modules.Assets.FormDa3Test do
     [a | _] = tables
 
     assert a["columns"]
-           |> Enum.filter(&(&1["group"] == "da1.number"))
+           |> Enum.filter(&("da1.number" in (&1["groups"] || [])))
            |> Enum.map(& &1["key"]) == ["factory", "inv"]
 
     for {key, entry} <- cat,
