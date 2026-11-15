@@ -18,7 +18,7 @@ const access: AccessState = {
 function routes(selfApprovalAllowed: boolean): FixtureRoute[] {
   const task = {
     id: T1, instance_id: I1, token_id: 't1', node_id: 'approve', node_name: 'approve', status: 'PENDING',
-    assignee_type: 'ROLE', assignee_ref: 'TENANT_ADMIN', definition_name: 'assets_opening', created_at: ago(5),
+    assignee_type: 'USER', assignee_ref: ME, definition_name: 'assets_opening', created_at: ago(5),
   }
   return [
     ...makeRoutes(null),
