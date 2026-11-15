@@ -41,6 +41,7 @@ import { reportProblemScreens } from './fixtures/reportProblem'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
+import { assetsIssueRefusedScreens } from './fixtures/assetsDocumentsIssueRefused'
 import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { assetsOpeningScreens } from './fixtures/assetsDocumentsOpening'
@@ -330,6 +331,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...officialFormsScreens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
+    ...assetsIssueRefusedScreens,
     ...assetsCardActionsScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
