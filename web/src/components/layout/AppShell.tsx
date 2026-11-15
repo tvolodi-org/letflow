@@ -82,6 +82,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tenants', group: 'platform', label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/services', group: 'platform', label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
   { to: '/admin/module-rollouts', group: 'platform', label: 'Module rollouts', permission: P.ModuleRolloutsManage, platformOnly: true },
+  { to: '/admin/problem-reports', group: 'platform', label: 'Problem reports', permission: P.ProblemReportsManage, platformOnly: true },
   // REQ-375: operator-facing rollout-status screen for REQ-374's
   // platform-wide tenant-migration fanout runner. Same :TenantsManage
   // (platform-admin role-only) risk class as admin/tenants, admin/onboarding.
@@ -106,6 +107,7 @@ const FLUID_PATHS = [
   '/admin/catalog/items',
   '/admin/stock/movements',
   '/admin/stock/balances',
+  '/admin/problem-reports',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {

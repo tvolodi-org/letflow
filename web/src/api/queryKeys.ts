@@ -261,6 +261,14 @@ export const queryKeys = {
     status: (tenantId: string, rolloutId: string) => [...queryKeys.moduleRollouts.all(tenantId), 'status', rolloutId] as const,
   },
 
+  /** T-2007 — owner inbox of problem reports (platform screen). */
+  problemReportsInbox: {
+    all: (tenantId: string) => ['tenant', tenantId, 'problem-reports-inbox'] as const,
+    lists: (tenantId: string) => [...queryKeys.problemReportsInbox.all(tenantId), 'list'] as const,
+    list: (tenantId: string, status: string) => [...queryKeys.problemReportsInbox.lists(tenantId), status] as const,
+    detail: (tenantId: string, id: string) => [...queryKeys.problemReportsInbox.all(tenantId), 'detail', id] as const,
+  },
+
   /** REQ-381 design §3.2 — solution-pack update review/apply screen. */
   solutionPackUpdate: {
     all: (tenantId: string) => ['tenant', tenantId, 'solutionPackUpdate'] as const,

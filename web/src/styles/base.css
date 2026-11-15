@@ -352,3 +352,8 @@ samp {
 .lf-report__crash { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-6); }
 .lf-report__card { width: 100%; max-width: 520px; padding: var(--space-6); display: grid; gap: var(--space-4); }
 .lf-report__crash .lf-btn-row { justify-content: center; flex-wrap: wrap; }
+
+/* T-2007: owner inbox of problem reports: the report text beside the captured facts; stacks when the pane is narrow. */
+.lf-pr__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15em), 1fr)); gap: var(--space-4); padding: var(--space-4) var(--space-6); }
+.lf-pr__text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--type-body); }
+.lf-pr__preview { display: block; max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

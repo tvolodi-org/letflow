@@ -129,7 +129,19 @@ The implement host has no QA credentials, so this is run by the operator:
 3. Wait 30 seconds, then `problem_reports_pull.sh pull` prints that block with the route
    `/admin/assets/documents`.
 
-The button in the app (the owner's own click) comes with the web part of the slice (a follow-up task).
+The button is in the app since slice 1 (web); the owner decides reports on the inbox screen below.
+
+## Owner inbox screen (T-2007)
+
+The owner reads and decides problem reports in the web app, no URL typing and no database access.
+
+* **Address:** `/admin/problem-reports` (menu: Platform, "Problem reports" / "Сообщения о проблемах" / "Мәселе туралы хабарламалар").
+* **Permission:** `ProblemReportsManage`, platform scope: only PLATFORM_ADMIN in the platform company sees the menu entry and the page. The three routes it calls (`GET /api/v1/platform-problem-reports`, `GET .../:id`, `POST .../:id/decision`) check it again on the server. A tenant user gets "no permission" and no data.
+* **List:** open reports (received, in work) by default, newest first; the "Show" filter switches to Closed or All; "Load older reports" fetches the next page and the footer says how many are shown.
+* **Record:** the report text and the captured facts (screen, browser, window size, app version, trace id, last error) sit side by side; recent actions, requests, rights and the decision are tabs. If the user's layout setting is Tabs, the text and the facts are tabs too. Customer text and captured values are shown as plain text, never as HTML.
+* **Decisions** (buttons in the record header, each opens a one-field dialog): In work (development summary, in your own words; not shown to the reporter), Ask a question, Not done (reason), Fixed (the note is optional, so one click and Save), Answer. The reporter sees the answer, the question, the reason and the fixed note in the notification mail.
+* **Reporter's bell:** each status change adds a row in the reporter's bell: received, in work, question, answered, fixed, not done (en, ru, kk), titled with the report number. The row has no link yet: the reporter's own report screen is a follow-up.
+* **QA check (operator step after deploy):** as the owner on QA open Platform, Problem reports, open the newest report, press Answer, type a short reply, Save; then, as the reporter, the bell shows "Your problem report was answered" with the number.
 
 ## Error groups (slice 3)
 
