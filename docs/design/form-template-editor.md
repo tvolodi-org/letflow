@@ -1,9 +1,22 @@
 # Official form templates: fixed legal fields, a tenant's own docx, the first step
 
-Task T-1966 (2026-11-14, design check, docs only, QA only). Nothing is built by this note. The business decision note
+Task T-1966 (2026-11-14, design check, docs only, QA only). The business decision note
 for UAT is `docs/uat/ba-decisions/T-1966.md`. Marks: **V** = verified in the file named, on origin/main `cbe12af93`;
 **M** = measured in this task (command in the appendix); **G** = guess or proposal; **A** = UAT assumption, to be
 confirmed by the process owner.
+
+S1 implementation (T-1981): `Letflow.Documents.FormTemplate.check/3` now provides the pure upload
+sanitizer and legal-fields check, returning rewritten DOCX bytes, SHA-256 and a structure summary,
+or fixed refusal codes and positions without company text. This adds no upload route, storage or
+printing integration. The checker derives names from all shipped layouts, including DA-2. It requires
+locked group headings, signature captions (`legal.cap.<signature>.<part>`), stamps and other catalog
+texts as well as the D2 names. D3 rule 4 is applied by heading **grid position**, allowing several
+header rows, because grouped platform headers already span two rows. The checker refuses aliased
+or rebound Word namespaces (including Strict OOXML namespaces), header/footer placeholders,
+footnote/comment references and nested fields. Inline `src`/`href` resource links are refused too:
+legacy VML can otherwise bypass the external-relationship check; `o:relid` uses the same surviving-ID
+check as `r:*`. The default attachment scanner detects EICAR; deployments can configure the existing scanner
+adapter for broader malware detection. Totals data names, starter templates and filling remain S2.
 
 ## Summary in plain words
 

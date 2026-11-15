@@ -19,6 +19,11 @@ defmodule Letflow.Modules.Assets.CountSheet do
       `assets_count.sheet` is issued with the line views as content; the order becomes `counted`.
     * `mark_sheet_signed/4`: the chair records that the exact set of required signers signed the
       printout (paper acknowledged by the chair, the system does not verify it); `sheet_signed`.
+    * `scan/4` (K3, REQ-818): a keyboard-wedge scanner. The text is resolved as a code first
+      (`Letflow.Modules.Codes.resolve/2`: a location of the count sets the caller's current location,
+      kept as a `location_set` entry of the log; an item or lot code is `not_countable_here`), then as the
+      exact inventory number of an active card (fixed or intangible: found, a second scan changes nothing;
+      low value: +1; no line: a surplus line). Every accepted scan is one log entry and one audit entry.
     * `lines/4`, `entries/4`, `sheet_document/3`: reads.
 
   Every write is one transaction whose FIRST statement is `Counts.lock_order!/2` (K1's per-order
@@ -32,8 +37,7 @@ defmodule Letflow.Modules.Assets.CountSheet do
   decimal, because the asset ledger policy refuses fractional quantities (a fractional count could
   never post in K4). Quantities and card money values are stored as text, exactly as the card holds
   them. A sheet is capped at 2000 lines (`count_too_large`). An order that asks for `freeze_locations`
-  freezes its scope from the cut-off (`CountFreeze`, K5). Scanner input (K3),
-  differences and result (K4) are later slices.
+  freezes its scope from the cut-off (`CountFreeze`, K5). Differences and result are K4.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -49,6 +53,7 @@ defmodule Letflow.Modules.Assets.CountSheet do
   alias Letflow.Modules.Assets.Settings
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
+  alias Letflow.Modules.Codes
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Locations.Tree
   alias Letflow.Modules.Org
@@ -56,6 +61,8 @@ defmodule Letflow.Modules.Assets.CountSheet do
   alias Letflow.Repo
 
   @kept ["record_id", "entity_type"]
+  @typed %{"method" => "typed"}
+  @max_scan 500
   @max_lines 2_000
   @balance_page 200
   @max_description 500
@@ -267,7 +274,7 @@ defmodule Letflow.Modules.Assets.CountSheet do
              {:ok, _} <-
                update_record(prefix, current["record_id"], "assets_count_line", fv, actor),
              :ok <-
-               append_entry(prefix, fresh, no, "recorded", before, value, employee, actor),
+               append_entry(prefix, fresh, no, "recorded", before, value, employee, actor, @typed),
              :ok <-
                audit(
                  prefix,
@@ -467,7 +474,17 @@ defmodule Letflow.Modules.Assets.CountSheet do
              fv = surplus_line(fresh, doc, no),
              {:ok, _} <- create_record(prefix, "assets_count_line", fv, actor),
              :ok <-
-               append_entry(prefix, fresh, no, "surplus_added", nil, doc.value, employee, actor),
+               append_entry(
+                 prefix,
+                 fresh,
+                 no,
+                 "surplus_added",
+                 nil,
+                 doc.value,
+                 employee,
+                 actor,
+                 @typed
+               ),
              :ok <-
                audit(
                  prefix,
@@ -612,21 +629,322 @@ defmodule Letflow.Modules.Assets.CountSheet do
     Map.merge(base, compact(doc.value))
   end
 
+  # --- scanner input (K3) ------------------------------------------------------------------------
+
+  @doc """
+  One scan of a commission member (REQ-818). `body` is `%{"text" => scanned_text}`. Returns the scan answer
+  (`outcome`, `scanned_text`, `location_id`, `location_code`, `location_name`, `line`); a refusal stores nothing.
+  """
+  @spec scan(String.t(), term(), term(), map()) :: {:ok, map()} | {:error, term()}
+  def scan(prefix, id, body, opts) when is_binary(prefix) and is_map(opts) do
+    actor = actor!(opts)
+
+    with {:ok, header} <- fetch(prefix, id),
+         {:ok, employee} <- commission_member(prefix, header, actor),
+         :ok <- status(header, "counting"),
+         {:ok, text} <- scan_input(body),
+         {:ok, target} <- scan_target(prefix, header, text) do
+      Repo.transaction(fn ->
+        Counts.lock_order!(prefix, header["record_id"])
+
+        with {:ok, fresh} <- fetch(prefix, header["record_id"]),
+             :ok <- status(fresh, "counting"),
+             current = current_location(prefix, fresh["record_id"], actor),
+             {:ok, answer} <-
+               scan_apply(prefix, fresh, target, %{
+                 current: current,
+                 text: text,
+                 employee: employee,
+                 actor: actor
+               }) do
+          answer
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    end
+  end
+
+  defp scan_input(body) when is_map(body) do
+    with :ok <- no_extra(body, ["text"]) do
+      case Map.get(body, "text") do
+        t when is_binary(t) ->
+          trimmed = if String.valid?(t), do: String.trim(t), else: ""
+
+          if String.length(trimmed) in 1..@max_scan and not String.contains?(trimmed, <<0>>),
+            do: {:ok, trimmed},
+            else: {:error, {:field_invalid, "text"}}
+
+        _ ->
+          {:error, {:field_invalid, "text"}}
+      end
+    end
+  end
+
+  defp scan_input(_body), do: {:error, {:field_invalid, "body"}}
+
+  # Code first, then the exact inventory number of an active card. Decision 0076 R7 ruling 2: a location
+  # outside the count answers like an unknown text.
+  defp scan_target(prefix, header, text) do
+    case Codes.resolve(prefix, text) do
+      {:error, :not_found} ->
+        scan_card(prefix, text)
+
+      {:error, :code_retired} ->
+        {:error, :code_retired}
+
+      {:error, :assignment_conflict} ->
+        {:error, :code_assignment_conflict}
+
+      {:ok, %{"target_type" => nil}} ->
+        {:error, :code_not_assigned}
+
+      {:ok, %{"target_type" => "location_node", "target_id" => loc}} ->
+        scan_location(prefix, header, loc)
+
+      {:ok, _other} ->
+        {:error, :not_countable_here}
+    end
+  end
+
+  defp scan_location(prefix, header, loc) do
+    case location_in_count(prefix, header, loc) do
+      :ok -> {:ok, {:location, loc}}
+      {:error, _} -> {:error, :unknown_code}
+    end
+  end
+
+  defp scan_card(prefix, text) do
+    row =
+      Repo.one(
+        from(l in Latest,
+          where:
+            l.entity_type == "assets_card" and l.deleted == false and
+              fragment("?->>'inventory_number' = ?", l.field_values, ^text),
+          limit: 1
+        ),
+        prefix: prefix
+      )
+
+    case row && to_map(row) do
+      %{"active" => true} = card -> {:ok, {:card, card}}
+      _ -> {:error, :unknown_code}
+    end
+  end
+
+  # The location the caller scanned last in this count (their latest `location_set` entry), or nil.
+  defp current_location(prefix, order_id, actor) do
+    Repo.one(
+      from(l in Latest,
+        where:
+          l.entity_type == "assets_count_entry" and l.deleted == false and
+            fragment("?->>'count_order_id' = ?", l.field_values, ^order_id) and
+            fragment("?->>'scan_outcome' = 'location_set'", l.field_values) and
+            fragment("?->>'entered_by' = ?", l.field_values, ^actor),
+        order_by: [desc: fragment("(?->>'entry_no')::int", l.field_values)],
+        limit: 1,
+        select: fragment("?->>'location_id'", l.field_values)
+      ),
+      prefix: prefix
+    )
+  end
+
+  defp scan_apply(prefix, order, {:location, loc}, ctx) do
+    extra = scan_extra(ctx.text, "location_set", loc)
+
+    with :ok <-
+           append_entry(
+             prefix,
+             order,
+             nil,
+             "recorded",
+             nil,
+             %{"location_id" => loc},
+             ctx.employee,
+             ctx.actor,
+             extra
+           ),
+         :ok <- scan_audit(prefix, order, nil, ctx) do
+      node =
+        case Locations.lookup(prefix, loc) do
+          {:ok, n} -> n
+          _ -> %{}
+        end
+
+      {:ok,
+       scan_answer("location_set", ctx.text, loc, nil)
+       |> Map.merge(%{"location_code" => node["code"], "location_name" => node["name"]})}
+    end
+  end
+
+  defp scan_apply(prefix, order, {:card, card}, ctx) do
+    lines =
+      prefix
+      |> all_lines(order["record_id"])
+      |> Enum.filter(&(&1["asset_id"] == card["record_id"]))
+
+    case lines do
+      [] -> scan_surplus(prefix, order, card, ctx)
+      [line] -> scan_line(prefix, order, line, ctx)
+      many -> scan_narrow(prefix, order, many, ctx)
+    end
+  end
+
+  # Several book lines of one low-value card: the line of the current location, else ambiguous.
+  defp scan_narrow(prefix, order, lines, %{current: current} = ctx) when is_binary(current) do
+    case Enum.filter(lines, &(&1["book_location_id"] == current)) do
+      [line] -> scan_line(prefix, order, line, ctx)
+      _ -> {:error, :scan_ambiguous}
+    end
+  end
+
+  defp scan_narrow(_prefix, _order, _lines, _ctx), do: {:error, :scan_ambiguous}
+
+  defp scan_line(prefix, order, line, ctx) do
+    kind = line["asset_kind"]
+    before = value_of(line)
+
+    if kind in ["fixed", "intangible"] and line["counted_quantity"] == "1" do
+      with :ok <-
+             append_entry(
+               prefix,
+               order,
+               line["line_no"],
+               "recorded",
+               before,
+               before,
+               ctx.employee,
+               ctx.actor,
+               scan_extra(ctx.text, "already_counted", ctx.current)
+             ),
+           :ok <- scan_audit(prefix, order, line["line_no"], ctx) do
+        {:ok, scan_answer("already_counted", ctx.text, ctx.current, line_view(line))}
+      end
+    else
+      loc =
+        if is_binary(ctx.current) and kind != "intangible",
+          do: ctx.current,
+          else: line["observed_location_id"]
+
+      value =
+        line
+        |> Map.take(@value_keys)
+        |> Map.merge(%{
+          "counted_quantity" => scan_quantity(kind, line),
+          "observed_location_id" => loc
+        })
+
+      fv = line |> Map.drop(@kept ++ @value_keys) |> Map.merge(compact(value))
+
+      with {:ok, _} <-
+             update_record(prefix, line["record_id"], "assets_count_line", fv, ctx.actor),
+           :ok <-
+             append_entry(
+               prefix,
+               order,
+               line["line_no"],
+               "recorded",
+               before,
+               value,
+               ctx.employee,
+               ctx.actor,
+               scan_extra(ctx.text, "counted", ctx.current)
+             ),
+           :ok <- scan_audit(prefix, order, line["line_no"], ctx) do
+        {:ok, stored} = find_line(prefix, order["record_id"], line["line_no"])
+        {:ok, scan_answer("counted", ctx.text, ctx.current, line_view(stored))}
+      end
+    end
+  end
+
+  # A fixed or intangible card is counted once; a low-value line goes up by one whole unit.
+  defp scan_quantity(kind, _line) when kind in ["fixed", "intangible"], do: "1"
+
+  defp scan_quantity(_kind, line) do
+    case line["counted_quantity"] do
+      nil -> "1"
+      n -> n |> String.to_integer() |> Kernel.+(1) |> Integer.to_string()
+    end
+  end
+
+  # A card with no line: a surplus line with quantity 1, at the current location (not for an intangible).
+  defp scan_surplus(prefix, order, card, ctx) do
+    with :ok <- card_kind(order, card),
+         :ok <- no_duplicate(prefix, order["record_id"], card["record_id"]),
+         {:ok, loc} <- scan_surplus_location(card["kind"], ctx.current) do
+      value = %{"counted_quantity" => "1", "observed_location_id" => loc}
+      doc = %{asset_id: card["record_id"], card: card, description: nil, value: value}
+      no = next_number(prefix, "assets_count_line", order["record_id"], "line_no")
+
+      with {:ok, _} <-
+             create_record(prefix, "assets_count_line", surplus_line(order, doc, no), ctx.actor),
+           :ok <-
+             append_entry(
+               prefix,
+               order,
+               no,
+               "surplus_added",
+               nil,
+               compact(value),
+               ctx.employee,
+               ctx.actor,
+               scan_extra(ctx.text, "surplus_added", loc)
+             ),
+           :ok <- scan_audit(prefix, order, no, ctx) do
+        {:ok, stored} = find_line(prefix, order["record_id"], no)
+        {:ok, scan_answer("surplus_added", ctx.text, ctx.current, line_view(stored))}
+      end
+    end
+  end
+
+  defp scan_surplus_location("intangible", _current), do: {:ok, nil}
+  defp scan_surplus_location(_kind, current) when is_binary(current), do: {:ok, current}
+  defp scan_surplus_location(_kind, _current), do: {:error, :location_not_set}
+
+  defp scan_extra(text, outcome, loc) do
+    %{"method" => "scan", "scanned_text" => text, "scan_outcome" => outcome}
+    |> put_present("location_id", loc)
+  end
+
+  defp scan_audit(prefix, order, line_no, ctx),
+    do:
+      audit(
+        prefix,
+        ctx.actor,
+        "entry_recorded",
+        order["record_id"],
+        "counting",
+        "counting",
+        line_no
+      )
+
+  defp scan_answer(outcome, text, loc, line) do
+    %{
+      "outcome" => outcome,
+      "scanned_text" => text,
+      "location_id" => loc,
+      "location_code" => nil,
+      "location_name" => nil,
+      "line" => line
+    }
+  end
+
   # --- entry log --------------------------------------------------------------------------------
 
-  defp append_entry(prefix, order, line_no, action, before, value, employee, actor) do
+  # `extra` carries `"method"` and, for a scan, `scanned_text`, `scan_outcome` and `location_id` (K3).
+  defp append_entry(prefix, order, line_no, action, before, value, employee, actor, extra) do
     fv =
       %{
         "count_order_id" => order["record_id"],
         "entry_no" => next_number(prefix, "assets_count_entry", order["record_id"], "entry_no"),
-        "line_no" => line_no,
         "org_unit_id" => order["org_unit_id"],
         "action" => action,
-        "method" => "typed",
         "value_after" => value,
         "entered_by" => actor,
         "entered_at" => DateTime.to_iso8601(DateTime.truncate(DateTime.utc_now(), :microsecond))
       }
+      |> Map.merge(extra)
+      |> put_present("line_no", line_no)
       |> put_present("value_before", before)
       |> put_present("entered_by_employee_id", employee)
 
@@ -1010,6 +1328,9 @@ defmodule Letflow.Modules.Assets.CountSheet do
       "line_no" => e["line_no"],
       "action" => e["action"],
       "method" => e["method"],
+      "scanned_text" => e["scanned_text"],
+      "scan_outcome" => e["scan_outcome"],
+      "location_id" => e["location_id"],
       "value_before" => e["value_before"],
       "value_after" => e["value_after"],
       "entered_by" => e["entered_by"],
