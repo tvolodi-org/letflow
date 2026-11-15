@@ -9,7 +9,7 @@ defmodule Letflow.Routers.ApprovalRules do
   | `PUT /:definition_name/:node_id` (body `four_eyes` boolean, `reason` string) | `:ApprovalRulesManage` | `:tenant_wide` | 200 item; 422 `invalid_body` / `invalid_reason` / `not_a_four_eyes_step`; 409 `concurrent_change`; 500 |
 
   Each item is exactly `definition_name`, `node_id`, `node_label`, `four_eyes`,
-  `in_active_definition`, `changed_by`, `changed_at`, `reason`.
+  `in_active_definition`, `changed_by`, `changed_by_name`, `changed_at`, `reason`.
 
   The handler checks, first, that the caller signed in interactively (`credential == :oidc`) and holds
   `:ApprovalRulesManage` tenant-wide (`Letflow.Api.Scope.require_tenant_wide/2`): the route-level class
@@ -71,6 +71,7 @@ defmodule Letflow.Routers.ApprovalRules do
       "four_eyes" => i.four_eyes,
       "in_active_definition" => i.in_active_definition,
       "changed_by" => i.changed_by,
+      "changed_by_name" => i.changed_by_name,
       "changed_at" => i.changed_at,
       "reason" => i.reason
     }
