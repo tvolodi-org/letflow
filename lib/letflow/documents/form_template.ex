@@ -10,8 +10,8 @@ defmodule Letflow.Documents.FormTemplate do
   Only bare closed-list names are supported. Headers/footers, textboxes and
   non-plain runs cannot contain placeholders. Refusals contain fixed codes and
   structural positions, never company text or unknown names. Totals data names
-  belong to S2. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Authorization and
-  printing belong to later slices.
+  belong to S2. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Routes and permission:
+  S4b (`Letflow.Routers.Documents`); printing belongs to S3.
   """
   alias __MODULE__.{Check, Keys, Package, Sanitizer}
 
