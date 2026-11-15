@@ -227,7 +227,8 @@ test('G5 S5 document screen wide and narrow', async () => {
       }
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.reload({ waitUntil: 'domcontentloaded' })
+      // no reload: a reload of a deep link lands on "/" in the CI stack; a viewport change needs none
+      await openRoute(page, path)
       await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
       await page.screenshot({ path: shotPath(`document-${lang === 'en' ? '' : `${lang}-`}${theme}-390`), fullPage: true })
       // G5b: narrow = no horizontal page overflow
