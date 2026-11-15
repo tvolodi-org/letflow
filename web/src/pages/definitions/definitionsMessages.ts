@@ -8,6 +8,17 @@ export interface DefinitionsMessages {
   /** {term} is the applied search term. */
   emptySearch: string
   title: string
+  hint: string
+  openProcess: string
+  publish: string
+  publishing: string
+  saveBeforePublish: string
+  published: string
+  publishFailed: string
+  exportButton: string
+  exporting: string
+  readOnly: string
+  noEditPermission: string
   importButton: string
   newDefinition: string
   searchPlaceholder: string
@@ -44,13 +55,24 @@ export interface DefinitionsMessages {
 
 export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
   en: {
-    empty: 'No definitions found',
-    emptyHint: 'Create the first process definition with the create button.',
+    empty: 'No business processes found',
+    emptyHint: 'Create your first process with New process.',
     emptySearch: 'No results found for "{term}"',
-    title: 'Process Definitions',
+    title: 'Business processes',
+    hint: 'Open a process to view its diagram, edit steps, save a draft, publish a version or compare versions.',
+    openProcess: 'Open process',
+    publish: 'Publish saved version',
+    publishing: 'Publishing…',
+    saveBeforePublish: 'Save your changes before publishing.',
+    published: 'This version is active. New instances will use it.',
+    publishFailed: 'Publishing failed. Review the problems below and try again.',
+    exportButton: 'Export',
+    exporting: 'Exporting…',
+    readOnly: 'Read-only',
+    noEditPermission: 'No edit permission',
     importButton: 'Import',
-    newDefinition: '+ New Definition',
-    searchPlaceholder: 'Search definitions...',
+    newDefinition: '+ New process',
+    searchPlaceholder: 'Search processes...',
     searching: 'Searching…',
     status: 'Status',
     all: 'All',
@@ -67,7 +89,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     rollback: 'Rollback…',
     versionHistory: 'Version history: {name}',
     loadingVersions: 'Loading versions...',
-    createTitle: 'Create New Definition',
+    createTitle: 'Create process',
     fieldName: 'Name',
     fieldVersion: 'Version',
     fieldDescription: 'Description',
@@ -82,13 +104,24 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     importUnreadable: 'Could not read file',
   },
   ru: {
-    empty: 'Определений не найдено',
-    emptyHint: 'Создайте первое определение процесса кнопкой создания.',
+    empty: 'Бизнес-процессы не найдены',
+    emptyHint: 'Создайте первый процесс кнопкой «Новый процесс».',
     emptySearch: 'По запросу «{term}» ничего не найдено',
-    title: 'Определения процессов',
+    title: 'Бизнес-процессы',
+    hint: 'Откройте процесс, чтобы посмотреть схему, изменить шаги, сохранить черновик, опубликовать версию или сравнить версии.',
+    openProcess: 'Открыть процесс',
+    publish: 'Опубликовать сохранённую версию',
+    publishing: 'Публикация…',
+    saveBeforePublish: 'Перед публикацией сохраните изменения.',
+    published: 'Версия активна. Новые экземпляры будут использовать её.',
+    publishFailed: 'Не удалось опубликовать. Исправьте ошибки ниже и повторите попытку.',
+    exportButton: 'Экспорт',
+    exporting: 'Экспорт…',
+    readOnly: 'Только просмотр',
+    noEditPermission: 'Нет разрешения на изменение',
     importButton: 'Импорт',
-    newDefinition: '+ Новое определение',
-    searchPlaceholder: 'Поиск определений...',
+    newDefinition: '+ Новый процесс',
+    searchPlaceholder: 'Поиск процессов...',
     searching: 'Поиск…',
     status: 'Статус',
     all: 'Все',
@@ -105,7 +138,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     rollback: 'Откатить…',
     versionHistory: 'История версий: {name}',
     loadingVersions: 'Загрузка версий...',
-    createTitle: 'Создание нового определения',
+    createTitle: 'Создание процесса',
     fieldName: 'Название',
     fieldVersion: 'Версия',
     fieldDescription: 'Описание',
@@ -120,13 +153,24 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     importUnreadable: 'Не удалось прочитать файл',
   },
   kk: {
-    empty: 'Анықтамалар табылмады',
-    emptyHint: 'Алғашқы процесс анықтамасын жасау түймесімен жасаңыз.',
+    empty: 'Бизнес-процестер табылмады',
+    emptyHint: '«Жаңа процесс» түймесімен алғашқы процесті жасаңыз.',
     emptySearch: '«{term}» сұрауы бойынша ештеңе табылмады',
-    title: 'Процесс анықтамалары',
+    title: 'Бизнес-процестер',
+    hint: 'Схеманы көру, қадамдарды өзгерту, жобаны сақтау, нұсқаны жариялау немесе нұсқаларды салыстыру үшін процесті ашыңыз.',
+    openProcess: 'Процесті ашу',
+    publish: 'Сақталған нұсқаны жариялау',
+    publishing: 'Жариялануда…',
+    saveBeforePublish: 'Жариялау алдында өзгерістерді сақтаңыз.',
+    published: 'Бұл нұсқа белсенді. Жаңа даналар осы нұсқаны қолданады.',
+    publishFailed: 'Жариялау сәтсіз аяқталды. Төмендегі қателерді түзетіп, қайталаңыз.',
+    exportButton: 'Экспорттау',
+    exporting: 'Экспортталуда…',
+    readOnly: 'Тек көру',
+    noEditPermission: 'Өзгертуге рұқсат жоқ',
     importButton: 'Импорттау',
-    newDefinition: '+ Жаңа анықтама',
-    searchPlaceholder: 'Анықтамаларды іздеу...',
+    newDefinition: '+ Жаңа процесс',
+    searchPlaceholder: 'Процестерді іздеу...',
     searching: 'Іздеу…',
     status: 'Күйі',
     all: 'Барлығы',
@@ -143,7 +187,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     rollback: 'Кері қайтару…',
     versionHistory: 'Нұсқалар тарихы: {name}',
     loadingVersions: 'Нұсқалар жүктелуде...',
-    createTitle: 'Жаңа анықтама жасау',
+    createTitle: 'Процесс жасау',
     fieldName: 'Атауы',
     fieldVersion: 'Нұсқа',
     fieldDescription: 'Сипаттама',

@@ -17,6 +17,8 @@ import { screen, cleanup, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React, { useEffect } from 'react'
 import { renderWithAccess } from '@/auth/access/testing'
+import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { accessState } from '@/auth/access/fixtures'
 expect.extend(jestDomMatchers)
 
 const canvasMounts = { count: 0 }
@@ -43,6 +45,7 @@ vi.mock('@/components/diagram/DiagramEditPane', () => ({
       <button onClick={() => setEdits((n) => n + 1)}>edit-once</button>
       <button onClick={() => onDirtyChange(true)}>make-dirty</button>
       <button onClick={() => { onDirtyChange(false); onSaved({ id: def.id }, false) }}>save-ok</button>
+      <button onClick={() => { onSaved({ id: 'saved-copy' }, true) }}>copy-ok</button>
     </div>
     )
   },
@@ -81,6 +84,7 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useParams: vi.fn(),
+    Navigate: ({ to }: { to: string }) => <div data-testid="copy-target">{to}</div>,
     useBlocker: vi.fn((p) => {
       blockerPredicates.push(p)
       return { state: 'unblocked' as const }
@@ -107,7 +111,7 @@ vi.mock('@/stores/canvasHistoryStore', () => ({
 }))
 
 import { useParams } from 'react-router-dom'
-import { useDefinition } from '@/hooks/useDefinitions'
+import { useDefinition, useActivateDefinition } from '@/hooks/useDefinitions'
 import { useAuth } from '@/auth/AuthContext'
 import { useTenantContext } from '@/auth/useTenantContext'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
@@ -133,13 +137,14 @@ const DEF = {
 }
 
 function arrange(status: 'DRAFT' | 'ACTIVE') {
+  const refetch = vi.fn()
   vi.mocked(useParams).mockReturnValue({ id: DEF.id })
   vi.mocked(useDefinition).mockReturnValue({
     data: { ...DEF, status },
     isLoading: false,
     isError: false,
     error: null,
-    refetch: vi.fn(),
+    refetch,
   } as unknown as ReturnType<typeof useDefinition>)
   vi.mocked(useAuth).mockReturnValue({
     isAuthenticated: true,
@@ -159,6 +164,7 @@ function arrange(status: 'DRAFT' | 'ACTIVE') {
     tenantDisplayName: 'Acme',
     isUnknown: false,
   } as unknown as ReturnType<typeof useTenantContext>)
+  return refetch
 }
 
 afterEach(() => {
@@ -172,6 +178,68 @@ afterEach(() => {
 })
 
 describe('T-1563 definition page: Edit diagram', () => {
+  it('T2012 a new definition id remounts the hidden editor with its own graph', async () => {
+    probe.canvasDirty = false
+    arrange('DRAFT')
+    const page = renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await waitFor(() => expect(canvasMounts.count).toBe(1))
+    vi.mocked(useParams).mockReturnValue({ id: 'saved-copy' })
+    page.rerender(<AccessStateProvider state={accessState('designer')}><DefinitionEditorPage /></AccessStateProvider>)
+    await waitFor(() => expect(canvasMounts.count).toBe(2))
+  })
+  it('T2012 an acknowledged copy bypasses the stale blocker only for that copy', async () => {
+    const user = userEvent.setup()
+    arrange('ACTIVE')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('definition-view-edit'))
+    await user.click(screen.getByText('make-dirty'))
+    // Navigate's effect can run before useBlocker installs the clean predicate.
+    const beforeSave = blockerPredicates.at(-1)!
+    expect(beforeSave({ currentLocation: { pathname: '/definitions/old' }, nextLocation: { pathname: '/definitions/saved-copy' } })).toBe(true)
+    await user.click(screen.getByText('copy-ok'))
+    expect(beforeSave({ currentLocation: { pathname: '/definitions/old' }, nextLocation: { pathname: '/definitions/saved-copy' } })).toBe(false)
+    expect(beforeSave({ currentLocation: { pathname: '/definitions/old' }, nextLocation: { pathname: '/tasks' } })).toBe(true)
+    expect(screen.getByTestId('copy-target')).toHaveTextContent('/definitions/saved-copy')
+  })
+  it.each([
+    { status: 422, details: [{ code: 'missing_end', message: 'Missing end step' }] },
+    { status: 500, message: 'Service unavailable' },
+  ])('T2012 publishing reports a $status failure without claiming success', async failure => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    vi.mocked(useActivateDefinition).mockReturnValue({ mutateAsync: vi.fn().mockRejectedValue(failure) } as unknown as ReturnType<typeof useActivateDefinition>)
+    arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('definition-view-edit'))
+    await user.click(screen.getByTestId('btn-publish-diagram'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Publishing failed'))
+    expect(screen.queryByText('This version is active. New instances will use it.')).toBeNull()
+    expect(screen.getByTestId('btn-publish-diagram')).toBeEnabled()
+  })
+  it('T2012 refreshes the saved definition before further diagram edits', async () => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    const refresh = arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('btn-save-definition'))
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+  })
+  it('T2012 publishes the saved diagram and refuses unsaved edits', async () => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    const publish = vi.fn().mockResolvedValue({})
+    vi.mocked(useActivateDefinition).mockReturnValue({ mutateAsync: publish } as unknown as ReturnType<typeof useActivateDefinition>)
+    arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('definition-view-edit'))
+    expect(screen.getByTestId('btn-publish-diagram')).toBeEnabled()
+    await user.click(screen.getByText('make-dirty'))
+    expect(screen.getByTestId('btn-publish-diagram')).toBeDisabled()
+    expect(publish).not.toHaveBeenCalled()
+    await user.click(screen.getByText('save-ok'))
+    await user.click(screen.getByTestId('btn-publish-diagram'))
+    await waitFor(() => expect(publish).toHaveBeenCalledWith(DEF.id))
+  })
   it('S5 a dirty diagram draft disables the Editor button; saving releases it', async () => {
     const user = userEvent.setup()
     arrange('ACTIVE') // opens on the diagram: the (mocked) Editor canvas is not mounted, so it is not dirty
@@ -241,10 +309,11 @@ describe('T-1563 definition page: Edit diagram', () => {
     expect(screen.getByTestId('definition-edit-refused')).toHaveTextContent('Editor has unsaved changes')
   })
 
-  it('a reader never sees Edit diagram', () => {
-    arrange('ACTIVE')
+  it.each(['ACTIVE', 'DRAFT'] as const)('a reader never sees edit or publish controls for %s', status => {
+    arrange(status)
     renderWithAccess(<DefinitionEditorPage />, 'auditor')
     expect(screen.queryByTestId('definition-view-edit')).toBeNull()
+    expect(screen.queryByTestId('btn-publish-diagram')).toBeNull()
   })
 
   it('the Edit diagram label is localised (ru, kk)', () => {

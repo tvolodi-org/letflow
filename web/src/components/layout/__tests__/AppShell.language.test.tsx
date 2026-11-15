@@ -74,6 +74,17 @@ async function renderShell() {
 }
 
 describe('AppShell language switch', () => {
+  it('T2012 uses plain process names and a branch icon in every language', async () => {
+    await renderShell()
+    const labels = { en: 'Business processes', ru: 'Бизнес-процессы', kk: 'Бизнес-процестер' }
+    for (const locale of UI_LOCALES) {
+      const { act } = await import('@testing-library/react')
+      act(() => useUiLocaleStore.getState().setLocaleTransient(locale))
+      const link = screen.getByRole('link', { name: labels[locale] })
+      expect(link).toHaveAttribute('href', '/definitions')
+      expect(link.querySelector('svg.lucide-git-branch')).not.toBeNull()
+    }
+  })
   it('L7 has the My settings link in the TopBar, named in the current language', async () => {
     await renderShell()
     const link = within(screen.getByTestId('topbar')).getByTestId('topbar-my-settings')

@@ -235,6 +235,9 @@ export default function DefinitionListPage() {
       header: dm.colActions,
       accessor: (def) => (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+          <Button variant="secondary" size="sm" data-testid={`open-process-${def.id}`} onClick={() => navigate(`/definitions/${def.id}`)}>
+            {dm.openProcess}
+          </Button>
           {hasDesignerRole && def.status === 'DRAFT' && (
             <Button variant="primary" size="sm" onClick={() => activate.mutate(def.id)} loading={activate.isPending}>
               {dm.activate}
@@ -288,6 +291,7 @@ export default function DefinitionListPage() {
         </div>
       }
     >
+      <p className="lf-hint" data-testid="process-designer-hint">{dm.hint}</p>
       <FilterBar activeCount={status ? 1 : 0} onClear={() => setStatus(undefined)}>
         <input
           data-testid="definition-search"
@@ -459,7 +463,7 @@ export default function DefinitionListPage() {
                 value={createName}
                 onChange={(e) => { setCreateName(e.target.value); setCreateValidationErrors((prev) => ({ ...prev, name: undefined })) }}
                 style={{ width: '100%', padding: '.4rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)', fontSize: '.85rem', boxSizing: 'border-box' }}
-                placeholder="My Process"
+                placeholder={dm.fieldName}
               />
               {createValidationErrors.name && (
                 <p style={{ color: 'var(--color-error-dark)', fontSize: '.8rem', margin: '.25rem 0 0' }}>{createValidationErrors.name}</p>
