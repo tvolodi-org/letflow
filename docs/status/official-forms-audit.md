@@ -22,7 +22,9 @@ or **no printout at all**:
   form itself says Қ-2).
 * The **Print templates** admin screen does **not** change any of these forms: it edits overrides that reach only the
   generic document renderer, and the stock and count prints do not use that renderer. A tenant cannot adjust an
-  official form today. The screen's page title is in English only.
+  official form today. Since S3 (T-1985, API only, no screen yet): the `.docx` print
+  of an official form uses the company's active template from `/documents/official-form-templates`; the legal texts are
+  still filled from the platform catalog and the PDF still prints the platform layout. The screen's page title is in English only.
 
 How this was checked: by reading the code on `origin/main` at commit `a7f2410ba` (2026-11-13). **No click in the QA
 app was made in this step** (the BA step has no signed-in QA browser session; see "Verification" below). Every "V" in the

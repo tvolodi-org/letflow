@@ -11,7 +11,7 @@ defmodule Letflow.Documents.FormTemplate do
   non-plain runs cannot contain placeholders. Refusals contain fixed codes and
   structural positions, never company text or unknown names. Total values use required
   `total.<table>.<key>` names. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Routes and permission:
-  S4b (`Letflow.Routers.Documents`); preview: `preview/4` and the S4c route; printing belongs to S3.
+  S4b (`Letflow.Routers.Documents`); preview: `preview/4` and the S4c route; printing: `OfficialFormTemplates.print_docx/5` (S3).
   """
   alias __MODULE__.{Check, Keys, Package, Sanitizer}
 

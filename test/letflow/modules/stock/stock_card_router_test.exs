@@ -140,4 +140,12 @@ defmodule Letflow.Modules.Stock.StockCardRouterTest do
     none = print(ctx, base(ctx) <> "&lot=#{Ecto.UUID.generate()}")
     assert none.status == 404
   end
+
+  test "T-1985 R5 an active z3 company template is printed (the authorized.prefix call site)",
+       ctx do
+    Letflow.CompanyTemplateFixture.active!(ctx.schema, "z3", "ru")
+    conn = print(ctx, base(ctx) <> "&format=docx&lang=ru")
+    assert conn.status == 200, conn.resp_body
+    assert docx_text(conn) =~ Letflow.CompanyTemplateFixture.marker()
+  end
 end
