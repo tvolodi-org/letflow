@@ -11,7 +11,7 @@ export function RefusalList({ refusals, leadId = 'officialForms.refusal.lead' }:
   return (
     <Banner tone="danger" title={t(leadId)}>
       <div role="alert" data-testid="official-forms-refusals">
-        <ul>
+        <ul className="lf-of-refusals">
           {refusals.map((r, i) => {
             const place = placeParts(r.place)
               .map((p) => t(`officialForms.place.${p.key}`, { n: p.value }))

@@ -149,7 +149,7 @@ export function OfficialFormDetail(props: Props) {
       id: 'actions',
       header: t('officialForms.col.actions'),
       render: (r) => (
-        <div className="lf-btn-row">
+        <div className="lf-btn-row lf-of-actions">
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => onDownload(r)}>
             {t('officialForms.row.download')}
           </Button>
