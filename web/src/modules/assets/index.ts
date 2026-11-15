@@ -3,7 +3,7 @@
  *  The assets module's ModuleDefinition (registered in web/src/modules/registry.ts). Screens: the asset cards (C13), the
  *  asset documents, the balances and the movements (C14).
  *
- *  SPA paths: admin/assets/cards, admin/assets/documents[/:id], admin/assets/balances, admin/assets/movements.
+ *  SPA paths: admin/assets/cards, admin/assets/documents[/:id], admin/assets/balances, admin/assets/movements, admin/assets/counts[/:id] (the asset count order, K7a).
  *  `depends_on` is empty on purpose: the SPA module imports no org code (the backend manifest depends on org);
  *  the field only feeds the ESLint drift test (boundary-config.test.ts). `importTypes` puts the asset cards and the asset opening
  *  lines on the "Import data" page (cards first: the opening lines refer to them); the server stays the authority.
@@ -35,5 +35,6 @@ export const assetsModuleDefinition: ModuleDefinition = {
     { to: '/admin/assets/documents', label: 'Asset documents', permission: ASSETS_READ },
     { to: '/admin/assets/balances', label: 'Asset balances', permission: ASSETS_READ },
     { to: '/admin/assets/movements', label: 'Asset movements', permission: ASSETS_READ },
+    { to: '/admin/assets/counts', label: 'Asset counts', permission: ASSETS_READ },
   ],
 }

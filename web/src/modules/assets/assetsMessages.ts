@@ -6,6 +6,7 @@ import { helpEn, helpKk, helpRu } from './help/assetsHelpMessages'
 import { cardActionsEn, cardActionsKk, cardActionsRu } from './cardActionsMessages'
 import { resolveLocale } from '@/i18n/resolveLocale'
 import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
+import { countsEn, countsKk, countsRu } from './counts/assetCountsMessages'
 import { registerEn, registerKk, registerRu } from './register/registerMessages'
 
 export const ASSETS_UI_LOCALES = ['en', 'ru', 'kk'] as const
@@ -344,7 +345,7 @@ const kk: Record<string, string> = {
 
 /** The catalog of the whole module: the card screen's own ids plus the document and register screens' (C14). */
 export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = {
-  en: { ...en, ...documentsEn, ...registerEn, ...helpEn, ...cardActionsEn },
-  ru: { ...ru, ...documentsRu, ...registerRu, ...helpRu, ...cardActionsRu },
-  kk: { ...kk, ...documentsKk, ...registerKk, ...helpKk, ...cardActionsKk },
+  en: { ...en, ...documentsEn, ...registerEn, ...countsEn, ...helpEn, ...cardActionsEn },
+  ru: { ...ru, ...documentsRu, ...registerRu, ...countsRu, ...helpRu, ...cardActionsRu },
+  kk: { ...kk, ...documentsKk, ...registerKk, ...countsKk, ...helpKk, ...cardActionsKk },
 }
