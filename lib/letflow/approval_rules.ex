@@ -14,7 +14,8 @@ defmodule Letflow.ApprovalRules do
 
   `put/5` validates in this order and writes nothing before the last step: body, reason, step
   existence, then (only when the value changes) the row and an `approval_rule.changed` audit entry in
-  ONE transaction. A PUT equal to the current value writes nothing. The tenant comes only from
+  ONE transaction. Items carry `changed_by_name` (T-1989: display name else username of the user in
+  the same tenant, nil when unknown; looked up after the commit). A PUT equal to the current value writes nothing. The tenant comes only from
   `prefix` (INV-1); names are bound parameters (INV-7).
   """
 
@@ -34,6 +35,7 @@ defmodule Letflow.ApprovalRules do
           four_eyes: boolean(),
           in_active_definition: boolean(),
           changed_by: Ecto.UUID.t() | nil,
+          changed_by_name: String.t() | nil,
           changed_at: DateTime.t() | nil,
           reason: String.t() | nil
         }
@@ -77,7 +79,8 @@ defmodule Letflow.ApprovalRules do
         item(setting.definition_name, setting.node_id, nil, setting, false)
       end
 
-    Enum.sort_by(active_items ++ orphan_items, &{&1.definition_name, &1.node_id})
+    items = Enum.sort_by(active_items ++ orphan_items, &{&1.definition_name, &1.node_id})
+    with_names(items, prefix)
   end
 
   @doc """
@@ -97,7 +100,11 @@ defmodule Letflow.ApprovalRules do
       when is_binary(definition_name) and is_binary(node_id) do
     with {:ok, four_eyes} <- fetch_four_eyes(body),
          {:ok, reason} <- fetch_reason(body) do
-      do_put(prefix, definition_name, node_id, four_eyes, reason, actor)
+      # The name lookup runs after `do_put` returned (and its `rescue` is done), so a lookup
+      # failure can never turn a committed switch into an error.
+      with {:ok, item} <- do_put(prefix, definition_name, node_id, four_eyes, reason, actor) do
+        {:ok, hd(with_names([item], prefix))}
+      end
     end
   end
 
@@ -217,6 +224,23 @@ defmodule Letflow.ApprovalRules do
       |> Repo.transaction()
 
     :ok
+  end
+
+  # Adds `changed_by_name` (display name, else username; nil when no user) with one tenant-scoped
+  # query. Never raises: a failed lookup leaves the names nil.
+  defp with_names(items, prefix) do
+    ids = items |> Enum.map(& &1.changed_by) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    names =
+      try do
+        Audit.user_names(ids, prefix)
+      rescue
+        _ -> %{}
+      end
+
+    Enum.map(items, fn i ->
+      Map.put(i, :changed_by_name, i.changed_by && Map.get(names, to_string(i.changed_by)))
+    end)
   end
 
   defp item(name, node_id, label, setting, in_active) do

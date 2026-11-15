@@ -66,7 +66,7 @@ describe('role-based sidebar (golden-backed)', () => {
       'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts',
       'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements', 'Asset counts',
       'Promotion Reviews', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Print Templates',
-      'Currencies', 'Import data', 'Metrics', 'Solution Packs',
+      'Currencies', 'Approval rules', 'Import data', 'Metrics', 'Solution Packs',
     ])
     expect(v.importTypes).toEqual([
       'org_unit', 'org_position', 'org_employee', 'location_node',

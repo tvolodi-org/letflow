@@ -54,6 +54,39 @@ defmodule Letflow.ApprovalRulesTest do
              Enum.sort_by(ApprovalRules.list(ctx.schema_name), & &1.definition_name)
   end
 
+  test "L2 changed_by_name: the user's name; nil for an unknown user and for a never-changed step" do
+    ctx = case!()
+    user = S.insert_user!(ctx.schema_name, "chg")
+    assert [%{changed_by_name: nil}] = ApprovalRules.list(ctx.schema_name)
+
+    assert {:ok, %{changed_by_name: name}} =
+             ApprovalRules.put(
+               ctx.schema_name,
+               ctx.definition.name,
+               @n2,
+               %{"four_eyes" => false, "reason" => "r"},
+               %{user_id: user.id, trace_id: nil}
+             )
+
+    assert name == user.display_name
+    assert [%{changed_by_name: ^name}] = ApprovalRules.list(ctx.schema_name)
+
+    Repo.insert!(
+      %ApprovalRuleSetting{
+        definition_name: "gone",
+        node_id: "x",
+        four_eyes: false,
+        changed_by: Ecto.UUID.generate(),
+        changed_at: DateTime.utc_now(),
+        reason: "r"
+      },
+      prefix: ctx.schema_name
+    )
+
+    gone = Enum.find(ApprovalRules.list(ctx.schema_name), &(&1.definition_name == "gone"))
+    assert gone.changed_by != nil and gone.changed_by_name == nil
+  end
+
   test "U1 bad body, then bad reason, then unknown step: each writes nothing" do
     ctx = case!()
     schema = ctx.schema_name

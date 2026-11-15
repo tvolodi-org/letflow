@@ -42,6 +42,7 @@ import { reportProblemScreens } from './fixtures/reportProblem'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
+import { assetsIssueRefusedScreens } from './fixtures/assetsDocumentsIssueRefused'
 import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { assetsOpeningScreens } from './fixtures/assetsDocumentsOpening'
@@ -94,6 +95,7 @@ import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
 import { currenciesScreens } from './fixtures/currencies'
+import { approvalRulesScreens } from './fixtures/approvalRules'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 
 const verifyCertificate: HarnessScreen = {
@@ -332,6 +334,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...officialFormsScreens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
+    ...assetsIssueRefusedScreens,
     ...assetsCardActionsScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
@@ -382,6 +385,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
     ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
     ...currenciesScreens,
+    ...approvalRulesScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
     ...fourEyesTaskScreens,
     ...listDetailSlice6Screens,
