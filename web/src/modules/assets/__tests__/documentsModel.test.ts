@@ -124,3 +124,20 @@ describe('O-K2 opening sides and reverse', () => {
     expect(actionsFor('draft', can('AssetsPost'), 'opening')).toEqual({ edit: true, discard: true, issue: true, reverse: false })
   })
 })
+
+describe('T-2008 not_linked text', () => {
+  it('says the location is not linked to the org unit and what to do, in en, ru and kk; never "person"', () => {
+    const id = documentErrorMessageId({ status: 422, details: { reason: 'not_linked', line_no: 1, field: 'location_id' } })
+    expect(id).toBe('assets.doc.error.not_linked')
+    const en = assetsMessages.en[id] as string
+    const ru = assetsMessages.ru[id] as string
+    const kk = assetsMessages.kk[id] as string
+    expect(en).toMatch(/location/i)
+    expect(en).not.toMatch(/person/i)
+    expect(en).toMatch(/link/i)
+    expect(ru).toMatch(/Место/)
+    expect(ru).not.toMatch(/Сотрудник/)
+    expect(kk).toMatch(/орын/i)
+    expect(kk).not.toMatch(/Қызметкер/)
+  })
+})

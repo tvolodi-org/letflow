@@ -194,11 +194,17 @@ is OFF.
 | 1 | Core: permission, setting, check, audit | atom `ApprovalRulesManage` (+ PLATFORM_ADMIN `false` clause, non-assignable), table and migration, read in `SeparationOfDuties` (fails closed), `task.self_approved` audit in the completion Multi, the two routes and `approval_rule.changed` audit, REQ-464 warning silent for OFF steps; tests: ON refuses (unchanged), OFF allows and audits, read error refuses, other tenant's row never read (INV-1), scoped admin refused, platform admin refused, service principal still refused (if owner row 7 holds), claim path. Security review (tenant data path, a control that can be lowered) | M |
 | 2 | Asset opening (first) | nothing in the pack; the opening flow end to end with OFF: issue completes `submit`, the same admin completes `approve`, the opening posts, the audit row exists; task screen hint hidden when OFF; UAT scenario for a one-person tenant |S (delivered by T-1987; the hint learns the setting from `self_approval_allowed` on `GET /tasks/:id`) |
 | 3 | Stock opening | same as 2 for `stock_opening` (Qoimeks Client 1 path) | S (delivered by T-1988; no code change, tests and UAT only) |
-| 4 | Admin screen "Approval rules" | list, toggle with reason, warning, en/ru/kk texts, screenshot matrix | M |
+| 4 | Admin screen "Approval rules" | list, toggle with reason, warning, en/ru/kk texts, screenshot matrix | M (delivered by T-1989; items also carry `changed_by_name`, so the screen shows a name, not a user id) |
 | 5 | Procurement self-decision (later; procurement is held) | read the same setting in `Decisions.not_requester/3` for the decide step, same audit text | S |
-| 6 | Tests across the corpus | a scan test: every step that names `distinct_from` in a shipped pack is listed by `GET /approval-rules`, so a new approval step cannot escape the switch | S |
+| 6 | Tests across the corpus | a scan test: every step that names `distinct_from` in a shipped pack is listed by `GET /approval-rules`, so a new approval step cannot escape the switch | S (guard: `test/letflow/routers/approval_rules_corpus_test.exs`, T-1990) |
 
 Slices 2 and 3 need slice 1 merged; slice 4 needs slice 1; 2, 3, 4 can run in any order after 1.
+
+The slice-6 guard discovers `priv/modules/**/pack.json` at runtime and stores their unchanged process graphs as
+active definitions in an isolated tenant. It compares the real approval-rules router's response with the exact
+corpus-derived step set, including the default ON value. Separate cases cover new process/step names and another
+tenant's empty response. This checks listing discovery; module installation and posting remain covered by their
+own suites.
 
 ## 5. Risks
 

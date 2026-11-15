@@ -38,6 +38,7 @@ export const P = {
   EntitiesAggregate: 'EntitiesAggregate',
   SolutionOverridesManage: 'SolutionOverridesManage',
   CurrenciesManage: 'CurrenciesManage',
+  ApprovalRulesManage: 'ApprovalRulesManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */

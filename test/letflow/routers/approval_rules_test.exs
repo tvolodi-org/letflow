@@ -25,6 +25,7 @@ defmodule Letflow.Routers.ApprovalRulesTest do
   @keys [
     "changed_at",
     "changed_by",
+    "changed_by_name",
     "definition_name",
     "four_eyes",
     "in_active_definition",
@@ -110,6 +111,20 @@ defmodule Letflow.Routers.ApprovalRulesTest do
     assert entry.after_state["reason"] == "one-person company"
     assert entry.actor_id == uid
     assert {200, %{"items" => [%{"four_eyes" => false}]}} = read(t)
+  end
+
+  test "R7 changed_by_name is the changer's display name in PUT and GET; nil when never changed" do
+    t = case!()
+    assert {200, %{"items" => [never]}} = read(t)
+    assert never["changed_by"] == nil and never["changed_by_name"] == nil
+
+    conn = put(t, t.definition.name, @n2, @off, user_id: t.u.id)
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body)["changed_by_name"] == t.u.display_name
+
+    assert {200, %{"items" => [item]}} = read(t)
+    assert item |> Map.keys() |> Enum.sort() == @keys
+    assert item["changed_by_name"] == t.u.display_name
   end
 
   test "R3 PUT back on writes a second entry; a repeated PUT writes nothing" do
