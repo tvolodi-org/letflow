@@ -165,6 +165,8 @@ export interface Task {
   created_at: string
   updated_at?: string
   escalation_time?: string
+  /** GET /tasks/:id only (T-1987): the step's four-eyes rule is OFF and the caller signed in interactively. */
+  self_approval_allowed?: boolean
 }
 
 export interface CompleteTaskRequest {

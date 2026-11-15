@@ -388,11 +388,12 @@ defmodule Letflow.Routers.TasksScopeHttpTest do
         ~w(assignee_ref assignee_type created_at form_id form_version id instance_id node_id node_name status token_id)
 
       detail_conn = get(fx, caller, task)
-      assert T.json(detail_conn) |> Map.keys() |> length() == 14
+      assert T.json(detail_conn) |> Map.keys() |> length() == 15
 
       assert (T.json(detail_conn) |> Map.keys() |> Enum.sort()) -- list_keys == [
                "correlation_key",
                "form_schema",
+               "self_approval_allowed",
                "updated_at"
              ]
 

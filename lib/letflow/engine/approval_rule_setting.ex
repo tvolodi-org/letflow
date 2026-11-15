@@ -83,4 +83,34 @@ defmodule Letflow.Engine.ApprovalRuleSetting do
   catch
     _kind, _value -> {:error, :unreadable}
   end
+
+  @doc """
+  T-1987: is the step `node_id` of the definition pinned by instance `instance_id` switched OFF?
+  ONE query joining the instance's definition snapshot and the setting row, both in the tenant
+  `prefix` (INV-1), all values bound (INV-7). Total: a database error returns `{:error, :unreadable}`.
+  """
+  @spec off_for_instance_step(
+          repo :: module(),
+          prefix :: String.t(),
+          instance_id :: Ecto.UUID.t(),
+          node_id :: String.t(),
+          query_opts :: keyword()
+        ) :: {:ok, boolean()} | {:error, :unreadable}
+  def off_for_instance_step(repo, prefix, instance_id, node_id, query_opts \\ []) do
+    query =
+      from(s in __MODULE__,
+        join: snap in Letflow.Definitions.InstanceDefinitionSnapshot,
+        on: snap.definition_name == s.definition_name,
+        where:
+          snap.instance_id == ^instance_id and s.node_id == ^node_id and s.four_eyes == false,
+        select: true,
+        limit: 1
+      )
+
+    {:ok, repo.one(query, [prefix: prefix] ++ query_opts) == true}
+  rescue
+    _exception -> {:error, :unreadable}
+  catch
+    _kind, _value -> {:error, :unreadable}
+  end
 end

@@ -1,0 +1,122 @@
+# T-1987 (four-eyes switch slice 2, owner decision D-144): a one-person company switches the four-eyes rule of asset opening OFF and approves its own opening; the audit records it; switched back ON the rule refuses again.
+# Sources: docs/design/four-eyes-switch.md sections 1-4; lib/letflow/engine/separation_of_duties.ex (check/6); routes PUT /approval-rules/:definition_name/:node_id (permission ApprovalRulesManage) and GET /tasks/:id (field self_approval_allowed).
+#
+# ROSTER GAP: the roster has no real one-person company. SwiftRoute stands in: its administrator alice is the only person who acts in the main flow, and no other SwiftRoute administrator acts. The task worker marco is used only for the refusal in step 4.
+# ORDER: the opening process is activated on the first issue, and the switch answers 422 for a step of a process that is not active yet, so the administrator issues first and switches afterwards.
+# NOT UAT-observable: the stale hint after the setting is switched back while a task panel stays open (a unit test covers the field; the server refuses at completion).
+---
+id: assets-opening-3-one-person-four-eyes-off
+scope: assets
+title: A one-person company switches four eyes OFF for asset opening, approves its own opening and the audit records it; switched back ON the rule refuses again
+version: "1.0"
+tags: [assets, opening, four-eyes, one-person, audit, separation-of-duties]
+
+description: >
+  SwiftRoute has one administrator who issues an asset opening. While the four-eyes rule is ON (the default) the screen shows "a different person must approve it" and approving is refused. The administrator switches
+  the rule OFF for the step "approve" of the process "assets_opening" with a reason. A task worker who is not an administrator cannot change the switch. The administrator opens the same task: the hint is gone and
+  Approve posts the opening. The audit log has one "task.self_approved" entry with the note "self-approved, four-eyes off" and one "approval_rule.changed" entry with the reason. The administrator switches the rule
+  back ON, issues a second opening for another asset and is refused again.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: SwiftRoute has the assets module installed and two asset cards that are not opened yet (CARD-A, CARD-B), a location and a responsible person.
+    check: system_seeded
+    detail: Prepared as in scenario assets-opening-import-1. If a card was opened by an earlier run, use two other cards.
+  - description: SwiftRoute has no stored setting for the step "approve" of "assets_opening" (the rule is ON). If an earlier run left it OFF, step 1 first switches it ON through the same route.
+    check: system_seeded
+    detail: Read the current value with GET /approval-rules before step 1.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates an asset opening OPEN-A with one line for CARD-A and issues it. The task "Approve" appears in My Tasks. The document number is noted as D1.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the task "Approve" of OPEN-A in My Tasks and notes whether the text "a different person must approve it" is shown (T1). The administrator then tries to approve it. The answer is noted as R1.
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator sends PUT /approval-rules/assets_opening/approve with {"four_eyes": false, "reason": "one-person company"}. The answer is noted as S1.
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      The task worker sends the same PUT. The answer is noted as S2.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator reopens the same task "Approve" of OPEN-A, notes whether the hint is shown (T2), approves it and reads the asset balance of CARD-A as B1.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator reads the audit log and notes the entries "task.self_approved" and "approval_rule.changed" as A1.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator sends PUT /approval-rules/assets_opening/approve with {"four_eyes": true, "reason": "second person joined"}, issues an asset opening OPEN-B for CARD-B and tries to approve it. The answer is noted as R2; the audit log is read again as A2.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: While the rule is ON the screen shows the hint and approving your own opening is refused.
+    verification:
+      method: ui_state
+      detail: T1 shows the text "a different person must approve it" (in the language of the screen); R1 is the separation-of-duties refusal and OPEN-A is not posted.
+      evidence: T1 and R1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The default control (four eyes) is missing or the screen gives no warning.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Only a holder of the switch permission can change the rule.
+    verification:
+      method: http_status
+      detail: S1 answers 200 with four_eyes false; S2 answers 403 and the stored value is unchanged.
+      evidence: S1 and S2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A worker could lower a control of the company.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: With the rule OFF the same person approves their own opening, the hint is gone and the opening posts.
+    verification:
+      method: ui_state
+      detail: T2 shows no hint; the approval succeeds; B1 shows CARD-A with its quantity and location.
+      evidence: T2 and B1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A one-person company cannot open its assets.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: The audit records the self-approval and the switch.
+    verification:
+      method: api_response
+      detail: A1 has one "task.self_approved" entry for the Approve task with the note "self-approved, four-eyes off" and one "approval_rule.changed" entry with the reason "one-person company".
+      evidence: A1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A lowered control leaves no trace.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Switched back ON, the rule refuses again and records nothing new.
+    verification:
+      method: http_status
+      detail: R2 is the separation-of-duties refusal (403); A2 has the same number of "task.self_approved" entries as A1.
+      evidence: R2, A1 and A2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The control cannot be restored once it is switched off.
+      suggested_action: route_to_elixir_dev

@@ -366,7 +366,8 @@ defmodule Letflow.Routers.TasksTest do
   ]
 
   @task_detail_keys Enum.sort(
-                      @task_list_item_keys ++ ["correlation_key", "updated_at", "form_schema"]
+                      @task_list_item_keys ++
+                        ["correlation_key", "updated_at", "form_schema", "self_approval_allowed"]
                     )
 
   # ══════════════════════════════════════════════════════════════════════
@@ -704,6 +705,7 @@ defmodule Letflow.Routers.TasksTest do
       body = Jason.decode!(conn.resp_body)
 
       assert Map.keys(body) |> Enum.sort() == @task_detail_keys
+      assert body["self_approval_allowed"] == false
       assert Map.has_key?(body, "form_schema")
       assert is_nil(body["form_schema"])
       refute Map.has_key?(body, "claimed_by")

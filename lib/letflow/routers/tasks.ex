@@ -85,7 +85,8 @@ defmodule Letflow.Routers.Tasks do
   ## Response allowlists (INV-2, AC5)
 
   `task_list_item_map/2` (11 keys) / `task_detail_map/3` (14 keys, adds
-  `correlation_key`/`updated_at`/`form_schema`) are hand-built maps, never a
+  `correlation_key`/`updated_at`/`form_schema`; `GET /tasks/:id` alone adds a 15th,
+  `self_approval_allowed`, T-1987) are hand-built maps, never a
   `Jason.Encoder`/struct-wholesale encoding — matching
   `Letflow.Routers.Identity`'s `user_map/1` discipline exactly. `claimed_by`
   is omitted entirely (no Letflow schema column exists yet — REQ-085's own
@@ -128,6 +129,7 @@ defmodule Letflow.Routers.Tasks do
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
+  alias Letflow.ApprovalRules
   alias Letflow.Engine
   alias Letflow.Entities.HiddenLabels
   alias Letflow.Tasks
@@ -322,7 +324,21 @@ defmodule Letflow.Routers.Tasks do
 
     case Tasks.get_task(id, get_opts) do
       {:ok, {task, correlation_key, form_version}} ->
-        Response.ok(conn, task_detail_map(task, correlation_key, form_version))
+        # T-1987: only the GET detail carries `self_approval_allowed` (the web hides its four-eyes
+        # hint when the step is switched OFF); claim/assign/reassign keep their 14 keys.
+        allowed =
+          ApprovalRules.self_approval_allowed?(
+            Keyword.fetch!(opts, :prefix),
+            task,
+            Map.get(conn.assigns.auth_context, :credential)
+          )
+
+        Response.ok(
+          conn,
+          task
+          |> task_detail_map(correlation_key, form_version)
+          |> Map.put("self_approval_allowed", allowed)
+        )
 
       {:error, :not_found} ->
         Response.not_found(conn)
