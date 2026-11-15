@@ -128,3 +128,56 @@ jobs:
       - name: Stop the stack
         if: ${{ always() && steps.decide.outputs.run == 'true' }}
         run: bash scripts/e2e/stack_up.sh --down
+
+  # T-1997: the nightly signal. A red scheduled or manual run on main used to fail unseen for days (2026-11-10..14).
+  # A failed run writes the tag `e2e-nightly-red` at the tested sha (force-update) and opens, or comments on, ONE issue
+  # "nightly e2e red" labelled main-fix; a green run deletes the tag and closes the issue. It only signals: it does not
+  # stop the merge queue (that is `ci-main-red`, ci.yml). Cancelled and skipped runs change nothing.
+  # docs/testing/gate-b-browser-e2e.md, docs/runbooks/ci-merge-queue.md section 8.
+  nightly_signal:
+    name: Nightly e2e signal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: stock_e2e
+    if: ${{ always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (needs.stock_e2e.result == 'success' || needs.stock_e2e.result == 'failure') }}
+    permissions:
+      contents: write
+      issues: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RESULT: ${{ needs.stock_e2e.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Signal the nightly result (tag e2e-nightly-red and issue)
+        run: |
+          set -uo pipefail
+          sha="$GITHUB_SHA"
+          title="nightly e2e red"
+          num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label main-fix --search "\"$title\" in:title" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ "$RESULT" = "success" ]; then
+            git push origin :refs/tags/e2e-nightly-red 2>/dev/null && echo "cleared e2e-nightly-red" | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ -n "$num" ]; then
+              gh issue close "$num" --repo "$GITHUB_REPOSITORY" --comment "Nightly Stock browser e2e is green at $sha: $RUN_URL" || true
+            fi
+            exit 0
+          fi
+          # red: the failed spec names, best effort, from the job log (Playwright prints "  1) [chromium] > file > title")
+          specs=""
+          job_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.name == "Stock browser e2e (playwright)") | .id' 2>/dev/null | head -n1 || true)
+          if [ -n "$job_id" ]; then
+            specs=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^[0-9TZ:.-]+ +[0-9]+\) \[' | sed -E 's/^[0-9TZ:.-]+ +//' | sort -u | head -n 40 || true)
+          fi
+          [ -n "$specs" ] || specs="(spec names not found in the log; open the run)"
+          git tag -f e2e-nightly-red "$sha" && git push -f origin refs/tags/e2e-nightly-red \
+            && echo "nightly e2e red: e2e-nightly-red -> $sha" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'Stock browser e2e failed on main at %s.\n\nRun: %s\n\nFailed specs:\n\n```\n%s\n```\n\nWhat to do: docs/runbooks/ci-merge-queue.md section 8 (a main-fix task at prio 1). This does not stop the merge queue.\n' "$sha" "$RUN_URL" "$specs" > "$RUNNER_TEMP/body.md"
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh label create main-fix --repo "$GITHUB_REPOSITORY" --color B60205 --description "main is red: fix first" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label main-fix --body-file "$RUNNER_TEMP/body.md"
+          fi
