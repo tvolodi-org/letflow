@@ -124,7 +124,7 @@ defmodule Letflow.Modules.Stock.StockCardSourceTest do
     }
 
     d = FormZ3.data(card)
-    assert d["shelf"] == "31.01.2027" and d["mark"] == ""
+    assert [%{"shelf" => "31.01.2027", "mark" => "", "struct_unit" => "Склад"}] = d["head"]
 
     assert [%{"date" => "05.11.2026", "income" => "2.000000000", "expense" => "", "party" => nil}] =
              Enum.map(d["rows"], &Map.merge(%{"party" => nil}, &1))
