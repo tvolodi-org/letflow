@@ -107,7 +107,8 @@ defmodule Letflow.Modules.Stock.FormZ1RouterTest do
             le["bin"],
             s["name"],
             "INV-77",
-            "Корреспондирующий счет: ____________"
+            "Корреспондирующий счет",
+            "____________"
           ] do
         assert text =~ t, "missing #{t}"
       end

@@ -185,7 +185,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
       Enum.map(cols, fn {c, n} ->
         header = if c.group, do: c.group <> ": " <> c.label, else: c.label
 
-        %{"field_name" => c.key, "header" => "#{n}. " <> header, "width" => width(n)}
+        %{"field_name" => c.key, "header" => "#{n}. " <> header, "width" => c.width || width(n)}
       end)
 
     %{"type" => "table", "entity_type" => entity_type, "columns" => columns}

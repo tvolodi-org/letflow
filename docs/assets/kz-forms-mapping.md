@@ -823,3 +823,11 @@ sheet and that the book cost is the card's stored book value, printed for KZT ca
 
 **Proof:** `test/letflow/modules/assets/form_count_inv8_test.exs`, `test/letflow/modules/assets/count_sheet_print_test.exs`,
 `test/letflow/modules/assets/count_print_router_test.exs` (real tokens, cross-tenant 404, flag off).
+
+T-1974 moves Z-1 / Қ-1 to the same blocks (annex lines, organisation / BIN / warehouse and the
+seven document facts as bordered tables, one signature table each for принял / сдал) and adds an
+optional per-column `"width"` (a relative weight) to the table layout. When every column of a
+table has one, the `.docx` uses a fixed grid with those weights and the PDF uses them as column
+weights. Z-1 and Z-2 carry the column grid of annex 25 and annex 26. Still open: the seven-cell
+Z-1 facts table has equal cells (the template's are 11/12/10/15/22/19/12 %), and the Z-1 merged
+header (template `gridSpan` 4, ours 2).

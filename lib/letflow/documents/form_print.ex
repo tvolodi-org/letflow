@@ -47,7 +47,9 @@ defmodule Letflow.Documents.FormPrint do
   `font_pt`, `table_font_pt`; default A4 portrait with the template margins, see `page/1`) is honoured
   by the `.docx` in full and by the PDF for orientation and, as one margin, the widest of the four;
   the PDF font is the bundled DejaVu Sans at the renderer's fixed size (no serif face is shipped,
-  none was installed). A table column may carry `"decimals"`; quantities lose the stored trailing
+  none was installed). A table column may carry `"width"` (a relative weight, taken from the
+  reference template's column grid; used by `.docx` and PDF only when every column of the table has
+  one) and `"decimals"`; quantities lose the stored trailing
   zeros (`number/2`), so no output holds nine decimals.
 
   The PDF side reuses `Letflow.Documents.PrintLayout` unchanged (closed one-row table header: a
@@ -235,8 +237,14 @@ defmodule Letflow.Documents.FormPrint do
     |> Enum.reduce_while(:ok, fn {col, i}, :ok ->
       p = path ++ ["columns", i]
 
-      with :ok <- known_keys(col, ["key", "label", "group", "no", "decimals"], p),
+      with :ok <- known_keys(col, ["key", "label", "group", "no", "decimals", "width"], p),
            :ok <- check(is_binary(col["key"]), :bad_key, p),
+           :ok <-
+             check(
+               is_nil(col["width"]) or (is_number(col["width"]) and col["width"] > 0),
+               :bad_width,
+               p
+             ),
            :ok <- check(is_nil(col["no"]) or is_integer(col["no"]), :bad_column_no, p),
            :ok <-
              check(
@@ -361,7 +369,8 @@ defmodule Letflow.Documents.FormPrint do
           key: col["key"],
           no: col["no"] || i,
           label: text(c, col["label"], lang),
-          group: col["group"] && text(c, col["group"], lang)
+          group: col["group"] && text(c, col["group"], lang),
+          width: col["width"]
         }
       end)
 
