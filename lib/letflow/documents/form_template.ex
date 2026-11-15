@@ -1,6 +1,6 @@
 defmodule Letflow.Documents.FormTemplate do
   @moduledoc """
-  Pure company DOCX validation (decision 0089, S1). Nothing is stored or rendered.
+  Pure company DOCX validation, starter generation and filling (decision 0089, S1/S2).
 
   ZIP budgets apply to real inflated bytes. The sanitizer parses kept XML once;
   the legal-field check reads that same tree. Package.write/1 is the only XML
@@ -9,8 +9,8 @@ defmodule Letflow.Documents.FormTemplate do
 
   Only bare closed-list names are supported. Headers/footers, textboxes and
   non-plain runs cannot contain placeholders. Refusals contain fixed codes and
-  structural positions, never company text or unknown names. Totals data names
-  belong to S2. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Routes and permission:
+  structural positions, never company text or unknown names. Total values use required
+  `total.<table>.<key>` names. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Routes and permission:
   S4b (`Letflow.Routers.Documents`); printing belongs to S3.
   """
   alias __MODULE__.{Check, Keys, Package, Sanitizer}
@@ -50,6 +50,40 @@ defmodule Letflow.Documents.FormTemplate do
   @doc "Validates an upload and returns only rewritten, verified bytes and a structure summary."
   @spec check(String.t(), binary(), keyword()) :: {:ok, result()} | {:error, [refusal()]}
   def check(form, bytes, opts \\ []) do
+    with {:ok, clean, _keys} <- verify(form, bytes, opts),
+         {:ok, output} <- Package.write(clean.parts) do
+      counts =
+        Enum.frequencies_by(clean.occurrences, fn o ->
+          if String.starts_with?(o.name, "legal."), do: :legal, else: :data
+        end)
+
+      {:ok,
+       %{
+         bytes: output,
+         sha256: :crypto.hash(:sha256, output) |> Base.encode16(case: :lower),
+         summary: Map.put(clean.summary, :placeholders, Map.merge(%{legal: 0, data: 0}, counts))
+       }}
+    end
+  end
+
+  @doc "Builds a language-free, checked starter from the shipped layout."
+  @spec starter(String.t(), keyword()) :: {:ok, binary()} | {:error, [refusal()]}
+  def starter(form, opts \\ []), do: __MODULE__.Starter.build(form, opts)
+
+  @doc "Fills a re-verified company template with catalog text and plain data values."
+  @spec fill(String.t(), binary(), map(), String.t(), keyword()) ::
+          {:ok, binary()} | {:error, term()}
+  def fill(form, bytes, data, lang, opts \\ []) do
+    if lang in ["ru", "kk"] do
+      with {:ok, clean, keys} <- verify(form, bytes, opts) do
+        __MODULE__.Filler.fill(form, clean.parts, keys, data, lang, opts)
+      end
+    else
+      {:error, :lang_not_supported}
+    end
+  end
+
+  defp verify(form, bytes, opts) do
     case Keys.for_form(form) do
       :error ->
         error(:unknown_form, "D3")
@@ -64,20 +98,8 @@ defmodule Letflow.Documents.FormTemplate do
                ),
              {:ok, parts} <- Package.read(bytes),
              {:ok, clean} <- Sanitizer.run(parts, opts),
-             :ok <- Check.run(clean.occurrences, keys),
-             {:ok, output} <- Package.write(clean.parts) do
-          counts =
-            Enum.frequencies_by(clean.occurrences, fn o ->
-              if String.starts_with?(o.name, "legal."), do: :legal, else: :data
-            end)
-
-          {:ok,
-           %{
-             bytes: output,
-             sha256: :crypto.hash(:sha256, output) |> Base.encode16(case: :lower),
-             summary:
-               Map.put(clean.summary, :placeholders, Map.merge(%{legal: 0, data: 0}, counts))
-           }}
+             :ok <- Check.run(clean.occurrences, keys) do
+          {:ok, clean, keys}
         end
     end
   end

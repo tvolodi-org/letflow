@@ -32,7 +32,8 @@ defmodule Letflow.FormTemplateDocx do
 
     table_names =
       Enum.flat_map(keys.tables, fn t ->
-        Enum.map(t.headings, &elem(&1, 0)) ++ t.lines ++ if(t.total, do: [t.total], else: [])
+        Enum.map(t.headings ++ t.totals, &elem(&1, 0)) ++
+          t.lines ++ if(t.total, do: [t.total], else: [])
       end)
 
     flat = (keys.legal ++ keys.data) -- table_names
@@ -41,7 +42,7 @@ defmodule Letflow.FormTemplateDocx do
       layout["blocks"]
       |> Enum.filter(&(&1["type"] == "table"))
       |> Enum.with_index(1)
-      |> Enum.map(fn {b, t} -> table(b, t) end)
+      |> Enum.map(fn {b, t} -> table(b, t, Enum.at(keys.tables, t - 1)) end)
 
     body =
       Enum.map_join(flat, &p/1) <>
@@ -68,7 +69,7 @@ defmodule Letflow.FormTemplateDocx do
     }
   end
 
-  defp table(b, t) do
+  defp table(b, t, keys) do
     cols = b["columns"]
     paths = Enum.map(cols, &(&1["groups"] || List.wrap(&1["group"])))
 
@@ -79,9 +80,16 @@ defmodule Letflow.FormTemplateDocx do
       end)
       |> Enum.uniq()
 
+    headings = Enum.filter(keys.headings, &String.starts_with?(elem(&1, 0), "legal.col."))
+
     columns =
       for {c, n} <- Enum.with_index(cols, 1),
-          do: %{label: "legal.col.#{t}.#{n}", group: c["group"], groups: c["groups"] || []}
+          do: %{
+            label: headings |> Enum.filter(&(elem(&1, 1) < n)) |> List.last() |> elem(0),
+            group: c["group"],
+            groups: c["groups"] || [],
+            span: c["span"] == true
+          }
 
     cells = Letflow.Documents.FormPrint.header_cells(columns)
     depth = cells |> Enum.map(&(&1.row + &1.rowspan)) |> Enum.max()
@@ -125,7 +133,23 @@ defmodule Letflow.FormTemplateDocx do
     grid = "<w:tblGrid>" <> Enum.map_join(cols, fn _ -> "<w:gridCol/>" end) <> "</w:tblGrid>"
     numbers = for n <- 1..length(cols), do: cell("legal.colno.#{t}.#{n}")
     data = Enum.map(cols, &cell(b["rows"] <> "." <> &1["key"]))
-    total = if b["totals"], do: row([cell("legal.total.#{t}", length(cols))]), else: ""
+
+    total =
+      if b["totals"] do
+        cols
+        |> Enum.with_index()
+        |> Enum.map(fn {_, i} ->
+          name =
+            if i == 1,
+              do: keys.total,
+              else: Enum.find_value(keys.totals, fn {name, start} -> if start == i, do: name end)
+
+          if name, do: cell(name), else: String.replace(cell(""), "{{}}", "")
+        end)
+        |> row()
+      else
+        ""
+      end
 
     "<w:tbl>" <>
       grid <>

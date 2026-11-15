@@ -155,7 +155,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
     numbers =
       row(
         Enum.map(columns, fn c ->
-          cell(Integer.to_string(c.no),
+          cell(Map.get(c, :no_text) || Integer.to_string(c.no),
             center: true,
             ts: pg.ts,
             no_wrap: compact?,

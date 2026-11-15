@@ -349,6 +349,40 @@ defmodule Letflow.Documents.FormPrint do
       else: items
   end
 
+  @doc "Clean field values, repeated rows, totals and draft notice shared with company templates."
+  @spec template_data(map(), map(), String.t(), map()) :: map()
+  def template_data(layout, data, lang, catalog) when lang in @langs do
+    model = resolve(layout, data, lang, catalog)
+
+    fields =
+      Enum.zip(layout["blocks"], model)
+      |> Enum.flat_map(fn
+        {%{"type" => "field", "key" => k}, {:field, _, v}} ->
+          [{k, v}]
+
+        {%{"type" => "boxed_pairs", "cells" => cells}, {:boxed_pairs, pairs}} ->
+          Enum.zip_with(cells, pairs, fn c, {_, v} -> {c["key"], v} end)
+
+        {%{"type" => type, "key" => k, "parts" => parts}, {_, _, values, _, _}}
+        when type in ["signature", "signature_table"] ->
+          Enum.zip_with(parts, values, fn part, v -> {"sig.#{k}.#{part}", v} end)
+
+        _ ->
+          []
+      end)
+      |> Map.new()
+
+    %{
+      fields: fields,
+      tables: for({:table, t} <- model, do: t),
+      notice:
+        Enum.find_value(model, fn
+          {:notice, s} -> s
+          _ -> nil
+        end)
+    }
+  end
+
   defp item(%{"type" => "text"} = b, _d, lang, c), do: {:text, text(c, b["label"], lang)}
   defp item(%{"type" => "page_break"}, _d, _lang, _c), do: {:page_break}
   defp item(%{"type" => "title"} = b, _d, lang, c), do: {:title, text(c, b["label"], lang)}
