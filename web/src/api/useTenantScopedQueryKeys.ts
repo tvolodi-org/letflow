@@ -136,6 +136,12 @@ export function useTenantScopedQueryKeys() {
       list: () => queryKeys.moduleRollouts.list(tenantId),
       status: queryKeys.moduleRollouts.status.bind(null, tenantId),
     },
+    problemReportsInbox: {
+      all: () => queryKeys.problemReportsInbox.all(tenantId),
+      lists: () => queryKeys.problemReportsInbox.lists(tenantId),
+      list: queryKeys.problemReportsInbox.list.bind(null, tenantId),
+      detail: queryKeys.problemReportsInbox.detail.bind(null, tenantId),
+    },
     solutionPackUpdate: {
       all: () => queryKeys.solutionPackUpdate.all(tenantId),
       review: queryKeys.solutionPackUpdate.review.bind(null, tenantId),

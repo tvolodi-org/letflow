@@ -26,9 +26,13 @@ function pick<T extends string>(allowed: readonly T[], value: string | null, fal
 export function HarnessPage() {
   const { screen: name = '' } = useParams<{ screen: string }>()
   const [params] = useSearchParams()
-  const theme: HarnessTheme = pick(HARNESS_THEMES, params.get('theme'), 'light')
-  const lang: HarnessLang = pick(HARNESS_LANGS, params.get('lang'), 'en')
-  const state: HarnessState = pick(HARNESS_STATES, params.get('state'), 'default')
+  // Read once: a screen that rewrites the query (for example a default selection) must not reset theme and language.
+  const [first] = useState(() => ({
+    theme: pick(HARNESS_THEMES, params.get('theme'), 'light') as HarnessTheme,
+    lang: pick(HARNESS_LANGS, params.get('lang'), 'en') as HarnessLang,
+    state: pick(HARNESS_STATES, params.get('state'), 'default') as HarnessState,
+  }))
+  const { theme, lang, state } = first
   const screen = HARNESS_SCREENS[name]
   const [ready, setReady] = useState(false)
   // Own query client: no retries, seeded nothing, data comes from the fixture fetch.
