@@ -373,4 +373,17 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
              ] == "invalid_lang"
     end
   end
+
+  describe "T-1985 R6 company template" do
+    test "an outdated active inv10 template answers 422 and the PDF still prints", ctx do
+      x = world!(ctx, :a)
+      id = ready!(x)
+      Letflow.CompanyTemplateFixture.outdated!(x.s, x.t.tenant_id, "inv10", "ru")
+
+      conn = form(id, "sheet", "inv10", x.chair_tok, "&format=docx&lang=ru")
+      assert conn.status == 422, conn.resp_body
+      assert Jason.decode!(conn.resp_body)["reason"] == "form_template_outdated"
+      assert form(id, "sheet", "inv10", x.chair_tok, "&format=pdf&lang=ru").status == 200
+    end
+  end
 end

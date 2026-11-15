@@ -91,9 +91,9 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
   | `GET /counts/:id/paperwork/:kind[?lang=ru\|kk\|en]` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document (labels and times localized with `lang`, snake_case keys without), 422 `document_not_issued` or `invalid_lang` |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
-  | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character` |
-  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`; T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
+  | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
+  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`); T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -272,7 +272,8 @@ defmodule Letflow.Modules.Stock.Router do
                filters["location"],
                non_empty(filters["lot"])
              ),
-           {:ok, bin} <- FormPrint.build("z3", FormZ3.data(card), lang, format) do
+           {:ok, bin} <-
+             FormPrint.build("z3", FormZ3.data(card), lang, format, tenant: authorized.prefix) do
         {type, ext} = form_type(format)
         code = card.header.nom |> to_string()
 
@@ -964,7 +965,9 @@ defmodule Letflow.Modules.Stock.Router do
                legal_entities: true
              ),
            {:ok, bin} <-
-             FormPrint.build(form, form_data(mapper, issued, names, lang), lang, format) do
+             FormPrint.build(form, form_data(mapper, issued, names, lang), lang, format,
+               tenant: prefix
+             ) do
         {type, ext} = form_type(format)
         name = CountPaperworkSource.file_name(to_string(issued.number_label) <> suffix, ext)
         send_binary(conn, bin, type, name)
@@ -982,11 +985,16 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp form_data(mapper, issued, names, _lang), do: mapper.(issued, names)
 
+  @template_outdated "your template for this form is out of date; upload a new version or switch back to standard"
+
   defp form_failure(conn, reason) when reason in [:print_not_available, :document_not_issued],
     do: unprocessable(conn, Atom.to_string(reason))
 
   defp form_failure(conn, :unsupported_glyph),
     do: unprocessable(conn, "print_unsupported_character")
+
+  # T-1985 (0089 S3): the company template no longer passes the check; no fallback to the standard form.
+  defp form_failure(conn, :form_template_outdated), do: template_outdated(conn)
 
   defp form_failure(conn, {:render_failed, rules}) do
     Logger.error("stock form print render failed: " <> Enum.map_join(rules, ",", &inspect/1))
@@ -995,6 +1003,9 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp form_failure(conn, :invalid_filter), do: refuse(conn, :invalid_filter)
   defp form_failure(conn, _internal), do: Response.internal_error(conn)
+
+  defp template_outdated(conn),
+    do: problem(conn, Error.unprocessable(@template_outdated), "form_template_outdated")
 
   defp non_empty(""), do: nil
   defp non_empty(value), do: value
@@ -1019,7 +1030,9 @@ defmodule Letflow.Modules.Stock.Router do
                CountPaperworkSource.read_form(prefix, conn.params["id"], form_kind, ctx),
              :ok <- count_form_size(format, issued),
              {:ok, bin} <-
-               FormPrint.build(query["form"], mapper.data(issued, names), lang, format) do
+               FormPrint.build(query["form"], mapper.data(issued, names), lang, format,
+                 tenant: prefix
+               ) do
           {type, ext} = form_type(format)
 
           name =
@@ -1035,6 +1048,12 @@ defmodule Letflow.Modules.Stock.Router do
 
           {:error, :unsupported_glyph} ->
             unprocessable(conn, "print_unsupported_character")
+
+          {:error, :form_template_outdated} ->
+            template_outdated(conn)
+
+          {:error, :form_template_unavailable} ->
+            Response.internal_error(conn)
 
           {:error, {:render_failed, rules}} ->
             Logger.error(
