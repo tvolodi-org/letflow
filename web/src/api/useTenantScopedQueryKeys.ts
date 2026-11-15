@@ -141,6 +141,7 @@ export function useTenantScopedQueryKeys() {
       lists: () => queryKeys.problemReportsInbox.lists(tenantId),
       list: queryKeys.problemReportsInbox.list.bind(null, tenantId),
       detail: queryKeys.problemReportsInbox.detail.bind(null, tenantId),
+      image: queryKeys.problemReportsInbox.image.bind(null, tenantId),
     },
     solutionPackUpdate: {
       all: () => queryKeys.solutionPackUpdate.all(tenantId),
