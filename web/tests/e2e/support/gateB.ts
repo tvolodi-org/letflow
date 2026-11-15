@@ -44,8 +44,12 @@ export async function setPrefs(page: Page, prefs: { lang?: 'en' | 'ru' | 'kk'; t
     if (p.lang) window.localStorage.setItem('lf-locale', p.lang)
     if (p.theme) window.localStorage.setItem('lf-theme', p.theme)
   }, prefs)
+  // A full reload of a deep link lands on "/" in the CI stack (see openRoute; run 43659812445, G5 showed the
+  // dashboard): remember the route and move back to it inside the SPA once the shell is up.
+  const here = page.url()
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
+  await openRoute(page, here)
 }
 
 /**
@@ -156,6 +160,10 @@ export async function claimAndComplete(p: Page, hint: string): Promise<void> {
   await own.first().click()
   await expect(p.getByTestId('task-detail-panel')).toBeVisible()
   const claim = p.getByTestId('task-claim-button')
+  // Wait up to 15 s for the claim button to settle: `task-detail-panel` can be visible before the
+  // claim button renders (the panel shows a loading skeleton first). Without the wait the
+  // isVisible() call below can fire before the button appears and skip the click entirely.
+  await claim.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {})
   if (await claim.isVisible().catch(() => false)) await claim.click()
   // R11: Complete appears after the claim
   await expect(p.getByTestId('task-complete-button')).toBeVisible({ timeout: 20_000 })

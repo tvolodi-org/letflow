@@ -83,11 +83,14 @@ test('G2 S2 receipt issue claim complete', async () => {
   // a draft has no number: it is allocated at Issue (T-1964)
   state.receiptNumber = await headerNumber(page)
   await claimAndComplete(page, state.receiptNumber)
-  // Posting follows the task completion: reload the receipt until its header shows the posting.
+  // Posting follows the task completion. Navigate to the documents list and reopen the receipt each iteration so the
+  // component remounts and React Query fetches the latest state rather than serving a cached pre-posting snapshot
+  // (the same navigate-away pattern used in gate-b-stock-print's P1 toPass loop).
   await expect(async () => {
-    await openRoute(page, state.receiptUrl)
-    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 5_000 })
-  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: state.receiptNumber }).first().click()
+    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 90_000, intervals: [2_000, 4_000, 8_000] })
   await assertNoUuid(page, 'Document')
 })
 
@@ -127,6 +130,8 @@ test('G2b S2b receipt order Z-1 from the receipt screen', async () => {
 
 test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) => {
   test.skip(ENV.admin2 === '' || ENV.admin2Pw === '', 'E2E_ADMIN2_USER / E2E_ADMIN2_PASSWORD are not set (a second approver is needed)')
+  // Two sessions, a claim/complete and a posting wait: the 30 s default ran out on the last wait in CI (run 43654970990).
+  test.setTimeout(150_000)
   await openRoute(page, '/admin/stock/documents/new')
   const form = page.getByTestId('document-form')
   await choose(form.getByLabel('Kind'), 'Opening balance')
@@ -140,7 +145,7 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await row.getByLabel('Quantity').fill('2')
   await choose(row.getByLabel('Location'), 'Showroom')
   await choose(row.getByLabel('Responsible'))
-  const received = row.getByLabel(/Received/)
+  const received = row.getByLabel(/Real receipt date/)
   await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
   await saveDocument(page)
   state.openingUrl = page.url()
@@ -165,8 +170,13 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   } finally {
     await second.context.close()
   }
-  await openRoute(page, state.openingUrl)
-  await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 30_000 })
+  // The first session still holds the document query from before the approval: reopen it from the list until the
+  // remounted screen shows the posting (the G2 S2 pattern), instead of waiting on the cached "Issued" header.
+  await expect(async () => {
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: number }).first().click()
+    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
 })
 
 test('G4 S4 registers show rows and no uuid', async () => {
@@ -217,7 +227,8 @@ test('G5 S5 document screen wide and narrow', async () => {
       }
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.reload({ waitUntil: 'domcontentloaded' })
+      // no reload: a reload of a deep link lands on "/" in the CI stack; a viewport change needs none
+      await openRoute(page, path)
       await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
       await page.screenshot({ path: shotPath(`document-${lang === 'en' ? '' : `${lang}-`}${theme}-390`), fullPage: true })
       // G5b: narrow = no horizontal page overflow
