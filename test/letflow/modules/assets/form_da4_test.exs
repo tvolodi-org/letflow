@@ -185,7 +185,7 @@ defmodule Letflow.Modules.Assets.FormDa4Test do
     assert length(table["columns"]) == 10 and length(table["columns"]) <= 14
 
     assert table["columns"]
-           |> Enum.filter(&(&1["group"] == "da1.number"))
+           |> Enum.filter(&("da1.number" in (&1["groups"] || [])))
            |> Enum.map(& &1["key"]) == ["inv", "factory", "passport"]
 
     for {key, entry} <- cat,

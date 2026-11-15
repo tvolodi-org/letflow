@@ -135,6 +135,23 @@ main-table width differences; kk uses the same layout with its catalog wording. 
 arrangement, font sizes, the PDF's bundled sans face and common margin, repeated header rows and
 unmerged totals labels. This slice does not claim pixel equality with the Ministry files.
 
+### DA-1 .. DA-4 follow-up (T-1978)
+
+DA-1 (annex 16), DA-2 (17), DA-3 (18) and DA-4 (19) now print the annex and form-code lines right-aligned,
+organisation/BIN (DA-2, DA-3, DA-4) and number/date (DA-2, DA-3) as boxed pairs, and every signature block as a
+signature table (ruled line above the caption). Every wide table takes its column proportions from the template grid;
+DA-1 page 2 and 3 and the reverse sides of DA-2, DA-3, DA-4 start on a new page; DA-2 uses the template margins
+25/15/25/25 mm. The headers use `groups`: DA-3's cost table has the "Запасы" group over name and nomenclature number;
+DA-2's characteristics table has six columns numbered 1 to 6 (new column flag `span`: adjacent columns with the same
+header share one cell, here "наименование важнейших пристроек …" over four columns).
+
+`forms_compare diff` (ru, empty data), before to after: DA-1 widths of the 7-column table `[15,11,5,18,16,20,16]` vs
+`[9,24,8,15,14,16,14]` reported, now no width line; DA-2 margins 25/25/25 vs 20/20/22.5 reported, now none, the 6-column table
+(`columns ref 6, gen 3`, header cells 4, 5, 6 missing) and the 8- and 9-column widths now match; DA-3 missing header cells
+"Запасы", "наименование", "номенклатур- ный номер" and the width lines now none (`gridspan` ref 3 / gen 2 gone); DA-4 no width line.
+Remaining: nested/side-by-side annex and facts tables of the templates are paragraphs or one-row tables in ours
+(table counts differ), and the "инвентарный" cell split of DA-3 table 1.
+
 - kk has no layout reference, only the Adilet text; kk layout is assumed equal to ru (one layout file).
 - LibreOffice renders `.docx` differently from Word; pixel positions were not compared, structure was.
 - Data values (names, numbers, dates of the QA sample) are ignored; the report quotes none.
