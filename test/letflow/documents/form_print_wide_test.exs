@@ -71,13 +71,17 @@ defmodule Letflow.Documents.FormPrintWideTest do
       end
     end
 
-    test "14 columns are accepted, 15 are refused" do
+    test "15 columns (Z-3 header) are accepted, 16 are refused" do
       {:ok, layout} = FormPrint.layout("inv18")
       cat = FormPrint.catalog()
       front = Enum.find(layout["blocks"], &(&1["rows"] == "lines"))
       assert length(front["columns"]) == 14
 
-      too_wide = %{front | "columns" => front["columns"] ++ [hd(front["columns"])]}
+      fifteen = %{front | "columns" => front["columns"] ++ [hd(front["columns"])]}
+      ok = Enum.map(layout["blocks"], &if(&1 == front, do: fifteen, else: &1))
+      assert :ok = FormPrint.validate_layout(%{layout | "blocks" => ok}, cat)
+
+      too_wide = %{front | "columns" => fifteen["columns"] ++ [hd(front["columns"])]}
       blocks = Enum.map(layout["blocks"], &if(&1 == front, do: too_wide, else: &1))
 
       assert {:error, {:bad_columns, _}} =

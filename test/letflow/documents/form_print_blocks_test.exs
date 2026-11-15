@@ -200,4 +200,24 @@ defmodule Letflow.Documents.FormPrintBlocksTest do
 
     assert {:error, _} = FormPrint.validate_layout(bad, FormPrint.catalog())
   end
+
+  test "Z3 the stock card has the 15-column header table, the 9-column grid and the precious table" do
+    data = %{"head" => [%{"struct_unit" => "Склад", "nom" => "B-1"}], "precious_rows" => [%{}]}
+
+    for lang <- ~w(ru kk) do
+      {:ok, docx} = FormPrint.build("z3", data, lang, :docx)
+      xml = xml(docx)
+
+      grids =
+        ~r{<w:tblGrid>(.*?)</w:tblGrid>}s
+        |> Regex.scan(xml)
+        |> Enum.map(fn [_, g] -> length(Regex.scan(~r/w:gridCol/, g)) end)
+
+      assert grids == [15, 9, 2]
+      # the four "responsible party" cells sit under one merged group cell
+      assert xml =~ ~s(<w:gridSpan w:val="4"/>)
+      assert xml =~ "Склад"
+      assert {:ok, <<"%PDF", _::binary>>} = FormPrint.build("z3", data, lang, :pdf)
+    end
+  end
 end

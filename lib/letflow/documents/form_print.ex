@@ -47,7 +47,7 @@ defmodule Letflow.Documents.FormPrint do
   `font_pt`, `table_font_pt`; default A4 portrait with the template margins, see `page/1`) is honoured
   by the `.docx` in full and by the PDF for orientation and, as one margin, the widest of the four;
   the PDF font is the bundled DejaVu Sans at the renderer's fixed size (no serif face is shipped,
-  none was installed). A table column may carry `"width"` (a relative weight, taken from the
+  none was installed). A table column may omit `"label"` (a blank header cell, as in the template's precious-materials table) and may carry `"width"` (a relative weight, taken from the
   reference template's column grid; used by `.docx` and PDF only when every column of the table has
   one) and `"decimals"`; quantities lose the stored trailing
   zeros (`number/2`), so no output holds nine decimals.
@@ -83,7 +83,7 @@ defmodule Letflow.Documents.FormPrint do
     font_pt: 12,
     table_font_pt: 10
   }
-  @max_columns 14
+  @max_columns 15
 
   @catalog_path Path.join([__DIR__, "..", "..", "..", "priv", "print_forms", "messages.json"])
                 |> Path.expand()
@@ -253,7 +253,7 @@ defmodule Letflow.Documents.FormPrint do
                :bad_decimals,
                p
              ),
-           :ok <- label_present(col["label"], catalog, p),
+           :ok <- if(is_nil(col["label"]), do: :ok, else: label_present(col["label"], catalog, p)),
            :ok <- if(col["group"], do: label_present(col["group"], catalog, p), else: :ok) do
         {:cont, :ok}
       else
@@ -368,7 +368,7 @@ defmodule Letflow.Documents.FormPrint do
         %{
           key: col["key"],
           no: col["no"] || i,
-          label: text(c, col["label"], lang),
+          label: if(col["label"], do: text(c, col["label"], lang), else: ""),
           group: col["group"] && text(c, col["group"], lang),
           width: col["width"]
         }

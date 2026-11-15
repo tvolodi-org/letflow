@@ -450,7 +450,7 @@ The same layout serves ru and kk; no new wording or stored data is introduced.
   ("from whom received or to whom issued"; available for receipts in principle, left out of this slice), accounting unit of
   finished output, kind of production, sort, profile, size, account, price, person responsible, shop, executor, the control
   signature and the precious-materials note. A card of more than 1000 entries answers 422 `card_too_long`; no visible
-  movement answers 404. The header is a list of plain lines, not the multi-cell arrangement of the official sheet.
+  movement answers 404. T-1975: the header is the template's 15-column table (merged "responsible party" group of four cells, numbers row, one value row), the movement table has the template's nine-column grid, and the precious-materials note is followed by the template's blank two-column table (ours also prints a blank header row and a numbers row 1, 2, which the template does not).
 * **Differences found while reading annexes 27 and 29** (ru 2026 draft against the kk edition): the kk edition of Z-3 has
   a "Қойма" (warehouse) line that the ru draft lacks (not printed); Z-5 signers are listed "allowed, checked, released,
   received" in the ru draft and "allowed, released, checked, received" in the kk edition (one layout per form: the ru order

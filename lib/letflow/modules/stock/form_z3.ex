@@ -11,8 +11,9 @@ defmodule Letflow.Modules.Stock.FormZ3 do
   Left out, so blank: the counterparty and the accounting unit of finished output (the card is
   built from the ledger, which holds neither), kind of production, sort, profile, size, account,
   price, the person responsible, shop, executor, the control signature and the precious-materials
-  note (mapping doc G4, G5, G13; nothing is invented). The header is a list of plain lines: the
-  engine has no multi-cell header block, so the arrangement differs from the official sheet.
+  note (mapping doc G4, G5, G13; nothing is invented). The header is the template's 15-column
+  table (T-1975): one value row under the merged header cells, the movement table follows, then the
+  blank two-column precious-materials table.
   """
 
   alias Letflow.Modules.Stock.CountPaperwork
@@ -23,12 +24,18 @@ defmodule Letflow.Modules.Stock.FormZ3 do
     %{
       "org_name" => CountPaperwork.text(header[:org_name]),
       "org_bin" => CountPaperwork.text(header[:org_bin]),
-      "struct_unit" => CountPaperwork.text(header[:struct_unit]),
       "item_name" => CountPaperwork.text(header[:item_name]),
-      "nom" => CountPaperwork.text(header[:nom]),
-      "unit" => CountPaperwork.text(header[:unit]),
-      "mark" => CountPaperwork.text(header[:mark]),
-      "shelf" => FormCount.date(CountPaperwork.text(header[:shelf])),
+      # the one value row of the 15-column header table and of the blank precious-materials table
+      "head" => [
+        %{
+          "struct_unit" => CountPaperwork.text(header[:struct_unit]),
+          "nom" => CountPaperwork.text(header[:nom]),
+          "unit" => CountPaperwork.text(header[:unit]),
+          "mark" => CountPaperwork.text(header[:mark]),
+          "shelf" => FormCount.date(CountPaperwork.text(header[:shelf]))
+        }
+      ],
+      "precious_rows" => [%{}],
       "rows" => Enum.map(rows, &row/1)
     }
   end
