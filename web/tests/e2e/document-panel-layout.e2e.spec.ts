@@ -1,7 +1,49 @@
 /** T-2006: local harness browser proof; general e2e specs are not run by the fixed Stock CI job. */
 import { expect, test, type Page } from '@playwright/test'
+import { addStockLine } from './support/gateB'
 
 test.use({ video: 'off', launchOptions: process.env['LF_CHROMIUM'] ? { executablePath: process.env['LF_CHROMIUM'] } : {} })
+
+for (const width of [1440, 390, 2560]) {
+  test(`stock line entry at ${width}: saves through the responsive editor`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/__harness/stock-document-new-receipt')
+    const editor = page.getByTestId('lines-editor')
+    if (width === 2560) {
+      // The harness content has a max width. Give Lines room using the same divider controls as a user.
+      const handles = page.locator('.lf-doc').locator('..').getByRole('separator')
+      await expect(handles).toHaveCount(2)
+      await handles.nth(0).press('Home')
+      await handles.nth(1).press('Home')
+    }
+    await expect(editor).toHaveAttribute('data-mode', width === 2560 ? 'grid' : 'form')
+    await addStockLine(page, async (fields) => {
+      await fields.getByLabel('Item', { exact: true }).fill('Laptop', { timeout: 5000 })
+      await page.getByRole('option', { name: /Laptop/ }).first().click()
+      await fields.getByLabel('Quantity', { exact: true }).fill('5')
+      await fields.getByLabel('Unit price', { exact: true }).fill('100')
+    })
+    const saved = editor.getByTestId('line-saved-row').or(editor.getByTestId('line-editor-row'))
+    await expect(saved).toHaveCount(1)
+    await expect(editor.locator('.lf-le__form')).toHaveCount(0)
+    if (width === 2560) {
+      await expect(saved.getByLabel('Item', { exact: true })).toHaveValue(/Laptop/)
+      await expect(saved.getByLabel('Quantity', { exact: true })).toHaveValue('5')
+      await expect(saved.getByLabel('Unit price', { exact: true })).toHaveValue('100')
+    } else {
+      await expect(saved).toContainText('Laptop')
+      await expect(saved).toContainText('5')
+      // The compact saved table omits price. Reopen the saved line to check its persisted draft values.
+      await saved.click()
+      const fields = editor.locator('.lf-le__form')
+      await expect(fields.getByLabel('Item', { exact: true })).toHaveValue(/Laptop/)
+      await expect(fields.getByLabel('Quantity', { exact: true })).toHaveValue('5')
+      await expect(fields.getByLabel('Unit price', { exact: true })).toHaveValue('100')
+      await fields.getByRole('button', { name: 'Cancel', exact: true }).click()
+    }
+    await expect(editor.locator('.lf-le__form')).toHaveCount(0)
+  })
+}
 
 async function noPageOverflow(page: Page) {
   const measured = await page.evaluate(() => ({

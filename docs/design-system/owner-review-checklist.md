@@ -10,7 +10,7 @@ numbers of the items that fail. Any failing item that applies to the task is a F
 
 This file is now the source of the list. The first version was the 16 items in the team's design-system skill (the
 lab file `project/skills/letflow-design-system.md`, section "Owner review checklist (D-145, 2026-11-14)").
-Items 1 to 16 keep that text and its numbers. Items 17 to 21 come from the gate walks.
+Items 1 to 16 keep that text and its numbers. Items 17 to 20 and 23 come from the gate walks; items 21 and 22 capture later owner findings.
 
 ## How to read the columns
 

@@ -9,7 +9,7 @@
  * ru as DD-MM-YYYY.
  * Every record made here carries E2E_RUN_TAG so reruns on one tenant do not collide.
  */
-import { headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
+import { addStockLine, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
 import * as fs from 'node:fs'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { assertNoUuid } from './support/noUuid'
@@ -70,13 +70,12 @@ test('G2 S2 receipt issue claim complete', async () => {
   await choose(form.getByLabel('Location'), 'Central')
   await choose(form.getByLabel('Responsible'))
   await form.getByLabel('Note').fill(`receipt ${ENV.runTag}`)
-  // T-1448: a new draft shows the empty state of the lines editor; the item cell is a typed picker with a list.
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill('5')
-  await row.getByLabel('Unit price').fill('100')
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill('5')
+    await row.getByLabel('Unit price').fill('100')
+  })
   await saveDocument(page)
   state.receiptUrl = page.url()
   await issueDocument(page)
@@ -89,7 +88,7 @@ test('G2 S2 receipt issue claim complete', async () => {
   await expect(async () => {
     await openRoute(page, '/admin/stock/documents')
     await page.getByTestId('document-row').filter({ hasText: state.receiptNumber }).first().click()
-    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+    await expect(page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
   }).toPass({ timeout: 90_000, intervals: [2_000, 4_000, 8_000] })
   await assertNoUuid(page, 'Document')
 })
@@ -137,16 +136,15 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await choose(form.getByLabel('Kind'), 'Opening balance')
   await choose(form.getByLabel('Org unit'), 'Sales')
   await form.getByLabel('Note').fill(`opening ${ENV.runTag}`)
-  // T-1448: a new draft shows the empty state of the lines editor; the item cell is a typed picker with a list.
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill('2')
-  await choose(row.getByLabel('Location'), 'Showroom')
-  await choose(row.getByLabel('Responsible'))
-  const received = row.getByLabel(/Real receipt date/)
-  await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill('2')
+    await choose(row.getByLabel('Location'), 'Showroom')
+    await choose(row.getByLabel('Responsible'))
+    const received = row.getByLabel(/Real receipt date/)
+    await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
+  })
   await saveDocument(page)
   state.openingUrl = page.url()
   await issueDocument(page)
@@ -174,7 +172,7 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
     await expect(async () => {
       await openRoute(second.page, '/admin/stock/documents')
       await second.page.getByTestId('document-row').filter({ hasText: number }).first().click()
-      await expect(second.page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+      await expect(second.page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
     }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
   } finally {
     await second.context.close()
@@ -184,7 +182,7 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await expect(async () => {
     await openRoute(page, '/admin/stock/documents')
     await page.getByTestId('document-row').filter({ hasText: number }).first().click()
-    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+    await expect(page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
   }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
 })
 

@@ -141,10 +141,24 @@ export async function saveDocument(p: Page): Promise<void> {
   await expect(p.getByTestId('document-actions')).toBeVisible()
 }
 
+/** Add a stock line through the editor's current responsive mode. */
+export async function addStockLine(p: Page, fill: (fields: Locator) => Promise<void>): Promise<void> {
+  await p.getByRole('button', { name: 'Add line', exact: true }).click()
+  const editor = p.getByTestId('lines-editor')
+  const fields = editor.locator(':is([data-testid="line-editor-row"], .lf-le__form):visible').last()
+  await expect(fields).toBeVisible()
+  await fill(fields)
+  // Row gives Lines a narrower panel even on desktop. Form mode keeps an unsaved draft until this button is used.
+  if (await editor.getAttribute('data-mode') === 'form') {
+    await fields.getByRole('button', { name: 'Save and close', exact: true }).click()
+    await expect(editor.locator('.lf-le__form')).toHaveCount(0)
+  }
+}
+
 export async function issueDocument(p: Page): Promise<void> {
   await p.getByTestId('document-actions').getByRole('button', { name: 'Issue', exact: true }).click()
   await p.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
-  await expect(p.getByTestId('document-header')).toContainText(/Issued|Posted/i, { timeout: 30_000 })
+  await expect(p.locator('.lf-doc__id')).toContainText(/Issued|Posted/i, { timeout: 30_000 })
 }
 
 /** Claim then complete the task row that matches `hint` (document number or item name). */
