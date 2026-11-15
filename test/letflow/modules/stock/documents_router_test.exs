@@ -40,6 +40,12 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
 
   defp strip(body), do: M.strip(body)
 
+  # %{"issued_at" => iso} -> UTC+5 calendar year, as Letflow.Documents numbers it
+  defp issued_year(%{"issued_at" => iso}) do
+    {:ok, at, _} = DateTime.from_iso8601(iso)
+    at |> DateTime.add(5 * 3600, :second) |> Map.fetch!(:year)
+  end
+
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
     if conn.resp_body == "", do: nil, else: S.json(conn)
@@ -377,7 +383,9 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       issued = D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a) |> status!(200)
 
       assert issued["state"] == "issued"
-      assert issued["number"] == "RCP-#{Date.utc_today().year}-000001"
+
+      # # the number year is the UTC+5 year of the issue instant (Documents.period_of): read it from issued_at, not the test clock
+      assert issued["number"] == "RCP-#{issued_year(issued)}-000001"
       assert is_binary(issued["issued_at"])
 
       assert Map.drop(issued, ["state", "number", "issued_at"]) ==

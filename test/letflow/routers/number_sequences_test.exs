@@ -110,6 +110,8 @@ defmodule Letflow.Routers.NumberSequencesTest do
   end
 
   test "C1b a record created through the existing route gets ORD-<year>-000001", %{base: base} do
+    # pin the clock mid-year: the number year must not depend on when the suite crosses 1 January UTC
+    Application.put_env(:letflow, :number_sequences_clock, fn -> ~U[2030-06-15 12:00:00Z] end)
     assert call(base, :post, "/", @admin, attrs()).status == 201
 
     conn =
@@ -130,7 +132,7 @@ defmodule Letflow.Routers.NumberSequencesTest do
     assert conn.status in 200..299, conn.resp_body
 
     assert [%{formatted: value}] = Repo.all(Number, prefix: base.schema)
-    assert value == "ORD-#{Date.utc_today().year}-000001"
+    assert value == "ORD-2030-000001"
   end
 
   test "L1 an empty tenant lists [] and the list is ordered by key", %{base: base} do
