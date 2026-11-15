@@ -81,7 +81,9 @@ test.afterAll(async () => {
   await context?.close()
 })
 
-test('E1 a card, a commission started from it, issued', async (_fixtures, testInfo) => {
+// Playwright needs an object destructuring pattern as the first argument; no fixture is used here.
+// eslint-disable-next-line no-empty-pattern
+test('E1 a card, a commission started from it, issued', async ({}, testInfo) => {
   inventoryNumber = `E2E-${ENV.runTag}-${testInfo.retry}`
   await openRoute(page, '/admin/assets/cards')
   await page.getByTestId('asset-create').first().click()
