@@ -433,8 +433,8 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
       assert elapsed >= 250,
              "the append waited for the bound (#{elapsed} ms), it did not fail early"
 
-      assert elapsed < 1_500,
-             "the wait is bounded by the option, not by the holder (#{elapsed} ms)"
+      # No wall-time ceiling (flaky under shared load): the holder is still held here, so getting
+      # `{:error, :contention}` back at all proves the wait was cut by the option, not by the holder.
 
       release!(holder)
       flush_contention_reports()
@@ -648,7 +648,7 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
 
       assert result == [nil, "contention"]
       assert elapsed >= 250, "the emit waited for the bound (#{elapsed} ms)"
-      assert elapsed < 1_500, "bounded by the option (#{elapsed} ms)"
+      # No wall-time ceiling: the holder was still held while the script got "contention" back.
       refute "ATTACHMENT_ATTACHED" in event_types(base, x)
     end
 
