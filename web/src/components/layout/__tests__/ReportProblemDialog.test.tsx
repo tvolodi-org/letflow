@@ -13,7 +13,6 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
 import { recordAction, recordRequest, resetCapture } from '@/lib/problemReport/capture'
 import { problemReportsApi } from '@/api/problemReports'
-import { MAX_IMAGE_BYTES } from '@/lib/problemReport/images'
 import { ReportProblemDialog } from '../ReportProblemDialog'
 import { reportProblemMessages as M } from '../reportProblemMessages'
 
