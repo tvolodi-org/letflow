@@ -5,6 +5,7 @@ defmodule Letflow.CiStockE2ePathsTest do
 
     * P1 a stock or asset web file (T-1915), a GATE B spec, the e2e stack scripts or the rule itself -> `stock_web=true`;
       docs, backend and other web files -> `stock_web=false`; an empty list -> false; always exit 0, one line;
+    * W2 (T-1997) the schedule signal job `nightly_signal` writes tag `e2e-nightly-red` and a main-fix issue on red, clears both on green;
     * W1 the job exists with the required-check name, runs on PR, merge queue, schedule and dispatch, decides per path
       through the script, runs the relogin spec only on schedule / dispatch, and fails (does not skip) a missing credential.
   """
@@ -91,6 +92,29 @@ defmodule Letflow.CiStockE2ePathsTest do
       click = Enum.find(steps, &String.contains?(&1["run"] || "", "gate-b-stock"))
       assert click["run"] =~ ~s|"${E2E_ADMIN_USER:?|
       assert click["run"] =~ ~s|"${E2E_ADMIN_PASSWORD:?|
+    end
+
+    test "W2 the nightly signal job writes the red tag and the main-fix issue, and clears them on green",
+         %{ci: ci} do
+      job = get_in(ci, ["jobs", "nightly_signal"])
+      assert job["needs"] == "stock_e2e"
+      assert job["if"] =~ "always()"
+      assert job["if"] =~ "schedule"
+      assert job["if"] =~ "workflow_dispatch"
+      assert job["if"] =~ "refs/heads/main"
+      assert get_in(job, ["permissions", "contents"]) == "write"
+      assert get_in(job, ["permissions", "issues"]) == "write"
+
+      run = job["steps"] |> Enum.map_join("\n", &(&1["run"] || ""))
+      assert run =~ "git tag -f e2e-nightly-red"
+      assert run =~ "git push -f origin refs/tags/e2e-nightly-red"
+      assert run =~ ":refs/tags/e2e-nightly-red"
+      assert run =~ "gh issue create"
+      assert run =~ "gh issue comment"
+      assert run =~ "gh issue close"
+      assert run =~ "main-fix"
+      # only a signal: the merge queue marker belongs to ci.yml
+      refute run =~ "ci-main-red"
     end
   end
 end
