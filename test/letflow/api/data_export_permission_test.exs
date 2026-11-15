@@ -5,8 +5,8 @@ defmodule Letflow.Api.DataExportPermissionTest do
   alias Letflow.Api.Authorization.AccessContext
   alias Letflow.Support.RouteInventory
 
-  test "DX-19 DataExport is the second to last core atom (ApprovalRulesManage follows), tenant scope, admins only" do
-    assert Enum.at(Authorization.core_permissions(), -2) == :DataExport
+  test "DX-19 DataExport is the third to last core atom (ApprovalRulesManage and OfficialFormTemplatesManage follow), tenant scope, admins only" do
+    assert Enum.at(Authorization.core_permissions(), -3) == :DataExport
     assert Authorization.required_permission(:DataExport) == :DataExport
     assert Authorization.permission_scope(:DataExport) == :tenant
 

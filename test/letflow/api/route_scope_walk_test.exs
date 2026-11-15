@@ -405,6 +405,14 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"POST", "/print-overrides", :tenant_wide},
                  {"POST", "/print-overrides/:id/activate", :tenant_wide},
                  {"POST", "/print-overrides/:id/retire", :tenant_wide},
+                 # T-2003: the seven official-form-template routes are all tenant-wide
+                 {"GET", "/official-form-templates", :tenant_wide},
+                 {"GET", "/official-form-templates/:id", :tenant_wide},
+                 {"GET", "/official-form-templates/:id/download", :tenant_wide},
+                 {"POST", "/official-form-templates", :tenant_wide},
+                 {"POST", "/official-form-templates/:id/activate", :tenant_wide},
+                 {"POST", "/official-form-templates/:id/retire", :tenant_wide},
+                 {"POST", "/official-form-templates/:id/rollback", :tenant_wide},
                  # REQ-555: the five saved-view routes are all tenant-wide
                  {"GET", "/", :tenant_wide},
                  {"GET", "/:id", :tenant_wide},

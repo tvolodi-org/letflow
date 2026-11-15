@@ -6,7 +6,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
     * M1 `:DocumentHold` and `:DocumentsRetentionManage` are core permissions of TENANT scope;
       TENANT_ADMIN holds both; every other role holds neither; PLATFORM_ADMIN is denied outside
       the platform tenant (0046 D4: it is never evaluated as an admin of a tenant);
-    * M2 the eight routes of `Letflow.Routers.Documents` are declared, none is default-sourced,
+    * M2 the fifteen routes of `Letflow.Routers.Documents` are declared, none is default-sourced,
       the policy route is `:tenant_wide`, the hold routes are resolver routes with the exported
       `Letflow.Documents.ScopeResolver.document_scope/1`; the walk audits to `[]`; the routes are
       not in the committed default snapshot.
@@ -25,6 +25,16 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
   @permissions [:DocumentHold, :DocumentsRetentionManage]
   @resolver {:resolver, {Letflow.Documents.ScopeResolver, :document_scope}}
 
+  @template_paths [
+    {"GET", "/documents/official-form-templates"},
+    {"GET", "/documents/official-form-templates/:id"},
+    {"GET", "/documents/official-form-templates/:id/download"},
+    {"POST", "/documents/official-form-templates"},
+    {"POST", "/documents/official-form-templates/:id/activate"},
+    {"POST", "/documents/official-form-templates/:id/retire"},
+    {"POST", "/documents/official-form-templates/:id/rollback"}
+  ]
+
   @hold_lines [
     "POST /documents/:document_id/hold DocumentHold",
     "POST /documents/:document_id/hold/release DocumentHold"
@@ -40,7 +50,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
         assert Authorization.required_permission(p) == p
       end
 
-      assert core |> Enum.take(-19) |> Enum.take(2) == @permissions
+      assert core |> Enum.take(-20) |> Enum.take(2) == @permissions
     end
 
     test "TENANT_ADMIN holds both; every other role holds neither" do
@@ -76,7 +86,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
       end
     end
 
-    test "the eight routes resolve their policy keys" do
+    test "the fifteen routes resolve their policy keys" do
       assert Authorization.endpoint_policy_key("PUT", "/documents/types/:key/retention") ==
                :DocumentsRetentionManage
 
@@ -95,6 +105,10 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
           ] do
         assert Authorization.endpoint_policy_key(method, path) == :DocumentPrintTemplatesManage
       end
+
+      for {method, path} <- @template_paths do
+        assert Authorization.endpoint_policy_key(method, path) == :OfficialFormTemplatesManage
+      end
     end
   end
 
@@ -106,8 +120,8 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
        routes: routes, doc_routes: Enum.filter(routes, &(&1.router == Letflow.Routers.Documents))}
     end
 
-    test "exactly eight routes, all declared and none admin-plane", %{doc_routes: rows} do
-      assert length(rows) == 8
+    test "exactly fifteen routes, all declared and none admin-plane", %{doc_routes: rows} do
+      assert length(rows) == 15
       assert Enum.all?(rows, &(&1.source == :declared))
       refute Enum.any?(rows, &(&1.class == :admin_plane))
     end
@@ -132,6 +146,22 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
       assert Enum.all?(prints, &(&1.source == :declared and &1.class == :tenant_wide))
       assert Enum.all?(prints, &(&1.key == :DocumentPrintTemplatesManage))
       refute Enum.any?(prints, &String.contains?(&1.path, "tenant"))
+    end
+
+    test "R10 the seven official-form-template routes are declared and tenant-wide", %{
+      doc_routes: rows
+    } do
+      templates =
+        Enum.filter(rows, &String.starts_with?(&1.path, "/documents/official-form-templates"))
+
+      assert length(templates) == 7
+
+      assert templates |> Enum.map(&{&1.method, &1.path}) |> Enum.sort() ==
+               Enum.sort(@template_paths)
+
+      assert Enum.all?(templates, &(&1.source == :declared and &1.class == :tenant_wide))
+      assert Enum.all?(templates, &(&1.key == :OfficialFormTemplatesManage))
+      refute Enum.any?(templates, &String.contains?(&1.path, "tenant"))
     end
 
     test "the walk audits to [] and the default snapshot holds none of the routes", %{
