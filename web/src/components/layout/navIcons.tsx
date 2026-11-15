@@ -4,7 +4,7 @@
 import {
   Activity, BarChart3, Boxes, ClipboardList, FileCheck, FileText, FileUp, Globe, HeartPulse, Inbox,
   KeyRound, Layers, ListTodo, Package, Puzzle, ScrollText, Server, ShieldCheck, Users, UsersRound, Webhook, Workflow,
-  Building2, History, Hourglass, PackageCheck, type LucideIcon,
+  Building2, History, Hourglass, MessageSquareWarning, PackageCheck, type LucideIcon,
 } from 'lucide-react'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -28,6 +28,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/admin/tenants': Globe,
   '/admin/services': Server,
   '/admin/module-rollouts': PackageCheck,
+  '/admin/problem-reports': MessageSquareWarning,
   '/admin/platform-migrations': Activity,
   '/solution-packs': Puzzle,
   '/admin/event-retention': Hourglass,

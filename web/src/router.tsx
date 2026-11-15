@@ -37,6 +37,7 @@ import OnboardingResultPage from '@/pages/admin/onboarding/OnboardingResultPage'
 import TenantsPage from '@/pages/admin/tenants/TenantsPage'
 import EditTenantPage from '@/pages/admin/tenants/EditTenantPage'
 import ModuleRolloutsPage from '@/pages/admin/module-rollouts/ModuleRolloutsPage'
+import ProblemReportsPage from '@/pages/admin/problem-reports/ProblemReportsPage'
 import CoreHelpPage from '@/pages/help/CoreHelpPage'
 import ServicesPage from '@/pages/admin/services/ServicesPage'
 import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/PlatformMigrationConsolePage'
@@ -159,6 +160,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'admin/tenants/:slug/edit', element: platformPage(P.TenantsManage, <EditTenantPage />) },
       { path: 'help/:topic', element: <CoreHelpPage /> },
       { path: 'admin/module-rollouts', element: platformPage(P.ModuleRolloutsManage, <ModuleRolloutsPage />) },
+      { path: 'admin/problem-reports', element: platformPage(P.ProblemReportsManage, <ProblemReportsPage />) },
       { path: 'admin/services', element: platformPage(P.PlatformServicesManage, <ServicesPage />) },
       // admin/modules route removed in ISS-0822: Letflow.Routers.ProcessModules is
       // deferred to S5 — no backend exists, every API call 404s. Restore this route

@@ -14,6 +14,12 @@ export interface NotificationCatalog {
   unread: string
   kindTaskAssigned: string
   kindCountAssigned: string
+  kindProblemReceived: string
+  kindProblemInWork: string
+  kindProblemQuestion: string
+  kindProblemAnswered: string
+  kindProblemFixed: string
+  kindProblemNotDone: string
   kindUnknown: string
 }
 
@@ -31,6 +37,12 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     unread: 'Unread',
     kindTaskAssigned: 'A task was assigned to you',
     kindCountAssigned: 'A stock count was assigned to you',
+    kindProblemReceived: 'Your problem report was received',
+    kindProblemInWork: 'Your problem report is in work',
+    kindProblemQuestion: 'A question about your problem report',
+    kindProblemAnswered: 'Your problem report was answered',
+    kindProblemFixed: 'The problem you reported is fixed',
+    kindProblemNotDone: 'Your problem report was closed without a change',
     kindUnknown: 'New notification',
   },
   ru: {
@@ -46,6 +58,12 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     unread: 'Не прочитано',
     kindTaskAssigned: 'Вам назначена задача',
     kindCountAssigned: 'Вам назначена инвентаризация',
+    kindProblemReceived: 'Ваше сообщение о проблеме получено',
+    kindProblemInWork: 'Ваше сообщение о проблеме взято в работу',
+    kindProblemQuestion: 'Вопрос по вашему сообщению о проблеме',
+    kindProblemAnswered: 'На ваше сообщение о проблеме дан ответ',
+    kindProblemFixed: 'Проблема из вашего сообщения исправлена',
+    kindProblemNotDone: 'Ваше сообщение о проблеме закрыто без изменений',
     kindUnknown: 'Новое уведомление',
   },
   kk: {
@@ -61,6 +79,12 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     unread: 'Оқылмаған',
     kindTaskAssigned: 'Сізге тапсырма тағайындалды',
     kindCountAssigned: 'Сізге түгендеу тағайындалды',
+    kindProblemReceived: 'Мәселе туралы хабарламаңыз қабылданды',
+    kindProblemInWork: 'Мәселе туралы хабарламаңыз жұмысқа алынды',
+    kindProblemQuestion: 'Мәселе туралы хабарламаңыз бойынша сұрақ',
+    kindProblemAnswered: 'Мәселе туралы хабарламаңызға жауап берілді',
+    kindProblemFixed: 'Сіз хабарлаған мәселе түзетілді',
+    kindProblemNotDone: 'Мәселе туралы хабарламаңыз өзгеріссіз жабылды',
     kindUnknown: 'Жаңа хабарландыру',
   },
 }
@@ -77,5 +101,11 @@ export function notificationLink(kind: string, refId: string | null): string | n
 export function notificationText(m: NotificationCatalog, kind: string): string {
   if (kind === 'task_assigned') return m.kindTaskAssigned
   if (kind === 'count_assigned') return m.kindCountAssigned
+  if (kind === 'problem_report_received') return m.kindProblemReceived
+  if (kind === 'problem_report_in_work') return m.kindProblemInWork
+  if (kind === 'problem_report_question') return m.kindProblemQuestion
+  if (kind === 'problem_report_answered') return m.kindProblemAnswered
+  if (kind === 'problem_report_fixed') return m.kindProblemFixed
+  if (kind === 'problem_report_not_done') return m.kindProblemNotDone
   return m.kindUnknown
 }

@@ -53,6 +53,7 @@ const platformAdmin: AccessInfo = {
     'MyAccessRead',
     'MyModulesRead',
     'PlatformServicesManage',
+    'ProblemReportsManage',
     'PromotionsManage',
     'PromotionsRead',
     'PublicReadHandlesIssue',

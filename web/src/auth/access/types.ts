@@ -27,6 +27,7 @@ export const P = {
   TenantsManage: 'TenantsManage',
   PlatformServicesManage: 'PlatformServicesManage',
   ModuleRolloutsManage: 'ModuleRolloutsManage',
+  ProblemReportsManage: 'ProblemReportsManage',
   ModulesManage: 'ModulesManage',
   TenantSettingsManage: 'TenantSettingsManage',
   EntitiesDefinitionsRead: 'EntitiesDefinitionsRead',

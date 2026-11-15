@@ -222,4 +222,43 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert req["trace_id"] == "abc-123_DEF"
     assert req["path"] == "/api/v1/tasks"
   end
+
+  test "SR-1 entity_ids keeps id tokens only, caps at 8, drops text and bad keys" do
+    ids = %{
+      "documents" => "0b9e4c1a-1111-4222-8333-444455556666",
+      "card_id" => "A-123",
+      "note" => "my phone is +7 701 123 45 67",
+      "mail" => "a@b.kz",
+      "Bad Key" => "x",
+      "token" => 5
+    }
+
+    %{context: ctx} = parse!(%{"text" => "t", "context" => %{"entity_ids" => ids}})
+
+    assert ctx["entity_ids"] == %{
+             "documents" => "0b9e4c1a-1111-4222-8333-444455556666",
+             "card_id" => "A-123"
+           }
+
+    many = for i <- 1..12, into: %{}, do: {"k#{i}", "v#{i}"}
+    %{context: ctx} = parse!(%{"text" => "t", "context" => %{"entity_ids" => many}})
+    assert map_size(ctx["entity_ids"]) == 8
+
+    %{context: ctx} = parse!(%{"text" => "t", "context" => %{"entity_ids" => "x"}})
+    refute Map.has_key?(ctx, "entity_ids")
+  end
+
+  test "SR-1 the route still has its ids replaced next to entity_ids" do
+    %{context: ctx} =
+      parse!(%{
+        "text" => "t",
+        "context" => %{
+          "route" => "/documents/0b9e4c1a-1111-4222-8333-444455556666?x=1",
+          "entity_ids" => %{"documents" => "abc"}
+        }
+      })
+
+    assert ctx["route"] == "/documents/:id"
+    assert ctx["entity_ids"] == %{"documents" => "abc"}
+  end
 end
