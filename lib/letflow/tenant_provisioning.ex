@@ -1009,7 +1009,10 @@ defmodule Letflow.TenantProvisioning do
      "20261115100001_add_owner_review_items.exs"},
     # T-1986: approval_rule_settings (four-eyes switch). Empty for every tenant; no row = ON.
     {20_261_115_200_001, Letflow.Repo.Migrations.CreateApprovalRuleSettings,
-     "20261115200001_create_approval_rule_settings.exs"}
+     "20261115200001_create_approval_rule_settings.exs"},
+    # T-1982 (0089 D5): official_form_templates, created empty; no existing row is altered.
+    {20_261_115_300_001, Letflow.Repo.Migrations.CreateOfficialFormTemplates,
+     "20261115300001_create_official_form_templates.exs"}
   ]
 
   @doc """

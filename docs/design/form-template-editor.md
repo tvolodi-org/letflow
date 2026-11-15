@@ -16,7 +16,7 @@ or rebound Word namespaces (including Strict OOXML namespaces), header/footer pl
 footnote/comment references and nested fields. Inline `src`/`href` resource links are refused too:
 legacy VML can otherwise bypass the external-relationship check; `o:relid` uses the same surviving-ID
 check as `r:*`. The default attachment scanner detects EICAR; deployments can configure the existing scanner
-adapter for broader malware detection. Totals data names, starter templates and filling remain S2.
+adapter for broader malware detection. Totals data names, starter templates and filling remain S2. S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes, permission and preview are S4b/S4c.
 
 ## Summary in plain words
 

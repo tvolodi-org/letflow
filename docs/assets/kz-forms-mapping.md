@@ -798,3 +798,28 @@ date stay blank for a system card; that the register's single holder is the "М�
 **Proof:** `test/letflow/modules/assets/form_da2_test.exs`, `test/letflow/modules/assets/form_da2_router_test.exs` (real
 tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/CardFormPrint.test.tsx`, E12 and E13 of
 `web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
+
+### 7.7 Инв-8 / Түг-8 on the print engine (T-1932)
+
+**Route:** `GET /api/v1/modules/assets/counts/:id/print/sheet?form=inv8&format=pdf|docx&lang=ru|kk` (permission
+`AssetsRead`, behind the flag `count_enabled`). `format` defaults to pdf, `lang` to ru (`en` is refused for the form; the
+plain sheet without `form` takes ru, kk and en). The query is checked before the sheet is read; an unknown, malformed or
+other-tenant id is the one 404; a count that never closed is 422 `document_not_issued`; an official PDF of more than 999
+lines is 422 `print_too_large`. Layout `priv/print_forms/inv8.json` (annex 39, 13 columns), data
+`Letflow.Modules.Assets.FormCountInv8`, read `Letflow.Modules.Assets.CountPrintSource`.
+
+**Filled, from the issued sheet:** name and BIN of the legal entity, sheet number and date, order number and date, cut-off
+date, the location (only when the count has one root), the material responsible persons, the chair and members, and per
+line the number, name (the description of a surplus line without a card), inventory number, acquisition date, counted
+quantity, book quantity and book cost; the row count and the total counted quantity. Book cost is the sheet's stored
+`book_value`, printed only on a book line of a KZT card.
+
+**Blank (never invented):** kind of objects, balance accounts (G6), release date, factory and passport numbers (G11),
+actual cost (G5), actual start and end (G12), amounts in words (G10), the responsible persons' statement and date, every
+signature, the checker.
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that Инв-8 is the right form for the asset count
+sheet and that the book cost is the card's stored book value, printed for KZT cards only.
+
+**Proof:** `test/letflow/modules/assets/form_count_inv8_test.exs`, `test/letflow/modules/assets/count_sheet_print_test.exs`,
+`test/letflow/modules/assets/count_print_router_test.exs` (real tokens, cross-tenant 404, flag off).

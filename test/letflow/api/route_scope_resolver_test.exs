@@ -315,7 +315,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-819 (GH #4372) added the three assets count result lines (285 -> 288).
       # REQ-818 (GH #4373) added the assets count scan line (288 -> 289).
       # T-1963 added the three owner review route lines (289 -> 292).
-      assert length(snapshot) == 292
+      assert length(snapshot) == 293
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
