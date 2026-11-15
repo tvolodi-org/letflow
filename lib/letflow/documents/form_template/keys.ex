@@ -3,6 +3,8 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   Closed placeholder vocabulary derived from the shipped FormPrint layouts.
   Group headings, signature captions, stamps and repeated catalog text are locked
   too: a company never has to type a legal word (0089 D1, tightening D2 in T-1981).
+  Boxed fields, annex lines and signature tables use the same names as their
+  plain counterparts; presentation does not change the legal vocabulary.
   """
   alias Letflow.Documents.FormPrint
   defstruct legal: [], data: [], tables: [], signatures: [], logo: "tenant.logo"
@@ -15,7 +17,7 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   end
 
   defp block(%{"type" => type, "label" => label}, {keys, seen})
-       when type in ["text", "title", "proxy"] do
+       when type in ["text", "title", "proxy", "annex_line"] do
     n = Map.get(seen, label, 0) + 1
     suffix = label |> String.split(".", parts: 2) |> List.last()
     name = "legal." <> suffix <> if(n == 1, do: "", else: ".#{n}")
@@ -25,7 +27,12 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   defp block(%{"type" => "field", "key" => key}, {keys, seen}),
     do: {%{keys | legal: keys.legal ++ ["legal.label." <> key], data: keys.data ++ [key]}, seen}
 
-  defp block(%{"type" => "signature", "key" => key, "parts" => parts} = b, {keys, seen}) do
+  defp block(%{"type" => "boxed_pairs", "cells" => cells}, acc) do
+    Enum.reduce(cells, acc, fn cell, acc -> block(Map.put(cell, "type", "field"), acc) end)
+  end
+
+  defp block(%{"type" => type, "key" => key, "parts" => parts} = b, {keys, seen})
+       when type in ["signature", "signature_table"] do
     legal =
       ["legal.sig." <> key] ++
         Enum.map(parts, &("legal.cap.#{key}." <> &1)) ++

@@ -367,6 +367,15 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
 
 ## 6. Kazakh official text and the print engine (E5b, T-1416)
 
+T-1973 adds reusable `boxed_pairs` (2–8 label/value cells), right-aligned `annex_line` and
+`signature_table` blocks to both renderers. Z-2 / Қ-2 is the pilot: organisation/BIN,
+number/date and the five sender/receiver/transport facts are bordered tables; signing cells
+have captions below the ruled values and retain М.П. beside the chief accountant.
+Other form layouts retain their existing blocks. This is a renderer pilot, not a declaration
+that every Ministry-template difference in the T-1965 comparison is resolved; the reference
+has a combined four-column signature arrangement, while the pilot uses one table per signer.
+The same layout serves ru and kk; no new wording or stored data is introduced.
+
 * **Built:** the print engine (`Letflow.Documents.FormPrint`, layouts and the ru/kk message catalog in
   `priv/print_forms/`) and one form on it, Z-2 (ru) / Q-2 (kk), annex 26, for an issued `issue` document:
   `GET /documents/:id/print?form=z2&format=pdf|docx&lang=ru|kk` (permission `StockRead`). The ru layout and words

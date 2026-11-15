@@ -72,9 +72,9 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   # -- blocks ----------------------------------------------------------------------------------
 
   # A text block directly before a table is kept with the start of that table (rule a).
-  defp block(%{"type" => "text", "text" => text}, i, proj, st, next) do
+  defp block(%{"type" => "text", "text" => text} = b, i, proj, st, next) do
     case prepare(text, ["blocks", i, "text"]) do
-      {:ok, cps} -> flow_item(keep_with_table(st, cps, i, proj, next), cps)
+      {:ok, cps} -> flow_item(keep_with_table(st, cps, i, proj, next), cps, b["align"])
       {:error, v} -> violate(st, v)
     end
   end
@@ -275,7 +275,7 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   end
 
   # A text/field item over the whole content width; lines flow across pages.
-  defp flow_item(st, cps) do
+  defp flow_item(st, cps, align \\ nil) do
     st = mark_used(st, cps)
     lines = wrap(cps, st.cw, :infinity)
 
@@ -286,7 +286,8 @@ defmodule Letflow.Documents.PrintLayout.Flow do
             do: {new_page(emit(st, group)), []},
             else: {st, group}
 
-        group = if line == [], do: group, else: [{st.m, baseline(st, st.used), line} | group]
+        x = if align == "right", do: st.m + max(0, st.cw - width(line)), else: st.m
+        group = if line == [], do: group, else: [{x, baseline(st, st.used), line} | group]
         {%{st | used: st.used + @line_h}, group}
       end)
 
@@ -320,11 +321,21 @@ defmodule Letflow.Documents.PrintLayout.Flow do
           st
       end
 
-    st = row(st, geo, header, path, nil, first: true)
+    if b["header_position"] == "bottom" do
+      st =
+        Enum.with_index(rows)
+        |> Enum.reduce(st, fn {r, i}, st ->
+          row(st, geo, data_cells(r, cols, geo, path), path, nil, first: i == 0)
+        end)
 
-    Enum.reduce(rows, st, fn r, st ->
-      row(st, geo, data_cells(r, cols, geo, path), path, rep, [])
-    end)
+      row(st, geo, header, path, nil, first: rows == [])
+    else
+      st = row(st, geo, header, path, nil, first: true)
+
+      Enum.reduce(rows, st, fn r, st ->
+        row(st, geo, data_cells(r, cols, geo, path), path, rep, [])
+      end)
+    end
   end
 
   # Geometry (column x/width/index), header cells and columns of a table block.
