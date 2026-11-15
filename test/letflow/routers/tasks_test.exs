@@ -391,6 +391,9 @@ defmodule Letflow.Routers.TasksTest do
       role = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "approver"})
       legacy = insert_task!(tenant, %{assignee_type: "USER", assignee_ref: "not-a-uuid"})
       group = insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: named.id})
+      # A USER ref stored in uppercase still resolves (refs are normalised on read too).
+      upper =
+        insert_task!(tenant, %{assignee_type: "USER", assignee_ref: String.upcase(named.id)})
 
       for path <- ["/", "/inbox"] do
         conn = build_conn(:get, path, tenant, roles: ["TENANT_ADMIN"]) |> dispatch()
@@ -403,6 +406,7 @@ defmodule Letflow.Routers.TasksTest do
         assert items[role.id]["assignee_name"] == nil
         assert items[legacy.id]["assignee_name"] == nil
         assert items[group.id]["assignee_name"] == nil
+        assert items[upper.id]["assignee_name"] == "Approver Name"
         refute conn.resp_body =~ "Foreign Name"
         refute conn.resp_body =~ named.email
       end

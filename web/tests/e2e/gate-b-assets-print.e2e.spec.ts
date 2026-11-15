@@ -119,6 +119,8 @@ test('E1b the commission task row shows its number and named people', async () =
   await expect(row.first().getByTestId('task-doc-date')).toBeVisible()
   await expect(row.first().getByTestId('task-issuer')).toContainText(/^Issued by: \S/)
   await expect(row.first()).not.toContainText('Another user')
+  // Serial spec: E2 prints from the document screen, so leave the page where E1 left it.
+  await reopen()
 })
 
 test('E2 the issued commission prints a PDF with the title and the inventory number', async () => {

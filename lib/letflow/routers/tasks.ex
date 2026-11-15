@@ -785,8 +785,13 @@ defmodule Letflow.Routers.Tasks do
     Letflow.Audit.user_names(Enum.uniq(ids), Keyword.fetch!(opts, :prefix))
   end
 
-  defp assignee_name(%{assignee_type: "USER", assignee_ref: ref}, names),
-    do: Map.get(names, ref)
+  # Names are keyed by the canonical (cast) UUID, so the ref is cast the same way here.
+  defp assignee_name(%{assignee_type: "USER", assignee_ref: ref}, names) do
+    case Ecto.UUID.cast(ref) do
+      {:ok, id} -> Map.get(names, id)
+      :error -> nil
+    end
+  end
 
   defp assignee_name(_task, _names), do: nil
 
