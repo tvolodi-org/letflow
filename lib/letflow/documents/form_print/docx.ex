@@ -163,6 +163,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
     [
       para([]),
       "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>",
+      if(Enum.all?(columns, & &1.width), do: "<w:tblLayout w:type=\"fixed\"/>", else: ""),
       "<w:tblBorders>",
       for(
         side <- ~w(top left bottom right insideH insideV),
@@ -222,6 +223,18 @@ defmodule Letflow.Documents.FormPrint.Docx do
   @min_col 800
 
   defp col_widths(columns, page_w) do
+    if Enum.all?(columns, & &1.width),
+      do: weighted_widths(columns, page_w),
+      else: auto_widths(columns, page_w)
+  end
+
+  # Widths given by the layout (the reference template's grid) as weights, scaled to the text area.
+  defp weighted_widths(columns, page_w) do
+    total = columns |> Enum.map(& &1.width) |> Enum.sum()
+    Enum.map(columns, &trunc(&1.width * page_w / total))
+  end
+
+  defp auto_widths(columns, page_w) do
     need =
       Map.new(columns, fn c -> {c.no, word_need(c.label)} end)
 
