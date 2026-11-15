@@ -112,6 +112,14 @@ Everything below can be re-run; raw outputs of this run are in the task folder `
 4. Nothing was installed and no template was copied: the folder was mounted read only into the flatpak sandbox and
    the PDFs and PNGs were written to the task folder.
 
+## Guard (T-1979)
+
+`test/letflow/documents/form_fingerprint_test.exs` keeps each form from drifting: it builds every shipped form in
+ru and kk and compares the page, margins and data tables with `test/fixtures/form_fingerprints/<form>.json`, made
+from the reference template with `python3 -I -B scripts/forms_compare.py fingerprint <template.docx>` (structure
+only, no template text). To renew a fingerprint on purpose, run that command on the template of the annex and
+replace the file. The forms that still differ are named in `@known_deviations` in the test.
+
 ## Limits
 
 ### Inv-10 / Inv-18 follow-up (T-1977)
