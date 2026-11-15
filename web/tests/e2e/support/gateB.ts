@@ -60,7 +60,7 @@ export async function openRoute(page: Page, path: string): Promise<void> {
   const target = new URL(path, base)
   const rel = `${target.pathname}${target.search}${target.hash}`
   const shellUp = page.url() !== 'about:blank' && new URL(page.url()).origin === target.origin
-    && (await page.locator('#main-content').isVisible().catch(() => false))
+    && (await page.locator('#main-content').isVisible())
   if (!shellUp) {
     await page.goto(rel, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
@@ -156,11 +156,15 @@ export async function claimAndComplete(p: Page, hint: string): Promise<void> {
   await own.first().click()
   await expect(p.getByTestId('task-detail-panel')).toBeVisible()
   const claim = p.getByTestId('task-claim-button')
-  if (await claim.isVisible().catch(() => false)) await claim.click()
+  const complete = p.getByTestId('task-complete-button')
+  // Wait until the panel shows one of the two buttons: a one-shot isVisible() ran before Claim rendered and skipped the
+  // claim, so Complete never appeared (CI run 43657586709, P1 and G2).
+  await expect(claim.or(complete).first()).toBeVisible({ timeout: 20_000 })
+  if (await claim.isVisible()) await claim.click()
   // R11: Complete appears after the claim
-  await expect(p.getByTestId('task-complete-button')).toBeVisible({ timeout: 20_000 })
+  await expect(complete).toBeVisible({ timeout: 20_000 })
   const done = p.waitForResponse(r => r.request().method() === 'POST' && /complete/.test(r.url()) && r.ok(), { timeout: 30_000 })
-  await p.getByTestId('task-complete-button').click()
+  await complete.click()
   // Wait for the completion to reach the server before the caller navigates away (a cancelled request leaves it open).
   await done
 }

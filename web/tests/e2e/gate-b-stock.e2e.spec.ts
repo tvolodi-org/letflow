@@ -151,10 +151,14 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await openRoute(page, '/tasks')
   await page.getByTestId('task-row').filter({ hasText: number || 'Laptop' }).first().click()
   const claim = page.getByTestId('task-claim-button')
-  if (await claim.isVisible().catch(() => false)) await claim.click()
   const complete = page.getByTestId('task-complete-button')
-  if (await complete.isVisible().catch(() => false)) await complete.click()
-  await expect(page.getByTestId('task-sod-error').or(page.getByTestId('task-sod-hint'))).toBeVisible({ timeout: 20_000 })
+  const sod = page.getByTestId('task-sod-error').or(page.getByTestId('task-sod-hint')).first()
+  // Wait for the panel's buttons before deciding: a one-shot isVisible() can run before they render.
+  await expect(claim.or(complete).or(sod).first()).toBeVisible({ timeout: 20_000 })
+  if (await claim.isVisible()) await claim.click()
+  await expect(complete.or(sod).first()).toBeVisible({ timeout: 20_000 })
+  if (await complete.isVisible()) await complete.click()
+  await expect(sod).toBeVisible({ timeout: 20_000 })
 
   // G3: the second user approves
   const second = await newSession(browser, ENV.admin2, ENV.admin2Pw)

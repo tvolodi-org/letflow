@@ -52,7 +52,9 @@ async function cancelDocument(number: string) {
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Reason text').fill(`e2e ${ENV.runTag}`)
   await dialog.getByRole('button', { name: 'Cancel document', exact: true }).click()
-  await expect(page.getByTestId('document-header')).toContainText('Cancelled')
+  // The state pill sits in the title bar next to the number (DocBar); document-header is the field list and never
+  // holds the state word (CI run 43657586709, P2).
+  await expect(page.locator('.lf-doc__id')).toContainText('Cancelled')
   await expect(page.getByTestId('document-print')).toHaveCount(0)
   await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
   pending.delete(number)

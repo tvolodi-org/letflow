@@ -57,6 +57,29 @@ describe('GATE B e2e specs: rules that only fail in CI', () => {
     expect(bad).toEqual([])
   })
 
+  // T-1994: `if (await x.isVisible().catch(() => false)) await x.click()` probes once without waiting; in CI it ran before
+  // the task panel rendered Claim, skipped the claim, and Complete never appeared (run 43657586709, P1 and G2).
+  it('never decides on a one-shot isVisible().catch probe', () => {
+    const bad: string[] = []
+    for (const f of [...SPECS, join('support', 'gateB.ts')]) {
+      lines(f).forEach((l, i) => {
+        if (/\.isVisible\(\)\s*\.catch\(/.test(l)) bad.push(`${f}:${i + 1}: ${l.trim()}`)
+      })
+    }
+    expect(bad, 'wait for one of the expected elements first: expect(a.or(b).first()).toBeVisible()').toEqual([])
+  })
+
+  // T-1994: `document-header` is the field list of a document; the state word (Cancelled, Posted...) is in the title bar.
+  it('never looks for the Cancelled state in the document field list', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      lines(f).forEach((l, i) => {
+        if (/getByTestId\('document-header'\)\)\.toContainText\('Cancelled'\)/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad).toEqual([])
+  })
+
   it('makes the asset inventory number unique per attempt', () => {
     const src = readFileSync(join(E2E_DIR, 'gate-b-assets-print.e2e.spec.ts'), 'utf8')
     expect(src).toMatch(/inventoryNumber = `E2E-\$\{ENV\.runTag\}-\$\{testInfo\.retry\}`/)
