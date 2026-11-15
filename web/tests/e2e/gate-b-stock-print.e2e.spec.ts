@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { ENV, SKIP_REASON, hasAdmin, signIn, setPrefs, openRoute, choose, localDateTime,
-  headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
+  addStockLine, countOrderNumber, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
 import { pdfTextItems } from './support/pdfText'
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
@@ -81,12 +81,12 @@ async function createDocument(kind: string) {
     await choose(to.getByLabel('Responsible'), 'Yerlan')
   }
   await form.getByLabel('Note').fill(`print ${kind} ${ENV.runTag}`)
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill(kind === 'Receipt' ? '5' : '1')
-  if (kind === 'Receipt') await row.getByLabel('Unit price').fill('100')
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill(kind === 'Receipt' ? '5' : '1')
+    if (kind === 'Receipt') await row.getByLabel('Unit price').fill('100')
+  })
   await saveDocument(page)
   await issueDocument(page)
   const number = await headerNumber(page) // a draft has no number: it is allocated at Issue (T-1964)
@@ -97,12 +97,12 @@ async function createDocument(kind: string) {
 async function cancelCount() {
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()
-  await expect(page.getByTestId('detail-header')).toContainText(countNumber)
+  await expect(page.locator('.lf-doc__id')).toContainText(countNumber)
   const cancel = page.getByTestId('count-cancel')
   if (await cancel.isVisible()) {
     await cancel.click()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel count', exact: true }).click()
-    await expect(page.getByTestId('detail-header')).toContainText('Cancelled')
+    await expect(page.locator('.lf-doc__id')).toContainText('Cancelled')
   }
 }
 test.beforeAll(async ({ browser }) => {
@@ -129,7 +129,7 @@ test('P1 receipt act and Z-1, then posted act', async () => {
   receiptPosted = true
   await expect(async () => {
     await reopen(receiptNumber)
-    await expect(page.getByTestId('document-header')).toContainText('Posted')
+    await expect(page.locator('.lf-doc__id')).toContainText('Posted')
   }).toPass({ timeout: 60_000 })
   await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print')
 })
@@ -170,8 +170,9 @@ test('P7 count order xlsx and pdf', async () => {
   await expect(page.getByTestId('count-facts')).toBeVisible()
   await page.getByTestId('count-issue').click()
   await page.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
+  // Capture the issued number before later assertions so afterAll can cancel the count on a failure or retry.
+  countNumber = await countOrderNumber(page)
   await expect(page.getByTestId('count-open')).toBeVisible()
-  countNumber = await page.getByTestId('detail-header').getByRole('heading').innerText()
   expect(countNumber).toMatch(/\d/)
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()

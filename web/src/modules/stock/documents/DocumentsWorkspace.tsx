@@ -1,6 +1,5 @@
 /** DocumentsWorkspace — T-1379 (GATE B rework R2). One screen for the three document routes (list, one document, new
- *  document) on the platform document form (`lf-doc`): list | header card | lines table on wide screens, list and header
- *  with lines below on medium ones, the open document replacing the list under 900 px. The record is never in a modal
+ *  document) on the platform document form (`lf-doc`): list | header card | lines table on desktop screens, the open document replacing the list under 900 px. The record is never in a modal
  *  (rule 2a); the list stays mounted while the user clicks other rows; Escape closes a viewed document. */
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
@@ -23,7 +22,6 @@ import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocBlank, DocCard, DocField, DocFields, DocGroup, DocLayout } from '@/components/ui/doc/DocLayout'
-import { useDocumentLayout } from '@/hooks/useDocumentLayout'
 import { DocumentTabs } from './DocumentTabs'
 import { LinesEditor } from './LinesEditor'
 import { RegisterError } from '../register/RegisterShell'
@@ -307,7 +305,6 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate()
   const { can } = useAccess()
   const back = () => navigate(DOCUMENTS_PATH)
-  const layout = useDocumentLayout()
   const docState = mode === 'create' ? 'new' : mode === 'view' ? 'existing' : 'none'
   const store = useLayoutPrefs()
   const lm = useLayoutMessages()
@@ -333,7 +330,7 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
           </>
         }
       />
-      <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
+      <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('stock.doc.blank.title')} text={t('stock.doc.blank.text')} />}
         {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} />}

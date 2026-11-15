@@ -1,6 +1,7 @@
 /** Fixtures registry (task S0d). Every screen task adds one entry here: its name, the fake API routes it reads
  *  and a render function. Keep fixtures to plain data; no secrets, no real tenant names. */
 import { useEffect } from 'react'
+import { documentPanelLayoutScreens } from './fixtures/documentPanelLayouts'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
@@ -329,6 +330,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...codesLabelScreens,
     ...codesPagedScreens,
     ...docLayoutScreens,
+    ...documentPanelLayoutScreens,
     ...layoutBaseScreens,
     ...officialFormsScreens,
     ...assetsScreens,

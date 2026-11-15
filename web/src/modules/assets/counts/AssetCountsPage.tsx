@@ -1,4 +1,4 @@
-/** AssetCountsPage — T-1933 / REQ-822 (K7a). Asset count orders in a ListDetail (rule 2a): the list with a status filter
+/** AssetCountsPage — T-1933 / REQ-822 (K7a). Asset count orders in the shared document layout (rule 2a): the list with a status filter
  *  on the left; on the right the create form, or the order of the route's :id. Shown only when the tenant's module
  *  setting count_enabled is on: the server answers 404 to every count route otherwise, and a 404 on the list shows a
  *  "not switched on" card instead of the list. */
@@ -11,7 +11,7 @@ import { useAccess } from '@/auth/access/useAccess'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
-import { ListDetail } from '@/components/ui/listDetail'
+import { DocumentSingle, DocumentWorkspace } from '@/components/ui/doc/DocumentWorkspace'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -124,7 +124,7 @@ function CountsInner() {
       }}
     />
   ) : id !== undefined ? (
-    <AssetCountDetail key={id} id={id} onClose={closePanel} />
+    <DocumentSingle onClose={closePanel}><AssetCountDetail key={id} id={id} onClose={closePanel} /></DocumentSingle>
   ) : null
   const empty = (
     <div className="lf-card">
@@ -155,11 +155,9 @@ function CountsInner() {
           </div>
         </div>
       ) : (
-        <ListDetail
+        <DocumentWorkspace
           screen="assets.counts"
           listLabel={t('assets.count.listPane')}
-          listDefault={40}
-          listMin={380}
           tools={
             <Select
               label={t('assets.count.filter.status')}
@@ -171,17 +169,9 @@ function CountsInner() {
           }
           list={master}
           listFooter={listFooter}
-          detail={
-            // a dialog inside the record owns its Escape: mark the key handled so ListDetail does not close the record
-            <div
-              className="lf-card"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && document.querySelector('[role="dialog"]') !== null) e.preventDefault()
-              }}
-            >
-              {detail}
-            </div>
-          }
+          detail={detail}
+          docKey={id}
+          creating={creating}
           empty={empty}
           detailOpen={panelOpen}
           onClose={closePanel}

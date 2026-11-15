@@ -12,7 +12,6 @@ import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { useAccess } from '@/auth/access/useAccess'
 import { DocBlank, DocLayout } from '@/components/ui/doc/DocLayout'
-import { useDocumentLayout } from '@/hooks/useDocumentLayout'
 import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
 import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import { DOCUMENTS_PATH, DocumentList } from './DocumentList'
@@ -59,7 +58,6 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate()
   const { can } = useAccess()
   const back = () => navigate(DOCUMENTS_PATH)
-  const layout = useDocumentLayout()
   const store = useLayoutPrefs()
   const lm = useLayoutMessages()
   return (
@@ -84,7 +82,7 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
           </>
         }
       />
-      <DocLayout screen={ASSET_DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={mode === 'view' ? 'existing' : mode === 'create' ? 'new' : 'none'} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
+      <DocLayout screen={ASSET_DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} docState={mode === 'view' ? 'existing' : mode === 'create' ? 'new' : 'none'} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('assets.doc.blank.title')} text={t('assets.doc.blank.text')} />}
         {mode === 'create' && <DocumentCreate onBack={back} />}

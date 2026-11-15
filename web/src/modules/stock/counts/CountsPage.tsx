@@ -1,6 +1,6 @@
-/** CountsPage — GH 3735 / REQ-702. Count orders in a ListDetail (rule 2a): the list with a status filter on the
+/** CountsPage — GH 3735 / REQ-702. Count orders in the shared document layout (rule 2a): the list with a status filter on the
  *  left; on the right the create form, or the order (and from status counting on, its sheet) of the route's :id.
- *  Escape (owned by ListDetail) and the close button leave the panel. Names of masters come through the generic query route only. */
+ *  Escape (owned by DocLayout) and the close button leave the panel. Names of masters come through the generic query route only. */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -9,7 +9,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
-import { ListDetail } from '@/components/ui/listDetail'
+import { DocumentWorkspace } from '@/components/ui/doc/DocumentWorkspace'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import { Select } from '@/components/ui/Select'
@@ -149,11 +149,9 @@ function CountsInner() {
           </>
         }
       />
-      <ListDetail
+      <DocumentWorkspace
         screen="stock.counts"
         listLabel={t('counts.listPane')}
-        listDefault={40}
-        listMin={380}
         tools={
           <Select
             label={t('counts.filter.status')}
@@ -165,17 +163,9 @@ function CountsInner() {
         }
         list={master}
         listFooter={listFooter}
-        detail={
-          // a dialog inside the record owns its Escape: mark the key handled so ListDetail does not close the record
-          <div
-            className="lf-card"
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && document.querySelector('[role="dialog"]') !== null) e.preventDefault()
-            }}
-          >
-            {detail}
-          </div>
-        }
+        detail={detail}
+        docKey={id}
+        creating={creating}
         empty={empty}
         detailOpen={panelOpen}
         onClose={closePanel}

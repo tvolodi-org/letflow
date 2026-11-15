@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { DOCS, LIST, fakeMasters, renderStock, stockDoc, withPost } from './stockTestKit'
+import { DOC_KINDS } from '../documents/documentsModel'
 
 expect.extend(jestDomMatchers)
 
@@ -35,6 +36,16 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('L3 layout of the document screens', () => {
+  it.each(DOC_KINDS)('T-2006 %s keeps every panel inside the document grid', async (kind) => {
+    serve('row', [stockDoc({ id: 'd1', kind, state: 'posted' })])
+    renderStock(`${LIST}/d1`, withPost)
+    const grid = await screen.findByTestId('document-workspace')
+    await screen.findByTestId('document-lines')
+    for (const pane of ['list', 'header', 'lines']) {
+      expect(grid.querySelectorAll(`:scope > .lf-doc__${pane}`)).toHaveLength(1)
+      expect(document.querySelectorAll(`.lf-doc__${pane}`)).toHaveLength(1)
+    }
+  })
   it('tabs: an existing document opens on Lines, a click or arrow key switches, another document resets', async () => {
     serve('tabs', [stockDoc({ id: 'd1', number: 'RC-1', state: 'posted' }), stockDoc({ id: 'd2', number: 'RC-2', state: 'posted' })])
     renderStock(`${LIST}/d1`, withPost)

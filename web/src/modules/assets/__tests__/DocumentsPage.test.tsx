@@ -126,6 +126,16 @@ describe('L1 list', () => {
 })
 
 describe('V1 view', () => {
+  it.each(DOC_KINDS)('T-2006 %s keeps every panel inside the document grid', async (kind) => {
+    fakeDocument(clientMock, assetDoc({ kind, state: 'posted' }))
+    renderAssets(VIEW)
+    const grid = await screen.findByTestId('document-workspace')
+    await screen.findByTestId('document-lines')
+    for (const pane of ['list', 'header', 'lines']) {
+      expect(grid.querySelectorAll(`:scope > .lf-doc__${pane}`)).toHaveLength(1)
+      expect(document.querySelectorAll(`.lf-doc__${pane}`)).toHaveLength(1)
+    }
+  })
   it('shows the commission header with names, the lines in line order with asset names, and no tenant id in any request', async () => {
     renderAssets(VIEW)
     await screen.findByTestId('document-lines')

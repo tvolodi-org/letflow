@@ -155,7 +155,8 @@ describe('O8 pickers', () => {
       for (const type of ['org_unit', 'org_employee', 'location_node']) expect(queryBodies(clientMock, type).length).toBeGreaterThan(0)
     })
     const paths = clientMock.get.mock.calls.map(([p]) => p as string)
-    expect(paths.every((p) => p.startsWith(BASE))).toBe(true)
+    expect(paths).toContain('/api/v1/me/preferences')
+    expect(paths.every((p) => p.startsWith(BASE) || p === '/api/v1/me/preferences')).toBe(true)
   })
 })
 
