@@ -2,7 +2,7 @@ defmodule Letflow.Documents.OfficialFormTemplates do
   @moduledoc """
   Per-tenant company templates (docx) of the official print forms, slice S4a of decision 0089 D5
   (T-1982): storage, versions, rollback and audit. The routes (`Letflow.Routers.Documents`) and the
-  permission `:OfficialFormTemplatesManage` are S4b (T-2003), the preview is S4c; nothing reads this table yet (the print path is S3).
+  permission `:OfficialFormTemplatesManage` are S4b (T-2003), preview is S4c (T-2004, `FormTemplate.preview/4`); the print path is S3.
 
   A template is one stored docx for a `(form_id, locale)` pair with a status
   `draft -> active -> retired` (a draft may also be discarded: `draft -> retired`). `upload/4`
