@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { ENV, SKIP_REASON, hasAdmin, signIn, setPrefs, openRoute, choose, localDateTime,
-  addStockLine, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
+  addStockLine, countOrderNumber, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
 import { pdfTextItems } from './support/pdfText'
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
@@ -97,12 +97,12 @@ async function createDocument(kind: string) {
 async function cancelCount() {
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()
-  await expect(page.getByTestId('detail-header')).toContainText(countNumber)
+  await expect(page.locator('.lf-doc__id')).toContainText(countNumber)
   const cancel = page.getByTestId('count-cancel')
   if (await cancel.isVisible()) {
     await cancel.click()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel count', exact: true }).click()
-    await expect(page.getByTestId('detail-header')).toContainText('Cancelled')
+    await expect(page.locator('.lf-doc__id')).toContainText('Cancelled')
   }
 }
 test.beforeAll(async ({ browser }) => {
@@ -170,8 +170,9 @@ test('P7 count order xlsx and pdf', async () => {
   await expect(page.getByTestId('count-facts')).toBeVisible()
   await page.getByTestId('count-issue').click()
   await page.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
+  // Capture the issued number before later assertions so afterAll can cancel the count on a failure or retry.
+  countNumber = await countOrderNumber(page)
   await expect(page.getByTestId('count-open')).toBeVisible()
-  countNumber = await page.getByTestId('detail-header').getByRole('heading').innerText()
   expect(countNumber).toMatch(/\d/)
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()

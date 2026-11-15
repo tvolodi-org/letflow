@@ -1,8 +1,15 @@
 /** T-2006: local harness browser proof; general e2e specs are not run by the fixed Stock CI job. */
 import { expect, test, type Page } from '@playwright/test'
-import { addStockLine } from './support/gateB'
+import { addStockLine, countOrderNumber } from './support/gateB'
 
 test.use({ video: 'off', launchOptions: process.env['LF_CHROMIUM'] ? { executablePath: process.env['LF_CHROMIUM'] } : {} })
+
+test('count print helper reads the number from the shared document title', async ({ page }) => {
+  await page.goto('/__harness/panels-stock-count-row')
+  await expect(page.getByTestId('count-facts')).toBeVisible()
+  expect(await countOrderNumber(page)).toBe('CNT-0002')
+  await expect(page.locator('.lf-doc__id')).toContainText('Counting')
+})
 
 for (const width of [1440, 390, 2560]) {
   test(`stock line entry at ${width}: saves through the responsive editor`, async ({ page }) => {

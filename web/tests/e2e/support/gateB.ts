@@ -127,6 +127,13 @@ export async function headerNumber(p: Page): Promise<string> {
   return value
 }
 
+/** Read the issued count number from its record title, excluding the adjacent status. */
+export async function countOrderNumber(p: Page): Promise<string> {
+  const heading = p.locator('.lf-doc__id').getByRole('heading')
+  await expect(heading).toHaveText(/^[A-Z]+-[\d-]+$/)
+  return (await heading.innerText()).trim()
+}
+
 /** Fill a date-and-time field (`DateTimeField`: two inputs "<label>, date" and "<label>, time") from a local
  *  `YYYY-MM-DDTHH:mm` value (English UI date format). `getByLabel(label)` alone matches four elements (strict mode). */
 export async function fillDateTime(scope: Page | Locator, label: string, local: string): Promise<void> {
