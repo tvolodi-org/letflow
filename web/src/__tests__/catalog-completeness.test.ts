@@ -27,6 +27,11 @@ import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
+import {
+  countsEn as assetCountsEn,
+  countsKk as assetCountsKk,
+  countsRu as assetCountsRu,
+} from '@/modules/assets/counts/assetCountsMessages'
 import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessages'
 import { catalogItemsItemsMessages } from '@/modules/catalog_items/catalogItemsItemsMessages'
 import { recordCodesMessages } from '@/components/record-codes/recordCodesMessages'
@@ -359,6 +364,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('assetsMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('assets', assetsMessages)
+  })
+
+  it('assetCountsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assetCounts', { en: assetCountsEn, ru: assetCountsRu, kk: assetCountsKk })
   })
 
   it('catalogItemsMessages (includes catalogItemsItems): all en keys in ru/kk, no empty values', () => {
