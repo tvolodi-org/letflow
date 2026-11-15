@@ -145,7 +145,7 @@ const forbidden: HarnessScreen = {
 
 export const problemReportsScreens: HarnessScreen[] = [
   screen('problem-reports-shell', '/admin/problem-reports?report=r14'),
-  screen('problem-reports-shell-list', '/admin/problem-reports', { click: 'h1' }),
+  screen('problem-reports-shell-list', '/admin/problem-reports'),
   screen('problem-reports-closed', '/admin/problem-reports?report=r12&status=closed', { ids: ['r12'], click: '#pr-tab-decision' }),
   screen('problem-reports-question', '/admin/problem-reports?report=r13', { ids: ['r13', 'r14'] }),
   screen('problem-reports-dialog', '/admin/problem-reports?report=r14', { click: '[data-testid="pr-action-answer"]' }),

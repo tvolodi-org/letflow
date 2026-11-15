@@ -318,7 +318,7 @@ function ProblemReportsBody() {
         }
         listFooter={
           list.isLoading || list.isError ? undefined : (
-            <div className="lf-btn-row" data-testid="pr-list-foot">
+            <div className="lf-btn-row lf-pr__foot" data-testid="pr-list-foot">
               <span className="lf-muted" data-testid="pr-count">{t(intl, 'count', { count: rows.length })}</span>
               {list.hasNextPage && (
                 <Button variant="secondary" size="sm" data-testid="pr-load-older" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
