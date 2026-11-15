@@ -57,6 +57,11 @@ defmodule Letflow.CiBackendPathFilterTest do
   # Reason is mandatory. Keep this list small: an
   # entry here is a claim that a change confined to that path cannot change the gate result.
   @not_read_allowlist %{
+    # test/letflow/ci_stock_e2e_paths_test.exs feeds this path as a changed-file NAME to
+    # scripts/ci_stock_e2e_paths.sh; the file is never opened by the backend gate.
+    "web/src/hooks/useTaskSubjects.ts" =>
+      "changed-file name fed to the stock e2e path script; never opened",
+
     # Quoted only as TEXT asserted on, never opened: exam_definitions_test.exs:246 does
     # `assert description =~ "docs/anti-patterns.md"` on a string held in memory.
     "docs/anti-patterns.md" =>
