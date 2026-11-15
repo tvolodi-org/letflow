@@ -58,9 +58,10 @@ export function TaskList(p: TaskListProps) {
             const where = [p.label('org_unit', doc?.orgUnitId), p.label('location_node', doc?.locationId ?? doc?.fromLocationId ?? doc?.locationIds[0])]
               .filter((x) => x !== '')
               .join(' · ')
-            const issuer = ctx?.issuerId ? (ctx.issuerId === p.userId ? p.refMsg.you : (ctx.issuerLabel ?? p.refMsg.anotherUser)) : ''
+            const issuer = ctx?.issuerId ? (ctx.issuerLabel ?? (ctx.issuerId === p.userId ? p.refMsg.you : p.refMsg.anotherUser)) : ''
             const selected = p.selectedId === task.id
             const summary = linesSummary(ctx, m, p.label, p.locale)
+            const [number, ...subjectWords] = p.subjectOf(task.instance_id).split(' - ')
             return (
               <tr
                 key={task.id}
@@ -84,9 +85,9 @@ export function TaskList(p: TaskListProps) {
                   </div>
                 </td>
                 <td>
-                  <code className="mono" data-testid="task-instance-id" data-instance-id={task.instance_id}>
-                    {p.subjectOf(task.instance_id)}
-                  </code>
+                  <div data-testid="task-instance-id" data-instance-id={task.instance_id}>
+                    {subjectWords.length > 0 ? <><code className="mono">{number}</code> - {subjectWords.join(' - ')}</> : number}
+                  </div>
                   {where !== '' && <div className="lf-muted">{where}</div>}
                   {summary !== '' && <div className="lf-muted" data-testid="task-lines-summary">{summary}</div>}
                   {task.assignee_ref && (

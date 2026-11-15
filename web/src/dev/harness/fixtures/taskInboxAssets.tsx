@@ -8,6 +8,7 @@ import type { UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
 
 const ME = '11111111-2222-4333-8444-555555555555'
+const OTHER = '66666666-7777-4888-8999-000000000000'
 const T1 = 'cccccccc-0000-4000-8000-0000000000a1'
 const I1 = 'aaaaaaaa-bbbb-4ccc-8ddd-0000000000a1'
 const D1 = 'dddddddd-1111-4222-8333-0000000000a1'
@@ -33,13 +34,14 @@ const MASTER: Record<string, Record<string, unknown>> = {
   [C2]: { inventory_number: 'LV-0201', name: 'Monitor 27 inch' },
 }
 
-type Mode = 'loaded' | 'refused' | 'loading' | 'empty-lines'
+type Mode = 'loaded' | 'refused' | 'loading' | 'empty-lines' | 'named'
 
 function routesFor(mode: Mode): FixtureRoute[] {
+  const row = mode === 'named' ? { ...task, assignee_type: 'USER', assignee_ref: OTHER, assignee_name: 'gate-b6-admin2' } : task
   return [
-    { match: (p, m) => p === '/api/v1/tasks/inbox' && m === 'GET', reply: () => ({ status: 200, body: { items: [task], next_cursor: null, count: 1 } }) },
-    { match: (p, m) => p.startsWith('/api/v1/tasks/') && m === 'GET', reply: () => ({ status: 200, body: task }) },
-    { match: (p, m) => /^\/api\/v1\/instances\/[^/]+\/history$/.test(p) && m === 'GET', reply: () => ({ status: 200, body: [{ actor_id: ME }] }) },
+    { match: (p, m) => p === '/api/v1/tasks/inbox' && m === 'GET', reply: () => ({ status: 200, body: { items: [row], next_cursor: null, count: 1 } }) },
+    { match: (p, m) => p.startsWith('/api/v1/tasks/') && m === 'GET', reply: () => ({ status: 200, body: row }) },
+    { match: (p, m) => /^\/api\/v1\/instances\/[^/]+\/history$/.test(p) && m === 'GET', reply: () => ({ status: 200, body: [{ actor_id: ME, actor_label: mode === 'named' ? 'gate-b6-admin' : null }] }) },
     {
       match: (p, m) => /^\/api\/v1\/instances\/[^/]+$/.test(p) && m === 'GET',
       reply: (_s, p) => ({ status: 200, body: { id: p.split('/').pop(), variables: { document_id: D1, document_type: 'assets_opening' } } }),
@@ -47,7 +49,7 @@ function routesFor(mode: Mode): FixtureRoute[] {
     {
       match: (p, m) => p.startsWith('/api/v1/modules/assets/documents/') && m === 'GET',
       pending: mode === 'loading',
-      reply: () => (mode === 'refused' ? { status: 403, body: { error: 'forbidden' } } : { status: 200, body: doc(mode !== 'empty-lines') }),
+      reply: () => (mode === 'refused' ? { status: 403, body: { error: 'forbidden' } } : { status: 200, body: { ...doc(mode !== 'empty-lines'), issued_at: '2026-11-15T08:00:00Z' } }),
     },
     {
       match: (p, m) => p === '/api/v1/entities/query' && m === 'POST',
@@ -70,10 +72,11 @@ const ACCESS = {
   info: { roles: [], platform_tenant: false, user_id: ME, permissions: ['TasksRead', 'TasksComplete'] },
 }
 
-function withAuth(page: ReactElement): ReactElement {
+function withAuth(page: ReactElement, named = false): ReactElement {
+  const access = named ? { ...ACCESS, info: { ...ACCESS.info, permissions: [...ACCESS.info.permissions, 'TasksAssign'] } } : ACCESS
   return (
     <AuthContext.Provider value={AUTH}>
-      <AccessStateProvider state={ACCESS}>
+      <AccessStateProvider state={access}>
         <div className="lf-main">
           <main className="lf-content">{page}</main>
         </div>
@@ -85,6 +88,8 @@ function withAuth(page: ReactElement): ReactElement {
 const screen = (name: string, mode: Mode): HarnessScreen => ({ name, routes: routesFor(mode), initialPath: `/?task=${T1}`, render: () => withAuth(<TaskInboxPage />) })
 
 export const taskInboxAssetsScreens: HarnessScreen[] = [
+  { name: 'tasks-assets-named', routes: routesFor('named'), initialPath: '/?filter=all', render: () => withAuth(<TaskInboxPage />, true) },
+  { name: 'tasks-assets-named-detail', routes: routesFor('named'), initialPath: `/?filter=all&task=${T1}`, render: () => withAuth(<TaskInboxPage />, true) },
   screen('tasks-assets-approve', 'loaded'),
   screen('tasks-assets-refused', 'refused'),
   screen('tasks-assets-loading', 'loading'),

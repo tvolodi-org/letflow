@@ -57,9 +57,90 @@ describe('GATE B e2e specs: rules that only fail in CI', () => {
     expect(bad).toEqual([])
   })
 
+  // T-1994: `if (await x.isVisible().catch(() => false)) await x.click()` probes once without waiting; in CI it ran before
+  // the task panel rendered Claim, skipped the claim, and Complete never appeared (run 43657586709, P1 and G2).
+  it('never decides on a one-shot isVisible().catch probe', () => {
+    const bad: string[] = []
+    for (const f of [...SPECS, join('support', 'gateB.ts')]) {
+      lines(f).forEach((l, i) => {
+        if (/\.isVisible\(\)\s*\.catch\(/.test(l)) bad.push(`${f}:${i + 1}: ${l.trim()}`)
+      })
+    }
+    expect(bad, 'wait for one of the expected elements first: expect(a.or(b).first()).toBeVisible()').toEqual([])
+  })
+
+  // T-1994: `document-header` is the field list of a document; the state word (Cancelled, Posted...) is in the title bar.
+  it('never looks for the Cancelled state in the document field list', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      lines(f).forEach((l, i) => {
+        if (/getByTestId\('document-header'\)\)\.toContainText\('Cancelled'\)/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad).toEqual([])
+  })
+
+  // T-1994 (CI run 43665551852, G2): `openRoute` to the document already on screen is an in-app navigation that serves
+  // the cached document, so a poll for Posted built on it never fetches again (no document request after the completion).
+  it('never polls for Posted by re-routing to the same document', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      const ls = lines(f)
+      ls.forEach((l, i) => {
+        if (/await openRoute\(/.test(l) && /getByTestId\('document-header'\)\)\.toContainText\(\/Posted/.test(ls[i + 1] ?? '')) {
+          bad.push(`${f}:${i + 1}`)
+        }
+      })
+    }
+    expect(bad, 'inside toPass, open the list and click the document row so the screen remounts and fetches').toEqual([])
+  })
+
+  // T-1994 (CI run 43665551852, P8): the count form reads the typed window in the tenant zone, not the runner's UTC; a
+  // count that a spec opens must hold now in every zone (UTC-12..UTC+14), so its window reaches at least 14 h either side.
+  it('gives a count that is opened a window around now in every zone', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      const src = readFileSync(join(E2E_DIR, f), 'utf8')
+      if (!src.includes("getByTestId('count-open').click()")) continue
+      lines(f).forEach((l, i) => {
+        const m = /getByLabel\('Planned (start|end)'\)\.fill\(localDateTime\((-?\d+)\)\)/.exec(l)
+        if (!m) return
+        const hours = Number(m[2])
+        if ((m[1] === 'start' && hours > -14) || (m[1] === 'end' && hours < 14)) bad.push(`${f}:${i + 1}: ${l.trim()}`)
+      })
+    }
+    expect(bad).toEqual([])
+  })
+
+  // T-1994 (CI run 43665551852, E10): a bare 'Reason' label also matches the optional "Reason details" textarea.
+  it('names the Reason select exactly', () => {
+    const bad: string[] = []
+    for (const f of SPECS) {
+      lines(f).forEach((l, i) => {
+        if (/getByLabel\('Reason'\)/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad, "use getByLabel('Reason', { exact: true })").toEqual([])
+  })
+
   it('makes the asset inventory number unique per attempt', () => {
     const src = readFileSync(join(E2E_DIR, 'gate-b-assets-print.e2e.spec.ts'), 'utf8')
     expect(src).toMatch(/inventoryNumber = `E2E-\$\{ENV\.runTag\}-\$\{testInfo\.retry\}`/)
+  })
+})
+
+describe('Playwright test callbacks', () => {
+  // T-1994: Playwright refuses to load a spec whose test callback takes a plain identifier as its first argument
+  // ("First argument must use the object destructuring pattern"), which failed the whole stock e2e job on load.
+  it('take an object pattern as their first argument in every e2e spec', () => {
+    const all = readdirSync(E2E_DIR).filter((f) => /\.e2e\.spec\.ts$/.test(f))
+    const bad: string[] = []
+    for (const f of all) {
+      lines(f).forEach((l, i) => {
+        if (/\btest(?:\.\w+)?\(\s*['"`].*,\s*async\s*\(\s*[A-Za-z_$][\w$]*\s*[,)]/.test(l)) bad.push(`${f}:${i + 1}`)
+      })
+    }
+    expect(bad).toEqual([])
   })
 })
 

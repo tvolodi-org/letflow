@@ -6,6 +6,11 @@ here, and merged here.
 
 ## Task action refusals
 
+Task rows identify stock and asset documents by number and kind, with the document
+date, organisation and line summary. Known assignees and authors are shown by
+display name, falling back to their login name; deleted or unavailable users retain
+the anonymous fallback.
+
 My Tasks explains module upgrade refusals in English, Russian and Kazakh. A tenant
 administrator must upgrade the module under Administration > Modules, or ask the
 platform operator; repeating the task action cannot resolve the version mismatch.
