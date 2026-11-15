@@ -16,7 +16,7 @@ import { AUTH as SHELL_AUTH, makeRoutes } from './layoutBase'
 // Lazy: the real shell reads `window` at import (node-environment harness tests import the registry).
 const AppShell = lazy(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })))
 
-function inShell(state: AccessState, page: ReactElement): HarnessScreen['render'] {
+export function inShell(state: AccessState, page: ReactElement): HarnessScreen['render'] {
   return () => (
     <AuthContext.Provider value={SHELL_AUTH}>
       <BrandingProvider>
@@ -37,7 +37,7 @@ function inShell(state: AccessState, page: ReactElement): HarnessScreen['render'
 }
 
 /** Opens the first list row once it appears (used for the -shell-open fixture). */
-function AutoSelectFirst({ selector }: { selector: string }) {
+export function AutoSelectFirst({ selector }: { selector: string }) {
   useEffect(() => {
     let tries = 0
     const timer = window.setInterval(() => {

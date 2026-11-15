@@ -40,6 +40,22 @@ defmodule Letflow.ApprovalRules do
 
   @type actor :: %{user_id: Ecto.UUID.t(), trace_id: String.t() | nil}
 
+  @doc """
+  T-1987: would the engine let this caller approve their own task? True only for an interactive
+  (`:oidc`) credential and a stored OFF row for the task's step in the instance's definition: the
+  condition `Letflow.Engine.SeparationOfDuties.check/6` uses. Any read failure answers false (the
+  web keeps showing its hint; the server still decides at completion). Used by `GET /tasks/:id`.
+  """
+  @spec self_approval_allowed?(String.t(), Letflow.Engine.Task.t(), term()) :: boolean()
+  def self_approval_allowed?(prefix, %Letflow.Engine.Task{} = task, :oidc) do
+    case ApprovalRuleSetting.off_for_instance_step(Repo, prefix, task.instance_id, task.node_id) do
+      {:ok, value} -> value
+      {:error, :unreadable} -> false
+    end
+  end
+
+  def self_approval_allowed?(_prefix, _task, _credential), do: false
+
   @doc "Every four-eyes step of the tenant with its current value, sorted by definition name and node id."
   @spec list(prefix :: String.t()) :: [item()]
   def list(prefix) do

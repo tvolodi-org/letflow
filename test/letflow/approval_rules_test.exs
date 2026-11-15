@@ -92,4 +92,59 @@ defmodule Letflow.ApprovalRulesTest do
     assert Repo.all(ApprovalRuleSetting, prefix: schema) == []
     assert Repo.aggregate(Entry, :count, prefix: schema) == audit_before
   end
+
+  defp set_row!(ctx, name, node, four_eyes) do
+    Repo.insert!(
+      %ApprovalRuleSetting{
+        definition_name: name,
+        node_id: node,
+        four_eyes: four_eyes,
+        changed_by: Ecto.UUID.generate(),
+        changed_at: DateTime.utc_now(),
+        reason: "r"
+      },
+      prefix: ctx.schema_name
+    )
+  end
+
+  test "FE-R1 self_approval_allowed? is true only for oidc + an OFF row of this definition and node" do
+    ctx = case!()
+    task = S.pending_task!(ctx, @n1)
+    name = ctx.definition.name
+    schema = ctx.schema_name
+
+    # no row: ON
+    refute ApprovalRules.self_approval_allowed?(schema, task, :oidc)
+
+    # another node, another definition name: not this step
+    set_row!(ctx, name, "other_node", false)
+    set_row!(ctx, "other_definition", task.node_id, false)
+    refute ApprovalRules.self_approval_allowed?(schema, task, :oidc)
+
+    # an ON row
+    on = set_row!(ctx, name, task.node_id, true)
+    refute ApprovalRules.self_approval_allowed?(schema, task, :oidc)
+
+    # OFF row: oidc only
+    Repo.delete!(on, prefix: schema)
+    set_row!(ctx, name, task.node_id, false)
+    assert ApprovalRules.self_approval_allowed?(schema, task, :oidc)
+    refute ApprovalRules.self_approval_allowed?(schema, task, :api_token)
+    refute ApprovalRules.self_approval_allowed?(schema, task, nil)
+  end
+
+  test "FE-R2 an unreadable tenant schema answers {:error, :unreadable} / false, never raises" do
+    ctx = case!()
+    task = S.pending_task!(ctx, @n1)
+
+    assert {:error, :unreadable} =
+             ApprovalRuleSetting.off_for_instance_step(
+               Repo,
+               "tenant_missing_t1987",
+               task.instance_id,
+               task.node_id
+             )
+
+    refute ApprovalRules.self_approval_allowed?("tenant_missing_t1987", task, :oidc)
+  end
 end
