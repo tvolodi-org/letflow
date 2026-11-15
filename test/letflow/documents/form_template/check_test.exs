@@ -156,6 +156,25 @@ defmodule Letflow.Documents.FormTemplate.CheckTest do
     refute inspect(result) =~ "private_marker"
   end
 
+  test "CK-T1 total values are required" do
+    has(D.remove(D.valid(), "total.1.qty_issued"), :missing_data, "D3.2", "total.1.qty_issued")
+  end
+
+  test "CK-T2 total values cannot move into the repeat row" do
+    D.valid()
+    |> D.remove("total.1.qty_issued")
+    |> D.replace("{{lines.qty_issued}}", "{{lines.qty_issued}}{{total.1.qty_issued}}")
+    |> has(:total_place, "D3.4", "total.1.qty_issued")
+  end
+
+  test "CK-T3 total values retain their column positions" do
+    D.valid()
+    |> D.replace("{{total.1.qty_issued}}", "SWAP")
+    |> D.replace("{{total.1.price}}", "{{total.1.qty_issued}}")
+    |> D.replace("SWAP", "{{total.1.price}}")
+    |> has(:total_place, "D3.4", "total.1.qty_issued")
+  end
+
   @tag timeout: 10_000
   test "large paragraphs and many paragraphs still cap unknown-name refusals" do
     for xml <- [

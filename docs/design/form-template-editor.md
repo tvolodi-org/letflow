@@ -16,7 +16,22 @@ or rebound Word namespaces (including Strict OOXML namespaces), header/footer pl
 footnote/comment references and nested fields. Inline `src`/`href` resource links are refused too:
 legacy VML can otherwise bypass the external-relationship check; `o:relid` uses the same surviving-ID
 check as `r:*`. The default attachment scanner detects EICAR; deployments can configure the existing scanner
-adapter for broader malware detection. Totals data names, starter templates and filling remain S2. S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes and permission are S4b (T-2003, done); preview is S4c.
+adapter for broader malware detection. S2 (T-1984) adds `FormTemplate.starter/2` and `fill/5`:
+language-free starter DOCX files from the shipped layouts, and filling with catalog legal texts,
+cleaned values, repeated rows, totals and the appended Kazakh draft notice. Filling rechecks the
+template and consumes the same verified XML tree; invalid templates fail closed.
+S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes and permission are S4b (T-2003, done); preview is S4c.
+
+S2 records two deviations from decision 0089 D2: values are escaped once by the Saxy text
+writer in `Package.write/1`, rather than also by `Docx.escape/1`; missing table and total
+values print empty text, while fields and signature parts use `FormPrint.Pdf.blank/0`, matching
+the platform DOCX. The starter footer contains only the page field. Logo filling and a starter
+download route are follow-ups, as is print integration (S3); PDF still uses the platform layout.
+
+QA templates uploaded before S2 lack the now-required `total.*` names. DA-2 templates also need
+the single merged heading `legal.col.6.3` instead of `legal.col.6.3` through `legal.col.6.6`.
+Activation and rollback rechecks refuse the old vocabulary; recreate those API test uploads
+from the new starter. No stored rows are migrated.
 
 ## Summary in plain words
 
@@ -340,6 +355,10 @@ Uncompressed sizes: Ministry 156 821, 163 628, 160 377 bytes; Letflow 12 671, 12
 files were read in place and are not copied into the repository.
 
 ## Appendix B. Placeholder names per form (M)
+
+Tables with totals require `total.<table>.<key>` for each sum or mark column, placed in the
+same row as `legal.total.<table>` at that column's grid position. An adjacent span run with
+one label has one legal heading name, that of its first column; number cells remain separate.
 
 Read from `priv/print_forms/<form>.json` (blocks `field` key, `signature` key and parts, `table` rows and column keys).
 Each data field is `{{key}}`; each table column `{{<rows>.<key>}}`; each signature part `{{sig.<key>.<part>}}`.

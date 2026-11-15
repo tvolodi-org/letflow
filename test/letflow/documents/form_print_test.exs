@@ -10,6 +10,35 @@ defmodule Letflow.Documents.FormPrintTest do
   alias Letflow.Documents.FormPrint
   alias Letflow.Modules.Stock.CountPrintTest.PdfProbe
 
+  test "FP-unchanged official numbers and shared template totals" do
+    alias Letflow.Documents.FormTemplate.Xml
+
+    for form <- FormPrint.forms() do
+      {:ok, layout} = FormPrint.layout(form)
+      model = FormPrint.resolve(layout, data(), "ru", FormPrint.catalog())
+      values = FormPrint.template_data(layout, data(), "ru", FormPrint.catalog())
+      assert values.tables == for({:table, t} <- model, do: t)
+
+      for {:table, t} <- model do
+        {:ok, bytes} = FormPrint.Docx.render([{:table, t}])
+
+        {:ok, tree} =
+          bytes
+          |> Letflow.FormTemplateDocx.unpack()
+          |> Map.fetch!("word/document.xml")
+          |> Xml.parse()
+
+        depth =
+          FormPrint.header_cells(t.columns) |> Enum.map(&(&1.row + &1.rowspan)) |> Enum.max()
+
+        numbers =
+          tree |> Xml.named("w:tr") |> Enum.at(depth) |> Xml.named("w:t") |> Enum.map(&Xml.text/1)
+
+        assert numbers == Enum.map(t.columns, &Integer.to_string(&1.no))
+      end
+    end
+  end
+
   @ru_title "Накладная на отпуск запасов на сторону"
   @kk_title "ҚОРЛАРДЫ ШЕТКЕ БЕРУГЕ АРНАЛҒАН ЖҮКҚҰЖАТ"
 

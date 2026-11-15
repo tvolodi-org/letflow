@@ -5,13 +5,36 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   too: a company never has to type a legal word (0089 D1, tightening D2 in T-1981).
   Boxed fields, annex lines and signature tables use the same names as their
   plain counterparts; presentation does not change the legal vocabulary.
+  Each block owns its names and every legal name records its catalog or literal
+  source. Adjacent span leaves share the first column's heading name; totals
+  require one data name for each summed or marked column (S2).
   """
   alias Letflow.Documents.FormPrint
-  defstruct legal: [], data: [], tables: [], signatures: [], logo: "tenant.logo"
+
+  defstruct legal: [],
+            data: [],
+            tables: [],
+            signatures: [],
+            blocks: [],
+            sources: %{},
+            logo: "tenant.logo"
 
   def for_form(form) do
     with {:ok, layout} <- FormPrint.layout(form) do
-      {keys, _seen} = Enum.reduce(layout["blocks"], {%__MODULE__{}, %{}}, &block/2)
+      {keys, _seen} =
+        Enum.reduce(layout["blocks"], {%__MODULE__{}, %{}}, fn b, {before, seen} ->
+          {after_keys, seen} = block(b, {before, seen})
+          legal = after_keys.legal -- before.legal
+          data = after_keys.data -- before.data
+          sources = sources(b, legal, after_keys)
+
+          {%{
+             after_keys
+             | blocks: before.blocks ++ [%{legal: legal, data: data}],
+               sources: Map.merge(before.sources, sources)
+           }, seen}
+        end)
+
       {:ok, keys}
     end
   end
@@ -51,7 +74,19 @@ defmodule Letflow.Documents.FormTemplate.Keys do
   defp block(%{"type" => "table", "columns" => cols, "rows" => rows} = b, {keys, seen}) do
     t = length(keys.tables) + 1
     lines = Enum.map(cols, &(rows <> "." <> &1["key"]))
-    headings = for n <- 1..length(cols), do: {"legal.col.#{t}.#{n}", n - 1}
+
+    headings =
+      cols
+      |> Enum.with_index()
+      |> Enum.chunk_by(fn {c, i} ->
+        path = (c["groups"] || List.wrap(c["group"])) ++ [c["label"]]
+        if c["span"] == true, do: {:leaf_span, path}, else: {:leaf, i}
+      end)
+      |> Enum.map(fn chunk ->
+        {_, i} = hd(chunk)
+        {"legal.col.#{t}.#{i + 1}", i}
+      end)
+
     numbers = for n <- 1..length(cols), do: {"legal.colno.#{t}.#{n}", n - 1}
 
     groups =
@@ -66,26 +101,84 @@ defmodule Letflow.Documents.FormTemplate.Keys do
       end)
       |> Enum.uniq_by(&elem(&1, 0))
       |> Enum.with_index(1)
-      |> Enum.map(fn {{_, start}, g} -> {"legal.group.#{t}.#{g}", start} end)
+      |> Enum.map(fn {{path, start}, g} ->
+        %{name: "legal.group.#{t}.#{g}", start: start, path: path}
+      end)
+
+    group_headings = Enum.map(groups, &{&1.name, &1.start})
 
     total = if b["totals"], do: "legal.total.#{t}", else: nil
 
+    totals =
+      if b["totals"],
+        do:
+          cols
+          |> Enum.with_index()
+          |> Enum.filter(fn {c, _} ->
+            c["key"] in ((b["totals"]["sum"] || []) ++ (b["totals"]["mark"] || []))
+          end)
+          |> Enum.map(fn {c, i} -> {"total.#{t}.#{c["key"]}", i} end),
+        else: []
+
     legal =
-      Enum.map(headings ++ numbers ++ groups, &elem(&1, 0)) ++ if(total, do: [total], else: [])
+      Enum.map(headings ++ numbers ++ group_headings, &elem(&1, 0)) ++
+        if(total, do: [total], else: [])
 
     table = %{
       index: t,
       lines: lines,
-      headings: headings ++ numbers ++ groups,
+      headings: headings ++ numbers ++ group_headings,
+      groups: groups,
       total: total,
+      totals: totals,
       columns: cols
     }
 
     {%{
        keys
        | legal: keys.legal ++ legal,
-         data: keys.data ++ lines,
+         data: keys.data ++ lines ++ Enum.map(totals, &elem(&1, 0)),
          tables: keys.tables ++ [table]
      }, seen}
   end
+
+  defp sources(%{"type" => "page_break"}, _, _), do: %{}
+
+  defp sources(%{"type" => "boxed_pairs", "cells" => cells}, names, _) do
+    Map.new(Enum.zip(names, cells), fn {name, c} -> {name, {:catalog, c["label"]}} end)
+  end
+
+  defp sources(%{"type" => type} = b, names, _) when type in ["signature", "signature_table"] do
+    refs = [b["label"]] ++ Enum.map(b["parts"], &("cap." <> &1)) ++ List.wrap(b["stamp"])
+    Map.new(Enum.zip(names, refs), fn {name, ref} -> {name, {:catalog, ref}} end)
+  end
+
+  defp sources(%{"type" => "table"} = b, _, keys) do
+    t = List.last(keys.tables)
+
+    Map.new(t.headings, fn {name, i} ->
+      col = Enum.at(t.columns, i)
+
+      source =
+        cond do
+          String.starts_with?(name, "legal.colno.") ->
+            {:text, to_string(col["no"] || i + 1)}
+
+          String.starts_with?(name, "legal.group.") ->
+            group = Enum.find(t.groups, &(&1.name == name))
+            {:catalog, List.last(group.path)}
+
+          col["label"] ->
+            {:catalog, col["label"]}
+
+          true ->
+            {:text, ""}
+        end
+
+      {name, source}
+    end)
+    |> Map.merge(if(t.total, do: %{t.total => {:catalog, b["totals"]["label"]}}, else: %{}))
+  end
+
+  defp sources(b, [name], _), do: %{name => {:catalog, b["label"]}}
 end

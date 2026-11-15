@@ -42,7 +42,10 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
 
     assert Enum.sort(k.data) ==
              Enum.sort(
-               fields ++ Enum.map(columns, &("lines." <> &1)) ++ Enum.map(parts, &("sig." <> &1))
+               fields ++
+                 Enum.map(columns, &("lines." <> &1)) ++
+                 Enum.map(parts, &("sig." <> &1)) ++
+                 Enum.map(~w(qty_plan price qty_issued sum_vat vat), &("total.1." <> &1))
              )
   end
 
@@ -84,6 +87,46 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
   test "K4 unknown form is refused before reading input" do
     assert Keys.for_form("nope") == :error
     assert {:error, [%{code: :unknown_form, rule: "D3"}]} = FormTemplate.check("nope", "x")
+  end
+
+  test "K7 vocabulary has catalog sources, totals and per-block ownership" do
+    for form <- FormPrint.forms() do
+      {:ok, k} = Keys.for_form(form)
+      assert Enum.sort(Map.keys(k.sources)) == Enum.sort(k.legal)
+
+      for {_, {:catalog, key}} <- k.sources, lang <- ~w(ru kk) do
+        assert is_binary(FormPrint.catalog()[key][lang])
+        refute FormPrint.catalog()[key][lang] == ""
+      end
+
+      assert k.blocks |> Enum.flat_map(&(&1.legal ++ &1.data)) |> Enum.sort() ==
+               Enum.sort(k.legal ++ k.data)
+    end
+
+    {:ok, z2} = Keys.for_form("z2")
+
+    assert Enum.map(hd(z2.tables).totals, &elem(&1, 0)) ==
+             ~w(total.1.qty_plan total.1.qty_issued total.1.price total.1.sum_vat total.1.vat)
+
+    {:ok, inv18} = Keys.for_form("inv18")
+    assert inv18.sources["legal.colno.2.1"] == {:text, "15"}
+  end
+
+  test "K8 span runs have one heading at the first grid column" do
+    {:ok, k} = Keys.for_form("da2")
+    t = Enum.at(k.tables, 5)
+    assert {"legal.col.6.3", 2} in t.headings
+    for n <- 4..6, do: refute("legal.col.6.#{n}" in k.legal)
+    for n <- 3..6, do: assert("legal.colno.6.#{n}" in k.legal)
+    assert k.sources["legal.col.6.3"] == {:catalog, "da2.e_extra"}
+
+    for form <- FormPrint.forms() do
+      {:ok, keys} = Keys.for_form(form)
+
+      for table <- keys.tables, {c, i} <- Enum.with_index(table.columns), c["span"] != true do
+        assert {"legal.col.#{table.index}.#{i + 1}", i} in table.headings
+      end
+    end
   end
 
   test "K6 inventory page breaks add no keys and nested legal groups are locked" do

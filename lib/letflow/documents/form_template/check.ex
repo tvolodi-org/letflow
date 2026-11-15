@@ -6,6 +6,8 @@ defmodule Letflow.Documents.FormTemplate.Check do
   differs from the record's 'exactly one header row' wording, see T-1981.
   Ungrouped headings span the platform's two-row grouped headers. Required group,
   caption, stamp and other catalog-text names tighten the D2 list (0089 D1).
+  Total values must share the label's row and retain their repeat-column grid
+  position, outside the repeat row (S2).
   """
   alias Letflow.Documents.FormTemplate, as: F
 
@@ -105,7 +107,23 @@ defmodule Letflow.Documents.FormTemplate.Check do
                 else: [refusal(:total_place, "D3.4", o.place, t.total)]
             end)
 
-          row_errors ++ header_errors ++ totals
+          total_values =
+            Enum.flat_map(if(by_name[t.total], do: t.totals, else: []), fn {name, start} ->
+              expected = Enum.at(ordered, start)
+
+              Enum.flat_map(by_name[name] || [], fn o ->
+                valid =
+                  expected && o.cell &&
+                    Enum.any?(by_name[t.total] || [], fn label ->
+                      label.cell && row_key(label) == row_key(o) && label.cell.table == table &&
+                        label.cell.row > row && o.cell.grid == expected.cell.grid
+                    end)
+
+                if valid, do: [], else: [refusal(:total_place, "D3.4", o.place, name)]
+              end)
+            end)
+
+          row_errors ++ header_errors ++ totals ++ total_values
 
         _ ->
           [refusal(:repeat_row, "D3.4", hd(lines).place)]
