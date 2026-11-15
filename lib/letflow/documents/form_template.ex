@@ -11,7 +11,7 @@ defmodule Letflow.Documents.FormTemplate do
   non-plain runs cannot contain placeholders. Refusals contain fixed codes and
   structural positions, never company text or unknown names. Total values use required
   `total.<table>.<key>` names. Storage and versions: `Letflow.Documents.OfficialFormTemplates` (S4a). Routes and permission:
-  S4b (`Letflow.Routers.Documents`); printing: `OfficialFormTemplates.print_docx/5` (S3).
+  S4b (`Letflow.Routers.Documents`); preview: `preview/4` and the S4c route; printing: `OfficialFormTemplates.print_docx/5` (S3).
   """
   alias __MODULE__.{Check, Keys, Package, Sanitizer}
 
@@ -80,6 +80,15 @@ defmodule Letflow.Documents.FormTemplate do
       end
     else
       {:error, :lang_not_supported}
+    end
+  end
+
+  @doc "Fills a stored template with the synthetic sample of its form (0089 D3); no tenant data."
+  @spec preview(String.t(), binary(), String.t(), keyword()) :: {:ok, binary()} | {:error, term()}
+  def preview(form, bytes, lang, opts \\ []) do
+    case __MODULE__.Sample.data(form) do
+      {:ok, data} -> fill(form, bytes, data, lang, opts)
+      :error -> error(:unknown_form, "D3")
     end
   end
 

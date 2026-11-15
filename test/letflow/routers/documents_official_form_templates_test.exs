@@ -1,8 +1,8 @@
 defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
   @moduledoc """
-  T-2003 / decision 0089 D5, slice S4b: the seven `/documents/official-form-templates` routes of
+  T-2003/T-2004 / decision 0089 D5, slices S4b/S4c: the eight `/documents/official-form-templates` routes of
   `Letflow.Routers.Documents` and their permission `:OfficialFormTemplatesManage`. Design:
-  state/tasks/T-2003/design.md, IDs U1, U2, L1, W1, T1, T2, C1, C2, X1, X2, P1, P2, A1 (R10 is in
+  state/tasks/T-2003/design.md, IDs V1–V4, U1, U2, L1, W1, T1, T2, C1, C2, X1, X2, P1, P2, A1 (R10 is in
   `documents_route_classes_test.exs`).
 
   `async: false`: provisioned tenants and committed writes.
@@ -123,6 +123,133 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
   end
 
   defp normalised(conn), do: conn |> json() |> Map.delete("trace_id")
+
+  defmodule ScannerDown do
+    def scan(_, _), do: {:error, :down}
+  end
+
+  defp document_text(bytes) do
+    {:ok, tree} =
+      bytes |> D.unpack() |> Map.fetch!("word/document.xml") |> FormTemplate.Xml.parse()
+
+    tree |> FormTemplate.Xml.named("w:t") |> Enum.map(&FormTemplate.Xml.text/1)
+  end
+
+  defp scanner(scanner) do
+    previous = Application.fetch_env(:letflow, :attachment_scanner)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:letflow, :attachment_scanner, value)
+        :error -> Application.delete_env(:letflow, :attachment_scanner)
+      end
+    end)
+
+    Application.put_env(:letflow, :attachment_scanner, scanner)
+  end
+
+  describe "preview" do
+    test "V1 filled draft attachment is read only; active and retired also preview", %{
+      fx: fx,
+      tmp: tmp
+    } do
+      created = uploaded!(fx, tmp)
+      {:ok, stored} = OFT.get(fx.schema_name, created["id"])
+      conn = call(fx, :get, "/#{created["id"]}/preview")
+      assert conn.status == 200
+
+      assert get_resp_header(conn, "content-type") == [
+               "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+             ]
+
+      assert get_resp_header(conn, "content-disposition") == [
+               ~s(attachment; filename="z2-ru-v1-preview-ru.docx")
+             ]
+
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      {:ok, expected} = FormTemplate.preview("z2", stored.content, "ru")
+      assert document_text(conn.resp_body) == document_text(expected)
+      refute Enum.join(document_text(conn.resp_body)) =~ "{{"
+      refute conn.resp_body == stored.content
+      assert OFT.get(fx.schema_name, created["id"]) == {:ok, stored}
+      assert row_count(fx) == 1
+      assert audit_actions(fx) == ["uploaded"]
+
+      for action <- ["activate", "retire"] do
+        assert act(fx, created["id"], action).status == 200
+        before = audit_actions(fx)
+        assert call(fx, :get, "/#{created["id"]}/preview").status == 200
+        assert audit_actions(fx) == before
+      end
+    end
+
+    test "V2 language is validated before lookup and respects locale", %{fx: fx, tmp: tmp} do
+      default = uploaded!(fx, tmp, %{"locale" => "default"})
+
+      for {query, lang} <- [{"", "ru"}, {"?lang=kk", "kk"}, {"?lang=ru&lang=kk", "kk"}] do
+        conn = call(fx, :get, "/#{default["id"]}/preview#{query}")
+        assert conn.status == 200
+
+        assert get_resp_header(conn, "content-disposition") == [
+                 ~s(attachment; filename="z2-default-v1-preview-#{lang}.docx")
+               ]
+      end
+
+      for query <- ["lang=en", "lang=", "lang[]=ru"] do
+        real = call(fx, :get, "/#{default["id"]}/preview?#{query}")
+        absent = call(fx, :get, "/#{@absent}/preview?#{query}")
+        assert {real.status, absent.status} == {422, 422}
+        assert normalised(real) == normalised(absent)
+        assert json(real)["detail"] == "invalid lang"
+      end
+
+      for {locale, other} <- [{"ru", "kk"}, {"kk", "ru"}] do
+        row = uploaded!(fx, tmp, %{"locale" => locale})
+        assert call(fx, :get, "/#{row["id"]}/preview").status == 200
+        assert call(fx, :get, "/#{row["id"]}/preview?lang=#{locale}").status == 200
+        conn = call(fx, :get, "/#{row["id"]}/preview?lang=#{other}")
+        assert conn.status == 422
+        assert json(conn)["detail"] == "lang does not match the template locale"
+      end
+    end
+
+    test "V3 two tenants get identical synthetic text without their identities", %{
+      fx: fx,
+      tmp: tmp
+    } do
+      other = S.tenant!("t2004-preview-b")
+      mine = uploaded!(fx, tmp)
+      theirs = uploaded!(other, tmp)
+      a = call(fx, :get, "/#{mine["id"]}/preview?tenant_id=#{other.tenant_id}")
+      b = call(other, :get, "/#{theirs["id"]}/preview")
+      assert {a.status, b.status} == {200, 200}
+      assert document_text(a.resp_body) == document_text(b.resp_body)
+      text = Enum.join(document_text(a.resp_body))
+
+      for fixture <- [fx, other],
+          record <- [fixture.tenant, fixture.admin],
+          key <- [:slug, :display_name, :username, :email],
+          value = Map.get(record, key),
+          is_binary(value),
+          value != "" do
+        refute text =~ value
+      end
+    end
+
+    test "V4 scanner refusal is safe and writes nothing", %{fx: fx, tmp: tmp} do
+      created = uploaded!(fx, tmp, %{"file" => upload_file(tmp, docx(@sentinel))})
+      {:ok, before} = OFT.get(fx.schema_name, created["id"])
+      scanner(ScannerDown)
+      conn = call(fx, :get, "/#{created["id"]}/preview")
+      assert conn.status == 422
+      assert [%{"code" => "scan_unavailable"} = refusal] = json(conn)["refusals"]
+      assert Enum.sort(Map.keys(refusal)) == ~w(category code name place rule)
+      refute conn.resp_body =~ @sentinel
+      assert OFT.get(fx.schema_name, created["id"]) == {:ok, before}
+      assert audit_actions(fx) == ["uploaded"]
+      assert row_count(fx) == 1
+    end
+  end
 
   # -- upload ------------------------------------------------------------------------------
 
@@ -325,6 +452,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
       for {method, suffix, body} <- [
             {:get, "", nil},
             {:get, "/download", nil},
+            {:get, "/preview", nil},
             {:post, "/activate", @go},
             {:post, "/retire", @go},
             {:post, "/rollback", @go}
@@ -350,7 +478,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
         Letflow.Support.RouteInventory.routes()
         |> Enum.filter(&String.contains?(&1.path, "official-form-templates"))
 
-      assert length(rows) == 7
+      assert length(rows) == 8
       refute Enum.any?(rows, &String.contains?(&1.path, "tenant"))
 
       assert upload(fx, tmp, %{"tenant_id" => other.tenant_id}).status == 201
@@ -375,6 +503,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
       for {method, suffix, body} <- [
             {:get, "", nil},
             {:get, "/download", nil},
+            {:get, "/preview", nil},
             {:post, "/activate", @go},
             {:post, "/retire", @go},
             {:post, "/rollback", @go}
@@ -449,6 +578,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
               {:get, "", %{}},
               {:get, "/#{mine["id"]}", %{}},
               {:get, "/#{mine["id"]}/download", %{}},
+              {:get, "/#{mine["id"]}/preview", %{}},
               {:post, "", %{}},
               {:post, "/#{mine["id"]}/activate", @go},
               {:post, "/#{@absent}/retire", @go},
