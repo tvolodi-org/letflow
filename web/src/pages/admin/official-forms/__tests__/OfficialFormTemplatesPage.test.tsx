@@ -132,7 +132,7 @@ describe('W1 list and state pills', () => {
     expect(within(list).getByText('Draft v4')).toBeInTheDocument()
     expect(within(list).getByText('Own template kk v2')).toBeInTheDocument()
     expect(within(list).getAllByText('Standard')).toHaveLength(10)
-    expect(screen.getByTestId('official-forms-notice')).toHaveTextContent(/Prints do not use your templates yet/)
+    expect(screen.getByTestId('official-forms-notice')).toHaveTextContent(/Word prints use the active template of your company/)
     expect(screen.getByTestId('detail-header')).toHaveTextContent('DA-1')
   })
 

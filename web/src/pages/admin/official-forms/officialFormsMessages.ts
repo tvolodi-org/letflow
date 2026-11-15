@@ -15,9 +15,9 @@ const UI: Record<string, Triple> = {
     'Ресми нысанның түрін өз Word үлгіңізге ауыстырыңыз; заңдық мәтіндер заң белгілегендей қалады.',
   ],
   'officialForms.notice.printsPending': [
-    'Prints do not use your templates yet. Until the print update ships, every print uses the standard layout; the PDF always keeps the standard layout.',
-    'Печать пока не использует ваши шаблоны. До выхода обновления печати любая печать идёт по стандартной форме; PDF всегда остаётся по стандартной форме.',
-    'Басып шығару әзірге сіздің үлгілеріңізді қолданбайды. Басып шығару жаңартуы шыққанға дейін кез келген баспа стандартты түрде болады; PDF әрқашан стандартты түрде қалады.',
+    'Word prints use the active template of your company. The PDF always keeps the standard layout.',
+    'Печать в Word идёт по активному шаблону вашей организации. PDF всегда остаётся по стандартной форме.',
+    'Word форматындағы баспа ұйымыңыздың белсенді үлгісі бойынша жасалады. PDF әрқашан стандартты түрде қалады.',
   ],
   'officialForms.list.label': ['Official forms', 'Официальные формы', 'Ресми нысандар'],
   'officialForms.col.form': ['Form', 'Форма', 'Нысан'],
