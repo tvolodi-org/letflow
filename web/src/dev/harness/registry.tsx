@@ -96,6 +96,7 @@ import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
 import { currenciesScreens } from './fixtures/currencies'
 import { approvalRulesScreens } from './fixtures/approvalRules'
+import { officialFormTemplatesScreens } from './fixtures/officialFormTemplates'
 import { problemReportsScreens } from './fixtures/problemReports'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 
@@ -387,6 +388,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
     ...currenciesScreens,
     ...approvalRulesScreens,
+    ...officialFormTemplatesScreens,
     ...problemReportsScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
     ...fourEyesTaskScreens,

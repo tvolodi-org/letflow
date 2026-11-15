@@ -141,6 +141,12 @@ columns of every form (Q5, REQ-778 for З-2), and the forms whose Letflow docume
 * Q19 (from the mapping): may hand over and return print on З-5? Answered yes (owner via PM, 2026-11-14), built by T-1959.
 * Should a tenant be able to adjust an official form (wording, logo, extra lines) through Print templates? Today it
   cannot (D7); decision 0068 governs overrides of the generic renderer, not the module forms.
+  Update (S5, T-1983): a tenant may now upload, check, preview, activate and roll back its own docx template of an
+  official form on the "Official forms" screen (permission `OfficialFormTemplatesManage`). The legal skeleton (title,
+  form code, annex line, column headings and order, signature roles, the kk draft notice) cannot be changed or
+  removed: the platform fills it from its catalog and the upload is refused without it. Prints use the company
+  template only after S3 (print integration) merges; until then every print uses the platform layout. The PDF
+  prints the platform layout until S6.
 * An accountant confirms: З-1 for every receipt (also a receipt with no supplier); Бухгалтерская справка for openings,
   count posting and change of kind; ДА-1 for commissioning; the count order as the organisation's own free form.
 

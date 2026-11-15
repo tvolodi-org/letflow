@@ -168,6 +168,10 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.approvalRules.all(tenantId),
       list: () => queryKeys.approvalRules.list(tenantId),
     },
+    officialFormTemplates: {
+      all: () => queryKeys.officialFormTemplates.all(tenantId),
+      list: () => queryKeys.officialFormTemplates.list(tenantId),
+    },
     // NOT tenant-scoped — passed through unchanged.
     onboarding: queryKeys.onboarding,
     me: {

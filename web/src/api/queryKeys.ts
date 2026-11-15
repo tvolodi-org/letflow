@@ -310,6 +310,12 @@ export const queryKeys = {
     list: (tenantId: string) => [...queryKeys.approvalRules.all(tenantId), 'list'] as const,
   },
 
+  /** T-1983 — official-form templates admin screen. */
+  officialFormTemplates: {
+    all: (tenantId: string) => ['tenant', tenantId, 'official-form-templates'] as const,
+    list: (tenantId: string) => [...queryKeys.officialFormTemplates.all(tenantId), 'list'] as const,
+  },
+
   /** REQ-384 §6.1 — the membership list a user consults in order to switch.
    *  Deliberately NOT tenant-scoped — see this file's moduledoc. */
   me: {

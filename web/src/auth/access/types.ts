@@ -40,6 +40,7 @@ export const P = {
   SolutionOverridesManage: 'SolutionOverridesManage',
   CurrenciesManage: 'CurrenciesManage',
   ApprovalRulesManage: 'ApprovalRulesManage',
+  OfficialFormTemplatesManage: 'OfficialFormTemplatesManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */

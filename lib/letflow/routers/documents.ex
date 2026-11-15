@@ -14,6 +14,7 @@ defmodule Letflow.Routers.Documents do
   | `POST /print-overrides/:id/activate` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
   | `POST /print-overrides/:id/retire` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
+  | `GET /official-form-templates/starter/:form` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates/:id` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates/:id/download` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
   | `GET /official-form-templates/:id/preview` | `:OfficialFormTemplatesManage` | `:tenant_wide` |
@@ -101,6 +102,12 @@ defmodule Letflow.Routers.Documents do
 
   authz_get "/official-form-templates", :OfficialFormTemplatesManage, scope: :tenant_wide do
     handle_template_list(conn)
+  end
+
+  # Declared before `/:id` so `starter/<form>` is never read as a template id (T-1983, S5).
+  authz_get "/official-form-templates/starter/:form", :OfficialFormTemplatesManage,
+    scope: :tenant_wide do
+    handle_template_starter(conn, conn.params["form"])
   end
 
   authz_get "/official-form-templates/:id", :OfficialFormTemplatesManage, scope: :tenant_wide do
@@ -326,6 +333,31 @@ defmodule Letflow.Routers.Documents do
       other ->
         reply_template_error(conn, other)
     end
+  end
+
+  # The language-free starter of a shipped form (`FormTemplate.starter/2`): platform-built bytes,
+  # no tenant data is read. `form` reaches the header only when it is a shipped form id.
+  defp handle_template_starter(conn, form) do
+    case starter_bytes(form) do
+      {:ok, bytes} ->
+        conn
+        |> put_resp_content_type(@docx_type, nil)
+        |> put_resp_header("content-disposition", ~s(attachment; filename="#{form}-starter.docx"))
+        |> put_resp_header("cache-control", "no-store")
+        |> send_resp(200, bytes)
+
+      {:error, [%{code: :unknown_form} | _]} ->
+        reply_template_error(conn, {:error, {:unprocessable, :unknown_form}})
+
+      _ ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp starter_bytes(form) do
+    FormTemplate.starter(form)
+  rescue
+    _ -> {:error, :internal}
   end
 
   defp handle_template_preview(conn, id) do

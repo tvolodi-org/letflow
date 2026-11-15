@@ -28,6 +28,7 @@ import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
+import { officialFormsMessages } from '@/pages/admin/official-forms/officialFormsMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import {
   countsEn as assetCountsEn,
@@ -217,6 +218,8 @@ function unimportedCatalogs(
  */
 const KK_SAME_AS_RU_OK: Record<string, string> = {
   'reportProblem:factScreen': 'loanword, same spelling in Kazakh',
+  'officialForms:officialForms.col.module': 'loanword, same spelling in Kazakh',
+  'officialForms:officialForms.place.paragraph': 'loanword, same spelling in Kazakh',
   'reportProblem:addCompany': 'loanword, same spelling in Kazakh',
   'lines:c.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'assets:assets.cause.reversal':
@@ -366,6 +369,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('approvalRulesMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('approvalRules', approvalRulesMessages)
+  })
+
+  it('officialFormsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('officialForms', officialFormsMessages)
   })
 
   it('processDiagramMessages: all en keys in ru/kk, no empty values', () => {
@@ -525,6 +532,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
       ['approvalRules', approvalRulesMessages],
+      ['officialForms', officialFormsMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
       ['recordCodes', recordCodesMessages],

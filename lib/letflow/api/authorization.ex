@@ -152,7 +152,7 @@ defmodule Letflow.Api.Authorization do
     scope-enforcement mode. Held by TENANT_ADMIN only (derived tenant-scope rule); an explicit `false`
     clause keeps the platform tenant's PLATFORM_ADMIN out; non-assignable: not in `grantable/0`,
     modules cannot grant core permissions.
-  * `:OfficialFormTemplatesManage` (T-2003, decision 0089 D5) — route-level on the eight routes
+  * `:OfficialFormTemplatesManage` (T-2003, decision 0089 D5) — route-level on the nine routes
     under `/documents/official-form-templates`; TENANT_ADMIN by the derived tenant-scope rule,
     PLATFORM_ADMIN by the catch-all (no false clause, unlike `:ApprovalRulesManage`); not in
     `grantable/0` (the tenant-defined roles of 0088 are not built).
@@ -1410,8 +1410,11 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/documents/print-overrides/:id/retire"),
     do: :DocumentPrintTemplatesManage
 
-  # T-2003 (decision 0089 S4b): company templates of the official forms, one key for all eight routes.
+  # T-2003 (decision 0089 S4b): company templates of the official forms, one key for all nine routes (T-1983 adds the starter download).
   def endpoint_policy_key("GET", "/documents/official-form-templates"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("GET", "/documents/official-form-templates/starter/:form"),
     do: :OfficialFormTemplatesManage
 
   def endpoint_policy_key("GET", "/documents/official-form-templates/:id"),
