@@ -231,12 +231,19 @@ defmodule Letflow.Modules.Stock.IssueWriteoffTest do
     assert ok["reason_text"] == "flood"
   end
 
+  # %{"issued_at" => iso} -> UTC+5 calendar year, as Letflow.Documents numbers it
+  defp issued_year(%{"issued_at" => iso}) do
+    {:ok, at, _} = DateTime.from_iso8601(iso)
+    at |> DateTime.add(5 * 3600, :second) |> Map.fetch!(:year)
+  end
+
   test "D3 the issue step numbers per kind and runs the checks", ctx do
     first = P.issue!(ctx, body(ctx, "issue", "1"))
     off = P.issue!(ctx, writeoff(ctx, "1"))
-    year = Integer.to_string(DateTime.utc_now().year)
-    assert first["number"] == "ISS-#{year}-000001"
-    assert off["number"] == "WOF-#{year}-000001"
+
+    # # the number year is the UTC+5 year of the issue instant (Documents.period_of): read it from issued_at, not the test clock
+    assert first["number"] == "ISS-#{issued_year(first)}-000001"
+    assert off["number"] == "WOF-#{issued_year(off)}-000001"
     assert first["state"] == "issued" and off["state"] == "issued"
 
     # a post task exists for each kind (its own process definition is active)

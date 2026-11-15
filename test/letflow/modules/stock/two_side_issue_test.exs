@@ -30,10 +30,18 @@ defmodule Letflow.Modules.Stock.TwoSideIssueTest do
     {doc, Letflow.StockFixture.json(conn)}
   end
 
+  # %{"issued_at" => iso} -> UTC+5 calendar year, as Letflow.Documents numbers it
+  defp issued_year(%{"issued_at" => iso}) do
+    {:ok, at, _} = DateTime.from_iso8601(iso)
+    at |> DateTime.add(5 * 3600, :second) |> Map.fetch!(:year)
+  end
+
   test "ISS-1..3 each kind issues with its own number prefix and starts one post task", ctx do
     for {kind, prefix} <- [{"transfer", "TRF"}, {"hand_over", "HOV"}, {"return", "RET"}] do
       doc = T.issue!(ctx, T.body(kind, ctx.ma, ctx.ma, ctx.m2))
-      year = Date.utc_today().year
+
+      # # the number year is the UTC+5 year of the issue instant (Documents.period_of): read it from issued_at, not the test clock
+      year = issued_year(doc)
       assert doc["state"] == "issued" and doc["kind"] == kind
       assert doc["number"] == "#{prefix}-#{year}-000001"
       assert %{node_id: "post"} = P.pending_task(ctx, doc["id"], "post")

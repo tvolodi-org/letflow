@@ -71,8 +71,11 @@ defmodule Letflow.NumberSequences.AllocatorTest do
   end
 
   test "A1 year format, consecutive from 1", %{base: base} do
+    # pin the clock mid-year: the number's year must not depend on when the suite crosses 1 January UTC
+    Application.put_env(:letflow, :number_sequences_clock, fn -> ~U[2030-06-15 12:00:00Z] end)
+    on_exit(fn -> Application.delete_env(:letflow, :number_sequences_clock) end)
     bind!(base.schema)
-    year = Integer.to_string(DateTime.utc_now().year)
+    year = "2030"
     assert create(base.schema).record_number == "ORD-#{year}-000001"
     assert create(base.schema).record_number == "ORD-#{year}-000002"
   end
