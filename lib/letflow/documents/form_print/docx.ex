@@ -87,6 +87,31 @@ defmodule Letflow.Documents.FormPrint.Docx do
   defp block({:title, s}, _pg), do: para([run(s, bold: true, size: 28)], center: true)
   defp block({:proxy, s}, _pg), do: para([run(s)])
   defp block({:notice, s}, _pg), do: para([run(s, italic: true)])
+  defp block({:annex_line, s}, _pg), do: para([run(s)], right: true)
+
+  defp block({:boxed_pairs, cells}, pg) do
+    headers = row(Enum.map(cells, fn {label, _} -> cell(label, ts: pg.ts) end))
+    values = row(Enum.map(cells, fn {_, value} -> cell(or_blank(value), ts: pg.ts) end))
+    small_table(length(cells), [headers, values], pg)
+  end
+
+  defp block({:signature_table, label, values, captions, stamp}, pg) do
+    cells =
+      Enum.zip_with(values, captions, fn value, caption ->
+        [
+          "<w:tc><w:tcPr/>",
+          para([run(or_blank(value), size: pg.ts)], ruled: true),
+          para([run(caption, size: 16)], center: true),
+          "</w:tc>"
+        ]
+      end)
+
+    [
+      para([run(label)], keep_next: true),
+      small_table(length(cells), row(cells), pg),
+      if(stamp, do: para([run(stamp)]), else: [])
+    ]
+  end
 
   defp block({:field, label, value}, _pg),
     do: para([run(label <> ": "), run(or_blank(value), bold: value != "")])
@@ -149,6 +174,24 @@ defmodule Letflow.Documents.FormPrint.Docx do
       header,
       numbers,
       data_rows,
+      "</w:tbl>",
+      para([])
+    ]
+  end
+
+  defp small_table(n, rows, pg) do
+    borders =
+      for side <- ~w(top left bottom right insideH insideV),
+          do: ~s(<w:#{side} w:val="single" w:sz="4"/>)
+
+    [
+      "<w:tbl><w:tblPr><w:tblW w:w=\"#{pg.page_w}\" w:type=\"dxa\"/>",
+      "<w:tblLayout w:type=\"fixed\"/><w:tblBorders>",
+      borders,
+      "</w:tblBorders></w:tblPr><w:tblGrid>",
+      List.duplicate(~s(<w:gridCol w:w="#{div(pg.page_w, n)}"/>), n),
+      "</w:tblGrid>",
+      rows,
       "</w:tbl>",
       para([])
     ]
@@ -230,6 +273,8 @@ defmodule Letflow.Documents.FormPrint.Docx do
     inner =
       [
         if(opts[:keep_next], do: "<w:keepNext/>"),
+        if(opts[:right], do: ~s(<w:jc w:val="right"/>)),
+        if(opts[:ruled], do: ~s(<w:pBdr><w:bottom w:val="single" w:sz="4"/></w:pBdr>)),
         if(opts[:center], do: ~s(<w:jc w:val="center"/>))
       ]
       |> Enum.reject(&is_nil/1)

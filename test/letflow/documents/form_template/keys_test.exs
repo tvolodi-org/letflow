@@ -13,7 +13,7 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
       assert MapSet.disjoint?(MapSet.new(k.legal), MapSet.new(k.data))
       {:ok, layout} = FormPrint.layout(form)
 
-      for b <- layout["blocks"], b["type"] in ["text", "title", "proxy"] do
+      for b <- layout["blocks"], b["type"] in ["text", "title", "proxy", "annex_line"] do
         refute Enum.at(String.split(b["label"], "."), 1) in ~w(label col colno group total sig cap stamp)
       end
     end
@@ -75,7 +75,7 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
       assert Enum.count(k.legal, &String.starts_with?(&1, "legal.cap.")) == count
 
       assert layout["blocks"]
-             |> Enum.filter(&(&1["type"] == "signature"))
+             |> Enum.filter(&(&1["type"] in ["signature", "signature_table"]))
              |> Enum.map(&length(&1["parts"]))
              |> Enum.sum() == count
     end
@@ -84,5 +84,34 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
   test "K4 unknown form is refused before reading input" do
     assert Keys.for_form("nope") == :error
     assert {:error, [%{code: :unknown_form, rule: "D3"}]} = FormTemplate.check("nope", "x")
+  end
+
+  test "K5 pilot blocks retain field, annex and signature placeholders" do
+    assert {:ok, keys} = Keys.for_form("z2")
+    assert "legal.annex" in keys.legal
+    assert "legal.form_code" in keys.legal
+
+    for field <- ~w(org_name org_bin number date sender receiver responsible transport ttn) do
+      assert ("legal.label." <> field) in keys.legal
+      assert field in keys.data
+    end
+
+    assert Enum.map(keys.signatures, & &1["key"]) ==
+             ~w(allowed_by chief_acc released received)
+
+    for signer <- keys.signatures, part <- signer["parts"] do
+      assert ("legal.sig." <> signer["key"]) in keys.legal
+      assert ("legal.cap." <> signer["key"] <> "." <> part) in keys.legal
+      assert ("sig." <> signer["key"] <> "." <> part) in keys.data
+    end
+
+    assert "legal.stamp.chief_acc" in keys.legal
+    assert length(keys.tables) == 1
+
+    assert {:ok, _} =
+             FormTemplate.check(
+               "z2",
+               Letflow.FormTemplateDocx.valid() |> Letflow.FormTemplateDocx.zip()
+             )
   end
 end

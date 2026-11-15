@@ -6,7 +6,7 @@ import path from 'node:path'
 import { assetsMessages } from '../assetsMessages'
 
 const ROOT = path.resolve(__dirname, '..')
-const FOLDERS = ['documents', 'register']
+const FOLDERS = ['documents', 'register', 'counts']
 const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g
 const files = FOLDERS.flatMap((d) => readdirSync(path.join(ROOT, d)).filter((f) => /\.(ts|tsx)$/.test(f)).map((f) => path.join(d, f)))
 const read = (f: string) => readFileSync(path.join(ROOT, f), 'utf-8')
@@ -15,7 +15,7 @@ describe('G1 sources of documents/ and register/', () => {
   it('finds the screens of both folders', () => {
     expect(files).toEqual(expect.arrayContaining([
       path.join('documents', 'DocumentView.tsx'), path.join('documents', 'DocumentActions.tsx'), path.join('documents', 'DocumentList.tsx'),
-      path.join('register', 'BalancesPage.tsx'), path.join('register', 'MovementsPage.tsx'), path.join('register', 'BalanceHistoryPanel.tsx'),
+      path.join('register', 'BalancesPage.tsx'), path.join('register', 'MovementsPage.tsx'), path.join('register', 'BalanceHistoryPanel.tsx'), path.join('counts', 'AssetCountsPage.tsx'),
     ]))
   })
   for (const f of files) {
