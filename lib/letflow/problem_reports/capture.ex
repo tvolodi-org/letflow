@@ -33,6 +33,7 @@ defmodule Letflow.ProblemReports.Capture do
   @max_text 4000
   @max_actions 20
   @max_requests 10
+  @max_entity_ids 8
   @methods ~w(GET POST PUT PATCH DELETE)
   @action_kinds ~w(click nav)
   @languages ~w(en ru kk)
@@ -81,6 +82,7 @@ defmodule Letflow.ProblemReports.Capture do
     parsed =
       %{}
       |> put_present("route", route(Map.get(context, "route")))
+      |> put_present("entity_ids", entity_ids(Map.get(context, "entity_ids")))
       |> put_present("browser", browser(Map.get(context, "browser")))
       |> put_present("ui_language", ui_language(Map.get(context, "ui_language")))
       |> put_present("actions", actions(Map.get(context, "actions")))
@@ -97,6 +99,31 @@ defmodule Letflow.ProblemReports.Capture do
 
   defp route(value) when is_binary(value), do: value |> normalize_path() |> cap(300) |> mask()
   defp route(_other), do: nil
+
+  # SR-1 (T-2009): the ids of the entities on screen (document id, card id), taken by the browser from the
+  # route params and the query. Ids only: a key is a short snake_case name, a value is one id token
+  # (letters, digits, `_`, `-`; no text, no `@`, no spaces). Anything else is dropped, never masked.
+  defp entity_ids(%{} = ids) do
+    result =
+      ids
+      |> Enum.flat_map(fn
+        {key, value} when is_binary(key) and is_binary(value) ->
+          if Regex.match?(~r/\A[a-z][a-z0-9_]{0,39}\z/, key) and
+               Regex.match?(~r/\A[A-Za-z0-9_-]{1,64}\z/, value),
+             do: [{key, value}],
+             else: []
+
+        _dropped ->
+          []
+      end)
+      |> Enum.sort()
+      |> Enum.take(@max_entity_ids)
+      |> Map.new()
+
+    if map_size(result) == 0, do: nil, else: result
+  end
+
+  defp entity_ids(_other), do: nil
 
   defp browser(%{} = browser) do
     result =

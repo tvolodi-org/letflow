@@ -178,6 +178,13 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
         assert {:ok, _} = :zip.unzip(conn.resp_body, [:memory])
 
         text = docx_text(conn)
+        {:ok, files} = :zip.unzip(conn.resp_body, [:memory])
+        {_, xml} = List.keyfind(files, ~c"word/document.xml", 0)
+        # The two title tables precede the inventory table, through the real route.
+        assert length(Regex.scan(~r/<w:tbl>/, xml)) == if(form == "inv10", do: 3, else: 4)
+        assert xml =~ ~s(<w:jc w:val="right"/>)
+        assert xml =~ ~s(<w:br w:type="page"/>)
+        if form == "inv18", do: assert(xml =~ ~s(<w:gridSpan w:val="6"/>))
         {title, code} = if lang == "ru", do: {ru, ru_code}, else: {kk, kk_code}
 
         for t <- [title, code, x.le["name"], x.le["bin"]],

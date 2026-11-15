@@ -421,9 +421,12 @@ The same layout serves ru and kk; no new wording or stored data is introduced.
 * **Left blank, never invented:** all sums and prices (G5), accounts (G6), the regrading table on the back of Inv-18 (G15),
   the accountant, every signature, the IIN (G1), kind of stock, balance account, the amounts in words (G10), the actual start and
   end of an Inv-10 count (the planned times are not the actual ones, G12), the responsible persons' statement.
-* **PDF shape:** the PDF engine allows 12 columns per table, so the 14-column front table of Inv-18 is printed as two tables
-  (columns 1 to 12, then column 1 with 13 and 14; header numbers stay the official ones); the `.docx` keeps all 14. A PDF
-  holds at most 999 lines (the totals row is the 1000th row): more is `422 print_too_large`, the `.docx` has no cap.
+* **PDF shape (T-1977):** Inv-18 keeps its 14-column front table together. Both formats use the
+  three-level results/adjustments header and the reverse-side Пересортица header (columns 15–26),
+  with the template grid proportions. Inv-10 and Inv-18 use boxed organisation/BIN and number/date
+  pairs and right-aligned annex/form-code blocks. The reverse-side tables start on a new page.
+  Quantities retain fractional precision without stored trailing zeros. A PDF holds at most 999
+  lines (the totals row is the 1000th row): more is `422 print_too_large`; `.docx` has no cap.
 * **Not built, no data:** Inv-1 (goods in transit: the count kind is not in the product), Inv-3 (shipped stock: buyer, terms and
   cost are not on the issue document), Inv-7 (custody stock: there is no custody register; printing a sheet as Inv-7 would state
   a fact Letflow does not hold).
