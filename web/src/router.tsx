@@ -48,6 +48,7 @@ import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import CurrenciesPage from '@/pages/admin/currencies/CurrenciesPage'
 import ApprovalRulesPage from '@/pages/admin/approval-rules/ApprovalRulesPage'
+import OfficialFormTemplatesPage from '@/pages/admin/official-forms/OfficialFormTemplatesPage'
 import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
@@ -147,6 +148,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'me/settings', element: <MySettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/currencies', element: <RequirePermission permission={P.CurrenciesManage}><CurrenciesPage /></RequirePermission> },
+      { path: 'admin/official-forms', element: <RequirePermission permission={P.OfficialFormTemplatesManage}><OfficialFormTemplatesPage /></RequirePermission> },
       { path: 'admin/approval-rules', element: <RequirePermission permission={P.ApprovalRulesManage}><ApprovalRulesPage /></RequirePermission> },
       { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },

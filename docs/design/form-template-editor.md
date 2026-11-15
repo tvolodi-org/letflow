@@ -25,8 +25,8 @@ S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; rou
 S2 records two deviations from decision 0089 D2: values are escaped once by the Saxy text
 writer in `Package.write/1`, rather than also by `Docx.escape/1`; missing table and total
 values print empty text, while fields and signature parts use `FormPrint.Pdf.blank/0`, matching
-the platform DOCX. The starter footer contains only the page field. Logo filling and a starter
-download route are follow-ups. S3 (T-1985) is done: `FormPrint.build/5` with `tenant:` prints the
+the platform DOCX. The starter footer contains only the page field. The starter download route is S5 (T-1983). Logo filling
+is a follow-up. S3 (T-1985) is done: `FormPrint.build/5` with `tenant:` prints the
 .docx from the active company template (`OfficialFormTemplates.print_docx/5`), fails closed with
 `form_template_outdated`; PDF still uses the platform layout.
 

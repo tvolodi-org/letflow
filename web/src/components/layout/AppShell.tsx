@@ -72,6 +72,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
   { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
   { to: '/admin/print-templates', group: 'tenantAdmin', label: 'Print Templates', permission: P.DocumentPrintTemplatesManage },
+  { to: '/admin/official-forms', group: 'tenantAdmin', label: 'Official forms', permission: P.OfficialFormTemplatesManage },
   { to: '/admin/currencies', group: 'tenantAdmin', label: 'Currencies', permission: P.CurrenciesManage },
   { to: '/admin/approval-rules', group: 'tenantAdmin', label: 'Approval rules', permission: P.ApprovalRulesManage },
   { to: '/admin/import', group: 'tenantAdmin', label: 'Import data', permission: P.EntitiesRecordsImport, needsImportTypes: true },

@@ -6,7 +6,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
     * M1 `:DocumentHold` and `:DocumentsRetentionManage` are core permissions of TENANT scope;
       TENANT_ADMIN holds both; every other role holds neither; PLATFORM_ADMIN is denied outside
       the platform tenant (0046 D4: it is never evaluated as an admin of a tenant);
-    * M2 the sixteen routes of `Letflow.Routers.Documents` are declared, none is default-sourced,
+    * M2 the seventeen routes of `Letflow.Routers.Documents` are declared, none is default-sourced,
       the policy route is `:tenant_wide`, the hold routes are resolver routes with the exported
       `Letflow.Documents.ScopeResolver.document_scope/1`; the walk audits to `[]`; the routes are
       not in the committed default snapshot.
@@ -27,6 +27,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
 
   @template_paths [
     {"GET", "/documents/official-form-templates"},
+    {"GET", "/documents/official-form-templates/starter/:form"},
     {"GET", "/documents/official-form-templates/:id"},
     {"GET", "/documents/official-form-templates/:id/download"},
     {"GET", "/documents/official-form-templates/:id/preview"},
@@ -87,7 +88,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
       end
     end
 
-    test "the sixteen routes resolve their policy keys" do
+    test "the seventeen routes resolve their policy keys" do
       assert Authorization.endpoint_policy_key("PUT", "/documents/types/:key/retention") ==
                :DocumentsRetentionManage
 
@@ -121,8 +122,8 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
        routes: routes, doc_routes: Enum.filter(routes, &(&1.router == Letflow.Routers.Documents))}
     end
 
-    test "exactly sixteen routes, all declared and none admin-plane", %{doc_routes: rows} do
-      assert length(rows) == 16
+    test "exactly seventeen routes, all declared and none admin-plane", %{doc_routes: rows} do
+      assert length(rows) == 17
       assert Enum.all?(rows, &(&1.source == :declared))
       refute Enum.any?(rows, &(&1.class == :admin_plane))
     end
@@ -149,13 +150,13 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
       refute Enum.any?(prints, &String.contains?(&1.path, "tenant"))
     end
 
-    test "R10 the eight official-form-template routes are declared and tenant-wide", %{
+    test "R10 the nine official-form-template routes are declared and tenant-wide", %{
       doc_routes: rows
     } do
       templates =
         Enum.filter(rows, &String.starts_with?(&1.path, "/documents/official-form-templates"))
 
-      assert length(templates) == 8
+      assert length(templates) == 9
 
       assert templates |> Enum.map(&{&1.method, &1.path}) |> Enum.sort() ==
                Enum.sort(@template_paths)

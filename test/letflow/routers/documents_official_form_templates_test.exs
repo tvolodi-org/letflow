@@ -1,6 +1,6 @@
 defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
   @moduledoc """
-  T-2003/T-2004 / decision 0089 D5, slices S4b/S4c: the eight `/documents/official-form-templates` routes of
+  T-2003/T-2004 / decision 0089 D5, slices S4b/S4c: the nine `/documents/official-form-templates` routes of
   `Letflow.Routers.Documents` and their permission `:OfficialFormTemplatesManage`. Design:
   state/tasks/T-2003/design.md, IDs V1–V4, U1, U2, L1, W1, T1, T2, C1, C2, X1, X2, P1, P2, A1 (R10 is in
   `documents_route_classes_test.exs`).
@@ -442,6 +442,63 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
     end
   end
 
+  # -- starter download (T-1983, S5) -----------------------------------------------------------
+
+  describe "starter" do
+    test "S1 the admin gets the checked language-free starter as an attachment", %{fx: fx} do
+      conn = call(fx, :get, "/starter/da1")
+      assert conn.status == 200
+      assert [type] = get_resp_header(conn, "content-type")
+      assert type =~ "wordprocessingml.document"
+
+      assert get_resp_header(conn, "content-disposition") == [
+               ~s(attachment; filename="da1-starter.docx")
+             ]
+
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      {:ok, expected} = FormTemplate.starter("da1")
+      assert conn.resp_body == expected
+      assert {:ok, _} = FormTemplate.check("da1", conn.resp_body)
+    end
+
+    test "S2 an unknown form answers 422 and echoes nothing", %{fx: fx} do
+      for form <- ["nope", "%2E%2E", "da1%22x"] do
+        conn = call(fx, :get, "/starter/#{form}")
+        assert conn.status == 422
+        assert json(conn)["detail"] == "unknown form"
+        refute conn.resp_body =~ "nope"
+        assert get_resp_header(conn, "content-disposition") == []
+      end
+    end
+
+    test "S3 the auditor and the worker get the same 403 as on the list", %{fx: fx} do
+      for role <- ["TENANT_AUDITOR", "TASK_WORKER"] do
+        user = TokenMintFixture.role_holder!(fx.schema_name, [role])
+        list = call(fx, :get, "", %{}, user: user.id, roles: [role])
+        starter = call(fx, :get, "/starter/da1", %{}, user: user.id, roles: [role])
+        assert {list.status, starter.status} == {403, 403}
+        assert normalised(list) == normalised(starter)
+      end
+    end
+
+    test "S4 two tenants get byte-identical starters with no tenant data" do
+      a = S.tenant!("t1983-oft-a")
+      b = S.tenant!("t1983-oft-b")
+      ca = call(a, :get, "/starter/z1")
+      cb = call(b, :get, "/starter/z1")
+      assert {ca.status, cb.status} == {200, 200}
+      assert ca.resp_body == cb.resp_body
+      refute ca.resp_body =~ a.tenant.slug
+      refute ca.resp_body =~ a.schema_name
+    end
+
+    test "S5 a path under starter is never read as a template id", %{fx: fx} do
+      conn = call(fx, :get, "/starter/download")
+      assert conn.status == 422
+      assert json(conn)["detail"] == "unknown form"
+    end
+  end
+
   # -- tenant isolation --------------------------------------------------------------------
 
   describe "isolation" do
@@ -478,7 +535,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
         Letflow.Support.RouteInventory.routes()
         |> Enum.filter(&String.contains?(&1.path, "official-form-templates"))
 
-      assert length(rows) == 8
+      assert length(rows) == 9
       refute Enum.any?(rows, &String.contains?(&1.path, "tenant"))
 
       assert upload(fx, tmp, %{"tenant_id" => other.tenant_id}).status == 201
@@ -576,6 +633,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
 
         for {method, suffix, body} <- [
               {:get, "", %{}},
+              {:get, "/starter/z2", %{}},
               {:get, "/#{mine["id"]}", %{}},
               {:get, "/#{mine["id"]}/download", %{}},
               {:get, "/#{mine["id"]}/preview", %{}},
