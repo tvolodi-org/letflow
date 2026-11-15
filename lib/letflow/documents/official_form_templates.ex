@@ -2,7 +2,7 @@ defmodule Letflow.Documents.OfficialFormTemplates do
   @moduledoc """
   Per-tenant company templates (docx) of the official print forms, slice S4a of decision 0089 D5
   (T-1982): storage, versions, rollback and audit. The routes (`Letflow.Routers.Documents`) and the
-  permission `:OfficialFormTemplatesManage` are S4b (T-2003), preview is S4c (T-2004, `FormTemplate.preview/4`); the print path is S3.
+  permission `:OfficialFormTemplatesManage` are S4b (T-2003), preview is S4c (T-2004, `FormTemplate.preview/4`). The print path (S3, T-1985) reads it through `active_for_print/3` and `print_docx/5`.
 
   A template is one stored docx for a `(form_id, locale)` pair with a status
   `draft -> active -> retired` (a draft may also be discarded: `draft -> retired`). `upload/4`
@@ -16,7 +16,7 @@ defmodule Letflow.Documents.OfficialFormTemplates do
 
   Activation and rollback run the S1 check again on the stored bytes, so a template that a later
   release made outdated cannot be activated; a refusal leaves everything as it was. The print-time
-  fail-closed rule is S3.
+  fail-closed rule is `print_docx/5` (S3): the same check runs on every docx print.
 
   One administrator is enough (owner checklist item 10): activation does not need a second person.
   The audit row records `self_activated` (the actor created the template) instead (item 9).
@@ -40,6 +40,8 @@ defmodule Letflow.Documents.OfficialFormTemplates do
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Letflow.Audit
   alias Letflow.Documents.FormPrint
@@ -174,6 +176,85 @@ defmodule Letflow.Documents.OfficialFormTemplates do
     else
       _ -> {:error, :not_found}
     end
+  end
+
+  @doc """
+  The active template that a print of `form` in `lang` (`ru` or `kk`) uses (0089 D5, S3, T-1985): the
+  active row of that language, else the active `default` row, else `:none`. One query in the tenant
+  schema `prefix` (INV-1); the partial unique index allows at most one active row per pair, so at
+  most two rows come back. Drafts and retired rows are never returned.
+  """
+  @spec active_for_print(String.t(), String.t(), String.t()) ::
+          {:ok, %{id: term(), locale: String.t(), version_no: integer(), content: binary()}}
+          | :none
+  def active_for_print(prefix, form, lang)
+      when is_binary(prefix) and is_binary(form) and is_binary(lang) do
+    rows =
+      Repo.all(
+        from(t in OfficialFormTemplate,
+          where: t.form_id == ^form and t.status == "active" and t.locale in ^[lang, "default"],
+          select: map(t, [:id, :locale, :version_no, :content])
+        ),
+        prefix: prefix
+      )
+
+    case Enum.find(rows, &(&1.locale == lang)) || Enum.find(rows, &(&1.locale == "default")) do
+      nil -> :none
+      row -> {:ok, row}
+    end
+  end
+
+  @doc """
+  The docx of `form` from the company template (0089 D5, S3, T-1985). `:standard` when no template
+  is active (the caller prints the platform form). Otherwise the stored bytes go through
+  `FormTemplate.fill/5`, which runs the whole upload check again, so a template that a later
+  release made outdated (or that a newer signature flags) is refused: `{:error,
+  :form_template_outdated}`. A scanner outage answers `{:error, :form_template_unavailable}`; so
+  does a failure to write the package (a raise of the XML writer is not caught). There is never a
+  fallback to the standard form. Each refusal writes one warning line with codes, ids and numbers
+  only, never a template name, text or byte. A print is a read: no audit row. `opts`: `:scanner`,
+  `:catalog` (test seams).
+  """
+  @spec print_docx(String.t(), String.t(), map(), String.t(), keyword()) ::
+          :standard
+          | {:ok, binary()}
+          | {:error, :form_template_outdated | :form_template_unavailable}
+  def print_docx(prefix, form, data, lang, opts \\ []) do
+    case active_for_print(prefix, form, lang) do
+      :none ->
+        :standard
+
+      {:ok, row} ->
+        case FormTemplate.fill(
+               form,
+               row.content,
+               data,
+               lang,
+               Keyword.take(opts, [:scanner, :catalog])
+             ) do
+          {:ok, bin} ->
+            {:ok, bin}
+
+          {:error, [_ | _] = refusals} ->
+            codes = refusals |> Enum.map(& &1.code) |> Enum.uniq()
+            log_refused(form, row, Enum.map_join(codes, ",", &Atom.to_string/1))
+
+            if Enum.all?(codes, &(&1 == :scan_unavailable)),
+              do: {:error, :form_template_unavailable},
+              else: {:error, :form_template_outdated}
+
+          {:error, _other} ->
+            log_refused(form, row, "write_failed")
+            {:error, :form_template_unavailable}
+        end
+    end
+  end
+
+  defp log_refused(form, row, codes) do
+    Logger.warning(
+      "official form template refused at print: form=#{form} locale=#{row.locale} " <>
+        "version=#{row.version_no} template_id=#{row.id} codes=#{codes}"
+    )
   end
 
   @doc """

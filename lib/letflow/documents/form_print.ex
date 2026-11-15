@@ -56,9 +56,15 @@ defmodule Letflow.Documents.FormPrint do
   rectangles (up to 15 columns and four header rows including official numbers); legacy `group`
   headers remain flattened. The `.docx` uses `w:gridSpan` / `w:vMerge`. No dependency is added:
   the `.docx` is a zip of XML written with OTP `:zip`.
+
+  Company templates (0089 S3, T-1985): `build/5` with `tenant: prefix` prints a `.docx` from the
+  company's active template (language row before `default`), filled by `FormTemplate.fill/5`; a
+  template that fails the check is refused (`:form_template_outdated`), never replaced by the
+  standard form. The PDF is always the platform layout.
   """
 
   alias Letflow.Documents.FormPrint.{Docx, Pdf}
+  alias Letflow.Documents.OfficialFormTemplates
 
   @max_text 500
   @langs ["ru", "kk"]
@@ -610,25 +616,50 @@ defmodule Letflow.Documents.FormPrint do
   @doc """
   Builds the output of `form` for `data`. `format` is `:pdf` or `:docx`, `lang` `\"ru\"` or
   `\"kk\"`. Options (test seam): `:layout` and `:catalog` replace the shipped ones.
+
+  `:tenant` (the tenant schema name, T-1985, 0089 S3): a `:docx` print then uses the company's active
+  template for `form` and `lang` (`OfficialFormTemplates.print_docx/5`), and answers
+  `{:error, :form_template_outdated}` when it no longer passes the check (never a fallback to the
+  standard form). Such a print ignores a custom `:layout`. The PDF never reads the table.
   """
   @spec build(String.t(), map(), String.t(), format(), keyword()) ::
           {:ok, binary()}
           | {:error,
-             :unknown_form | :lang_not_supported | :unsupported_glyph | {:render_failed, [atom()]}}
+             :unknown_form
+             | :lang_not_supported
+             | :unsupported_glyph
+             | :form_template_outdated
+             | :form_template_unavailable
+             | {:render_failed, [atom()]}}
   def build(form, data, lang, format, opts \\ []) when format in [:pdf, :docx] do
     catalog = Keyword.get(opts, :catalog, @catalog)
 
     with {:lang, true} <- {:lang, lang in @langs},
          {:ok, layout} <- fetch_layout(form, opts) do
-      model = resolve(layout, data, lang, catalog)
-
       case format do
-        :pdf -> Pdf.render(model, footer(catalog, lang), page(layout))
-        :docx -> Docx.render(model, footer(catalog, lang), page(layout))
+        :pdf -> render(Pdf, layout, data, lang, catalog)
+        :docx -> build_docx(form, layout, data, lang, catalog, opts)
       end
     else
       {:lang, false} -> {:error, :lang_not_supported}
       :error -> {:error, :unknown_form}
+    end
+  end
+
+  defp render(mod, layout, data, lang, catalog),
+    do: mod.render(resolve(layout, data, lang, catalog), footer(catalog, lang), page(layout))
+
+  # Company template (0089 S3): only with `tenant:`; no active template means the platform docx.
+  defp build_docx(form, layout, data, lang, catalog, opts) do
+    case Keyword.fetch(opts, :tenant) do
+      {:ok, prefix} ->
+        case OfficialFormTemplates.print_docx(prefix, form, data, lang, opts) do
+          :standard -> render(Docx, layout, data, lang, catalog)
+          result -> result
+        end
+
+      :error ->
+        render(Docx, layout, data, lang, catalog)
     end
   end
 

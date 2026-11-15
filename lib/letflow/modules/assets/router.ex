@@ -14,7 +14,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `PATCH /cards/:id` | `AssetsCardWrite` | `update_card/4` | 200 |
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
   | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool, "held": bool}` |
-  | `GET /cards/:id/print[?form=da2&format=pdf\|docx&lang=ru\|kk]` (T-1924) | `AssetsRead` | `CardPrintSource.read/3`, `FormDa2.data/3`, `FormPrint.build/4` | 200 `application/pdf` or `.docx`; 404 as an unknown card; 422 `invalid_form`, `invalid_format`, `invalid_lang`, `print_unsupported_character` |
+  | `GET /cards/:id/print[?form=da2&format=pdf\|docx&lang=ru\|kk]` (T-1924) | `AssetsRead` | `CardPrintSource.read/3`, `FormDa2.data/3`, `FormPrint.build/5 (`tenant:`)` | 200 `application/pdf` or `.docx`; 404 as an unknown card; 422 `invalid_form`, `invalid_format`, `invalid_lang`, `print_unsupported_character`, `form_template_outdated` (docx, 0089 S3) |
 
   Card locks (T-1490): a changed `inventory_number` or `kind` of a card with a posted document is 422
   `inventory_number_locked` / `kind_locked`; `GET /cards/:id/lock` tells the screen which case it is.
@@ -37,7 +37,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
   | `POST /counts`, `PUT /counts/:id` (whole-document replace of a draft), `POST /counts/:id/issue`, `POST /counts/:id/cancel` (empty bodies; REQ-816) | `AssetsCountOrder` | 201 / 200 `Counts` order view |
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`), `GET /counts/:id` (REQ-816) | `AssetsRead` | 200 `rows, next_cursor` / order view |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1\|da3\|da4&format=pdf\|docx&lang=ru\|kk` (T-1921, T-1922) `FormDa1.data/3`, `FormDa3.data/3`, `FormDa4.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1\|da3\|da4&format=pdf\|docx&lang=ru\|kk` (T-1921, T-1922) `FormDa1.data/3`, `FormDa3.data/3`, `FormDa4.data/3`, `FormPrint.build/5 (`tenant:`)` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character`, `form_template_outdated` (docx, 0089 S3) |
 
   Asset count routes (REQ-816, K1): after the `authz_*` permission check (403 for a caller whose roles lack it) every
   count route asks `Access.check/2` and then the flag `Settings.count_enabled?/1`; a refusal or a flag that is off is
@@ -56,7 +56,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /counts/:id/scan` (REQ-818, K3; body `{"text"}`) | `AssetsCountRecord` | `scan/4` | 200 scan answer |
   | `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit`, `cursor`) | `AssetsRead` | `lines/4`, `entries/4` | 200 `rows, next_cursor` |
   | `GET /counts/:id/sheet-document` | `AssetsRead` | `sheet_document/3` | 200 summary / 404 |
-  | `GET /counts/:id/print/sheet[?lang=ru\|kk\|en]` (REQ-821, K6; with `form=inv8&format=pdf\|docx&lang=ru\|kk` the official form Inv-8 / Түг-8) | `AssetsRead` | `CountPrintSource.read/3`, `CountSheetPrint.build/3`; `FormCountInv8.data/2`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued sheet; 404 as `GET /counts/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character` |
+  | `GET /counts/:id/print/sheet[?lang=ru\|kk\|en]` (REQ-821, K6; with `form=inv8&format=pdf\|docx&lang=ru\|kk` the official form Inv-8 / Түг-8) | `AssetsRead` | `CountPrintSource.read/3`, `CountSheetPrint.build/3`; `FormCountInv8.data/2`, `FormPrint.build/5 (`tenant:`)` | 200 `application/pdf` (or `.docx` for the form) of the issued sheet; 404 as `GET /counts/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx, 0089 S3) |
 
   REQ-819 (K4) count result routes, a thin layer over `Letflow.Modules.Assets.CountResult` (also need a
   tenant-wide ledger read, else 404; the decision and the signature need the configured signer role,
@@ -586,7 +586,9 @@ defmodule Letflow.Modules.Assets.Router do
              CountPrintSource.read(prefix, conn.params["id"], tenant_id),
            :ok <- count_form_size(format, issued),
            {:ok, bin} <-
-             FormPrint.build("inv8", FormCountInv8.data(issued, names), lang, format) do
+             FormPrint.build("inv8", FormCountInv8.data(issued, names), lang, format,
+               tenant: prefix
+             ) do
         {type, ext} = form_type(format)
         send_binary(conn, bin, type, form_file_name(issued.number_label, "_Inv-8", ext))
       else
@@ -859,7 +861,8 @@ defmodule Letflow.Modules.Assets.Router do
                kinds: kinds,
                form: true
              ),
-           {:ok, bin} <- FormPrint.build(form, mapper.(issued, names, lang), lang, format) do
+           {:ok, bin} <-
+             FormPrint.build(form, mapper.(issued, names, lang), lang, format, tenant: prefix) do
         {type, ext} = form_type(format)
         send_binary(conn, bin, type, form_file_name(issued.number_label, suffix, ext))
       else
@@ -878,7 +881,8 @@ defmodule Letflow.Modules.Assets.Router do
          {:ok, lang} <- form_lang(query["lang"]) do
       with {:ok, %{card: card, names: names}} <-
              CardPrintSource.read(prefix, conn.params["id"], read_authorized(conn)),
-           {:ok, bin} <- FormPrint.build("da2", FormDa2.data(card, names, lang), lang, format) do
+           {:ok, bin} <-
+             FormPrint.build("da2", FormDa2.data(card, names, lang), lang, format, tenant: prefix) do
         {type, ext} = form_type(format)
         send_binary(conn, bin, type, form_file_name(card["inventory_number"], "_DA-2", ext))
       else
@@ -894,12 +898,18 @@ defmodule Letflow.Modules.Assets.Router do
   defp card_form_param("da2"), do: {:ok, "da2"}
   defp card_form_param(_), do: {:invalid, "invalid_form"}
 
+  @template_outdated "your template for this form is out of date; upload a new version or switch back to standard"
+
   defp form_failure(conn, reason)
        when reason in [:print_not_available, :document_not_issued, :print_too_large],
        do: unprocessable(conn, Atom.to_string(reason))
 
   defp form_failure(conn, :unsupported_glyph),
     do: unprocessable(conn, "print_unsupported_character")
+
+  # T-1985 (0089 S3): the company template no longer passes the check; no fallback to the standard form.
+  defp form_failure(conn, :form_template_outdated),
+    do: problem(conn, Error.unprocessable(@template_outdated), "form_template_outdated")
 
   defp form_failure(conn, {:render_failed, rules}) do
     Logger.error("assets form print render failed: " <> Enum.map_join(rules, ",", &inspect/1))
