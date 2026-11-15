@@ -134,6 +134,7 @@ defmodule Letflow.TenantFixture do
     "alert_hook_emission_state",
     "alert_trigger_state",
     "api_tokens",
+    "approval_rule_settings",
     "artifact_activation_groups",
     "artifact_activation_history",
     "artifact_activations",
