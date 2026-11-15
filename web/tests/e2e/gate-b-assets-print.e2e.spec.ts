@@ -81,7 +81,7 @@ test.afterAll(async () => {
   await context?.close()
 })
 
-// Playwright demands an object destructuring pattern as the first parameter; no fixture is used here.
+// Playwright requires an object pattern as the first argument; this spec drives the shared `page` from beforeAll.
 // eslint-disable-next-line no-empty-pattern
 test('E1 a card, a commission started from it, issued', async ({}, testInfo) => {
   inventoryNumber = `E2E-${ENV.runTag}-${testInfo.retry}`
@@ -95,8 +95,8 @@ test('E1 a card, a commission started from it, issued', async ({}, testInfo) => 
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Org unit/).first(), 'Warehouse team')
-  // Location is required by the backend for fixed-kind cards (location_required check in Documents.Checks).
-  await choose(form.getByLabel(/^Location/).first(), 'Central')
+  // A commission of a non-intangible card needs a location linked to the org unit (location_rule/3, `not_linked`).
+  await choose(form.getByLabel(/^Location/).first(), 'Central warehouse')
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
   await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -105,6 +105,22 @@ test('E1 a card, a commission started from it, issued', async ({}, testInfo) => 
   await issueDocument(page)
   number = await headerNumber(page)
   expect(number).not.toBe('')
+})
+
+// T-1994 (owner finding O-002): the approval task row of an asset document names the document by its number and kind,
+// and names people, never "Another user". Runs in the Stock e2e job, against the real backend.
+test('E1b the commission task row shows its number and named people', async () => {
+  const row = page.getByTestId('task-row').filter({ hasText: number })
+  await expect(async () => {
+    await openRoute(page, '/tasks')
+    await expect(row.first()).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
+  await expect(row.first().getByTestId('task-instance-id')).toContainText(`${number} - `)
+  await expect(row.first().getByTestId('task-doc-date')).toBeVisible()
+  await expect(row.first().getByTestId('task-issuer')).toContainText(/^Issued by: \S/)
+  await expect(row.first()).not.toContainText('Another user')
+  // Serial spec: E2 prints from the document screen, so leave the page where E1 left it.
+  await reopen()
 })
 
 test('E2 the issued commission prints a PDF with the title and the inventory number', async () => {

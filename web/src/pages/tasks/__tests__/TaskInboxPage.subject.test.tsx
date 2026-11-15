@@ -56,6 +56,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 })
 
 import TaskInboxPage from '@/pages/tasks/TaskInboxPage'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 
 const task = (id: string, instance: string, assignee: string) => ({
   id, instance_id: instance, token_id: 't', node_id: 'n', node_name: 'Post document', status: 'PENDING',
@@ -79,6 +80,16 @@ afterEach(() => {
 })
 
 describe('My Tasks subjects', () => {
+  it.each(Object.keys(REFERENCE_MESSAGES.en.docType))('T-1994 %s row contains its document number', async (type) => {
+    inbox.mockResolvedValue({ items: [task('cccccccc-0000-4000-8000-000000000001', INST, ME)], next_cursor: null, count: 1 })
+    const isCount = ['count', 'stock_count', 'count.differences'].includes(type)
+    getInstance.mockResolvedValue({ id: INST, variables: isCount ? { count_order_id: DOC, document_type: type } : { document_id: DOC, document_type: type } })
+    const route = isCount ? 'stock/counts' : type.startsWith('assets_') ? 'assets/documents' : 'stock/documents'
+    getDocument.mockImplementation(async (path: string) => path === `/api/v1/modules/${route}/${DOC}` ? { number: 'DOC-2026-000001' } : { items: [] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('task-instance-id')).toHaveTextContent(`DOC-2026-000001 - ${REFERENCE_MESSAGES.en.docType[type]}`))
+  })
+
   it('shows "number - kind" and You / Another user; no uuid in the list or the panel', async () => {
     const t1 = task('cccccccc-0000-4000-8000-000000000001', INST, ME)
     const t2 = task('cccccccc-0000-4000-8000-000000000002', INST2, OTHER)

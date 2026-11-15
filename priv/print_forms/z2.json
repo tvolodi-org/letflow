@@ -95,43 +95,52 @@
       "columns": [
         {
           "key": "no",
-          "label": "z2.c1"
+          "label": "z2.c1",
+          "width": 15.9
         },
         {
           "key": "name",
-          "label": "z2.c2"
+          "label": "z2.c2",
+          "width": 29.0
         },
         {
           "key": "nom",
-          "label": "z2.c3"
+          "label": "z2.c3",
+          "width": 20.3
         },
         {
           "key": "unit",
-          "label": "z2.c4"
+          "label": "z2.c4",
+          "width": 19.9
         },
         {
           "key": "qty_plan",
           "label": "z2.c5",
-          "group": "z2.qty"
+          "group": "z2.qty",
+          "width": 18.5
         },
         {
           "key": "qty_issued",
           "label": "z2.c6",
-          "group": "z2.qty"
+          "group": "z2.qty",
+          "width": 18.8
         },
         {
           "key": "price",
           "label": "z2.c7",
-          "decimals": 2
+          "decimals": 2,
+          "width": 18.6
         },
         {
           "key": "sum_vat",
           "label": "z2.c8",
-          "decimals": 2
+          "decimals": 2,
+          "width": 14.8
         },
         {
           "key": "vat",
-          "label": "z2.c9"
+          "label": "z2.c9",
+          "width": 14.4
         }
       ]
     },

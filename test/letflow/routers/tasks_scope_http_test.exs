@@ -385,7 +385,7 @@ defmodule Letflow.Routers.TasksScopeHttpTest do
       third = T.insert_task!(fx, :a1)
 
       list_keys =
-        ~w(assignee_ref assignee_type created_at form_id form_version id instance_id node_id node_name status token_id)
+        ~w(assignee_name assignee_ref assignee_type created_at form_id form_version id instance_id node_id node_name status token_id)
 
       detail_conn = get(fx, caller, task)
       assert T.json(detail_conn) |> Map.keys() |> length() == 15

@@ -165,7 +165,7 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     await waitFor(() => expect(screen.getAllByTestId('task-instance-id')[0]).toHaveTextContent(/ISS-2026-000\d - Issue/))
     await waitFor(() => expect(container.textContent).toContain('WH-1 - Warehouse team'))
     expect(container.textContent).toContain('A-01 - Rack A')
-    await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('You'))
+    await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('gate-b6-admin'))
     expect(screen.getAllByTestId('task-age')[0]).toHaveTextContent(/3 minutes ago/)
     await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2 pcs, +1 more'))
     expect(noUuidInDom(container)).toBe(true)

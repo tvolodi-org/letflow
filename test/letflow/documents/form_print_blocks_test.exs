@@ -157,4 +157,47 @@ defmodule Letflow.Documents.FormPrintBlocksTest do
     assert xml(docx) =~ "&lt;x&gt;&amp;"
     refute xml(docx) =~ <<1>>
   end
+
+  test "W1 Z-1 and Z-2 tables use the template column grid, Z-1 has the title and signature blocks" do
+    for {form, cols, ratio} <- [{"z1", 11, 21.7 / 24.6}, {"z2", 9, 15.9 / 29.0}],
+        lang <- ~w(ru kk) do
+      {:ok, docx} = FormPrint.build(form, %{}, lang, :docx)
+      xml = xml(docx)
+      assert xml =~ ~s(<w:tblLayout w:type="fixed"/>)
+
+      grid =
+        ~r{<w:tblGrid>(.*?)</w:tblGrid>}s
+        |> Regex.scan(xml)
+        |> Enum.map(fn [_, g] ->
+          Regex.scan(~r/w:w="(\d+)"/, g) |> Enum.map(&String.to_integer(List.last(&1)))
+        end)
+        |> Enum.find(&(length(&1) == cols))
+
+      assert grid
+      assert_in_delta Enum.at(grid, 0) / Enum.at(grid, 1), ratio, 0.01
+      assert {:ok, <<"%PDF", _::binary>>} = FormPrint.build(form, %{}, lang, :pdf)
+    end
+
+    {:ok, layout} = FormPrint.layout("z1")
+    types = Enum.map(layout["blocks"], & &1["type"])
+    assert Enum.count(types, &(&1 == "boxed_pairs")) == 2
+    assert Enum.count(types, &(&1 == "signature_table")) == 2
+    assert Enum.count(types, &(&1 == "annex_line")) == 2
+    {:ok, docx} = FormPrint.build("z1", %{}, "ru", :docx)
+    assert xml(docx) =~ ~s(<w:jc w:val="right"/>)
+  end
+
+  test "W2 a non-positive column width is refused" do
+    {:ok, layout} = FormPrint.layout("z1")
+
+    bad =
+      update_in(layout, ["blocks"], fn bs ->
+        Enum.map(bs, fn
+          %{"type" => "table"} = t -> put_in(t, ["columns", Access.at(0), "width"], 0)
+          b -> b
+        end)
+      end)
+
+    assert {:error, _} = FormPrint.validate_layout(bad, FormPrint.catalog())
+  end
 end

@@ -157,7 +157,7 @@ export interface Task {
   status: TaskStatus
   assignee_type?: string
   assignee_ref?: string
-  assignee_name?: string
+  assignee_name?: string | null
   form_schema?: Record<string, unknown>
   output_variables?: Record<string, unknown>
   completed_by?: string

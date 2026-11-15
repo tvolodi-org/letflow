@@ -232,7 +232,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
         <h3 className="lf-form__title">{m.documentHeading}</h3>
         {doc ? (
           <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} locale={locale}
-            issuer={ctx?.issuerId ? (ctx.issuerId === userId ? refMsg.you : (ctx.issuerLabel ?? refMsg.anotherUser)) : ''} />
+            issuer={ctx?.issuerId ? (ctx.issuerLabel ?? (ctx.issuerId === userId ? refMsg.you : refMsg.anotherUser)) : ''} />
         ) : (
           ctx !== undefined && <p className="lf-muted">{m.documentUnavailable}</p>
         )}

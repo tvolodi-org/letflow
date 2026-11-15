@@ -348,10 +348,11 @@ defmodule Letflow.Routers.TasksTest do
   defp item_ids(body), do: Enum.map(body["items"], & &1["id"])
 
   # REQ-126 (MOB-3 form-version pinning) added "form_id"/"form_version" to both
-  # maps -- this allowlist is updated to the new, intentional 11-key/13-key
+  # maps. T-1994 adds assignee_name on reads: the intentional 12-key/15-key
   # shape (not weakened: the two new keys are exactly what REQ-126 AC1 asserts
   # must be present, see the "REQ-126" describe blocks below).
   @task_list_item_keys [
+    "assignee_name",
     "assignee_ref",
     "assignee_type",
     "created_at",
@@ -374,6 +375,58 @@ defmodule Letflow.Routers.TasksTest do
   # AC1 -- end-to-end coverage for all three handlers, list/inbox paginated
   # across >= 2 pages
   # ══════════════════════════════════════════════════════════════════════
+
+  describe "T-1994 assignee labels" do
+    test "read routes name known users with a display name or login, within the tenant" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "task-names")
+      other = TenantFixture.provisioned_tenant!(slug_prefix: "task-names-other")
+      named = insert_user!(tenant, %{display_name: "Approver Name"})
+      login = insert_user!(tenant, %{display_name: "", username: "gate-b6-admin2"})
+      foreign = insert_user!(other, %{display_name: "Foreign Name"})
+      # Same UUID in another tenant must never supply a name in this tenant.
+      tasks =
+        for id <- [named.id, login.id, foreign.id] do
+          insert_task!(tenant, %{assignee_type: "USER", assignee_ref: id})
+        end
+
+      role = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "approver"})
+      legacy = insert_task!(tenant, %{assignee_type: "USER", assignee_ref: "not-a-uuid"})
+      group = insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: named.id})
+      # A USER ref stored in uppercase still resolves (refs are normalised on read too).
+      upper =
+        insert_task!(tenant, %{assignee_type: "USER", assignee_ref: String.upcase(named.id)})
+
+      for path <- ["/", "/inbox"] do
+        conn = build_conn(:get, path, tenant, roles: ["TENANT_ADMIN"]) |> dispatch()
+        assert conn.status == 200
+        items = Jason.decode!(conn.resp_body)["items"] |> Map.new(&{&1["id"], &1})
+        [named_task, login_task, foreign_task] = tasks
+        assert items[named_task.id]["assignee_name"] == "Approver Name"
+        assert items[login_task.id]["assignee_name"] == "gate-b6-admin2"
+        assert items[foreign_task.id]["assignee_name"] == nil
+        assert items[role.id]["assignee_name"] == nil
+        assert items[legacy.id]["assignee_name"] == nil
+        assert items[group.id]["assignee_name"] == nil
+        assert items[upper.id]["assignee_name"] == "Approver Name"
+        refute conn.resp_body =~ "Foreign Name"
+        refute conn.resp_body =~ named.email
+      end
+
+      for {task, expected} <- Enum.zip(tasks, ["Approver Name", "gate-b6-admin2", nil]) do
+        conn = build_conn(:get, "/#{task.id}", tenant, roles: ["TENANT_ADMIN"]) |> dispatch()
+        assert conn.status == 200
+        assert Jason.decode!(conn.resp_body)["assignee_name"] == expected
+      end
+
+      # TASK_WORKER can name their own task's assignee without UsersRead.
+      conn =
+        build_conn(:get, "/inbox", tenant, roles: ["TASK_WORKER"], user_id: login.id)
+        |> dispatch()
+
+      assert conn.status == 200
+      assert [%{"assignee_name" => "gate-b6-admin2"}] = Jason.decode!(conn.resp_body)["items"]
+    end
+  end
 
   describe "AC1: GET /tasks/:id basic end-to-end" do
     setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "req083-getbyid")}
@@ -681,7 +734,7 @@ defmodule Letflow.Routers.TasksTest do
   describe "AC5/INV-2: response allowlists" do
     setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "req083-allowlist")}
 
-    test "GET /tasks item shape is exactly the nine allowlisted keys", %{tenant: tenant} do
+    test "GET /tasks item shape is exactly the read allowlist", %{tenant: tenant} do
       insert_task!(tenant, %{})
 
       conn = build_conn(:get, "/", tenant, roles: ["TENANT_ADMIN"]) |> dispatch()
@@ -695,7 +748,7 @@ defmodule Letflow.Routers.TasksTest do
       end
     end
 
-    test "GET /tasks/:id shape is exactly the eleven allowlisted keys (no claimed_by, etc.) -- form_schema is present (REQ-286), served as null for a task with no schema (AC2)",
+    test "GET /tasks/:id follows the read allowlist, including nullable form_schema (REQ-286)",
          %{tenant: tenant} do
       task = insert_task!(tenant, %{})
 
