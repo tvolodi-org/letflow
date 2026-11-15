@@ -74,10 +74,11 @@ const LINKS: [string, string, string][] = [
   ['Asset documents', '/admin/assets/documents', 'AssetsRead'],
   ['Asset balances', '/admin/assets/balances', 'AssetsRead'],
   ['Asset movements', '/admin/assets/movements', 'AssetsRead'],
+  ['Asset counts', '/admin/assets/counts', 'AssetsRead'],
 ]
 
 describe('M1 definition', () => {
-  it('is registered with the card item on AssetsCardWrite and the three register items on AssetsRead (N1)', async () => {
+  it('is registered with the card item on AssetsCardWrite and the four register items on AssetsRead (N1)', async () => {
     const { assetsModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('assets')

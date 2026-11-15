@@ -7,3 +7,6 @@ export const ASSETS_READ = 'AssetsRead'
 export const ASSETS_POST = 'AssetsPost'
 /** Reverse of a posted document (C11). */
 export const ASSETS_REVERSE = 'AssetsReverse'
+/** Asset count (REQ-816..822): order, issue and cancel (K7a) / sheet entries and signing (K7b, K7c). */
+export const ASSETS_COUNT_ORDER = 'AssetsCountOrder'
+export const ASSETS_COUNT_RECORD = 'AssetsCountRecord'
