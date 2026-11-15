@@ -192,6 +192,7 @@ defmodule Letflow.TenantFixture do
     "pending_tenant_admin_grants",
     "problem_report_comment_images",
     "problem_report_comments",
+    "problem_report_images",
     "problem_reports",
     "process_definitions",
     "procurement_attachments",

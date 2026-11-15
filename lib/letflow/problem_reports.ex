@@ -36,6 +36,7 @@ defmodule Letflow.ProblemReports do
   alias Letflow.PlatformTenant
   alias Letflow.ProblemReports.Capture
   alias Letflow.ProblemReports.Report
+  alias Letflow.ProblemReports.ReportImage
   alias Letflow.Repo
 
   @throttle_per_hour 10
@@ -135,7 +136,33 @@ defmodule Letflow.ProblemReports do
     multi =
       Multi.new()
       |> Multi.insert(:report, report, prefix: platform_prefix)
+      |> then(fn m ->
+        parsed.images
+        |> Enum.with_index(1)
+        |> Enum.reduce(m, fn {img, position}, acc ->
+          image = %ReportImage{
+            position: position,
+            content_type: img.content_type,
+            bytes: img.bytes,
+            size: img.size,
+            inserted_at: now
+          }
+
+          Multi.run(acc, {:image, position}, fn repo, %{report: stored} ->
+            repo.insert(%{image | report_id: stored.id}, prefix: platform_prefix)
+          end)
+        end)
+      end)
       |> Multi.run(:audit, fn repo, %{report: stored} ->
+        sent_fields =
+          parsed.context
+          |> Map.keys()
+          |> Kernel.++(["text"])
+          |> then(fn fields ->
+            if length(parsed.images) > 0, do: fields ++ ["images"], else: fields
+          end)
+          |> Enum.sort()
+
         Audit.insert_entry(
           repo,
           %{
@@ -146,7 +173,7 @@ defmodule Letflow.ProblemReports do
             before_state: nil,
             after_state: %{
               "number" => number(stored),
-              "sent_fields" => parsed.context |> Map.keys() |> Kernel.++(["text"]) |> Enum.sort(),
+              "sent_fields" => sent_fields,
               "to" => "platform_company"
             }
           },

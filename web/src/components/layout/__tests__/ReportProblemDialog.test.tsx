@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-/** W3, W7, W7b, W8, W8b (T-1950): the consent dialog of "Report a problem". */
+/** W3, W7, W7b, W8, W8b (T-1950): the consent dialog of "Report a problem".
+ *  W9, W10, W11 (T-2015): image upload. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -12,6 +13,7 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
 import { recordAction, recordRequest, resetCapture } from '@/lib/problemReport/capture'
 import { problemReportsApi } from '@/api/problemReports'
+import { MAX_IMAGE_BYTES } from '@/lib/problemReport/images'
 import { ReportProblemDialog } from '../ReportProblemDialog'
 import { reportProblemMessages as M } from '../reportProblemMessages'
 
@@ -23,6 +25,25 @@ vi.mock('@/auth/AuthContext', () => ({
 vi.mock('@/api/problemReports', () => ({ problemReportsApi: { submit: vi.fn() } }))
 
 const submit = vi.mocked(problemReportsApi.submit)
+
+// Mock processImageFile to avoid canvas/Image API dependencies in tests
+vi.mock('@/lib/problemReport/images', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/problemReport/images')>()
+  return {
+    ...original,
+    processImageFile: vi.fn(),
+  }
+})
+
+import { processImageFile } from '@/lib/problemReport/images'
+const mockProcessImageFile = vi.mocked(processImageFile)
+
+const FAKE_IMAGE = {
+  dataBase64: 'iVBORw0KGgo=',
+  contentType: 'image/png' as const,
+  preview: 'data:image/png;base64,iVBORw0KGgo=',
+  name: 'test.png',
+}
 
 function mount(crash: Error | null = null, onClose = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
@@ -137,5 +158,63 @@ describe('crash prefill', () => {
     const body = JSON.parse(screen.getByTestId('report-preview').textContent ?? '')
     expect(body.context.crash).toEqual({ name: 'Error', message: 'boom 12345' })
     expect(screen.getByTestId('report-summary')).toHaveTextContent('Crash: Error')
+  })
+})
+
+describe('image upload (W9, W10, W11)', () => {
+  it('W9: images are included in the posted body when present', async () => {
+    submit.mockResolvedValue({ id: '1', number: 'SR-9', received_at: 'x' })
+    mockProcessImageFile.mockResolvedValue(FAKE_IMAGE)
+    mount()
+
+    const input = screen.getByTestId('report-image-input')
+    const file = new File(['data'], 'test.png', { type: 'image/png' })
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(mockProcessImageFile).toHaveBeenCalledWith(file))
+    await waitFor(() => expect(screen.queryByTestId('report-image-remove-0')).not.toBeNull())
+
+    // Check summary shows image count
+    expect(screen.getByTestId('report-summary')).toHaveTextContent('1 screenshot(s) included.')
+
+    await userEvent.type(screen.getByTestId('report-text'), 'x')
+    await userEvent.click(screen.getByTestId('report-consent'))
+    await userEvent.click(confirm())
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+
+    const body = submit.mock.calls[0][0]
+    expect(body.images).toHaveLength(1)
+    expect(body.images![0].data_base64).toBe(FAKE_IMAGE.dataBase64)
+    expect(body.images![0].content_type).toBe(FAKE_IMAGE.contentType)
+  })
+
+  it('W10: images can be removed from the preview', async () => {
+    mockProcessImageFile.mockResolvedValue(FAKE_IMAGE)
+    mount()
+
+    const input = screen.getByTestId('report-image-input')
+    const file = new File(['data'], 'test.png', { type: 'image/png' })
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(screen.queryByTestId('report-image-remove-0')).not.toBeNull())
+    await userEvent.click(screen.getByTestId('report-image-remove-0'))
+
+    await waitFor(() => expect(screen.queryByTestId('report-image-remove-0')).toBeNull())
+    // Summary should not show images anymore
+    expect(screen.getByTestId('report-summary')).not.toHaveTextContent('screenshot')
+  })
+
+  it('W11: an oversized image shows an error', async () => {
+    mockProcessImageFile.mockResolvedValue(null) // null = failed (too large or invalid)
+    mount()
+
+    const input = screen.getByTestId('report-image-input')
+    const file = new File(['data'], 'big.png', { type: 'image/png' })
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(mockProcessImageFile).toHaveBeenCalledWith(file))
+    // For a valid PNG mime type that returns null, shows "too large" error
+    await waitFor(() => expect(screen.queryByTestId('report-image-error')).not.toBeNull())
+    expect(screen.getByTestId('report-image-error')).toHaveTextContent(M.en.imageTooLarge)
   })
 })

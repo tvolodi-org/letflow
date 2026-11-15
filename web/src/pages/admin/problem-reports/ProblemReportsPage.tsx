@@ -8,6 +8,7 @@
 import React, { useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 import { useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -24,12 +25,41 @@ import { useToast } from '@/hooks/useToast'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { formatDateTime } from '@/i18n/format'
+import { client } from '@/api/client'
 import type { DecisionAction, InboxDetail, InboxFilter, InboxSummary } from '@/api/platformProblemReports'
 import type { ApiError } from '@/types/api'
 import { DecisionDialog } from './DecisionDialog'
 import { ProblemReportsIntlProvider } from './ProblemReportsIntlProvider'
 import { ActionsTable, FactsList, RequestsTable } from './ReportFacts'
 import { ACTIONS, CAPS, STATUS_LOOK, UNKNOWN_LOOK, checkDecisionText, decisionErrorKind, isOpen, normalizeFilter, reportFacts } from './problemReportsModel'
+
+const BASE = '/api/v1/platform-problem-reports'
+
+function ReportImageThumbnail({ reportId, imageId, contentType }: { reportId: string; imageId: string; contentType: string }) {
+  const query = useQuery({
+    queryKey: ['problem-report-image', reportId, imageId],
+    queryFn: async () => {
+      const result = await client.getBlob(`${BASE}/${encodeURIComponent(reportId)}/images/${encodeURIComponent(imageId)}`)
+      return URL.createObjectURL(result.blob)
+    },
+    staleTime: Infinity,
+  })
+
+  if (query.isLoading) return <div className="lf-report__thumb lf-report__thumb--loading" aria-busy="true" />
+  if (query.isError || !query.data) return null
+
+  return (
+    <a
+      className="lf-report__thumb"
+      href={query.data}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={`pr-image-${imageId}`}
+    >
+      <img src={query.data} alt={contentType} />
+    </a>
+  )
+}
 
 const t = (intl: IntlShape, id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `problemReports.${id}` }, values)
 
@@ -98,6 +128,13 @@ function ReportDetail({ id, onDecide }: DetailProps) {
     <section data-testid="pr-text" aria-label={t(intl, 'text.heading')}>
       <h3 className="lf-form__title">{t(intl, 'text.heading')}</h3>
       <p className="lf-pr__text">{report.text}</p>
+      {report.images && report.images.length > 0 && (
+        <div className="lf-report__thumbs" data-testid="pr-images">
+          {report.images.map((img) => (
+            <ReportImageThumbnail key={img.id} reportId={report.id} imageId={img.id} contentType={img.content_type} />
+          ))}
+        </div>
+      )}
     </section>
   )
   const factsCard = (
