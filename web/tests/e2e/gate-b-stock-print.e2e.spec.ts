@@ -157,8 +157,11 @@ test('P7 count order xlsx and pdf', async () => {
   await page.getByTestId('count-new').first().click()
   const form = page.getByTestId('count-order-form')
   await choose(form.getByLabel('Org unit'), 'Warehouse')
-  await form.getByLabel('Planned start').fill(localDateTime(-6)) // the server refuses to open a count before its planned start (count_not_due)
-  await form.getByLabel('Planned end').fill(localDateTime(3))
+  // The server refuses to open a count outside [planned start, planned end] (count_not_due). The form reads these
+  // wall-clock values in the tenant zone, not the runner's (UTC in CI), so the window is +-30 h to cover any zone
+  // offset (run 43654970990: +3 h in UTC became -2 h in UTC+5) and stays under the 96 h cap (count_too_long).
+  await form.getByLabel('Planned start').fill(localDateTime(-30))
+  await form.getByLabel('Planned end').fill(localDateTime(30))
   await choose(form.getByLabel('Chair of the commission'), 'Saule')
   await form.locator('fieldset', { hasText: 'Location roots' }).getByRole('checkbox', { name: /Central warehouse/ }).check()
   await form.getByLabel('Note').fill(`print count ${ENV.runTag}`)

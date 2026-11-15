@@ -130,6 +130,8 @@ test('G2b S2b receipt order Z-1 from the receipt screen', async () => {
 
 test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) => {
   test.skip(ENV.admin2 === '' || ENV.admin2Pw === '', 'E2E_ADMIN2_USER / E2E_ADMIN2_PASSWORD are not set (a second approver is needed)')
+  // Two sessions, a claim/complete and a posting wait: the 30 s default ran out on the last wait in CI (run 43654970990).
+  test.setTimeout(150_000)
   await openRoute(page, '/admin/stock/documents/new')
   const form = page.getByTestId('document-form')
   await choose(form.getByLabel('Kind'), 'Opening balance')
@@ -168,8 +170,13 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   } finally {
     await second.context.close()
   }
-  await openRoute(page, state.openingUrl)
-  await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 30_000 })
+  // The first session still holds the document query from before the approval: reopen it from the list until the
+  // remounted screen shows the posting (the G2 S2 pattern), instead of waiting on the cached "Issued" header.
+  await expect(async () => {
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: number }).first().click()
+    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
 })
 
 test('G4 S4 registers show rows and no uuid', async () => {
