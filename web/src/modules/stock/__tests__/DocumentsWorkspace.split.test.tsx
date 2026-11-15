@@ -59,7 +59,7 @@ const handles = (ws: HTMLElement) => ws.parentElement!.querySelectorAll<HTMLElem
 const key = (el: Element, k: string) => act(() => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })))
 
 describe('T-1443 document screen splitters', () => {
-  it('S1 row layout: two handles at 1600 px, one at 1200 px, none at 900 px', async () => {
+  it('S1 row layout: two handles at 1600 and 1200 px, none at 900 px', async () => {
     serve([doc()])
     renderStock(`${LIST}/d1`, withPost)
     const ws = await screen.findByTestId('document-workspace')
@@ -70,7 +70,7 @@ describe('T-1443 document screen splitters', () => {
     renderStock(`${LIST}/d1`, withPost)
     const ws2 = await screen.findByTestId('document-workspace')
     await screen.findByTestId('document-lines')
-    await waitFor(() => expect(handles(ws2)).toHaveLength(1))
+    await waitFor(() => expect(handles(ws2)).toHaveLength(2))
     cleanup()
     width = 900
     renderStock(`${LIST}/d1`, withPost)
