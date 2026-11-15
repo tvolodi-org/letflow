@@ -831,3 +831,10 @@ table has one, the `.docx` uses a fixed grid with those weights and the PDF uses
 weights. Z-1 and Z-2 carry the column grid of annex 25 and annex 26. Still open: the seven-cell
 Z-1 facts table has equal cells (the template's are 11/12/10/15/22/19/12 %), and the Z-1 merged
 header (template `gridSpan` 4, ours 2).
+
+T-1976 moves Z-5 / Қ-5 and Z-6 / Қ-6 to the same blocks: right-aligned annex lines, the organisation / BIN
+and the document facts (Z-5 six cells, Z-6 five cells) as bordered tables, signature tables, and the column
+grids of annexes 29 and 30 (`"width"` weights on the lines table, and on both Z-6 tables). Still open: the
+template's merged "основание" header group (name / number / date, template `gridSpan` 1 / `vMerge`) is one
+cell in ours, the Z-6 header (annex + "Утверждаю") is not a five-column table, and Z-5's four signatures
+are four tables, not the template's 2x2 table.

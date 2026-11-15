@@ -220,4 +220,37 @@ defmodule Letflow.Documents.FormPrintBlocksTest do
       assert {:ok, <<"%PDF", _::binary>>} = FormPrint.build("z3", data, lang, :pdf)
     end
   end
+
+  test "W3 Z-5 and Z-6 use title tables, signature tables and the template column grids" do
+    for {form, grids, boxed, sigs} <- [
+          {"z5", [[16.0, 28.7]], 2, 4},
+          {"z6", [[12.5, 22.6], [15.4, 28.2]], 2, 4}
+        ],
+        lang <- ~w(ru kk) do
+      {:ok, layout} = FormPrint.layout(form)
+      types = Enum.map(layout["blocks"], & &1["type"])
+      assert Enum.count(types, &(&1 == "boxed_pairs")) == boxed
+      assert Enum.count(types, &(&1 == "signature_table")) == sigs
+      assert Enum.count(types, &(&1 == "annex_line")) == 2
+
+      {:ok, docx} = FormPrint.build(form, %{}, lang, :docx)
+      xml = xml(docx)
+      assert xml =~ ~s(<w:tblLayout w:type="fixed"/>)
+
+      grids_found =
+        ~r{<w:tblGrid>(.*?)</w:tblGrid>}s
+        |> Regex.scan(xml)
+        |> Enum.map(fn [_, g] ->
+          Regex.scan(~r/w:w="(\d+)"/, g) |> Enum.map(&String.to_integer(List.last(&1)))
+        end)
+
+      for [a, b] <- grids do
+        assert Enum.any?(grids_found, fn g ->
+                 length(g) >= 8 and abs(Enum.at(g, 0) / Enum.at(g, 1) - a / b) < 0.01
+               end)
+      end
+
+      assert {:ok, <<"%PDF", _::binary>>} = FormPrint.build(form, %{}, lang, :pdf)
+    end
+  end
 end
