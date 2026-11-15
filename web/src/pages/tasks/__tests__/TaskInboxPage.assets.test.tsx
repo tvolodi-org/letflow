@@ -87,6 +87,8 @@ describe('My Tasks, asset opening (T-1952)', () => {
       accessState('tenantAdmin', ME),
     )
     await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: FA-0101 - Delivery van × 1, +1 more'))
+    // The task row subject shows the asset document number so claimAndComplete can find the row by number (T-1993).
+    await waitFor(() => expect(screen.getByTestId('task-instance-id')).toHaveTextContent('AOP-2026-000001'))
     const user = userEvent.setup()
     await user.click((await screen.findAllByTestId('task-row'))[0])
     const lines = await screen.findByTestId('task-document-lines')

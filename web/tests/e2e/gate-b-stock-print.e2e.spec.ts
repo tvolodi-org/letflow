@@ -158,8 +158,11 @@ test('P7 count order xlsx and pdf', async () => {
   await page.getByTestId('count-new').first().click()
   const form = page.getByTestId('count-order-form')
   await choose(form.getByLabel('Org unit'), 'Warehouse')
-  await form.getByLabel('Planned start').fill(localDateTime(1))
-  await form.getByLabel('Planned end').fill(localDateTime(3))
+  // The server refuses to open a count outside [planned start, planned end] (count_not_due). The form reads these
+  // wall-clock values in the tenant zone, not the runner's (UTC in CI), so the window is +-30 h to cover any zone
+  // offset (run 43654970990: +3 h in UTC became -2 h in UTC+5) and stays under the 96 h cap (count_too_long).
+  await form.getByLabel('Planned start').fill(localDateTime(-30))
+  await form.getByLabel('Planned end').fill(localDateTime(30))
   await choose(form.getByLabel('Chair of the commission'), 'Saule')
   await form.locator('fieldset', { hasText: 'Location roots' }).getByRole('checkbox', { name: /Central warehouse/ }).check()
   await form.getByLabel('Note').fill(`print count ${ENV.runTag}`)
@@ -177,11 +180,19 @@ test('P7 count order xlsx and pdf', async () => {
 test('P8 count sheet xlsx/pdf and Inv-10', async () => {
   await page.getByTestId('count-open').click()
   const inputs = page.locator('input[data-testid^="count-input-"]')
-  await expect(inputs.first()).toBeVisible()
+  // After count-open the sheet component fetches its lines asynchronously; allow time for the fetch and render.
+  await expect(inputs.first()).toBeVisible({ timeout: 20_000 })
+  // Read the Book cell by its column header, not a fixed index (run 43659812445: nth(5) was the Unit column, the
+  // input got "NaN", CountInput sent nothing and the PUT wait hung for 120 s).
+  const headers = await inputs.first().locator('xpath=ancestor::table').locator('thead th').allInnerTexts()
+  const bookIdx = headers.findIndex((h) => h.trim() === 'Book')
+  expect(bookIdx, `Book column in ${JSON.stringify(headers)}`).toBeGreaterThanOrEqual(0)
   for (const input of await inputs.all()) {
     const row = input.locator('xpath=ancestor::tr')
-    const book = await row.locator('td').nth(5).innerText()
-    const counted = String(Number(book.replace(/[\s,]/g, '')) + 1)
+    const book = (await row.locator('td').nth(bookIdx).innerText()).replace(/[\s,]/g, '')
+    // a line with no book quantity shows a dash: count it as 0
+    const counted = String((/^\d+(\.\d+)?$/.test(book) ? Number(book) : 0) + 1)
+    expect(counted).toMatch(/^\d+(\.\d+)?$/)
     const saved = page.waitForResponse(r => r.request().method() === 'PUT' && /\/lines\/\d+\/count/.test(r.url()))
     await input.fill(counted)
     await input.press('Enter')
@@ -194,9 +205,12 @@ test('P8 count sheet xlsx/pdf and Inv-10', async () => {
 })
 test('P9 differences xlsx/pdf and Inv-18', async () => {
   await page.getByTestId('sign-sheet').click()
-  const dialog = page.getByRole('dialog')
+  // the dialog renders only once the sheet lines are loaded; locator.all() does not wait, so wait for it first
+  const dialog = page.getByTestId('signers-dialog')
+  await expect(dialog.locator('input[type="checkbox"]').first()).toBeVisible({ timeout: 20_000 })
   for (const checkbox of await dialog.locator('input[type="checkbox"]').all()) await checkbox.check()
   await dialog.getByRole('button', { name: 'Mark signed', exact: true }).click()
+  await expect(dialog).toBeHidden()
   await page.getByTestId('issue-differences').click()
   await countDownloads('differences')
   await formDownloads('inv18')

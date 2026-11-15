@@ -1,6 +1,7 @@
 /** useTaskSubjects — T-1378. What a task is about, as text ("RC-2026-0007 - Receipt"), never an instance id. The task list
  *  item carries only ids, so the subject is read from the instance's process variables (`document_id`, `document_type`,
- *  `count_order_id`) and the document's number. One cached fetch per instance; a failure shows "Unknown record". */
+ *  `count_order_id`) and the document's number. One cached fetch per instance; a failure shows "Unknown record".
+ *  T-1993: extended to fetch asset document numbers (`assets_*` types) so claimAndComplete can locate task rows by number. */
 import { useQueries } from '@tanstack/react-query'
 import { instancesApi } from '@/api/instances'
 import { client } from '@/api/client'

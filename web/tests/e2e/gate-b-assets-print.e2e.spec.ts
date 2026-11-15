@@ -213,7 +213,7 @@ test('E10 a write-off from the card: DA-3 is reached through the menu, PDF then 
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
-  await choose(form.getByLabel('Reason'), 'Broken')
+  await choose(form.getByLabel('Reason', { exact: true }), 'Broken')
   await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })

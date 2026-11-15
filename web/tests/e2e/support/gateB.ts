@@ -44,8 +44,12 @@ export async function setPrefs(page: Page, prefs: { lang?: 'en' | 'ru' | 'kk'; t
     if (p.lang) window.localStorage.setItem('lf-locale', p.lang)
     if (p.theme) window.localStorage.setItem('lf-theme', p.theme)
   }, prefs)
+  // A full reload of a deep link lands on "/" in the CI stack (see openRoute; run 43659812445, G5 showed the
+  // dashboard): remember the route and move back to it inside the SPA once the shell is up.
+  const here = page.url()
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
+  await openRoute(page, here)
 }
 
 /**
