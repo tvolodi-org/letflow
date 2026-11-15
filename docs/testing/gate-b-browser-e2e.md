@@ -15,6 +15,16 @@ injection):
 The pattern of the no-uuid check lives in `web/tests/e2e/support/noUuid.ts`, a copy of `web/src/test-utils/noUuidInDom.ts`;
 `web/tests/unit/e2eNoUuid.test.ts` fails when the two drift apart.
 
+## The nightly run and its signal (T-1997)
+
+`stock-e2e.yml` runs on a schedule (01:47 UTC) and on `workflow_dispatch` with every step, no path filter: the three GATE B
+click-through specs (stock G1-G6 and S-flows, stock print P1-P9, assets print E1-E13) and the relogin spec. If that run on
+`main` fails, job `nightly_signal` writes the tag `e2e-nightly-red` at the tested sha and opens or comments on one issue
+"nightly e2e red" (label `main-fix`) with the failed spec names and the run link; a green run deletes the tag and closes the
+issue. Operators read it with `git ls-remote origin refs/tags/e2e-nightly-red`. It does not stop the merge queue. What a red
+nightly means and who fixes it: `docs/runbooks/ci-merge-queue.md` section 8. Pinned by test W2 in
+`test/letflow/ci_stock_e2e_paths_test.exs`.
+
 ## Run it locally
 
 Needs docker compose, Elixir/OTP as in `.tool-versions`, Node 22, curl, jq, openssl.

@@ -201,3 +201,23 @@ Measured over the last 30 `main` runs: by the repo's own rules the mobile gate w
 in 28 and the frontend gate in 24. Saving about 10.6 job-minutes per main push (6.3 mobile + 4.3
 frontend, about 8 % of a full run); wall time barely changes. Backend stays always-on on push (ISS-0840).
 Details: `docs/status/ci-minutes-20261110.md`.
+
+## 8. The nightly browser e2e is red (T-1997)
+
+The workflow `.github/workflows/stock-e2e.yml` runs every night (cron `47 1 * * *`) and on
+`workflow_dispatch`: all GATE B specs (stock, stock print, assets print) plus the relogin spec,
+with no path filter. When that run on `main` ends red, job `nightly_signal`:
+
+- force-updates the tag **`e2e-nightly-red`** to the tested sha;
+- opens, or comments on, one open issue titled **"nightly e2e red"**, label `main-fix`, with the
+  failed spec names and the run link.
+
+A green nightly deletes the tag and closes the issue. A cancelled run changes nothing. The signal
+does **not** stop the merge queue (`ci-main-red` in section 2 does that).
+
+Watch it: `git ls-remote origin refs/tags/e2e-nightly-red` (a line means red; the sha is the tested
+commit) and `gh issue list --label main-fix --search '"nightly e2e red" in:title'`.
+
+Who fixes it: a `main-fix` task at prio 1 (the operator queues it from the issue). Read the run's
+artifact `stock-e2e-results` (traces, `error-context.md`) before the log; do not re-run as a fix.
+Re-check with `workflow_dispatch` on `main` after the fix lands.
