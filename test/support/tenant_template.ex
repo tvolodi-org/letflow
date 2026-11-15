@@ -300,7 +300,8 @@ defmodule Letflow.Test.TenantTemplate do
     "document_sequences",
     "document_types",
     "document_versions",
-    "documents"
+    "documents",
+    "official_form_templates"
   ]
 
   # REQ-620 (GH #3463 part C): the ledger tables carry triggers that refuse TRUNCATE (decision

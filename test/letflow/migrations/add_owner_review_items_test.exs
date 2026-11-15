@@ -26,12 +26,12 @@ defmodule Letflow.AddOwnerReviewItemsTest do
     )
   end
 
-  test "MG3 registered last; existing rows stay problem; every CHECK refuses its bad value" do
+  test "MG3 registered third to last (T-1986, T-1982 follow); existing rows stay problem; every CHECK refuses its bad value" do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "t1963-mig")
     schema = fx.schema_name
 
     assert {@version, AddOwnerReviewItems} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -3)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, AddOwnerReviewItems, prefix: schema, log: false)

@@ -1,6 +1,6 @@
 # Fixed asset count (Inv-8, annex 39): specification
 
-Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0), K5 (freeze, REQ-820, T-1929, assets 0.24.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) and K4 (differences, decisions, signing by the configured role, drafts, REQ-819, T-1930, assets 0.26.0) and K3 (scanner input, REQ-818, T-1931, assets 0.27.0) are built, K6 and K7 are not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4). Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
+Status: specification; slices K1 (the count order, REQ-816, T-1927, assets 0.22.0), K5 (freeze, REQ-820, T-1929, assets 0.24.0) and K2 (open, book lines, typed input, entry log, close, sheet document, sheet marks, REQ-817, T-1928, assets 0.23.0) and K4 (differences, decisions, signing by the configured role, drafts, REQ-819, T-1930, assets 0.26.0) and K3 (scanner input, REQ-818, T-1931, assets 0.27.0) and K6 (Inv-8 print and plain sheet print, REQ-821, T-1932, assets 0.28.0) are built, K7 is not. K2 narrows one rule of section 3: a counted quantity of a low-value line is a whole number, not any decimal, because the asset ledger policy refuses fractional quantities (a fractional count could never post in K4). Requirement entries REQ-816 to REQ-822 in `docs/requirements.yaml` (planned, added
 with this file) are the build slices. Written by the business analyst (task T-1844, 2026-11-13). Test tenant only;
 behind a per-tenant flag that is off by default. Nothing here touches production, demo, secrets, DNS, money or the
 MES work (`docs/design/mes`).
@@ -28,7 +28,7 @@ count design so no new owner question is needed; **[A]** UAT assumption, to be c
   `count_posting.ex`, `freeze_state.ex` and `freeze_guard.ex` (freeze of the counted locations, limit setting
   `count_freeze_limit_minutes`, default 120), `count_print.ex` (PDF in ru, kk, en), `form_count_inv10.ex` with
   `lib/letflow/documents/form_print.ex` (official forms, ru and kk only, `priv/print_forms/*.json`).
-- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.27.0; ledger `assets` with the slots
+- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.28.0; ledger `assets` with the slots
   asset, org_unit, location, material_responsible, actual_user; causes commission, change, handover, writeoff,
   kind_change_in; permissions AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile with no role
   grants; settings currency, expiry_reminder_lead_days, storekeeper_grants), `cards.ex` (the card has no location,
@@ -192,6 +192,18 @@ a ledger-policy change); the book read stays exact because the hold and `cutoff_
   [A]. Blank, never invented: accounts, factory and passport numbers, release date, actual cost, actual start and end,
   sums in words, signatures, the checker (G5, G6, G10, G11, G12 of kz-forms-mapping).
 - The Inv-16 comparison sheet is not part of this spec.
+
+Built (K6, T-1932, assets 0.28.0): `GET /counts/:id/print/sheet` (`AssetsRead`, behind the flag `count_enabled`, 404 when it
+is off). With `form=inv8&format=pdf|docx&lang=ru|kk` it prints the official Inv-8 / Түг-8 (`priv/print_forms/inv8.json`,
+`FormCountInv8`); without `form` it prints the plain sheet PDF in ru, kk or en (`CountSheetPrint`, `lang` default ru). Both
+read the ISSUED sheet document only (`CountPrintSource`), so a count that never closed is 422 `document_not_issued` and a
+closed one stays printable in every later state. The query is checked before the read (422 `invalid_lang`, `invalid_form`,
+`invalid_format`); an official PDF of more than 999 lines is 422 `print_too_large` (a DOCX has no cap). Printed blank in
+Inv-8: object kind, accounts, release date, factory and passport numbers, actual cost, actual start and end, sums in words,
+the statement, signatures, the checker. The location prints only when the count has exactly one root. Book cost is the
+sheet's stored `book_value` and prints only on a book line of a card whose currency is KZT (the column header says "в
+теңге", the ДА-1/ДА-2 rule); it is blank on a surplus line and on a card of another currency.
+**Inv-8: to be confirmed by accountant** (PM decision 2026-11-14, not blocking), including this KZT rule.
 
 ## 8. Audit, permissions, flag
 
