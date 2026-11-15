@@ -76,6 +76,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:acount, "GET", "/counts/:id/result", nil, :call},
     {:acount, "PUT", "/counts/:id/result/lines/:line_no", :acount_decision, :call},
     {:acount, "POST", "/counts/:id/result/sign", :empty, :call},
+    # REQ-821 (asset count K6): the sheet print; A's own `ordered` count answers 422, not 404.
+    {:acount, "GET", "/counts/:id/print/sheet", nil, :call},
     {:count, "PUT", "/counts/:id", :count_put, :call},
     {:count, "GET", "/counts/:id", nil, :call},
     {:count, "POST", "/counts/:id/issue", :empty, :call},
