@@ -37,6 +37,7 @@ GET /modules/assets/counts AssetsRead
 GET /modules/assets/counts/:id AssetsRead
 GET /modules/assets/counts/:id/entries AssetsRead
 GET /modules/assets/counts/:id/lines AssetsRead
+GET /modules/assets/counts/:id/print/sheet AssetsRead
 GET /modules/assets/counts/:id/result AssetsRead
 GET /modules/assets/counts/:id/sheet-document AssetsRead
 GET /modules/assets/documents AssetsRead

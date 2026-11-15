@@ -61,6 +61,7 @@ defmodule Letflow.Documents.FormTemplate.KeysTest do
       "da4" => 8,
       "inv10" => 18,
       "inv18" => 8,
+      "inv8" => 21,
       "z1" => 4,
       "z2" => 9,
       "z3" => 0,

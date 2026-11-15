@@ -121,6 +121,11 @@ defmodule Letflow.Modules.Assets do
   `assets_count_entry` gets `line_no` optional and three optional fields (`scanned_text`, `scan_outcome`,
   `location_id`). No new permission, setting or migration (class A). See `Letflow.Modules.Assets.CountSheet.scan/4`.
 
+  **Asset count K6** (T-1932, version 0.28.0, REQ-821 / GH #4370): `GET /counts/:id/print/sheet` (`AssetsRead`, flag
+  `count_enabled`) prints the issued count sheet: the official form Инв-8 / Түг-8 (`form=inv8`, ru and kk, pdf and
+  docx, `priv/print_forms/inv8.json`) or a plain sheet PDF (ru, kk, en). Inv-8 is to be confirmed by the accountant.
+  No new permission, setting or migration (class A). See `Letflow.Modules.Assets.CountPrintSource`.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -273,7 +278,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.27.0",
+    version: "0.28.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "codes", "locations", "org", "stock"],
@@ -343,7 +348,9 @@ defmodule Letflow.Modules.Assets do
       # K4 (REQ-819): the count result (differences, decisions, signing by the configured role).
       {"GET", "/counts/:id/result", :AssetsRead},
       {"PUT", "/counts/:id/result/lines/:line_no", :AssetsRead},
-      {"POST", "/counts/:id/result/sign", :AssetsRead}
+      {"POST", "/counts/:id/result/sign", :AssetsRead},
+      # K6 (REQ-821): the print of the issued count sheet (Inv-8 and the plain sheet).
+      {"GET", "/counts/:id/print/sheet", :AssetsRead}
     ],
     manages_entity_types: [
       "assets_card",

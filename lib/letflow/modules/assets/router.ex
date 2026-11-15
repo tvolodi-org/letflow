@@ -56,6 +56,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /counts/:id/scan` (REQ-818, K3; body `{"text"}`) | `AssetsCountRecord` | `scan/4` | 200 scan answer |
   | `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit`, `cursor`) | `AssetsRead` | `lines/4`, `entries/4` | 200 `rows, next_cursor` |
   | `GET /counts/:id/sheet-document` | `AssetsRead` | `sheet_document/3` | 200 summary / 404 |
+  | `GET /counts/:id/print/sheet[?lang=ru\|kk\|en]` (REQ-821, K6; with `form=inv8&format=pdf\|docx&lang=ru\|kk` the official form Inv-8 / Түг-8) | `AssetsRead` | `CountPrintSource.read/3`, `CountSheetPrint.build/3`; `FormCountInv8.data/2`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued sheet; 404 as `GET /counts/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character` |
 
   REQ-819 (K4) count result routes, a thin layer over `Letflow.Modules.Assets.CountResult` (also need a
   tenant-wide ledger read, else 404; the decision and the signature need the configured signer role,
@@ -136,12 +137,15 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.CardPrintSource
   alias Letflow.Modules.Assets.Cards
+  alias Letflow.Modules.Assets.CountPrintSource
   alias Letflow.Modules.Assets.CountResult
   alias Letflow.Modules.Assets.CountSheet
+  alias Letflow.Modules.Assets.CountSheetPrint
   alias Letflow.Modules.Assets.Counts
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
+  alias Letflow.Modules.Assets.FormCountInv8
   alias Letflow.Modules.Assets.FormDa1
   alias Letflow.Modules.Assets.FormDa2
   alias Letflow.Modules.Assets.FormDa3
@@ -505,6 +509,12 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
+  # REQ-821 (asset count K6): the print of the issued count sheet, behind the flag `count_enabled`:
+  # the official form Inv-8 (`form=inv8`) or the plain sheet. The query is validated before the read.
+  authz_get "/counts/:id/print/sheet", :AssetsRead do
+    count_print(conn)
+  end
+
   # REQ-819 (asset count K4): the result of a count. The decision and the signature need the configured
   # signer role (`CountSigner`), checked inside the call; the permission is `AssetsRead`.
   authz_get "/counts/:id/result", :AssetsRead do
@@ -552,6 +562,67 @@ defmodule Letflow.Modules.Assets.Router do
       _ -> Response.not_found(conn)
     end
   end
+
+  # REQ-821: guard (404 as `count_call/4`), then the print; a refusal never reaches the read.
+  defp count_print(conn) do
+    with {:ok, access} <- Access.check(conn, :read),
+         true <- Settings.count_enabled?(access.prefix) do
+      query = Plug.Conn.fetch_query_params(conn).query_params
+      tenant_id = conn.assigns |> Map.get(:auth_context, %{}) |> Map.get(:tenant_id)
+
+      if Map.has_key?(query, "form"),
+        do: print_count_form(conn, access.prefix, tenant_id, query),
+        else: print_count_sheet(conn, access.prefix, tenant_id, query)
+    else
+      _ -> Response.not_found(conn)
+    end
+  end
+
+  defp print_count_form(conn, prefix, tenant_id, query) do
+    with {:ok, "inv8"} <- count_form_param(query["form"]),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      with {:ok, %{issued: issued, names: names}} <-
+             CountPrintSource.read(prefix, conn.params["id"], tenant_id),
+           :ok <- count_form_size(format, issued),
+           {:ok, bin} <-
+             FormPrint.build("inv8", FormCountInv8.data(issued, names), lang, format) do
+        {type, ext} = form_type(format)
+        send_binary(conn, bin, type, form_file_name(issued.number_label, "_Inv-8", ext))
+      else
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, reason} -> form_failure(conn, reason)
+      end
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  defp print_count_sheet(conn, prefix, tenant_id, query) do
+    case print_lang(query["lang"]) do
+      {:ok, lang} ->
+        with {:ok, %{issued: issued, names: names}} <-
+               CountPrintSource.read(prefix, conn.params["id"], tenant_id),
+             {:ok, pdf} <- CountSheetPrint.build(issued, names, lang) do
+          send_pdf(conn, pdf, DocumentPrint.file_name(issued.number_label))
+        else
+          {:error, :not_found} -> Response.not_found(conn)
+          {:error, reason} -> form_failure(conn, reason)
+        end
+
+      :invalid_lang ->
+        unprocessable(conn, "invalid_lang")
+    end
+  end
+
+  defp count_form_param("inv8"), do: {:ok, "inv8"}
+  defp count_form_param(_), do: {:invalid, "invalid_form"}
+
+  # The PDF engine takes at most 1000 table rows; the totals row is one of them.
+  defp count_form_size(:pdf, issued),
+    do: if(CountPrintSource.pdf_too_large?(issued), do: {:error, :print_too_large}, else: :ok)
+
+  defp count_form_size(_, _issued), do: :ok
 
   # The result calls read the ledger as of the cut-off: they need a tenant-wide read (REQ-819).
   defp count_result(conn, opts, fun) do
@@ -823,8 +894,9 @@ defmodule Letflow.Modules.Assets.Router do
   defp card_form_param("da2"), do: {:ok, "da2"}
   defp card_form_param(_), do: {:invalid, "invalid_form"}
 
-  defp form_failure(conn, reason) when reason in [:print_not_available, :document_not_issued],
-    do: unprocessable(conn, Atom.to_string(reason))
+  defp form_failure(conn, reason)
+       when reason in [:print_not_available, :document_not_issued, :print_too_large],
+       do: unprocessable(conn, Atom.to_string(reason))
 
   defp form_failure(conn, :unsupported_glyph),
     do: unprocessable(conn, "print_unsupported_character")

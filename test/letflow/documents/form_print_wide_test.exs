@@ -46,6 +46,7 @@ defmodule Letflow.Documents.FormPrintWideTest do
                "da4",
                "inv10",
                "inv18",
+               "inv8",
                "z1",
                "z2",
                "z3",
