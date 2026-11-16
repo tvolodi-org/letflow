@@ -57594,3 +57594,253 @@ requirements:
       - "6. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
       - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for every state of the description, with STATE-TABLE.md in the task folder and a harness fixture per state."
     depends_on: [REQ-884, REQ-885, REQ-886, REQ-883]
+  - id: REQ-888
+    title: "Qoimeks parity G9 part 1: the stock balances workbook check and load read the week sheet the user names, answer every sheet name, and list the stock of items the file does not mention, which is left unchanged"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4615
+    # Source: task T-2031 (Qoimeks parity row G9, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 8ebc41e6b: docs/status/qoimeks-migration-readiness.md (section 1.2 rows G8 and G9, section 1.3 B "Daily entries or weekly Excel"), REQ-884 (pending, gh 4607: "Only the first worksheet is read ... choosing a sheet of the weekly workbook is row G9, task T-2031"), REQ-885 (pending, gh 4606), REQ-886 (pending, gh 4605), lib/letflow/entities/xlsx_import.ex (moduledoc: "only the first worksheet (workbook order) is read"), lib/letflow/ledger.ex (defdelegate balances/4). Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md: importer.go package doc and parse/2 (sheet choice), store/import.go ImportReport.NotInFile and its query, api/import.go importWorkbook (sheet, sheets), web.html (sheet select, block "Нет в файле").
+    description: >
+      Why. The bookkeepers' weekly workbook is the authority on balances (readiness note section 1.2 row G9).
+      In Qoimeks each sheet of that workbook is one week and the first sheet is the newest; the check and the
+      load read the sheet the user picks (the first one when none is picked) and answer the names of all
+      sheets, and the check lists, under "Нет в файле", every stock of an item the file does not mention,
+      which the load leaves as it is (Qoimeks importer.go, store/import.go and web.html, copied to the task
+      folder). The G8 check and load (REQ-884 and REQ-885, planned, not yet on main) read only the first
+      worksheet and do not list that stock. This part adds both to those two routes.
+      What. (1) Both routes, POST /api/v1/modules/stock/stock-workbook/check and
+      POST /api/v1/modules/stock/stock-workbook/apply (REQ-884, REQ-885), accept the optional query key sheet.
+      Absent or empty: the first worksheet in workbook order is read, as today. Otherwise the worksheet whose
+      name equals the value exactly (no trimming, no case folding, as Qoimeks) is read; no such worksheet is
+      422 sheet_not_found and nothing is written. sheet is added to the keys those routes accept, so it is not
+      invalid_filter. (2) The public function that REQ-884 adds to Letflow.Entities.XlsxImport (one parse,
+      the same 25 MiB inflate limit and refusals) takes the wanted sheet name and answers the names of every
+      worksheet in workbook order with the rows of the chosen one, so the names come from the same parse and
+      no second unzip exists. (3) Every 200 and 201 answer of the two routes carries sheets (every worksheet
+      name, in workbook order) next to sheet (the name of the sheet read). The load stores the chosen name as
+      the document header's sheet (the field REQ-885 adds), so the load list of REQ-886 (planned, not yet on
+      main) shows it. (4) Every 200 and 201 answer of the two routes carries not_in_file: the stock of the
+      chosen org unit that belongs to items the read sheet does not mention. An item is "mentioned" when its
+      code equals the article (cell A, cleaned as REQ-884 cleans it) of a data row the sheet reads (a row with
+      A and B); an item with a remark that keeps its balances (R1, R3, R5, R6, R7, R9) is mentioned. The list
+      has one entry per item, place and unit with a non-zero quantity, the balance rows of the chosen org unit
+      added up over responsible and lot, read at the same cutoff as the book of the check (or of the load,
+      inside its transaction): {item_code, item_name, place_code, uom_code, book_quantity}, book_quantity a
+      decimal string, sorted by item_code, then place_code, then uom_code. Retired items that hold stock are
+      listed too (EXTRA over Qoimeks, whose list skips inactive SKUs; the rule of REQ-865 that the workbook
+      never hides a quantity). No cap: the list is bounded by the stock of one org unit, as the whole-stock
+      workbook of REQ-865 is. A load never changes these balances (Qoimeks: "SKUs the file does not mention
+      are left alone"; REQ-884 already leaves them alone). (5) Docs: the runbook docs/runbooks/stock-workbook-import.md
+      (REQ-884, planned, not yet on main) gets a section on the sheet key, the sheets answer and
+      not_in_file. No migration, no new permission, no new stored field (the header's sheet is REQ-885's), no
+      manifest change, so no version bump. Not in this part: the web screen (REQ-889, planned, not yet on
+      main) and writing items and places from the file (REQ-890, planned, not yet on main). Size S.
+    acceptance_criteria:
+      - "1. Sheet choice (router tests in test/letflow/modules/stock/, the form of the REQ-884 tests): for a workbook with two sheets, '16.11' first and 'Неделя 46' second, holding different quantities of item Z-1 at RI2, a check without sheet and a check with sheet= (empty) both answer sheet '16.11', sheets ['16.11', 'Неделя 46'] and the changes of the first sheet; a check with sheet=Неделя 46 (URL-encoded) answers sheet 'Неделя 46' and the changes of the second sheet; sheet=nope and sheet=16.11 with a trailing space are each 422 sheet_not_found."
+      - "2. Load: a load with sheet=Неделя 46 and the file's sha256 creates the document whose lines are the changes of the second sheet; GET /documents/:id shows header sheet 'Неделя 46' and the 201 answer carries sheet and sheets; a load with sheet=nope is 422 sheet_not_found with the document, ledger entry and audit counts unchanged."
+      - "3. Not in the file: in a tenant where, in the chosen org unit, Z-1 has 10 at RI2, Z-4 has 5 at RI2 in two balance rows (3 with responsible E1 and 2 with none), Z-5 (retired) has 1 at LA1 and Z-6 has 0 at RI2, and Z-4 also has 4 at RI2 in another org unit, a check of a file that names only Z-1 answers not_in_file exactly [Z-4 RI2 '5', Z-5 LA1 '1'] in that order with item_name and uom_code filled; Z-1, Z-6 and the other org unit's balance are not listed."
+      - "4. Mentioned with a remark: an article whose quantity cell gives remark R1 is not listed in not_in_file although its balances are not changed; an article with remark R8 (no such item) adds nothing to the list."
+      - "5. Unchanged by a load: the load of the file of criterion 3, approved, leaves Z-4 at 5 and Z-5 at 1 (GET /balances), and its 201 answer carries the same not_in_file as the check."
+      - "6. Read only and tenancy (INV-1): a check with sheet and not_in_file still writes no record, ledger entry, audit entry or document number (counts before and after equal); with tenants A and B holding the same codes and different quantities, B's not_in_file lists only B's balances."
+      - "7. One parse: the sheet names and rows come from the one public function of Letflow.Entities.XlsxImport (a source check in the test: the planned module Letflow.Modules.Stock.StockWorkbookImport of REQ-884, not yet on main, calls no :zip function); a pure test of that function answers the names of a three-sheet workbook in workbook order and the rows of the named sheet."
+      - "8. Docs in step: docs/runbooks/stock-workbook-import.md has the sheet key, sheet_not_found, the sheets answer and the not_in_file rule; the REQ-884 and REQ-885 tests pass unchanged except for the added sheets and not_in_file keys in exact-body assertions (the implement summary lists each changed assertion)."
+    depends_on: [REQ-884, REQ-885]
+  - id: REQ-889
+    title: "Qoimeks parity G9 part 2: the web 'Загрузка остатков из Excel' screen lets the user pick the week sheet and shows the stock not in the file, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4614
+    # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending, gh 4604: the screen at admin/stock/workbook-import, its states and the not-checked rule), REQ-888 (this task: sheet, sheets, not_in_file). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): select "Лист" with the first option «Первый лист (последняя неделя)», filled with the sheets after the first check, a change of sheet makes the check void; block «Нет в файле» with the hint «— у этих товаров есть остаток в системе, но в файле их нет. Остаток не изменяется.» and the columns №, Артикул, Номенклатура, Место, Остаток.
+    description: >
+      Why. Qoimeks parity row G9 for the people who use it: the bookkeepers load the newest week (the first
+      sheet) or pick an older week, and see which stock the file does not mention before they load. The server
+      side is REQ-888 (planned, not yet on main); the screen is REQ-887 (planned, not yet on main, planned
+      folder web/src/modules/stock/workbook/).
+      What. (1) A sheet select next to the file input. Before the first check of a file it holds one option,
+      the first sheet: en "First sheet (latest week)", ru "Первый лист (последняя неделя)" (the Qoimeks text),
+      kk "Бірінші парақ (соңғы апта)" (a UAT assumption, to be confirmed by a Kazakh reader), and Check sends
+      no sheet key. After a check it lists the answer's sheets in their order with the read sheet selected.
+      Choosing another sheet returns the screen to the not-checked state (the load button disabled, as
+      REQ-887 does for another file or org unit); Check then sends sheet with the chosen name, and the load
+      sends the sheet of the check it follows. Choosing another file empties the list back to the one option.
+      (2) A table "Not in the file" under the changes table, shown only when not_in_file is not empty, with the
+      columns number, article, name, place, unit, balance, and the hint en "These items have stock in the
+      system but are not in the file. Their stock is not changed.", ru "У этих товаров есть остаток в
+      системе, но в файле их нет. Остаток не изменяется." (the Qoimeks text), kk "Бұл тауарлардың жүйеде
+      қалдығы бар, бірақ файлда жоқ. Қалдығы өзгермейді." (a UAT assumption, to be confirmed by a Kazakh
+      reader). The same table is shown after a load (201) from the load answer. EXTRA over Qoimeks: the header
+      of the result shows the read sheet name and the count of not-in-file rows next to the change count. No
+      new route, no new screen, no new permission. Size S.
+    acceptance_criteria:
+      - "1. Component test with a fake API (the form of the REQ-887 screen tests): before a check the sheet select has exactly one option with the first-sheet text, and Check posts without a sheet key; after a check answering sheets ['16.11', 'Неделя 46'] the select lists both in that order with '16.11' selected."
+      - "2. Choosing 'Неделя 46' after a clean check disables the load button; the next Check posts sheet=Неделя 46; the load after that check posts sheet=Неделя 46 with that check's sha256; choosing another file brings the select back to the one first-sheet option."
+      - "3. A check answer with two not_in_file entries shows the 'Not in the file' table with both rows (article, name, place, unit, balance) and the hint; an answer with not_in_file [] shows no such table; a 201 load answer with not_in_file shows the table too."
+      - "4. Texts: the first-sheet option and the hint are shown with the exact texts of the description in en, ru and kk (one case per locale), and the result header shows the sheet name and the not-in-file count."
+      - "5. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
+      - "6. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for the states 'checked, second sheet chosen' and 'checked with not-in-file rows', with STATE-TABLE.md in the task folder and a harness fixture per state."
+    depends_on: [REQ-887, REQ-888]
+  - id: REQ-890
+    title: "Qoimeks parity G9 part 3: the stock balances workbook, with masters=true, also creates the items and places the file names and Letflow lacks, renames and reactivates items as the file says, previewed by the check and written by the load"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4613
+    # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-884 (rules (a) R8 "артикул не найден, строка пропущена" and (f) R6, and "the second place, unit and codes are master data, row G9"), REQ-885, REQ-886, lib/letflow/routers/entities/record_import.ex (import_scope/2: decision 0081 D4, STOREKEEPER imports stock_opening_line only), docs/migration/decisions/0081-storekeeper-role.md, lib/letflow/modules/catalog_items/catalog_items.ex (import_row/3, lookup/2), lib/letflow/modules/catalog_items/import.ex (row/3 keys by external ref, Records.upsert_record_by_external_ref/3), priv/modules/catalog_items/pack.json (uq_catalog_item_code, uq_catalog_item_external_ref), lib/letflow/modules/locations/locations.ex (defdelegate create_node/3 to Tree), priv/modules/locations/pack.json (uq_location_node_code; code, name, node_kind required by Locations.Import), scripts/pilot/qoimeks_convert.py (node_kind "location", unit code from the unit text), lib/letflow/modules/stock/stock.ex (depends_on catalog_items, codes, locations, org). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): store/import.go Import (locations insert on conflict do nothing; skus upsert: name, places, active = true), importer.go locationName and NoLocation "?", web.html report counts «новых товаров», «обновится товаров», «новых мест»; inventory section 7 (default unit шт), copied as sources/client1-inventory.copy.md.
+    description: >
+      Why. In Qoimeks every load of the weekly workbook also keeps the catalog in step with the file: an
+      article Qoimeks lacks is created with the file's name (unit шт), an article it has takes the file's name
+      and is made active again, and a place the file names that does not exist is created (Qoimeks
+      store/import.go Import, copied to the task folder); the check shows the counts of new items, updated
+      items and new places. The G8 check (REQ-884, planned, not yet on main) skips such an article (remark R8)
+      and keeps the balances of an item at an unknown place (remark R6), so a weekly workbook with a new
+      article cannot be loaded in full. This part adds the Qoimeks master step as an opt-in key, so the G8
+      behaviour stays the default.
+      Key and access. The optional query key masters (true or false, default false; another value is 422
+      invalid_filter) on the check and on the load (the routes of REQ-884 and REQ-885 as extended by REQ-888,
+      planned, not yet on main). The check with masters=true writes nothing and is open to every caller the
+      check admits. The load with masters=true is admitted only for a caller who holds
+      :EntitiesRecordsImportAnyType with a tenant-wide scope, the permission the core record import route
+      requires today for every importable type other than stock_opening_line, catalog_item and location_node
+      included (lib/letflow/routers/entities/record_import.ex import_scope/2 and import_type_restricted?/1;
+      Letflow.Api.Authorization moduledoc: "Held by TENANT_ADMIN and PLATFORM_ADMIN only"); every other caller, a
+      STOREKEEPER holding StockQuickCount included (decision 0081 D4 limits a STOREKEEPER's import to
+      stock_opening_line), gets 403 'insufficient permissions' and nothing is written. No permission is added
+      or widened. Every check answer carries masters_writable (true when the
+      caller would be admitted to a load with masters=true), so a screen can offer the step to those who may
+      use it. The load key balances (true or false, default true): balances=false with masters=true writes
+      only the masters (the Qoimeks default, where «Записать остатки из файла» is unticked); balances=false
+      without masters=true is 422 nothing_to_load.
+      Rules with masters=true (they replace rules (a) and (f) of REQ-884; the other rules stay). (A) An article
+      with no catalog_item of that code becomes a new item: code = the cleaned cell A, name = cell B of the
+      article's first row, kind material, active true, base unit the tenant's active catalog_uom whose code is
+      "шт" (the Qoimeks default unit, inventory section 7; a UAT assumption, to be confirmed by the process
+      owner), external ref system "stock-workbook" and id the code. When the tenant has no such unit, remark
+      R13 "<a>: нет единицы измерения "шт", товар не создан, строка пропущена" and the article is left out.
+      Its file quantities are changes with book 0 (a new item has no balance) under the rules of REQ-884. (B) An
+      existing item whose name differs from cell B of the article's first row is renamed to it; a retired
+      item is made active. Its tracking and balance rules are those of REQ-884 (a lot-tracked item still gets
+      R9). (C) A place code of the file (zone letter, rack and shelf, or the place "?" for a quantity without
+      a place) that is not the code of any location_node of the tenant becomes a new root location_node:
+      code, node_kind "location" (the kind the Qoimeks converter writes), external ref system
+      "stock-workbook" and id the code, name by the Qoimeks rule: "Слева", "Справа" or "Прямо" for zone L, R
+      or D, followed by a space, the rack and a space and the shelf when the rack is not empty, trimmed; the
+      code itself when Qoimeks would give an empty name (another zone letter, or the place "?"), because
+      Letflow requires a name (a stated difference). A retired location_node with that code is not created
+      again (the code is unique) and keeps remark R6. A code in cell H (the EXTRA of REQ-884) is never created
+      and keeps R6.
+      Preview and answer. Every answer with masters=true carries masters: items_created [{row, item_code,
+      item_name}], items_renamed [{row, item_code, old_name, new_name}], items_reactivated [{row, item_code}]
+      (items in file order) and places_created [{place_code, name}] (by code); with masters=false the key is
+      absent. Load. Inside the load's transaction the masters are written first, through the write paths of
+      the owning modules (catalog_items' import function, or a public function the build adds to module
+      catalog_items for a rename of an item found by code, and Locations.create_node/3), so every rule of
+      those modules holds and they write the audit entries they write today; then the book is read and the
+      quick count document of REQ-885 is made from the changes. When masters are written and no balance
+      differs (or balances=false), the answer is 200 with applied true, document_id null and the masters
+      block; nothing written at all stays REQ-885's 200 applied false. Any refusal of a master write ends the
+      whole load with nothing written (one transaction) and answers the refusal code; a second load racing
+      the same new code answers a 4xx, not a crash (INV-8). Cancel (REQ-886, planned, not yet on main) leaves
+      created and renamed masters in place, as Qoimeks does ("Names and places the import wrote into the
+      catalog also stay"). A load with balances=false makes no document, so it is not in the load list of
+      REQ-886; its trace is the masters' audit entries (a stated difference from Qoimeks, whose imports table
+      lists it). Not in this part: the usual and second place from the file (REQ-891, planned, not yet on
+      main), codes from a «Штрихкод» column, the web screen (REQ-892, planned, not yet on main). Docs: the runbook
+      docs/runbooks/stock-workbook-import.md (planned, not yet on main) gets the masters section with R13. No migration and no
+      new permission; a manifest change only if the build adds a public function that needs one (then the
+      version bump of that module). Size M.
+    acceptance_criteria:
+      - "1. Access: a TENANT_ADMIN's load with masters=true is admitted; a STOREKEEPER holding StockQuickCount and a tenant-wide stock read gets 403 'insufficient permissions' on a load with masters=true and the item, place, document and audit counts are unchanged; the same STOREKEEPER's check with masters=true answers 200 with the masters block and masters_writable false; a TENANT_ADMIN's check answers masters_writable true; masters=yes is 422 invalid_filter; balances=false without masters=true is 422 nothing_to_load."
+      - "2. New item, preview: in a tenant with catalog_uom 'шт', a check with masters=true of a file naming the unknown article N-1 'Новый товар' with 4 at RI2 answers items_created [{row, 'N-1', 'Новый товар'}], a change N-1 RI2 book 0 file 4 difference 4 and no remark R8; the same check with masters=false answers remark R8 and no masters key; neither check writes anything (counts equal)."
+      - "3. New item, load: the TENANT_ADMIN's load of that file creates catalog_item N-1 (name 'Новый товар', kind material, active, base unit 'шт', external ref stock-workbook / N-1) and the quick count document with the line N-1 RI2 counted 4; after approval GET /balances shows 4."
+      - "4. No unit: in a tenant without an active catalog_uom 'шт' the check with masters=true answers remark R13 with the exact text of the description and N-1 has no change and no items_created entry."
+      - "5. Rename and reactivate: an existing item Z-1 named 'Старое имя' and a retired item Z-7 are named 'Новое имя' and 'Z-7 товар' in the file: the check lists items_renamed [{row, 'Z-1', 'Старое имя', 'Новое имя'}] and items_reactivated [{row, 'Z-7'}]; after the load GET of both records shows the file names and Z-7 active."
+      - "6. New places: a file naming RQ3 (zone R), LB (zone L, no shelf), X1 (zone X, no rack) and a quantity without a place, in a tenant that has none of them: places_created is [{'?', '?'}, {'LB', 'Слева B'}, {'RQ3', 'Справа Q 3'}, {'X1', 'X1'}] (by code); after the load each is a root location_node with node_kind 'location' and the stock rows of the file are changes at them; a retired location_node with code RQ3 is not created again and the rows at it keep remark R6."
+      - "7. Masters only: a TENANT_ADMIN's load with masters=true and balances=false of the file of criterion 3 creates N-1 (RI2 exists) and no document: answer 200 applied true, document_id null; GET /balances is unchanged."
+      - "8. One transaction: a load whose quick count part is refused (with a count order of the org unit opened over RI2, REQ-885's 422 count_in_progress) leaves no new item and no new place; a cancel of an approved masters load (REQ-886) reverses the balances and leaves N-1 and the new places in place."
+      - "9. Tenancy (INV-1, INV-10): with tenants A and B, a load with masters=true in B creates the item and places only in B's schema, and a code that exists only in A is created in B (A is never read); the counts of A are unchanged."
+      - "10. Docs in step: docs/runbooks/stock-workbook-import.md has the masters section (the two keys, the access rule, rules A to C, R13, the cancel and load-list differences); the existing tests of the check, the load and the cancel pass unchanged except for added keys in exact-body assertions."
+    depends_on: [REQ-888, REQ-885, REQ-886]
+  - id: REQ-891
+    title: "Qoimeks parity G9 part 4: the stock balances workbook with masters=true sets each item's usual place and second place from the file, previewed by the check and written by the load"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4612
+    # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-841 (pending, gh 4555: stock_item_place, one link per catalog item, usual_location_id and second_location_id, a blank place clears the earlier one, audit stock_item_place.created / .updated), REQ-865 (pending: "the place of its first row is its usual place; when column G is empty, the first later row whose place differs from the usual place gives the second place"), REQ-884 (R10 copied without the Qoimeks rename clause), REQ-890 (this task). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): importer.go column G altShape ^([A-Z])([A-Z]?)(\d*)$ after removing spaces, upper case and look-alike letters, its remark «второе место %q не похоже на код места, пропущено», home = the "?" place for a quantity without a place; store/import.go skus upsert location_id = home and alt_location_id = alt (a blank clears).
+    description: >
+      Why. Qoimeks parity rows G9 and G3: every load of the weekly workbook also sets each article's usual
+      place (where it normally lives) and second place (Excel column G «Второе место»), and a blank clears the
+      earlier value (Qoimeks store/import.go, copied to the task folder). REQ-841 (planned, not yet on main)
+      stores both places as one stock_item_place link per item, written by its own import file; REQ-884 leaves
+      column G out ("master data, row G9"). This part reads them from the workbook in the masters step of
+      REQ-890 (planned, not yet on main).
+      Rules (masters=true only; with masters=false nothing here applies). Per article of the read sheet, for an
+      item that exists or that REQ-890 creates: (1) usual place = the place of the article's first row that
+      has one (zone, rack and shelf after REQ-884's normalising, or the place "?" when that row has a quantity
+      above 0 and no place, as Qoimeks does); none when no row has one. (2) second place = column G of the
+      article's first row with a non-empty G, read the Qoimeks way: spaces removed, upper case, the
+      look-alike letters of REQ-884 replaced, then it must fit ^([A-Z])([A-Z]?)(\d*)$ and becomes the code of
+      the match; a G that does not fit gives remark R12 "<a>: второе место "<raw>" не похоже на код места,
+      пропущено" (the Qoimeks text) and counts as empty. When no row has a usable G, the first later row whose
+      place differs from the usual place gives the second place (the rule REQ-865 states). (3) A second place
+      code that is no location_node is created as REQ-890 rule C creates places and is listed in
+      places_created. (4) The link is the file's whole statement: when the item's stored link differs (a
+      blank place included, which clears the stored one, as REQ-841 point 2 and Qoimeks), the link is
+      written; equal links write nothing. The Qoimeks rule that swaps the usual place when a later row's name
+      begins with the article is not copied (as REQ-884 R10 drops the rename clause). (5) The load writes the
+      links inside REQ-890's master step, through the stock_item_place write path of REQ-841 (its import
+      function or the module stock function it calls), so its reference rules and audit entries hold. Access
+      is REQ-890's: :EntitiesRecordsImportAnyType with a tenant-wide scope is also what the core import route
+      requires for stock_item_place (a module-managed type other than stock_opening_line), so no further rule
+      is added. (6) The masters block of every
+      answer gains place_links [{row, item_code, usual_place_code, second_place_code, old_usual_place_code,
+      old_second_place_code}], null for an absent place, only for links that change, in file order. Docs:
+      the runbook docs/runbooks/stock-workbook-import.md (planned, not yet on main) gets the place-link rules and R12. No
+      migration, no new permission. Size S.
+    acceptance_criteria:
+      - "1. Usual and second place: an item Z-1 with no link and file rows (RI2, G 'rk 2'), (LA1): the check with masters=true lists place_links [{row, 'Z-1', 'RI2', 'RK2', null, null}] (the look-alike/upper-case/space rule applied to 'rk 2'); after the TENANT_ADMIN's load the stock_item_place link of Z-1 holds RI2 and RK2."
+      - "2. Second place from a later row: rows (RI2) and (LA1) with G empty give second place LA1; G 'R-2' gives remark R12 with the exact text of the description, and the second place then comes from the later row LA1."
+      - "3. Clear and keep: an item whose stored link is RI2 / RK2 and whose file rows give RI2 and no second place gets place_links with second_place_code null and old_second_place_code 'RK2', and after the load the second place is empty; an item whose link equals the file is not in place_links and the load writes no audit entry stock_item_place.updated for it."
+      - "4. No place: an article whose only row has quantity 3 and no place gets usual place '?' (created when absent, as REQ-890 rule C); an article whose only row has quantity 0 and no place gets a link with neither place (a stored link is cleared)."
+      - "5. New second place: a G 'DX4' that is no location_node is in places_created as {'DX4', 'Прямо X 4'} and is the item's second place after the load."
+      - "6. Access and masters off: a check or load with masters=false writes no link and has no place_links; a STOREKEEPER's load with masters=true is refused 403 as in REQ-890 and writes no link."
+      - "7. Docs in step: docs/runbooks/stock-workbook-import.md has the place-link rules and R12; the REQ-890 and REQ-841 tests pass unchanged except for added keys in exact-body assertions."
+    depends_on: [REQ-890, REQ-841]
+  - id: REQ-892
+    title: "Qoimeks parity G9 part 5: the web 'Загрузка остатков из Excel' screen offers 'also update items and places from the file' to those who may, shows the new items, renames, new places and place changes, and can load the items and places only"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4611
+    # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending: the screen and its states), REQ-889, REQ-890 and REQ-891 (this task: masters, masters_writable, balances, the masters block). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): report counts «новых товаров», «обновится товаров», «новых мест», «остатков изменится», checkbox «Записать остатки из файла» with its hint.
+    description: >
+      Why. Qoimeks parity row G9 for the people who use it: before loading the weekly workbook the user sees
+      how many items and places the file adds or changes, and can load the catalog changes with or without
+      the balances (Qoimeks web.html, copied to the task folder). The server side is REQ-890 and REQ-891
+      (planned, not yet on main); the screen is REQ-887 with REQ-889 (planned, not yet on main).
+      What. (1) A checkbox "Also update items and places from the file" (ru "Также обновить товары и места из
+      файла", kk "Тауарлар мен орындарды да файлдан жаңарту", the kk text a UAT assumption, to be confirmed by
+      a Kazakh reader), off by default; when on, Check sends masters=true. Changing it returns the screen to
+      the not-checked state. (2) When the check answer has the masters block, the result shows four counts
+      (new items, renamed or reactivated items, new places, place changes) and one table per non-empty list
+      (items_created, items_renamed with old and new name, items_reactivated, places_created, place_links
+      with old and new usual and second place). (3) When masters_writable is false the checkbox stays
+      usable for the check, the load buttons are disabled while it is on, and the screen says en "Only a
+      company administrator can load item and place changes.", ru "Загрузить изменения товаров и мест может
+      только администратор компании.", kk "Тауарлар мен орындардың өзгерістерін тек компания әкімшісі
+      жүктей алады." (kk a UAT assumption). (4) With the checkbox on and masters_writable true, next to
+      «Записать остатки из файла» a second button "Load items and places only" (ru "Загрузить только товары и
+      места", kk "Тек тауарлар мен орындарды жүктеу", kk a UAT assumption) sends the load with masters=true and
+      balances=false; its 200 answer shows the masters counts and says that no balance changed. The balances
+      load sends masters=true too when the checkbox is on. A 403 shows the server's refusal. No new route, no
+      new screen, no new permission. Size S.
+    acceptance_criteria:
+      - "1. Component test with a fake API: with the checkbox off Check posts without masters; on, it posts masters=true; toggling it after a clean check disables the load buttons until the next check."
+      - "2. A check answer with each masters list non-empty shows the four counts and the five tables with the server's values; lists that are empty show no table; an answer without the masters key shows neither counts nor tables."
+      - "3. masters_writable false with the checkbox on: both load buttons are disabled and the administrator-only text is shown in en, ru and kk (exact texts of the description); with the checkbox off the balances load button follows the REQ-887 rules."
+      - "4. Load: with masters_writable true, 'Load items and places only' posts the load with masters=true, balances=false, the check's sha256 and sheet; its 200 answer (document_id null) shows the masters counts and the no-balance-change text; «Записать остатки из файла» posts masters=true with the checkbox on; a 403 answer shows the refusal and keeps the file chosen."
+      - "5. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
+      - "6. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for the states 'checked with masters lists', 'masters not writable' and 'items and places loaded', with STATE-TABLE.md in the task folder and a harness fixture per state."
+    depends_on: [REQ-891, REQ-889]
