@@ -788,6 +788,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       # `__dry_collect__/2`, both called by `HandlerPost` only.
       # REQ-760 adds `next_record_id/1` (a platform-derived record id from the step source).
       # T-1489 adds `update/3` (handler-facing allow-listed `updates` write; Assets card moves).
+      # REQ-829 adds `read/3` and `active?/3` (the OQ-R4 read facade).
       assert public == [
                __declare__: 2,
                __dry_collect__: 2,
@@ -797,6 +798,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                __record__: 2,
                __registration__: 2,
                __token__: 1,
+               active?: 3,
                authorize_module_writes: 2,
                build_call: 4,
                create: 3,
@@ -806,6 +808,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                next_record_id: 1,
                post: 3,
                prepare_targets: 2,
+               read: 3,
                registered_targets: 1,
                update: 3
              ]

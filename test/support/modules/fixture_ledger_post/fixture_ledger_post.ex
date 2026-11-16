@@ -56,6 +56,37 @@ defmodule Letflow.Modules.FixtureLedgerPost do
         function: {Letflow.Modules.FixtureLedgerPost.Handlers, :plain},
         targets: ["fxlp_note"],
         args: %{"note" => %{required: true}}
+      },
+      # REQ-829 (OQ-R4 read facade): `make_note` writes a note with an `active` flag, `read_probe`
+      # reads one record by type and id and records the answers in a note, `read_maybe` reads once
+      # (or not) and writes nothing, `post_reading` posts only in a dry build.
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "make_note",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :make_note},
+        targets: ["fxlp_note"],
+        args: %{"note" => %{required: true}, "active" => %{required: true}}
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "read_probe",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :read_probe},
+        targets: ["fxlp_note"],
+        args: %{"type" => %{required: true}, "id" => %{required: true}},
+        reads: ["fxlp_note"]
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "read_maybe",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :read_maybe},
+        targets: ["fxlp_note"],
+        args: %{"id" => %{required: true}, "do_read" => %{required: true}},
+        reads: ["fxlp_note"]
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_reading",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :post_reading},
+        targets: ["fxlp_note"],
+        args: %{"posting" => %{required: true}},
+        posts_ledger: "alpha",
+        reads: ["fxlp_note"]
       }
     ],
     ledger: %{

@@ -83,7 +83,16 @@ defmodule Letflow.Modules.Catalog do
     """
 
     @enforce_keys [:module_id, :name, :entry_module, :targets, :args]
-    defstruct [:module_id, :name, :entry_module, :targets, :args, posts_ledger: nil, updates: %{}]
+    defstruct [
+      :module_id,
+      :name,
+      :entry_module,
+      :targets,
+      :args,
+      posts_ledger: nil,
+      updates: %{},
+      reads: []
+    ]
 
     @type t :: %__MODULE__{
             module_id: String.t(),
@@ -92,7 +101,8 @@ defmodule Letflow.Modules.Catalog do
             targets: [String.t()],
             args: %{String.t() => %{required: boolean()}},
             posts_ledger: String.t() | nil,
-            updates: %{optional(String.t()) => [String.t()]}
+            updates: %{optional(String.t()) => [String.t()]},
+            reads: [String.t()]
           }
   end
 
@@ -229,7 +239,7 @@ defmodule Letflow.Modules.Catalog do
     with [entry] <-
            Enum.filter(entries, fn entry_module -> entry_module.manifest().id == module_id end),
          manifest = entry.manifest(),
-         :ok <- validate_write_handlers(manifest, entry),
+         :ok <- validate_write_handlers(manifest, entry, :compiled),
          spec when not is_nil(spec) <-
            Enum.find(Map.get(manifest, :write_handlers, []), &(&1.name == name)) do
       {:ok,
@@ -240,7 +250,8 @@ defmodule Letflow.Modules.Catalog do
          targets: Enum.sort(spec.targets),
          args: spec.args,
          posts_ledger: spec.posts_ledger,
-         updates: spec.updates
+         updates: spec.updates,
+         reads: spec.reads
        }, spec.function}
     else
       _ -> :error
@@ -545,7 +556,9 @@ defmodule Letflow.Modules.Catalog do
     * `{:write_handler_without_managed_types, name}` - no (or empty)
       `:manages_entity_types`.
     * `{:write_handler_no_targets, name}`;
-    * `{:write_handler_update_not_target, name, type}` (G2: an `updates` key that is not one of the handler's `targets`).
+    * `{:write_handler_update_not_target, name, type}` (G2: an `updates` key that is not one of the handler's `targets`);
+    * `{:write_handler_read_not_reachable, name, type}` (REQ-829: a `reads` type neither managed by the
+      handler's own module nor by a module in its `depends_on`).
     * `{:write_handler_target_not_managed, name, target}` - target absent from
       this manifest's own `:manages_entity_types`.
     * `{:write_handler_outside_module, name}` - the handler module is not
@@ -629,7 +642,7 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_manages_entity_types(manifest),
          :ok <- validate_widens_grants(manifest),
          :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
-         :ok <- validate_write_handlers(manifest, entry_module),
+         :ok <- validate_write_handlers(manifest, entry_module, known_manifests),
          :ok <- validate_scope_declarations(manifest, known_manifests),
          :ok <- validate_document_org_resolver(manifest, known_manifests),
          :ok <- validate_extension_points(manifest),
@@ -999,7 +1012,7 @@ defmodule Letflow.Modules.Catalog do
 
   # Rule 10 (GH #2590 / REQ-501 R1). Shared by validate/2 and the per-call
   # re-check in write_handler_in/3 (F-6); `entry_module` may be nil.
-  defp validate_write_handlers(manifest, entry_module) do
+  defp validate_write_handlers(manifest, entry_module, known_manifests) do
     case Map.get(manifest, :write_handlers, []) do
       [] ->
         :ok
@@ -1010,7 +1023,7 @@ defmodule Letflow.Modules.Catalog do
              :ok <- check_handler_module_id(manifest),
              :ok <- check_handler_managed_types(manifest, handlers),
              :ok <- check_handler_ledger(manifest, handlers) do
-          check_handler_targets_and_code(manifest, handlers, entry_module)
+          check_handler_targets_and_code(manifest, handlers, entry_module, known_manifests)
         end
     end
   end
@@ -1068,7 +1081,7 @@ defmodule Letflow.Modules.Catalog do
     end)
   end
 
-  defp check_handler_targets_and_code(manifest, handlers, entry_module) do
+  defp check_handler_targets_and_code(manifest, handlers, entry_module, known_manifests) do
     managed = Map.fetch!(manifest, :manages_entity_types)
 
     Enum.find_value(handlers, :ok, fn handler ->
@@ -1084,6 +1097,9 @@ defmodule Letflow.Modules.Catalog do
         bad = Enum.find(Map.keys(handler.updates), &(&1 not in handler.targets)) ->
           {:error, {:write_handler_update_not_target, handler.name, bad}}
 
+        bad = Enum.find(handler.reads, &(&1 not in readable_types(manifest, known_manifests))) ->
+          {:error, {:write_handler_read_not_reachable, handler.name, bad}}
+
         not in_module_namespace?(module, entry_module) ->
           {:error, {:write_handler_outside_module, handler.name}}
 
@@ -1094,6 +1110,20 @@ defmodule Letflow.Modules.Catalog do
           nil
       end
     end)
+  end
+
+  # REQ-829: the types a handler may read: the module's own and those of every module it depends on.
+  defp readable_types(manifest, known_manifests) do
+    own = Map.get(manifest, :manages_entity_types, [])
+    deps = List.wrap(Map.get(manifest, :depends_on))
+    known_manifests = if known_manifests == :compiled, do: all_manifests(), else: known_manifests
+
+    dep_types =
+      known_manifests
+      |> Enum.filter(&(Map.get(&1, :id) in deps))
+      |> Enum.flat_map(&Map.get(&1, :manages_entity_types, []))
+
+    own ++ dep_types
   end
 
   # Rule 14 (REQ-651). Shared by validate/2 and the per-call re-check in resolve_import_function/3.

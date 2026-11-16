@@ -336,6 +336,8 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
           fun in [:create, :update, :post] and length(args) == 3 -> []
           # REQ-760: the platform-derived record id of the next create.
           fun == :next_record_id and length(args) == 1 -> []
+          # REQ-829: the read facade, the fourth and fifth handler-facing calls.
+          fun in [:read, :active?] and length(args) == 3 -> []
           true -> [{:handler_writes, fun}]
         end
 
@@ -626,6 +628,9 @@ end", {:call, :from}},
         {body.("HandlerWrites.post(m, c)"), {:handler_writes, :post}},
         # REQ-760: next_record_id/1 is the third handler-facing call; other arities are not.
         {body.("HandlerWrites.next_record_id(c, 1)"), {:handler_writes, :next_record_id}},
+        # REQ-829: read/3 and active?/3 are handler-facing; other arities are not.
+        {body.("HandlerWrites.read(c, \"t\")"), {:handler_writes, :read}},
+        {body.("HandlerWrites.active?(c, \"t\", 1, 2)"), {:handler_writes, :active?}},
         {body.("HandlerWrites.__token__(c)"), {:handler_writes, :__token__}},
         {body.("HandlerWrites.__next_ordinal__(c)"), {:handler_writes, :__next_ordinal__}},
         {body.("HandlerWrites.__record__(c, [])"), {:handler_writes, :__record__}},
@@ -698,6 +703,19 @@ end", {:call, :from}},
       """
 
       assert purity_violations(next_id) == []
+
+      # REQ-829 (R-9): read/3 and active?/3 are allowed in a handler file.
+      reads = """
+      defmodule H do
+        def h(multi, ctx, %{"id" => id}) do
+          {:ok, _map} = Letflow.Entities.HandlerWrites.read(ctx, "t", id)
+          true = Letflow.Entities.HandlerWrites.active?(ctx, "t", id)
+          {:ok, multi}
+        end
+      end
+      """
+
+      assert purity_violations(reads) == []
     end
   end
 end

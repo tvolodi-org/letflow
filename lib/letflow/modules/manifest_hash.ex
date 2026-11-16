@@ -106,6 +106,13 @@ defmodule Letflow.Modules.ManifestHash do
         name -> Map.put(base, "posts_ledger", name)
       end
 
+    # REQ-829: the read list, only when non-empty (a handler that reads nothing is unchanged).
+    base =
+      case Map.get(handler, :reads) do
+        [_ | _] = reads -> Map.put(base, "reads", sorted_list(reads))
+        _none -> base
+      end
+
     # G2: the update allow-list, again only when present (a handler that updates nothing is unchanged).
     case Map.get(handler, :updates) do
       updates when is_map(updates) and map_size(updates) > 0 ->

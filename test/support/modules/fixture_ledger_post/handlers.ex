@@ -25,6 +25,75 @@ defmodule Letflow.Modules.FixtureLedgerPost.Handlers do
           {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
   def plain(multi, ctx, args), do: note(multi, ctx, args)
 
+  @spec make_note(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def make_note(multi, ctx, %{"note" => note, "active" => active})
+      when is_binary(note) and is_boolean(active) do
+    case HandlerWrites.create(multi, ctx, %{
+           entity_type: "fxlp_note",
+           field_values: %{"note" => note, "active" => active}
+         }) do
+      {:ok, multi} -> {:ok, multi}
+      {:error, _contract_error} -> {:error, :not_permitted}
+    end
+  end
+
+  def make_note(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-829: reads one record and writes the answers of read/3 and active?/3 into a note.
+  @spec read_probe(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def read_probe(multi, ctx, %{"type" => type, "id" => id}) when is_binary(type) do
+    text =
+      case HandlerWrites.read(ctx, type, id) do
+        {:ok, map} ->
+          Enum.join(
+            [
+              "ok",
+              Map.get(map, "entity_type"),
+              Map.get(map, "record_id"),
+              Map.get(map, "note")
+            ],
+            " "
+          )
+
+        other ->
+          inspect(other)
+      end
+
+    note(multi, ctx, %{
+      "note" => text <> " active=" <> inspect(HandlerWrites.active?(ctx, type, id))
+    })
+  end
+
+  def read_probe(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-829: reads once when `do_read` is true; writes nothing either way.
+  @spec read_maybe(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def read_maybe(multi, ctx, %{"id" => id, "do_read" => do_read}) when is_boolean(do_read) do
+    if do_read, do: HandlerWrites.read(ctx, "fxlp_note", id)
+    {:ok, multi}
+  end
+
+  def read_maybe(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-829: builds its posting only when the facade answers as it does in a dry build.
+  @spec post_reading(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def post_reading(multi, ctx, %{"posting" => posting} = args) do
+    id = Ecto.UUID.generate()
+
+    if HandlerWrites.read(ctx, "fxlp_note", id) == {:error, :dry_build} and
+         HandlerWrites.active?(ctx, "fxlp_note", id) == false do
+      post(multi, ctx, posting, "fixture_ledger_post", args)
+    else
+      {:ok, multi}
+    end
+  end
+
+  def post_reading(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
   defp note_and_post(multi, ctx, args, ledger_id) do
     with {:ok, multi} <- extra_notes(multi, ctx, Map.get(args, "before", 0)),
          {:ok, multi} <- note(multi, ctx, args, Map.get(args, "skip_note") == true) do
