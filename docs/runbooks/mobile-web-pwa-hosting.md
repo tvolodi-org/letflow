@@ -50,6 +50,19 @@ so cache busting is done by HTTP validators:
 `/fonts-fallback/` must answer a real 404 (not `index.html`). Roboto is bundled, which covers English, Russian and Kazakh.
 Glyphs outside Roboto (emoji, CJK) show as boxes instead of being fetched from a third party; that is deliberate.
 
+### Entry file version stamp
+
+`scripts/pwa_web_package.sh` rewrites `index.html` of the build before it writes `SHA256SUMS` and compresses: every
+relative `src` or `href` of a script or link element gets `?v=<first 12 characters of the build sha>` (the sha in
+`build-info.json`). `index.html` itself stays unversioned: it is the entry and is always revalidated. `main.dart.js` and
+`canvaskit/` are loaded by the Flutter loader by their plain names and are covered by `no-cache` only. Hosting rule: no cache in front of the PWA may keep a file longer than the origin's Cache-Control allows.
+
+## Install and update
+
+- iPhone: open the PWA address in Safari, tap Share, choose "Add to Home Screen", then open the app from the new icon.
+- Android: open the address in Chrome, open the menu and choose "Install app" (or "Add to Home screen"), then open it from the icon.
+- Update: close the app and open it again from the icon. Nothing is reinstalled and no setting is entered again.
+
 ## Operator checks after the first run (cannot run in the build step)
 
 - [ ] The first push to main touching the paths produces artifact `letflow-pwa-web`.
