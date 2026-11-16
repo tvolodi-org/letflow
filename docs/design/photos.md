@@ -28,11 +28,11 @@ Five places on main keep uploaded bytes. None of them can carry a record photo a
 | 5a | Tenant logo (REQ-590) | `tenant_logos`, bytes inline, one row **[V]** `lib/letflow/identity/tenant_logo.ex` | closed type list; **first bytes must match the type** (`signature_matches?/2` for PNG, JPEG, WebP); scanner; audit entry with type, size and sha256, never bytes | tenant settings | No: one image per tenant |
 | 5b | Owner review thread images (T-1963) | `problem_report_comment_images`, bytes inline, platform company only **[V]** `priv/repo/migrations/20261115100001_add_owner_review_items.exs` | PNG or JPEG by first bytes, at most 6 per entry, 5 MiB each (`@max_image 5_242_880`, `@max_images 6`) **[V]** `lib/letflow/problem_reports/review.ex`, `comment_image.ex` | `ProblemReportsManage` | No: platform company only |
 
+Built since this inventory: **problem-report screenshots** (T-1950 part 2). T-2015 built the dialog
+(paste, drop, file picker, preview); T-2043 moved their storage onto `Letflow.Attachments` in the
+platform company schema, with server-side byte checks and metadata stripping and 30-day expiry.
+
 Not built yet:
-- **Problem-report screenshots** (T-1950 part 2). The merged slice 2 is part 1 only: "screenshots follow in part 2"
-  **[V]** `docs/design/platform-maintenance.md` (commit 106cadb9c). Owner table line 8 of that file: off by default,
-  the user turns it on per report, kept 30 days. The T-1950 task text adds: paste, drop and a file button, several
-  images, PNG/JPEG, 5 MB each, type by first bytes, thumbnails before sending (quoted in the BA note).
 - **The future assets store**: files on asset cards and documents (passports, warranty scans, invoices). No file on
   main describes it (`grep -rn -i "assets store\|asset store" docs` finds nothing); this design reads it as "files of
   the assets application", purpose `file` below **[A]**.
@@ -91,7 +91,7 @@ onto the service in slice P9. Table 5a stays (one logo per company, no reason to
 | `photo` (gallery) | `catalog_item` (stock item), `catalog_lot`, `location_node`, `assets_card` | 10 | yes, shown in lists and cards |
 | `evidence` (optional) | stock count line `count_sheet_line`, asset count line `assets_count_line`, `stock_receipt_line`, `stock_issue_line`, `stock_writeoff_line`, `assets_writeoff_line` | 3 per line | no |
 | `file` (assets store, later) | `assets_card` and the asset document headers | 20 | no |
-| `screenshot` | `problem_report` (platform company schema only) | 6 (as the review thread) | no |
+| `screenshot` | `problem_report` (platform company schema only) | 3 (the report dialog, Capture and the 2 MiB request-body cap already fix 3) | no |
 
 Not in v1, by decision: headers of documents (evidence belongs to the line that is counted or moved), transfer,
 hand-over, return, opening and commission lines (no damage or quantity dispute to prove), counterparties and org
@@ -178,16 +178,18 @@ export download if one needs it.
 ### 5.8 Audit
 One audit entry per change, in the same transaction, in the owner's company: `attachment.added`,
 `attachment.removed`, `attachment.changed` (changed field names only), `attachment.locked`, and one
-`attachment.expired` per retention run with the count. Each holds owner kind, owner id, purpose, link id, sha256,
-size and type; never bytes, never the caption text (it is user text) — the same shape as the logo audit entry
-(`tenant_logo.ex`). Refusals write nothing and are counted on telemetry, as procurement does.
+`attachment.expired` per retention run with the count. Per-link entries hold owner kind, owner id,
+purpose, link id, sha256, size and type; never bytes, never the caption text (it is user text) — the
+same shape as the logo audit entry (`tenant_logo.ex`). The aggregate expiry entry holds the total and
+per-owner-kind counts and the cutoff, not individual link ids. Refusals write nothing and are counted
+on telemetry, as procurement does.
 
 ### 5.9 Retention and backup
 - `photo` and `file`: kept as long as the owner. Masters are retired, never deleted, so their photos stay until a
   permitted user deletes them.
 - `evidence`: as long as the document (5.6).
-- `screenshot`: `retain_until` = sent + 30 days (owner table line 8 of `docs/design/platform-maintenance.md`); a daily
-  job deletes expired links and their blobs.
+- `screenshot`: `retain_until` = sent + 30 days (owner table line 8 of `docs/design/platform-maintenance.md`); the
+  hourly maintenance sweep deletes expired links and their blobs (at most one interval after the 30 days).
 - Deleting removes the bytes from the live database at once. They stay in database backups until those backups
   rotate out (seven daily sets today, per the production plan quoted in the BA note); the privacy text must say so.
 - Tenant purge drops the schema, photos included.
@@ -255,7 +257,7 @@ Sizes: S = under one day of one task, M = one to two tasks, L = needs a split at
 | P2 | Gallery routes for one owner | `PhotosAdd`, `PhotosDelete` atoms; routes for `assets_card` in the assets router; permission matrix golden | M | P1 | security (new atoms and routes, INV-10 negative) |
 | P3 | Gallery screen | gallery on the asset card: upload by button, drop, paste, camera input on phone, caption, order, main, delete; main-photo thumbnail in the card list; ru/kk/en; screenshot matrix | M | P2 | gui review |
 | P4 | Gallery on the other masters | registry lines and screens for `catalog_item`, `catalog_lot`, `location_node` | M | P3 | gui review |
-| P5 | Problem-report screenshots | T-1950 part 2 on the service, platform schema, 30-day job | M | P1 | security |
+| P5 | Problem-report screenshots | T-1950 part 2 on the service, platform schema, 30-day job; **built in T-2043** (the T-2015 dialog is unchanged, legacy rows are dual-read until purged) | M | P1 | security |
 | P6 | Evidence photos | count lines and receipt/issue/write-off lines, evidence lock on close/issue/post, screens | L (split: stock, assets) | P2 | security |
 | P7 | Export | `photos` dataset in the data export | S | P4 | security |
 | P8 | Flutter capture | photo on count and movement lines in the phone client | M | P6 | — |

@@ -260,9 +260,9 @@ or an agent reads it).
 `problem_reports` in the platform company, the export `/maintenance/v1/problem-reports`, the PM handoff channel A (poll and
 forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web button and consent dialog follow in part B.
 
-Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; screenshots follow in part 2.
+Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; part 2 adds the screenshot area described next.
 
-Slice 2 part 2 (screenshot area in the report-a-problem dialog: paste, drag-and-drop, file picker, camera; up to 3 images, bytes-checked PNG/JPEG, EXIF stripped client-side, preview with remove; stored as `problem_report_images` rows in the platform schema; 30-day retention via `ProblemReports.purge_old_report_images/1`, to be called by the maintenance scheduler when it is built) is built in T-2015. The body-cap constraint (JSON parser: 2 MiB) makes the per-image 5 MiB cap unreachable from the router; the client enforces `MAX_TOTAL_BYTES = 1.3 MiB` total raw bytes. Entity id capture in context is built in T-2009.
+Slice 2 part 2 (screenshot area in the report-a-problem dialog: paste, drag-and-drop, file picker, camera; up to 3 images, preview with remove) is built in T-2015. In T-2043 storage moved to the attachment service (`Letflow.Attachments`, owner `problem_report`, purpose `screenshot`, platform schema): the server checks the bytes, strips EXIF/GPS metadata, audits additions, applies caps and the storage allowance, and retains screenshots for 30 days. The hourly provisioner sweep expires them through `ProblemReports.expire_screenshots/1`; legacy `problem_report_images` rows remain readable until that same step purges them at 30 days. The body-cap constraint (JSON parser: 2 MiB) makes the per-image 5 MiB cap unreachable from the router; the client enforces `MAX_TOTAL_BYTES = 1.3 MiB` total raw bytes. Entity id capture in context is built in T-2009.
 
 Slice 3 part A (server error capture, grouping, throttle, `error_group_alert`, `GET /maintenance/v1/error-groups`) is built in T-1951; web capture (`window.onerror`, rejections, boundary, `POST /api/v1/me/client-errors`) is part B, a follow-up task.
 

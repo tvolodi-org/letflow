@@ -27,14 +27,12 @@ defmodule Letflow.ProblemReports.Capture do
   user sees the text before sending). The regexes take no `u` flag and use explicit ASCII classes, so
   they behave like a JS regex without `u`.
 
-  ## Images (T-2015)
+  ## Images (T-2015; storage moved in T-2043)
 
-  `parse_images/1` accepts a list of base64-encoded PNG or JPEG images (up to 3, up to 5 MiB each).
-  Magic-byte sniffing ensures the declared type matches the actual format. EXIF stripping is done
-  client-side by canvas re-encoding before base64 encoding. The server does not strip EXIF again:
-  the bytes are stored only in the platform schema and are accessible only to holders of
-  `:ProblemReportsManage`. Full server-side stripping would add an image-processing library dependency;
-  that trade-off has been deferred (noted in the security review for T-2015).
+  `parse_images/1` checks only the request shape: up to 3 base64-encoded images, each 1 byte to
+  5 MiB. The declared content type is accepted and ignored. The attachment service then decides the
+  type from the first bytes, walks the image structure and strips EXIF/GPS/XMP metadata before storing
+  the bytes in the platform schema (photos.md 5.1 and 5.2).
   """
 
   alias Letflow.Secrets.Redaction
@@ -57,7 +55,6 @@ defmodule Letflow.ProblemReports.Capture do
 
   @max_images 3
   @max_image_bytes 5_242_880
-  @accepted_content_types ~w(image/png image/jpeg)
 
   @spec parse(term()) ::
           {:ok, %{text: String.t(), context: map(), images: list()}}
@@ -74,13 +71,12 @@ defmodule Letflow.ProblemReports.Capture do
 
   @doc """
   Parses the optional `images` list from a problem report body. Accepts nil/absent → empty list.
-  Each item must be `%{"data_base64" => str, "content_type" => ct}` where ct is `image/png` or
-  `image/jpeg`. Decodes base64, checks magic bytes and size ≤ 5 MB.
-  Returns `{:ok, [%{content_type, bytes, size}]}` or an error.
+  Each item must have a binary `data_base64`; `content_type` is accepted and ignored. Decodes base64
+  and checks the decoded size is 1 byte to 5 MiB. Returns `{:ok, [%{bytes: bytes}]}` or an error.
+  The attachment service performs the byte-type and structure checks when the report is written.
   """
   @spec parse_images(term()) ::
-          {:ok, list(%{content_type: String.t(), bytes: binary(), size: non_neg_integer()})}
-          | {:error, {:invalid, String.t()}}
+          {:ok, list(%{bytes: binary()})} | {:error, {:invalid, String.t()}}
   def parse_images(nil), do: {:ok, []}
 
   def parse_images(list) when is_list(list) and length(list) <= @max_images do
@@ -97,30 +93,17 @@ defmodule Letflow.ProblemReports.Capture do
 
   def parse_images(_other), do: {:error, {:invalid, "images"}}
 
-  defp parse_image(%{"data_base64" => b64, "content_type" => ct})
-       when is_binary(b64) and ct in @accepted_content_types do
+  defp parse_image(%{"data_base64" => b64}) when is_binary(b64) do
     case Base.decode64(b64, ignore: :whitespace) do
-      {:ok, bytes} ->
-        size = byte_size(bytes)
+      {:ok, bytes} when byte_size(bytes) >= 1 and byte_size(bytes) <= @max_image_bytes ->
+        {:ok, %{bytes: bytes}}
 
-        with true <- (size >= 1 and size <= @max_image_bytes) || {:error, :image_too_large},
-             {:ok, sniffed_ct} <- sniff_magic(bytes),
-             true <- sniffed_ct == ct || {:error, :type_mismatch} do
-          {:ok, %{content_type: ct, bytes: bytes, size: size}}
-        else
-          {:error, _} -> {:error, {:invalid, "images"}}
-        end
-
-      :error ->
+      _ ->
         {:error, {:invalid, "images"}}
     end
   end
 
   defp parse_image(_other), do: {:error, {:invalid, "images"}}
-
-  defp sniff_magic(<<0x89, 0x50, 0x4E, 0x47, _::binary>>), do: {:ok, "image/png"}
-  defp sniff_magic(<<0xFF, 0xD8, 0xFF, _::binary>>), do: {:ok, "image/jpeg"}
-  defp sniff_magic(_), do: {:error, :bad_image_type}
 
   # ── text ────────────────────────────────────────────────────────────────
 

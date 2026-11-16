@@ -211,8 +211,10 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
     assert request(ctx.a, ctx.caller, :get, @mine).status == 503
   end
 
-  # ── T-2015 image route tests (RI1-RI4) ──────────────────────────────────
+  # ── T-2043 image route tests (R1-R6): service links plus legacy dual-read ──
 
+  alias Letflow.Attachments.Link
+  alias Letflow.AttachmentsImageFixture, as: ImageFx
   alias Letflow.ProblemReports.ReportImage
   alias Letflow.Support.OwnerListFixture, as: F
 
@@ -222,54 +224,100 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
         "consent" => true,
         "text" => "Screenshot test",
         "context" => %{"route" => "/assets"},
-        "images" => [%{"data_base64" => Base.encode64(F.png()), "content_type" => "image/png"}]
+        "images" => [
+          %{"data_base64" => Base.encode64(ImageFx.png()), "content_type" => "image/png"}
+        ]
       })
 
     assert conn.status == 201, conn.resp_body
     report_id = json(conn)["id"]
 
-    [img] =
-      Repo.all(from(i in ReportImage, where: i.report_id == ^report_id),
+    [link] =
+      Repo.all(
+        from(l in Link,
+          where:
+            l.owner_kind == "problem_report" and l.owner_id == ^report_id and
+              l.purpose == "screenshot"
+        ),
         prefix: ctx.p.schema_name
       )
 
-    {report_id, img}
+    {report_id, link}
   end
 
-  test "RI1 GET /:id/images/:image_id with ProblemReportsManage returns 200 with correct bytes and security headers",
-       ctx do
-    {report_id, img} = report_with_image!(ctx)
-    path = "#{@path}/#{report_id}/images/#{img.id}"
-    conn = request(ctx.p, ctx.owner, :get, path)
+  test "P5-R1 GET /:id lists service image summaries", ctx do
+    {report_id, link} = report_with_image!(ctx)
+    conn = request(ctx.p, ctx.owner, :get, "#{@path}/#{report_id}")
     assert conn.status == 200, conn.resp_body
-    assert conn.resp_body == F.png()
+
+    assert json(conn)["images"] == [
+             %{"id" => link.id, "content_type" => "image/png", "position" => 1}
+           ]
+  end
+
+  test "P5-R2 GET /:id/images/:link_id returns stored bytes and security headers", ctx do
+    {report_id, link} = report_with_image!(ctx)
+    path = "#{@path}/#{report_id}/images/#{link.id}"
+    conn = request(ctx.p, ctx.owner, :get, path)
+    assert conn.status == 200
+    assert conn.resp_body == ImageFx.png()
     assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/png"]
     assert Plug.Conn.get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    assert Plug.Conn.get_resp_header(conn, "content-disposition") == ["inline"]
     assert Plug.Conn.get_resp_header(conn, "content-security-policy") == ["default-src 'none'"]
     assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, no-store"]
   end
 
-  test "RI2 GET /:id/images/:image_id without ProblemReportsManage returns 403", ctx do
-    {report_id, img} = report_with_image!(ctx)
-    path = "#{@path}/#{report_id}/images/#{img.id}"
+  test "P5-R3 GET /:id/images/:link_id without ProblemReportsManage returns 403", ctx do
+    {report_id, link} = report_with_image!(ctx)
+    path = "#{@path}/#{report_id}/images/#{link.id}"
     no_manage_token = Fixture.mint_token!(ctx.p, ["TASK_WORKER"])
     conn = request(ctx.p, no_manage_token, :get, path)
     assert conn.status == 403
   end
 
-  test "RI3 GET /:id/images/:image_id with wrong image_id returns 404 (INV-5)", ctx do
-    {report_id, _img} = report_with_image!(ctx)
-    wrong_id = Ecto.UUID.generate()
-    path = "#{@path}/#{report_id}/images/#{wrong_id}"
-    conn = request(ctx.p, ctx.owner, :get, path)
+  test "P5-R4 unknown and malformed image ids return 404", ctx do
+    {report_id, _link} = report_with_image!(ctx)
+
+    for image_id <- [Ecto.UUID.generate(), "not-a-uuid"] do
+      conn = request(ctx.p, ctx.owner, :get, "#{@path}/#{report_id}/images/#{image_id}")
+      assert conn.status == 404
+    end
+  end
+
+  test "P5-R5 a link of report A under report B returns 404 (INV-5)", ctx do
+    {_report_a, link} = report_with_image!(ctx)
+    report_b = report!(ctx.a, ctx.caller)
+    conn = request(ctx.p, ctx.owner, :get, "#{@path}/#{report_b["id"]}/images/#{link.id}")
     assert conn.status == 404
   end
 
-  test "RI4 GET /:id/images/:image_id with wrong report_id returns 404 (INV-5)", ctx do
-    {_report_id, img} = report_with_image!(ctx)
-    wrong_report_id = Ecto.UUID.generate()
-    path = "#{@path}/#{wrong_report_id}/images/#{img.id}"
-    conn = request(ctx.p, ctx.owner, :get, path)
-    assert conn.status == 404
+  test "P5-R6 legacy rows are still listed and served until purged", ctx do
+    report = report!(ctx.a, ctx.caller)
+
+    image =
+      Repo.insert!(
+        %ReportImage{
+          report_id: report["id"],
+          position: 1,
+          content_type: "image/png",
+          bytes: F.png(),
+          size: byte_size(F.png()),
+          inserted_at: DateTime.utc_now()
+        },
+        prefix: ctx.p.schema_name
+      )
+
+    detail = request(ctx.p, ctx.owner, :get, "#{@path}/#{report["id"]}")
+    assert detail.status == 200, detail.resp_body
+
+    assert json(detail)["images"] == [
+             %{"id" => image.id, "content_type" => "image/png", "position" => 1}
+           ]
+
+    conn = request(ctx.p, ctx.owner, :get, "#{@path}/#{report["id"]}/images/#{image.id}")
+    assert conn.status == 200
+    assert conn.resp_body == F.png()
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/png"]
   end
 end

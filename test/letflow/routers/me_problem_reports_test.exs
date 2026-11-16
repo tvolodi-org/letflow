@@ -260,13 +260,27 @@ defmodule Letflow.Routers.MeProblemReportsTest do
     assert json(other_get) == %{"reports" => [], "has_more" => false}
   end
 
-  # ── T-2015 image tests (IM1-IM5) ───────────────────────────────────────
+  # ── T-2043 image tests (S1-S9): real router, real tokens, attachment service ──
 
+  alias Letflow.Attachments
+  alias Letflow.Attachments.{Blob, Link}
+  alias Letflow.AttachmentsImageFixture, as: ImageFx
   alias Letflow.ProblemReports.ReportImage
   alias Letflow.Support.OwnerListFixture, as: F
 
-  defp images(fx),
+  defp legacy_images(fx),
     do: Repo.all(from(i in ReportImage, order_by: i.position), prefix: fx.schema_name)
+
+  defp links(fx),
+    do: Repo.all(from(l in Link, order_by: l.position), prefix: fx.schema_name)
+
+  defp blobs(fx), do: Repo.all(from(b in Blob), prefix: fx.schema_name)
+
+  defp service_audits(fx, action \\ "attachment.added") do
+    Repo.all(from(e in Entry, where: e.action == ^action, order_by: e.timestamp),
+      prefix: fx.schema_name
+    )
+  end
 
   defp image_body(images_list) do
     body(%{
@@ -277,49 +291,148 @@ defmodule Letflow.Routers.MeProblemReportsTest do
     })
   end
 
-  test "IM1 valid PNG stored under the platform prefix with correct fields", %{p: p, a: a} do
-    {token, _} = caller!(a)
-    conn = post(a, token, image_body([{F.png(), "image/png"}]))
+  test "S1 one PNG is a retained platform attachment, never a customer or legacy row", %{
+    p: p,
+    a: a
+  } do
+    {token, user_id} = caller!(a)
+    conn = post(a, token, image_body([{ImageFx.png(), "image/png"}]))
     assert conn.status == 201, conn.resp_body
+    report_id = json(conn)["id"]
 
-    assert [row] = reports(p)
-    assert [img] = images(p)
-    assert img.report_id == row.id
-    assert img.content_type == "image/png"
-    assert img.bytes == F.png()
-    assert img.position == 1
-    assert img.size == byte_size(F.png())
-    # Images land only in the platform schema (INV-1)
-    assert images(a) == []
+    assert [link] = links(p)
+    assert link.owner_kind == "problem_report"
+    assert link.owner_id == report_id
+    assert link.purpose == "screenshot"
+    assert link.position == 1
+    refute link.is_main
+    assert link.uploaded_by == user_id
+    assert abs(DateTime.diff(link.retain_until, link.inserted_at) - 30 * 86_400) <= 1
+
+    assert [blob] = blobs(p)
+    assert blob.id == link.blob_id
+    assert blob.content_type == "image/png"
+    assert links(a) == []
+    assert legacy_images(p) == []
+    assert legacy_images(a) == []
   end
 
-  test "IM2 valid JPEG stored; PNG and JPEG together (2 images)", %{p: p, a: a} do
+  test "S2 PNG and JPEG get positions and their content types from the bytes", %{p: p, a: a} do
     {token, _} = caller!(a)
-    conn = post(a, token, image_body([{F.png(), "image/png"}, {F.jpeg(), "image/jpeg"}]))
+
+    conn =
+      post(
+        a,
+        token,
+        image_body([{ImageFx.png(), "image/png"}, {ImageFx.jpeg(), "image/jpeg"}])
+      )
+
     assert conn.status == 201, conn.resp_body
-    assert [img1, img2] = images(p)
-    assert img1.content_type == "image/png"
-    assert img2.content_type == "image/jpeg"
-    assert img1.position == 1
-    assert img2.position == 2
+    assert [report] = reports(p)
+    owner = %{kind: "problem_report", id: report.id}
+
+    assert [
+             %{position: 1, content_type: "image/png"},
+             %{position: 2, content_type: "image/jpeg"}
+           ] = Attachments.list_summaries(p.schema_name, owner, "screenshot")
   end
 
-  test "IM3 more than 3 images answers 422 (invalid images field)", %{p: p, a: a} do
+  test "S3 four images answer 422 and write no report, attachment or sent audit", %{p: p, a: a} do
     {token, _} = caller!(a)
-    four = List.duplicate({F.png(), "image/png"}, 4)
+    four = List.duplicate({ImageFx.png(), "image/png"}, 4)
     conn = post(a, token, image_body(four))
     assert conn.status == 422, conn.resp_body
+    assert json(conn)["detail"] == "Invalid images."
     assert reports(p) == []
+    assert links(p) == []
+    assert blobs(p) == []
+    assert audits(a) == []
   end
 
-  test "IM4 type mismatch (PNG bytes declared as JPEG) answers 422", %{p: p, a: a} do
+  test "S4 GIF and a truncated PNG answer 422 and roll back every write", %{p: p, a: a} do
     {token, _} = caller!(a)
-    conn = post(a, token, image_body([{F.png(), "image/jpeg"}]))
-    assert conn.status == 422, conn.resp_body
+
+    for bytes <- ["GIF89a" <> :binary.copy(<<0>>, 10), F.png()] do
+      conn = post(a, token, image_body([{bytes, "image/png"}]))
+      assert conn.status == 422, conn.resp_body
+    end
+
     assert reports(p) == []
+    assert links(p) == []
+    assert blobs(p) == []
+    assert service_audits(p) == []
+    assert audits(a) == []
   end
 
-  # IM5 (oversize > 5 MiB) cannot be tested through the router: the 2 MiB body cap is hit first
-  # (the base64 of a 5 MiB image is ~6.7 MiB). The cap is validated in Capture.parse_images;
-  # see test/letflow/problem_reports/capture_test.exs for the unit-level proof.
+  test "S5 PNG declared as JPEG is accepted and stored as PNG", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    conn = post(a, token, image_body([{ImageFx.png(), "image/jpeg"}]))
+    assert conn.status == 201, conn.resp_body
+    assert [%{content_type: "image/png"}] = blobs(p)
+  end
+
+  test "S6 EXIF and its GPS sentinel are stripped on the server", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    upload = ImageFx.jpeg(meta: [:exif])
+    conn = post(a, token, image_body([{upload, "image/jpeg"}]))
+    assert conn.status == 201, conn.resp_body
+    assert [blob] = blobs(p)
+    refute blob.bytes =~ ImageFx.sentinel()
+    refute blob.bytes =~ "Exif"
+  end
+
+  test "S7 one attachment audit per image; the reporter audit lists images", %{p: p, a: a} do
+    {token, user_id} = caller!(a)
+
+    conn =
+      post(
+        a,
+        token,
+        image_body([{ImageFx.png(), "image/png"}, {ImageFx.jpeg(), "image/jpeg"}])
+      )
+
+    assert conn.status == 201, conn.resp_body
+    added = service_audits(p)
+    assert length(added) == 2
+
+    for entry <- added do
+      assert entry.actor_id == user_id
+      assert is_binary(entry.after_state["sha256"])
+      assert entry.after_state["byte_size"] > 0
+      assert entry.after_state["content_type"] in ["image/png", "image/jpeg"]
+      refute Map.has_key?(entry.after_state, "bytes")
+      refute Map.has_key?(entry.after_state, "caption")
+    end
+
+    assert [sent] = audits(a)
+    assert "images" in sent.after_state["sent_fields"]
+  end
+
+  test "S8 identical bytes twice in one report replay to one link", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    png = ImageFx.png()
+    conn = post(a, token, image_body([{png, "image/png"}, {png, "image/png"}]))
+    assert conn.status == 201, conn.resp_body
+    assert length(links(p)) == 1
+    assert length(blobs(p)) == 1
+    assert length(service_audits(p)) == 1
+    assert [_] = reports(p)
+  end
+
+  test "S9 a full platform storage allowance answers 503 and writes nothing", %{p: p, a: a} do
+    {token, _} = caller!(a)
+
+    Repo.update_all(
+      from(t in Letflow.Identity.Tenant, where: t.id == ^p.tenant_id),
+      set: [storage_allowance_bytes: 1]
+    )
+
+    conn = post(a, token, image_body([{ImageFx.png(), "image/png"}]))
+    assert conn.status == 503, conn.resp_body
+    assert reports(p) == []
+    assert links(p) == []
+    assert blobs(p) == []
+    assert service_audits(p) == []
+    assert audits(a) == []
+  end
 end
