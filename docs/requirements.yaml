@@ -55502,178 +55502,102 @@ requirements:
       - "9. Docs in step: the moduledoc of Letflow.Modules.Stock.Access and of Letflow.Api.ModuleGuard describe the scoped write rule; decision 0073 gets 'Amended by REQ-831 (slice L6 part 2)' at its end stating which routes accept a scoped caller, which stay tenant-wide (reads, opening, counts, voice) and the scope node of the posting instance, and that with REQ-830 slice L6 is done; no earlier text of 0073 is edited. mix letflow.check.static passes and the test files named here pass when run by path."
     depends_on: [REQ-830, REQ-712, REQ-713, REQ-721, REQ-531]
   - id: REQ-841
-    title: "Qoimeks parity G3 part 1: a usual place and a second place per item, stored as one stock_item_place link per catalog item (owned by module stock), written by xlsx or CSV import with references by external id, readable as reference data"
+    title: "Qoimeks parity G3 part 1: one optional default (usual) location per catalog item, a single reference on the item, written by the item import with the place given by external id, readable with the item"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4555
-    # Source: task T-2026 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md section 1.2 rows G3 and G11 and section 2.1 (Items row: "the second place is not carried (G3)"); lib/letflow/modules/catalog_items/catalog_items.ex (manifest: depends_on [], manages_entity_types, scope_declarations :tenant_wide, import_functions, "the only write functions" of the module); lib/letflow/modules/catalog_items/import.ex (reference resolution by external id under the row's system, {:reference_not_found, field}, {:reference_inactive, field}, audit per created or updated row); lib/letflow/modules/stock/stock.ex (manifest version 0.17.0, depends_on ["catalog_items", "codes", "locations", "org"], manages_entity_types, scope_declarations, import_opening_line/3 in import_functions, "Opening line import" section, new types reach an install through the module-upgrade path); lib/letflow/modules/stock/documents/opening_import.ex (same reference codes); lib/letflow/modules/locations/locations.ex (lookup/2, active?/2 of location_node); priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/; docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D3.5 ("Validation lives in the referencing module ... through depends_on") and D3.6 (declarative string references, no FK); lib/mix/tasks/letflow.check_boundaries.ex Rule 4 (a module may reference another only if it is in its depends_on); lib/letflow/routers/entities.ex (the import route, EntitiesRecordsImport, upsert_by external_ref, dry_run); docs/roles.md (STOREKEEPER holds EntitiesQuery and imports only stock_opening_line; EntitiesRecordsImportAnyType is TENANT_ADMIN only); lib/letflow/entities/records.ex (an update replaces the whole field_values). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2026/sources/qoimeks-places-extract.md): Qoimeks-team/product/server/internal/store/migrations/002_sku_locations.sql ("Where a SKU normally lives, and a second place to look when that one is full": skus.location_id and skus.alt_location_id, both nullable references to locations); server/internal/store/import.go (each import row sets both columns, an empty cell stores none); server/internal/importer/importer.go (column G "Второе место" is a place code; a cell that is not a place code is skipped with a warning and the SKU is kept). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026 (operator; owner decision 2026-11-16 via the PM), REWRITTEN by task T-2119 (owner rule via the PM 2026-11-16: "keep a Qoimeks habit only if mainstream WMS/ERP do the same: SAP fixed bin, Odoo putaway rule, ERPNext default warehouse. Smallest version: ONE optional default location per item = a single reference to a location, no list"). The earlier text (a stock_item_place link with a usual and a second place) is withdrawn. Read on origin/main 351b51848: lib/letflow/modules/catalog_items/import.ex (reference resolution, one audit entry per created or updated row), priv/modules/catalog_items/entity_definitions/catalog_item.json, lib/letflow/modules/read_api.ex lookup_by_external_ref/5 (the locations import writes its external id into the type's own fields, not the record-level key), docs/status/qoimeks-migration-readiness.md section 1.2 row G3.
     description: >
-      Qoimeks parity row G3 (docs/status/qoimeks-migration-readiness.md, section 1.2): in Qoimeks every SKU has a
-      usual place (where it normally lives) and a second place (where to look when the usual one is full, Excel
-      column G "Второе место"); both are optional and both are set by the Excel import. Letflow has no such data:
-      catalog_item has no place field and no other type links an item to a place. This part adds the data, its
-      import and its read; the converter is part 2 (REQ-842), the web screens parts 3 and 4 (REQ-843, REQ-844),
-      the phone part 5 (REQ-845), all planned, not yet on main. The stock export in the Qoimeks layout (row G11,
-      task T-2032) reads this data and is not part of this requirement.
-      Shape (decided here, with reasons): a link, not item fields. A new entity type stock_item_place is owned by
-      module stock (lib/letflow/modules/stock/stock.ex): manages_entity_types, scope_declarations :tenant_wide
-      (item masters are tenant-wide, as the catalog_items types are) and one import function in import_functions,
-      the form of import_opening_line/3. Reasons: module catalog_items has depends_on [] and decision 0050 D3.5
-      puts the validation of a reference in the referencing module through depends_on, so a place field on
-      catalog_item would make catalog_items depend on locations (Rule 4 of letflow.check_boundaries); module stock
-      already depends on both catalog_items and locations, and a usual place is a warehouse fact, not an item
-      fact. Fields (definition generated by priv/modules/stock/generate_pack.exs into the stock pack):
-      catalog_item_id (string, required, queried, unique: one link per item), usual_location_id (string,
-      optional, queried), second_location_id (string, optional, queried), external_ref_system and external_ref_id
-      (queried, unique as a pair, decision 0057 D1). References are declarative strings (0050 D3.6, no FK).
-      The import function (planned name Letflow.Modules.Stock.import_item_place/3, through the core route POST
-      /api/v1/entities/records/stock_item_place/import with upsert by external ref, dry run as for every managed
-      import) per row: (1) catalog_item_id holds the external id of a catalog_item under the row's own system,
-      usual_location_id and second_location_id each the external id of a location_node under that system; each is
-      resolved in the tenant to the record id; a cell that names nothing (or a deleted record) is
-      {:reference_not_found, field} and an inactive target {:reference_inactive, field}, field being the constant
-      field name, never cell text (the codes and rules of Letflow.Modules.CatalogItems.Import and
-      Letflow.Modules.Stock.Documents.OpeningImport); (2) a blank place cell stores no value for that place, and
-      because an update replaces the whole record (Records), a re-import with a blank second place removes the
-      earlier second place, as the Qoimeks import does; (3) the usual and the second place may be the same place,
-      and a link with neither place is accepted (Qoimeks accepts both; parity, no new refusal); (4) one audit entry
-      stock_item_place.created or stock_item_place.updated per created or updated row, with the stored values
-      before and after, in the same transaction (the form of REQ-706); unchanged rows and refused rows write none.
-      Who may import: the core import route rules are unchanged, so TENANT_ADMIN (and PLATFORM_ADMIN) import it
-      and a STOREKEEPER is refused as for every type other than stock_opening_line. Who may read: the generic
-      entity query (EntitiesQuery), like every other master, so a STOREKEEPER reads it. No new route, no new
-      permission, no migration; the stock manifest version rises by one minor step above the version on
-      origin/main at implement time (0.17.0 at the time of writing), and an installed stock module takes the new
-      type through the module-upgrade path (as the earlier added stock types did). Not in this part, EXTRA for a
-      later requirement: changing one item's places by hand on a screen (Qoimeks sets them only by import, so
-      parity does not need it). Size M.
+      Qoimeks keeps per SKU a usual place (skus.location_id) and a second place (skus.alt_location_id). Mainstream
+      systems keep ONE default place per item (SAP fixed bin, Odoo putaway rule, ERPNext default warehouse), so
+      Letflow takes the usual place only. catalog_item gains one optional string field default_location_id (queried):
+      the record id of one location_node, a declarative reference without a foreign key (decision 0050 D3.6). The
+      module catalog_items keeps depends_on [] (Rule 4 of letflow.check_boundaries): the import reads the place
+      through the core ReadApi.lookup_by_external_ref/5 with the type name as a string, as the stock opening import
+      does, and a tenant without the locations module answers reference_not_found. The module version rises from
+      0.4.0 to 0.5.0, upgrade class A (optional field, no step). The item import (Letflow.Modules.CatalogItems.Import)
+      resolves the cell default_location_id, an external id under the row's own system, to the record id: an
+      unknown or deleted place is the row error {:reference_not_found, "default_location_id"}, a retired one
+      {:reference_inactive, "default_location_id"}, and that row writes nothing (nothing partial). A re-import
+      replaces the row as for every field, so a blank cell clears the place. The place is read with the item
+      (CatalogItems.lookup/2, the entity query). NOT built here: a list of places, a second place, search by place,
+      phone screens, document prefill, voice use, any warning or enforcement, an item write route. The balances
+      export in the Qoimeks layout (REQ-865, row G11) writes the default location into its usual-place column and
+      leaves the second-place column empty; that is part of REQ-865, not of this requirement. Size S.
     acceptance_criteria:
-      - "1. Definition: the stock pack (priv/modules/stock/pack.json, regenerated by priv/modules/stock/generate_pack.exs) has the type stock_item_place with exactly the fields catalog_item_id (string, required, queried), usual_location_id (string, queried), second_location_id (string, queried), external_ref_system and external_ref_id (string, queried), a unique constraint on catalog_item_id and a unique constraint on the pair external_ref_system, external_ref_id; the stock manifest lists stock_item_place in manages_entity_types, as :tenant_wide in scope_declarations and with the import function in import_functions; the manifest version is one minor step above the one on origin/main at implement time. The stock registration tests (test/letflow/modules/stock/registration_test.exs and every pin a type or version change moves) are updated and pass."
-      - "2. Import, happy path (a test through the real import route, as test/letflow/modules/stock/opening_import_test.exs drives the opening line import): a TENANT_ADMIN imports a CSV file of three rows under system S: item A with usual place P1 and second place P2, item B with usual place P1 only, item C with second place P2 only; the answer reports three created rows, and a read of the stored records shows catalog_item_id, usual_location_id and second_location_id equal to the record ids of A, B, C, P1 and P2 as given (absent where the cell was blank). The same file imported again reports three unchanged rows and writes no audit entry."
-      - "3. Update and removal: re-importing item A with usual place P2 and a blank second place reports one updated row; the stored link of A has usual_location_id equal to P2's record id and no second_location_id; exactly one audit entry stock_item_place.updated is written for it, holding the values before and after."
-      - "4. Refusals, each a separate row of one test, nothing written for the refused row and no audit entry: an item external id that names no catalog_item gives {:reference_not_found, \"catalog_item_id\"}; a usual place external id that names no location_node gives {:reference_not_found, \"usual_location_id\"}; a retired (active false) location as second place gives {:reference_inactive, \"second_location_id\"}; a retired catalog_item gives {:reference_inactive, \"catalog_item_id\"}; a location id given as a record id instead of an external id gives {:reference_not_found, \"usual_location_id\"}. The refusal text names the field, never the cell value."
-      - "5. Parity cases accepted: a row whose usual and second place are the same location is created; a row with both place cells blank is created and stores neither place."
-      - "6. Access: a STOREKEEPER's import of a stock_item_place file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written; a STOREKEEPER reads the stored links through the entity query route (EntitiesQuery) with a filter on catalog_item_id; a dry run (dry_run=true) by a TENANT_ADMIN reports the outcomes and writes nothing."
-      - "7. Tenant isolation (INV-1): in a test with two tenants A and B, a stock_item_place file imported in tenant B whose item and place external ids exist only in tenant A gives {:reference_not_found, \"catalog_item_id\"} for every row; the record counts of stock_item_place in both schemas are unchanged."
-      - "8. Upgrade: a tenant with the stock module installed at the version on origin/main before this change upgrades to the new version through the module-upgrade path and can then import stock_item_place (a test in the form of test/letflow/modules/stock/upgrade_http_test.exs)."
-      - "9. Docs in step: the stock moduledoc gains a section for this part (the type, its fields, the import rules of the description, the reason for a link instead of item fields); docs/runbooks/qoimeks-rehearsal.md table 'Does the stock module accept the same files?' gains no row yet (part 2 adds the file). mix letflow.check.static passes and the test files named here pass when run by path."
-    depends_on: [REQ-687, REQ-651, REQ-727, REQ-706]
+      - "1. Definition: priv/modules/catalog_items/entity_definitions/catalog_item.json (and the regenerated pack.json) has exactly one place field, default_location_id, type string, optional, queried; the manifest version is 0.5.0 and depends_on stays []. Test: DL5 in test/letflow/modules/catalog_items/default_location_test.exs, entity_definitions_test.exs, registration_test.exs."
+      - "2. Import: a catalog_item row whose default_location_id is the external id of an active location_node (same system) is created and the stored value is that place's record id; CatalogItems.lookup/2 returns it. Test DL1."
+      - "3. An unknown place gives {:reference_not_found, \"default_location_id\"}, a retired place {:reference_inactive, \"default_location_id\"}, a record id instead of an external id and a place that exists only in another tenant give reference_not_found; the item row is not written (item count unchanged). Tests DL2, DL3, DL6."
+      - "4. A re-import with another place changes it (outcome updated); a re-import with the cell blank clears it. An item with no place stays valid. Tests DL4, DL5."
+      - "5. Docs in step: docs/runbooks/wms-foundation.md item 24 and test P4 in test/letflow/modules/catalog_items/runbook_test.exs; the manifest-hash pins and the permission-matrix golden header are re-taken."
+    depends_on: [REQ-651, REQ-727]
   - id: REQ-842
-    title: "Qoimeks parity G3 part 2: the Qoimeks converter carries each SKU's usual place and second place into an item-places import file, and the rehearsal loads it"
+    title: "Qoimeks parity G3 part 2: the Qoimeks converter carries each SKU's usual place into the items import file, counts the rows that had a second place, and the rehearsal loads and counts the places"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4553
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: scripts/pilot/qoimeks_convert.py (NEEDED columns, ITEM_COLS, MAX_ROWS = 200, drop reasons, emit/manifest upload_order, expected_counts.txt keys records.<type>, report.txt); scripts/pilot/qoimeks_compare.sh (EXPECTED key lines, an absent key counts as 0); docs/runbooks/qoimeks-rehearsal.md (table of files, steps 1-3 and 6); test/letflow/modules/stock/qoimeks_files_test.exs (pushes the converted files through the real import routes); test/scripts/qoimeks_rehearsal_test.exs. Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): skus.location_id is the usual place and skus.alt_location_id the second place (server/internal/store/migrations/002_sku_locations.sql). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026, REWRITTEN by task T-2119 (see REQ-841). Read on origin/main 351b51848: scripts/pilot/qoimeks_convert.py, scripts/pilot/qoimeks_compare.sh, scripts/demo/demo_counts.sh, test/scripts/qoimeks_rehearsal_test.exs, test/letflow/modules/stock/qoimeks_files_test.exs.
     description: >
-      Part 2 of parity row G3 (part 1 is REQ-841, planned, not yet on main). The T-1616 converter
-      (scripts/pilot/qoimeks_convert.py) reads items.csv with the columns sku, sku_name, unit and writes neither
-      place, so the move loses every SKU's usual and second place (docs/status/qoimeks-migration-readiness.md
-      section 2.1, Items row). This part: items.csv may carry two optional neutral columns, home_loc (the usual
-      place code, Qoimeks skus.location_id) and alt_loc (the second place code, Qoimeks skus.alt_location_id),
-      both nameable through --mapping like every other column. When at least one item row has a non-blank home_loc
-      or alt_loc, the converter writes 05-item-places-NN.xlsx (at most MAX_ROWS rows per file) for entity type
-      stock_item_place with the columns catalog_item_id, usual_location_id, second_location_id,
-      external_ref_system, external_ref_id and the values sku, home_loc, alt_loc, the --system value and sku:
-      every reference cell is an external id under the row's own system, as in the other files. A place code that
-      is not a loc_code of the converted locations drops only that item's place row with the reason
-      unknown_location (the item row itself stays in 03-items), as Qoimeks keeps the SKU and skips a bad place; an
-      item dropped from 03-items has no place row. The file is listed in manifest.json upload_order right after
-      the 03-items files, expected_counts.txt gains the key records.stock_item_place, and report.txt names row
-      numbers and constant reasons only, never cell text. Without the two columns the output is byte for byte as
-      today. Size S.
+      Part 2 of parity row G3. items.csv of the extract may carry two optional neutral columns (renamed by --mapping
+      as for the others): home_loc, the usual place (a loc_code), and alt_loc, the second place. The converter writes
+      home_loc into the items file 03-items-NN.xlsx as the column default_location_id (the header carries it only
+      when at least one kept item has a usual place; the external id of the place is its loc_code under the run's
+      system, the same value the locations file carries). An item whose home_loc names no kept location is dropped
+      with the constant reason unknown_default_location (no cell text), as an unknown location drops a balance. The
+      second place is NOT imported: report.txt carries the line "items with a second place, not imported (G3) N"
+      (kept items only), so nothing is silent. expected_counts.txt gains the key items_with_default_location (items
+      kept with a usual place); scripts/demo/demo_counts.sh snapshot gains the same key per tenant (items with a
+      non-empty default_location_id), so qoimeks_compare.sh compares it. Size S.
     acceptance_criteria:
-      - "1. A converter test (test/scripts/qoimeks_rehearsal_test.exs or a new test file next to it) with an items.csv of four items: one with home_loc and alt_loc, one with home_loc only, one with alt_loc only, one with both blank: 05-item-places-01.xlsx has exactly three data rows in the column order catalog_item_id, usual_location_id, second_location_id, external_ref_system, external_ref_id, with blank cells where the CSV was blank; expected_counts.txt has the line 'records.stock_item_place 3'; manifest.json upload_order has 05-item-places-01.xlsx right after the last 03-items file."
-      - "2. A home_loc or alt_loc code that is not in locations.csv: report.txt has 'dropped item_places row N: unknown_location' for that items.csv row, the item stays in 03-items, the place row is not written, and the exit code is 3 (0 with --allow-drops), as for every other drop."
-      - "3. An items.csv without home_loc and alt_loc (the existing test inputs) gives the same output files and bytes as before this change, and no 05 file; a --mapping that maps two extract columns to home_loc and alt_loc is honoured."
-      - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted 05 file through the real import route after the masters, and every row is created; a second upload reports every row unchanged."
-      - "5. docs/runbooks/qoimeks-rehearsal.md: the file table gains the row for stock_item_place with its importer and columns, step 1 names the optional home_loc and alt_loc columns of items.csv, step 3 uploads the 05 file after the items, and the Outputs list names 05-item-places-NN.xlsx. The test files named here pass when run by path."
+      - "1. Converter (test CV-G3 in test/scripts/qoimeks_rehearsal_test.exs): with home_loc and alt_loc columns the items file read back with the production reader has default_location_id equal to the loc_code for the items that have one, and no key for the others; no second-place column exists in any file."
+      - "2. An item whose home_loc is unknown is dropped with the reason unknown_default_location and the report shows no cell text; report.txt carries 'items with a second place, not imported (G3) N' with N the kept items that had an alt_loc (CV-G3), and 0 for input without the columns (CV-G3b)."
+      - "3. expected_counts.txt carries items_with_default_location (CV-6, CV-G3); qoimeks_compare.sh compares it with the snapshot key (CP-G3); demo_counts.sh emits the key."
+      - "4. Rehearsal: the converted files go through the real import routes and the stored count of items with a usual place equals the expected count (ST-G3 in test/letflow/modules/stock/qoimeks_files_test.exs)."
     depends_on: [REQ-841]
   - id: REQ-843
-    title: "Qoimeks parity G3 part 3: the web Items screen and the stock Balances screen show each item's usual place and second place by place code, in English, Russian and Kazakh"
+    title: "Qoimeks parity G3 part 3: the item card on the web shows the item's usual place"
     owner: FRONTEND-DEV
     status: pending
     stage: S7
     gh: 4552
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/catalog_items/items/ItemsPage.tsx and ItemDetails.tsx (T-1402: list columns code, title, unit, tracking, status; Overview, Related, History); web/src/modules/catalog_items/catalogItemsStock.api.ts (the catalog_items web module may not import the stock module, ESLint boundary, so it calls stock URLs itself); web/src/modules/stock/register/BalancesPage.tsx (REQ-724: columns item, location, org unit, responsible, lot, unit, quantity; names through the master pickers); web/src/modules/stock/register/stockPickers.ts; docs/roles.md (STOREKEEPER holds EntitiesQuery). Qoimeks, read only: the stock list shows the usual place and the second place per SKU (export columns 'Второе место' and 'Место', server/internal/importer/export.go). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026, REWRITTEN by task T-2119 (see REQ-841). Read on origin/main 351b51848: web/src/modules/catalog_items/items/ItemsPage.tsx and ItemDetails.tsx (view-only: items have no create or edit route; the in-pane edit form is the generic RegistryForm and is not wired to items), itemsModel.ts, catalogItemsItemsMessages.ts.
     description: >
-      Part 3 of parity row G3 (REQ-841, planned, not yet on main, adds the data). The Items screen
-      (web/src/modules/catalog_items/items/ItemsPage.tsx, ItemDetails.tsx) and the stock Balances screen
-      (web/src/modules/stock/register/BalancesPage.tsx) show each item's usual place and second place, read from
-      the stock_item_place links through the entity query, by the place's code (as Qoimeks shows it, for example
-      RI2), with the screen's dash when a place is not set or no link exists. Items screen: the Overview of the
-      details pane shows two rows, "Usual place" and "Second place"; the list is unchanged. Balances screen: two
-      columns, "Usual place" and "Second place", right after the Location column, for the item of each row. A
-      place that is retired still shows its code. A failed read of the links leaves both values as the dash and
-      does not hide the screen's own rows. The existing balances xlsx export is unchanged (the Qoimeks layout
-      export is row G11, task T-2032). Labels in en, ru and kk; the screens are read by everyone who reads them
-      today (no new permission). Size S to M (two screens and their state matrix).
+      The Items card (Overview) gains one field "Usual place" (ru: Обычное место, kk: Әдеттегі орын), shown as
+      "code - name" through the reference-label hook, never an id; an item without a place shows a dash. Items have
+      no edit form and no write route on the web yet (the head says view-only and links to the import screen), so the
+      place is changed by import; the edit form shows the place when items get one (a later requirement). No list
+      column, no search by place, no phone screen. Size S.
     acceptance_criteria:
-      - "1. Items screen: a component test with an item that has usual place RI2 and second place RK2 shows both codes in the Overview under the labels Usual place and Second place; an item with no link shows the dash in both rows; an item with only a second place shows the dash for the usual place and the code of the second place."
-      - "2. Balances screen: a component test with two rows of different items shows the columns Usual place and Second place right after the Location column, each filled with the code of that row's item's place or the dash; a failed links read shows the dash in both columns and keeps the balance rows."
-      - "3. The links are read through the entity query of stock_item_place with a filter on the shown items' ids (no read per row); a test asserts the request count for one page of rows is one."
-      - "4. The labels exist in the en, ru and kk catalogs of the two modules (ru 'Основное место' and 'Второе место', kk 'Негізгі орын' and 'Екінші орын', en 'Usual place' and 'Second place'; UAT assumption, wording to be confirmed by the process owner)."
-      - "5. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for both screens with places set, with places not set and with a failed links read is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
+      - "1. The card of an item with a place shows its code and name, never a UUID (ItemsPage.test.tsx, G3 usual place on the card); an item without a place shows a dash."
+      - "2. The label exists in en, ru and kk and the ru and kk texts differ from en (same test file); itemsModel.test.ts maps default_location_id to defaultLocationId."
+      - "3. The card is walked at 1440 and 390 px, light and dark, en, ru and kk, with screenshots and a state table."
     depends_on: [REQ-841, REQ-724]
   - id: REQ-844
-    title: "Qoimeks parity G3 part 4: the web stock document form fills the document's place from the first item's usual place while the place is empty, and shows each line item's usual and second place"
+    title: "CANCELLED (owner: a workaround, not a feature): Qoimeks parity G3 part 4, the usual place prefills a stock document on the web"
     owner: FRONTEND-DEV
     status: cancelled  # G3 prefill is a workaround, not a feature; no mainstream product does it (owner 2026-11-16)
     stage: S7
     gh: 4550
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/stock/documents/DocumentForm.tsx (REQ-722; header locationId picker from usePickerOptions('location_node'); the hand-over rule that To starts as From); web/src/modules/stock/documents/LinesEditor.tsx; priv/modules/stock/entity_definitions/stock_receipt.json, stock_issue.json, stock_writeoff.json (header location_id) and stock_transfer.json, stock_handover.json, stock_return.json (from_location_id, to_location_id); stock_opening.json (no header location). Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): mobile/lib/operation_screen.dart _setSku (when the place is empty or still the previous SKU's usual place, choosing a SKU sets the place to its usual place) and the balance hint 'Смотреть также:' / 'Тағы қараңыз:' with the second place code when it differs from the chosen place. Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Cancelled by task T-2119 (owner rule via the PM 2026-11-16, 'a workaround, not a feature'). The status flip to cancelled is made by the operator (this team does not flip statuses). Do not implement.
     description: >
-      Part 4 of parity row G3 (REQ-841, planned, not yet on main, adds the data). In Qoimeks choosing a SKU in an
-      operation fills the place with the SKU's usual place while the place is empty or was filled that way, and the
-      screen shows "look also" with the second place when it differs from the chosen place. Letflow stock
-      documents carry the place on the header, not on the line, and one header place covers every line. A Qoimeks
-      operation has one SKU, so replacing its place moves nothing else; in Letflow a later line must never move the
-      place under the earlier lines. So the help is: in the web document form
-      (web/src/modules/stock/documents/DocumentForm.tsx) of a receipt, an issue and a write off (header location_id)
-      and of a transfer (header from_location_id), the header place is filled only from the item of the first line
-      (in line order) that has an item, and only while the header place is empty; it is set to that item's usual
-      place, if it has an active one. An item picked on any later line never changes the header place. If the item
-      of that first line is changed or removed while the header place still holds the value the form filled, the
-      place follows the new first item with an item (its active usual place, or empty when it has none or no line
-      has an item). A place the user picked by hand is never changed. Each line shows, under its
-      item, the item's usual place and second place codes (the dash when not set), and the second place is marked
-      "look also" when it differs from the header place. Hand over, return and opening are not changed (Qoimeks
-      has no such kinds; opening has no header place). The server checks are unchanged; this is help, not a rule.
-      Labels in en, ru and kk. Size M.
+      Withdrawn. Prefilling a document header place from the item's usual place, and the 'see also' hint with a
+      second place, are not built: mainstream WMS/ERP do not do it this way and the owner calls it a workaround.
     acceptance_criteria:
-      - "1. A component test of the receipt form: with an empty header place, picking item A (usual place P1) on line 1 sets the header place to P1; picking item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a header place picked by hand (P2) is not changed by any of these item picks, changes or removals."
-      - "2. The same rule for an issue and a write off (location_id) and for a transfer (from_location_id; to_location_id is never filled); a hand-over, a return and an opening form fill nothing from the links (one test per kind)."
-      - "3. An item whose usual place is retired (active false) or that has no link fills nothing; the line shows the dash for a missing place."
-      - "4. A line whose item has second place P2 different from the header place shows P2 with the 'look also' label (ru 'Смотреть также', kk 'Тағы қараңыз', from Qoimeks); when P2 equals the header place the label is not shown."
-      - "5. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the receipt and the transfer form with a filled place and the line hints is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
+      - "1. None: do not implement."
     depends_on: [REQ-841, REQ-722]
   - id: REQ-845
-    title: "Qoimeks parity G3 part 5: the phone stock document draft fills the document's place from the first item's usual place while the place is empty, and shows each line item's usual and second place"
+    title: "CANCELLED (owner: a workaround, not a feature): Qoimeks parity G3 part 5, the usual place helps the phone document form"
     owner: MOBILE-DEV
     status: cancelled  # G3 prefill is a workaround, not a feature; no mainstream product does it (owner 2026-11-16)
     stage: S7
     gh: 4549
-    # Source: task T-2026 (see REQ-841 and REQ-844). Read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/document_form_controller.dart (header keys location_id, from_location_id, to_location_id; applyLocationScan; the voice fill of places), document_form_screen.dart (REQ-746 draft form of six kinds), document_pickers.dart. Qoimeks, read only: mobile/lib/operation_screen.dart _setSku and the 'Смотреть также:' hint (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Cancelled by task T-2119 (owner rule via the PM 2026-11-16, 'a workaround, not a feature'). The status flip to cancelled is made by the operator. Do not implement.
     description: >
-      Part 5 of parity row G3: the phone gets the same help as the web form of REQ-844 (planned, not yet on main),
-      because in Qoimeks the operators work on the phone (Android APK) and the usual-place fill and the "look also"
-      hint live in the phone's operation screen. In the stock document draft of the generic mobile client
-      (apps/mobile/lib/features/stock/documents/, REQ-746), for a receipt, an issue and a write off (location_id) and
-      a transfer (from_location_id), with the same rule as REQ-844 because one header place covers every line: the
-      header place is filled only from the item of the first line (in line order) that has an item, chosen by scan,
-      typing or voice, and only while the header place is empty; it is set to that item's active usual place. An
-      item chosen on any later line never changes it. If the item of that first line is changed or removed while
-      the header place still holds the value the form filled, the place follows the new first item with an item
-      (its active usual place, or empty when it has none or no line has an item). A place set by hand, by a
-      location scan or by voice is never changed. Each line shows the item's usual and second place codes, and
-      "look also" with the second place when it differs from the header place. Hand over, return and opening are not
-      changed. Labels in en, ru and kk. Size M.
+      Withdrawn together with REQ-844. No phone prefill, no 'see also' hint, no voice use of the place.
     acceptance_criteria:
-      - "1. Controller tests (document_form_controller) with a hand-written fake of the links read: with an empty header place, choosing item A (usual place P1) on line 1 sets the header place to P1; choosing item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a place set by applyLocationScan, by the voice fill or by hand is never replaced by any of these; an item whose usual place is retired or that has no link fills nothing."
-      - "2. The same for issue, write off and transfer (from_location_id only); hand over, return and opening fill nothing (one test per kind)."
-      - "3. A widget test shows the line hint with both codes, the dash for a missing place, and 'look also' (ru 'Смотреть также', kk 'Тағы қараңыз') only when the second place differs from the header place."
-      - "4. flutter analyze is clean and flutter test passes for apps/mobile."
+      - "1. None: do not implement."
     depends_on: [REQ-841, REQ-746]
   - id: REQ-833
     title: "Qoimeks parity G4 part 1: decision record for negative balances as a per-tenant setting of a ledger registration (what changes in the no-negative rule of decision 0073 and why, what every other ledger rule does with a negative balance)"

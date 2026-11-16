@@ -20,6 +20,8 @@ import {
   type PrintOverrideMeta,
   type PrintOverrideSaveBody,
 } from '@/api/documentPrintOverrides'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { printTemplatesMessages } from './printTemplatesMessages'
 import { PrintLayoutEditor } from '@/components/admin/PrintLayoutEditor'
 
 const th: React.CSSProperties = { textAlign: 'left', padding: '.5rem .75rem', borderBottom: '2px solid var(--border-default)' }
@@ -29,6 +31,7 @@ type Transition = 'activate' | 'retire'
 
 export default function PrintTemplatesPage(): React.ReactElement {
   const qc = useQueryClient()
+  const msg = printTemplatesMessages[useUiLocale()]
   const tenantKeys = useTenantScopedQueryKeys()
   const [typeKeyFilter, setTypeKeyFilter] = useState('')
   const [localeFilter, setLocaleFilter] = useState('')
@@ -98,9 +101,12 @@ export default function PrintTemplatesPage(): React.ReactElement {
   const detail = detailQuery.data
 
   return (
-    <PageLayout title="Print templates">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+    <PageLayout title={msg.title}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
+        <p data-testid="print-templates-scope-note" style={{ margin: 0 }}>
+          {msg.scope}
+        </p>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <label>
             Type key{' '}
             <input data-testid="filter-type-key" value={typeKeyFilter} onChange={(e) => setTypeKeyFilter(e.target.value)} />
@@ -119,6 +125,7 @@ export default function PrintTemplatesPage(): React.ReactElement {
         </div>
 
         <QueryStateBoundary state={state} onRetry={() => void listQuery.refetch()}>
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
           <table data-testid="overrides-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
             <thead>
               <tr>
@@ -152,6 +159,7 @@ export default function PrintTemplatesPage(): React.ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </QueryStateBoundary>
 
         {openId !== null && detail && (

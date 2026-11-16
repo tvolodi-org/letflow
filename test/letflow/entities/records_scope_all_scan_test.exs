@@ -56,6 +56,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/exam/session.ex" => 5,
     "lib/letflow/modules/exam/snapshot.ex" => 1,
     "lib/letflow/modules/catalog_items/lots.ex" => 2,
+    # REQ-850: the code_tag import function creates one code per new row
+    "lib/letflow/modules/codes/import.ex" => 1,
     "lib/letflow/modules/codes/writes.ex" => 2,
     # REQ-662: the link writers (create, update) of module locations
     "lib/letflow/modules/locations/links.ex" => 2,

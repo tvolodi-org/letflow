@@ -960,6 +960,11 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason)}
   end
 
+  # REQ-850: the code_tag import's constant refusals (no cell text).
+  defp base_reason_json(reason) when reason in [:value_invalid, :kind_invalid, :value_taken] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
   # REQ-762: the asset card import's constant refusals (no cell text).
   defp base_reason_json(reason)
        when reason in [

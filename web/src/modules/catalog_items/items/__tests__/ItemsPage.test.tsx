@@ -27,7 +27,7 @@ const I3 = '55555555-5555-4555-8555-555555555553'
 function data() {
   return {
     catalog_item: [
-      rec(I1, 'catalog_item', { code: 'BOLT', name: 'Steel bolt', base_uom_id: UOM, kind: 'material', tracking_policy: 'lot' }),
+      rec(I1, 'catalog_item', { code: 'BOLT', name: 'Steel bolt', base_uom_id: UOM, kind: 'material', tracking_policy: 'lot', default_location_id: LOC }),
       rec(I2, 'catalog_item', { code: 'NUT', name: 'Hex nut', base_uom_id: UOM, kind: 'material' }),
       rec(I3, 'catalog_item', { code: 'OLD', name: 'Old part', base_uom_id: UOM, kind: 'material', active: false }),
     ],
@@ -130,6 +130,30 @@ describe('A2 selection and back', () => {
     expect(second).toHaveFocus()
     fireEvent.keyDown(second, { key: 'Enter' })
     expect(await screen.findByRole('heading', { level: 2, name: /NUT/ })).toBeInTheDocument()
+  })
+})
+
+describe('G3 usual place on the card', () => {
+  it('shows the usual place as code and name, never the id; an item without one shows a dash', async () => {
+    renderLots(`${ITEMS}?item=${I1}`)
+    const label = await screen.findByText('Usual place')
+    const dd = label.closest('div')?.querySelector('dd') as HTMLElement
+    await waitFor(() => expect(dd).toHaveTextContent('A-01'))
+    expect(dd).toHaveTextContent('Aisle one')
+    noUuid(dd)
+    cleanup()
+    renderLots(`${ITEMS}?item=${I2}`)
+    const dd2 = (await screen.findByText('Usual place')).closest('div')?.querySelector('dd') as HTMLElement
+    expect(dd2).toHaveTextContent('—')
+  })
+
+  it('has the label in ru and kk', () => {
+    for (const lang of ['ru', 'kk'] as const) {
+      expect(catalogItemsMessages[lang]['catalog_items.items.field.defaultLocation']).toBeTruthy()
+      expect(catalogItemsMessages[lang]['catalog_items.items.field.defaultLocation']).not.toBe(
+        catalogItemsMessages.en['catalog_items.items.field.defaultLocation'],
+      )
+    }
   })
 })
 
