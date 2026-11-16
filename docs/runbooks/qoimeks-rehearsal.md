@@ -57,9 +57,53 @@ together with its first real balance (below).
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
    Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
 
+8. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
+   before the extract and switches it off after the last check; write down the time it was on (about 40 s was enough
+   for Client 1). Letflow does not switch it.
+9. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
+   the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
+10. **Rollback**: lift the Qoimeks write freeze (step 8). The Qoimeks data was never changed, and the phones still hold the
+    Qoimeks address and token. The Letflow company is kept, not deleted. For anything entered in Letflow after the switch, take
+    the stock movements export (`stock-movements.xlsx`) and enter it in Qoimeks by hand.
+
 Repeating: re-upload the master files (step 3) and the lines files (step 5) with the same files; every row is `unchanged`.
 Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
 headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
+
+## Move rules (Qoimeks inventory §8.10)
+
+The move rules of Qoimeks Client 1 and where Letflow meets them. State: built, this section, or planned with its requirement id.
+
+| Rule | How Letflow meets it | State |
+|---|---|---|
+| Copy | The runbook works on a copy; the source is untouched (intro, step 1) | built |
+| One transaction | One transaction per file (`atomic=true`, `check_atomic` in `lib/letflow/routers/entities/record_import.ex`, steps 3 and 5) on a company that is empty before the load (step 6). The whole load is not one transaction: it is several files and posting tasks | built |
+| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (REQ-881) | built; master hash planned, REQ-881 |
+| Current balances equal | Step 7, `scripts/pilot/qoimeks_balances_compare.py` | built |
+| Check-only run first | `dry_run=true` before `atomic=true` (steps 3 and 5) | built |
+| Short write freeze | Step 8, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
+| ANALYZE after the load | Step 9, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
+| Rollback | Step 10, lift the Qoimeks freeze; the Letflow company is kept | this section |
+| Outside working hours | The operator schedules the move outside Client 1's working hours | this section |
+| No real data leaves production | Work on a copy and a QA company only (D-050); output files stay outside the repository | this section |
+| Old copy kept 30 days | The Qoimeks copy and its extract are kept 30 days after the move | this section |
+| Own User-Agent | A scripted client behind Cloudflare sets its own User-Agent header (inventory item 9) | this section |
+
+## Minimum master data by API
+
+The calls a fresh QA company needs, in order. Every module write body carries an `idempotency_key` (a uuid) or is refused with
+`field_invalid`.
+
+1. Legal entity: `POST /api/v1/modules/org/legal-entities` with `code`, `name`, `bin`.
+2. Site: `POST /api/v1/modules/org/sites` with `code`, `name`, `legal_entity_id`.
+3. Org unit: `POST /api/v1/modules/org/units`.
+4. Employee: `POST /api/v1/modules/org/employees`; the name field is `full_name`.
+5. Location: the record import of `location_node` (step 3).
+6. Location link: `POST /api/v1/modules/locations/links` with `org_unit_id` and `location_id`. A location not linked to the
+   org unit makes the opening line refused as `not_linked`.
+7. Unit and item: module-managed, so a plain record create answers 403 `entity_type_managed`. They come in through the
+   record import with `upsert_by=external_ref` (step 3), not a record create.
+8. Opening document: step 4 and step 5. A line quantity is sent as a text (`"10"`); a JSON number is refused `quantity_invalid`.
 
 ## Synthetic QA dataset (qoimeks-qa rehearsal)
 
