@@ -36,6 +36,26 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
     reason
   end
 
+  describe "REQ-834 criterion 5: the negative_balance key (decision 0090 section 1)" do
+    test "NB-1 :refuse and :tenant_setting validate, an absent key validates (reads as refuse)" do
+      assert check(with_alpha(%{negative_balance: :refuse})) == :ok
+      assert check(with_alpha(%{negative_balance: :tenant_setting})) == :ok
+      refute Map.has_key?(alpha(), :negative_balance)
+      assert check(base()) == :ok
+    end
+
+    test "NB-2 any other value fails with the closed reason invalid_negative_balance" do
+      for bad <- [:allow, :always, "tenant_setting", true, nil, 1] do
+        assert reason(with_alpha(%{negative_balance: bad})) == :invalid_negative_balance
+      end
+    end
+
+    test "NB-3 the new reason comes after the alias reason (appended to the order)" do
+      manifest = with_alpha(%{negative_balance: :bogus, error_aliases: %{"nope" => "x"}})
+      assert reason(manifest) == :error_aliases
+    end
+  end
+
   describe "T-LR-01/02 the valid cases" do
     test "T-LR-01 an absent :ledger key is valid" do
       assert check(Map.delete(base(), :ledger)) == :ok

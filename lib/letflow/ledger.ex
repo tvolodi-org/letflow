@@ -26,10 +26,14 @@ defmodule Letflow.Ledger do
      (`ON CONFLICT DO NOTHING`, with the first-touch unit pin and the minimum `max_on_hand` of the
      matching key bounds), then each row is locked `FOR UPDATE`, one key at a time, in the same
      order;
-  4. the lookup again, then the guard per posting in ledger-id order (unit, then
-     `balance_changed`, `insufficient_balance`, then `balance_bound_exceeded`), reading the pin from
-     the LOCKED row; REQ-853: a leg may carry `expected_on_hand` (compare-and-set): when the locked
-     row's `on_hand` (0 for a row this posting creates) differs, the posting is refused
+  4. the lookup again, the reversal re-read, then (REQ-834, decision 0090) the tenant's negative
+     balance setting of each registration that declares `negative_balance: :tenant_setting`
+     (`negative_balances_allowed?/3`, the capability's prefix only), then the guard per posting in
+     ledger-id order (unit, then `balance_changed`, then `insufficient_balance`: a key the posting
+     lowers ends below zero, skipped under allow; then `balance_bound_exceeded`: at or above
+     1.0E+21, or at or below -1.0E+21, or over `max_on_hand`), reading the pin from the LOCKED row;
+     REQ-853: a leg may carry `expected_on_hand` (compare-and-set): when the locked row's
+     `on_hand` (0 for a row this posting creates) differs, the posting is refused
      `balance_changed` (409, details `leg_nos` only) before any leg is applied;
   5. as the last ledger locks, the counter rows (insert pass, then `FOR UPDATE` pass, ascending);
      the lookup a third time; the event-time check of each posting under the counter locks;
@@ -557,6 +561,7 @@ defmodule Letflow.Ledger do
          {:ok, parts} <- lock_all_balances(prefix, parts),
          :none <- lookup_all(prefix, parts),
          :ok <- check_not_reversed(prefix, parts),
+         {:ok, parts} <- read_negative_settings(prefix, parts),
          :ok <- guard_all(parts),
          {:ok, parts} <- lock_counters(prefix, parts),
          :none <- lookup_all(prefix, parts),
@@ -615,12 +620,51 @@ defmodule Letflow.Ledger do
     end)
   end
 
+  # REQ-834 (decision 0090 section 5.6): inside the lock step, before the guard, the value COMMITTED
+  # now, read with the capability's prefix only and never cached. A registration that does not
+  # declare `negative_balance: :tenant_setting` is not looked up at all (refuse).
+  defp read_negative_settings(prefix, parts) do
+    {:ok,
+     Enum.map(parts, fn part ->
+       Map.put(
+         part,
+         :allow_negative,
+         negative_balances_allowed?(prefix, part.cap.registration_name, part.cap.registration)
+       )
+     end)}
+  end
+
+  @doc """
+  REQ-834 (decision 0090): whether `registration` (named `registration_name`) allows a balance below
+  zero in the tenant schema `prefix`. True only when the registration declares
+  `negative_balance: :tenant_setting` AND the tenant's `ledger_balance_settings` row for the name has
+  `allow_negative` true; no row, any other value of the key or an absent key is false (refuse). One
+  bound-parameter read, scoped by `prefix` (INV-1, INV-7). The settings routes of
+  REQ-835/836 are meant to read it too; no route calls it yet.
+  """
+  @spec negative_balances_allowed?(String.t(), String.t(), map()) :: boolean()
+  def negative_balances_allowed?(prefix, registration_name, registration)
+      when is_binary(prefix) and is_binary(registration_name) and is_map(registration) do
+    if Map.get(registration, :negative_balance) == :tenant_setting do
+      from(s in "ledger_balance_settings",
+        where: s.registration_name == ^registration_name,
+        select: s.allow_negative
+      )
+      |> Repo.one(prefix: prefix) == true
+    else
+      false
+    end
+  end
+
+  def negative_balances_allowed?(_prefix, _registration_name, _registration), do: false
+
   defp guard_all(parts) do
     Enum.find_value(parts, :ok, fn part ->
       slots = part.cap.registration.slots
       disclose? = Map.get(part.cap, :read_disclosed, false) == true
+      allow? = Map.get(part, :allow_negative, false)
 
-      case guard(part.groups, part.locked, slots, part.reversal != false, disclose?) do
+      case guard(part.groups, part.locked, slots, part.reversal != false, disclose?, allow?) do
         :ok -> nil
         {:error, _} = refusal -> refusal
       end
@@ -990,16 +1034,21 @@ defmodule Letflow.Ledger do
 
   # -- guard -----------------------------------------------------------------------------------
 
-  defp guard(groups, locked, slots, reversal?, disclose?) do
+  defp guard(groups, locked, slots, reversal?, disclose?, allow?) do
     groups
     |> Enum.zip(locked)
     |> Enum.find_value(:ok, fn {group, row} ->
-      refusal_for(group, row, length(slots), reversal?, disclose?)
+      refusal_for(group, row, length(slots), reversal?, disclose?, allow?)
     end)
   end
 
-  defp refusal_for(%{legs: legs} = group, row, slot_count, reversal?, disclose?) do
-    new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))
+  # Decision 0090 section 2: under refuse a key is refused only when the posting LOWERS it (the sum
+  # of its legs on the key is below zero) and it ends below zero; a key the posting raises or leaves
+  # alone is not judged. Under allow no key is refused at zero; only the lower bound applies.
+  defp refusal_for(%{legs: legs} = group, row, slot_count, reversal?, disclose?, allow?) do
+    delta = Enum.reduce(legs, Decimal.new(0), &Decimal.add(&2, &1.quantity))
+    new_on_hand = Decimal.add(row.on_hand, delta)
+    insufficient? = not allow? and Decimal.lt?(delta, 0) and Decimal.lt?(new_on_hand, 0)
 
     cond do
       leg = Enum.find(legs, &(&1.unit_ref != row.unit_ref)) ->
@@ -1009,7 +1058,7 @@ defmodule Letflow.Ledger do
         leg_nos = for leg <- legs, Map.has_key?(leg, :expected_on_hand), do: leg.leg_no
         Validate.refuse(:balance_changed, %{leg_nos: Enum.sort(leg_nos)})
 
-      Decimal.lt?(new_on_hand, 0) and reversal? ->
+      insufficient? and reversal? ->
         # nothing of the target's contents: leg numbers and a count only
         leg_nos = for leg <- legs, Decimal.lt?(leg.quantity, 0), do: leg.leg_no
 
@@ -1018,7 +1067,7 @@ defmodule Letflow.Ledger do
           count: length(leg_nos)
         })
 
-      Decimal.lt?(new_on_hand, 0) ->
+      insufficient? ->
         requested =
           for leg <- legs, Decimal.lt?(leg.quantity, 0) do
             base = %{
@@ -1049,6 +1098,7 @@ defmodule Letflow.Ledger do
 
   defp over_bound?(new_on_hand, max_on_hand) do
     Decimal.compare(new_on_hand, @limit) != :lt or
+      Decimal.compare(new_on_hand, Decimal.negate(@limit)) != :gt or
       (max_on_hand != nil and Decimal.gt?(new_on_hand, max_on_hand))
   end
 
