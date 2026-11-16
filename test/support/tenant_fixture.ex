@@ -139,6 +139,8 @@ defmodule Letflow.TenantFixture do
     "artifact_activation_history",
     "artifact_activations",
     "artifact_versions",
+    "attachment_blobs",
+    "attachment_links",
     "audit_chain_locks",
     "audit_entries",
     "correlation_cursors",
