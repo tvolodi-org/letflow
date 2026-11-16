@@ -1,6 +1,5 @@
 /** Harness fixture of the print templates screen (T-1926). Dev only, invented data.
  *  `print-templates-shell`: the list with the scope note; the list answers `empty` and `error` states. */
-import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import type { FixtureRoute, HarnessScreen } from '../types'
