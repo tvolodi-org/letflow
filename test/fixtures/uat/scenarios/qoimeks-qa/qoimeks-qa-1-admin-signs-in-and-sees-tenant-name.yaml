@@ -1,0 +1,87 @@
+# T-2129 (BA): first acceptance run on the Qoimeks QA tenant (slug qoimeks-qa, realm qoimeks-qa). QA only, no real data.
+# Sources: the task text (owner/PM 2026-11-16: actor, host, installed modules, "tenant has no data yet"),
+# web/src/components/layout/TenantHeader.tsx (shows tenantDisplayName from useTenantContext),
+# web/src/router.tsx (admin/tenants is wrapped in platformPage(P.TenantsManage, ...) = RequirePermission with platformOnly; the tenant dashboard route is "dashboard"),
+# docs/roles.md (platform-scope screens belong to PLATFORM_ADMIN of the platform tenant), docs/agents/instructions/security-invariants.md INV-10.
+# Purpose of the group: decide whether the engine's browser step works on this tenant. A step that cannot start a browser is reported BLOCKED, not failed.
+# NOT UAT-observable here: the exact tenant name text (the task does not state it; the scenario asks for the name the tenant was registered with, as recorded in the platform's tenant list, which the roster cannot read: see EO-002).
+---
+id: qoimeks-qa-1-admin-signs-in-and-sees-tenant-name
+scope: qoimeks-qa
+title: The Qoimeks QA administrator signs in on the tenant's own address, lands in a workspace that shows the tenant's name, and is refused the platform operator's tenant list
+version: "1.0"
+tags: [smoke, qoimeks, login, tenant_name, refusal, access_control]
+
+description: >
+  The administrator of the Qoimeks QA tenant opens the tenant's own address
+  (https://qoimeks-qa.letflow.qa.bizdala.com), signs in with the tenant account and arrives in the workspace. The top bar
+  shows the name of this tenant, not the name of another company and not an "unknown tenant" mark. The administrator
+  then types the address of the platform operator's tenant list by hand: a tenant administrator is not the platform
+  operator, so the page must not open (a plain "no access" or "not found" page, no list of tenants).
+  This is the smoke check of the first acceptance run on this tenant. It does not create or change any data.
+  Not exercised, with reasons: (a) the sign-in of a user of another company on this address: the roster has no second
+  actor for this realm, so there is nothing to sign in with; (b) changing the password or the account: not a smoke matter.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant exists (slug qoimeks-qa) and answers on https://qoimeks-qa.letflow.qa.bizdala.com, with its own sign-in realm qoimeks-qa.
+    check: system_seeded
+    detail: If the address does not answer or the realm has no sign-in page, report BLOCKED for the whole scenario and say which of the two.
+  - description: The tenant administrator account exists and its credentials are given to the run through the UAT credential source (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+    check: system_seeded
+    detail: If the credentials are missing or the sign-in is refused for a correct password, report BLOCKED for the whole scenario.
+  - description: The run can drive a real browser.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for steps 1 to 3 and say so; this is the main question of the first run.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the tenant's own address in the browser, is taken to the sign-in page of this tenant, and signs in with the tenant account.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the top bar and the page that opened after sign-in.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator types the address of the platform operator's tenant list (the page "tenants" under the admin section) by hand in the browser.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Sign-in on the tenant's own address succeeds and a workspace opens.
+    verification:
+      method: page_state
+      detail: After step 1 the address stays on qoimeks-qa.letflow.qa.bizdala.com (no jump to another host), the sign-in page is gone, and a workspace page with the side navigation and the top bar is shown, with no error banner.
+      evidence: Screenshot after sign-in and the address shown in the browser.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The Qoimeks QA tenant cannot be used at all; no other check on it can start.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The top bar shows the name of this tenant.
+    verification:
+      method: gui_screen
+      detail: In step 2 the tenant name in the top bar is the name the tenant was registered with (Qoimeks QA or the registered display name), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
+      evidence: Screenshot of the top bar at 1440 px width.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell which company they are working in; a wrong-company mistake becomes likely.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The tenant administrator cannot open the platform operator's tenant list.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows a no-access or not-found page; no tenant names, no table of companies and no "register tenant" button appear. The side navigation of the administrator shows no entry for it either.
+      evidence: Screenshot of step 3 and of the side navigation.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company administrator can see the other companies on the platform; tenant isolation is broken.
+      suggested_action: route_to_wf03
