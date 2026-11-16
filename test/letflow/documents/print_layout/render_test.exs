@@ -411,6 +411,35 @@ defmodule Letflow.Documents.PrintLayout.RenderTest do
       assert render(l, %{"line" => [%{"sku" => "x"} | rows]}) ==
                {:error, [%{rule: :too_many_rows, path: ["blocks", 1]}]}
     end
+
+    # T-1972: PDF must draw the full cell grid (vertical rules) like the .docx and the template.
+    test "R-vrule a table PDF has vertical rules at left border, column separators and right border" do
+      l = layout([table([col("sku", "Code"), col("name", "Name")])])
+      bin = ok!(render(l, %{"line" => [%{"sku" => "s1", "name" => "n1"}]}))
+      streams = PdfProbe.streams(bin)
+      page_contents = Enum.filter(streams, fn {n, _, _} -> n >= 10 and rem(n, 2) == 0 end)
+      # A vertical rule has the same x in both endpoints: "0.5 w X Y1 m X Y2 l S"
+      v_rule_re = ~r/0\.5 w (-?\d+\.\d+) -?\d+\.\d+ m \1 -?\d+\.\d+ l S/
+      all_text = Enum.map_join(page_contents, "\n", fn {_, t, _} -> t end)
+      assert Regex.match?(v_rule_re, all_text), "no vertical rules found in page content stream"
+    end
+
+    # T-1972: each table header row also has a top horizontal border.
+    test "R-top-rule the first row of a table has both a top and a bottom horizontal rule" do
+      l = layout([table([col("sku", "h")])])
+      bin = ok!(render(l, %{"line" => [%{"sku" => "v"}]}))
+      streams = PdfProbe.streams(bin)
+      page_contents = Enum.filter(streams, fn {n, _, _} -> n >= 10 and rem(n, 2) == 0 end)
+      all_text = Enum.map_join(page_contents, "\n", fn {_, t, _} -> t end)
+      # Horizontal rule: "0.5 w X1 Y m X2 Y l S" with X1 != X2
+      h_ys =
+        Regex.scan(~r/0\.5 w (-?\d+\.\d+) (-?\d+\.\d+) m -?\d+\.\d+ \2 l S/, all_text)
+        |> Enum.map(fn [_, _x, y] -> y end)
+
+      # Header top and header bottom are two distinct y values → at least 2 unique horizontal-rule y positions
+      assert length(Enum.uniq(h_ys)) >= 2,
+             "expected top + bottom horizontal rules, got: #{inspect(h_ys)}"
+    end
   end
 
   describe "documentation" do

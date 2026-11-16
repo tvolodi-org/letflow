@@ -53,7 +53,7 @@ export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
 export const NAV_ITEMS: NavItem[] = [
   { to: '/instances', group: 'work', label: 'Instances', permission: P.InstancesRead },
   { to: '/tasks', group: 'work', label: 'My Tasks', permission: P.TasksRead },
-  { to: '/definitions', group: 'work', label: 'Definitions', permission: P.DefinitionsRead },
+  { to: '/definitions', group: 'work', label: 'Business processes', permission: P.DefinitionsRead },
   // T-1874: saved reports of every module; EntitiesQuery is the read permission of the report routes.
   { to: '/reports', group: 'work', label: 'Reports', permission: P.EntitiesQuery },
   // REQ-398: promotion-review list/queue page. Supersedes ISS-0730 §1's
@@ -72,7 +72,9 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
   { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
   { to: '/admin/print-templates', group: 'tenantAdmin', label: 'Print Templates', permission: P.DocumentPrintTemplatesManage },
+  { to: '/admin/official-forms', group: 'tenantAdmin', label: 'Official forms', permission: P.OfficialFormTemplatesManage },
   { to: '/admin/currencies', group: 'tenantAdmin', label: 'Currencies', permission: P.CurrenciesManage },
+  { to: '/admin/approval-rules', group: 'tenantAdmin', label: 'Approval rules', permission: P.ApprovalRulesManage },
   { to: '/admin/import', group: 'tenantAdmin', label: 'Import data', permission: P.EntitiesRecordsImport, needsImportTypes: true },
   { to: '/admin/module-lifecycle', group: 'tenantAdmin', label: 'Module lifecycle', permission: P.ModulesManage, enabled: isModulesUninstallEnabled },
   { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
@@ -81,6 +83,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tenants', group: 'platform', label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/services', group: 'platform', label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
   { to: '/admin/module-rollouts', group: 'platform', label: 'Module rollouts', permission: P.ModuleRolloutsManage, platformOnly: true },
+  { to: '/admin/problem-reports', group: 'platform', label: 'Problem reports', permission: P.ProblemReportsManage, platformOnly: true },
   // REQ-375: operator-facing rollout-status screen for REQ-374's
   // platform-wide tenant-migration fanout runner. Same :TenantsManage
   // (platform-admin role-only) risk class as admin/tenants, admin/onboarding.
@@ -105,6 +108,7 @@ const FLUID_PATHS = [
   '/admin/catalog/items',
   '/admin/stock/movements',
   '/admin/stock/balances',
+  '/admin/problem-reports',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {

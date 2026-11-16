@@ -16,6 +16,8 @@ export interface LayoutCatalog {
   resetLayoutHint: string
   splitList: string
   splitHeader: string
+  documentHeader: string
+  documentLines: string
   selectRecord: string
 }
 
@@ -32,6 +34,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     resetLayoutHint: 'Forget every saved panel size, collapsed panel and column width',
     splitList: 'Resize the document list',
     splitHeader: 'Resize the header',
+    documentHeader: "Header",
+    documentLines: "Lines",
     selectRecord: 'Select a record on the left',
   },
   ru: {
@@ -46,6 +50,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     resetLayoutHint: 'Забыть все сохранённые размеры, свёрнутые панели и ширину столбцов',
     splitList: 'Ширина списка документов',
     splitHeader: 'Ширина шапки',
+    documentHeader: "Шапка",
+    documentLines: "Строки",
     selectRecord: 'Выберите запись слева',
   },
   kk: {
@@ -60,6 +66,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     resetLayoutHint: 'Барлық сақталған панель өлшемдерін, жиылған панельдер мен баған енін ұмыту',
     splitList: 'Құжаттар тізімінің ені',
     splitHeader: 'Тақырып ені',
+    documentHeader: "Тақырып",
+    documentLines: "Жолдар",
     selectRecord: 'Сол жақтан жазба таңдаңыз',
   },
 }

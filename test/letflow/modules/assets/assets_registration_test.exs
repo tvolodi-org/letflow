@@ -18,8 +18,8 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.26.0"
-    assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
+    assert m.version == "0.28.0"
+    assert m.depends_on == ["catalog_items", "codes", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
     assert m.permissions == [
@@ -66,9 +66,11 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"GET", "/counts/:id/lines", :AssetsRead},
              {"GET", "/counts/:id/entries", :AssetsRead},
              {"GET", "/counts/:id/sheet-document", :AssetsRead},
+             {"POST", "/counts/:id/scan", :AssetsCountRecord},
              {"GET", "/counts/:id/result", :AssetsRead},
              {"PUT", "/counts/:id/result/lines/:line_no", :AssetsRead},
-             {"POST", "/counts/:id/result/sign", :AssetsRead}
+             {"POST", "/counts/:id/result/sign", :AssetsRead},
+             {"GET", "/counts/:id/print/sheet", :AssetsRead}
            ]
 
     assert m.manages_entity_types ==

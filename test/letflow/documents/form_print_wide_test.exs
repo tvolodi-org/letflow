@@ -46,6 +46,7 @@ defmodule Letflow.Documents.FormPrintWideTest do
                "da4",
                "inv10",
                "inv18",
+               "inv8",
                "z1",
                "z2",
                "z3",
@@ -71,13 +72,17 @@ defmodule Letflow.Documents.FormPrintWideTest do
       end
     end
 
-    test "14 columns are accepted, 15 are refused" do
+    test "15 columns (Z-3 header) are accepted, 16 are refused" do
       {:ok, layout} = FormPrint.layout("inv18")
       cat = FormPrint.catalog()
       front = Enum.find(layout["blocks"], &(&1["rows"] == "lines"))
       assert length(front["columns"]) == 14
 
-      too_wide = %{front | "columns" => front["columns"] ++ [hd(front["columns"])]}
+      fifteen = %{front | "columns" => front["columns"] ++ [hd(front["columns"])]}
+      ok = Enum.map(layout["blocks"], &if(&1 == front, do: fifteen, else: &1))
+      assert :ok = FormPrint.validate_layout(%{layout | "blocks" => ok}, cat)
+
+      too_wide = %{front | "columns" => fifteen["columns"] ++ [hd(front["columns"])]}
       blocks = Enum.map(layout["blocks"], &if(&1 == front, do: too_wide, else: &1))
 
       assert {:error, {:bad_columns, _}} =
@@ -98,43 +103,31 @@ defmodule Letflow.Documents.FormPrintWideTest do
       %{model: model}
     end
 
-    test "chunks of at most 12 keys, column 1 repeated, official header numbers", %{model: model} do
+    test "merged front stays in one 14-column PDF table with the official header", %{model: model} do
       {blocks, _doc, tables} = Pdf.compile(model)
+      front = Enum.find(blocks, &(&1["type"] == "table" and length(&1["columns"]) == 14))
+      assert front
+      {rows, keys} = tables[front["entity_type"]]
+      assert length(keys) == 14
+      assert Enum.all?(rows, &(Map.keys(&1) |> Enum.sort() == Enum.sort(keys)))
+      assert hd(rows)["surplus_sum"] == "s1"
+      assert hd(rows)["adj_shortage_acct"] == "acct1"
+      assert List.last(rows)["surplus_qty"] == "2"
+      assert List.last(rows)["shortage_qty"] == "5"
+      assert length(rows) == 3
 
-      front =
-        tables |> Enum.filter(fn {et, _} -> String.starts_with?(et, "t11c") end) |> Map.new()
+      assert Enum.any?(
+               front["header_cells"],
+               &(&1["text"] == "Результаты инвентаризации" and &1["span"] == 4)
+             )
 
-      assert Enum.sort(Map.keys(front)) == ["t11c0", "t11c1"]
-
-      {rows0, keys0} = front["t11c0"]
-      {rows1, keys1} = front["t11c1"]
-      assert length(keys0) == 12 and length(keys1) == 3
-      assert keys1 == ["no", "adj_shortage_sum", "adj_shortage_acct"]
-      assert Enum.all?(tables, fn {_et, {_r, keys}} -> length(keys) <= 12 end)
-
-      # each chunk's rows carry only its own keys and its own cell values
-      assert Enum.all?(rows0, &(Map.keys(&1) |> Enum.sort() == Enum.sort(keys0)))
-      assert Enum.all?(rows1, &(Map.keys(&1) |> Enum.sort() == Enum.sort(keys1)))
-      refute Enum.any?(rows1, &Map.has_key?(&1, "surplus_sum"))
-      assert Enum.at(rows0, 0)["surplus_sum"] == "s1"
-
-      # the totals row of chunk 1 holds the quantity sums, the all-blank chunk 2 has none
-      assert List.last(rows0)["surplus_qty"] == "2"
-      assert List.last(rows0)["shortage_qty"] == "5"
-      assert length(rows0) == 3 and length(rows1) == 2
-
-      headers =
-        for %{"type" => "table", "entity_type" => "t11c1", "columns" => cols} <- blocks,
-            c <- cols,
-            do: c["header"]
-
-      assert length(headers) == 3
-      assert Enum.map(headers, &(&1 |> String.split(".") |> hd())) == ["1", "13", "14"]
+      assert Enum.filter(front["header_cells"], &(&1["row"] == 3)) |> Enum.map(& &1["text"]) ==
+               Enum.map(1..14, &Integer.to_string/1)
     end
 
     test "the back side is its own table with blank rows; the whole form renders", %{model: model} do
       {_blocks, _doc, tables} = Pdf.compile(model)
-      {rows, keys} = tables["t13c0"]
+      {_et, {rows, keys}} = Enum.find(tables, fn {_et, {_rows, keys}} -> length(keys) == 12 end)
       assert length(keys) == 12 and length(rows) == 2
       assert Enum.all?(rows, fn r -> Enum.all?(r, fn {_k, v} -> v == "" end) end)
 
@@ -156,7 +149,7 @@ defmodule Letflow.Documents.FormPrintWideTest do
 
       assert Enum.map(1..14, &Integer.to_string/1) in rows
       assert Enum.map(15..26, &Integer.to_string/1) in rows
-      assert length(Regex.scan(~r/<w:gridCol /, xml)) == 14 + 12
+      assert length(Regex.scan(~r/<w:gridCol /, xml)) == 2 + 2 + 14 + 12
     end
   end
 
@@ -220,12 +213,14 @@ defmodule Letflow.Documents.FormPrintWideTest do
   end
 
   describe "T-1555 paper: landscape PDF, docx header rows and signature keep" do
-    test "W1 every official form (9 to 14 columns) prints on a landscape A4" do
+    test "W1 the PDF follows the layout's orientation (T-1971: shipped forms are portrait)" do
       {:ok, wide} = FormPrint.build("inv18", wide_data(), "ru", :pdf)
-      assert wide =~ "/MediaBox [0 0 842 595]"
+      assert wide =~ "/MediaBox [0 0 595 842]"
 
+      {:ok, layout} = FormPrint.layout("z2")
+      land = Map.put(layout, "page", %{"orientation" => "landscape"})
       data = %{"lines" => [%{"no" => "1", "name" => "A", "nom" => "B", "unit" => "pcs"}]}
-      {:ok, z2} = FormPrint.build("z2", data, "ru", :pdf)
+      {:ok, z2} = FormPrint.build("z2", data, "ru", :pdf, layout: land)
       assert z2 =~ "/MediaBox [0 0 842 595]"
     end
 

@@ -108,7 +108,9 @@ defmodule Letflow.Api.AuthorizationTest do
       :TasksReassignRouted,
       :TasksReadAll,
       :CurrenciesManage,
-      :DataExport
+      :DataExport,
+      :ApprovalRulesManage,
+      :OfficialFormTemplatesManage
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -516,7 +518,9 @@ defmodule Letflow.Api.AuthorizationTest do
           62 => "sixty-two",
           63 => "sixty-three",
           64 => "sixty-four",
-          65 => "sixty-five"
+          65 => "sixty-five",
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1141,7 +1145,9 @@ defmodule Letflow.Api.AuthorizationTest do
           62 => "sixty-two",
           63 => "sixty-three",
           64 => "sixty-four",
-          65 => "sixty-five"
+          65 => "sixty-five",
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1656,7 +1662,9 @@ defmodule Letflow.Api.AuthorizationTest do
           62 => "sixty-two",
           63 => "sixty-three",
           64 => "sixty-four",
-          65 => "sixty-five"
+          65 => "sixty-five",
+          66 => "sixty-six",
+          67 => "sixty-seven"
         }
         |> Map.get(actual_count)
 
@@ -2310,6 +2318,9 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/platform-problem-reports", :ProblemReportsManage},
         {"GET", "/platform-problem-reports/:id", :ProblemReportsManage},
         {"POST", "/platform-problem-reports/:id/decision", :ProblemReportsManage},
+        {"POST", "/platform-problem-reports/:id/comments", :ProblemReportsManage},
+        {"POST", "/platform-problem-reports/:id/state", :ProblemReportsManage},
+        {"GET", "/platform-problem-reports/:id/images/:image_id", :ProblemReportsManage},
         {"GET", "/me/problem-reports", :MyAccessRead},
         {"POST", "/platform-module-rollouts", :ModuleRolloutsManage},
         {"GET", "/platform-module-rollouts", :ModuleRolloutsManage},
@@ -2549,7 +2560,9 @@ defmodule Letflow.Api.AuthorizationTest do
                    :TasksReassignRouted,
                    :TasksReadAll,
                    :CurrenciesManage,
-                   :DataExport
+                   :DataExport,
+                   :ApprovalRulesManage,
+                   :OfficialFormTemplatesManage
                  ]
 
       pair_count = length(pre_storekeeper_roles()) * length(@pre_req401_permissions)

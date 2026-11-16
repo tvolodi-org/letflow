@@ -6,7 +6,7 @@
  *
  * T1 default view lists the open post / approve tasks (was empty)   T2 row content, no uuid
  * T3 detail: document header and lines, read-only                   T4 claim posts /claim, then Post; complete; toasts
- * T5 issuer: hint + SoD refusal readable (en/ru/kk)                 T6 second user claims and completes (full flow)
+ * T5 issuer: hint + SoD refusal readable (en/ru/kk); T5b/T5c hint hidden when four eyes OFF                 T6 second user claims and completes (full flow)
  * T7 insufficient_stock refusal readable                            T8 empty state   T9 loading   T10 error + retry
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
@@ -165,7 +165,7 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     await waitFor(() => expect(screen.getAllByTestId('task-instance-id')[0]).toHaveTextContent(/ISS-2026-000\d - Issue/))
     await waitFor(() => expect(container.textContent).toContain('WH-1 - Warehouse team'))
     expect(container.textContent).toContain('A-01 - Rack A')
-    await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('You'))
+    await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('gate-b6-admin'))
     expect(screen.getAllByTestId('task-age')[0]).toHaveTextContent(/3 minutes ago/)
     await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2 pcs, +1 more'))
     expect(noUuidInDom(container)).toBe(true)
@@ -218,6 +218,24 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(await screen.findByTestId('task-sod-hint')).toHaveTextContent(m.sodHint.approve)
     await user.click(await screen.findByTestId('task-claim-button'))
     expect(await screen.findByTestId('task-sod-error')).toHaveTextContent(m.sod.approve)
+  })
+
+  it.each([['en'], ['ru'], ['kk']] as const)('T5b four eyes OFF for the step: the issuer sees no hint (%s)', async (lang) => {
+    useUiLocaleStore.getState().setLocaleTransient(lang)
+    world.tasks[T_APPROVE] = { ...(world.tasks[T_APPROVE] as object), self_approval_allowed: true }
+    renderPage(ISSUER)
+    const user = userEvent.setup()
+    await user.click((await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_APPROVE)!)
+    await screen.findByTestId('task-claim-button')
+    expect(screen.queryByTestId('task-sod-hint')).not.toBeInTheDocument()
+  })
+
+  it('T5c self_approval_allowed false: the issuer still sees the hint', async () => {
+    world.tasks[T_APPROVE] = { ...(world.tasks[T_APPROVE] as object), self_approval_allowed: false }
+    renderPage(ISSUER)
+    const user = userEvent.setup()
+    await user.click((await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_APPROVE)!)
+    expect(await screen.findByTestId('task-sod-hint')).toBeInTheDocument()
   })
 
   it('T6 a second administrator claims and approves the same document: the full flow', async () => {

@@ -127,6 +127,30 @@ describe('NotificationBell', () => {
     expect(screen.getByText(notificationMessages.en.kindCountAssigned)).toBeInTheDocument()
   })
 
+  it('PR-B1 the six problem report status kinds have their text in every locale and no link', () => {
+    const kinds: Array<[string, keyof typeof notificationMessages.en]> = [
+      ['problem_report_received', 'kindProblemReceived'],
+      ['problem_report_in_work', 'kindProblemInWork'],
+      ['problem_report_question', 'kindProblemQuestion'],
+      ['problem_report_answered', 'kindProblemAnswered'],
+      ['problem_report_fixed', 'kindProblemFixed'],
+      ['problem_report_not_done', 'kindProblemNotDone'],
+    ]
+    for (const [kind, field] of kinds) {
+      expect(notificationLink(kind, 'r1')).toBeNull()
+      for (const l of UI_LOCALES) {
+        const text = notificationText(notificationMessages[l], kind)
+        expect(text).toBe(notificationMessages[l][field])
+        expect(text).not.toBe(notificationMessages[l].kindUnknown)
+      }
+    }
+    state.data = { notifications: [row({ kind: 'problem_report_answered', ref_id: 'r1', title: 'SR-12' })], unread_count: 1 }
+    renderBell()
+    fireEvent.click(screen.getByTestId('notification-bell-trigger'))
+    expect(screen.getByText(notificationMessages.en.kindProblemAnswered)).toBeInTheDocument()
+    expect(screen.getByText('SR-12')).toBeInTheDocument()
+  })
+
   it('W4 every locale has every string', () => {
     const keys = Object.keys(notificationMessages.en).sort()
     for (const l of UI_LOCALES) {

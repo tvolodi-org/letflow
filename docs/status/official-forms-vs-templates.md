@@ -112,7 +112,53 @@ Everything below can be re-run; raw outputs of this run are in the task folder `
 4. Nothing was installed and no template was copied: the folder was mounted read only into the flatpak sandbox and
    the PDFs and PNGs were written to the task folder.
 
+## Guard (T-1979)
+
+`test/letflow/documents/form_fingerprint_test.exs` keeps each form from drifting: it builds every shipped form in
+ru and kk and compares the page, margins and data tables with `test/fixtures/form_fingerprints/<form>.json`, made
+from the reference template with `python3 -I -B scripts/forms_compare.py fingerprint <template.docx>` (structure
+only, no template text). To renew a fingerprint on purpose, run that command on the template of the annex and
+replace the file. The forms that still differ are named in `@known_deviations` in the test.
+
 ## Limits
+
+### Inv-10 / Inv-18 follow-up (T-1977)
+
+The original table above is the `cbe12af93` snapshot, not a statement of the current printers.
+Inv-10 and Inv-18 now use boxed organisation/BIN and document-number/date pairs and right-aligned
+annex/form-code blocks. Their column grids use the reference proportions; the reverse-side tables
+start on a new page. Both formats retain fractional quantities without nine stored trailing decimals.
+Inv-18 now has the three-level results/adjustments header and the Пересортица group, with all fourteen
+front columns together in PDF as well as Word. Word uses the reference's 15-twip cell padding;
+PDF merged tables honor the layout's table font size so two-digit column numbers remain intact.
+
+Correction to the Inv-18 row: annex 49's **header** has six `gridSpan` cells and twelve `vMerge`
+elements; eight is the whole-table count, including the totals label and the instruction row
+“и т. д. линовка до конца листа”. The generated header has six/twelve; the reverse header matches
+the reference's five/twelve. No instruction row is printed as business data.
+
+Recheck with `python3 -I -B scripts/forms_compare.py diff <template_application_ru41.docx|template_application_ru49.docx> <generated.docx>`
+for both ru and kk. The Russian diff no longer reports missing Inv-18 results/regrading header labels or
+main-table width differences; kk uses the same layout with its catalog wording. Remaining shared differences include the simplified annex/title
+arrangement, font sizes, the PDF's bundled sans face and common margin, repeated header rows and
+unmerged totals labels. This slice does not claim pixel equality with the Ministry files.
+
+### DA-1 .. DA-4 follow-up (T-1978)
+
+DA-1 (annex 16), DA-2 (17), DA-3 (18) and DA-4 (19) now print the annex and form-code lines right-aligned,
+organisation/BIN (DA-2, DA-3, DA-4) and number/date (DA-2, DA-3) as boxed pairs, and every signature block as a
+signature table (ruled line above the caption). Every wide table takes its column proportions from the template grid;
+DA-1 page 2 and 3 and the reverse sides of DA-2, DA-3, DA-4 start on a new page; DA-2 uses the template margins
+25/15/25/25 mm. The headers use `groups`: DA-3's cost table has the "Запасы" group over name and nomenclature number;
+DA-2's characteristics table has six columns numbered 1 to 6 (new column flag `span`: adjacent columns with the same
+header share one cell, here "наименование важнейших пристроек …" over four columns).
+
+`forms_compare diff` (ru, empty data), before to after: DA-1 widths of the 7-column table `[15,11,5,18,16,20,16]` vs
+`[9,24,8,15,14,16,14]` reported, now no width line; DA-2 margins 25/25/25 vs 20/20/22.5 reported, now none, the 6-column table
+(`columns ref 6, gen 3`, header cells 4, 5, 6 missing) and the 8- and 9-column widths now match; DA-3 missing header cells
+"Запасы", "наименование", "номенклатур- ный номер" and the width lines now none (`gridspan` ref 3 / gen 2 gone); DA-4 no width line.
+Remaining: nested/side-by-side annex and facts tables of the templates are paragraphs or one-row tables in ours
+(table counts differ), and the "инвентарный" cell split of DA-3 table 1.
 
 - kk has no layout reference, only the Adilet text; kk layout is assumed equal to ru (one layout file).
 - LibreOffice renders `.docx` differently from Word; pixel positions were not compared, structure was.

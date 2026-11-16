@@ -90,7 +90,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :TasksReassignRouted,
     :TasksReadAll,
     :CurrenciesManage,
-    :DataExport
+    :DataExport,
+    :ApprovalRulesManage,
+    :OfficialFormTemplatesManage
   ]
 
   @new_permissions [
@@ -275,7 +277,13 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
       # Roles stage 0 S0-4: taking a routed task away is TENANT_ADMIN's alone (explicit false clause).
       for permission <-
             Authorization.permissions() --
-              [:TasksWorkInScope, :TenantSecurityManage, :TasksReassignRouted] do
+              [
+                :TasksWorkInScope,
+                :TenantSecurityManage,
+                :TasksReassignRouted,
+                :ApprovalRulesManage,
+                :OfficialFormTemplatesManage
+              ] do
         assert Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], permission, true),
                "#{inspect(permission)} must stay held by the platform tenant's PLATFORM_ADMIN"
       end
@@ -289,6 +297,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
              )
 
       refute Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], :TasksReassignRouted, true)
+      # T-1986, ruling 2: explicit false clause.
+      refute Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], :ApprovalRulesManage, true)
 
       # Other roles keep what they hold, including alongside a (dropped) PLATFORM_ADMIN.
       assert Authorization.has_permission_in_scope?([:PROCESS_DESIGNER], :DefinitionsWrite, false)

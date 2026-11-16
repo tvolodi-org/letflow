@@ -1,0 +1,116 @@
+defmodule Letflow.Engine.ApprovalRuleSetting do
+  @moduledoc """
+  T-1986 (four-eyes switch, slice 1): one stored setting per (process definition name, HUMAN_TASK
+  node id) in the tenant schema table `approval_rule_settings`. No row means the four-eyes rule
+  (`distinct_from`, `Letflow.Engine.SeparationOfDuties`) is ON; a row with `four_eyes: false`
+  switches it OFF for that step only. Rows are written by `Letflow.ApprovalRules` (the admin
+  routes); the engine only reads.
+
+  Both read functions are TOTAL: a database error (for example a lagging tenant without the table)
+  returns `{:error, :unreadable}`, never raises, so callers can fail closed (the check) or toward
+  "shown" (the REQ-464 warning). Every query carries the tenant `prefix` (INV-1) and bound
+  parameters (INV-7).
+  """
+
+  use Ecto.Schema
+
+  import Ecto.Query
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @timestamps_opts [type: :utc_datetime_usec]
+
+  schema "approval_rule_settings" do
+    field(:definition_name, :string)
+    field(:node_id, :string)
+    field(:four_eyes, :boolean)
+    field(:changed_by, :binary_id)
+    field(:changed_at, :utc_datetime_usec)
+    field(:reason, :string)
+
+    timestamps()
+  end
+
+  @type t :: %__MODULE__{}
+
+  @doc """
+  The stored setting of one step, or `nil` when none exists (ON). `query_opts` is merged after the
+  prefix (the check passes `mode: :savepoint` inside a transaction).
+  """
+  @spec read(
+          repo :: module(),
+          prefix :: String.t(),
+          definition_name :: String.t(),
+          node_id :: String.t(),
+          query_opts :: keyword()
+        ) :: {:ok, t() | nil} | {:error, :unreadable}
+  def read(repo, prefix, definition_name, node_id, query_opts \\ []) do
+    query =
+      from(s in __MODULE__,
+        where: s.definition_name == ^definition_name and s.node_id == ^node_id
+      )
+
+    {:ok, repo.one(query, [prefix: prefix] ++ query_opts)}
+  rescue
+    _exception -> {:error, :unreadable}
+  catch
+    _kind, _value -> {:error, :unreadable}
+  end
+
+  @doc """
+  The set of `{definition_name, node_id}` steps that are switched OFF, among the given definition
+  names: ONE read in total. An empty name list answers without a query.
+  """
+  @spec off_steps(
+          repo :: module(),
+          prefix :: String.t(),
+          definition_names :: [String.t()],
+          query_opts :: keyword()
+        ) :: {:ok, MapSet.t({String.t(), String.t()})} | {:error, :unreadable}
+  def off_steps(repo, prefix, definition_names, query_opts \\ [])
+
+  def off_steps(_repo, _prefix, [], _query_opts), do: {:ok, MapSet.new()}
+
+  def off_steps(repo, prefix, definition_names, query_opts) do
+    query =
+      from(s in __MODULE__,
+        where: s.definition_name in ^definition_names and s.four_eyes == false,
+        select: {s.definition_name, s.node_id}
+      )
+
+    {:ok, query |> repo.all([prefix: prefix] ++ query_opts) |> MapSet.new()}
+  rescue
+    _exception -> {:error, :unreadable}
+  catch
+    _kind, _value -> {:error, :unreadable}
+  end
+
+  @doc """
+  T-1987: is the step `node_id` of the definition pinned by instance `instance_id` switched OFF?
+  ONE query joining the instance's definition snapshot and the setting row, both in the tenant
+  `prefix` (INV-1), all values bound (INV-7). Total: a database error returns `{:error, :unreadable}`.
+  """
+  @spec off_for_instance_step(
+          repo :: module(),
+          prefix :: String.t(),
+          instance_id :: Ecto.UUID.t(),
+          node_id :: String.t(),
+          query_opts :: keyword()
+        ) :: {:ok, boolean()} | {:error, :unreadable}
+  def off_for_instance_step(repo, prefix, instance_id, node_id, query_opts \\ []) do
+    query =
+      from(s in __MODULE__,
+        join: snap in Letflow.Definitions.InstanceDefinitionSnapshot,
+        on: snap.definition_name == s.definition_name,
+        where:
+          snap.instance_id == ^instance_id and s.node_id == ^node_id and s.four_eyes == false,
+        select: true,
+        limit: 1
+      )
+
+    {:ok, repo.one(query, [prefix: prefix] ++ query_opts) == true}
+  rescue
+    _exception -> {:error, :unreadable}
+  catch
+    _kind, _value -> {:error, :unreadable}
+  end
+end

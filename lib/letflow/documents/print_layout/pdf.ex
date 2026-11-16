@@ -197,9 +197,11 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
     ops |> Enum.map(&op(&1, cids)) |> IO.iodata_to_binary()
   end
 
-  defp op({:item, lines}, cids) do
+  defp op({:item, lines}, cids), do: op({:item, lines, 10}, cids)
+
+  defp op({:item, lines, size}, cids) do
     [
-      "BT\n/F1 10 Tf\n",
+      "BT\n/F1 #{size} Tf\n",
       for {x, y, cps} <- lines do
         ["1 0 0 1 ", num(x), " ", num(y), " Tm\n<", hex_run(cps, cids), "> Tj\n"]
       end,
@@ -209,6 +211,10 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
 
   defp op({:rule, x1, x2, y}, _cids) do
     ["0.5 w ", num(x1), " ", num(y), " m ", num(x2), " ", num(y), " l S\n"]
+  end
+
+  defp op({:vrule, x, y1, y2}, _cids) do
+    ["0.5 w ", num(x), " ", num(y1), " m ", num(x), " ", num(y2), " l S\n"]
   end
 
   # A filled rectangle (x, y, width, height), same 1/100 pt units; default fill is black.

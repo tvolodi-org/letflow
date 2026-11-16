@@ -44,8 +44,12 @@ export async function setPrefs(page: Page, prefs: { lang?: 'en' | 'ru' | 'kk'; t
     if (p.lang) window.localStorage.setItem('lf-locale', p.lang)
     if (p.theme) window.localStorage.setItem('lf-theme', p.theme)
   }, prefs)
+  // A full reload of a deep link lands on "/" in the CI stack (see openRoute; run 43659812445, G5 showed the
+  // dashboard): remember the route and move back to it inside the SPA once the shell is up.
+  const here = page.url()
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
+  await openRoute(page, here)
 }
 
 /**
@@ -60,7 +64,7 @@ export async function openRoute(page: Page, path: string): Promise<void> {
   const target = new URL(path, base)
   const rel = `${target.pathname}${target.search}${target.hash}`
   const shellUp = page.url() !== 'about:blank' && new URL(page.url()).origin === target.origin
-    && (await page.locator('#main-content').isVisible().catch(() => false))
+    && (await page.locator('#main-content').isVisible())
   if (!shellUp) {
     await page.goto(rel, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
@@ -123,6 +127,13 @@ export async function headerNumber(p: Page): Promise<string> {
   return value
 }
 
+/** Read the issued count number from its record title, excluding the adjacent status. */
+export async function countOrderNumber(p: Page): Promise<string> {
+  const heading = p.locator('.lf-doc__id').getByRole('heading')
+  await expect(heading).toHaveText(/^[A-Z]+-[\d-]+$/)
+  return (await heading.innerText()).trim()
+}
+
 /** Fill a date-and-time field (`DateTimeField`: two inputs "<label>, date" and "<label>, time") from a local
  *  `YYYY-MM-DDTHH:mm` value (English UI date format). `getByLabel(label)` alone matches four elements (strict mode). */
 export async function fillDateTime(scope: Page | Locator, label: string, local: string): Promise<void> {
@@ -137,10 +148,24 @@ export async function saveDocument(p: Page): Promise<void> {
   await expect(p.getByTestId('document-actions')).toBeVisible()
 }
 
+/** Add a stock line through the editor's current responsive mode. */
+export async function addStockLine(p: Page, fill: (fields: Locator) => Promise<void>): Promise<void> {
+  await p.getByRole('button', { name: 'Add line', exact: true }).click()
+  const editor = p.getByTestId('lines-editor')
+  const fields = editor.locator(':is([data-testid="line-editor-row"], .lf-le__form):visible').last()
+  await expect(fields).toBeVisible()
+  await fill(fields)
+  // Row gives Lines a narrower panel even on desktop. Form mode keeps an unsaved draft until this button is used.
+  if (await editor.getAttribute('data-mode') === 'form') {
+    await fields.getByRole('button', { name: 'Save and close', exact: true }).click()
+    await expect(editor.locator('.lf-le__form')).toHaveCount(0)
+  }
+}
+
 export async function issueDocument(p: Page): Promise<void> {
   await p.getByTestId('document-actions').getByRole('button', { name: 'Issue', exact: true }).click()
   await p.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
-  await expect(p.getByTestId('document-header')).toContainText(/Issued|Posted/i, { timeout: 30_000 })
+  await expect(p.locator('.lf-doc__id')).toContainText(/Issued|Posted/i, { timeout: 30_000 })
 }
 
 /** Claim then complete the task row that matches `hint` (document number or item name). */
@@ -156,11 +181,15 @@ export async function claimAndComplete(p: Page, hint: string): Promise<void> {
   await own.first().click()
   await expect(p.getByTestId('task-detail-panel')).toBeVisible()
   const claim = p.getByTestId('task-claim-button')
-  if (await claim.isVisible().catch(() => false)) await claim.click()
+  const complete = p.getByTestId('task-complete-button')
+  // Wait until the panel shows one of the two buttons: a one-shot isVisible() ran before Claim rendered and skipped the
+  // claim, so Complete never appeared (CI run 43657586709, P1 and G2).
+  await expect(claim.or(complete).first()).toBeVisible({ timeout: 20_000 })
+  if (await claim.isVisible()) await claim.click()
   // R11: Complete appears after the claim
-  await expect(p.getByTestId('task-complete-button')).toBeVisible({ timeout: 20_000 })
+  await expect(complete).toBeVisible({ timeout: 20_000 })
   const done = p.waitForResponse(r => r.request().method() === 'POST' && /complete/.test(r.url()) && r.ok(), { timeout: 30_000 })
-  await p.getByTestId('task-complete-button').click()
+  await complete.click()
   // Wait for the completion to reach the server before the caller navigates away (a cancelled request leaves it open).
   await done
 }

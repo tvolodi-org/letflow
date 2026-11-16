@@ -1,6 +1,7 @@
 /** Fixtures registry (task S0d). Every screen task adds one entry here: its name, the fake API routes it reads
  *  and a render function. Keep fixtures to plain data; no secrets, no real tenant names. */
 import { useEffect } from 'react'
+import { documentPanelLayoutScreens } from './fixtures/documentPanelLayouts'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
@@ -42,12 +43,15 @@ import { reportProblemScreens } from './fixtures/reportProblem'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
+import { assetsIssueRefusedScreens } from './fixtures/assetsDocumentsIssueRefused'
 import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { assetsOpeningScreens } from './fixtures/assetsDocumentsOpening'
 import { assetsPrintButtonsScreens } from './fixtures/assetsPrintButtons'
+import { assetsCountsScreens } from './fixtures/assetsCounts'
 import { responsibleProposalScreens } from './fixtures/responsibleProposal'
 import { stockScreens } from './fixtures/stock'
+import { fourEyesTaskScreens } from './fixtures/fourEyesTask'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
 import { stockBalancesShellScreens } from './fixtures/stockBalancesShell'
@@ -73,6 +77,7 @@ import { taskUpgradeScreens } from './fixtures/taskUpgrade'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
+import { processDiscoveryScreens } from './fixtures/processDiscovery'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { instanceReplayScreens } from './fixtures/instanceReplay'
 import { instanceDetailScreens } from './fixtures/instanceDetail'
@@ -92,6 +97,9 @@ import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
 import { currenciesScreens } from './fixtures/currencies'
+import { approvalRulesScreens } from './fixtures/approvalRules'
+import { officialFormTemplatesScreens } from './fixtures/officialFormTemplates'
+import { problemReportsScreens } from './fixtures/problemReports'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 
 const verifyCertificate: HarnessScreen = {
@@ -317,6 +325,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,
+    ...processDiscoveryScreens,
     ...processDesignerVersionsScreens,
     ...instanceReplayScreens,
     ...instanceDetailScreens,
@@ -325,16 +334,19 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...codesLabelScreens,
     ...codesPagedScreens,
     ...docLayoutScreens,
+    ...documentPanelLayoutScreens,
     ...layoutBaseScreens,
     ...officialFormsScreens,
     ...stockSheetZ7Screens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
+    ...assetsIssueRefusedScreens,
     ...assetsCardActionsScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
     ...assetsOpeningScreens,
     ...assetsPrintButtonsScreens,
+    ...assetsCountsScreens,
     ...stockR7Screens,
     ...envBannerScreens,
     ...installHintScreens,
@@ -379,7 +391,11 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
     ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
     ...currenciesScreens,
+    ...approvalRulesScreens,
+    ...officialFormTemplatesScreens,
+    ...problemReportsScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
+    ...fourEyesTaskScreens,
     ...listDetailSlice6Screens,
     ...listDetailSlice7Screens,
     ...pageHeaderNewMenuScreens,

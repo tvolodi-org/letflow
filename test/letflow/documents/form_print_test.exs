@@ -10,6 +10,35 @@ defmodule Letflow.Documents.FormPrintTest do
   alias Letflow.Documents.FormPrint
   alias Letflow.Modules.Stock.CountPrintTest.PdfProbe
 
+  test "FP-unchanged official numbers and shared template totals" do
+    alias Letflow.Documents.FormTemplate.Xml
+
+    for form <- FormPrint.forms() do
+      {:ok, layout} = FormPrint.layout(form)
+      model = FormPrint.resolve(layout, data(), "ru", FormPrint.catalog())
+      values = FormPrint.template_data(layout, data(), "ru", FormPrint.catalog())
+      assert values.tables == for({:table, t} <- model, do: t)
+
+      for {:table, t} <- model do
+        {:ok, bytes} = FormPrint.Docx.render([{:table, t}])
+
+        {:ok, tree} =
+          bytes
+          |> Letflow.FormTemplateDocx.unpack()
+          |> Map.fetch!("word/document.xml")
+          |> Xml.parse()
+
+        depth =
+          FormPrint.header_cells(t.columns) |> Enum.map(&(&1.row + &1.rowspan)) |> Enum.max()
+
+        numbers =
+          tree |> Xml.named("w:tr") |> Enum.at(depth) |> Xml.named("w:t") |> Enum.map(&Xml.text/1)
+
+        assert numbers == Enum.map(t.columns, &Integer.to_string(&1.no))
+      end
+    end
+  end
+
   @ru_title "Накладная на отпуск запасов на сторону"
   @kk_title "ҚОРЛАРДЫ ШЕТКЕ БЕРУГЕ АРНАЛҒАН ЖҮКҚҰЖАТ"
 
@@ -215,18 +244,22 @@ defmodule Letflow.Documents.FormPrintTest do
             "Транспортная организация",
             "Товарно-транспортная накладная (номер, дата)"
           ] do
-        assert {:field, ^label, ""} = List.keyfind(model, label, 1)
+        assert Enum.any?(model, fn
+                 {:boxed_pairs, cells} -> {label, ""} in cells
+                 _ -> false
+               end)
       end
 
       {:ok, docx} = FormPrint.build("z2", data(), "ru", :docx)
       {:ok, pdf} = FormPrint.build("z2", data(), "ru", :pdf)
-      assert docx_text(docx) =~ "Транспортная организация: ____________"
+      assert docx_text(docx) =~ "Транспортная организация"
       items = PdfProbe.items(pdf)
-      assert "Транспортная организация: ____________" in items
-      assert "Запасы получил: ____________ / ____________" in items
+      assert "Транспортная организация" in items
+      assert "Запасы получил" in items
+      assert "____________" in items
 
-      assert {:signature, "Запасы получил", ["", ""], _, nil} = List.last(model)
-      assert docx_text(docx) =~ "Запасы получил ____________ / ____________"
+      assert {:signature_table, "Запасы получил", ["", ""], _, nil} = List.last(model)
+      assert docx_text(docx) =~ "Запасы получил\n____________"
     end
 
     test "the total is the sum of the stored texts; an invalid text blanks it; no rows blanks it" do
@@ -285,6 +318,48 @@ defmodule Letflow.Documents.FormPrintTest do
       assert {:ok, a} = FormPrint.build("z2", data(), "ru", :docx)
       assert {:ok, b} = FormPrint.build("z2", data(), "ru", :docx)
       assert a == b
+    end
+  end
+
+  describe "K9 PDF full cell grid (T-1972)" do
+    # Vertical rule: same x in both endpoints of a line segment — "0.5 w X Y1 m X Y2 l S".
+    # Horizontal rule: same y — "0.5 w X1 Y m X2 Y l S".  We detect vertical rules by
+    # backreference: the first coordinate (x) equals the third coordinate (also x).
+    @v_rule_re ~r/0\.5 w (-?\d+\.\d+) -?\d+\.\d+ m \1 -?\d+\.\d+ l S/
+
+    defp pdf_streams(bin) do
+      for [{s, l}, {ns, nl}, {ds, dl}] <-
+            Regex.scan(~r/(\d+) 0 obj\n<< ([^>]*)>>\nstream\n/, bin, return: :index) do
+        n = bin |> binary_part(ns, nl) |> String.to_integer()
+        [_, len] = Regex.run(~r/\/Length (\d+)/, binary_part(bin, ds, dl))
+        payload = binary_part(bin, s + l, String.to_integer(len))
+        {n, :zlib.uncompress(payload)}
+      end
+    end
+
+    defp has_vertical_rules?(pdf) do
+      all = pdf |> pdf_streams() |> Enum.map_join("\n", &elem(&1, 1))
+      Regex.match?(@v_rule_re, all)
+    end
+
+    test "z2 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z2", data(), "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z2 ru PDF: no vertical rules in content stream"
+    end
+
+    test "z1 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z1", %{}, "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z1 ru PDF: no vertical rules in content stream"
+    end
+
+    test "z3 PDF table has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z3", %{}, "ru", :pdf)
+      assert has_vertical_rules?(pdf), "z3 ru PDF: no vertical rules in content stream"
+    end
+
+    test "kk PDF also has vertical rules" do
+      assert {:ok, pdf} = FormPrint.build("z2", data(), "kk", :pdf)
+      assert has_vertical_rules?(pdf), "z2 kk PDF: no vertical rules in content stream"
     end
   end
 end

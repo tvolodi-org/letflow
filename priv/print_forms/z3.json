@@ -2,42 +2,199 @@
   "form_layout_version": 1,
   "form": "z3",
   "annex": 27,
+  "page": {
+    "orientation": "portrait",
+    "margins_mm": [
+      25,
+      15,
+      25,
+      25
+    ],
+    "font_pt": 12,
+    "table_font_pt": 8
+  },
   "blocks": [
-    {"type": "text", "label": "z3.annex"},
-    {"type": "text", "label": "z3.form_code"},
-    {"type": "field", "label": "z2.org", "key": "org_name"},
-    {"type": "field", "label": "z2.bin", "key": "org_bin"},
-    {"type": "title", "label": "z3.title"},
-    {"type": "field", "label": "z3.struct_unit", "key": "struct_unit"},
-    {"type": "field", "label": "z3.prod_kind", "key": "prod_kind"},
-    {"type": "field", "label": "z3.mark", "key": "mark"},
-    {"type": "field", "label": "z3.sort", "key": "sort"},
-    {"type": "field", "label": "z3.profile", "key": "profile"},
-    {"type": "field", "label": "z3.size", "key": "size"},
-    {"type": "field", "label": "z3.account", "key": "account"},
-    {"type": "field", "label": "z2.c3", "key": "nom"},
-    {"type": "field", "label": "z2.c4", "key": "unit"},
-    {"type": "field", "label": "z3.price", "key": "price"},
-    {"type": "field", "label": "z3.shelf", "key": "shelf"},
-    {"type": "field", "label": "z2.responsible", "key": "responsible"},
-    {"type": "field", "label": "z3.shop", "key": "shop"},
-    {"type": "field", "label": "z3.executor", "key": "executor"},
-    {"type": "field", "label": "z3.item_name", "key": "item_name"},
+    {
+      "type": "annex_line",
+      "label": "z3.annex"
+    },
+    {
+      "type": "annex_line",
+      "label": "z3.form_code"
+    },
+    {
+      "type": "field",
+      "label": "z2.org",
+      "key": "org_name"
+    },
+    {
+      "type": "field",
+      "label": "z2.bin",
+      "key": "org_bin"
+    },
+    {
+      "type": "title",
+      "label": "z3.title"
+    },
+    {
+      "type": "table",
+      "rows": "head",
+      "columns": [
+        {
+          "key": "struct_unit",
+          "label": "z3.struct_unit",
+          "width": 18.8
+        },
+        {
+          "key": "prod_kind",
+          "label": "z3.prod_kind",
+          "width": 14.3
+        },
+        {
+          "key": "mark",
+          "label": "z3.mark",
+          "width": 7.9
+        },
+        {
+          "key": "sort",
+          "label": "z3.sort",
+          "width": 6.5
+        },
+        {
+          "key": "profile",
+          "label": "z3.profile",
+          "width": 10.2
+        },
+        {
+          "key": "size",
+          "label": "z3.size",
+          "width": 8.4
+        },
+        {
+          "key": "account",
+          "label": "z3.account",
+          "width": 6.4
+        },
+        {
+          "key": "nom",
+          "label": "z2.c3",
+          "width": 17.9
+        },
+        {
+          "key": "unit",
+          "label": "z2.c4",
+          "width": 11.6
+        },
+        {
+          "key": "price",
+          "label": "z3.price",
+          "width": 7.1
+        },
+        {
+          "key": "shelf",
+          "label": "z3.shelf",
+          "width": 10.3
+        },
+        {
+          "key": "resp_unit",
+          "label": "z3.resp_unit",
+          "group": "z3.responsible",
+          "width": 17.5
+        },
+        {
+          "key": "resp_kind",
+          "label": "z3.resp_kind",
+          "group": "z3.responsible",
+          "width": 12.9
+        },
+        {
+          "key": "shop",
+          "label": "z3.shop",
+          "group": "z3.responsible",
+          "width": 5.8
+        },
+        {
+          "key": "executor",
+          "label": "z3.executor",
+          "group": "z3.responsible",
+          "width": 12.2
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "label": "z3.item_name",
+      "key": "item_name"
+    },
     {
       "type": "table",
       "rows": "rows",
       "columns": [
-        {"key": "date", "label": "z3.c1"},
-        {"key": "doc_number", "label": "z3.c2"},
-        {"key": "no", "label": "z2.c1"},
-        {"key": "party", "label": "z3.c4"},
-        {"key": "unit_out", "label": "z3.c5"},
-        {"key": "income", "label": "z3.c6"},
-        {"key": "expense", "label": "z3.c7"},
-        {"key": "balance", "label": "z3.c8"},
-        {"key": "control", "label": "z3.c9"}
+        {
+          "key": "date",
+          "label": "z3.c1",
+          "width": 13.8
+        },
+        {
+          "key": "doc_number",
+          "label": "z3.c2",
+          "width": 16.9
+        },
+        {
+          "key": "no",
+          "label": "z2.c1",
+          "width": 15.0
+        },
+        {
+          "key": "party",
+          "label": "z3.c4",
+          "width": 18.6
+        },
+        {
+          "key": "unit_out",
+          "label": "z3.c5",
+          "width": 38.2
+        },
+        {
+          "key": "income",
+          "label": "z3.c6",
+          "width": 14.6
+        },
+        {
+          "key": "expense",
+          "label": "z3.c7",
+          "width": 14.0
+        },
+        {
+          "key": "balance",
+          "label": "z3.c8",
+          "width": 14.9
+        },
+        {
+          "key": "control",
+          "label": "z3.c9",
+          "width": 21.9
+        }
       ]
     },
-    {"type": "field", "label": "z3.precious", "key": "precious"}
+    {
+      "type": "field",
+      "label": "z3.precious",
+      "key": "precious"
+    },
+    {
+      "type": "table",
+      "rows": "precious_rows",
+      "columns": [
+        {
+          "key": "precious_a",
+          "width": 106.9
+        },
+        {
+          "key": "precious_b",
+          "width": 63.1
+        }
+      ]
+    }
   ]
 }

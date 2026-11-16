@@ -4,10 +4,10 @@
 import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
 export const MODULE_ATOMS_TENANT_ADMIN = [
-  'AssetsCardWrite', 'AssetsCountOrder', 'AssetsCountRecord', 'AssetsPost', 'AssetsRead', 'AssetsReconcile', 'AssetsReverse', 'CatalogLotsWrite', 'CodesRead', 'CodesWrite', 'CurrenciesManage',
+  'ApprovalRulesManage', 'AssetsCardWrite', 'AssetsCountOrder', 'AssetsCountRecord', 'AssetsPost', 'AssetsRead', 'AssetsReconcile', 'AssetsReverse', 'CatalogLotsWrite', 'CodesRead', 'CodesWrite', 'CurrenciesManage',
   'DataExport', 'DocumentHold', 'DocumentsRetentionManage', 'EntitiesExtensionsManage', 'EntitiesRecordsImportAnyType', 'EntitiesViewsManage', 'ExamGradingRead', 'ExamGradingWrite',
   'IntegrationMappingsManage', 'LabelsManage', 'LocationsWrite', 'NotificationTemplatesManage', 'NumberSequencesManage',
-  'OrgEmployeesWrite', 'OrgStructureWrite', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
+  'OfficialFormTemplatesManage', 'OrgEmployeesWrite', 'OrgStructureWrite', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
   'ProcurementRequestWrite', 'ScheduledJobsManage', 'StockCountOrder', 'StockCountRecord', 'StockPost', 'StockRead', 'StockReconcile',
   'StockReverse', 'TasksReadAll', 'TasksReassignRouted', 'TenantSecurityManage',
 ]

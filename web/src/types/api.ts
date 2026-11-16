@@ -157,7 +157,7 @@ export interface Task {
   status: TaskStatus
   assignee_type?: string
   assignee_ref?: string
-  assignee_name?: string
+  assignee_name?: string | null
   form_schema?: Record<string, unknown>
   output_variables?: Record<string, unknown>
   completed_by?: string
@@ -165,6 +165,8 @@ export interface Task {
   created_at: string
   updated_at?: string
   escalation_time?: string
+  /** GET /tasks/:id only (T-1987): the step's four-eyes rule is OFF and the caller signed in interactively. */
+  self_approval_allowed?: boolean
 }
 
 export interface CompleteTaskRequest {

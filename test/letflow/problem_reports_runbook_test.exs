@@ -21,6 +21,24 @@ defmodule Letflow.ProblemReportsRunbookTest do
     end
   end
 
+  test "EC-15 the runbook names the error-capture switch, threshold and export route" do
+    for needle <- [
+          "LETFLOW_ERROR_CAPTURE_ENABLED",
+          "LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR",
+          "/maintenance/v1/error-groups"
+        ] do
+      assert @runbook =~ needle, "runbook lacks #{inspect(needle)}"
+    end
+
+    example = File.read!(Path.expand("../../deploy/.env.example", __DIR__))
+    runtime = File.read!(Path.expand("../../config/runtime.exs", __DIR__))
+
+    for var <- ["LETFLOW_ERROR_CAPTURE_ENABLED", "LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR"] do
+      assert example =~ var <> "="
+      assert runtime =~ ~s|System.get_env("#{var}")|
+    end
+  end
+
   test "RB1 the variable is in deploy/.env.example and read by runtime.exs" do
     example = File.read!(Path.expand("../../deploy/.env.example", __DIR__))
     assert example =~ "LETFLOW_PROBLEM_REPORT_EXPORT_SHA256="

@@ -62,6 +62,8 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_AUTH_FAILURES_PER_MIN` | no | nothing written; the limiter keeps its built-in defaults; a non-positive-integer value raises | `config/runtime.exs`, `Letflow.Plugs.AuthAttemptLimit` |
 | `LETFLOW_BACKUP_STATUS_DIR` | no | nil: the readiness answer says backup status is "not configured here" | `config/runtime.exs`, `docs/runbooks/backup-restore.md` |
 | `LETFLOW_BUILD_SHA` | no | nil: `GET /health` reports `sha` as null | `config/runtime.exs`, `deploy/Dockerfile` |
+| `LETFLOW_ERROR_CAPTURE_ENABLED` | no | off: no server error is captured or grouped | `config/runtime.exs`, `docs/runbooks/problem-report-handoff.md` |
+| `LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR` | no | 20 per hour per group; a non-positive-integer value is ignored | `config/runtime.exs`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_INCLUDE_RUNTIME_DEMO` | no | not read by the code, mentioned in a comment (a build-time switch of the QA-only demo module) | `config/runtime.exs` comment |
 | `LETFLOW_LOGIN_DIRECTORY_LEGAL_CONFIRMATION` | only when the login discovery mount is enabled | nil; with the mount enabled outside dev and test a missing or too short marker raises | `config/runtime.exs`, `Letflow.LoginDiscovery.BootCheck` |
 | `LETFLOW_LOGIN_DIRECTORY_PEPPER` | yes (every environment) | raises at boot; must be a secret of 64 lowercase hex characters, distinct from the master key | `config/runtime.exs` (REQ-435) |
@@ -78,6 +80,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS` | no | default value 1000; an invalid value raises | `config/runtime.exs`, `Letflow.ModuleUpgrade.Settings` (REQ-773) |
 | `LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS` | no | default value: empty list (off); a name outside the realm alphabet raises | `config/runtime.exs` (ISS-1030) |
 | `LETFLOW_PLATFORM_TENANT_ID` | no for boot; yes for any platform-scope operation | nothing written; a warning goes to standard error and platform-scope operations are denied for every caller; a malformed value raises | `config/runtime.exs`, `Letflow.PlatformTenant` |
+| `LETFLOW_OWNER_LIST_SHA256` | no; QA only for the owner list import (T-1963) | nothing written; the `/maintenance/v1` owner-list import answers 404 | `config/runtime.exs`, `Letflow.Routers.MaintenanceOwnerListV1`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROBLEM_REPORT_EXPORT_SHA256` | no; QA only for the problem-report handoff (T-1948) | nothing written; the `/maintenance/v1` export answers 404 | `config/runtime.exs`, `Letflow.Plugs.ReportExportAuth`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written; the `/admin/v1` provisioner routes answer 404 | `config/runtime.exs`, `docs/runbooks/tenant-provisioner-credential.md` |

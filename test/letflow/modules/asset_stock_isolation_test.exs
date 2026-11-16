@@ -70,10 +70,14 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:acount, "POST", "/counts/:id/close", :empty, :call},
     {:acount, "GET", "/counts/:id/sheet-document", nil, :none},
     {:acount, "POST", "/counts/:id/sheet-signatures", :signers, :call},
+    # REQ-818 (asset count K3): the scan route.
+    {:acount, "POST", "/counts/:id/scan", :acount_scan, :call},
     # REQ-819 (asset count K4): the result routes; A's own `ordered` count answers 422, not 404.
     {:acount, "GET", "/counts/:id/result", nil, :call},
     {:acount, "PUT", "/counts/:id/result/lines/:line_no", :acount_decision, :call},
     {:acount, "POST", "/counts/:id/result/sign", :empty, :call},
+    # REQ-821 (asset count K6): the sheet print; A's own `ordered` count answers 422, not 404.
+    {:acount, "GET", "/counts/:id/print/sheet", nil, :call},
     {:count, "PUT", "/counts/:id", :count_put, :call},
     {:count, "GET", "/counts/:id", nil, :call},
     {:count, "POST", "/counts/:id/issue", :empty, :call},
@@ -205,6 +209,9 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
       :acount_surplus ->
         %{"description" => "x", "counted_quantity" => "1"}
+
+      :acount_scan ->
+        %{"text" => "X-1"}
 
       :acount_decision ->
         %{"decision" => "writeoff"}

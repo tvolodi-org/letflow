@@ -146,6 +146,16 @@ defmodule Letflow.Api.Authorization do
     clause keeps the platform tenant's PLATFORM_ADMIN out (ruling 2 of
     `docs/design/roles-stage0-security-rulings.md`); non-assignable (0088 D4): not in `grantable/0`,
     modules cannot grant core permissions.
+  * `:ApprovalRulesManage` (T-1986, four-eyes switch) — route-level on `GET /approval-rules` and
+    `PUT /approval-rules/:definition_name/:node_id`, and also read in-handler with
+    `Letflow.Api.Scope.require_tenant_wide/2` so a scoped TENANT_ADMIN grant never counts in any
+    scope-enforcement mode. Held by TENANT_ADMIN only (derived tenant-scope rule); an explicit `false`
+    clause keeps the platform tenant's PLATFORM_ADMIN out; non-assignable: not in `grantable/0`,
+    modules cannot grant core permissions.
+  * `:OfficialFormTemplatesManage` (T-2003, decision 0089 D5) — route-level on the nine routes
+    under `/documents/official-form-templates`; TENANT_ADMIN by the derived tenant-scope rule,
+    PLATFORM_ADMIN by the catch-all (no false clause, unlike `:ApprovalRulesManage`); not in
+    `grantable/0` (the tenant-defined roles of 0088 are not built).
   * `:TasksReassignRouted` (roles stage 0 S0-4) — **not** route-level. Read in-handler by
     `Letflow.Tasks.authorize_reassign/3` (`POST /tasks/:id/reassign` of a ROLE- or GROUP-routed task).
     Held by TENANT_ADMIN only; an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
@@ -409,6 +419,8 @@ defmodule Letflow.Api.Authorization do
           | :TasksReadAll
           | :CurrenciesManage
           | :DataExport
+          | :ApprovalRulesManage
+          | :OfficialFormTemplatesManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -488,6 +500,7 @@ defmodule Letflow.Api.Authorization do
           | :NumberSequencesManage
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
+          | :OfficialFormTemplatesManage
           | :SolutionOverridesManage
           | :EntitiesExtensionsManage
           | :IntegrationMappingsManage
@@ -608,7 +621,11 @@ defmodule Letflow.Api.Authorization do
     # Currency directory C2 (REQ-824, GH #4393, D-134): switch a currency on or off, make it the tenant currency. Tenant scope; PLATFORM_ADMIN and TENANT_ADMIN through the derived rule, no role grants.
     :CurrenciesManage,
     # T-1955 data export: tenant scope, admin catch-alls; dataset read authority is checked separately.
-    :DataExport
+    :DataExport,
+    # T-1986 four-eyes switch (docs/design/four-eyes-switch.md, D-144): switch the four-eyes rule of a process step on or off. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2); non-assignable.
+    :ApprovalRulesManage,
+    # T-2003 official-form templates S4b (decision 0089 D5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN through the derived rule and the catch-all; non-assignable.
+    :OfficialFormTemplatesManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -636,7 +653,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-five core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -681,7 +698,10 @@ defmodule Letflow.Api.Authorization do
   away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-5's `:TasksReadAll`
   (read every task of the tenant; the five roles that saw all tasks before), plus REQ-824's `:CurrenciesManage`
   (the tenant currency switches under `/currencies`, TENANT_ADMIN through the derived rule).
-  Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`.
+  Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`, plus T-1986's
+  `:ApprovalRulesManage` (the four-eyes switch under `/approval-rules`, TENANT_ADMIN only),
+  plus T-2003's `:OfficialFormTemplatesManage` (company templates of the official forms under
+  `/documents/official-form-templates`).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1390,6 +1410,34 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/documents/print-overrides/:id/retire"),
     do: :DocumentPrintTemplatesManage
 
+  # T-2003 (decision 0089 S4b): company templates of the official forms, one key for all nine routes (T-1983 adds the starter download).
+  def endpoint_policy_key("GET", "/documents/official-form-templates"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("GET", "/documents/official-form-templates/starter/:form"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("GET", "/documents/official-form-templates/:id"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("GET", "/documents/official-form-templates/:id/download"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("GET", "/documents/official-form-templates/:id/preview"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("POST", "/documents/official-form-templates"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("POST", "/documents/official-form-templates/:id/activate"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("POST", "/documents/official-form-templates/:id/retire"),
+    do: :OfficialFormTemplatesManage
+
+  def endpoint_policy_key("POST", "/documents/official-form-templates/:id/rollback"),
+    do: :OfficialFormTemplatesManage
+
   # REQ-596 (GH #3353): tenant solution-pack overrides; reads need :DefinitionsRead, writes the Manage key.
   def endpoint_policy_key("GET", "/solution-packs/:pack_id/overrides"), do: :DefinitionsRead
 
@@ -1433,6 +1481,12 @@ defmodule Letflow.Api.Authorization do
   # REQ-824 (GH #4393): the currency directory. The read reuses the role-agnostic :MyAccessRead.
   def endpoint_policy_key("GET", "/currencies"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/currencies/:code"), do: :CurrenciesManage
+
+  # T-1986: the four-eyes switch (docs/design/four-eyes-switch.md).
+  def endpoint_policy_key("GET", "/approval-rules"), do: :ApprovalRulesManage
+
+  def endpoint_policy_key("PUT", "/approval-rules/:definition_name/:node_id"),
+    do: :ApprovalRulesManage
 
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
@@ -1543,6 +1597,16 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/platform-problem-reports/:id"), do: :ProblemReportsManage
 
   def endpoint_policy_key("POST", "/platform-problem-reports/:id/decision"),
+    do: :ProblemReportsManage
+
+  # T-1963: owner list (class review): thread entry, state, screenshot.
+  def endpoint_policy_key("POST", "/platform-problem-reports/:id/comments"),
+    do: :ProblemReportsManage
+
+  def endpoint_policy_key("POST", "/platform-problem-reports/:id/state"),
+    do: :ProblemReportsManage
+
+  def endpoint_policy_key("GET", "/platform-problem-reports/:id/images/:image_id"),
     do: :ProblemReportsManage
 
   # T-1948/T-1949: own reports; role-agnostic self-service atoms.
@@ -1793,10 +1857,12 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:LabelsManage), do: :LabelsManage
   def required_permission(:DataExport), do: :DataExport
   def required_permission(:CurrenciesManage), do: :CurrenciesManage
+  def required_permission(:ApprovalRulesManage), do: :ApprovalRulesManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage
   def required_permission(:DocumentPrintTemplatesManage), do: :DocumentPrintTemplatesManage
+  def required_permission(:OfficialFormTemplatesManage), do: :OfficialFormTemplatesManage
   def required_permission(:SolutionOverridesManage), do: :SolutionOverridesManage
   def required_permission(:EntitiesExtensionsManage), do: :EntitiesExtensionsManage
   # REQ-555: identity clause for the saved-view write routes.
@@ -2006,6 +2072,9 @@ defmodule Letflow.Api.Authorization do
   # Roles stage 0 S0-3, ruling 2 (docs/design/roles-stage0-security-rulings.md): the two admin-only
   # switches stay refused to a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN.
   defp core_role_allows?(:PLATFORM_ADMIN, :TenantSecurityManage), do: false
+
+  # T-1986, ruling 2: the four-eyes switch is a tenant administrator's control, not the platform's.
+  defp core_role_allows?(:PLATFORM_ADMIN, :ApprovalRulesManage), do: false
 
   # Roles stage 0 S0-4, ruling 2 (docs/design/roles-stage0-security-rulings.md): taking a routed task
   # away stays refused to a platform-tenant PLATFORM_ADMIN outside the routing role or group.

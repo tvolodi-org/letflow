@@ -9,7 +9,7 @@
  * ru as DD-MM-YYYY.
  * Every record made here carries E2E_RUN_TAG so reruns on one tenant do not collide.
  */
-import { headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
+import { addStockLine, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
 import * as fs from 'node:fs'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { assertNoUuid } from './support/noUuid'
@@ -38,6 +38,71 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => {
   await ctx?.close()
+})
+
+test('T2012 business processes: edit, save, publish and copy', async () => {
+  test.setTimeout(120_000)
+  await setPrefs(page, { lang: 'en' })
+  const menu = page.getByRole('link', { name: 'Business processes', exact: true })
+  await menu.click()
+  await page.getByTestId('btn-new-definition').click()
+  await page.getByTestId('create-name-input').fill(`browser-process-${ENV.runTag}`)
+  await page.getByTestId('create-version-input').fill('1.0.0')
+  await page.getByTestId('create-submit').click()
+  await expect(page.getByTestId('definition-view-edit')).toBeVisible()
+  const originalId = new URL(page.url()).pathname.split('/').pop()!
+  await menu.click()
+  await page.getByTestId(`open-process-${originalId}`).click()
+  // No preliminary Save: opening a pristine draft must not make it dirty.
+  await page.getByTestId('definition-view-edit').click()
+  await page.getByTestId('diagram-node-START').click()
+  await page.getByTestId('edit-field-label').fill('Reviewed start')
+  await expect(page.getByTestId('btn-publish-diagram')).toBeDisabled()
+  const [saved] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'PATCH' && r.url().endsWith(`/definitions/${originalId}`)),
+    page.getByTestId('edit-save').click(),
+  ])
+  expect(saved.status()).toBe(200)
+  expect((await saved.json()).graph.nodes.find((n: { id: string }) => n.id === 'start').label).toBe('Reviewed start')
+  const [active] = await Promise.all([
+    page.waitForResponse(r => r.url().endsWith(`/definitions/${originalId}/activate`)),
+    page.getByTestId('btn-publish-diagram').click(),
+  ])
+  expect(active.status()).toBe(200)
+  expect((await active.json()).status).toBe('ACTIVE')
+  // Editing an ACTIVE version creates a copy; it must not mutate that version.
+  await expect(page.getByTestId('edit-save')).toHaveText('Save as draft 1.0.1')
+  await page.getByTestId('diagram-node-START').click()
+  await page.getByTestId('edit-field-label').fill('Copied start')
+  const [copy] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/definitions')),
+    page.getByTestId('edit-save').click(),
+  ])
+  expect(copy.status()).toBe(201)
+  const copied = await copy.json()
+  expect(copied.id).not.toBe(originalId)
+  expect(copied.version).toBe('1.0.1')
+  expect(copied.graph.nodes.find((n: { id: string }) => n.id === 'start').label).toBe('Copied start')
+  await expect(page).toHaveURL(new RegExp(`/definitions/${copied.id}$`))
+  await expect(page.getByTestId('unsaved-changes-dialog')).toHaveCount(0)
+  const [published] = await Promise.all([
+    page.waitForResponse(r => r.url().endsWith(`/definitions/${copied.id}/activate`)),
+    page.getByTestId('btn-publish-diagram').click(),
+  ])
+  expect(published.status()).toBe(200)
+  expect((await published.json()).status).toBe('ACTIVE')
+  await page.getByTestId('definition-view-versions').click()
+  await expect(page.getByTestId('versions-row')).toHaveCount(2)
+  await expect(page.getByTestId('versions-row').filter({ hasText: '1.0.1' })).toContainText('ACTIVE')
+  await expect(page.getByTestId('versions-row').filter({ hasText: '1.0.0' })).toContainText('DEPRECATED')
+  await page.setViewportSize({ width: 390, height: 1100 })
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    await setPrefs(page, { lang })
+    await page.getByTestId('definition-view-edit').click()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  }
+  await setPrefs(page, { lang: 'en' })
+  await page.setViewportSize({ width: 1440, height: 900 })
 })
 
 test('G1 S1 count order', async () => {
@@ -70,24 +135,26 @@ test('G2 S2 receipt issue claim complete', async () => {
   await choose(form.getByLabel('Location'), 'Central')
   await choose(form.getByLabel('Responsible'))
   await form.getByLabel('Note').fill(`receipt ${ENV.runTag}`)
-  // T-1448: a new draft shows the empty state of the lines editor; the item cell is a typed picker with a list.
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill('5')
-  await row.getByLabel('Unit price').fill('100')
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill('5')
+    await row.getByLabel('Unit price').fill('100')
+  })
   await saveDocument(page)
   state.receiptUrl = page.url()
   await issueDocument(page)
   // a draft has no number: it is allocated at Issue (T-1964)
   state.receiptNumber = await headerNumber(page)
   await claimAndComplete(page, state.receiptNumber)
-  // Posting follows the task completion: reload the receipt until its header shows the posting.
+  // Posting follows the task completion. Navigate to the documents list and reopen the receipt each iteration so the
+  // component remounts and React Query fetches the latest state rather than serving a cached pre-posting snapshot
+  // (the same navigate-away pattern used in gate-b-stock-print's P1 toPass loop).
   await expect(async () => {
-    await openRoute(page, state.receiptUrl)
-    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 5_000 })
-  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: state.receiptNumber }).first().click()
+    await expect(page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 90_000, intervals: [2_000, 4_000, 8_000] })
   await assertNoUuid(page, 'Document')
 })
 
@@ -127,21 +194,22 @@ test('G2b S2b receipt order Z-1 from the receipt screen', async () => {
 
 test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) => {
   test.skip(ENV.admin2 === '' || ENV.admin2Pw === '', 'E2E_ADMIN2_USER / E2E_ADMIN2_PASSWORD are not set (a second approver is needed)')
+  // Two sessions, a claim/complete and a posting wait: the 30 s default ran out on the last wait in CI (run 43654970990).
+  test.setTimeout(150_000)
   await openRoute(page, '/admin/stock/documents/new')
   const form = page.getByTestId('document-form')
   await choose(form.getByLabel('Kind'), 'Opening balance')
   await choose(form.getByLabel('Org unit'), 'Sales')
   await form.getByLabel('Note').fill(`opening ${ENV.runTag}`)
-  // T-1448: a new draft shows the empty state of the lines editor; the item cell is a typed picker with a list.
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill('2')
-  await choose(row.getByLabel('Location'), 'Showroom')
-  await choose(row.getByLabel('Responsible'))
-  const received = row.getByLabel(/Received/)
-  await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill('2')
+    await choose(row.getByLabel('Location'), 'Showroom')
+    await choose(row.getByLabel('Responsible'))
+    const received = row.getByLabel(/Real receipt date/)
+    await received.first().fill(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10))
+  })
   await saveDocument(page)
   state.openingUrl = page.url()
   await issueDocument(page)
@@ -151,22 +219,36 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   await openRoute(page, '/tasks')
   await page.getByTestId('task-row').filter({ hasText: number || 'Laptop' }).first().click()
   const claim = page.getByTestId('task-claim-button')
-  if (await claim.isVisible().catch(() => false)) await claim.click()
   const complete = page.getByTestId('task-complete-button')
-  if (await complete.isVisible().catch(() => false)) await complete.click()
-  await expect(page.getByTestId('task-sod-error').or(page.getByTestId('task-sod-hint'))).toBeVisible({ timeout: 20_000 })
+  const sod = page.getByTestId('task-sod-error').or(page.getByTestId('task-sod-hint')).first()
+  // Wait for the panel's buttons before deciding: a one-shot isVisible() can run before they render.
+  await expect(claim.or(complete).or(sod).first()).toBeVisible({ timeout: 20_000 })
+  if (await claim.isVisible()) await claim.click()
+  await expect(complete.or(sod).first()).toBeVisible({ timeout: 20_000 })
+  if (await complete.isVisible()) await complete.click()
+  await expect(sod).toBeVisible({ timeout: 20_000 })
 
   // G3: the second user approves
   const second = await newSession(browser, ENV.admin2, ENV.admin2Pw)
   try {
     await claimAndComplete(second.page, number || 'Laptop')
-    await openRoute(second.page, state.openingUrl)
-    await expect(second.page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
+    // One fetch of the document right after the completion can still be "Issued", and an in-app route change to the
+    // same screen never fetches again: reopen it from the list until it shows the posting (the G2 S2 pattern).
+    await expect(async () => {
+      await openRoute(second.page, '/admin/stock/documents')
+      await second.page.getByTestId('document-row').filter({ hasText: number }).first().click()
+      await expect(second.page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
+    }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
   } finally {
     await second.context.close()
   }
-  await openRoute(page, state.openingUrl)
-  await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 30_000 })
+  // The first session still holds the document query from before the approval: reopen it from the list until the
+  // remounted screen shows the posting (the G2 S2 pattern), instead of waiting on the cached "Issued" header.
+  await expect(async () => {
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: number }).first().click()
+    await expect(page.locator('.lf-doc__id')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 60_000, intervals: [2_000, 4_000, 8_000] })
 })
 
 test('G4 S4 registers show rows and no uuid', async () => {
@@ -217,7 +299,8 @@ test('G5 S5 document screen wide and narrow', async () => {
       }
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.reload({ waitUntil: 'domcontentloaded' })
+      // no reload: a reload of a deep link lands on "/" in the CI stack; a viewport change needs none
+      await openRoute(page, path)
       await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
       await page.screenshot({ path: shotPath(`document-${lang === 'en' ? '' : `${lang}-`}${theme}-390`), fullPage: true })
       // G5b: narrow = no horizontal page overflow

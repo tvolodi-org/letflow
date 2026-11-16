@@ -2,15 +2,15 @@
  *  a lucide icon for the fixed routes, the first letter of the label (an svg glyph) for module entries with no mapping.
  *  Both are decorative (`aria-hidden`); the label text stays in the DOM and in `title`. */
 import {
-  Activity, BarChart3, Boxes, ClipboardList, FileCheck, FileText, FileUp, Globe, HeartPulse, Inbox,
+  Activity, BarChart3, Boxes, ClipboardList, FileCheck, FileUp, GitBranch, Globe, HeartPulse, Inbox,
   KeyRound, Layers, ListTodo, Package, Puzzle, ScrollText, Server, ShieldCheck, Users, UsersRound, Webhook, Workflow,
-  Building2, History, Hourglass, PackageCheck, type LucideIcon,
+  Building2, History, Hourglass, MessageSquareWarning, PackageCheck, type LucideIcon,
 } from 'lucide-react'
 
 const ICONS: Record<string, LucideIcon> = {
   '/instances': Workflow,
   '/tasks': ListTodo,
-  '/definitions': FileText,
+  '/definitions': GitBranch,
   '/reports': BarChart3,
   '/promotions': FileCheck,
   '/dlq': Inbox,
@@ -28,6 +28,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/admin/tenants': Globe,
   '/admin/services': Server,
   '/admin/module-rollouts': PackageCheck,
+  '/admin/problem-reports': MessageSquareWarning,
   '/admin/platform-migrations': Activity,
   '/solution-packs': Puzzle,
   '/admin/event-retention': Hourglass,

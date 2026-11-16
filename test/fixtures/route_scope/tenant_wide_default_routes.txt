@@ -37,6 +37,7 @@ GET /modules/assets/counts AssetsRead
 GET /modules/assets/counts/:id AssetsRead
 GET /modules/assets/counts/:id/entries AssetsRead
 GET /modules/assets/counts/:id/lines AssetsRead
+GET /modules/assets/counts/:id/print/sheet AssetsRead
 GET /modules/assets/counts/:id/result AssetsRead
 GET /modules/assets/counts/:id/sheet-document AssetsRead
 GET /modules/assets/documents AssetsRead
@@ -84,6 +85,7 @@ GET /platform-module-rollouts ModuleRolloutsManage
 GET /platform-module-rollouts/:id ModuleRolloutsManage
 GET /platform-problem-reports ProblemReportsManage
 GET /platform-problem-reports/:id ProblemReportsManage
+GET /platform-problem-reports/:id/images/:image_id ProblemReportsManage
 GET /platform-status/backup TenantsManage
 GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead
@@ -150,6 +152,7 @@ POST /modules/assets/counts/:id/close AssetsCountRecord
 POST /modules/assets/counts/:id/issue AssetsCountOrder
 POST /modules/assets/counts/:id/open AssetsCountRecord
 POST /modules/assets/counts/:id/result/sign AssetsRead
+POST /modules/assets/counts/:id/scan AssetsCountRecord
 POST /modules/assets/counts/:id/sheet-signatures AssetsCountRecord
 POST /modules/assets/counts/:id/surplus-lines AssetsCountRecord
 POST /modules/assets/documents AssetsPost
@@ -225,7 +228,9 @@ POST /platform-migrations/rollouts TenantsManage
 POST /platform-migrations/rollouts/:id/resume TenantsManage
 POST /platform-module-rollouts ModuleRolloutsManage
 POST /platform-module-rollouts/:id/resume ModuleRolloutsManage
+POST /platform-problem-reports/:id/comments ProblemReportsManage
 POST /platform-problem-reports/:id/decision ProblemReportsManage
+POST /platform-problem-reports/:id/state ProblemReportsManage
 POST /promotions PromotionsManage
 POST /promotions/:id/apply PromotionsManage
 POST /promotions/:id/approve PromotionsManage

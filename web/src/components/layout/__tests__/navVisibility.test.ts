@@ -61,12 +61,12 @@ describe('role-based sidebar (golden-backed)', () => {
     const v = view(setFor('tenantAdmin'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
     expect(v.labels).toEqual([
-      'Instances', 'My Tasks', 'Definitions', 'Reports', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
+      'Instances', 'My Tasks', 'Business processes', 'Reports', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
       'Legal companies', 'Sites', 'Org units', 'Positions', 'Employees', 'Locations', 'Location links',
       'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts',
-      'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements',
+      'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements', 'Asset counts',
       'Promotion Reviews', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Print Templates',
-      'Currencies', 'Import data', 'Metrics', 'Solution Packs',
+      'Official forms', 'Currencies', 'Approval rules', 'Import data', 'Metrics', 'Solution Packs',
     ])
     expect(v.importTypes).toEqual([
       'org_unit', 'org_position', 'org_employee', 'location_node',
@@ -91,7 +91,7 @@ describe('role-based sidebar (golden-backed)', () => {
   it('N3 task worker: only the Work group with Instances, My Tasks, Definitions, Reports', () => {
     const v = view(setFor('taskWorker'))
     expect(v.groups).toEqual(['work'])
-    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
+    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Business processes', 'Reports'])
   })
 
   it('N4 scoped users (custom permission sets): exactly the entries their atoms allow', () => {

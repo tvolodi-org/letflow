@@ -10,7 +10,7 @@ numbers of the items that fail. Any failing item that applies to the task is a F
 
 This file is now the source of the list. The first version was the 16 items in the team's design-system skill (the
 lab file `project/skills/letflow-design-system.md`, section "Owner review checklist (D-145, 2026-11-14)").
-Items 1 to 16 keep that text and its numbers. Items 17 to 21 come from the gate walks.
+Items 1 to 16 keep that text and its numbers. Items 17 to 20 and 23 come from the gate walks; items 21 and 22 capture later owner findings; item 24 is item 20 of the lab skill (official forms against the Ministry templates), renumbered here because this file's 20 is a gate-walk item.
 
 ## How to read the columns
 
@@ -52,8 +52,29 @@ Items 1 to 16 keep that text and its numbers. Items 17 to 21 come from the gate 
 | 18 | (gate walk) A collapsed panel can always be restored: the control is visible, double-click and Escape work, and Reset layout is in the user menu. | The splitter trap (T-1873, T-1884), the same finding as item 1, kept separate because the owner walked it twice. | `master-detail-verdict.md` sections 4.3 and 4.6 | As item 1, plus `web/src/components/layout/__tests__/AppShell.sidenav.test.tsx` (side nav). | As item 1. Also collapse the side nav and reload. |
 | 19 | (gate walk) Help never takes the user away from the working form: it opens in a side panel or a new tab, and entered data stays. | Opening Help re-initialised the form and the entered data was lost (asset card, documents, counts, stock documents). Fixed by T-1872. | This line | Frontend gate: `web/src/components/help/__tests__/HelpLink.test.tsx` (no router link, no anchor, panel at most 420 px), `web/src/modules/assets/__tests__/helpNoRemount.test.tsx`, `web/src/modules/stock/__tests__/helpNoRemount.test.tsx`. | Both widths: type into a form, open Help, close it; the data is still there. 390: the panel has a visible Close button. |
 | 20 | (gate walk) An export gives all rows, or says clearly that it stopped at a cap. | "Export to Excel" on stock balances, stock movements and asset balances gives the first page only, with no warning. Open: T-1955 (Data export screen, with a cap and a truncated message). | This line | **MISSING** | Export with a fixture above one page: the file holds every row, or the screen and the file say they were cut. |
-| 21 | (gate walk) Every menu entry and route of the mobile/PWA app opens its screen after sign-in. | "Scan code" and "Warehouse" opened "Page not found" after sign-in, because the router was built once and never got the module routes (T-1901). | This line | Mobile gate: `apps/mobile/test/bootstrap/app_routing_test.dart`, `apps/mobile/test/bootstrap/route_table_test.dart`. | 390 (PWA): sign in, open every menu entry, and no screen says "Page not found". |
-| 22 | A task row and its panel name the thing, who and when: document number and kind, the date, and the author by name (display name, else login name), never "Another user" for a known person. | My Tasks showed "Issued by: Another user" for a colleague (O-002, T-1968): the history read now carries `actor_label`. | T-1968 | `web/src/pages/tasks/__tests__/TaskInboxPage.gateb.test.tsx`, `test/letflow/routers/instances_test.exs` ("actor_label"). | 1440 and 390: open My Tasks as a second user; the row shows number, date and the author's name. |
+| 21 | Every screen follows the user’s layout setting: Row places list, document and lines side by side at desktop width; narrow screens stack. Every panel obeys it, including Lines. | Owner finding 2026-11-15, T-2006: Lines sat below the document despite Row. | `document-layout.md`; lab skill item 21 (already present). | Frontend gate: `CountsPage.layout.test.tsx`, `DocumentsWorkspace.split.test.tsx`; local browser: `document-panel-layout.e2e.spec.ts` checks each panel is a direct grid child, Row geometry and both Tabs. | 1440 and 390, Row and Tabs, every document family; view, create and edit, en/ru/kk and light/dark. |
+| 22 | A task row and its panel name the thing, who and when: document number and kind, the date, and the author by name (display name, else login name), never "Another user" for a known person. | O-002: T-1968 added `actor_label` but missed asset numbers and assignee names; T-1994 adds asset subject lookup and tenant-scoped `assignee_name`. | Every document kind needs a row-number regression, including assets. | Frontend gate: `web/src/pages/tasks/__tests__/TaskInboxPage.subject.test.tsx` (all catalogued document kinds), `TaskInboxPage.gateb.test.tsx`. Backend: `test/letflow/routers/tasks_test.exs` (name/login, tenant isolation), `instances_test.exs` ("actor_label"). Local e2e: `web/tests/e2e/task-document-row.e2e.spec.ts` (AOP number, both names, date, card summary). | 1440 and 390: open My Tasks as a second user; the row shows number, date and the author's and assignee's names. |
+| 23 | (gate walk) Every menu entry and route of the mobile/PWA app opens its screen after sign-in. | "Scan code" and "Warehouse" opened "Page not found" after sign-in, because the router was built once and never got the module routes (T-1901). | This line | Mobile gate: `apps/mobile/test/bootstrap/app_routing_test.dart`, `apps/mobile/test/bootstrap/route_table_test.dart`. | 390 (PWA): sign in, open every menu entry, and no screen says "Page not found". |
+| 24 | (lab skill item 20) An official printed form is compared with the structure of its reference Ministry template (page, margins, tables, columns, merged cells, signature blocks) before release. A form that differs from the template is a defect, not a preference. | Owner statement: the printed forms are not correctly formatted compared with the templates (`docs/status/official-forms-vs-templates.md`, T-1965); fixed slice by slice (T-1978 DA-1 to DA-4, and others). | `docs/status/official-forms-vs-templates.md`; method in `scripts/forms_compare.py` (`summary`, `diff`, `fingerprint`). | Backend gate: `test/letflow/documents/form_fingerprint_test.exs` generates every form in ru and kk and compares page, margins and the data tables with `test/fixtures/form_fingerprints/<form>.json` (structure only; no template file or text in the repository). A changed layout fails until the fingerprint is renewed on purpose; the forms that still differ are listed in `@known_deviations` and leave that list as their slice lands. | Open the printed form (docx and PDF, ru and kk) next to the template; run `forms_compare.py diff` against the template and quote it in the PR. |
+
+
+
+### Menu discovery (lab checklist item 22; product item 25)
+
+Every built feature must be reachable from the UI menu under a plain name. The
+product checklist already uses number 22 for task subjects, so this rule is item
+25 here. Owner finding T-2012: “Definitions” hid the process designer, and the
+list had no action opening a process. The menu now says Business processes in
+en/ru/kk with a branch icon, and every row has Open process.
+
+Lesson added: a working API and an existing route do not prove that a user can
+find or use a feature. `web/src/components/layout/__tests__/navGuardParity.test.tsx`
+checks every core and module page against the menu or the explicit list in
+`navigation-exceptions.md`. The Stock e2e process test in
+`web/tests/e2e/gate-b-stock.e2e.spec.ts` opens the menu, edits and saves a node,
+publishes a disposable process and its next draft version, then checks Versions.
+Review at 1440 and 390: the label and icon are visible, the row's Open process
+action is reachable, and no URL typing is needed.
 
 ## Guard tests missing
 

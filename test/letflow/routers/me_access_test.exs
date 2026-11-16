@@ -154,7 +154,12 @@ defmodule Letflow.Routers.MeAccessTest do
       # Roles stage 0 S0-4: and taking a routed task away (TENANT_ADMIN's alone).
       assert body["permissions"] ==
                (Authorization.permissions() --
-                  [:TasksWorkInScope, :TenantSecurityManage, :TasksReassignRouted])
+                  [
+                    :TasksWorkInScope,
+                    :TenantSecurityManage,
+                    :TasksReassignRouted,
+                    :ApprovalRulesManage
+                  ])
                |> Enum.map(&Atom.to_string/1)
                |> Enum.sort()
 

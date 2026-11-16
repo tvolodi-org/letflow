@@ -4,7 +4,20 @@ React 18 + TypeScript 5 + Vite single-page application. This is **Letflow's own
 frontend**, not a vendored read-only copy: changes to it are made here, reviewed
 here, and merged here.
 
+## Document layout
+
+My settings chooses Row or Tabs for document screens, with the tenant default used when no personal choice is saved.
+Row keeps list, document header and lines side by side on desktop work areas; narrow screens stack the open document's
+header and lines, with Back returning to the list. Tabs switches between Header and Lines. Stock counts use the same
+layout as stock and asset documents. Asset counts currently have an order panel only.
+See [document panels](../docs/design-system/document-layout.md) for the screen inventory and browser checks.
+
 ## Task action refusals
+
+Task rows identify stock and asset documents by number and kind, with the document
+date, organisation and line summary. Known assignees and authors are shown by
+display name, falling back to their login name; deleted or unavailable users retain
+the anonymous fallback.
 
 My Tasks explains module upgrade refusals in English, Russian and Kazakh. A tenant
 administrator must upgrade the module under Administration > Modules, or ask the

@@ -1,5 +1,5 @@
 /** TaskDetail — T-1380. The detail panel of a task: the action named for the task (Claim, then Post / Approve / Reverse),
- *  the separation-of-duties hint and refusal as readable text, the document (header and lines, read-only) and the task
+ *  the separation-of-duties hint (hidden when the step's four eyes are off, T-1987) and refusal as readable text, the document (header and lines, read-only) and the task
  *  form. No id is shown: references go through useReferenceLabels (code - title). */
 import { formatQuantity } from '@/lib/formatQuantity'
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -199,7 +199,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
           <span data-testid={isSeparationOfDuties(failure) ? 'task-sod-error' : 'task-error'} role="alert">{taskErrorText(failure, kind, m)}</span>
         </Banner>
       )}
-      {failure == null && pending && issuedByMe && kind === 'approve' && cls !== 'other' && (
+      {failure == null && pending && issuedByMe && kind === 'approve' && cls !== 'other' && task.self_approval_allowed !== true && (
         <Banner tone="info">
           <span data-testid="task-sod-hint">{m.sodHint[kind]}</span>
         </Banner>
@@ -232,7 +232,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
         <h3 className="lf-form__title">{m.documentHeading}</h3>
         {doc ? (
           <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} locale={locale}
-            issuer={ctx?.issuerId ? (ctx.issuerId === userId ? refMsg.you : (ctx.issuerLabel ?? refMsg.anotherUser)) : ''} />
+            issuer={ctx?.issuerId ? (ctx.issuerLabel ?? (ctx.issuerId === userId ? refMsg.you : refMsg.anotherUser)) : ''} />
         ) : (
           ctx !== undefined && <p className="lf-muted">{m.documentUnavailable}</p>
         )}

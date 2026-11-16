@@ -85,7 +85,8 @@ defmodule Letflow.Routers.Tasks do
   ## Response allowlists (INV-2, AC5)
 
   `task_list_item_map/2` (11 keys) / `task_detail_map/3` (14 keys, adds
-  `correlation_key`/`updated_at`/`form_schema`) are hand-built maps, never a
+  `correlation_key`/`updated_at`/`form_schema`; `GET /tasks/:id` alone adds a 15th,
+  `self_approval_allowed`, T-1987) are hand-built maps, never a
   `Jason.Encoder`/struct-wholesale encoding — matching
   `Letflow.Routers.Identity`'s `user_map/1` discipline exactly. `claimed_by`
   is omitted entirely (no Letflow schema column exists yet — REQ-085's own
@@ -115,6 +116,11 @@ defmodule Letflow.Routers.Tasks do
   See `Letflow.Tasks`'s own moduledoc ("Form version pinning") for why this
   is a new read rather than a new instance of `Letflow.Engine.PinResolver`'s
   machinery.
+
+  Read responses additionally carry `assignee_name` (T-1994): display name, else
+  login name, or null for an unresolved/non-user assignee. Names are batched only
+  for the authorized page, in the request's tenant schema; no user-directory
+  permission or email exposure is involved.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -128,6 +134,7 @@ defmodule Letflow.Routers.Tasks do
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
+  alias Letflow.ApprovalRules
   alias Letflow.Engine
   alias Letflow.Entities.HiddenLabels
   alias Letflow.Tasks
@@ -289,9 +296,14 @@ defmodule Letflow.Routers.Tasks do
   # ── Shared list/inbox result handling (design §5.2 points 5-6) ─────────
 
   defp handle_list_result({:ok, %{items: items, next_cursor: next_cursor}}, conn) do
+    names = assignee_names(Enum.map(items, &elem(&1, 0)), conn.assigns.scoped_opts)
+
     Response.ok(conn, %{
       "items" =>
-        Enum.map(items, fn {task, form_version} -> task_list_item_map(task, form_version) end),
+        Enum.map(items, fn {task, form_version} ->
+          task_list_item_map(task, form_version)
+          |> Map.put("assignee_name", assignee_name(task, names))
+        end),
       "next_cursor" => next_cursor,
       "count" => length(items)
     })
@@ -322,7 +334,23 @@ defmodule Letflow.Routers.Tasks do
 
     case Tasks.get_task(id, get_opts) do
       {:ok, {task, correlation_key, form_version}} ->
-        Response.ok(conn, task_detail_map(task, correlation_key, form_version))
+        # T-1987: only the GET detail carries `self_approval_allowed` (the web hides its four-eyes
+        # hint when the step is switched OFF); claim/assign/reassign keep their 14 keys.
+        allowed =
+          ApprovalRules.self_approval_allowed?(
+            Keyword.fetch!(opts, :prefix),
+            task,
+            Map.get(conn.assigns.auth_context, :credential)
+          )
+
+        names = assignee_names([task], opts)
+
+        Response.ok(
+          conn,
+          task_detail_map(task, correlation_key, form_version)
+          |> Map.put("assignee_name", assignee_name(task, names))
+          |> Map.put("self_approval_allowed", allowed)
+        )
 
       {:error, :not_found} ->
         Response.not_found(conn)
@@ -757,6 +785,27 @@ defmodule Letflow.Routers.Tasks do
   defp non_empty(value) when is_binary(value), do: value
 
   # ── Response allowlists (design §5.5, INV-2, AC5) ───────────────────────
+
+  # Only USER refs on already-authorized tasks are eligible. A malformed legacy
+  # ref cannot crash the typed UUID lookup; role/group refs remain unchanged.
+  defp assignee_names(tasks, opts) do
+    ids =
+      for %{assignee_type: "USER", assignee_ref: ref} <- tasks,
+          {:ok, id} <- [Ecto.UUID.cast(ref)],
+          do: id
+
+    Letflow.Audit.user_names(Enum.uniq(ids), Keyword.fetch!(opts, :prefix))
+  end
+
+  # Names are keyed by the canonical (cast) UUID, so the ref is cast the same way here.
+  defp assignee_name(%{assignee_type: "USER", assignee_ref: ref}, names) do
+    case Ecto.UUID.cast(ref) do
+      {:ok, id} -> Map.get(names, id)
+      :error -> nil
+    end
+  end
+
+  defp assignee_name(_task, _names), do: nil
 
   @doc false
   # Nine base keys, hand-built -- never a Jason.Encoder derivation over

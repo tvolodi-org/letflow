@@ -480,7 +480,8 @@ export default function ProcessCanvas({
     onSelectedEdgeChange(null)
   }, [onSelectedNodeChange, onSelectedEdgeChange])
 
-  // ── Mark dirty on any change; take snapshot on removes ─────────────────────
+  // Measurements and selection are React Flow view state, not saved graph edits.
+  // Treating the initial measurement as an edit locks "Edit diagram" on a pristine draft.
 
   const handleNodesChange: OnNodesChange<Node<CanvasNodeData>> = useCallback(
     (changes) => {
@@ -490,7 +491,7 @@ export default function ProcessCanvas({
         takeSnapshot()
       }
       onNodesChange(changes)
-      onDirtyChange(true)
+      if (changes.some(c => c.type !== 'dimensions' && c.type !== 'select')) onDirtyChange(true)
     },
     [onNodesChange, onDirtyChange, takeSnapshot],
   )
@@ -503,7 +504,7 @@ export default function ProcessCanvas({
         takeSnapshot()
       }
       onEdgesChange(changes)
-      onDirtyChange(true)
+      if (changes.some(c => c.type !== 'select')) onDirtyChange(true)
     },
     [onEdgesChange, onDirtyChange, takeSnapshot],
   )

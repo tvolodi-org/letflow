@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup } from '@testing-library/react'
+import { screen, cleanup, fireEvent } from '@testing-library/react'
 expect.extend(jestDomMatchers)
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -112,6 +112,18 @@ function mockDefinitions(items: Array<typeof ACTIVE_DEF | typeof DRAFT_DEF>) {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+describe('T-2012 process discovery', () => {
+  it('opens a process from the list and explains editing', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    expect(screen.getByTestId('page-layout-title')).toHaveTextContent('Business processes')
+    expect(screen.getByTestId('process-designer-hint')).toHaveTextContent('edit steps')
+    fireEvent.click(screen.getByTestId(`open-process-${ACTIVE_DEF.id}`))
+    expect(mockNavigate).toHaveBeenCalledWith(`/definitions/${ACTIVE_DEF.id}`)
+  })
 })
 
 describe('DefinitionListPage — rollback button gating (REQ-371 AC1)', () => {

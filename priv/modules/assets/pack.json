@@ -1852,7 +1852,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One entry of the append-only log of an asset count order: who typed which input on which sheet line and when, with the value before and after. entry_no is 1..n per order. No function of module assets updates or deletes an entry. method is typed now; scan is declared for K3 so that slice needs no enum widening. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One entry of the append-only log of an asset count order: who typed which input on which sheet line and when, with the value before and after. entry_no is 1..n per order. No function of module assets updates or deletes an entry. method is typed or scan (REQ-818 / GH #4373, K3: a scan entry has scanned_text, scan_outcome and, for a location, location_id; a location scan has no line_no). count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
         "display_name": "Asset count entry",
         "fields": [
           {
@@ -1869,7 +1869,6 @@
           },
           {
             "name": "line_no",
-            "required": true,
             "type": "integer"
           },
           {
@@ -1918,6 +1917,24 @@
             "name": "entered_at",
             "required": true,
             "type": "datetime"
+          },
+          {
+            "name": "scanned_text",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "location_set",
+              "counted",
+              "already_counted",
+              "surplus_added"
+            ],
+            "name": "scan_outcome",
+            "type": "enum"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
           }
         ],
         "foreign_keys": [
@@ -1940,7 +1957,7 @@
       },
       "display_name": "Asset count entry",
       "entity_definition_id": "95790b20-f0d2-c8c4-173e-5ea9da143d77",
-      "logical_shape_version": "36219305bb80d776c496fb5987aac78f550a86ea3540dc06b17faa114cbb2163",
+      "logical_shape_version": "9834d4d8e43809d9738effcfd806593ec381cfc7cfe0d957d08babe21780a6b1",
       "name": "assets_count_entry"
     },
     {

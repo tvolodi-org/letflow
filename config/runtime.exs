@@ -673,6 +673,43 @@ case Letflow.ProblemReports.ExportConfig.parse_hash(
     raise message
 end
 
+# T-1951 (maintenance slice 3): server error capture. OFF unless LETFLOW_ERROR_CAPTURE_ENABLED is "true".
+# OPTIONAL LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR: a positive integer; anything else keeps the default (20).
+error_capture_cfg = Application.get_env(:letflow, :error_capture, [])
+
+error_capture_cfg =
+  if System.get_env("LETFLOW_ERROR_CAPTURE_ENABLED") == "true",
+    do: Keyword.put(error_capture_cfg, :enabled, true),
+    else: error_capture_cfg
+
+error_capture_cfg =
+  case Integer.parse(System.get_env("LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR") || "") do
+    {n, ""} when n > 0 -> Keyword.put(error_capture_cfg, :growth_alert_per_hour, n)
+    _ -> error_capture_cfg
+  end
+
+config :letflow, :error_capture, error_capture_cfg
+
+# T-1963: OPTIONAL LETFLOW_OWNER_LIST_SHA256, the SHA-256 of the WRITE token of the owner list
+# (`/maintenance/v1/owner-list`: the import now, the team writes of part B). Unset or blank: that mount
+# answers 404. Invalid, or equal to the export hash: boot stops WITHOUT echoing a value (INV-4).
+with {:ok, owner_list_hash} <-
+       Letflow.ProblemReports.ExportConfig.parse_hash(
+         System.get_env("LETFLOW_OWNER_LIST_SHA256"),
+         Letflow.ProblemReports.ExportConfig.owner_list_var()
+       ),
+     {:ok, export_hash} <-
+       Letflow.ProblemReports.ExportConfig.parse_hash(
+         System.get_env("LETFLOW_PROBLEM_REPORT_EXPORT_SHA256")
+       ),
+     :ok <- Letflow.ProblemReports.ExportConfig.distinct(export_hash, owner_list_hash) do
+  if owner_list_hash do
+    config :letflow, Letflow.Plugs.ReportExportAuth, owner_list_sha256: owner_list_hash
+  end
+else
+  {:error, message} -> raise message
+end
+
 # ISS-0993 / ISS-0994 (design iss0993-platform-scope-separation.md section 3): OPTIONAL
 # LETFLOW_PLATFORM_TENANT_ID, the tenants.id UUID of the platform tenant (not a secret,
 # never echoed). Unset, empty or whitespace writes nothing (config/config.exs default

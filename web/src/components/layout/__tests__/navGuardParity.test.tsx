@@ -11,6 +11,10 @@ import { RequirePermission } from '@/auth/access'
 import { appRoutes } from '@/router'
 import { REGISTERED_MODULES } from '@/modules/registry'
 import { NAV_ITEMS } from '../AppShell'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { navMessages } from '../navMessages'
+import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 
 interface Guard {
   permission: string
@@ -28,7 +32,7 @@ function findGuard(node: ReactNode): Guard | null {
 function collect(routes: RouteObject[], prefix: string, out: Map<string, Guard | null>) {
   for (const r of routes) {
     const here = r.path ? `${prefix}/${r.path}`.replace(/\/+/g, '/') : prefix
-    if ((r.path || r.index) && r.element) out.set(here, findGuard(r.element))
+    if ((r.path || r.index) && (r.element || r.Component || r.lazy)) out.set(here, findGuard(r.element))
     if (r.children) collect(r.children, here, out)
   }
 }
@@ -59,4 +63,22 @@ describe('N10 nav entry permission equals its route guard', () => {
     expect(guard.permission).toBe(e.permission)
     expect(guard.platformOnly).toBe(e.platformOnly)
   })
+})
+
+it('T2012 every page is in the menu or has a documented exception', () => {
+  const doc = readFileSync(resolve(__dirname, '../../../../../docs/design-system/navigation-exceptions.md'), 'utf8')
+  const exceptions = new Set([...doc.matchAll(/^\| `([^`]+)` \| .+ \|$/gm)].map(m => m[1]))
+  const menu = new Set(entries.map(e => e.to))
+  const pages = [...guards.keys()].filter(p => !menu.has(p)).sort()
+  expect(pages.filter(p => !exceptions.has(p)), 'Pages missing a menu entry or documented exception').toEqual([])
+  expect([...exceptions].filter(p => !guards.has(p)), 'Remove stale exceptions').toEqual([])
+})
+
+it.each(['en', 'ru', 'kk'] as const)('T2012 the %s admin guide explains process editing and publishing', locale => {
+  const guide = readFileSync(resolve(__dirname, `../../../../../docs/guides/tenant-admin/${locale}.md`), 'utf8')
+  expect(guide).toContain('## 10.')
+  expect(guide).toContain(navMessages[locale].items['/definitions'])
+  expect(guide).toContain(definitionsMessages[locale].publish)
+  expect(guide).toContain('DefinitionsRead')
+  expect(guide).toContain('DefinitionsWrite')
 })

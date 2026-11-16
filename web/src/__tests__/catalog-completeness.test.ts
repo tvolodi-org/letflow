@@ -22,11 +22,19 @@ import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
 import { usersImportMessages } from '@/pages/admin/usersImport/usersImportMessages'
 import { moduleRolloutsMessages } from '@/pages/admin/module-rollouts/moduleRolloutsMessages'
+import { problemReportsMessages } from '@/pages/admin/problem-reports/problemReportsMessages'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
+import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
+import { officialFormsMessages } from '@/pages/admin/official-forms/officialFormsMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
+import {
+  countsEn as assetCountsEn,
+  countsKk as assetCountsKk,
+  countsRu as assetCountsRu,
+} from '@/modules/assets/counts/assetCountsMessages'
 import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessages'
 import { catalogItemsItemsMessages } from '@/modules/catalog_items/catalogItemsItemsMessages'
 import { recordCodesMessages } from '@/components/record-codes/recordCodesMessages'
@@ -210,6 +218,8 @@ function unimportedCatalogs(
  */
 const KK_SAME_AS_RU_OK: Record<string, string> = {
   'reportProblem:factScreen': 'loanword, same spelling in Kazakh',
+  'officialForms:officialForms.col.module': 'loanword, same spelling in Kazakh',
+  'officialForms:officialForms.place.paragraph': 'loanword, same spelling in Kazakh',
   'reportProblem:addCompany': 'loanword, same spelling in Kazakh',
   'lines:c.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'assets:assets.cause.reversal':
@@ -333,6 +343,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('passwordReset', passwordResetMessages)
   })
 
+  it('problemReportsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('problemReports', problemReportsMessages)
+  })
+
   it('moduleRolloutsMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('moduleRollouts', moduleRolloutsMessages)
   })
@@ -353,12 +367,24 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('currencies', currenciesMessages)
   })
 
+  it('approvalRulesMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('approvalRules', approvalRulesMessages)
+  })
+
+  it('officialFormsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('officialForms', officialFormsMessages)
+  })
+
   it('processDiagramMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('processDiagram', processDiagramMessages)
   })
 
   it('assetsMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('assets', assetsMessages)
+  })
+
+  it('assetCountsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assetCounts', { en: assetCountsEn, ru: assetCountsRu, kk: assetCountsKk })
   })
 
   it('catalogItemsMessages (includes catalogItemsItems): all en keys in ru/kk, no empty values', () => {
@@ -505,6 +531,8 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['audit', auditMessages],
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
+      ['approvalRules', approvalRulesMessages],
+      ['officialForms', officialFormsMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
       ['recordCodes', recordCodesMessages],

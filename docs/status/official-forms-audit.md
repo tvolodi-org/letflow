@@ -22,7 +22,9 @@ or **no printout at all**:
   form itself says Қ-2).
 * The **Print templates** admin screen does **not** change any of these forms: it edits overrides that reach only the
   generic document renderer, and the stock and count prints do not use that renderer. A tenant cannot adjust an
-  official form today. The screen's page title is in English only.
+  official form today. Since S3 (T-1985, API only, no screen yet): the `.docx` print
+  of an official form uses the company's active template from `/documents/official-form-templates`; the legal texts are
+  still filled from the platform catalog and the PDF still prints the platform layout. The screen's page title is in English only.
 
 How this was checked: by reading the code on `origin/main` at commit `a7f2410ba` (2026-11-13). **No click in the QA
 app was made in this step** (the BA step has no signed-in QA browser session; see "Verification" below). Every "V" in the
@@ -141,6 +143,11 @@ columns of every form (Q5, REQ-778 for З-2), and the forms whose Letflow docume
 * Q19 (from the mapping): may hand over and return print on З-5? Answered yes (owner via PM, 2026-11-14), built by T-1959.
 * Should a tenant be able to adjust an official form (wording, logo, extra lines) through Print templates? Today it
   cannot (D7); decision 0068 governs overrides of the generic renderer, not the module forms.
+  Update (S5, T-1983): a tenant may now upload, check, preview, activate and roll back its own docx template of an
+  official form on the "Official forms" screen (permission `OfficialFormTemplatesManage`). The legal skeleton (title,
+  form code, annex line, column headings and order, signature roles, the kk draft notice) cannot be changed or
+  removed: the platform fills it from its catalog and the upload is refused without it. Word (docx) prints use the
+  company's active template (S3) and fail closed when it is invalid. The PDF stays the platform layout until S6.
 * An accountant confirms: З-1 for every receipt (also a receipt with no supplier); Бухгалтерская справка for openings,
   count posting and change of kind; ДА-1 for commissioning; the count order as the organisation's own free form.
   З-7 (balances sheet): printed for one location and one period from the ledger quantities, money columns and the
@@ -170,3 +177,5 @@ Slice 11 built by T-1959 (2026-11-14): `form=z5` now also for issued, posted and
 Slice 8 built by T-1924 (2026-11-14): `GET /cards/:id/print?form=da2&format=pdf|docx&lang=ru|kk`, `priv/print_forms/da2.json`, menu entry "Official form" in the asset card header (active and retired cards). Filled from stored facts: organisation and BIN, unit, materially responsible person (register, one row), name, inventory number, acquisition date, cost, depreciation and book value (KZT cards). Every other cell prints blank (G11, G4, G5, G7); the commissioning act and the disposal columns are a follow-up; no value is invented. **ДА-2: to be confirmed by accountant** (PM decision 2026-11-14: not blocking). The tables above describe main before this change.
 
 Slice 9 built by T-1925 (2026-11-14): `GET /api/v1/modules/stock/stock-sheet/print?location&from&to&format=pdf|docx&lang=ru|kk`, `priv/print_forms/z7.json`, menu entry "Official form" on the balances screen (enabled once a location is chosen, then a period dialog). Opening, income, expense and closing quantities come from the ledger movements the caller may read; every gap (money, stock norm, signatures, further periods) prints blank. **З-7: to be confirmed by accountant.** Details: mapping 7.7.
+
+Asset count K6 built by T-1932 (2026-11-15): `GET /counts/:id/print/sheet?form=inv8&format=pdf|docx&lang=ru|kk`, `priv/print_forms/inv8.json`, plus the plain count sheet PDF (ru, kk, en). Accounts, factory and passport numbers, release date, actual cost, actual start and end, amounts in words, the statement, signatures and the checker print blank; no value is invented. **Инв-8: to be confirmed by accountant** (PM decision 2026-11-14, not blocking). The tables above describe main before this change.

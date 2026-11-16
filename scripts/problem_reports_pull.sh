@@ -56,6 +56,9 @@ render_report() {
     "From: \(q(.reporter.name)) (user \(q(.reporter.user_id))), company \(q(.reporter.tenant_name)) (\(q(.reporter.tenant_id)))",
     "Roles: \(j(.reporter.roles))   Permissions: \((.reporter.permissions // []) | length)",
     "Screen: \(q(.context.route))   Language: \(q(.context.ui_language))   Browser: \(q(.context.browser.user_agent)) viewport \(q(.context.browser.viewport))",
+    (if ((.context.entity_ids // null) | type) == "object" and (.context.entity_ids | length) > 0
+      then "Entity ids: " + (.context.entity_ids | to_entries | map("\(q(.key))=\(q(.value))") | join(", "))
+      else empty end),
     "Server version: \(q(.server_version))   Report trace: \(q(.trace_id))",
     "Text (quoted line by line):",
     quote(.text),
@@ -106,10 +109,12 @@ cmd_pull() {
     *) die 2 "token file $TOKEN_FILE must have mode 600 or 400 (found $mode)" ;;
   esac
 
-  local cursor tmp status
+  local cursor status
   cursor="$(read_cursor)"
-  tmp="$(mktemp -d)" || die 2 "mktemp failed"
-  trap 'rm -rf "$tmp"' EXIT
+  # Script-level variable: the EXIT trap runs after this function has ended, when a local would be unset (set -u).
+  PULL_TMP="$(mktemp -d)" || die 2 "mktemp failed"
+  trap '[ -n "${PULL_TMP:-}" ] && rm -rf -- "$PULL_TMP"' EXIT
+  local tmp="$PULL_TMP"
 
   status="$(curl -sS --max-time 20 -o "$tmp/answer.json" -w '%{http_code}' \
     -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$TOKEN_FILE")") \

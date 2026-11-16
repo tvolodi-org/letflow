@@ -12,6 +12,19 @@ defmodule Letflow.Documents.PrintLayout do
   link, script or expression: any key outside the allow-list of its map is `:unknown_key`.
   The layout is data and is never evaluated; no atom is created from it.
 
+  Text optionally sets `align` to `left` (default) or `right`. Tables optionally set
+  `header_position` to `top` (default, repeated on page breaks) or `bottom` (captions below
+  the values, for official signature cells; no repeated header). Both keep the same projection
+  restrictions and full cell grid.
+
+  T-1977 adds `page_break` for an official reverse side, and optional `header_cells` on a table:
+  rectangles with `text`, zero-based `row`/`start`, positive `rowspan`/`span`. They must tile the
+  header exactly (no gaps or overlap), within four rows and 15 columns, at most 60 cells and
+  500 characters per literal. Such tables preserve the declared widths and repeat the full merged
+  header on page breaks; bottom captions cannot be combined with merged headers. Ordinary tables
+  retain the 12-column limit. Optional table `font_pt` (5–24, default 10) controls wrapping and
+  text size. This bounded extension lets Inv-18 retain its Ministry column grid.
+
   `validate/3` is the projection boundary: a field or column must be declared in
   `declared_fields` (`%{entity_type => [field_name]}`), must not be in `opts.restricted`, and
   every pair of `opts.locked` must be referenced by a field block (table columns do not count).
@@ -60,17 +73,19 @@ defmodule Letflow.Documents.PrintLayout do
   @version 1
   @font "dejavu-sans"
   @sizes ["A4", "A4-landscape", "Letter"]
-  @types ["page", "text", "field", "table", "spacer"]
+  @types ["page", "text", "field", "table", "spacer", "page_break"]
 
   @layout_keys ["layout_schema_version", "blocks"]
   @allowed %{
+    "page_break" => ["type"],
     "page" => ["type", "size", "margin_mm", "font"],
-    "text" => ["type", "text"],
+    "text" => ["type", "text", "align"],
     "field" => ["type", "entity_type", "field_name", "label", "show_if_nonempty"],
-    "table" => ["type", "entity_type", "columns"],
+    "table" => ["type", "entity_type", "columns", "header_position", "header_cells", "font_pt"],
     "spacer" => ["type", "height_mm"]
   }
   @required %{
+    "page_break" => [],
     "page" => ["size", "margin_mm", "font"],
     "text" => ["text"],
     "field" => ["entity_type", "field_name"],
@@ -207,6 +222,8 @@ defmodule Letflow.Documents.PrintLayout do
 
   defp check_block(_block, path, _ctx), do: [v(:invalid_block, path)]
 
+  defp check_type("page_break", _block, _path, _ctx), do: []
+
   defp check_type("page", block, path, _ctx) do
     size = field_check(block, "size", path, &(&1 in @sizes))
     margin = field_check(block, "margin_mm", path, &in_range?(&1, 0, 50, true))
@@ -214,7 +231,8 @@ defmodule Letflow.Documents.PrintLayout do
     size ++ margin ++ font
   end
 
-  defp check_type("text", block, path, _ctx), do: literal(block, "text", path)
+  defp check_type("text", block, path, _ctx),
+    do: literal(block, "text", path) ++ optional_choice(block, "align", ["left", "right"], path)
 
   defp check_type("spacer", block, path, _ctx) do
     field_check(block, "height_mm", path, &in_range?(&1, 0, 200, false))
@@ -245,18 +263,61 @@ defmodule Letflow.Documents.PrintLayout do
           []
 
         {:ok, [_ | _] = columns} ->
-          check_columns(columns, block["entity_type"], path ++ ["columns"], ctx)
+          # Official forms may opt into a rectangular merged header (up to 15 columns).
+          limit = if Map.has_key?(block, "header_cells"), do: 15, else: @max_columns
+
+          if length(columns) > limit,
+            do: [v(:too_many_columns, path ++ ["columns"])],
+            else: check_columns(columns, block["entity_type"], path ++ ["columns"], ctx)
 
         {:ok, _} ->
           [v(:invalid_value, path ++ ["columns"])]
       end
 
-    et ++ cols
+    et ++
+      cols ++
+      optional_choice(block, "header_position", ["top", "bottom"], path) ++
+      check_header_cells(block, path) ++
+      if(Map.has_key?(block, "font_pt"),
+        do: field_check(block, "font_pt", path, &in_range?(&1, 5, 24, true)),
+        else: []
+      )
   end
 
-  defp check_columns(columns, _et, path, _ctx) when length(columns) > @max_columns do
-    [v(:too_many_columns, path)]
+  defp check_header_cells(%{"header_cells" => cells, "columns" => cols} = b, path)
+       when is_list(cells) and is_list(cols) do
+    valid =
+      cells != [] and length(cells) <= 60 and length(cols) in 1..15 and
+        b["header_position"] != "bottom" and
+        Enum.all?(cells, fn c ->
+          is_map(c) and Enum.sort(Map.keys(c)) == ~w(row rowspan span start text) and
+            valid_string?(c["text"]) and String.length(c["text"]) <= 500 and
+            Enum.all?(~w(row rowspan span start), &is_integer(c[&1])) and
+            c["row"] in 0..3 and c["rowspan"] in 1..4 and c["row"] + c["rowspan"] <= 4 and
+            c["start"] >= 0 and c["span"] >= 1 and c["start"] + c["span"] <= length(cols)
+        end)
+
+    if valid do
+      slots =
+        for c <- cells,
+            r <- c["row"]..(c["row"] + c["rowspan"] - 1),
+            i <- c["start"]..(c["start"] + c["span"] - 1),
+            do: {r, i}
+
+      depth = cells |> Enum.map(&(&1["row"] + &1["rowspan"])) |> Enum.max()
+
+      if length(slots) == depth * length(cols) and length(Enum.uniq(slots)) == length(slots),
+        do: [],
+        else: [v(:invalid_value, path ++ ["header_cells"])]
+    else
+      [v(:invalid_value, path ++ ["header_cells"])]
+    end
   end
+
+  defp check_header_cells(%{"header_cells" => _}, path),
+    do: [v(:invalid_value, path ++ ["header_cells"])]
+
+  defp check_header_cells(_, _), do: []
 
   defp check_columns(columns, et, path, ctx) do
     columns
@@ -292,6 +353,12 @@ defmodule Letflow.Documents.PrintLayout do
   defp projection(_et, _fname, _path, _ctx), do: []
 
   # -- helpers ---------------------------------------------------------------------------------
+
+  defp optional_choice(block, key, choices, path) do
+    if Map.has_key?(block, key),
+      do: field_check(block, key, path, &(&1 in choices)),
+      else: []
+  end
 
   # Unknown keys: the key name goes into the path only when it is a short binary.
   defp check_keys(map, allowed, path) do

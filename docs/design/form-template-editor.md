@@ -1,9 +1,39 @@
 # Official form templates: fixed legal fields, a tenant's own docx, the first step
 
-Task T-1966 (2026-11-14, design check, docs only, QA only). Nothing is built by this note. The business decision note
+Task T-1966 (2026-11-14, design check, docs only, QA only). The business decision note
 for UAT is `docs/uat/ba-decisions/T-1966.md`. Marks: **V** = verified in the file named, on origin/main `cbe12af93`;
 **M** = measured in this task (command in the appendix); **G** = guess or proposal; **A** = UAT assumption, to be
 confirmed by the process owner.
+
+S1 implementation (T-1981): `Letflow.Documents.FormTemplate.check/3` now provides the pure upload
+sanitizer and legal-fields check, returning rewritten DOCX bytes, SHA-256 and a structure summary,
+or fixed refusal codes and positions without company text. This adds no upload route, storage or
+printing integration. The checker derives names from all shipped layouts, including DA-2. It requires
+locked group headings, signature captions (`legal.cap.<signature>.<part>`), stamps and other catalog
+texts as well as the D2 names. D3 rule 4 is applied by heading **grid position**, allowing several
+header rows, because grouped platform headers already span two rows. The checker refuses aliased
+or rebound Word namespaces (including Strict OOXML namespaces), header/footer placeholders,
+footnote/comment references and nested fields. Inline `src`/`href` resource links are refused too:
+legacy VML can otherwise bypass the external-relationship check; `o:relid` uses the same surviving-ID
+check as `r:*`. The default attachment scanner detects EICAR; deployments can configure the existing scanner
+adapter for broader malware detection. S2 (T-1984) adds `FormTemplate.starter/2` and `fill/5`:
+language-free starter DOCX files from the shipped layouts, and filling with catalog legal texts,
+cleaned values, repeated rows, totals and the appended Kazakh draft notice. Filling rechecks the
+template and consumes the same verified XML tree; invalid templates fail closed.
+S4a (T-1982): storage and context `Letflow.Documents.OfficialFormTemplates`; routes and permission are S4b (T-2003, done); preview is S4c (T-2004, done).
+
+S2 records two deviations from decision 0089 D2: values are escaped once by the Saxy text
+writer in `Package.write/1`, rather than also by `Docx.escape/1`; missing table and total
+values print empty text, while fields and signature parts use `FormPrint.Pdf.blank/0`, matching
+the platform DOCX. The starter footer contains only the page field. The starter download route is S5 (T-1983). Logo filling
+is a follow-up. S3 (T-1985) is done: `FormPrint.build/5` with `tenant:` prints the
+.docx from the active company template (`OfficialFormTemplates.print_docx/5`), fails closed with
+`form_template_outdated`; PDF still uses the platform layout.
+
+QA templates uploaded before S2 lack the now-required `total.*` names. DA-2 templates also need
+the single merged heading `legal.col.6.3` instead of `legal.col.6.3` through `legal.col.6.6`.
+Activation and rollback rechecks refuse the old vocabulary; recreate those API test uploads
+from the new starter. No stored rows are migrated.
 
 ## Summary in plain words
 
@@ -172,6 +202,7 @@ The Print templates part of D7 (overrides do not reach module prints) stays true
    of refusals (rule code, place, plain-language hint, for example "column 5 of the lines table is missing").
 4. "Preview" downloads the draft filled with a **synthetic sample** (fixed fake data per form, no company data),
    ru or kk. There is no in-browser docx rendering in the first step (it needs the converter of S6).
+   The sample is `FormTemplate.Sample`: each value shows its own key in brackets, two lines per table.
 5. "Activate" makes the draft the one used for prints; a reason is required (A). "Roll back" activates an earlier
    version again (section 4.5).
 
@@ -327,6 +358,10 @@ Uncompressed sizes: Ministry 156 821, 163 628, 160 377 bytes; Letflow 12 671, 12
 files were read in place and are not copied into the repository.
 
 ## Appendix B. Placeholder names per form (M)
+
+Tables with totals require `total.<table>.<key>` for each sum or mark column, placed in the
+same row as `legal.total.<table>` at that column's grid position. An adjacent span run with
+one label has one legal heading name, that of its first column; number cells remain separate.
 
 Read from `priv/print_forms/<form>.json` (blocks `field` key, `signature` key and parts, `table` rows and column keys).
 Each data field is `{{key}}`; each table column `{{<rows>.<key>}}`; each signature part `{{sig.<key>.<part>}}`.

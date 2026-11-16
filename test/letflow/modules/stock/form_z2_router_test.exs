@@ -77,13 +77,20 @@ defmodule Letflow.Modules.Stock.FormZ2RouterTest do
             "Форма З-2",
             "Номенклатурный номер",
             item(ctx)["name"],
-            "4.000000000",
+            "4",
             le["name"],
             le["bin"],
-            "Организация (индивидуальный предприниматель) - получатель: ____________"
+            "Организация (индивидуальный предприниматель) - получатель",
+            "____________"
           ] do
         assert text =~ t, "missing #{t}"
       end
+
+      {:ok, files} = :zip.unzip(conn.resp_body, [:memory])
+      {_, xml} = List.keyfind(files, ~c"word/document.xml", 0)
+      assert length(Regex.scan(~r/<w:tbl>/, xml)) == 8
+      assert xml =~ ~s(<w:jc w:val="right"/>)
+      assert xml =~ "<w:pBdr><w:bottom"
     end
   end
 
@@ -100,7 +107,7 @@ defmodule Letflow.Modules.Stock.FormZ2RouterTest do
             "Номенклатуралық нөмірі",
             "Алушы ұйым (жеке кәсіпкер)",
             item(ctx)["name"],
-            "4.000000000"
+            "4"
           ] do
         assert text =~ t, "missing #{t}"
       end

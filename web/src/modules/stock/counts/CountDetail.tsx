@@ -11,6 +11,7 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DetailHeader } from '@/components/ui/DetailHeader'
+import { DocumentRecord, DocumentSingle } from '@/components/ui/doc/DocumentWorkspace'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -101,24 +102,26 @@ export function CountDetail({ id, onClose }: { id: string; onClose: () => void }
 
   if (query.isError && (query.error as { status?: number } | null)?.status === 404) {
     return (
-      <>
+      <DocumentSingle onClose={onClose}>
         <DetailHeader title={t('counts.title')} actions={closeButton} />
         <div className="lf-card__body">
           <Banner tone="info">{t('counts.error.notFound')}</Banner>
         </div>
-      </>
+      </DocumentSingle>
     )
   }
   const state = query.isPending ? 'loading' : query.isError ? classifyError(query.error) : 'success'
+  if (state !== 'success') return <DocumentSingle onClose={onClose}><QueryStateBoundary state={state} onRetry={() => void query.refetch()}>{null}</QueryStateBoundary></DocumentSingle>
   return (
     <QueryStateBoundary state={state} onRetry={() => void query.refetch()}>
       {order && editing ? (
-        <CountOrderForm order={order} onSaved={() => setEditing(false)} onDiscard={() => setEditing(false)} />
+        <DocumentSingle onClose={() => setEditing(false)}><CountOrderForm order={order} onSaved={() => setEditing(false)} onDiscard={() => setEditing(false)} /></DocumentSingle>
       ) : order ? (
         <>
-          <DetailHeader
+          <DocumentRecord
             title={order.number ?? t('counts.title')}
             status={<StatusPill tone={statusTone(order.status)}>{t(`counts.status.${order.status}`)}</StatusPill>}
+            onClose={onClose}
             actions={
               <>
                 {canEdit(order, can) && <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="count-edit">{t('counts.action.edit')}</Button>}
@@ -129,18 +132,21 @@ export function CountDetail({ id, onClose }: { id: string; onClose: () => void }
                 {closeButton}
               </>
             }
+            header={<Facts order={order} />}
+            lines={
+              <>
+                {run.error !== null && confirm === null && <Banner tone="danger">{t(reasonMessageId(run.error))}</Banner>}
+                <PaperworkButtons order={order} />
+                {canScan(order, can) && <ScanField orderId={order.id} locationIds={order.location_ids} onLine={setHighlight} />}
+                {!hasSheet(order) && <p className="lf-hint">{t('counts.sheet.emptyText')}</p>}
+                {hasSheet(order) && (
+                  <CountSheet orderId={order.id} status={order.status} canRecord={can(STOCK_COUNT_RECORD)} highlightLine={highlight} />
+                )}
+                <DifferencesPanel order={order} />
+                <CountPostingPanel order={order} />
+              </>
+            }
           />
-          <div className="lf-card__body">
-            {run.error !== null && confirm === null && <Banner tone="danger">{t(reasonMessageId(run.error))}</Banner>}
-            <Facts order={order} />
-            <PaperworkButtons order={order} />
-            {canScan(order, can) && <ScanField orderId={order.id} locationIds={order.location_ids} onLine={setHighlight} />}
-            {hasSheet(order) && (
-              <CountSheet orderId={order.id} status={order.status} canRecord={can(STOCK_COUNT_RECORD)} highlightLine={highlight} />
-            )}
-            <DifferencesPanel order={order} />
-            <CountPostingPanel order={order} />
-          </div>
           {confirm !== null && (
             <ConfirmDialog
               open

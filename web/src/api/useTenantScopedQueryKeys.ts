@@ -136,6 +136,12 @@ export function useTenantScopedQueryKeys() {
       list: () => queryKeys.moduleRollouts.list(tenantId),
       status: queryKeys.moduleRollouts.status.bind(null, tenantId),
     },
+    problemReportsInbox: {
+      all: () => queryKeys.problemReportsInbox.all(tenantId),
+      lists: () => queryKeys.problemReportsInbox.lists(tenantId),
+      list: queryKeys.problemReportsInbox.list.bind(null, tenantId),
+      detail: queryKeys.problemReportsInbox.detail.bind(null, tenantId),
+    },
     solutionPackUpdate: {
       all: () => queryKeys.solutionPackUpdate.all(tenantId),
       review: queryKeys.solutionPackUpdate.review.bind(null, tenantId),
@@ -157,6 +163,14 @@ export function useTenantScopedQueryKeys() {
     currencies: {
       all: () => queryKeys.currencies.all(tenantId),
       list: () => queryKeys.currencies.list(tenantId),
+    },
+    approvalRules: {
+      all: () => queryKeys.approvalRules.all(tenantId),
+      list: () => queryKeys.approvalRules.list(tenantId),
+    },
+    officialFormTemplates: {
+      all: () => queryKeys.officialFormTemplates.all(tenantId),
+      list: () => queryKeys.officialFormTemplates.list(tenantId),
     },
     // NOT tenant-scoped — passed through unchanged.
     onboarding: queryKeys.onboarding,

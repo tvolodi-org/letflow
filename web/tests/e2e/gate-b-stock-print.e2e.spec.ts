@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { ENV, SKIP_REASON, hasAdmin, signIn, setPrefs, openRoute, choose, localDateTime,
-  headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
+  addStockLine, countOrderNumber, headerNumber, saveDocument, issueDocument, claimAndComplete } from './support/gateB'
 import { pdfTextItems } from './support/pdfText'
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
@@ -53,7 +53,9 @@ async function cancelDocument(number: string) {
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Reason text').fill(`e2e ${ENV.runTag}`)
   await dialog.getByRole('button', { name: 'Cancel document', exact: true }).click()
-  await expect(page.getByTestId('document-header')).toContainText('Cancelled')
+  // The state pill sits in the title bar next to the number (DocBar); document-header is the field list and never
+  // holds the state word (CI run 43657586709, P2).
+  await expect(page.locator('.lf-doc__id')).toContainText('Cancelled')
   await expect(page.getByTestId('document-print')).toHaveCount(0)
   await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
   pending.delete(number)
@@ -80,12 +82,12 @@ async function createDocument(kind: string) {
     await choose(to.getByLabel('Responsible'), 'Yerlan')
   }
   await form.getByLabel('Note').fill(`print ${kind} ${ENV.runTag}`)
-  await page.getByRole('button', { name: 'Add line' }).click()
-  const row = page.getByTestId('line-editor-row').first()
-  await row.getByLabel('Item').fill('Laptop')
-  await page.getByRole('option', { name: /Laptop/ }).first().click()
-  await row.getByLabel('Quantity').fill(kind === 'Receipt' ? '5' : '1')
-  if (kind === 'Receipt') await row.getByLabel('Unit price').fill('100')
+  await addStockLine(page, async (row) => {
+    await row.getByLabel('Item').fill('Laptop')
+    await page.getByRole('option', { name: /Laptop/ }).first().click()
+    await row.getByLabel('Quantity').fill(kind === 'Receipt' ? '5' : '1')
+    if (kind === 'Receipt') await row.getByLabel('Unit price').fill('100')
+  })
   await saveDocument(page)
   await issueDocument(page)
   const number = await headerNumber(page) // a draft has no number: it is allocated at Issue (T-1964)
@@ -96,12 +98,12 @@ async function createDocument(kind: string) {
 async function cancelCount() {
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()
-  await expect(page.getByTestId('detail-header')).toContainText(countNumber)
+  await expect(page.locator('.lf-doc__id')).toContainText(countNumber)
   const cancel = page.getByTestId('count-cancel')
   if (await cancel.isVisible()) {
     await cancel.click()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel count', exact: true }).click()
-    await expect(page.getByTestId('detail-header')).toContainText('Cancelled')
+    await expect(page.locator('.lf-doc__id')).toContainText('Cancelled')
   }
 }
 test.beforeAll(async ({ browser }) => {
@@ -128,7 +130,7 @@ test('P1 receipt act and Z-1, then posted act', async () => {
   receiptPosted = true
   await expect(async () => {
     await reopen(receiptNumber)
-    await expect(page.getByTestId('document-header')).toContainText('Posted')
+    await expect(page.locator('.lf-doc__id')).toContainText('Posted')
   }).toPass({ timeout: 60_000 })
   await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print')
 })
@@ -157,8 +159,11 @@ test('P7 count order xlsx and pdf', async () => {
   await page.getByTestId('count-new').first().click()
   const form = page.getByTestId('count-order-form')
   await choose(form.getByLabel('Org unit'), 'Warehouse')
-  await form.getByLabel('Planned start').fill(localDateTime(1))
-  await form.getByLabel('Planned end').fill(localDateTime(3))
+  // The server refuses to open a count outside [planned start, planned end] (count_not_due). The form reads these
+  // wall-clock values in the tenant zone, not the runner's (UTC in CI), so the window is +-30 h to cover any zone
+  // offset (run 43654970990: +3 h in UTC became -2 h in UTC+5) and stays under the 96 h cap (count_too_long).
+  await form.getByLabel('Planned start').fill(localDateTime(-30))
+  await form.getByLabel('Planned end').fill(localDateTime(30))
   await choose(form.getByLabel('Chair of the commission'), 'Saule')
   await form.locator('fieldset', { hasText: 'Location roots' }).getByRole('checkbox', { name: /Central warehouse/ }).check()
   await form.getByLabel('Note').fill(`print count ${ENV.runTag}`)
@@ -166,8 +171,9 @@ test('P7 count order xlsx and pdf', async () => {
   await expect(page.getByTestId('count-facts')).toBeVisible()
   await page.getByTestId('count-issue').click()
   await page.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
+  // Capture the issued number before later assertions so afterAll can cancel the count on a failure or retry.
+  countNumber = await countOrderNumber(page)
   await expect(page.getByTestId('count-open')).toBeVisible()
-  countNumber = await page.getByTestId('detail-header').getByRole('heading').innerText()
   expect(countNumber).toMatch(/\d/)
   await openRoute(page, '/admin/stock/counts')
   await page.getByRole('row').filter({ hasText: countNumber }).first().click()
@@ -176,11 +182,19 @@ test('P7 count order xlsx and pdf', async () => {
 test('P8 count sheet xlsx/pdf and Inv-10', async () => {
   await page.getByTestId('count-open').click()
   const inputs = page.locator('input[data-testid^="count-input-"]')
-  await expect(inputs.first()).toBeVisible()
+  // After count-open the sheet component fetches its lines asynchronously; allow time for the fetch and render.
+  await expect(inputs.first()).toBeVisible({ timeout: 20_000 })
+  // Read the Book cell by its column header, not a fixed index (run 43659812445: nth(5) was the Unit column, the
+  // input got "NaN", CountInput sent nothing and the PUT wait hung for 120 s).
+  const headers = await inputs.first().locator('xpath=ancestor::table').locator('thead th').allInnerTexts()
+  const bookIdx = headers.findIndex((h) => h.trim() === 'Book')
+  expect(bookIdx, `Book column in ${JSON.stringify(headers)}`).toBeGreaterThanOrEqual(0)
   for (const input of await inputs.all()) {
     const row = input.locator('xpath=ancestor::tr')
-    const book = await row.locator('td').nth(5).innerText()
-    const counted = String(Number(book.replace(/[\s,]/g, '')) + 1)
+    const book = (await row.locator('td').nth(bookIdx).innerText()).replace(/[\s,]/g, '')
+    // a line with no book quantity shows a dash: count it as 0
+    const counted = String((/^\d+(\.\d+)?$/.test(book) ? Number(book) : 0) + 1)
+    expect(counted).toMatch(/^\d+(\.\d+)?$/)
     const saved = page.waitForResponse(r => r.request().method() === 'PUT' && /\/lines\/\d+\/count/.test(r.url()))
     await input.fill(counted)
     await input.press('Enter')
@@ -193,9 +207,12 @@ test('P8 count sheet xlsx/pdf and Inv-10', async () => {
 })
 test('P9 differences xlsx/pdf and Inv-18', async () => {
   await page.getByTestId('sign-sheet').click()
-  const dialog = page.getByRole('dialog')
+  // the dialog renders only once the sheet lines are loaded; locator.all() does not wait, so wait for it first
+  const dialog = page.getByTestId('signers-dialog')
+  await expect(dialog.locator('input[type="checkbox"]').first()).toBeVisible({ timeout: 20_000 })
   for (const checkbox of await dialog.locator('input[type="checkbox"]').all()) await checkbox.check()
   await dialog.getByRole('button', { name: 'Mark signed', exact: true }).click()
+  await expect(dialog).toBeHidden()
   await page.getByTestId('issue-differences').click()
   await countDownloads('differences')
   await formDownloads('inv18')

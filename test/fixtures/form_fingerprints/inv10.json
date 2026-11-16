@@ -1,0 +1,14 @@
+{
+ "form": "inv10",
+ "annex": 41,
+ "fingerprint_version": 1,
+ "page": {"height": 16838, "orientation": "portrait", "width": 11906},
+ "margins": {"bottom": 1418, "left": 1418, "right": 851, "top": 1418},
+ "tables": [
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [100.0]},
+  {"columns": 5, "head_merged": {"gridspan": 2, "vmerge": 0}, "nested_in": null, "shares": [23.3, 20.0, 15.0, 31.9, 9.8]},
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 1, "shares": [100.0]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [49.7, 50.3]},
+  {"columns": 10, "head_merged": {"gridspan": 2, "vmerge": 12}, "nested_in": null, "shares": [8.3, 15.1, 5.2, 16.8, 10.4, 9.1, 10.9, 6.7, 10.9, 6.7]}
+ ]
+}

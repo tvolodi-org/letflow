@@ -27,6 +27,7 @@ export const P = {
   TenantsManage: 'TenantsManage',
   PlatformServicesManage: 'PlatformServicesManage',
   ModuleRolloutsManage: 'ModuleRolloutsManage',
+  ProblemReportsManage: 'ProblemReportsManage',
   ModulesManage: 'ModulesManage',
   TenantSettingsManage: 'TenantSettingsManage',
   EntitiesDefinitionsRead: 'EntitiesDefinitionsRead',
@@ -38,6 +39,8 @@ export const P = {
   EntitiesAggregate: 'EntitiesAggregate',
   SolutionOverridesManage: 'SolutionOverridesManage',
   CurrenciesManage: 'CurrenciesManage',
+  ApprovalRulesManage: 'ApprovalRulesManage',
+  OfficialFormTemplatesManage: 'OfficialFormTemplatesManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */

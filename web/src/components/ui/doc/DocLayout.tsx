@@ -1,20 +1,20 @@
 /** DocLayout — the platform document form (`lf-doc`, letflow-design platform/preview/document-form.html): a list pane, a
- *  title bar with actions, a header card and a lines card in one grid. Wide: list | header | lines; medium: list and
- *  header, lines below; narrow (<900 px): the selected document replaces the list (`data-detail="open"`) and a back
- *  button shows. The arrangement is the registered layout `row` (rule 11); no per-screen CSS. Generic: no module words. */
+ *  title bar with actions, a header card and a lines card in one grid. Desktop: list | header | lines;
+ *  narrow (<=900 px): the selected document replaces the list (`data-detail="open"`) and a back button shows. The arrangement is the registered layout `row` (rule 11); no per-screen CSS. Generic: no module words. */
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { Button } from '../Button'
 import { SplitWrap, useSplit } from '../layout/Splitter'
 import { useLayoutMessages } from '../layout/layoutMessages'
-import { DEFAULT_DOC_LAYOUT, DOC_LAYOUTS, defaultTabFor, type DocLayoutName, type DocPane } from './docLayouts'
+import { useDocumentLayout } from '@/hooks/useDocumentLayout'
+import { DOC_LAYOUTS, defaultTabFor, type DocLayoutName, type DocPane } from './docLayouts'
 
 export interface DocLayoutProps {
   /** True when a document (or a new one) is open: on narrow screens it replaces the list. */
   detailOpen: boolean
   children: React.ReactNode
   'data-testid'?: string
-  /** The registered layout (docLayouts.ts); `row` when absent. */
+  /** Explicit preview override; otherwise the effective user/tenant document preference (row fallback). */
   layout?: DocLayoutName
   /** Whether a document is open and how it opens: a new one on its default tab, an existing one on its own. */
   docState?: 'new' | 'existing' | 'none'
@@ -22,6 +22,7 @@ export interface DocLayoutProps {
   docKey?: string
   /** Layout-screen id: when set, the panes get splitters whose sizes are remembered per user under this id (`ui.layout`). */
   screen?: string
+  onClose?: () => void
 }
 
 interface DocTabsContext {
@@ -38,7 +39,9 @@ export function useDocTabs(): DocTabsContext {
   return useContext(DocTabs)
 }
 
-export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, docState = 'none', docKey = '', screen, ...rest }: DocLayoutProps) {
+export function DocLayout({ detailOpen, children, layout: override, docState = 'none', docKey = '', screen, onClose, ...rest }: DocLayoutProps) {
+  const preferred = useDocumentLayout()
+  const layout = override ?? preferred
   // The user's choice is kept per document key: another document (or a draft turned into a saved one) falls back to the default.
   const [chosen, setChosen] = useState<{ key: string; pane: DocPane } | null>(null)
   const tabsLayout = DOC_LAYOUTS[layout].tabs !== null && docState !== 'none'
@@ -52,6 +55,9 @@ export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, d
       data-layout={layout}
       data-tab={activeTab ?? undefined}
       data-detail={detailOpen ? 'open' : undefined}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !e.defaultPrevented && detailOpen && !document.querySelector('[role="dialog"]')) onClose?.()
+      }}
       data-testid={rest['data-testid']}
     >
       <DocTabs.Provider value={ctx}>{children}</DocTabs.Provider>
@@ -70,7 +76,7 @@ function docPanes(grid: HTMLElement | null): (HTMLElement | null)[] {
   const side = first('lf-doc__top') ?? first('lf-doc__blank')
   if (grid.getAttribute('data-layout') === 'tabs') return [list, side]
   if (!header) return side && !first('lf-doc__top') ? [list, side] : [list]
-  return grid.clientWidth >= 1440 && lines ? [list, header, lines] : [list, header]
+  return grid.clientWidth > 900 && lines ? [list, header, lines] : [list, header]
 }
 
 /** DocLayout with splitters: `SplitWrap` + `useSplit` around the grid. A MutationObserver on the grid's direct children
@@ -97,7 +103,7 @@ function SplitDocLayout({ screen, render }: { screen: string; render: (ref: Reac
     const grid = gridRef.current
     if (!grid || typeof MutationObserver === 'undefined') return
     const mo = new MutationObserver(() => handle.current?.refresh())
-    mo.observe(grid, { childList: true })
+    mo.observe(grid, { childList: true, attributes: true, attributeFilter: ['data-layout'] })
     return () => mo.disconnect()
   }, [handle])
   return <SplitWrap layerRef={layerRef}>{render(gridRef)}</SplitWrap>

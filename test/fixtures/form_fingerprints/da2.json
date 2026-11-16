@@ -1,0 +1,23 @@
+{
+ "form": "da2",
+ "annex": 17,
+ "fingerprint_version": 1,
+ "page": {"height": 16838, "orientation": "portrait", "width": 11906},
+ "margins": {"bottom": 1418, "left": 1418, "right": 851, "top": 1418},
+ "tables": [
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [100.0]},
+  {"columns": 3, "head_merged": {"gridspan": 1, "vmerge": 0}, "nested_in": null, "shares": [1.0, 46.9, 52.1]},
+  {"columns": 3, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 1, "shares": [39.2, 5.3, 55.5]},
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 2, "shares": [100.0]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [49.7, 50.3]},
+  {"columns": 10, "head_merged": {"gridspan": 2, "vmerge": 8}, "nested_in": null, "shares": [13.1, 13.7, 12.0, 10.7, 10.8, 8.3, 7.5, 11.5, 8.6, 3.8]},
+  {"columns": 9, "head_merged": {"gridspan": 1, "vmerge": 12}, "nested_in": null, "shares": [12.9, 11.8, 14.6, 11.2, 13.2, 9.0, 7.6, 9.7, 10.1]},
+  {"columns": 8, "head_merged": {"gridspan": 2, "vmerge": 0}, "nested_in": null, "shares": [11.3, 12.6, 18.2, 17.5, 8.0, 9.3, 10.8, 12.3]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [35.1, 64.9]},
+  {"columns": 3, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 8, "shares": [16.1, 44.5, 39.4]},
+  {"columns": 5, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 8, "shares": [18.0, 16.3, 25.1, 19.4, 21.2]},
+  {"columns": 6, "head_merged": {"gridspan": 2, "vmerge": 2}, "nested_in": null, "shares": [30.3, 14.0, 14.5, 14.1, 13.7, 13.4]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [70.9, 29.1]},
+  {"columns": 2, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [63.0, 37.0]}
+ ]
+}

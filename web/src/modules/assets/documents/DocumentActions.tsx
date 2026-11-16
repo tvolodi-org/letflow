@@ -69,7 +69,9 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
       // An opening has its own texts for the line reasons (`not_linked` is about the location there).
       const own = opening && info.reason !== undefined ? openingReasonMessageId(info.reason, info.field) : null
       const msg = t(own ?? documentErrorMessageId(e))
-      setError(line !== undefined ? `${intl.formatMessage({ id: 'assets.doc.error.line' }, { line })} ${msg}` : msg)
+      // A header-level refusal (the document's location is not linked to its org unit) names no line.
+      const headerLevel = own === null && info.reason === 'not_linked'
+      setError(line !== undefined && !headerLevel ? `${intl.formatMessage({ id: 'assets.doc.error.line' }, { line })} ${msg}` : msg)
     },
   })
 

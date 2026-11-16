@@ -12,6 +12,7 @@ defmodule Letflow.Routers.DataExportTest do
   alias Letflow.Audit.Entry
   alias Letflow.Identity.User
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
+  alias Letflow.TenantDate
 
   @unit "44444444-4444-4444-8444-444444444444"
   @other "46464646-4646-4646-8646-464646464646"
@@ -179,7 +180,7 @@ defmodule Letflow.Routers.DataExportTest do
              )
 
     assert chosen == hd(skus)
-    today = Date.utc_today() |> Date.to_iso8601()
+    today = TenantDate.default_today() |> Date.to_iso8601()
     dated = export(ctx, request("stock_balances", "json", %{"as_of_date" => today})) |> json()
     assert length(dated["rows"]) == 2
     assert dated["meta"]["as_of_date"] == today

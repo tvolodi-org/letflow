@@ -37,6 +37,7 @@ import OnboardingResultPage from '@/pages/admin/onboarding/OnboardingResultPage'
 import TenantsPage from '@/pages/admin/tenants/TenantsPage'
 import EditTenantPage from '@/pages/admin/tenants/EditTenantPage'
 import ModuleRolloutsPage from '@/pages/admin/module-rollouts/ModuleRolloutsPage'
+import ProblemReportsPage from '@/pages/admin/problem-reports/ProblemReportsPage'
 import CoreHelpPage from '@/pages/help/CoreHelpPage'
 import ServicesPage from '@/pages/admin/services/ServicesPage'
 import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/PlatformMigrationConsolePage'
@@ -46,6 +47,8 @@ import SolutionPackOverridesPage from '@/pages/solution-packs/SolutionPackOverri
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import CurrenciesPage from '@/pages/admin/currencies/CurrenciesPage'
+import ApprovalRulesPage from '@/pages/admin/approval-rules/ApprovalRulesPage'
+import OfficialFormTemplatesPage from '@/pages/admin/official-forms/OfficialFormTemplatesPage'
 import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
@@ -145,6 +148,8 @@ export const appRoutes: RouteObject[] = [
       { path: 'me/settings', element: <MySettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/currencies', element: <RequirePermission permission={P.CurrenciesManage}><CurrenciesPage /></RequirePermission> },
+      { path: 'admin/official-forms', element: <RequirePermission permission={P.OfficialFormTemplatesManage}><OfficialFormTemplatesPage /></RequirePermission> },
+      { path: 'admin/approval-rules', element: <RequirePermission permission={P.ApprovalRulesManage}><ApprovalRulesPage /></RequirePermission> },
       { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
       { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
@@ -157,6 +162,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'admin/tenants/:slug/edit', element: platformPage(P.TenantsManage, <EditTenantPage />) },
       { path: 'help/:topic', element: <CoreHelpPage /> },
       { path: 'admin/module-rollouts', element: platformPage(P.ModuleRolloutsManage, <ModuleRolloutsPage />) },
+      { path: 'admin/problem-reports', element: platformPage(P.ProblemReportsManage, <ProblemReportsPage />) },
       { path: 'admin/services', element: platformPage(P.PlatformServicesManage, <ServicesPage />) },
       // admin/modules route removed in ISS-0822: Letflow.Routers.ProcessModules is
       // deferred to S5 — no backend exists, every API call 404s. Restore this route

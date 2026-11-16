@@ -367,6 +367,15 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
 
 ## 6. Kazakh official text and the print engine (E5b, T-1416)
 
+T-1973 adds reusable `boxed_pairs` (2–8 label/value cells), right-aligned `annex_line` and
+`signature_table` blocks to both renderers. Z-2 / Қ-2 is the pilot: organisation/BIN,
+number/date and the five sender/receiver/transport facts are bordered tables; signing cells
+have captions below the ruled values and retain М.П. beside the chief accountant.
+Other form layouts retain their existing blocks. This is a renderer pilot, not a declaration
+that every Ministry-template difference in the T-1965 comparison is resolved; the reference
+has a combined four-column signature arrangement, while the pilot uses one table per signer.
+The same layout serves ru and kk; no new wording or stored data is introduced.
+
 * **Built:** the print engine (`Letflow.Documents.FormPrint`, layouts and the ru/kk message catalog in
   `priv/print_forms/`) and one form on it, Z-2 (ru) / Q-2 (kk), annex 26, for an issued `issue` document:
   `GET /documents/:id/print?form=z2&format=pdf|docx&lang=ru|kk` (permission `StockRead`). The ru layout and words
@@ -412,9 +421,12 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
 * **Left blank, never invented:** all sums and prices (G5), accounts (G6), the regrading table on the back of Inv-18 (G15),
   the accountant, every signature, the IIN (G1), kind of stock, balance account, the amounts in words (G10), the actual start and
   end of an Inv-10 count (the planned times are not the actual ones, G12), the responsible persons' statement.
-* **PDF shape:** the PDF engine allows 12 columns per table, so the 14-column front table of Inv-18 is printed as two tables
-  (columns 1 to 12, then column 1 with 13 and 14; header numbers stay the official ones); the `.docx` keeps all 14. A PDF
-  holds at most 999 lines (the totals row is the 1000th row): more is `422 print_too_large`, the `.docx` has no cap.
+* **PDF shape (T-1977):** Inv-18 keeps its 14-column front table together. Both formats use the
+  three-level results/adjustments header and the reverse-side Пересортица header (columns 15–26),
+  with the template grid proportions. Inv-10 and Inv-18 use boxed organisation/BIN and number/date
+  pairs and right-aligned annex/form-code blocks. The reverse-side tables start on a new page.
+  Quantities retain fractional precision without stored trailing zeros. A PDF holds at most 999
+  lines (the totals row is the 1000th row): more is `422 print_too_large`; `.docx` has no cap.
 * **Not built, no data:** Inv-1 (goods in transit: the count kind is not in the product), Inv-3 (shipped stock: buyer, terms and
   cost are not on the issue document), Inv-7 (custody stock: there is no custody register; printing a sheet as Inv-7 would state
   a fact Letflow does not hold).
@@ -441,7 +453,7 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
   ("from whom received or to whom issued"; available for receipts in principle, left out of this slice), accounting unit of
   finished output, kind of production, sort, profile, size, account, price, person responsible, shop, executor, the control
   signature and the precious-materials note. A card of more than 1000 entries answers 422 `card_too_long`; no visible
-  movement answers 404. The header is a list of plain lines, not the multi-cell arrangement of the official sheet.
+  movement answers 404. T-1975: the header is the template's 15-column table (merged "responsible party" group of four cells, numbers row, one value row), the movement table has the template's nine-column grid, and the precious-materials note is followed by the template's blank two-column table (ours also prints a blank header row and a numbers row 1, 2, which the template does not).
 * **Differences found while reading annexes 27 and 29** (ru 2026 draft against the kk edition): the kk edition of Z-3 has
   a "Қойма" (warehouse) line that the ru draft lacks (not printed); Z-5 signers are listed "allowed, checked, released,
   received" in the ru draft and "allowed, released, checked, received" in the kk edition (one layout per form: the ru order
@@ -826,3 +838,43 @@ child location is not included in its parent's sheet.
 **Proof:** `test/letflow/modules/stock/stock_sheet_source_test.exs`, `form_z7_test.exs`, `form_z7_router_test.exs` (real tokens,
 cross-tenant 404), `test/letflow/modules/asset_stock_scope_exports_test.exs` (S5), `web/src/modules/stock/__tests__/OfficialFormZ7.test.tsx`,
 P10 of `web/tests/e2e/gate-b-stock-print.e2e.spec.ts`.
+
+### 7.8 Инв-8 / Түг-8 on the print engine (T-1932)
+
+**Route:** `GET /api/v1/modules/assets/counts/:id/print/sheet?form=inv8&format=pdf|docx&lang=ru|kk` (permission
+`AssetsRead`, behind the flag `count_enabled`). `format` defaults to pdf, `lang` to ru (`en` is refused for the form; the
+plain sheet without `form` takes ru, kk and en). The query is checked before the sheet is read; an unknown, malformed or
+other-tenant id is the one 404; a count that never closed is 422 `document_not_issued`; an official PDF of more than 999
+lines is 422 `print_too_large`. Layout `priv/print_forms/inv8.json` (annex 39, 13 columns), data
+`Letflow.Modules.Assets.FormCountInv8`, read `Letflow.Modules.Assets.CountPrintSource`.
+
+**Filled, from the issued sheet:** name and BIN of the legal entity, sheet number and date, order number and date, cut-off
+date, the location (only when the count has one root), the material responsible persons, the chair and members, and per
+line the number, name (the description of a surplus line without a card), inventory number, acquisition date, counted
+quantity, book quantity and book cost; the row count and the total counted quantity. Book cost is the sheet's stored
+`book_value`, printed only on a book line of a KZT card.
+
+**Blank (never invented):** kind of objects, balance accounts (G6), release date, factory and passport numbers (G11),
+actual cost (G5), actual start and end (G12), amounts in words (G10), the responsible persons' statement and date, every
+signature, the checker.
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that Инв-8 is the right form for the asset count
+sheet and that the book cost is the card's stored book value, printed for KZT cards only.
+
+**Proof:** `test/letflow/modules/assets/form_count_inv8_test.exs`, `test/letflow/modules/assets/count_sheet_print_test.exs`,
+`test/letflow/modules/assets/count_print_router_test.exs` (real tokens, cross-tenant 404, flag off).
+
+T-1974 moves Z-1 / Қ-1 to the same blocks (annex lines, organisation / BIN / warehouse and the
+seven document facts as bordered tables, one signature table each for принял / сдал) and adds an
+optional per-column `"width"` (a relative weight) to the table layout. When every column of a
+table has one, the `.docx` uses a fixed grid with those weights and the PDF uses them as column
+weights. Z-1 and Z-2 carry the column grid of annex 25 and annex 26. Still open: the seven-cell
+Z-1 facts table has equal cells (the template's are 11/12/10/15/22/19/12 %), and the Z-1 merged
+header (template `gridSpan` 4, ours 2).
+
+T-1976 moves Z-5 / Қ-5 and Z-6 / Қ-6 to the same blocks: right-aligned annex lines, the organisation / BIN
+and the document facts (Z-5 six cells, Z-6 five cells) as bordered tables, signature tables, and the column
+grids of annexes 29 and 30 (`"width"` weights on the lines table, and on both Z-6 tables). Still open: the
+template's merged "основание" header group (name / number / date, template `gridSpan` 1 / `vMerge`) is one
+cell in ours, the Z-6 header (annex + "Утверждаю") is not a five-column table, and Z-5's four signatures
+are four tables, not the template's 2x2 table.

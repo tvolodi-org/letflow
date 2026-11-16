@@ -178,6 +178,13 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
         assert {:ok, _} = :zip.unzip(conn.resp_body, [:memory])
 
         text = docx_text(conn)
+        {:ok, files} = :zip.unzip(conn.resp_body, [:memory])
+        {_, xml} = List.keyfind(files, ~c"word/document.xml", 0)
+        # The two title tables precede the inventory table, through the real route.
+        assert length(Regex.scan(~r/<w:tbl>/, xml)) == if(form == "inv10", do: 3, else: 4)
+        assert xml =~ ~s(<w:jc w:val="right"/>)
+        assert xml =~ ~s(<w:br w:type="page"/>)
+        if form == "inv18", do: assert(xml =~ ~s(<w:gridSpan w:val="6"/>))
         {title, code} = if lang == "ru", do: {ru, ru_code}, else: {kk, kk_code}
 
         for t <- [title, code, x.le["name"], x.le["bin"]],
@@ -202,7 +209,8 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
       text = docx_text(docx)
       assert text =~ chair["full_name"] and text =~ "Кладовщик"
       # the count lines: counted and book quantity
-      assert text =~ "3.000000000"
+      refute text =~ ~r/\d\.\d{9}/
+      assert text =~ "3"
       # Inv-18: no invented sums; the account columns stay empty
       inv18 = form(id, "differences", "inv18", x.chair_tok, "&format=docx")
       assert docx_text(inv18) =~ "Итого"
@@ -363,6 +371,19 @@ defmodule Letflow.Modules.Stock.FormCountRouterTest do
       assert status!(call(:get, "/counts/#{id}/print/differences?lang=de", x.chair_tok), 422)[
                "reason"
              ] == "invalid_lang"
+    end
+  end
+
+  describe "T-1985 R6 company template" do
+    test "an outdated active inv10 template answers 422 and the PDF still prints", ctx do
+      x = world!(ctx, :a)
+      id = ready!(x)
+      Letflow.CompanyTemplateFixture.outdated!(x.s, x.t.tenant_id, "inv10", "ru")
+
+      conn = form(id, "sheet", "inv10", x.chair_tok, "&format=docx&lang=ru")
+      assert conn.status == 422, conn.resp_body
+      assert Jason.decode!(conn.resp_body)["reason"] == "form_template_outdated"
+      assert form(id, "sheet", "inv10", x.chair_tok, "&format=pdf&lang=ru").status == 200
     end
   end
 end

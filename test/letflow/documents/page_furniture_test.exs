@@ -60,23 +60,27 @@ defmodule Letflow.Documents.PageFurnitureTest do
     end
   end
 
-  test "D1 Inv-18 column widths fit every header word and the page" do
+  test "D1 Inv-18 column widths fit the portrait page" do
     for lang <- ["ru", "kk"] do
       {:ok, docx} = FormPrint.build("inv18", %{"lines" => lines(2), "regrade" => []}, lang, :docx)
       {:ok, files} = :zip.unzip(docx, [:memory])
       {_, xml} = Enum.find(files, fn {n, _} -> n == ~c"word/document.xml" end)
 
-      [grid | _] = Regex.scan(~r{<w:tblGrid>(.*?)</w:tblGrid>}s, xml, capture: :all_but_first)
+      # T-1977: the boxed title pair is the first table; the lines table is the one with 14 columns
+      grids =
+        Regex.scan(~r{<w:tblGrid>(.*?)</w:tblGrid>}s, xml, capture: :all_but_first)
+        |> Enum.map(fn [g] ->
+          Regex.scan(~r/w:w="(\d+)"/, g) |> Enum.map(&String.to_integer(List.last(&1)))
+        end)
 
-      widths =
-        Regex.scan(~r/w:w="(\d+)"/, hd(grid)) |> Enum.map(&String.to_integer(List.last(&1)))
+      widths = Enum.find(grids, [], &(length(&1) == 14))
 
       assert length(widths) == 14
-      assert Enum.sum(widths) <= 15_400
 
-      # the 3rd column holds "Номенклатурный" (ru): 14 letters need more than the old 958 (LibreOffice breaks it below about 1300)
-      if lang == "ru", do: assert(Enum.at(widths, 2) >= 1_300)
-      assert Enum.all?(Enum.drop(widths, 2), &(&1 >= 800))
+      # T-1971: A4 portrait, margins 15 mm right and 22.5 mm left: the text area is 9 780 twips and
+      # the 14 columns share it (the template's narrow columns, the narrowest 332 twips as in annex 49); a long header word may break
+      assert Enum.sum(widths) <= 9_780
+      assert Enum.all?(widths, &(&1 >= 300))
     end
   end
 end

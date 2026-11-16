@@ -8,6 +8,7 @@ import DocumentPage from './documents/DocumentPage'
 import DocumentsPage from './documents/DocumentsPage'
 import BalancesPage from './register/BalancesPage'
 import MovementsPage from './register/MovementsPage'
+import AssetCountsPage from './counts/AssetCountsPage'
 import AssetsHelpPage from './help/AssetsHelpPage'
 import { ASSETS_CARD_WRITE, ASSETS_POST, ASSETS_READ } from './assetsPermissions'
 
@@ -25,6 +26,8 @@ export const assetsRouteObjects: RouteObject[] = [
       { path: 'documents/:id', element: guard(<DocumentPage />, ASSETS_READ) },
       { path: 'balances', element: guard(<BalancesPage />, ASSETS_READ) },
       { path: 'movements', element: guard(<MovementsPage />, ASSETS_READ) },
+      { path: 'counts', element: guard(<AssetCountsPage />, ASSETS_READ) },
+      { path: 'counts/:id', element: guard(<AssetCountsPage />, ASSETS_READ) },
       { path: 'help/:topic', element: <AssetsHelpPage /> },
     ],
   },

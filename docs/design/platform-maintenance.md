@@ -245,7 +245,8 @@ Sizes: S = a few days, M = one to two weeks, for one developer with reviews.
 | 1 | Report row and route in the platform company; consent screen; capture of route, user, version, browser; server redaction | M | owner lines 1, 4 |
 | 2 | Client ring of last actions and request ids; error-boundary "Report this problem"; optional screenshot | S to M | slice 1, owner line 8 |
 | 3 | Server and web error capture with signature, grouping, throttle, alert | M | slice 1 |
-| 4 | Part A: status column and backend owner decisions, own report list, bell/mail status (T-1949); process definition left out of the minimal slice. Owner inbox and reporter screens remain part B. | M | slices 1, 3 |
+| 4 | Part A: status column and backend owner decisions, own report list, bell/mail status (T-1949); process definition left out of the minimal slice. Owner inbox screen: T-2007 (`/admin/problem-reports`); the reporter's own report screen remains part B. | M | slices 1, 3 |
+| 4b | Owner list as class `review` of the same row (T-1963 part A: tables, owner routes, JSON import behind `LETFLOW_OWNER_LIST_SHA256`); team writes, ready notice, the web screen and the lab retirement follow as parts B to D | M | slice 4 |
 | 5 | Routing table (owner/AI per class and company), audit of switches | S | slice 4 |
 | 6 | AI agent in shadow mode: read-only diagnostic view, closed action list, budget and cost cap, agreement rate | M | slice 5, owner lines 5, 7 |
 | 7 | AI live mode per class; "done by AI" list with undo | S | slice 6 and enough agreement |
@@ -260,6 +261,8 @@ or an agent reads it).
 forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web button and consent dialog follow in part B.
 
 Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; screenshots follow in part 2.
+
+Slice 3 part A (server error capture, grouping, throttle, `error_group_alert`, `GET /maintenance/v1/error-groups`) is built in T-1951; web capture (`window.onerror`, rejections, boundary, `POST /api/v1/me/client-errors`) is part B, a follow-up task.
 
 ## 11. Open base or closed extra (requirement 10, note only)
 

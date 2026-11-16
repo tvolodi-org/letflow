@@ -998,7 +998,21 @@ defmodule Letflow.TenantProvisioning do
      "20261114100001_create_problem_reports.exs"},
     # T-1949: status of existing reports defaults to received.
     {20_261_114_200_001, Letflow.Repo.Migrations.AddProblemReportStatus,
-     "20261114200001_add_problem_report_status.exs"}
+     "20261114200001_add_problem_report_status.exs"},
+    # T-1951: error_groups (maintenance slice 3). Created empty in every schema, written only in the
+    # platform company's schema; nothing to backfill.
+    {20_261_114_300_001, Letflow.Repo.Migrations.CreateErrorGroups,
+     "20261114300001_create_error_groups.exs"},
+    # T-1963: owner list as class 'review' of problem_reports, plus the thread and image tables. Existing rows
+    # stay class 'problem' by the column default; written only in the platform company's schema.
+    {20_261_115_100_001, Letflow.Repo.Migrations.AddOwnerReviewItems,
+     "20261115100001_add_owner_review_items.exs"},
+    # T-1986: approval_rule_settings (four-eyes switch). Empty for every tenant; no row = ON.
+    {20_261_115_200_001, Letflow.Repo.Migrations.CreateApprovalRuleSettings,
+     "20261115200001_create_approval_rule_settings.exs"},
+    # T-1982 (0089 D5): official_form_templates, created empty; no existing row is altered.
+    {20_261_115_300_001, Letflow.Repo.Migrations.CreateOfficialFormTemplates,
+     "20261115300001_create_official_form_templates.exs"}
   ]
 
   @doc """
