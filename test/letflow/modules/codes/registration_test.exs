@@ -20,7 +20,7 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
   test "R-02: id codes, no dependencies, the three managed types, one write permission, no grants" do
     m = Codes.manifest()
     assert m.id == "codes"
-    assert m.version == "0.5.0"
+    assert m.version == "0.6.0"
     assert m.depends_on == []
     assert m.manages_entity_types == @types
     assert m.pack == "modules/codes/pack.json"
