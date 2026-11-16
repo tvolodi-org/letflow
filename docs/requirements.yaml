@@ -55341,3 +55341,62 @@ requirements:
       - "9. Scans: scan H4 accepts HandlerWrites.read/3 and HandlerWrites.active?/3 in a handler file and still flags HandlerWrites calls of any other name or arity; the pinned public function list of HandlerWrites in test/letflow/entities/module_write_owner_path_test.exs gains active?: 3 and read: 3; and a negative control that names HandlerWrites.read in a ledger policy file is flagged by the T-SC-4e scan."
       - "10. Documentation: the moduledoc of Letflow.Entities.HandlerWrites describes read/3 and active?/3 with the rules of description points (2) to (4), and decision 0073 gets a short amendment section stating that the read facade of D6 now exists, that the update-kind half was delivered by #4051, and that master checks, expected_document_version and retired-master checks remain owed to slice L7."
     depends_on: [REQ-501, REQ-688]
+  - id: REQ-832
+    title: "Ledger slice L7 part 1: master validation at posting in the stock write handlers: every master named by a line is a live record, a retired master blocks only stock-adding sides, reversals unchanged (decision 0073 D6 and PILOT GATE, ledger note 9.5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-829 -- the stock handlers read masters only through the OQ-R4 read facade HandlerWrites.read/3 and active?/3 that REQ-829 adds
+    # Source: task T-2023 (operator; Qoimeks Client 1 migration, owner decision D-143, readiness note docs/status/qoimeks-migration-readiness.md section 3 row C3). Files read on origin/main: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6, D-P, the Consequences rows PILOT GATE and L7, Open OQ-2, A6, "Speed test result (REQ-710)"); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 9.4, 9.5, 14.6, 17 and 18; docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md D5; requirement REQ-829 (gh 4527, pending); lib/letflow/modules/stock/handlers.ex; lib/letflow/modules/stock/stock.ex (manifest: depends_on, write_handlers, ledger slots); lib/letflow/modules/stock/ledger_policy/declare.ex (sides per cause); lib/letflow/modules/stock/documents/checks.ex and opening_checks.ex (issue-time checks); lib/letflow/modules/stock/documents/posting.ex; lib/letflow/entities/step_writes.ex (interpret_line of :handler_invalid_arguments); lib/letflow/ledger/handler_post.ex (prelock/2, the only dry_postings/4 caller); lib/letflow/modules/catalog_items/catalog_items.ex (item_uom_valid?/3, item_lot_valid?/3); lib/letflow/modules/locations/locations.ex; lib/letflow/modules/org/org.ex (active_employee?/2); priv/modules/*/entity_definitions (active, base_uom_id, item_id fields); docs/runbooks/wms-foundation.md items 1, 13 and 18; test/letflow/engine/module_write_failure_codes_test.exs; test/letflow/modules/stock/posting_fixture.exs.
+    description: >
+      Decision 0073 (Consequences, row PILOT GATE): the stock module is not enabled for a customer tenant until
+      slices L6 and L7 are done; "without L7 a typo in an item or location id creates a NEW balance key whose
+      first-touch unit_ref and max_on_hand pin is permanent". D6 makes the master checks of L7 dependent on the
+      OQ-R4 read facade, which REQ-829 (pending) adds as HandlerWrites.read/3 and HandlerWrites.active?/3. Today
+      the master checks run only at issue (lib/letflow/modules/stock/documents/checks.ex, opening_checks.ex), the
+      write handlers of lib/letflow/modules/stock/handlers.ex read nothing, and a completer of the post task can
+      change the posting variables (docs/runbooks/wms-foundation.md item 18), so a master retired after issue, or an
+      id typed into a changed posting, reaches the ledger. This requirement is part 1 of slice L7: the master
+      checks and the retired-master rule at posting, in the stock handlers, through the facade. (1) Declaration.
+      The write handlers post_document, post_count and post_kind_change_out in the manifest of
+      lib/letflow/modules/stock/stock.ex declare reads catalog_item, catalog_uom, catalog_lot (module
+      catalog_items), location_node (module locations), org_unit and org_employee (module org); all three modules
+      are already in the stock depends_on. reverse_document declares no reads and is not changed. The module
+      version is raised to the next free version above the one on origin/main at implement time, because the
+      manifest hash changes. (2) Which side is checked how. Sides follow the cause table of
+      lib/letflow/modules/stock/ledger_policy/declare.ex: the to side of a line adds stock, the from side removes
+      it (receipt and opening have only to; issue, write_off and kind_change_out only from; transfer, hand_over and
+      return both; count_difference exactly one). For a line WITH a to side: sku is a live active catalog_item,
+      unit is a live active catalog_uom equal to the item's base_uom_id, a given lot is a live active catalog_lot
+      whose item_id equals sku, and on the to side the location is a live active location_node, the org_unit a
+      live active org_unit and a given responsible a live active org_employee. For a line with ONLY a from side:
+      each of the same ids (sku, unit, a given lot, the from location, org_unit and a given responsible) is a live
+      record of its type (HandlerWrites.read/3 answers {:ok, map}); active false is accepted, so stock can still be
+      moved off, issued from or written off a retired master; the from side of a transfer is checked the same way.
+      "Live" is the facade's rule: a non-uuid id, an unknown id, a record of another type and a soft-deleted
+      record are not live. (3) Refusal. The first failed check makes the handler answer {:error,
+      :invalid_arguments} before it adds any step, the existing handler contract
+      (Letflow.Entities.HandlerContext): the completion is refused as validation_failed (422) with the audit
+      detail handler_invalid_arguments (Letflow.Entities.StepWrites interpret_line), nothing of the completion
+      commits (no ledger entry, no stock_posting_mark) and the post task stays pending. (4) Reads. Each distinct
+      (type, id) pair is read at most once per handler call; the reads are the facade's (no lock, no write).
+      In a dry build (read/3 answers {:error, :dry_build}; no stock node is a SERVICE_TASK today) the checks are
+      skipped and the posting is built as today; the real build runs them. (5) Reversal. A reversal reads
+      nothing: reversing a posting whose masters were retired since stays accepted (note 9.5). OUT OF SCOPE:
+      expected_document_version and the binding of the posting to the issued document version (L7 part 2: the
+      versioned document lives in the Letflow.Documents tables, which the REQ-829 facade does not read); a typed
+      wire code such as master_inactive (the handler error contract is closed); the org unit to location link
+      (not_linked) at posting; the assets module handlers; per-instance ledger ids; serial-tracked goods (OQ-23);
+      scope of the posting (slice L6).
+    acceptance_criteria:
+      - "1. Manifest: a test reads the stock manifest and shows that post_document, post_count and post_kind_change_out each declare exactly the reads catalog_item, catalog_uom, catalog_lot, location_node, org_unit and org_employee, that reverse_document declares none, that the module installs on a fresh tenant (the Catalog accepts the reads), and that the module version is higher than the version on origin/main at implement time."
+      - "2. Typo refused: in a real completion of the post task of an issued receipt whose posting variable is replaced through the completion's output variables, each of these is refused with validation_failed and audit detail handler_invalid_arguments: an unknown uuid as sku, as unit, as lot and as the to location; a non-uuid sku; the id of a live location_node given as sku; and a lot of another item. After each, the test shows no ledger_entry with that document_id, no stock_posting_mark of that document, no ledger_balance row whose sku slot is the typed id, and the post task still pending."
+      - "3. Retired master on an adding side: for each of item, unit, lot, to location, org_unit and responsible, a receipt is issued, that master is set to active false through its owner's write path, and completing the post task is refused with validation_failed and nothing committed, as in criterion 2."
+      - "4. Retired master on a removing side: a write_off issued while its item, unit and from location are active, whose item and from location are then set to active false, posts when its post task is completed (one ledger entry, one stock_posting_mark); and the same write_off with an unknown uuid as its from location in a replaced posting variable is refused as in criterion 2."
+      - "5. Transfer: a transfer whose to location is retired after issue is refused as in criterion 3; a transfer whose from location is retired after issue and whose to location is active posts."
+      - "6. Count difference and kind change: a count_difference line with a to side (surplus) whose item was set to active false after the differences were signed is refused as in criterion 2; a line with only a from side (shortage) and such an item posts; in the kind-change flow of the assets module that calls post_kind_change_out (as test/letflow/modules/assets/kind_change_posting_test.exs runs it) a posting whose item is set to active false after the start posts, and one whose posting variable carries an unknown uuid as sku is refused as in criterion 2."
+      - "7. Reversal: a posted receipt whose item and to location are then set to active false is reversed through the reverse route and the reversal entry is written; capture_repo_queries/1 of PlatformTenantFixture around that completion captures no SELECT on entity_record_latest whose bound parameters carry the item id or the to location id."
+      - "8. One read per distinct master: capture_repo_queries/1 around the post completion of a receipt with 5 lines that share one item, one unit, one to location and one responsible (no lot) shows, for each of those 4 ids, exactly one captured SELECT on entity_record_latest whose bound parameters carry that id, and no captured statement that names entity_record_latest contains FOR UPDATE or FOR SHARE."
+      - "9. Tenant isolation (INV-1): with the stock module installed on tenants A and B, a posting of tenant A whose sku is the id of a live active catalog_item of tenant B only is refused as in criterion 2."
+      - "10. Documentation: the moduledoc of Letflow.Modules.Stock.Handlers states the reads and the rules of description points (2) to (5) instead of 'The handler reads nothing'; docs/runbooks/wms-foundation.md items 1 and 13 and the last sentence of item 18 say that master checks also run at posting since this change and that expected_document_version is still owed (L7 part 2); the sentences 'not caught until L7' in lib/letflow/modules/stock/documents/checks.ex and opening_checks.ex are updated the same way; decision 0073 gets a short amendment section naming this requirement as L7 part 1 and listing what L7 still owes; test/letflow/modules/stock/runbook_test.exs passes."
+    depends_on: [REQ-829, REQ-713, REQ-718, REQ-726, REQ-760]
