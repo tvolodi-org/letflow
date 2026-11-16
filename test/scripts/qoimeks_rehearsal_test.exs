@@ -4,7 +4,7 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
   `headers` sub-command) and `scripts/pilot/qoimeks_compare.sh` (expected counts vs a `demo_counts.sh snapshot`).
   No database and no network; the converter output is read back with the production reader `XlsxImport`.
 
-  CV-1..CV-9 and CV-G3 (usual place, G3) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
+  CV-1..CV-9, CV-G3 (usual place, G3) and CV-G12a..e (codes, G12) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
   The files go through the real stock import routes in `Letflow.Modules.Stock.QoimeksFilesTest` (ST-1..ST-3).
   """
 
@@ -23,6 +23,8 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
   @item_cols ~w(code name base_uom_id kind active external_ref_system external_ref_id)
   @line_cols ~w(header_id org_unit_id location_id responsible_id catalog_item_id catalog_uom_id
                 quantity received_on external_ref_system external_ref_id)
+  @code_cols ~w(value kind external_ref_system external_ref_id)
+  @assignment_cols ~w(code_id target_type target_id external_ref_system external_ref_id)
 
   setup do
     dir = Path.join(System.tmp_dir!(), "qrt_#{System.unique_integer([:positive])}")
@@ -219,6 +221,8 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
                "items_with_default_location" => "0",
                "records.catalog_item" => "6",
                "records.catalog_uom" => "3",
+               "records.code_assignment" => "0",
+               "records.code_tag" => "0",
                "records.location_node" => "5",
                "records.stock_opening_line" => "6"
              }
@@ -273,6 +277,215 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
 
       assert File.read!(Path.join(out, "report.txt")) =~
                "items with a second place, not imported (G3) 0"
+    end
+
+    test "CV-G12a item barcodes become codes and assignments in upload order", %{dir: dir} do
+      indir =
+        write_csvs(
+          Path.join(dir, "g12a"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit,Штрихкод\nA,Sample A,pcs,4870001112223\nB,Sample B,pcs,\nC,Sample C,pcs,QR-7\n",
+          "sku,loc,qty\nA,L1,1\n"
+        )
+
+      map = Path.join(dir, "g12-map.json")
+      File.write!(map, ~s({"Штрихкод": "barcode"}))
+      out = Path.join(dir, "o-g12a")
+      assert {_, 0} = convert(indir, out, ["--mapping", map])
+
+      assert manifest(out)["upload_order"] == [
+               "01-locations-01.xlsx",
+               "02-uoms.xlsx",
+               "03-items-01.xlsx",
+               "06-codes-01.xlsx",
+               "07-code-assignments-01.xlsx",
+               "04-opening-lines-01.xlsx"
+             ]
+
+      assert Enum.map(read!(Path.join(out, "06-codes-01.xlsx"), @code_cols), fn {_, r} ->
+               {r["value"], r["kind"], r["external_ref_system"], r["external_ref_id"]}
+             end) == [
+               {"4870001112223", "barcode", @sys, "4870001112223"},
+               {"QR-7", "barcode", @sys, "QR-7"}
+             ]
+
+      assert Enum.map(
+               read!(Path.join(out, "07-code-assignments-01.xlsx"), @assignment_cols),
+               fn {_, r} ->
+                 {r["code_id"], r["target_type"], r["target_id"], r["external_ref_system"],
+                  r["external_ref_id"]}
+               end
+             ) == [
+               {"4870001112223", "catalog_item", "A", @sys, "4870001112223"},
+               {"QR-7", "catalog_item", "C", @sys, "QR-7"}
+             ]
+
+      assert counts(out)["records.code_tag"] == "2"
+      assert counts(out)["records.code_assignment"] == "2"
+    end
+
+    test "CV-G12b without code inputs only the two zero count lines are added", %{dir: dir} do
+      # Fixed pre-REQ-852 converter: this comparison must keep working after this branch merges.
+      baseline = Path.join(dir, "baseline/scripts/pilot/qoimeks_convert.py")
+      File.mkdir_p!(Path.dirname(baseline))
+      {source, 0} = System.cmd("git", ["show", "f83e6ccaf:scripts/pilot/qoimeks_convert.py"])
+      File.write!(baseline, source)
+      old_out = Path.join(dir, "old")
+      new_out = Path.join(dir, "new")
+
+      args = [
+        "convert",
+        "--in",
+        @fixture,
+        "--out",
+        old_out,
+        "--system",
+        @sys,
+        "--org-unit-ext",
+        "U1",
+        "--responsible-ext",
+        "E1",
+        "--received-on",
+        "2026-02-01"
+      ]
+
+      assert {_, 3} = System.cmd("python3", ["-I", baseline | args], stderr_to_stdout: true)
+      assert {_, 3} = convert(@fixture, new_out)
+      old_manifest = manifest(old_out)
+
+      for name <- ["manifest.json" | Enum.map(old_manifest["files"], & &1["file"])] do
+        assert File.read!(Path.join(new_out, name)) == File.read!(Path.join(old_out, name)), name
+      end
+
+      refute File.exists?(Path.join(new_out, "06-codes-01.xlsx"))
+      refute File.exists?(Path.join(new_out, "07-code-assignments-01.xlsx"))
+
+      for name <- ["expected_counts.txt", "report.txt"] do
+        old_lines = old_out |> Path.join(name) |> File.read!() |> String.split("\n", trim: true)
+        new_lines = new_out |> Path.join(name) |> File.read!() |> String.split("\n", trim: true)
+        assert new_lines -- old_lines == ["records.code_assignment 0", "records.code_tag 0"], name
+      end
+    end
+
+    test "CV-G12c codes.csv adds SKU and place codes and de-duplicates an item barcode", %{
+      dir: dir
+    } do
+      indir =
+        write_csvs(
+          Path.join(dir, "g12c"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit,barcode\nA,Sample A,pcs,4870001112223\nB,Sample B,pcs,\n",
+          "sku,loc,qty\n"
+        )
+
+      File.write!(Path.join(indir, "codes.csv"), """
+      object_type,object_code,code_type,code
+      sku,A,ean13,4870001112223
+      sku,B,qr, QR-B
+      location,L1,code128,LOC-L1
+      """)
+
+      out = Path.join(dir, "o-g12c")
+      assert {_, 0} = convert(indir, out)
+      codes = read!(Path.join(out, "06-codes-01.xlsx"), @code_cols)
+
+      assert Enum.map(codes, fn {_, r} -> {r["value"], r["kind"]} end) == [
+               {"4870001112223", "barcode"},
+               {"QR-B", "qr"},
+               {"LOC-L1", "barcode"}
+             ]
+
+      assignments = read!(Path.join(out, "07-code-assignments-01.xlsx"), @assignment_cols)
+
+      assert Enum.map(assignments, fn {_, r} ->
+               {r["code_id"], r["target_type"], r["target_id"]}
+             end) == [
+               {"4870001112223", "catalog_item", "A"},
+               {"QR-B", "catalog_item", "B"},
+               {"LOC-L1", "location_node", "L1"}
+             ]
+    end
+
+    test "CV-G12d code drops have constant reasons, row numbers and no cell text", %{dir: dir} do
+      indir =
+        write_csvs(
+          Path.join(dir, "g12d"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit,barcode\nA,Sample A,pcs,SHARED\nB,Sample B,pcs,\n",
+          "sku,loc,qty\n"
+        )
+
+      File.write!(Path.join(indir, "codes.csv"), """
+      object_type,object_code,code_type,code
+      sku,A,ean13,BAD CODE
+      sku,A,ean14,UNKNOWN-TYPE
+      pallet,A,ean13,PALLET-CODE
+      sku,MISSING,ean13,MISSING-ITEM-CODE
+      location,MISSING,ean13,MISSING-LOC-CODE
+      sku,B,ean13,SHARED
+      sku,A,ean13,BAD\tCODE
+      sku,B,qr,QR-SURVIVOR
+      """)
+
+      out = Path.join(dir, "o-g12d")
+      assert {_, 3} = convert(indir, out)
+      assert {_, 0} = convert(indir, Path.join(dir, "o-g12d-allow"), ["--allow-drops"])
+      report = File.read!(Path.join(out, "report.txt"))
+
+      for {row, reason} <- [
+            {1, "code_invalid"},
+            {2, "code_type_unknown"},
+            {3, "code_object_type_unknown"},
+            {4, "code_unknown_item"},
+            {5, "code_unknown_location"},
+            {6, "code_taken"},
+            {7, "code_invalid"}
+          ] do
+        assert report =~ "dropped codes row #{row}: #{reason}"
+      end
+
+      for secret <- ~w(BAD UNKNOWN-TYPE PALLET-CODE MISSING-ITEM-CODE MISSING-LOC-CODE SHARED) do
+        refute report =~ secret
+      end
+
+      codes = read!(Path.join(out, "06-codes-01.xlsx"), @code_cols)
+      assert Enum.map(codes, fn {_, r} -> r["value"] end) == ["SHARED", "QR-SURVIVOR"]
+
+      assignments = read!(Path.join(out, "07-code-assignments-01.xlsx"), @assignment_cols)
+
+      assert Enum.map(assignments, fn {_, r} -> {r["code_id"], r["target_id"]} end) == [
+               {"SHARED", "A"},
+               {"QR-SURVIVOR", "B"}
+             ]
+    end
+
+    test "CV-G12e 201 codes split both code file types at 200 rows", %{dir: dir} do
+      indir =
+        write_csvs(
+          Path.join(dir, "g12e"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit\nA,Sample A,pcs\n",
+          "sku,loc,qty\n"
+        )
+
+      File.write!(Path.join(indir, "codes.csv"), """
+      object_type,object_code,code_type,code
+      #{Enum.map_join(1..201, "\n", &"sku,A,ean13,CODE-#{&1}")}
+      """)
+
+      out = Path.join(dir, "o-g12e")
+      assert {_, 0} = convert(indir, out)
+      m = manifest(out)
+
+      for type <- ["code_tag", "code_assignment"] do
+        assert Enum.map(m["files"], fn f -> if f["entity_type"] == type, do: f["rows"] end)
+               |> Enum.reject(&is_nil/1) == [200, 1]
+      end
+
+      assert length(read!(Path.join(out, "06-codes-01.xlsx"), @code_cols)) == 200
+      assert length(read!(Path.join(out, "06-codes-02.xlsx"), @code_cols)) == 1
+      assert length(read!(Path.join(out, "07-code-assignments-01.xlsx"), @assignment_cols)) == 200
+      assert length(read!(Path.join(out, "07-code-assignments-02.xlsx"), @assignment_cols)) == 1
     end
 
     test "CV-7 --out inside the repository is refused and nothing is written; no cell text in the report",
