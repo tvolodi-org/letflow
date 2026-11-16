@@ -4,6 +4,7 @@
 import { formatQuantity } from '@/lib/formatQuantity'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useTask, useCompleteTask, useClaimTask } from '@/hooks/useTasks'
 import { useTaskSubjects } from '@/hooks/useTaskSubjects'
 import { useTaskCompletionAttachments } from '@/hooks/useAttachments'
@@ -67,6 +68,11 @@ function DocumentSummary({ doc, m, refMsg, label, locale, issuer }: {
   if (doc.note) rows.push([m.note, doc.note])
   return (
     <>
+      {doc.path !== '' && (
+        <p>
+          <Link to={doc.path} data-testid="task-document-open">{m.openDocument}</Link>
+        </p>
+      )}
       <dl className="lf-dl" data-testid="task-document-header">
         {rows
           .filter(([, v]) => v !== '')
