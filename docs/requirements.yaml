@@ -55957,3 +55957,123 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-867
+    title: "Qoimeks parity G16 part 1: the PWA entry file names its scripts with ?v=<build sha> next to the no-cache rule, and the hosting runbook gives the install and update steps on iPhone and Android"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    # impl_order: UNREGISTERED -- G16 slice 1 of 3, no pending prerequisite; filed by the engine after the gate
+    # Source: task T-2036 (owner decision via PM 2026-11-16, "support old Qoimeks functionality, not less but possibly more"); docs/status/qoimeks-migration-readiness.md section 1.2 rows G16 and G17; Qoimeks-team/project/client1-inventory.md section 8 items 9 and 11 and the Android and APK lines of sections 0-1, and Qoimeks/README.md "Release build" and "Update check in the app" (outside the worktree; the passages are copied into state/tasks/T-2036/sources.md). Files read on origin/main 6e7c4bbaa: docs/runbooks/mobile-web-pwa-hosting.md ("Headers and why": Cache-Control no-cache on every file, no service worker, names not content-hashed), scripts/pwa_web_package.sh (build-info.json, SHA256SUMS, .gz/.br, tar), scripts/pwa_web_build.sh, scripts/pwa_web_verify.sh, apps/mobile/web/index.html (script src flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js; link manifest.json, favicon.png, icons/apple-touch-icon.png), apps/mobile/web/flutter_bootstrap.js, deploy/nginx/letflow-pwa-web.conf.example, test/letflow/pwa_web_hosting_test.exs (P1-P6, N1, N2), docs/runbooks/pwa-client-test/script.en.md step 1 (Safari, Share, "Add to Home Screen"), docs/mobile/pwa-parity.md. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks serves its web app (the iPhone way, /web/) cached for up to 4 hours with the entry file versioned
+      ?v= (inventory section 8 item 9). Letflow's PWA (the web build of apps/mobile) answers Cache-Control
+      no-cache on every file and has no service worker and no content-hashed names
+      (docs/runbooks/mobile-web-pwa-hosting.md, "Headers and why"), so a new deploy is seen on the next open:
+      that part is already stricter than Qoimeks and stays. The 4-hour cache is not adopted (it only delays an
+      update). What is missing is the Qoimeks ?v= stamp: behind a cache that does not honour no-cache (the
+      hosting is not chosen, readiness row G17) a new index.html can be paired with an old flutter_bootstrap.js.
+      Change: scripts/pwa_web_package.sh, before it writes SHA256SUMS and compresses, rewrites index.html of the
+      build so that every src or href attribute value of a script or link element that is a relative path (not
+      starting with a scheme, //, / or #) gets the suffix ?v=<sha12>, where sha12 is the first 12 characters of
+      the sha it records in build-info.json. A relative reference that already holds "?" makes the script exit 1
+      and name it (none exists in apps/mobile/web/index.html today). index.html itself stays unversioned: it is
+      the entry and is always revalidated. main.dart.js and canvaskit are loaded by the Flutter loader by their
+      plain names and stay covered by no-cache only; the runbook says so and states the hosting rule that no
+      cache in front of the PWA may keep a file longer than the origin's Cache-Control allows. The runbook also
+      gets a section "Install and update" with the steps on iPhone (Safari, Share, "Add to Home Screen", open
+      from the icon) and on Android (Chrome menu, "Install app" or "Add to Home screen"), and the update rule:
+      close the app and open it again from the icon; nothing is reinstalled and no setting is entered again.
+      No change to the nginx example, the workflow or the Flutter code. Size S.
+    acceptance_criteria:
+      - "1. A new test P7 in test/letflow/pwa_web_hosting_test.exs packages a build whose index.html references flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js and manifest.json, with GITHUB_SHA set to a known 40-character value; the index.html inside the tar references each of them with ?v= followed by the first 12 characters of that value, and build-info.json in the tar records the same sha."
+      - "2. A new test P8: an absolute reference (https://example.org/a.js) and a fragment reference (#x) in index.html are left unchanged, and the file is still named index.html in the tar (the entry gets no version)."
+      - "3. A new test P9: an index.html with a relative reference that already contains ? makes pwa_web_package.sh exit 1, names that reference in its output, and writes no tar."
+      - "4. A new test P10: the SHA256SUMS line of index.html verifies against the stamped index.html, and index.html.gz (when written) decompresses to the stamped bytes."
+      - "5. Test N2 (or a new N3) asserts that docs/runbooks/mobile-web-pwa-hosting.md contains the text ?v=, the hosting rule sentence about caches in front of the PWA, and a section titled Install and update naming Add to Home Screen and Install app."
+      - "6. MIX_TEST_PARTITION=<task> mix test test/letflow/pwa_web_hosting_test.exs passes with P1-P6, V1-V10, B1-B4, W1, W2 and N1 unchanged."
+    depends_on: []
+  - id: REQ-868
+    title: "Qoimeks parity G16 part 2: signed Android release build (APK and AAB) from a script that never signs with the debug key, release manifest latest.json, and an Android release and distribution runbook"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    # impl_order: UNREGISTERED -- G16 slice 2 of 3, no pending prerequisite; filed by the engine after the gate
+    # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Release build" (scripts/release-android.sh, key.properties, version guard, latest.json fields) and client1-inventory.md (published APK 0.1.2, "APK self-update banner yes (APK 0.1.2, manifest minVersionCode 2)", APK download page), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/android/app/build.gradle.kts (release buildType signs with signingConfigs.getByName("debug"); versionCode/versionName from flutter; manifestPlaceholders platformHost from -Pplatform-host), apps/mobile/android/.gitignore (key.properties, **/*.keystore, **/*.jks), apps/mobile/pubspec.yaml (version 1.0.0+1), apps/mobile/lib/api/api_client.dart (String.fromEnvironment LETFLOW_API_BASE_URL), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (kPlatformHost from LETFLOW_PLATFORM_HOST), .github/workflows/ci.yml mobile job (flutter build apk --debug only), test/letflow/pwa_web_hosting_test.exs (pattern for script tests with a tmp_dir), scripts/ci_changed_paths.sh (scripts/.*\.sh$ and docs/runbooks/ are backend paths). grep -rn "apksigner\|appbundle\|assembleRelease" .github/workflows scripts: no hit. ls docs/runbooks | grep -i android: no hit. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks ships an Android APK (0.1.2) built by a release script that refuses to sign with the debug key,
+      refuses a version code not higher than the last published one, and writes the APK, its sha256 and a
+      release manifest latest.json for its download page. Letflow's Android release build is signed with the
+      debug key (signingConfigs.getByName("debug") in apps/mobile/android/app/build.gradle.kts) and there is no
+      release script and no release runbook. Change, three parts. (1) build.gradle.kts: the release buildType
+      signs with a config read from apps/mobile/android/key.properties (keys storeFile, storePassword, keyAlias,
+      keyPassword; the file and keystores are already git-ignored); with the file missing a release build fails
+      with a message naming the file; the debug-key fallback is removed. Debug builds (ci.yml runs flutter build
+      apk --debug) do not change. (2) A new script scripts/android_release_build.sh (planned, not yet on main):
+      reads versionName and versionCode from the version line of apps/mobile/pubspec.yaml; options --out DIR
+      (required, refused when inside the repository), --base-url URL (required, https only: where the files will
+      be published), --api-base-url URL (https only, passed as --dart-define=LETFLOW_API_BASE_URL), --platform-host
+      HOST (passed as --dart-define=LETFLOW_PLATFORM_HOST and -Pplatform-host), --min-version-code N (default: the
+      value in <out>/latest.json, else 1), --notes-file FILE (lines "ru: ", "kk: ", "en: "), --last-published N or
+      --first-release, --dry-run (runs every check and prints the build commands, builds nothing). It exits 2
+      without building when key.properties is missing, when a URL is not https, or when the version code is not
+      higher than the last published one (from <out>/latest.json, else --last-published; with neither,
+      --first-release is required). It runs flutter build apk --release and flutter build appbundle --release
+      with the same defines, then apksigner verify --print-certs on the APK and exits 1 when verification fails
+      or the signer certificate is the Android debug certificate (subject CN=Android Debug). It writes into --out:
+      letflow-<versionName>-<versionCode>.apk, the same name with .apk.sha256, letflow-<versionName>-<versionCode>.aab,
+      and latest.json with versionCode, versionName, url (base URL plus the APK name), sha256, minVersionCode,
+      notes (ru, kk, en) and published (UTC). No password or key.properties value is printed, also not in
+      --dry-run. (3) A new runbook docs/runbooks/mobile-android-release.md (planned, not yet on main): making the
+      upload keystore once with keytool and keeping it and its passwords outside git with a backup (a lost key
+      means installed phones cannot take an update), the key.properties layout, running the script for QA,
+      handing the output folder to infra for the QA download location, installing on a phone (allow installs
+      from this source) and updating. A store listing (Google Play) and its account are the owner's money and
+      accounts step and are not decided here; the AAB is built so that step needs no new build. QA only: the
+      Qoimeks production and its APK are never touched (D-050). No CI workflow signs a release (no signing
+      secret exists). Size M.
+    acceptance_criteria:
+      - "1. A new test file test/letflow/android_release_build_test.exs (planned) runs the script with a fake flutter and a fake apksigner first on PATH inside a tmp_dir copy of the inputs it needs: with key.properties missing it exits 2, names key.properties, and the fake flutter was not called."
+      - "2. In that file: a version code equal to the versionCode in an existing <out>/latest.json exits 2 without calling flutter; with no latest.json and neither --last-published nor --first-release it exits 2; an http:// --base-url or --api-base-url exits 2."
+      - "3. In that file: a good run calls the fake flutter with build apk --release and build appbundle --release, both carrying --dart-define=LETFLOW_API_BASE_URL and --dart-define=LETFLOW_PLATFORM_HOST with the given values, and writes the .apk, .apk.sha256 (matching sha256sum of the .apk), .aab and a latest.json that parses with the eight fields named in the description, url equal to base URL plus the APK file name."
+      - "4. In that file: a fake apksigner that prints a certificate subject CN=Android Debug makes the script exit 1 and write no latest.json; the passwords written into the test's key.properties appear nowhere in the script output of any case, including --dry-run, and --dry-run calls no flutter build."
+      - "5. A test reads apps/mobile/android/app/build.gradle.kts and asserts it no longer contains getByName(\"debug\") inside the release buildType and that it reads key.properties; flutter build apk --debug in the mobile job of ci.yml still passes."
+      - "6. docs/runbooks/mobile-android-release.md exists and a test asserts it names keytool, key.properties, scripts/android_release_build.sh, latest.json, and the sentence that the store account is the owner's decision."
+      - "7. MIX_TEST_PARTITION=<task> mix test test/letflow/android_release_build_test.exs passes; flutter analyze is clean for apps/mobile."
+    depends_on: []
+  - id: REQ-869
+    title: "Qoimeks parity G16 part 3: the Android app reads latest.json, shows a dismissible update banner for a newer build and a banner that cannot be dismissed below minVersionCode, and shows its installed version with a check for updates"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    # impl_order: UNREGISTERED -- blocked-by: REQ-868 -- the manifest and the version define come from the release script of REQ-868
+    # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Update check in the app" (manifest read on start at most once a day; newer versionCode shows a dismissible banner with notes in the app language; below minVersionCode a banner that cannot be dismissed; tap opens the url in the browser; settings show the installed version and check for updates; a missing network or a broken manifest shows nothing on the automatic check and never blocks work; empty manifest URL turns the check off) and Qoimeks/mobile/lib/update.dart (parseManifest: versionCode int, versionName string, url non-empty string, minVersionCode int, notes map; notesFor lang else ru), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/lib/definitions/tenant_home_screen.dart (AppBar actions LanguageSwitcher), apps/mobile/lib/auth/auth.dart (non-secret pointer store, key letflow.ui_locale), apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/android/app/src/main/kotlin/com/bizdala/letflow/MainActivity.kt, apps/mobile/pubspec.yaml (dependency comment from REQ-419: no runtime package beyond the list; dio present, no url_launcher, no package_info_plus). Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks' Android app checks a release manifest and asks the operator to update (APK self-update banner,
+      manifest minVersionCode 2). Letflow's Android app has no update check and shows no version. Change in
+      apps/mobile, Android build only (the web build has neither the check nor the button). Two compile-time
+      values, both empty by default: LETFLOW_ANDROID_UPDATE_MANIFEST_URL (an empty value turns the check and the
+      button off, so a later store build cannot update itself) and LETFLOW_APP_VERSION_CODE (the installed
+      version code). scripts/android_release_build.sh of REQ-868 passes both, the URL as <base-url>latest.json
+      and the code equal to the pubspec versionCode, with --no-update-check building with an empty URL. With a
+      URL set, the app reads the manifest at start at most once in 24 hours (the time of the last check is kept
+      under a new key in the same non-secret store as letflow.ui_locale), through a plain Dio request that
+      carries no authorization header. A manifest is valid only with versionCode and minVersionCode as integers,
+      versionName as a string and url as an https URL; anything else is ignored. A versionCode above the
+      installed code shows a banner on the tenant home screen with versionName and the notes in the app's UI
+      language (else ru, else none) that the user can dismiss until the next newer versionCode; an installed
+      code below minVersionCode shows a banner without a dismiss control. A tap on either banner opens the
+      manifest url in the device browser through a small method channel in MainActivity.kt (an ACTION_VIEW
+      intent; no new package, per the pubspec dependency rule of REQ-419). The tenant home screen's app bar gets
+      a menu entry showing the installed versionName and versionCode and, with a URL set, "Check for updates",
+      which checks at once and says "You have the latest version", shows the banner, or says that the check
+      failed. A failed or invalid automatic check shows nothing; no check ever blocks a screen or a document.
+      The texts are added to app_en.arb, app_ru.arb and app_kk.arb. Size M.
+    acceptance_criteria:
+      - "1. Unit tests of the manifest parser: a manifest with the four required fields of the right types parses; a missing field, a string versionCode, an http url or a non-JSON body gives no manifest."
+      - "2. Widget tests with a fake manifest source and installed code 5: versionCode 6 with minVersionCode 1 shows a banner with a dismiss control and the ru notes when the UI language is ru; after dismissing it is not shown again for versionCode 6 and is shown for versionCode 7; versionCode 7 with minVersionCode 6 shows a banner with no dismiss control; versionCode 5 shows none."
+      - "3. A widget or unit test: a second app start within 24 hours of a successful check makes no manifest request (counted on the fake); a start 25 hours later makes one; a failing request on the automatic check shows no banner and no error text, and the home screen stays usable."
+      - "4. A widget test: with an empty LETFLOW_ANDROID_UPDATE_MANIFEST_URL, and on the web build (kIsWeb replaced by an injectable flag, the way offlineQueueEnabledProvider in apps/mobile/lib/features/stock/documents/offline_providers.dart wraps kIsWeb), no request is made and the menu shows the version without Check for updates; with a URL, Check for updates on an up-to-date manifest shows You have the latest version."
+      - "5. A test asserts the manifest request carries no Authorization header, and a tap on the banner calls the open-url method channel with the manifest url (fake channel handler)."
+      - "6. A test in test/letflow/android_release_build_test.exs: a good run of the release script passes --dart-define=LETFLOW_ANDROID_UPDATE_MANIFEST_URL=<base-url>latest.json and --dart-define=LETFLOW_APP_VERSION_CODE=<pubspec versionCode>; with --no-update-check the URL define is empty."
+      - "7. The new texts are present in app_en.arb, app_ru.arb and app_kk.arb; flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
+    depends_on: [REQ-868]
