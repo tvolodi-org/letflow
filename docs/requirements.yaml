@@ -55957,6 +55957,140 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-850
+    title: "Qoimeks parity G12 part 1: xlsx or CSV import of code_tag (barcode and QR codes received as not assigned) through the core import route, by code value"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4569
+    # Source: task T-2033 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 3b071fe84: docs/status/qoimeks-migration-readiness.md section 1.2 row G12 ("code_tag and code_assignment have no file import (pilot-rollout.md rows 11-12). The converter does not carry codes"; "Required for parity, regardless of counts") and section 5 check 5 ("Barcodes: the count per type is equal"); docs/runbooks/pilot-rollout.md "Data load" table rows 11 to 13 (File import no for code_tag, code_assignment, code_value_change) and its sentence that the column is checked against Letflow.Modules.Catalog.import_function/2 by test/letflow/pilot_rollout_runbook_test.exs; lib/letflow/modules/codes/codes.ex (manifest version 0.4.0, depends_on [], manages_entity_types, no import_functions, model rules R1 to R8, permission CodesWrite held by TENANT_ADMIN and PLATFORM_ADMIN only); lib/letflow/modules/codes/writes.ex (receive_codes/3: kinds barcode qr epc tid, valid_value?/1, refusals :value_invalid, :kind_invalid, :duplicate_in_batch, :value_taken, audit code.received, tenant advisory lock keyed by the text codes); priv/modules/codes/entity_definitions/code_tag.json (fields value, kind, status; no external_ref fields; unique constraint uq_code_tag_value); lib/letflow/modules/catalog.ex (import_function/2, call_import_function/5, validate_import_functions rule 14: an import type must be in manages_entity_types and the function exported); lib/letflow/entities/managed_import.ex (rows in file order, f(prefix, entry, ctx), dry run in one rolled-back transaction, atomic mode); lib/letflow/routers/entities/record_import.ex (base_reason_json/1: module refusals are rendered only when the atom is listed there, otherwise internal_error); lib/letflow/modules/catalog_items/import.ex (form of an import function); docs/roles.md (EntitiesRecordsImportAnyType TENANT_ADMIN only; STOREKEEPER imports only stock_opening_line; codes section). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2033/sources/qoimeks-codes-extract.md): server/internal/store/migrations/001_init.sql (skus.barcode text) and 011_codes.sql (table codes: object_type sku or location, code_type ean13 ean8 code128 qr manual, code trimmed and non-empty, one active owner per code); server/internal/importer/importer.go (optional column "Штрихкод" of the item workbook, a code already given to another article is skipped with a warning); server/internal/store/import.go importCodes (a code the SKU already has is a no-op, a code held by another object is skipped with a warning). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks parity row G12 (docs/status/qoimeks-migration-readiness.md, section 1.2). Qoimeks keeps barcodes of
+      SKUs (skus.barcode, filled from the "Штрихкод" column of the item workbook) and, on QA, a codes table of
+      barcodes and QR codes on SKUs and places. Letflow has the codes module (lib/letflow/modules/codes/codes.ex)
+      with scanning, but its three types have no file import (docs/runbooks/pilot-rollout.md rows 11 to 13), so
+      codes can only be received one call at a time. G12 is delivered in three parts, smallest first: this part
+      1, the import of code_tag; part 2 (REQ-851, planned, not yet on main), the import of code_assignment; part 3
+      (REQ-852, planned, not yet on main), the Qoimeks converter carries the codes into those two files.
+      code_value_change gets no import: Qoimeks has no value history to carry, so row 13 of the runbook stays no.
+      This part: module codes registers an import function for code_tag in its manifest import_functions (planned
+      name Letflow.Modules.Codes.import_code_tag/3, the form of import_row/3 of catalog_items), reached through the
+      core route POST /api/v1/entities/records/code_tag/import with upsert_by external_ref, dry_run and atomic
+      offered, 200 rows per file, as for every managed import. A row has the cells value and kind and the external
+      ref pair external_ref_system, external_ref_id that the route asks of every managed import row. The code is
+      identified by its value (model rule R2, value unique in the tenant over every status), not by the external
+      ref: the code_tag definition and priv/modules/codes/pack.json are unchanged (no external_ref fields are added).
+      Per row, in this order: (1) value must pass the rule of receive_codes/3 (non-empty valid text without a NUL
+      byte; a blank or absent cell fails it), else :value_invalid; kind must be one of barcode, qr, epc, tid, else :kind_invalid; (2) a code with that
+      value already in the tenant (any status) with the same kind is the outcome unchanged, nothing is written; one
+      with another kind is :value_taken, nothing is written (a code is never changed by import); (3) otherwise one
+      code_tag with status not_assigned is created and one audit entry code.received is written in the same
+      transaction, exactly as receive_codes/3 writes it, under the module's tenant advisory lock. A status cell is
+      {:field_not_allowed, "status"}: an imported code is always not_assigned. Each refusal atom is added to the rendered list of record_import.ex, so the answer
+      carries the constant type (and the header for field refusals) and never the cell text. Access is the core
+      rule, unchanged: TENANT_ADMIN (and PLATFORM_ADMIN) import code_tag, a STOREKEEPER is refused as for every type
+      other than stock_opening_line. No new route, permission or migration. The codes manifest version rises one
+      minor step above the version on origin/main at implement time (0.4.0 at the time of writing); the pack is
+      unchanged, so min_upgradable_from stays 0.1.0 and an installed codes module upgrades in place. Size S.
+      EXTRA, not in this part: a symbology sub-kind (EAN-13, EAN-8, Code 128) on code_tag; Letflow keeps one kind
+      barcode for all of them (see part 3).
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_tag\") is :ok and Letflow.Modules.Catalog.import_function(\"codes\", \"code_value_change\") is {:error, :not_found}; the codes manifest version is one minor step above the one on origin/main at implement time and min_upgradable_from is still 0.1.0; priv/modules/codes/pack.json is byte-identical to origin/main (test/letflow/modules/codes/pack_drift_test.exs passes unchanged). The codes registration tests (test/letflow/modules/codes/registration_test.exs and every pin the version change moves) are updated and pass."
+      - "2. Happy path, through the real import route (as test/letflow/modules/stock/opening_import_test.exs drives an import): a TENANT_ADMIN of a tenant with the codes module installed imports a CSV file of three rows under system S: value 4870001112223 kind barcode, value QR-0001 kind qr, value 2000000000015 kind barcode; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 for each value returns the code with that kind and status not_assigned; exactly three audit entries code.received are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Conflict and refusals, each a separate row of one file, nothing written for a refused row and no audit entry for it: a row with value 4870001112223 and kind qr after criterion 2 gives value_taken; a row with a blank value cell (a blank CSV cell has no key) gives value_invalid; a row with kind ean13 gives kind_invalid; a row with a status cell gives field_not_allowed with header status. Each refusal in the answer has the constant type, and none echoes the cell value (the test asserts the value text does not occur in the response body)."
+      - "4. Dry run and atomic: a dry run (dry_run=true) of the criterion 2 file on an empty tenant reports three created rows and leaves the code_tag count at 0 and writes no audit entry; an atomic import (atomic=true) of a file with one good row and one row giving kind_invalid writes nothing."
+      - "5. Access: a STOREKEEPER's import of a code_tag file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "6. Tenant isolation (INV-1): in a test with two tenants A and B, a code value imported in tenant A is created as a new code in tenant B by the same file (not unchanged, not value_taken); the code_tag count of A is unchanged by the import into B."
+      - "7. Docs in step: docs/runbooks/pilot-rollout.md row 11 (code_tag) says File import yes and how it comes in (xlsx import, dry run first), rows 12 and 13 stay no, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and the rules of the description. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-648, REQ-651, REQ-663, REQ-667]
+  - id: REQ-851
+    title: "Qoimeks parity G12 part 2: xlsx or CSV import of code_assignment (a code value assigned to an item, a lot or a place named by external id) through the core import route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4568
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: lib/letflow/modules/codes/writes.ex (assign_code/5: targets location_node, catalog_item, catalog_lot; refusals in order :code_not_found, :code_assigned, :code_retired, :target_type_not_allowed, :target_not_found, :target_inactive, :assignment_conflict; audit code.assigned; rule R4 kept by the advisory lock); priv/modules/codes/entity_definitions/code_assignment.json (fields code_id, target_type, target_id, assigned_at, assigned_by required, released_at, released_by); lib/letflow/modules/read_api.ex (lookup_by_external_ref/5 reads external_ref_system and external_ref_id of field_values for a list of types; codes already reads targets through ReadApi.lookup/3, so no depends_on entry is needed, Rule 4 of lib/mix/tasks/letflow.check_boundaries.ex); priv/modules/catalog_items/entity_definitions/catalog_item.json, catalog_lot.json and priv/modules/locations/entity_definitions/location_node.json (each has external_ref_system and external_ref_id); lib/letflow/routers/entities/record_import.ex (base_reason_json/1 renders {:reference_not_found, field} and {:reference_inactive, field} with the header). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): a code points at one SKU or one location; a code the object already has is a no-op; a code held by another object is skipped with a warning (server/internal/store/import.go importCodes). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of parity row G12 (part 1 is REQ-850, planned, not yet on main). Qoimeks codes point at a SKU or a
+      place; Letflow keeps that link as an open code_assignment (model rule R4: at most one open assignment per
+      code). This part: module codes registers an import function for code_assignment (planned name
+      Letflow.Modules.Codes.import_code_assignment/3) in its manifest import_functions, reached through the core
+      route POST /api/v1/entities/records/code_assignment/import with upsert_by external_ref, dry_run and atomic, 200
+      rows per file. A row has the cells code_id, target_type, target_id and the external ref pair. Reference cells
+      follow the rule of the other module imports, adapted to codes: code_id holds the VALUE of a code of this
+      tenant (the code has no external id, part 1); target_id holds the external id of the target under the row's
+      own external ref system. Per row, in this order: (1) a cell assigned_at, assigned_by, released_at or
+      released_by is {:field_not_allowed, field} (the function sets assigned_at to the server time and assigned_by to
+      the importing actor, as assign_code/5 does); (2) target_type must be location_node, catalog_item or
+      catalog_lot, else :target_type_not_allowed; (3) no live code with that value is {:reference_not_found,
+      "code_id"}; (4) no live record of target_type with that external ref in the tenant (a soft-deleted target counts as none, and so
+      does a record id given instead of an external id) is {:reference_not_found, "target_id"}, a target with active
+      false is {:reference_inactive, "target_id"}; (5) a retired code is :code_retired; a code whose open
+      assignment names this same target is the outcome unchanged, nothing written; a code whose open assignment
+      names another record is :code_assigned (Qoimeks skips such a code with a warning: here the row is refused and
+      the other rows of a non-atomic import go on); (6) otherwise the code is assigned exactly as assign_code/5 does
+      (one open code_assignment row, the code_tag status assigned, one audit entry code.assigned, same transaction,
+      same advisory lock). No release, retire or value change by import. Field names in refusals are constants,
+      never cell text; every new refusal atom is added to the rendered list of record_import.ex. Access, route,
+      permission, migration and pack rules as in part 1 (TENANT_ADMIN imports, a STOREKEEPER is refused; the codes
+      manifest version rises one minor step above origin/main at implement time; pack.json unchanged). Size S to M.
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_assignment\") is :ok; the codes manifest version is one minor step above the one on origin/main at implement time; priv/modules/codes/pack.json is byte-identical to origin/main; the codes registration tests and every pin the version change moves are updated and pass."
+      - "2. Happy path, through the real import route: in a tenant with an active catalog_item I1 (external ref S/ITEM-1), an active location_node P1 (S/LOC-1) and an active catalog_lot L1 (S/LOT-1), and three not_assigned codes with values V1, V2, V3 received through part 1, a TENANT_ADMIN imports a CSV file of three rows under system S assigning V1 to catalog_item ITEM-1, V2 to location_node LOC-1 and V3 to catalog_lot LOT-1; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 of V1, V2, V3 returns status assigned and the record ids of I1, P1 and L1; exactly three audit entries code.assigned are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Refusals, each a separate row of one file, nothing written and no audit entry for a refused row: a value that names no code gives reference_not_found with header code_id; an item external id that names nothing gives reference_not_found with header target_id; the record id of I1 in target_id gives reference_not_found with header target_id; a target whose active is false gives reference_inactive with header target_id; target_type org_unit gives target_type_not_allowed; a retired code gives code_retired; V1 assigned to location_node LOC-1 after criterion 2 gives code_assigned; a row with an assigned_by cell gives field_not_allowed with header assigned_by. No response body contains a cell value of a refused row."
+      - "4. Rule R4 holds: after criterion 3 every code has at most one code_assignment row with released_at empty (a query over the tenant's code_assignment rows in the test)."
+      - "5. Dry run and atomic: a dry run of the criterion 2 file reports three created rows and writes nothing (the code statuses stay not_assigned, no audit entry); an atomic import of one good row and one row giving reference_not_found writes nothing."
+      - "6. Access: a STOREKEEPER's import of a code_assignment file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "7. Tenant isolation (INV-1): in a test with two tenants A and B, a code_assignment file imported in tenant B whose code values and target external ids exist only in tenant A gives reference_not_found with header code_id for every row; the code_assignment counts of both schemas are unchanged."
+      - "8. Docs in step: docs/runbooks/pilot-rollout.md row 12 (code_assignment) says File import yes, imported after code_tag and after the masters it names, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and its rules. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-850, REQ-663, REQ-651]
+  - id: REQ-852
+    title: "Qoimeks parity G12 part 3: the Qoimeks converter carries each SKU's barcode (the Штрихкод column) and the Qoimeks codes of SKUs and places into a codes file and a code-assignments file, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4567
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: scripts/pilot/qoimeks_convert.py (NEEDED columns, read_csv with --mapping, MAX_ROWS = 200, constant drop reasons, emit and manifest upload_order, expected_counts.txt keys records.<type>, report.txt without cell text, exit 3 on drops unless --allow-drops); scripts/pilot/qoimeks_compare.sh (an absent key of the snapshot counts as 0); docs/runbooks/qoimeks-rehearsal.md (table "Does the stock module accept the same files?", steps 1 to 6, "Repeating"); test/scripts/qoimeks_rehearsal_test.exs (CV-1 to CV-9); test/letflow/modules/stock/qoimeks_files_test.exs (pushes converted files through the real import routes; installs org, catalog_items, locations and codes). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): skus.barcode from the optional "Штрихкод" column, a code given to a second article is skipped and the first keeps it (server/internal/importer/importer.go); table codes with object_type sku or location, code_type ean13, ean8, code128, qr, manual, code trimmed, active rows are those with removed_at empty (server/internal/store/migrations/011_codes.sql). docs/status/qoimeks-migration-readiness.md section 5 check 5 ("Barcodes: the count per type is equal"). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 3 of parity row G12 (parts 1 and 2 are REQ-850 and REQ-851, planned, not yet on main). The T-1616
+      converter (scripts/pilot/qoimeks_convert.py) reads items.csv with sku, sku_name, unit and drops every
+      barcode, so the move loses them. This part, inputs: (a) items.csv may carry an optional neutral column barcode
+      (Qoimeks skus.barcode, the "Штрихкод" column), nameable through --mapping like every other column; a blank
+      cell is no code; (b) an optional extract codes.csv with the columns object_type (sku or location), object_code
+      (the SKU code or the place code), code_type (ean13, ean8, code128, qr or manual) and code, holding the
+      active rows of the Qoimeks codes table; the converter works without it. Rules: each code is trimmed; kind is
+      qr for code_type qr and barcode for every other code_type and for the barcode column (Letflow's kinds are
+      barcode, qr, epc, tid; the EAN sub-type is not kept, see EXTRA in REQ-850); the same code given twice to the
+      same object is one code, not a drop. Constant drop reasons, row numbers only, no cell text: code_invalid (a
+      space or control character inside the trimmed code, the Qoimeks rule), code_type_unknown,
+      code_object_type_unknown, code_unknown_item (the SKU is not among the converted items), code_unknown_location
+      (the place is not among the converted locations), code_taken (the code was already given to another object:
+      the first in the order items.csv rows, then codes.csv rows keeps it, as the Qoimeks importer keeps the first
+      article). Outputs, only when at least one code survives: 06-codes-NN.xlsx (entity type code_tag, columns
+      value, kind, external_ref_system, external_ref_id, where external_ref_id is the code value) and
+      07-code-assignments-NN.xlsx (entity type code_assignment, columns code_id, target_type, target_id,
+      external_ref_system, external_ref_id, where code_id is the code value, target_type catalog_item for a SKU and
+      location_node for a place, target_id the SKU code or the place code, which are the external ids the converter
+      already gives items and locations, and external_ref_id the code value), 200 rows per file. manifest.json upload_order keeps REQ-842's rule for
+      05-item-places (right after the last 03-items file) and lists the 06-codes files right after the last
+      05-item-places file (right after the last 03-items file when no 05 file is written), then the 07-code-assignments
+      files, all before the first 04-opening-lines file. expected_counts.txt and report.txt always gain the two lines
+      records.code_assignment N and records.code_tag N (N the number of surviving codes, 0 when none), in the sorted
+      order of the existing count lines; report.txt gains no other line when no code survives. Runbook
+      docs/runbooks/qoimeks-rehearsal.md: the table gains the rows for code_tag and code_assignment (with their
+      importers and columns), step 1 names the optional barcode column and codes.csv, step 3 uploads the 06 and 07
+      code files after the 05 item-places files (after the items when there are none), "Repeating" says they come back unchanged. Converter stays file-only: no network, no
+      database, --out inside the checkout refused. QA only, no real client data in tests or git (D-050). Note:
+      REQ-842 (on main, gh: 4553) also extends items.csv (home_loc, alt_loc) and writes 05-item-places-NN.xlsx;
+      this part keeps those columns and that file as they are and takes the file numbers 06 and 07. Size S to M.
+    acceptance_criteria:
+      - "1. Barcode column (a test in test/scripts/qoimeks_rehearsal_test.exs in the form of CV-1): items.csv with three converted SKUs A, B, C where A has barcode 4870001112223, B has a blank barcode and C has barcode QR-7 writes 06-codes-01.xlsx with exactly the header value, kind, external_ref_system, external_ref_id and two rows (4870001112223 barcode; QR-7 barcode) and 07-code-assignments-01.xlsx with exactly the header code_id, target_type, target_id, external_ref_system, external_ref_id and two rows (4870001112223 catalog_item A; QR-7 catalog_item C); expected_counts.txt has records.code_tag 2 and records.code_assignment 2; manifest.json upload_order lists 06-codes-01.xlsx right after the last 05-item-places file (or right after the last 03-items file when the input has no places columns), 07-code-assignments-01.xlsx right after it, and both before the first 04-opening-lines file. An items.csv without a barcode column and no codes.csv writes neither file; expected_counts.txt and report.txt each differ from the output of the converter on origin/main for the same input only by the two added lines 'records.code_assignment 0' and 'records.code_tag 0'; every xlsx file and manifest.json are byte-identical to that output."
+      - "2. codes.csv: rows sku A ean13 4870001112223 (the same code as A's barcode), sku B qr QR-B, location L1 code128 LOC-L1 give one code for A (not a drop), a qr code for B and a barcode for place L1 assigned with target_type location_node and target_id L1."
+      - "3. Drops, each with its constant reason and the input row number in report.txt and no cell text (the test asserts the code text does not occur in report.txt): a code with an inner space (code_invalid); code_type ean14 (code_type_unknown); object_type pallet (code_object_type_unknown); a SKU not among the converted items (code_unknown_item); a place not among the converted locations (code_unknown_location); a code given to SKU B after SKU A holds it (code_taken, A keeps it). The exit code is 3 without --allow-drops and 0 with it; the codes file holds only the surviving codes."
+      - "4. Splitting: 201 surviving codes write 06-codes-01.xlsx with 200 rows and 06-codes-02.xlsx with 1 row, and the same split for the 07-code-assignments files."
+      - "5. Real routes: test/letflow/modules/stock/qoimeks_files_test.exs pushes the converted code files of a fixture with item and place codes through the real import routes after the masters: every row is created, a second upload of the same files reports every row unchanged, and Letflow.Modules.Codes.resolve/2 of each code returns status assigned and the record id of its SKU's catalog_item or its place's location_node."
+      - "6. Docs in step: docs/runbooks/qoimeks-rehearsal.md has the two new table rows, the optional barcode column and codes.csv in step 1, the upload of the code files in step 3 and the unchanged re-upload in Repeating; the module docstring of scripts/pilot/qoimeks_convert.py lists the new inputs and outputs; the tests named here pass when run by path and mix letflow.check.static passes."
+    depends_on: [REQ-850, REQ-851]
   - id: REQ-853
     title: "Qoimeks parity G5 part 1: the ledger core accepts an optional expected on-hand quantity on a posting leg and refuses the posting with balance_changed when the locked balance differs"
     owner: ELIXIR-DEV
