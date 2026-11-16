@@ -150,7 +150,7 @@ export function ReportProblemDialog({
       ref={panelRef}
       className="lf-report__panel"
       data-testid="report-dialog"
-      role="dialog"
+      role="complementary"
       aria-labelledby="report-panel-title"
       aria-busy={busy || undefined}
       onKeyDown={onKeyDown}

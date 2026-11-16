@@ -241,7 +241,7 @@ describe('side panel (T-2020)', () => {
     const onClose = mount()
     const panel = screen.getByTestId('report-dialog')
     expect(panel.parentElement).toBe(document.body)
-    expect(panel).toHaveAttribute('role', 'dialog')
+    expect(panel).toHaveAttribute('role', 'complementary')
     expect(panel).not.toHaveAttribute('aria-modal')
     expect(screen.queryByTestId('report-dialog-scrim')).toBeNull()
     expect(panel).toHaveClass('lf-report__panel')
