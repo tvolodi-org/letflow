@@ -87,14 +87,16 @@ defmodule Letflow.Modules.Codes.ImportTest do
   ]
 
   describe "I1 registration" do
-    test "code_tag has an import function, code_value_change has none, pack and floor unchanged" do
+    test "code_tag and code_assignment have an import function, code_value_change has none, pack and floor unchanged" do
       assert Catalog.import_function("codes", "code_tag") == :ok
+      assert Catalog.import_function("codes", "code_assignment") == :ok
       assert Catalog.import_function("codes", "code_value_change") == {:error, :not_found}
-      assert Codes.manifest().version == "0.5.0"
+      assert Codes.manifest().version == "0.6.0"
       assert Codes.manifest().min_upgradable_from == "0.1.0"
 
       assert Codes.manifest().import_functions == [
-               %{entity_type: "code_tag", function: :import_code_tag}
+               %{entity_type: "code_tag", function: :import_code_tag},
+               %{entity_type: "code_assignment", function: :import_code_assignment}
              ]
     end
   end

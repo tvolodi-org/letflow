@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -55,11 +57,34 @@ android {
         manifestPlaceholders["platformHost"] = platformHost
     }
 
+    // REQ-868: the release build is signed with the upload key described in
+    // android/key.properties (git-ignored; keys storeFile, storePassword, keyAlias,
+    // keyPassword). There is no fallback to the debug key.
+    val keystoreFile = rootProject.file("key.properties")
+    val keystoreProps = Properties()
+    if (keystoreFile.exists()) {
+        keystoreFile.inputStream().use { keystoreProps.load(it) }
+    }
+    val releaseRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+    if (releaseRequested && !keystoreFile.exists()) {
+        throw GradleException(
+            "Release build needs android/key.properties (storeFile, storePassword, keyAlias, keyPassword); " +
+                "see docs/runbooks/mobile-android-release.md",
+        )
+    }
+
+    signingConfigs {
+        create("release") {
+            keystoreProps.getProperty("storeFile")?.let { storeFile = file(it) }
+            storePassword = keystoreProps.getProperty("storePassword")
+            keyAlias = keystoreProps.getProperty("keyAlias")
+            keyPassword = keystoreProps.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

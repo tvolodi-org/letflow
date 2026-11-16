@@ -38,7 +38,19 @@ defmodule Letflow.Modules.Codes do
   every managed import). A code is identified by its value, not by an external ref: a new value creates a
   `not_assigned` code and one `code.received` audit entry as `receive_codes/3` does; the same value with the
   same kind is unchanged; the same value with another kind is `value_taken`; a `status` cell is
-  `field_not_allowed`. `code_assignment` and `code_value_change` have no import.
+  `field_not_allowed`. `code_value_change` has no import.
+
+  ## Assignment import (G12 part 2, GH #4568 / REQ-851, version 0.6.0)
+
+  `code_assignment` has an import function (`import_code_assignment/3`,
+  `Letflow.Modules.Codes.ImportAssignment`) reached through
+  `POST /api/v1/entities/records/code_assignment/import`. A row names the code by its VALUE (`code_id`)
+  and the target (`location_node`, `catalog_item`, `catalog_lot`) by its external id under the row's own
+  external ref system (`target_id`). Refusals in order: a server-set cell (`assigned_at`, `assigned_by`,
+  `released_at`, `released_by`) is `field_not_allowed`; `target_type_not_allowed`; an unknown code or
+  target is `reference_not_found` (header `code_id` or `target_id`); an inactive target is
+  `reference_inactive`; `code_retired`; a code already open on the same target is unchanged; on another
+  record `code_assigned`. Otherwise it assigns exactly as `assign_code/5` does. No release or retire by import.
 
   ## Scope (D-067, decision 0051 M4)
 
@@ -79,9 +91,9 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.5.0",
+    version: "0.6.0",
     # REQ-770: step-less module, every version since 0.1.0 differs only in permissions and routes
-    # (entity types and pack.json are unchanged), so any 0.1.0..0.5.0 install upgrades in place (T-1485).
+    # (entity types and pack.json are unchanged), so any 0.1.0..0.6.0 install upgrades in place (T-1485).
     min_upgradable_from: "0.1.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
@@ -104,7 +116,10 @@ defmodule Letflow.Modules.Codes do
       "code_assignment" => :tenant_wide,
       "code_value_change" => :tenant_wide
     },
-    import_functions: [%{entity_type: "code_tag", function: :import_code_tag}]
+    import_functions: [
+      %{entity_type: "code_tag", function: :import_code_tag},
+      %{entity_type: "code_assignment", function: :import_code_assignment}
+    ]
   )
 
   @doc """
@@ -115,6 +130,15 @@ defmodule Letflow.Modules.Codes do
           {:ok, map()} | {:error, term()}
   def import_code_tag(prefix, entry, ctx),
     do: Letflow.Modules.Codes.Import.row(prefix, entry, ctx)
+
+  @doc """
+  The import function of `code_assignment` (G12 part 2, GH #4568 / REQ-851, manifest `:import_functions`):
+  one row of a file, called by the core import route. See `Letflow.Modules.Codes.ImportAssignment`.
+  """
+  @spec import_code_assignment(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_code_assignment(prefix, entry, ctx),
+    do: Letflow.Modules.Codes.ImportAssignment.row(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Codes.Router
