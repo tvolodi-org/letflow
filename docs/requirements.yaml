@@ -56653,6 +56653,109 @@ requirements:
       - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
       - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
     depends_on: [REQ-847]
+  - id: REQ-872
+    title: "Qoimeks parity G19 part 1: a My reports screen where every signed-in user, a storekeeper without admin rights included, sees the status of each problem report it sent"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4586
+    # Source: task T-2038 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md row G19, design docs/design/platform-maintenance.md sections 1.2, 8 and 10 (slice 4 "the reporter's own report screen remains part B").
+    description: >
+      Qoimeks (inventory row "Feedback «Сообщить о проблеме» / web «Отзывы», Markdown export", 0 rows used at
+      2026-10-29) lets any user send feedback and see the feedback list in the web page «Отзывы». Letflow already
+      has the sending half: the top-bar button "Report a problem" (web/src/components/layout/ReportProblemButton.tsx,
+      not permission-gated, rendered by web/src/components/layout/AppShell.tsx, which wraps every signed-in screen)
+      posts to POST /api/v1/me/problem-reports (lib/letflow/routers/me.ex, permission MyPreferencesSet), and the
+      reporter's own list exists on the server as GET /api/v1/me/problem-reports (lib/letflow/routers/me.ex,
+      permission MyAccessRead, Letflow.ProblemReports.list_mine/2 in lib/letflow/problem_reports.ex: newest 50 of
+      the caller's own reports, fields id, number, status, question, reply_text, text, received_at, decided_at,
+      plus has_more). docs/roles.md grants MyAccessRead and MyPreferencesSet to every role, STOREKEEPER included.
+      What is missing is the screen: web/src/api/problemReports.ts has only submit, and no route of
+      web/src/router.tsx shows the list (docs/design/platform-maintenance.md section 8 "A My reports page lists
+      them"; section 10 slice 4 "the reporter's own report screen remains part B"). This slice adds that screen at
+      the web path /me/problem-reports (planned, not yet on main), not wrapped in RequirePermission or
+      platformPage, reached from a link in the "Report a problem" dialog's receipt and from a top-bar link placed
+      next to the existing /me/settings link (data-testid topbar-my-settings) in AppShell.tsx. Status labels reuse the existing texts
+      problemReports.status.* of web/src/pages/admin/problem-reports/problemReportsMessages.ts (en, ru, kk). No
+      backend change apart from the one router test of criterion 1; no new permission, route or table. Size S.
+    acceptance_criteria:
+      - "1. A new test in test/letflow/routers/me_problem_reports_test.exs: a caller holding only STOREKEEPER (the existing caller! helper with [\"STOREKEEPER\"]) gets 201 on POST /me/problem-reports with consent true, and its GET /me/problem-reports then answers 200 with that report's number and status received; a second STOREKEEPER user of the same company gets an empty list."
+      - "2. A component test of the new screen with a fake API: given a list holding one report in each status (received, in_work with question true, answered, fixed, not_done) it shows one row per report with its number, received date, the status label from problemReports.status.* in the session language, the text, and the reply text only for the rows where the server sent reply_text; the in_work row with question true shows the owner's question."
+      - "3. The same test: an empty list shows an empty state that names the Report a problem button; a 503 answer shows an unavailable message and no rows; has_more true shows a line saying only the newest 50 are listed."
+      - "4. A routing test renders /me/problem-reports for a session whose only role is STOREKEEPER and for one whose only role is CANDIDATE: the screen is shown (not the no-permission page) and the list request goes to /api/v1/me/problem-reports."
+      - "5. A test of ReportProblemDialog: after a 201 the receipt shows a link to /me/problem-reports; a test of AppShell shows the My reports top-bar link to /me/problem-reports next to the topbar-my-settings link for a STOREKEEPER-only and a TENANT_ADMIN session."
+      - "6. Labels exist in en, ru and kk; npm run check passes in web/; the shot matrix of the design-system skill (1440 and 390, light and dark, en, ru, kk) covers the list, the empty state and the unavailable state."
+    depends_on: []
+  - id: REQ-873
+    title: "Qoimeks parity G19 part 2: Markdown download of the user's own problem reports on My reports and of one report in the owner inbox"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4585
+    # Source: task T-2038, as REQ-872; Qoimeks layout copied below from Qoimeks server/internal/api/feedback.go (read only, outside this repository).
+    description: >
+      Qoimeks exports feedback as a Markdown file for handing to the developer (route GET /api/feedback/export.md,
+      quoted in docs/design/platform-maintenance.md section 1.2). Its renderer feedbackMarkdown (Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository) writes a title line "# Отзывы", a line
+      "Записей: N", then per row a heading "## #id · kind · created_at UTC", a list of facts, the text, and the
+      errors; the file is sent as "text/markdown; charset=utf-8" with the name feedback-YYYY-MM-DD.md. This slice
+      gives Letflow the same file in the browser, built on the client from data the screens already load, with no
+      new route: (a) on My reports (REQ-872, path /me/problem-reports, planned, not yet on main) a "Download as
+      Markdown" button saves the listed reports (at most the 50 the list route returns) as
+      problem-reports-YYYY-MM-DD.md; (b) in the owner inbox web/src/pages/admin/problem-reports/ProblemReportsPage.tsx
+      the detail of one report (GET /api/v1/platform-problem-reports/:id, lib/letflow/routers/platform_problem_reports.ex,
+      fields of the detail map in Letflow.ProblemReports.Inbox in lib/letflow/problem_reports/inbox.ex) gets the same
+      button and saves <number>.md. One formatter module, web/src/lib/problemReport/markdown.ts (planned, not yet on
+      main), renders both. Layout, in the session language (en, ru, kk): a title line, a line with the report
+      count, then per report a heading "## <number> · <status label> · <received_at in UTC, YYYY-MM-DD HH:MM:SS UTC>",
+      a list of facts, the report text, and the reply. Own export facts: status, received, decided. Owner export
+      facts: status, received, decided, company name, reporter name, roles, server version, trace id, image count;
+      the captured context as a fenced json block; never the reporter's permission list, tenant id, user id,
+      decided_by_user_id or the image bytes. Free text (report text, reply, context) is put inside a fenced code block whose backtick fence is
+      longer than the longest run of backticks in that text, so a report cannot add headings or links to the file
+      (Qoimeks replaced backticks inside error lines for the same reason). EXTRA over Qoimeks: the reporter can
+      export its own reports, and the export is in three languages. Size S.
+    acceptance_criteria:
+      - "1. Unit tests of markdown.ts: two reports give a file that starts with the title line and a count line of 2, then two headings in the given order with the number, the status label and the UTC time in the format YYYY-MM-DD HH:MM:SS UTC; an empty list gives the title and a count of 0 only."
+      - "2. Unit test: a report text holding a line \"## forged\" and a run of three backticks is rendered inside a fence of four backticks, and the file has exactly one level-2 heading per report."
+      - "3. Unit test of the owner form: the output holds company name, reporter name, roles, server version, trace id and image count, and does not hold the reporter's tenant id, user id or any permission name from the detail fixture."
+      - "4. Labels in en, ru and kk: a test renders the same two reports with each language and finds that language's title and status labels (the status labels are the problemReports.status.* texts)."
+      - "5. Component tests: on My reports the button saves one Blob of type text/markdown;charset=utf-8 named problem-reports-YYYY-MM-DD.md from the loaded list (no extra request is sent, asserted on the fake API); in the owner inbox the detail's button saves <number>.md; the button is disabled while the list or the detail is loading."
+      - "6. npm run check passes in web/; shots (design-system matrix) of My reports and the owner detail with the button."
+    depends_on: [REQ-872]
+  - id: REQ-874
+    title: "Qoimeks parity G19 part 3: Markdown export of the owner inbox list of problem reports, one file for the chosen status filter"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4584
+    # Source: task T-2038, as REQ-872 and REQ-873.
+    description: >
+      Qoimeks hands the whole feedback list to the developer as one Markdown file (GET /api/feedback/export.md; its
+      handler feedbackExport reads at most maxFeedbackLimit = 1000 newest rows, Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository; headers Content-Type
+      "text/markdown; charset=utf-8", Content-Disposition attachment, Cache-Control no-store). In Letflow the owner
+      of that handoff is the platform company's owner inbox (lib/letflow/routers/platform_problem_reports.ex,
+      permission ProblemReportsManage, platform scope, granted to PLATFORM_ADMIN only per docs/roles.md). Its list
+      route GET /api/v1/platform-problem-reports (Letflow.ProblemReports.Inbox.list/1 in
+      lib/letflow/problem_reports/inbox.ex) pages at most 100 summaries with a 140-character text preview, so the
+      client cannot build a full-list file from it. This slice adds GET /api/v1/platform-problem-reports/export.md
+      in the same router, declared before the /:id route, permission ProblemReportsManage, query status
+      (open, closed or all, the same filter as the list route, default open) and lang (en, ru or kk, default ru,
+      as Qoimeks). It reads only class problem rows of the platform schema, newest first, at most 1000 (the Qoimeks
+      cap), and renders them with an Elixir renderer whose layout is the owner form of REQ-873 (planned, not yet on
+      main), with the same fencing rule for free text and the same excluded fields. The owner inbox screen
+      web/src/pages/admin/problem-reports/ProblemReportsPage.tsx gets a "Download list as Markdown" button that
+      calls the route with the current filter and the session language. Route-count and scope-inventory pins move
+      (grep __authz_routes__ and the platform route lists in test/). Size S to M.
+    acceptance_criteria:
+      - "1. Router tests in test/letflow/routers/platform_problem_reports_test.exs: a platform administrator of the platform tenant gets 200 with content-type text/markdown; charset=utf-8, content-disposition attachment with filename problem-reports-YYYY-MM-DD.md, and cache-control no-store; the body has one level-2 heading per class problem report of the chosen filter, newest first, and none for a class review row."
+      - "2. Refusals as the existing P1 P2 P3 test does: a TENANT_ADMIN of a customer company and a PLATFORM_ADMIN outside the platform tenant get the same refusal as on GET /platform-problem-reports, and the body names no report number."
+      - "3. status=closed lists only answered, fixed and not_done reports; status=bogus and lang=xx answer 400 as the list route answers an invalid filter (Response.bad_request in respond/3); with 1001 reports only the newest 1000 are in the file (the count line says 1000)."
+      - "4. A unit test of the renderer: a text holding \"## forged\" and three backticks is inside a four-backtick fence; the file holds no reporter tenant id, user id or permission name; lang=en, ru and kk each give that language's title line."
+      - "5. GET /platform-problem-reports/export.md is not answered by the /:id route (a test asserts 200 and a Markdown body, not the 404 of an unknown id); with the platform pin unset it answers 503 as the list route does."
+      - "6. A web component test: the button sends the current status filter and the session language to the route and saves the answer; npm run check passes in web/; mix letflow.check.static passes."
+    depends_on: [REQ-873]
   - id: REQ-867
     title: "Qoimeks parity G16 part 1: the PWA entry file names its scripts with ?v=<build sha> next to the no-cache rule, and the hosting runbook gives the install and update steps on iPhone and Android"
     owner: MOBILE-DEV
