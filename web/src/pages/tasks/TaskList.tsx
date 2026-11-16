@@ -8,6 +8,7 @@ import type { ReferenceType } from '@/lib/references/referenceLabel'
 import { formatDateTimeInZone } from '@/i18n/format'
 import { TASKS_TIME_ZONE } from './taskTimeZone'
 import { actionKind, ageText, fill } from './taskInboxModel'
+import { fromSide, hasTwoSides, toSide } from './taskParties'
 import type { TaskContext } from './useTaskDocument'
 import type { TaskMessages } from './taskMessages'
 
@@ -25,6 +26,8 @@ export interface TaskListProps {
   label: (type: ReferenceType, id: string | null | undefined) => string
   assigneeText: (t: Task) => string
 }
+
+const fill2 = (t: string, from: string, to: string) => t.replace('{from}', from || '—').replace('{to}', to || '—')
 
 /** "2 lines: first line" summary: item, quantity and unit of the first line, then how many more. */
 function linesSummary(ctx: TaskContext | null | undefined, m: TaskMessages, label: TaskListProps['label'], locale: string): string {
@@ -58,6 +61,7 @@ export function TaskList(p: TaskListProps) {
             const where = [p.label('org_unit', doc?.orgUnitId), p.label('location_node', doc?.locationId ?? doc?.fromLocationId ?? doc?.locationIds[0])]
               .filter((x) => x !== '')
               .join(' · ')
+            const parties = doc && hasTwoSides(doc) ? fill2(m.fromTo, fromSide(doc, p.label), toSide(doc, p.label)) : ''
             const issuer = ctx?.issuerId ? (ctx.issuerLabel ?? (ctx.issuerId === p.userId ? p.refMsg.you : p.refMsg.anotherUser)) : ''
             const selected = p.selectedId === task.id
             const summary = linesSummary(ctx, m, p.label, p.locale)
@@ -89,6 +93,7 @@ export function TaskList(p: TaskListProps) {
                     {subjectWords.length > 0 ? <><code className="mono">{number}</code> - {subjectWords.join(' - ')}</> : number}
                   </div>
                   {where !== '' && <div className="lf-muted">{where}</div>}
+                  {parties !== '' && <div className="lf-muted" data-testid="task-parties">{parties}</div>}
                   {summary !== '' && <div className="lf-muted" data-testid="task-lines-summary">{summary}</div>}
                   {task.assignee_ref && (
                     <div className="lf-muted">

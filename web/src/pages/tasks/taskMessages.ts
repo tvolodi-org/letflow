@@ -53,6 +53,12 @@ export interface TaskMessages {
   location: string
   from: string
   to: string
+  /** Totals row under the lines (T-2019). */
+  totalQuantity: string
+  responsible: string
+  totalLines: string
+  /** Row of a two-sided document: "From -> to". */
+  fromTo: string
   note: string
   plannedPeriod: string
   taskForm: string
@@ -89,7 +95,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     documentHeading: 'Document', documentUnavailable: 'Document not available', openDocument: 'Open in the documents list', linesHeading: 'Lines',
     colItem: 'Item', colUnit: 'Unit', colLot: 'Lot', colQuantity: 'Quantity',
     definition: 'Process', correlation: 'Correlation key', created: 'Created', number: 'Number', kind: 'Kind', state: 'State', states: { draft: 'Draft', issued: 'Issued', posted: 'Posted', reversed: 'Reversed', cancelled: 'Cancelled' },
-    orgUnit: 'Org unit', location: 'Location', from: 'From', to: 'To', note: 'Note', plannedPeriod: 'Planned period',
+    orgUnit: 'Org unit', location: 'Location', from: 'From', to: 'To', totalQuantity: 'Total quantity', responsible: 'Material responsible', totalLines: 'Lines', fromTo: 'From {from} to {to}', note: 'Note', plannedPeriod: 'Planned period',
     taskForm: 'Task form', reviewedOne: 'Reviewed document: ', reviewedMany: 'Reviewed documents: ',
     sod: {
       approve: 'A different person must approve this document.',
@@ -129,7 +135,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     documentHeading: 'Документ', documentUnavailable: 'Документ недоступен', openDocument: 'Открыть в списке документов', linesHeading: 'Строки',
     colItem: 'Номенклатура', colUnit: 'Ед. изм.', colLot: 'Партия', colQuantity: 'Количество',
     definition: 'Процесс', correlation: 'Ключ корреляции', created: 'Создана', number: 'Номер', kind: 'Вид', state: 'Состояние', states: { draft: 'Черновик', issued: 'Оформлен', posted: 'Проведён', reversed: 'Сторнирован', cancelled: 'Отменён' },
-    orgUnit: 'Подразделение', location: 'Место', from: 'Откуда', to: 'Куда', note: 'Примечание', plannedPeriod: 'Плановый период',
+    orgUnit: 'Подразделение', location: 'Место', from: 'Откуда', to: 'Куда', totalQuantity: 'Общее количество', responsible: 'Материально ответственный', totalLines: 'Строк', fromTo: 'От {from} к {to}', note: 'Примечание', plannedPeriod: 'Плановый период',
     taskForm: 'Форма задачи', reviewedOne: 'Проверенный документ: ', reviewedMany: 'Проверенные документы: ',
     sod: {
       approve: 'Этот документ должен утвердить другой человек.',
@@ -169,7 +175,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     documentHeading: 'Құжат', documentUnavailable: 'Құжат қолжетімсіз', openDocument: 'Құжаттар тізімінде ашу', linesHeading: 'Жолдар',
     colItem: 'Номенклатура', colUnit: 'Өлшем бірлігі', colLot: 'Партия', colQuantity: 'Саны',
     definition: 'Процесс', correlation: 'Корреляция кілті', created: 'Құрылған', number: 'Нөмірі', kind: 'Түрі', state: 'Күйі', states: { draft: 'Жоба', issued: 'Рәсімделген', posted: 'Өткізілген', reversed: 'Сторнолған', cancelled: 'Бас тартылған' },
-    orgUnit: 'Бөлімше', location: 'Орын', from: 'Қайдан', to: 'Қайда', note: 'Ескертпе', plannedPeriod: 'Жоспарлы кезең',
+    orgUnit: 'Бөлімше', location: 'Орын', from: 'Қайдан', to: 'Қайда', totalQuantity: 'Жалпы саны', responsible: 'Материалдық жауапты', totalLines: 'Жолдар', fromTo: 'Қайдан {from} қайда {to}', note: 'Ескертпе', plannedPeriod: 'Жоспарлы кезең',
     taskForm: 'Тапсырма формасы', reviewedOne: 'Тексерілген құжат: ', reviewedMany: 'Тексерілген құжаттар: ',
     sod: {
       approve: 'Бұл құжатты басқа адам бекітуі керек.',
