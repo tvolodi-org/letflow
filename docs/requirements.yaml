@@ -55988,7 +55988,9 @@ requirements:
       only the SHA-256 hash of the value is stored (as hash_token_value/1 of lib/letflow/identity.ex does for
       API tokens); the tenant administrator creates it with a generated value or with a given value (the old
       Qoimeks token), rotates it (the old value stops at once) and revokes it; the value is shown once, at
-      creation, and is never in a log, an audit entry, an error or a later response (INV-4); the minimum
+      creation, and is never in a log, an audit entry, an error or a later response (INV-4); where the hash
+      and its creation and rotation times are stored (the record chooses ONE storage: a new tenant table in
+      the tenant schema, or an existing one, and says why); the minimum
       length of a given value; which actor id is written into the stock documents (the record chooses ONE
       mechanism and says why it cannot sign in or hold a role binding); (5) the operator name: required on
       every write, trimmed, its length limit, stored with each document written through the shared access and
@@ -56100,7 +56102,7 @@ requirements:
       - "2. The operator name is kept: GET /modules/stock/documents/:id of such a document answers posted_by_label equal to 'Айгуль' and a boolean posted_via_shared_access true (the posting fields of Letflow.Modules.Stock.Documents.Posting, lib/letflow/modules/stock/documents/posting.ex); a document posted by a personal account has posted_via_shared_access false and its posted_by_label unchanged (Letflow.Modules.Stock.ActorLabel)."
       - "3. The reverse call on a movement posted in criterion 1 with operator 'Ерлан' answers 201, the document read shows reversed_by_label 'Ерлан' and reversed_via_shared_access true; a second reverse of the same movement answers 409 (the stock refusal document_reversed of lib/letflow/modules/stock/documents/posting.ex, in the {\"error\": text} shape), and a reverse of the movement id the reversal answered with also answers 409 (Qoimeks: a reversal cannot be reversed, inventory 8.5)."
       - "4. A write with no operator, an operator that is blank after trimming, or one longer than the limit of decision 0091 section 5 answers 400 with {\"error\": text} and writes no document and no ledger row (counts of stock documents and ledger entries of A unchanged)."
-      - "5. The shared access cannot reach anything else: with Bearer V, a count, an import, a reconcile, a user, token, approval or task route under /api/v1 answers 401, and the old-app calls not served (codes, feedback, voice, parse) answer 404 at the address; a document that needs four-eyes approval stays pending for a personal account."
+      - "5. The shared access cannot reach anything else: with Bearer V, a count, an import, a reconcile, a user, token, approval or task route under /api/v1 answers 401, and the old-app calls not served (codes, feedback, voice, parse) answer 404 at the address; with Bearer V, POST /api/v1/tasks/:id/complete (Letflow.Routers.Tasks, mounted at /tasks in lib/letflow/plugs/api_pipeline.ex) answers 401, and the address serves only the five calls of decision 0091 section 7, so no approval step can be completed through the shared access."
       - "6. A transfer of tenant A's sku_id to a location number of tenant B is refused with the status decision 0091 section 7 gives an unknown location and writes nothing in either schema (INV-1, INV-10)."
       - "7. The runbook section exists in docs/runbooks/pilot-rollout.md and names the setting LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the address form of decision 0091 section 6 and the owner's decision for a real tenant; mix letflow.check.static passes and the new test file passes when run by path."
     depends_on: [REQ-857, REQ-859, REQ-831, REQ-832]
