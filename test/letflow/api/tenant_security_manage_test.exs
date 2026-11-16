@@ -26,7 +26,7 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   @golden "priv/permission_matrix/effective.golden"
 
   test "S1 third-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-7) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-8) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
@@ -96,7 +96,13 @@ defmodule Letflow.Api.TenantSecurityManageTest do
     # Roles stage 0 S0-4: TasksReassignRouted is also TENANT_ADMIN's alone.
     for p <-
           Authorization.permissions() --
-            [:TasksWorkInScope, @perm, :TasksReassignRouted, :ApprovalRulesManage] do
+            [
+              :TasksWorkInScope,
+              @perm,
+              :TasksReassignRouted,
+              :ApprovalRulesManage,
+              :LedgerSettingsManage
+            ] do
       assert Authorization.role_allows?(:PLATFORM_ADMIN, p), inspect(p)
     end
 
