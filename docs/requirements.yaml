@@ -55957,3 +55957,171 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-857
+    title: "Qoimeks parity G13 part 1: decision record for a per-tenant shared stock access next to personal accounts (a credential, not a role; stock read, post and reverse only; operator name; a per-tenant address the old Qoimeks app can use)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-831 -- the record settles how the shared access meets the posting-scope rules of slice L6 (REQ-831, pending) and is written first
+    # Source: task T-2034 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality (not less but possible more)"; enabling it for a real tenant stays with the owner; QA only, D-050), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 rows G13 and G14 and section 2.4 row R-5 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2034/sources/qoimeks-token-extract.md (client1-inventory.md section 8 items 8 and 11; qoimeks-migration-plan.md sections 1 and 2; Qoimeks server/internal/api/api.go routes, requireToken, storeError, writeError, balances and movements handlers; server/internal/store/store.go NewMovement and Movement with integer sku_id and location_id; server/internal/store/migrations/001_init.sql kinds and the operator <> '' check; mobile/lib/api.dart base address plus path, Authorization Bearer and X-Operator headers; the list of calls the old app makes; docs/self-host.md "openssl rand -hex 32"). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/access.ex, lib/letflow/api/module_guard.ex (check/2 accepts only kind :user), lib/letflow/api/scope.ex (principal_from_conn/1, principal_kind :api_token -> :token), lib/letflow/plugs/auth_pipeline.ex ("lf_tok_" dispatch, X-Tenant-Slug, the 401 "invalid or expired bearer token"), lib/letflow/plugs/auth_attempt_limit.ex (modes :failures and :requests, defaults/0, send_rate_limited/2), lib/letflow/identity.ex (create_token/3, mint_token/4, revoke_token/2, verify_api_token/2, hash_token_value/1 SHA-256, audit actions token.create and token.revoke), lib/letflow/router.ex (forwards outside /api/v1, /admin/v1), lib/letflow/modules/stock/router.ex (route list and guards), lib/letflow/modules/stock/actor_label.ex, docs/roles.md (STOREKEEPER; "The provisioner is a credential, not a role"), priv/permission_matrix/effective.golden (TokensManage held by TENANT_ADMIN and PLATFORM_ADMIN only), web/src/router.tsx (admin/tokens). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks Client 1 has no accounts: every phone sends one shared token as "Authorization: Bearer <token>",
+      and the operator types a free name that is stored with each movement (inventory 8.8 and 8.11; the token
+      "must keep working indefinitely", no setting change on phones). Letflow's stock routes accept only an
+      interactive signed-in person: Letflow.Api.ModuleGuard.check/2 (lib/letflow/api/module_guard.ex) matches
+      kind :user only, so an API token (kind :token) gets the 404 of lib/letflow/modules/stock/access.ex. The
+      owner decided parity (2026-11-16). Ledger and access rules are never changed silently, so this first,
+      docs-only part writes the decision record the later parts (REQ-858 to REQ-861, written with this one)
+      build on. Deliverable: docs/migration/decisions/0091-shared-stock-access.md (planned, not yet on main;
+      0090 is reserved by REQ-833; take the next free number at implement time and use it everywhere this
+      chain says 0091). It must decide, each in its own numbered section: (1) what changes in the rule
+      "stock accepts only an interactive user" and why, and that personal accounts keep working unchanged
+      next to it; (2) the shared access is a credential, not a role (as the tenant provisioner in
+      docs/roles.md): one per tenant at most, holding exactly the permissions StockRead, StockPost and
+      StockReverse, never StockReconcile, StockCountOrder, StockCountRecord, any import, users, tokens,
+      modules, settings or audit; the nine roles and the permission matrix do not change; (3) how it is
+      turned on: off by default for every tenant; only a tenant listed in the new setting
+      LETFLOW_SHARED_STOCK_ACCESS_TENANTS (comma-separated tenant slugs, unset or empty means none) may have
+      one, so the owner keeps the decision per real tenant (QA only until the owner says otherwise);
+      removing a tenant from the list stops its credential at once; the record has a settings-table row for
+      the name, default, who sets it and the reason it is a deployment setting; (4) storage and life cycle:
+      only the SHA-256 hash of the value is stored (as hash_token_value/1 of lib/letflow/identity.ex does for
+      API tokens); the tenant administrator creates it with a generated value or with a given value (the old
+      Qoimeks token), rotates it (the old value stops at once) and revokes it; the value is shown once, at
+      creation, and is never in a log, an audit entry, an error or a later response (INV-4); the minimum
+      length of a given value; which actor id is written into the stock documents (the record chooses ONE
+      mechanism and says why it cannot sign in or hold a role binding); (5) the operator name: required on
+      every write, trimmed, its length limit, stored with each document written through the shared access and
+      shown in the stock reads instead of a person's name; (6) where it is accepted: ONLY at a per-tenant
+      address outside /api/v1, declared as its own forward in lib/letflow/router.ex, whose path carries the
+      tenant slug, so the old app needs only a new server address (Qoimeks mobile/lib/api.dart builds every
+      call as base address plus path); it is not accepted on any /api/v1 route; the record names the exact
+      path; (7) the contract table: one row per old-app call that this chain serves (catalog, balances,
+      movements list, movement post, movement reverse), with its Qoimeks request and answer fields, the
+      Letflow function it calls, and how Qoimeks integer sku_id and location_id are given stable per-tenant
+      integer numbers; the old-app calls not served here (codes, feedback, voice, parse) are listed with the
+      readiness row that owns each (G12, G19, G15); (8) refusals and limits: every refusal before the
+      credential is proven (unknown slug, tenant not listed, no credential, wrong value, tenant not active,
+      stock module not active) gives the same 401 body (INV-5); wrong values are counted by
+      Letflow.Plugs.AuthAttemptLimit in mode :failures; accepted requests are limited per credential with the
+      bucket of that module, with defaults equal to its request_capacity and request_refill_per_sec;
+      (9) interplay with the other ledger rules: the posting scope of slice L6 (REQ-831; the shared access is
+      refused while the tenant's scope enforcement is on), the master checks of slice L7 (REQ-832, applied
+      unchanged), four eyes (a document that needs approval is approved by a personal account, never by the
+      shared access), negative balances (decision 0090 of REQ-833, planned), the one-line count (task T-2028)
+      and retry by client id (task T-2029); (10) the security review: each of INV-1, INV-4, INV-5, INV-6,
+      INV-8, INV-9 and INV-10 of docs/agents/instructions/security-invariants.md with how the design keeps it,
+      and the residual risks of a shared secret (who did what is only the typed name; a leaked value works
+      until rotated); (11) EXTRA ideas, each tagged EXTRA and not built by this chain (for example the
+      Letflow app or PWA signing in with the shared access); (12) an owner table: every value that is an
+      assumption (length limits, rate defaults, the setting name) marked "assumption, owner may change".
+    acceptance_criteria:
+      - "1. The decision record docs/migration/decisions/0091-shared-stock-access.md (or the next free number) exists with the twelve numbered sections listed in the description, in that order; each section states its rules, and every rule not taken from the owner decision, a Qoimeks source, docs/roles.md or an existing decision record is marked 'assumption, owner may change' and listed in the owner table (section 12)."
+      - "2. Section 2 names exactly the three permissions StockRead, StockPost and StockReverse, and says the role list of Letflow.Api.Authorization.roles/0 and priv/permission_matrix/effective.golden do not change."
+      - "3. Section 3 has a settings-table row for LETFLOW_SHARED_STOCK_ACCESS_TENANTS with default 'none', and states that a tenant not listed can neither create nor use a shared access."
+      - "4. Section 6 names one exact path that contains the tenant slug, outside /api/v1 and /admin/v1, and states that no /api/v1 route accepts the shared access value."
+      - "5. Section 7 has one table row for each of the five old-app calls named in the description, each with the Qoimeks field names copied from Qoimeks server/internal/store/store.go and server/internal/api/api.go (quoted in the record with their paths) and the Letflow module and function it calls, checked on main by grep at implement time; and a list of the old-app calls not served, each with its readiness row."
+      - "6. Section 10 has one paragraph per invariant INV-1, INV-4, INV-5, INV-6, INV-8, INV-9 and INV-10; the record ends with the line 'Enabling the shared access for a real tenant is the owner decision; this record covers QA only.'"
+      - "7. No file other than the new record and, if the record is cited there, docs/status/qoimeks-migration-readiness.md row G13 changes; mix letflow.check.static passes."
+    depends_on: [REQ-831, REQ-832, REQ-833, REQ-572, REQ-712]
+  - id: REQ-858
+    title: "Qoimeks parity G13 part 2: the tenant administrator creates, rotates, revokes and reads the status of the tenant's shared stock access (off unless the tenant is listed in the deployment setting; hash only; audited)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-857 -- builds sections 2 to 4 of decision 0091 (REQ-857, pending), which must merge first
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/routers/identity.ex (POST and GET /tokens under :TokensManage), lib/letflow/identity.ex (hash_token_value/1, the audit actions token.create and token.revoke), lib/letflow/routers/approval_rules.ex (tenant-wide interactive admin route precedent), priv/permission_matrix/effective.golden (TokensManage true only for PLATFORM_ADMIN and TENANT_ADMIN), config/runtime.exs (LETFLOW_* settings read there). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Builds the life cycle of decision 0091 sections 2 to 4 (REQ-857; the record path is planned, not yet on
+      main). New routes under /api/v1, in lib/letflow/routers/identity.ex next to the token routes and under
+      the existing permission TokensManage (no new permission atom): GET /shared-stock-access (status),
+      POST /shared-stock-access (create, or rotate when one exists; an empty body generates the value, a body
+      {"value": "<text>"} sets a given value, the old Qoimeks token) and DELETE /shared-stock-access (revoke).
+      Each needs an interactive signed-in caller who holds TokensManage tenant-wide. A new tenant table (or the
+      storage the record chose) keeps the SHA-256 hash, the creation and rotation times and the creating user;
+      never the value. The setting LETFLOW_SHARED_STOCK_ACCESS_TENANTS is read in config/runtime.exs. This part
+      does not yet let anything use the value; REQ-859 does.
+    acceptance_criteria:
+      - "1. With the tenant listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, a TENANT_ADMIN's POST with an empty body answers 201 with the generated value once; a following GET answers 200 with enabled true, exists true, created_at and created_by, and no field that holds the value or its hash."
+      - "2. POST with {\"value\": V} stores V; the stored row holds only the lowercase hex SHA-256 of V (a test reads the row and compares it with :crypto.hash(:sha256, V)); a V shorter than the minimum of decision 0091 section 4, or with a space or control character, answers 422 with reason shared_access_value_invalid and changes nothing."
+      - "3. A second POST rotates: afterwards the stored hash is that of the new value only and created_at is unchanged while rotated_at is set; DELETE answers 204 and a following GET shows exists false; DELETE with none answers 404."
+      - "4. With the tenant not listed (setting unset, empty, or listing only another slug), POST answers 409 with reason shared_access_not_enabled and writes nothing, and GET answers enabled false."
+      - "5. Refusals: STOREKEEPER, TENANT_AUDITOR and PROCESS_OPERATOR callers get 403 on all three routes; an API token (lf_tok_) of a TENANT_ADMIN user gets 403 (interactive sign-in only); TokensManage stays not granted to any role except TENANT_ADMIN and PLATFORM_ADMIN (priv/permission_matrix/effective.golden unchanged); a TENANT_ADMIN of tenant B sees and changes only tenant B's state while tenant A has one (INV-10 cross-tenant negative test: A's row is unchanged after B's POST and DELETE)."
+      - "6. Audit: create, rotate and revoke each write one audit entry (shared_stock_access.created, shared_stock_access.rotated, shared_stock_access.revoked) with the actor and trace id, in the same transaction; a test greps every audit entry, log line captured with ExUnit.CaptureLog and response body of the test for the value and finds it only in the 201 body."
+      - "7. The route-count, route-scope and tenant table pins this adds are updated from the final tree; mix letflow.check.static passes and the new test file passes when run by path."
+    depends_on: [REQ-857, REQ-076, REQ-447]
+  - id: REQ-859
+    title: "Qoimeks parity G13 part 3: the per-tenant old-app address accepts the shared stock access and answers the old app's reads (catalog, balances, movements list) in the Qoimeks shape, with the same 401 for every unproven request and a rate limit"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-858 -- needs the stored credential of REQ-858 (pending) and the address and contract of decision 0091 (REQ-857)
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/router.ex (forwards outside /api/v1), lib/letflow/plugs/auth_attempt_limit.ex (mode :failures, record_failure/1, send_rate_limited/2, Bucket, defaults/0 request_capacity 60 and request_refill_per_sec 1), lib/letflow/modules/stock/router.ex (GET /balances and GET /movements under :StockRead), lib/letflow/modules/stock/access.ex. Qoimeks call list and field names in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Builds decision 0091 sections 6 to 8 for reads (REQ-857; the record path is planned, not yet on main):
+      the per-tenant address of section 6 as a new forward in lib/letflow/router.ex outside /api/v1, with
+      Letflow.Plugs.AuthAttemptLimit mounted in mode :failures, that accepts "Authorization: Bearer <value>"
+      of the tenant named in the path, and serves the three read calls of the section 7 contract table:
+      catalog, balances (by sku_id) and the movements list (limit as in Qoimeks: 50 when missing or out of
+      1..500). Answers use the Qoimeks field names and its error shape {"error": text}. Reads use the tenant
+      schema of the slug only (INV-1) and the stock read functions the table names; no write is possible
+      through this part. The stock module guards for personal accounts (lib/letflow/modules/stock/access.ex)
+      do not change.
+    acceptance_criteria:
+      - "1. With tenant A listed and holding a shared access with value V, GET of the catalog, balances (sku_id of a seeded item) and movements calls at A's address with Bearer V answer 200 with exactly the field names of decision 0091 section 7 for each call; the numbers equal the same tenant's GET /modules/stock/balances and GET /modules/stock/movements read by a TENANT_ADMIN account on the same seeded data."
+      - "2. Same 401 body: an unknown slug, a listed tenant without a shared access, a tenant not listed, a wrong value, no Authorization header, a revoked or rotated-away value, an inactive tenant, a tenant without the stock module, and V of tenant A sent to tenant B's address (INV-10 cross-tenant negative test) all answer 401 with a byte-identical body and no tenant-dependent header."
+      - "3. Wrong values are counted: after the failure_capacity of Letflow.Plugs.AuthAttemptLimit (set low in the test config) wrong values from one address, the next request answers 429 with retry-after through send_rate_limited/2, and a request with the right value from another address answers 200."
+      - "4. Accepted requests are limited per credential: with the request capacity of the shared access set to 2 in the test config, the third accepted request in the window answers 429 with retry-after; another tenant's shared access is not affected; the defaults are request_capacity and request_refill_per_sec of AuthAttemptLimit.defaults/0, and docs/runbooks/auth-rate-limits.md names the new keys."
+      - "5. The value V is never passed to /api/v1: a request to GET /api/v1/modules/stock/balances with Bearer V and the tenant's X-Tenant-Slug answers 401; a POST, PUT or DELETE to the address of this part answers 404 and changes no stock row (writes come in REQ-860)."
+      - "6. While tenant A's scope enforcement is on, the reads at A's address answer 403 with the error text of decision 0091 section 9; personal accounts of A are not affected."
+      - "7. mix letflow.check.static passes; the new test file passes when run by path; every route-count and router-forward pin this moves (grep length(named) and @named_routes in test/) is updated from the final tree."
+    depends_on: [REQ-857, REQ-858, REQ-831, REQ-832]
+  - id: REQ-860
+    title: "Qoimeks parity G13 part 4: the old-app address posts and reverses movements with the shared stock access, records the typed operator name on each stock document and shows it in the stock reads"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-859 -- adds the write calls to the address of REQ-859 (pending)
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/router.ex (POST /documents, /documents/:id/issue, /documents/:id/post, /documents/:id/reverse), lib/letflow/modules/stock/actor_label.ex, lib/letflow/modules/stock/documents/posting.ex (the posting fields posted_by_label and reversed_by_label of a document view; the refusal document_reversed). Qoimeks NewMovement, kinds and checks in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Adds the two write calls of the decision 0091 section 7 contract table (REQ-857; the record path is
+      planned, not yet on main) to the address of REQ-859: the movement post (kinds receipt, issue and
+      transfer, Qoimeks fields id, kind, sku_id, location_id, to_location_id, qty, operator, source) and the
+      movement reverse (fields id and operator). Each call writes and posts one stock document through the
+      Letflow functions the table names, so the ledger rules (append-only, one reversal, L6, L7, freeze guard)
+      apply unchanged. The operator name of section 5 is required; it is stored with the document and the
+      stock reads show it in place of a person's name. Kind adjustment (task T-2028), a balance below zero
+      (decision 0090, REQ-833 chain) and a retry with the same client id (task T-2029) are answered as those
+      requirements decide once they are merged; until then this part answers them as Letflow does today and
+      says so in the runbook. A runbook section in docs/runbooks/pilot-rollout.md tells the operator how to
+      point a phone at the new address and what the phone keeps (token and operator name).
+    acceptance_criteria:
+      - "1. A receipt, an issue and a transfer posted at tenant A's address with Bearer V and operator 'Айгуль' each answer 201 with the Qoimeks movement fields of decision 0091 section 7; GET /modules/stock/documents read by a TENANT_ADMIN account of A shows each as a posted document, and the balances of A change by the posted quantities."
+      - "2. The operator name is kept: GET /modules/stock/documents/:id of such a document answers posted_by_label equal to 'Айгуль' and a boolean posted_via_shared_access true (the posting fields of Letflow.Modules.Stock.Documents.Posting, lib/letflow/modules/stock/documents/posting.ex); a document posted by a personal account has posted_via_shared_access false and its posted_by_label unchanged (Letflow.Modules.Stock.ActorLabel)."
+      - "3. The reverse call on a movement posted in criterion 1 with operator 'Ерлан' answers 201, the document read shows reversed_by_label 'Ерлан' and reversed_via_shared_access true; a second reverse of the same movement answers 409 (the stock refusal document_reversed of lib/letflow/modules/stock/documents/posting.ex, in the {\"error\": text} shape), and a reverse of the movement id the reversal answered with also answers 409 (Qoimeks: a reversal cannot be reversed, inventory 8.5)."
+      - "4. A write with no operator, an operator that is blank after trimming, or one longer than the limit of decision 0091 section 5 answers 400 with {\"error\": text} and writes no document and no ledger row (counts of stock documents and ledger entries of A unchanged)."
+      - "5. The shared access cannot reach anything else: with Bearer V, a count, an import, a reconcile, a user, token, approval or task route under /api/v1 answers 401, and the old-app calls not served (codes, feedback, voice, parse) answer 404 at the address; a document that needs four-eyes approval stays pending for a personal account."
+      - "6. A transfer of tenant A's sku_id to a location number of tenant B is refused with the status decision 0091 section 7 gives an unknown location and writes nothing in either schema (INV-1, INV-10)."
+      - "7. The runbook section exists in docs/runbooks/pilot-rollout.md and names the setting LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the address form of decision 0091 section 6 and the owner's decision for a real tenant; mix letflow.check.static passes and the new test file passes when run by path."
+    depends_on: [REQ-857, REQ-859, REQ-831, REQ-832]
+  - id: REQ-861
+    title: "Qoimeks parity G13 part 5: the tenant administrator's Tokens page shows the shared stock access status and creates, sets, rotates and revokes it, with the value shown once"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-858 -- calls the three routes of REQ-858 (pending)
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: web/src/router.tsx (admin/tokens under RequirePermission TokensManage), web/src/pages/admin/TokensPage.tsx, web/src/api/identity.ts, web/src/components/layout/AppShell.tsx (Tokens nav item, tenantAdmin group). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      A section "Shared stock access" on the existing Tokens page (web/src/pages/admin/TokensPage.tsx; no new
+      route and no new nav item) that calls GET, POST and DELETE /shared-stock-access of REQ-858. It shows
+      whether the tenant may have one (enabled), whether one exists, when it was created and rotated and by
+      whom; it offers create with a generated value, set a given value (the old Qoimeks token), rotate and
+      revoke, each rotate and revoke behind a confirmation. A generated value is shown once with a copy
+      button and a warning that it is not shown again. Texts in en, ru and kk.
+    acceptance_criteria:
+      - "1. Component tests: with GET answering enabled false the section shows the not-enabled text and no action button; with enabled true and exists false it shows create and set-value; with exists true it shows created and rotated times, rotate and revoke."
+      - "2. After create, the generated value from the 201 body is shown once with a copy button; after the page is reloaded (a new render with the GET fixture) no value is shown anywhere in the DOM (test asserts the value string is absent)."
+      - "3. Rotate and revoke each open a confirmation; cancel sends no request (the fetch mock records none), confirm sends exactly one POST or DELETE; a 422 shared_access_value_invalid and a 409 shared_access_not_enabled are shown as their own texts, not a generic error."
+      - "4. The section renders only for a caller with TokensManage (it sits inside the existing RequirePermission of admin/tokens); navRoleWalk.test.tsx is unchanged."
+      - "5. All new texts exist in en, ru and kk; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the states not-enabled, none, just-created with the value shown, exists and the confirm dialog."
+    depends_on: [REQ-858]
