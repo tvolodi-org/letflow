@@ -154,6 +154,18 @@ describe('T-1563 diagram edit: save', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'def-2' }), true))
   })
 
+  it('S2b a pane opened by the save of a version copy confirms it with "Saved." at once', async () => {
+    const qc = new QueryClient()
+    render(
+      <QueryClientProvider client={qc}>
+        <ProcessDiagramIntlProvider>
+          <DiagramEditPane def={{ ...DEF, id: 'def-2', version: '1.0.1' }} editorDirty={false} justSaved onDirtyChange={vi.fn()} onSaved={onSaved} onReload={onReload} />
+        </ProcessDiagramIntlProvider>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByTestId('edit-saved')).toHaveTextContent('Saved.')
+  })
+
   it('S3 not_draft shows the server message with Reload; module-owned disables Save; a taken version asks for another', async () => {
     vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
     vi.mocked(definitionsApi.update).mockRejectedValueOnce({ status: 409, message: 'only a DRAFT definition can be modified', code: 'conflict' })

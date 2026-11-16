@@ -8,7 +8,7 @@ import { ASSIGNEE_TYPES } from '../NodeEditPanel'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import type { DefinitionGraph, NodeType } from '@/types/api'
@@ -120,6 +120,14 @@ describe('T-1563 diagram editor', () => {
     expect(screen.getByTestId('edit-live')).toHaveTextContent('Added step')
     // the other nodes are carried through unchanged (single source of truth)
     expect(latest.graph.nodes.find((n) => n.id === 'review')).toEqual(GRAPH.nodes[1])
+  })
+
+  it('E1b Add step brings the drawing back into view (the new step lands right of it)', async () => {
+    renderEditor()
+    const viewport = () => document.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform
+    const before = viewport()
+    fireEvent.click(screen.getByTestId('edit-add'))
+    await waitFor(() => expect(viewport()).not.toBe(before))
   })
 
   it('E2/K4 Delete removes the selected step and its connections; START is refused', () => {

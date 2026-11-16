@@ -188,6 +188,8 @@ export default function DefinitionEditorPage() {
   // A successful version-copy save may render Navigate before useBlocker's
   // effect has installed the clean predicate. Permit only that acknowledged destination.
   const savedCopyDestination = useRef<string | null>(null)
+  // Id of the draft a version copy has just created: its pane opens with the "Saved." confirmation (the old pane is gone).
+  const [justSavedCopyId, setJustSavedCopyId] = useState<string | null>(null)
   useEffect(() => {
     if (goTo && goTo === `/definitions/${id}`) {
       savedCopyDestination.current = null
@@ -234,6 +236,7 @@ export default function DefinitionEditorPage() {
       void validateDefinition.mutateAsync(saved.id).catch(() => undefined)
       if (copied) {
         savedCopyDestination.current = `/definitions/${saved.id}`
+        setJustSavedCopyId(saved.id)
         setViewChoice('edit')
         setGoTo(`/definitions/${saved.id}`)
       } else {
@@ -1136,6 +1139,7 @@ export default function DefinitionEditorPage() {
             <DiagramEditPane
               key={def.id}
               def={def}
+              justSaved={def.id === justSavedCopyId}
               editorDirty={dirty}
               onDirtyChange={setDiagramDirty}
               onSaved={handleDiagramSaved}
