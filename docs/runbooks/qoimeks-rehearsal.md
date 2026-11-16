@@ -27,7 +27,8 @@ together with its first real balance (below).
 ## Steps
 
 1. **Extract** from the frozen copy of the Qoimeks database three CSV files in a directory outside the repository:
-   `locations.csv` (`loc_code, loc_name, loc_parent`), `items.csv` (`sku, sku_name, unit`), `balances.csv`
+   `locations.csv` (`loc_code, loc_name, loc_parent`), `items.csv` (`sku, sku_name, unit`, optional `home_loc`
+   the usual place as a `loc_code` and `alt_loc` the second place), `balances.csv`
    (`sku, loc, qty`, optional `as_of`). The Qoimeks schema is not in this repository: if its column names differ, write a
    `map.json` `{"<extract column>": "<neutral name>"}` and pass `--mapping`. Comma or semicolon delimiters and a BOM are read.
 2. **Convert** (no network, no database):
@@ -35,6 +36,10 @@ together with its first real balance (below).
    `U` and `E` are the external ids of the org unit and the responsible employee created in the QA tenant (Qoimeks has no
    such notion). Read `OUT/report.txt` (row numbers and constant reasons, no cell text): exit 3 means rows were dropped;
    decide with the customer's contact, then fix the extract or pass `--allow-drops`.
+   The usual place goes into `03-items-NN.xlsx` as the column `default_location_id` (G3, one place per item; an item
+   whose place names no location is dropped as `unknown_default_location`). The second place is not imported:
+   `report.txt` says how many kept items had one ("items with a second place, not imported (G3)"), and the snapshot
+   key `items_with_default_location` is compared in step 4.
    Outputs: `01-locations-NN.xlsx`, `02-uoms.xlsx`, `03-items-NN.xlsx`, `04-opening-lines-NN.xlsx`, `manifest.json`,
    `report.txt`, `expected_counts.txt`.
 3. **Upload masters** in the manifest order (locations, uoms, items) with `dry_run=true` first, then `atomic=true`. Save
