@@ -320,7 +320,7 @@ defmodule Letflow.Routers.Req469TenantTypeTest do
   end
 
   describe "tenant_map/1 allowlist" do
-    test "exactly eight keys including tenant_type, on get and patch" do
+    test "exactly nine keys including tenant_type, on get and patch" do
       t = TenantFixture.provisioned_tenant!(slug_prefix: "req469-keys")
 
       expected =
@@ -329,6 +329,7 @@ defmodule Letflow.Routers.Req469TenantTypeTest do
           "slug",
           "display_name",
           "status",
+          "idp_realm_id",
           "login_disclosure_mode",
           "tenant_type",
           "inserted_at",
