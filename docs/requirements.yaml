@@ -55788,7 +55788,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-831 -- edits the same document write handlers of lib/letflow/modules/stock/router.ex; land after L6 part 2 to avoid a rewrite of both
+    gh: 4560
     # Source: task T-2029 (Qoimeks parity row G7). Owner decision 2026-11-16 (via PM, quoted in docs/status/qoimeks-migration-readiness.md header): parity with Qoimeks is required. Qoimeks rule, Qoimeks-team/project/client1-inventory.md section 8 item 6 (read only, outside this repository; quoted): "Idempotent posting by the client UUID: same id + same data = same result, different data = 409." Files read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md (section 1.2 row G7); lib/letflow/modules/stock/documents.ex (save/3, write_header!/7 and create_line!/6 pass idempotency_key Ecto.UUID.generate(); moduledoc "a fresh idempotency key per write"; the opening external-reference advisory lock pg_advisory_xact_lock(hashtext($1))); lib/letflow/modules/stock/router.ex (authz_post "/documents", render_document/3, refuse_document/2 and @conflicts: a conflict is 409 Error.conflict("request refused") with a "reason"); lib/letflow/idempotency.ex (from_header/4, client_key/4, raw_max/1, too_long_error(:header), invalid_error(:header); "Routers must not read the caller's key themselves"); lib/letflow/routers/instances.ex (the instance routes use from_header/4 and answer 422 with too_long_error/invalid_error); lib/letflow/plugs/cors.ex (@allow_headers already has idempotency-key); lib/letflow/design/gh2543-idempotency-key-binding.md D6 (generic record routes answer reuse with 422); web/src/modules/stock/documents/documentsModel.ts (documentErrorMessageId reads "reason" on 409 and 422); apps/mobile/lib/offline/offline_sync.dart (a queued draft is resent when the answer was lost). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
     description: >
       Qoimeks parity row G7 (docs/status/qoimeks-migration-readiness.md, section 1.2): in Qoimeks a client
@@ -55834,7 +55834,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-846 -- uses the stored-key binding and the Letflow.Idempotency families part 1 adds
+    gh: 4559
     # Source: task T-2029 (Qoimeks parity row G7), the same sources as REQ-846 (planned, not yet on main). Also read on origin/main 2b1fd9b57: lib/letflow/modules/stock/documents.ex (issue/4: draft?/1 refuses a second issue as document_not_draft; issue_once/3; start_posting/3); lib/letflow/modules/stock/documents/posting.ex (post/4 and postable/2: document_posted, posting_pending, document_not_issued, document_cancelled); lib/letflow/modules/stock/router.ex (authz_post "/documents/:id/issue" and "/documents/:id/post"). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
     description: >
       Part 2 of parity row G7. In Letflow the step that corresponds to a Qoimeks posting is the issue of a
@@ -55865,7 +55865,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-847 -- the server routes must read the key before the web client sends it
+    gh: 4558
     # Source: task T-2029 (Qoimeks parity row G7). Files read on origin/main 2b1fd9b57: web/src/modules/stock/documents/documents.api.ts (documentsApi.create, issue, post), web/src/modules/stock/documents/DocumentForm.tsx (the create/replace mutation), web/src/modules/stock/documents/DocumentActions.tsx (issue and post), web/src/modules/stock/documents/documentsModel.ts (documentErrorMessageId, ALL_REASONS), web/src/api/client.ts (postWithHeaders), web/src/hooks/useRecordCodes.ts (the existing pattern: the key is kept while the request fingerprint is unchanged, otherwise crypto.randomUUID()). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
     description: >
       Part 3 of parity row G7: the web client uses the keys of REQ-846 and REQ-847 (both planned, not yet on
@@ -55888,7 +55888,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-847 -- the server routes must read the key before the mobile client sends it
+    gh: 4557
     # Source: task T-2029 (Qoimeks parity row G7). Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/documents_api.dart (save, createFromBody, issue), apps/mobile/lib/offline/offline_queue.dart (QueuedDraft, local_id is "<milliseconds>-<sequence>", not unique across devices), apps/mobile/lib/offline/offline_sync.dart (drain: a draft stays queued and is resent when the answer is lost), apps/mobile/lib/api/api_client.dart (post(path, {data}) has no header argument), apps/mobile/test/offline/offline_queue_test.dart and offline_sync_test.dart. Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
     description: >
       Part 4 of parity row G7, for the Flutter app in apps/mobile/ and its web build used as the iPhone PWA
