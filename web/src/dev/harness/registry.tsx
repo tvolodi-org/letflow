@@ -35,6 +35,7 @@ import { docLayoutScreens } from './fixtures/docLayouts'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { printMenuT2020Screens } from './fixtures/printMenuT2020'
+import { docsShellT2020Screens } from './fixtures/docsShellT2020'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { envBannerScreens } from './fixtures/envBanner'
@@ -338,6 +339,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...layoutBaseScreens,
     ...officialFormsScreens,
     ...printMenuT2020Screens,
+    ...docsShellT2020Screens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
     ...assetsIssueRefusedScreens,
