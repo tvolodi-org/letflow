@@ -3,7 +3,7 @@ Code.require_file("count_print_probe.exs", __DIR__)
 
 defmodule Letflow.Modules.Stock.FormZ7RouterTest do
   @moduledoc """
-  T-1925 (audit slice 9), design tests R1..R6: `GET /stock-sheet/print` (official form Z-7) through
+  T-1925 (audit slice 9), design tests R1..R7: `GET /stock-sheet/print` (official form Z-7) through
   the full `Letflow.Router` with real OIDC bearer tokens on committed tenants (Sandbox `:auto`).
   A receipt of 2 (and of a lot item, 10.5) is dated 48 hours back and an issue of 0.5 is posted now,
   so the opening balance, income and expense are all exercised. `async: false`.
@@ -11,18 +11,23 @@ defmodule Letflow.Modules.Stock.FormZ7RouterTest do
 
   use Letflow.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Identity.TenantTimezone
+  alias Letflow.Identity.User
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.CountPrintTest.PdfProbe
+  alias Letflow.OrgFixture
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
   alias Letflow.StockPostingFixture, as: P
+  alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
 
   @docx "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
   setup do
-    ctx = P.setup!([:a, :b])
+    ctx = P.setup!([:a, :b, :s])
     ctx = Map.merge(ctx, P.tenant_b!(ctx))
     back = DateTime.utc_now() |> DateTime.add(-48 * 3600, :second) |> DateTime.to_iso8601()
     receipt = P.issue!(ctx, D.body(ctx.ma, back))
@@ -184,5 +189,73 @@ defmodule Letflow.Modules.Stock.FormZ7RouterTest do
   test "R6 a token without StockRead is refused", ctx do
     tok = S.token(ctx, :a, ["TASK_WORKER"], sub: "sheet-worker")
     assert print(ctx, period(ctx, 2), tok).status == 403
+  end
+
+  test "R7 a scoped reader does not see the responsible of a hidden org-unit leg", ctx do
+    # Fresh tenant bound to realm :s so scope manipulation does not pollute the shared setup.
+    ts = S.tenant!("stk-z7sc", ctx.names.s)
+    schema = ts.schema_name
+
+    # Two org units, each with a named employee (the responsible written into the leg key).
+    unit_a = D.unit!(schema)
+    unit_b = D.unit!(schema)
+    n = System.unique_integer([:positive])
+
+    emp_a =
+      OrgFixture.create!(
+        schema,
+        "org_employee",
+        OrgFixture.values("org_employee", "Z7A#{n}", %{"org_unit_id" => unit_a})
+      )
+
+    emp_b =
+      OrgFixture.create!(
+        schema,
+        "org_employee",
+        OrgFixture.values("org_employee", "Z7B#{n}", %{"org_unit_id" => unit_b})
+      )
+
+    # employee full_names follow the OrgFixture convention: "Employee #{code}"
+    emp_a_name = "Employee Z7A#{n}"
+    emp_b_name = "Employee Z7B#{n}"
+
+    # Both units post stock at the same location (ledger direct post, bypassing the document
+    # workflow; no location-unit linking required at this layer).
+    loc = Ecto.UUID.generate()
+    sku_a = Ecto.UUID.generate()
+
+    S.post!(schema, "receipt", %{
+      document_id: "doc-z7a-#{n}",
+      lines: [S.line(sku_a, "5", %{to: S.side(unit_a, loc, %{responsible: emp_a.record_id})})]
+    })
+
+    S.post!(schema, "receipt", %{
+      document_id: "doc-z7b-#{n}",
+      lines: [S.line(sku_a, "3", %{to: S.side(unit_b, loc, %{responsible: emp_b.record_id})})]
+    })
+
+    # Create a TENANT_ADMIN user and scope them to unit_a only (drops the group-wide grant).
+    sub = "z7sc#{n}"
+    scoped_tok = S.token(ctx, :s, ["TENANT_ADMIN"], sub: sub)
+    # First call creates the user row via the OIDC plug.
+    P.status!(S.get("/balances", scoped_tok), 200)
+
+    user = Repo.one!(from(u in User, where: u.username == ^sub), prefix: schema)
+    group_id = RSG.group_of!(schema, "TENANT_ADMIN")
+    RSG.raw_delete_rows!(schema, group_id, "TENANT_ADMIN")
+    :ok = RSG.raw_user_row!(schema, user.id, "TENANT_ADMIN", unit_a)
+
+    # Print the stock sheet for the shared location using the scoped token.
+    {:ok, today} = TenantTimezone.today(CountPaperworkSource.zone(ts.tenant_id))
+    q = "location=#{loc}&from=#{Date.add(today, -2)}&to=#{today}&format=docx&lang=ru"
+    conn = S.get("/stock-sheet/print?#{q}", scoped_tok)
+
+    assert conn.status == 200, conn.resp_body
+    text = docx_text(conn)
+
+    # Employee A is the sole visible responsible: they appear in the MOL header field.
+    assert text =~ emp_a_name, "employee A should appear as the responsible"
+    # Employee B's legs are masked by the scoped read; their name must not leak into the sheet.
+    refute text =~ emp_b_name
   end
 end

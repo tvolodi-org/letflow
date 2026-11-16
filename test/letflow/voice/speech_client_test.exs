@@ -1,5 +1,5 @@
 defmodule Letflow.Voice.SpeechClientTest do
-  @moduledoc "REQ-740 AC3-AC5 for the speech client, against the local Letflow.WebhookTestServer."
+  @moduledoc "REQ-740 AC3-AC5 / REQ-863 for the speech client, against the local Letflow.WebhookTestServer."
   use ExUnit.Case, async: false
   @moduletag :unit
 
@@ -31,13 +31,28 @@ defmodule Letflow.Voice.SpeechClientTest do
     :ok
   end
 
-  defp settings(base), do: %Settings.Speech{model: "whisper-1", base_url: base, api_key: @key}
+  defp settings(base),
+    do: %Settings.Speech{
+      provider: :openai_transcriptions,
+      model: "whisper-1",
+      base_url: base,
+      api_key: @key
+    }
+
+  defp el_settings(base),
+    do: %Settings.Speech{provider: :elevenlabs, model: "scribe_v2", base_url: base, api_key: @key}
+
   defp base(server), do: "http://127.0.0.1:#{server.port}/v1"
 
   defp run(server_or_base, fun \\ nil) do
     s = settings(if is_binary(server_or_base), do: server_or_base, else: base(server_or_base))
     result = SpeechClient.transcribe(s, @audio, "audio/m4a", "ru")
     if fun, do: fun.(result), else: result
+  end
+
+  defp run_el(server_or_base) do
+    s = el_settings(if is_binary(server_or_base), do: server_or_base, else: base(server_or_base))
+    SpeechClient.transcribe(s, @audio, "audio/m4a", "ru")
   end
 
   test "SP1 one POST with path, bearer header and multipart parts" do
@@ -158,5 +173,94 @@ defmodule Letflow.Voice.SpeechClientTest do
              SpeechClient.transcribe(s, @audio, "audio/m4a", "ru\r\nX: y")
 
     refute_receive {:webhook_test_server_request, _}, 200
+  end
+
+  # REQ-863: ElevenLabs speech-to-text provider tests
+
+  test "SP-EL1 elevenlabs POST path, xi-api-key header, no authorization header, multipart parts" do
+    server = WebhookTestServer.start(200, ~s({"text":"hello"}))
+    assert {:ok, "hello"} = run_el(server)
+    assert_receive {:webhook_test_server_request, req}
+    assert req.method == "POST"
+    assert req.path == "/v1/speech-to-text"
+    assert req.headers["xi-api-key"] == @key
+    refute Map.has_key?(req.headers, "authorization")
+    assert req.headers["content-type"] =~ "multipart/form-data; boundary="
+    assert req.body =~ ~s(name="model_id"\r\n\r\nscribe_v2)
+    assert req.body =~ ~s(name="language_code"\r\n\r\nru)
+    assert req.body =~ ~s(name="tag_audio_events"\r\n\r\nfalse)
+    assert req.body =~ ~s(name="file"; filename="audio.m4a")
+    assert req.body =~ "Content-Type: audio/m4a\r\n\r\n" <> @audio
+  end
+
+  test "SP-EL2 elevenlabs 200 with text" do
+    server = WebhookTestServer.start(200, ~s({"text":"transcribed text"}))
+    assert {:ok, "transcribed text"} = run_el(server)
+  end
+
+  test "SP-EL3 elevenlabs non-2xx gives provider_error" do
+    server = WebhookTestServer.start(500, ~s({"text":"#{@sentinel}"}))
+    assert {:error, :provider_error} = run_el(server)
+  end
+
+  test "SP-EL4 elevenlabs non-JSON gives provider_error" do
+    server = WebhookTestServer.start(200, "not json " <> @sentinel)
+    assert {:error, :provider_error} = run_el(server)
+  end
+
+  test "SP-EL5 elevenlabs JSON without text gives provider_error" do
+    server = WebhookTestServer.start(200, ~s({"other":"#{@sentinel}"}))
+    assert {:error, :provider_error} = run_el(server)
+  end
+
+  test "SP-EL6 elevenlabs timeout gives provider_timeout" do
+    server =
+      WebhookTestServer.start_with_responder(fn _ ->
+        Process.sleep(600)
+        {200, ~s({"text":"late"})}
+      end)
+
+    Application.put_env(:letflow, :voice, timeout_ms: 200)
+    assert {:error, :provider_timeout} = run_el(server)
+  end
+
+  test "SP-EL7 elevenlabs 3xx is not followed, provider_error" do
+    server = WebhookTestServer.start(302, "")
+    assert {:error, :provider_error} = run_el(server)
+    assert_receive {:webhook_test_server_request, _}
+    refute_receive {:webhook_test_server_request, _}, 200
+  end
+
+  test "SP-EL8 elevenlabs exactly one request" do
+    server = WebhookTestServer.start(500, "x")
+    assert {:error, :provider_error} = run_el(server)
+    assert_receive {:webhook_test_server_request, _}
+    refute_receive {:webhook_test_server_request, _}, 300
+  end
+
+  test "SP-EL9 elevenlabs http URL with validation on: refused, no connection" do
+    Application.put_env(:letflow, :voice_url_validation_enabled, true)
+    server = WebhookTestServer.start(200, ~s({"text":"x"}))
+    assert {:error, :provider_error} = run_el(server)
+    refute_receive {:webhook_test_server_request, _}, 200
+  end
+
+  test "SP-EL10 elevenlabs key absent from results and log" do
+    server = WebhookTestServer.start(500, ~s({"text":"#{@sentinel}"}))
+
+    log =
+      capture_log(fn ->
+        send(self(), {:res, run_el(server)})
+      end)
+
+    assert_received {:res, res}
+    out = inspect(res)
+    refute out =~ @key
+    refute log =~ @key
+
+    ok_server = WebhookTestServer.start(200, ~s({"text":"#{@sentinel}"}))
+    log2 = capture_log(fn -> send(self(), {:res2, run_el(ok_server)}) end)
+    assert_received {:res2, _}
+    refute log2 =~ @key
   end
 end

@@ -1,12 +1,14 @@
 defmodule Letflow.Voice.Settings do
   @moduledoc """
-  REQ-740: the platform settings of the voice service (phrase to stock draft).
+  REQ-740 / REQ-863: the platform settings of the voice service (phrase to stock draft).
 
   `config/runtime.exs` reads nine optional `LETFLOW_VOICE_*` variables into
   `config :letflow, :voice`. This module reads that app env at call time (so a test sets
   it per test) and answers a struct only when a step is fully configured; anything
   missing or unknown answers `:off`, which turns the step off so typed and scanned entry
   keep working with no provider.
+
+  Known speech provider kinds: `openai_transcriptions` and `elevenlabs`.
 
   The API keys are platform env settings, like `LETFLOW_SMTP_PASSWORD`, not
   `Letflow.Secrets` references: `Secrets.resolve/2` refuses a reference owned by another
@@ -17,10 +19,15 @@ defmodule Letflow.Voice.Settings do
   defmodule Speech do
     @moduledoc "Speech-to-text settings. `inspect/1` hides the API key."
     @derive {Inspect, except: [:api_key]}
-    @enforce_keys [:model, :base_url, :api_key]
-    defstruct [:model, :base_url, :api_key]
+    @enforce_keys [:provider, :model, :base_url, :api_key]
+    defstruct [:provider, :model, :base_url, :api_key]
 
-    @type t :: %__MODULE__{model: String.t(), base_url: String.t(), api_key: String.t()}
+    @type t :: %__MODULE__{
+            provider: :openai_transcriptions | :elevenlabs,
+            model: String.t(),
+            base_url: String.t(),
+            api_key: String.t()
+          }
   end
 
   defmodule Model do
@@ -39,15 +46,22 @@ defmodule Letflow.Voice.Settings do
 
   @default_timeout_ms 60_000
 
+  @known_stt_providers %{
+    "openai_transcriptions" => :openai_transcriptions,
+    "elevenlabs" => :elevenlabs
+  }
+
   @spec speech() :: {:ok, Speech.t()} | :off
   def speech do
     cfg = config()
 
-    with "openai_transcriptions" <- Keyword.get(cfg, :stt_provider),
+    with provider_str when is_binary(provider_str) and provider_str != "" <-
+           Keyword.get(cfg, :stt_provider),
+         {:ok, provider} <- Map.fetch(@known_stt_providers, provider_str),
          model when is_binary(model) and model != "" <- Keyword.get(cfg, :stt_model),
          url when is_binary(url) and url != "" <- Keyword.get(cfg, :stt_base_url),
          key when is_binary(key) and key != "" <- Keyword.get(cfg, :stt_api_key) do
-      {:ok, %Speech{model: model, base_url: url, api_key: key}}
+      {:ok, %Speech{provider: provider, model: model, base_url: url, api_key: key}}
     else
       _ -> :off
     end

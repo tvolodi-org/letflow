@@ -14,9 +14,9 @@ typed and scanned entry keep working with no provider.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `LETFLOW_VOICE_STT_PROVIDER` | speech provider kind; only `openai_transcriptions` is known | unset = off |
+| `LETFLOW_VOICE_STT_PROVIDER` | speech provider kind; `openai_transcriptions` or `elevenlabs` | unset = off |
 | `LETFLOW_VOICE_STT_MODEL` | transcription model name | unset = off |
-| `LETFLOW_VOICE_STT_BASE_URL` | https base URL; the client posts to `<base>/audio/transcriptions` | unset = off |
+| `LETFLOW_VOICE_STT_BASE_URL` | https base URL; for `openai_transcriptions` the client posts to `<base>/audio/transcriptions`; for `elevenlabs` to `<base>/speech-to-text` | unset = off |
 | `LETFLOW_VOICE_STT_API_KEY` | bearer key for the speech provider | unset = off |
 | `LETFLOW_VOICE_LLM_PROVIDER` | model provider kind; only `openai_chat` is known | unset = off |
 | `LETFLOW_VOICE_LLM_MODEL` | chat model name | unset = off |
@@ -46,8 +46,8 @@ cannot be resolved for a request of tenant A. Per-tenant keys stay an open quest
 
 | Client (source) | Error | Cause |
 |---|---|---|
-| `SpeechClient` (speech) | `:provider_error` | URL refused, non-2xx, not JSON, no `text`, transport error, redirect |
-| `SpeechClient` (speech) | `:provider_timeout` | no answer within `:timeout_ms` |
+| `SpeechClient` (speech) | `:provider_error` | URL refused, non-2xx, not JSON, no `text`, transport error, redirect — both `openai_transcriptions` and `elevenlabs` |
+| `SpeechClient` (speech) | `:provider_timeout` | no answer within `:timeout_ms` — both `openai_transcriptions` and `elevenlabs` |
 | `ModelClient` (llm) | `:provider_error` | URL refused, non-2xx, unreadable body, no content, transport error |
 | `ModelClient` (llm) | `:provider_timeout` | no answer within `:timeout_ms` |
 | `ModelClient` (llm) | `:truncated` | `finish_reason` is `length` |
@@ -86,6 +86,36 @@ open owner question), and the answer is checked on the server by `VoiceDraft.che
 
 A request holds a tenant admission slot for up to two provider calls of 60 s each; a per-user rate limit is an
 open owner question.
+
+## Providers used by Qoimeks (REQ-863; QA only, keys are the owner's, unset by default)
+
+Qoimeks reuses its existing provider keys as-is; the owner sets them in the QA environment only.
+Production keys are not approved.
+
+### ElevenLabs speech-to-text (`elevenlabs`)
+
+| Setting | Value |
+|---|---|
+| `LETFLOW_VOICE_STT_PROVIDER` | `elevenlabs` |
+| `LETFLOW_VOICE_STT_BASE_URL` | `https://api.elevenlabs.io/v1` |
+| Path | `<base>/speech-to-text` |
+| Auth header | `xi-api-key: <key>` |
+| Multipart fields | `model_id`, `language_code`, `tag_audio_events` (always `false`), `file` |
+| `LETFLOW_VOICE_STT_MODEL` | example: `scribe_v2` |
+| `LETFLOW_VOICE_STT_API_KEY` | the owner's ElevenLabs key; never printed |
+
+### xAI Grok model (OpenAI-compatible chat, `openai_chat`)
+
+Qoimeks uses xAI Grok for the language model step. Because xAI is OpenAI-compatible, no code
+change is needed; the operator sets:
+
+| Setting | Value |
+|---|---|
+| `LETFLOW_VOICE_LLM_PROVIDER` | `openai_chat` |
+| `LETFLOW_VOICE_LLM_BASE_URL` | `https://api.x.ai/v1` |
+| `LETFLOW_VOICE_LLM_JSON_MODE` | `schema` |
+| `LETFLOW_VOICE_LLM_MODEL` | Qoimeks default: `grok-2-latest` (or as the owner directs) |
+| `LETFLOW_VOICE_LLM_API_KEY` | the owner's xAI key; never printed |
 
 ## Regression tests
 
