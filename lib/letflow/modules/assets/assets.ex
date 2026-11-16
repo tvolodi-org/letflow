@@ -86,6 +86,13 @@ defmodule Letflow.Modules.Assets do
   `FormDa2`, `priv/print_forms/da2.json`); unit and materially responsible person come from the register when the card
   has exactly one row. Code and route only, no definition or pack change (class A).
 
+  **ДА-2 card attributes** (T-2017 slice 1, version 0.29.0): optional manufacturer, asset type
+  (distinct from `kind`), model, type, brand, category, sort, serial and passport numbers, useful life
+  in months and commissioning date on `assets_card`. The existing in-place module upgrade installs
+  and activates the additive definition (class A); existing cards remain unchanged. No SQL migration
+  or backfill: these are optional fields in the managed record. Card writes and ДА-2 print accept
+  them. Required-at-issue checks and screens ship together in a later slice.
+
   **Asset count K1** (T-1927, version 0.22.0, REQ-816 / GH #4375, owner decision D-128, spec
   `docs/assets/asset-count.md`): the count ORDER of fixed assets. Record types `assets_count_order`,
   `assets_count_scope` and `assets_count_member`, document types `assets_count.order` (ACO),
@@ -278,7 +285,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.28.0",
+    version: "0.29.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "codes", "locations", "org", "stock"],

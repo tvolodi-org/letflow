@@ -2,7 +2,7 @@
 
 ## Status
 
-- No pilot company has been named by the owner. Qoimeks Client 1 waits (`docs/uat/ba-decisions/T-1600.md`, section 1, row d).
+- No pilot company has been named by the owner. Qoimeks Client 1 moves after the parity tasks and rehearsals, on the existing bizdala.com host, and nobody asks the client anything (D-152; `docs/uat/ba-decisions/T-1600.md`, section 1, row d; `docs/status/qoimeks-migration-readiness.md`).
 - Production is not approved (D-086). This plan is a document only.
 - `docs/runbooks/qoimeks-rehearsal.md` stays prepared and is not started by this plan.
 - The plan creates no tenant, account, server or DNS name, spends no money and contacts no one outside the team. The owner or the portfolio manager speaks to the company.
@@ -174,7 +174,7 @@ Yes/no list. Any number added later is a proposal, to be confirmed by the owner.
 3. Who trains the three people, and in which language?
 4. What are the exit thresholds (numbers for the Exit criteria)?
 5. How long does the pilot run after month one?
-6. What does the company give before week 1 (xlsx files of locations, items and balances; names and e-mail addresses of users)?
+6. What the company gives before week 1 (xlsx files of locations, items and balances; names and e-mail addresses of users): for Qoimeks Client 1 the team takes the data from the Qoimeks inventory and extract and asks the client nothing (D-152); other pilots are asked as before.
 7. How does a user made by the Users screen or the xlsx import get a way to sign in? The reset route (REQ-788) and its button (REQ-789) are built, but the route refuses users without an identity-provider login. Does the pilot wait for the answer (`docs/uat/ba-decisions/T-1651.md`, item 1)?
    Interim answer (D-118 (1)): option (a), a Keycloak operator creates each account by hand; see "Interim sign-in path for created users". The final route (option (b) or later) is still open.
 8. Through which channel does the operator give the temporary passwords to the company administrator?

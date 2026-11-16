@@ -1,6 +1,6 @@
 # Qoimeks pilot client (Client 1): readiness to move onto Letflow
 
-Readiness note, written by the business analyst on 2026-11-13 (task T-1907, owner statement D-143). Rewritten the same day from the Qoimeks inventory of Client 1. Updated 2026-11-16 (T-2025) with the PM plan and the final owner decision below.
+Readiness note, written by the business analyst on 2026-11-13 (task T-1907, owner statement D-143). Rewritten the same day from the Qoimeks inventory of Client 1. Updated 2026-11-16 (T-2025) with the PM plan and the final owner decision below. Production parts rewritten 2026-11-16 (T-2046, owner decision D-152, final): production runs on the existing bizdala.com host, and no question goes to any customer.
 
 **Owner decision, 2026-11-16: stock-only scope stays; parity with Qoimeks is required** — "Do whatever needed to support old Qoimeks functionality, not less but possible more". Where Letflow rules conflict, the design says what changes and why. The earlier recommendations to drop Qoimeks behaviour are withdrawn. The parity tasks below are planned work, not built functionality; the migration has not been walked.
 
@@ -13,15 +13,15 @@ Readiness note, written by the business analyst on 2026-11-13 (task T-1907, owne
   - negative balances, which Letflow refuses;
   - a count that simply replaces a balance, where Letflow has a formal count process instead.
   The owner has decided parity; designs must resolve these conflicts (section 1.2, rows G4, G5, G13).
-- **Production is not ready either.** Production is not approved and the server is not bought. The DNS token and the backup key holder are not agreed with infra. The production sign-in path is not chosen.
+- **Production is not built.** It will run on the existing bizdala.com host next to QA (no new server, 0 new cost; D-152). The stack, DNS names, certificate, backups, off-site copies and sign-in per company are planned, not built and not walked. The production go stays the owner's, announced before it runs.
 - **The data is small:** 666 items, 134 places, 600 balances, 600 movements, 3 imports, 11 MB (all as of 2026-10-29). The converter and a count compare exist (T-1616). A quantity compare is still missing. The Qoimeks rule "no real data leaves production" changes how we rehearse (section 2.3).
 - **Plan order:** build the ledger parts, quantity compare and parity gaps. Rehearse twice on QA with same-shape test data. Get the production "go", prepare production and train the client, then move outside Client 1's working hours. Qoimeks stays read-only for 30 days after the move. Section 2.7 gives phases P0–P9.
 
 ## Status and limits
 
-- Docs only. This note creates no tenant, account, server or DNS name. It spends no money, touches no secret and contacts no one. It asks for no production access: the PM already holds the ten read-only production counts of the inventory (section 1.3). The owner or the PM talks to the client (`docs/uat/ba-decisions/T-1569.md`, section 5).
+- Docs only. This note creates no tenant, account, server or DNS name. It spends no money, touches no secret and contacts no one. It asks for no production access: the PM already holds the ten read-only production counts of the inventory (section 1.3). No question goes to the client (D-152): where a client answer would have been needed, this note writes the default the team takes.
 - **Source of the task:** owner statement D-143 (PM, 2026-11-13), quoted from the task text: "the first production action is migrating the Qoimeks pilot client (Client 1) onto Letflow; it moves when the Letflow applications are ready (D-115)". The PM update of the same day sets the scope: "STOCK-ONLY pilot: assets and fixed asset count NOT needed for the first migration; needed: stock module, codes/barcodes, import, voice, a way to keep the old token working". The portfolio `DECISIONS.md` is not in this repository. Decisions named only by the inventory (D-042, D-045, D-050) are quoted from it.
-- Production is **not approved** (`docs/runbooks/pilot-rollout.md`, "Status"; `docs/uat/ba-decisions/T-1600.md`, header). Every production step below is a proposal.
+- Production is **not approved** (`docs/runbooks/pilot-rollout.md`, "Status"; `docs/uat/ba-decisions/T-1600.md`, header). Every production step below is planned work; the go is the owner's and is announced before it runs.
 - Marks used:
   - **[INV §n]** = fact from the Qoimeks inventory of Client 1, section n;
   - **[A]** = UAT assumption, to be confirmed by the process owner;
@@ -101,10 +101,10 @@ Historical searches behind the original "not found" claims (2026-11-13, before t
 | G11 | Stock export (§2a) | .xlsx in the import layout: Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., «Коды / Codes» | The balances xlsx export has its own columns (`xlsx_export.ex`) | Partly | **T-2032**, after G3 (**T-2026**): export in the import layout. Required for parity. | — |
 | G12 | Codes and barcodes | Not used on production (QA only). `skus.barcode` may be filled from the «Штрихкод» column | `codes` module and scanning (count scan, `POST /counts/:id/scan`). `code_tag` and `code_assignment` have **no file import** (`pilot-rollout.md` rows 11–12). The converter does not carry codes | Partly | **T-2033**: barcodes import. Required for parity, regardless of counts. | count 6 (barcodes) |
 | G13 | **Old token must keep working** (§8.8) | One shared token, no accounts. "Old token must keep working (`ACCESS_TOKEN_TENANT`, decided 'indefinitely', portfolio-manager 2026-10-27); no setting change on phones" | **Not possible as built.** Letflow stock accepts only a signed-in person: "an API token or a scoped principal gets the same 404" (`stock/router.ex`, `stock/access.ex`). Letflow has no shared tenant token (search above). Letflow is also a different app and address, so phones change in any case | **In design** | **T-2034**: old shared token next to personal accounts. **In design**, required for parity; the design must explain the security and access changes. R-5 is withdrawn. | count 5 (how many operator names) |
-| G14 | Operator name, roles | Free-text name; all users have full access (D-045 as quoted) [§3] | The signed-in user is recorded. Roles TENANT_ADMIN, STOREKEEPER, TENANT_AUDITOR (`pilot-rollout.md`, Onboarding 4). Interim sign-in path (a): accounts are made by hand (`pilot-first-month.md`) | Fit by a different design | Accounts remain available alongside the required old-token path (G13). Production sign-in is not chosen (C11); the token design must address operator identity | count 5 |
-| G15 | Voice ru/kk (§8.2) | Articles spoken letter by letter with Russian letter names («а A, бэ B … зэт Z»); zone words слева/сол жақ, справа/оң жақ, прямо/тура; voice never posts by itself; ElevenLabs + xAI Grok | Built: ru and kk; m4a or WebM (`router.ex`, `voice_service.ex`); a draft the person confirms (`stock-voice.md`). **The letter-name table and the Qoimeks zone words are out of scope** (`voice_prompt.ex` moduledoc, owner questions 4 and 5). Provider keys are unset by default; providers and who pays are the owner's (`stock-voice.md`, Rules) | Partly | **T-2035**: voice letter names and zone words in ru and kk. Required for parity. Provider keys and money remain with the owner. | count 3 (voice vs keyboard) |
+| G14 | Operator name, roles | Free-text name; all users have full access (D-045 as quoted) [§3] | The signed-in user is recorded. Roles TENANT_ADMIN, STOREKEEPER, TENANT_AUDITOR (`pilot-rollout.md`, Onboarding 4). Interim sign-in path (a): accounts are made by hand (`pilot-first-month.md`) | Fit by a different design | Accounts remain available alongside the required old-token path (G13). Production sign-in per company is planned in C11; the token design must address operator identity | count 5 |
+| G15 | Voice ru/kk (§8.2) | Articles spoken letter by letter with Russian letter names («а A, бэ B … зэт Z»); zone words слева/сол жақ, справа/оң жақ, прямо/тура; voice never posts by itself; ElevenLabs + xAI Grok | Built: ru and kk; m4a or WebM (`router.ex`, `voice_service.ex`); a draft the person confirms (`stock-voice.md`). **The letter-name table and the Qoimeks zone words are out of scope** (`voice_prompt.ex` moduledoc, owner questions 4 and 5). Provider keys are unset by default (`stock-voice.md`, Rules); the Qoimeks keys are reused (C12) | Partly | **T-2035**: voice letter names and zone words in ru and kk. Required for parity. Qoimeks provider keys are reused (C12); ElevenLabs speech needs a new client, part of T-2035. | count 3 (voice vs keyboard) |
 | G16 | Phones and iPhone web (§8.9, §8.11) | Android APK 0.1.2; iPhone uses `/web/` as a PWA; the voice encoder is picked at run time (Opus/WebM, AAC/M4A on Safari); the phone keeps address, token and name | Flutter `apps/mobile` and the PWA (`docs/mobile/pwa-parity.md`); ru/kk/en language switch remembered on the device (#4416). The voice route takes both m4a and WebM. **No Android release or distribution runbook** (search above). The earlier Android-or-PWA question (owner-questions D8) is superseded by the parity decision; delivery is still missing | Partly | **T-2036**: Android and iPhone web parity. PWA-only advice is withdrawn; the iPhone walk is not done. | count 10 (user-agent families) |
-| G17 | Hosting notes (§8.9) | Cloudflare in front: scripted clients need their own User-Agent; web cached up to 4 h, entry file versioned `?v=` | Letflow production hosting is not chosen (C7, C8) | n/a yet | Hand to infra with C8. No product task | — |
+| G17 | Hosting notes (§8.9) | Cloudflare in front: scripted clients need their own User-Agent; web cached up to 4 h, entry file versioned `?v=` | Letflow production hosting is the existing bizdala.com host (C7, C8), not built | n/a yet | Hand to infra with C8. No product task | — |
 | G18 | Movement history (600) | Kept in Qoimeks | The rehearsal moves opening balances only ("Deliberately not here: … movement history", `qoimeks-rehearsal.md`). No backdating (0079 D1) | **No, by design** | **T-2037**: movement history. Required for parity; the design must explain the conflict with the opening-only path and no-backdating rule. R-1 is withdrawn. | count 2 |
 | G19 | Feedback | «Сообщить о проблеме», Markdown export; 0 rows at 2026-10-29 | No in-app feedback (search above); problems go to the operator (`pilot-rollout.md`, "Support") | No | **T-2038**: feedback. Required for parity, regardless of counts. | count 9 |
 | G20 | Languages | ru, kk; Excel headers Russian | ru, kk, en in web and mobile (#4416) | Fit | none | — |
@@ -113,39 +113,42 @@ Historical searches behind the original "not found" claims (2026-11-13, before t
 
 The inventory move rules (§8.10) are assigned to **T-2039**; section 2 describes the existing path and rehearsal plan. The quantity compare script (RH-7) is **T-2024** (size S). Neither task is delivered by this note.
 
-### 1.3 What is still unknown
+### 1.3 Production counts and defaults the team takes
 
-The inventory answers the facts that files can show. Two kinds of unknown are left. Neither needs new production access.
+The inventory answers the facts that files can show. **Nothing is asked of the client (D-152).**
 
-**A. Read-only production counts the PM already holds** (inventory §4, list 1–10; tenant schema only, numbers only). The note asks for nothing new. Under the final parity decision, P0 counts are dropped as a build prerequisite. If shared, they describe use and sizing of these rows; they do not remove any parity task:
+**A. Read-only production counts the PM already holds** (inventory §4, list 1–10; tenant schema only, numbers only). The note asks for nothing new. Under the parity decision these counts do not gate any build task; if shared, they describe use and sizing:
 
 | Count | What it counts | Settles |
 |---|---|---|
 | 1 | Rows per table; active vs inactive SKUs | size of the move, activity since 2026-10-29 |
-| 2 | Movements per month and per kind; reversals per month | G5 (how often they count), G6, G18 (history value), real use beyond the 3 imports |
+| 2 | Movements per month and per kind; reversals per month | G5, G6, G18, real use beyond the 3 imports |
 | 3 | Movements by source (keyboard / voice), with or without an import number | G15 voice, hand entry |
 | 4 | Imports per month; cancelled imports | G8, G9 (weekly workbook) |
 | 5 | Distinct operator names (count only) | G13, G14 (accounts needed) |
 | 6 | SKUs per unit; SKUs with a barcode; SKUs with a second place | G2, G3, G12 |
 | 7 | Places that break the zone + rack + shelf scheme (also `?`) | G3 |
-| 8 | Balance rows negative; zero | G4 (R-2 withdrawn) |
+| 8 | Balance rows negative; zero | G4 |
 | 9 | Feedback rows by kind | G19 |
-| 10 | User-Agent families and requests per day (from nginx logs) | G10, G16 (Android / web / iPhone) |
+| 10 | User-Agent families and requests per day (from nginx logs) | G10, G16 |
 
-**B. Questions for the client** (inventory §9). The owner decides whether and when anyone asks; nothing here suggests asking now:
-1. How many operators, bookkeepers and devices; does one person need to be told apart from another (accounts)? (G13, G14)
-2. Is voice used at all, and in which language; would they miss it? (G15)
-3. Daily entries, or mainly the weekly Excel import plus reading stock? (G9)
-4. Is the stock export used, and by whom; any report or form made from it? (G11)
-5. Does their workbook have a «Штрихкод» column; do they want barcodes or labels? (G12)
-6. Is the zone + rack + shelf scheme the same everywhere, and will it change? (G3)
-7. Units other than `шт`, decimals, or money in a future product? (G2, G21)
-8. Is Client 1 a paying customer, and is a pause allowed for a later move? (owner item, C14)
-9. Working hours, and who on their side checks after a change. (section 2.5)
-10. Has the iPhone `/web/` test been done? (G16)
-11. May their data stay in Germany (Hetzner) after a move? (owner item, C7; T-1569 §6)
+**B. Defaults the team takes** (replacing the earlier list of questions for the client). The team decides; the parity tasks T-2026..T-2039 carry the build. Source: the inventory (`Qoimeks-team/project/client1-inventory.md`, read only).
 
-Also unknown from the inventory: the activity since 2026-10-29 (count 1, 2), whether the LLM changed after 2026-10-08 [INV §5], and how many phones run the APK [INV §1].
+| Earlier question (topic) | Default taken | Where |
+|---|---|---|
+| Operators, devices, telling people apart | Personal accounts next to the old shared token, T-2034 | G13, G14 |
+| Voice used, language | Voice ru and kk is built in full parity, T-2035 | G15 |
+| Daily entries or weekly Excel | Both are supported: the weekly workbook path, T-2030, T-2031 | G8, G9 |
+| Stock export used | Export in the import layout, T-2032 | G11 |
+| Barcode column, labels | Barcodes import, T-2033 | G12 |
+| Zone + rack + shelf scheme | Kept as text; usual and second place, T-2026 | G3 |
+| Units, decimals, money | Unit `шт`, decimals up to the ledger limit, no money | G2, G21 |
+| Client pays, pause allowed | Not a team question: the move waits for the parity tasks and rehearsals, not for a client answer | C14 |
+| Working hours, who checks | The move runs outside the Qoimeks working hours the inventory shows; the checks of section 2.4 are done by the team and the operator | section 2.5 |
+| iPhone `/web/` test | The team walks it (T-2036) | G16 |
+| Data in Germany | The host is in Nuremberg; accepted by the owner on 2026-11-10 (`docs/uat/ba-decisions/T-1600.md`, row c) | C7 |
+
+Also unknown from the inventory: the activity since 2026-10-29 (count 1, 2), whether the LLM changed after 2026-10-08 [INV §5], and how many phones run the APK [INV §1]. These size the work; they do not block it.
 
 ### 1.4 The four-eyes rule: a second person approves the stock opening (added 2026-11-14, task T-1945)
 
@@ -176,7 +179,7 @@ This is the **existing T-1616 converter path**, not a complete parity migration.
 | Movement history (600) | required for parity; path in design | none yet | none in the existing rehearsal | G18, T-2037; R-1 withdrawn |
 | Users | from a list the client gives, not from Qoimeks (it has none) | users xlsx (REQ-791, ≤ 200 rows) | Users import | G13, G14 |
 | Feedback, shared token | required for parity; paths in design | none yet | none in the existing rehearsal | G19 T-2038; G13 T-2034 |
-| Provider keys | set fresh by the owner | none | none | secrets are not migration files |
+| Provider keys | the Qoimeks keys are reused as they are (C12), piped by infra, never printed | none | none | secrets are not migration files |
 
 Every import runs with `dry_run=true` first (the check-only run), then `atomic=true` (`qoimeks-rehearsal.md`, steps 3–5). All rows carry external ids under one `--system`.
 
@@ -215,7 +218,7 @@ The existing rehearsal below must be updated by the parity designs and T-2039 be
 - a few negative and zero rows, to verify the parity handling designed by T-2027;
 - barcodes to verify G12 parity (T-2033), regardless of counts.
 
-The real extract is converted and loaded only at the move, onto the Letflow production tenant, with the check-only run first. Whether moving the extract from Qoimeks production to Letflow production fits D-050 is an owner item (C6).
+The real extract is converted and loaded only at the move, onto the Letflow production tenant, with the check-only run first. That one step is covered by the production go (C6), which the owner announces before it runs.
 
 | Step | What | Done when |
 |---|---|---|
@@ -244,10 +247,10 @@ The real extract is converted and loaded only at the move, onto the Letflow prod
 ### 2.5 Cut-over window (proposal)
 
 1. The Letflow tenant and accounts exist days before. Each account user has signed in once (M5 of `pilot-first-month.md`); the old shared-token path must also be verified under G13's design, not replaced by an accounts-only rule.
-2. Outside Client 1's working hours (client question 9), Qoimeks writes are frozen. Qoimeks has a `MAINTENANCE_MODE` that answers writes with 503 (`features-to-port.md` section 9); the Qoimeks team picks the switch. Their own tenant move needed "about 40 s" [INV §8.10]. The Letflow load is longer because of imports and posting tasks, and RH-9 gives the real time.
+2. Outside Client 1's working hours (the team's default, section 1.3 B), Qoimeks writes are frozen. Qoimeks has a `MAINTENANCE_MODE` that answers writes with 503 (`features-to-port.md` section 9); the Qoimeks team picks the switch. Their own tenant move needed "about 40 s" [INV §8.10]. The Letflow load is longer because of imports and posting tasks, and RH-9 gives the real time.
 3. Extract a copy (the source stays untouched), convert, run the check-only run, load, post.
 4. Run checks 1–6. If all pass, users switch to Letflow. If one fails and cannot be explained in the window, roll back.
-5. The length of the window is RH-9 plus a margin. The owner sets it with the client.
+5. The length of the window is RH-9 plus a margin. The team sets it; no one asks the client.
 
 ### 2.6 Rollback, and what the client does in parallel
 
@@ -255,11 +258,11 @@ The real extract is converted and loaded only at the move, onto the Letflow prod
 - **Keep the Qoimeks app on the phones for the 30 days** [A], so a rollback needs no reinstall.
 - **Point of no return** [A]: the first full business day on Letflow without rollback.
 - **Parallel run:** Qoimeks stays read-only for 30 days (T-1569 step 6), for fallback lookups; this does not replace movement history parity (G18, T-2037). One full weekly check against the bookkeepers' workbook follows (retirement criterion 10). The client does not post in both systems [A], because double entry makes the counts drift.
-- **Who tells the users:** the owner or the PM, in ru and kk, a week before and on the day (T-1569 section 5). The team writes the text and contacts no one.
+- **Who tells the users:** a notice in ru and kk, a week before and on the day. The team writes the text; it contacts no one itself.
 
 ### 2.7 PM phase order P0–P9 (2026-11-16)
 
-Copied from the PM plan, section 3. **The final parity decision overrides P1's older "extras only if P0" wording:** second place, barcodes, weekly workbook and voice letter words are required, not conditional. P0 is dropped; its "everything is built" means everything must be built, not that it is delivered. P3's formal count with freeze remains a rehearsal check, not a substitute for one-line count parity. P5 sign-in per company does not release T-1359: it stays held until the owner decides **O-012**. No phase is marked walked here.
+Copied from the PM plan, section 3. **The final parity decision overrides P1's older "extras only if P0" wording:** second place, barcodes, weekly workbook and voice letter words are required, not conditional. P0 is dropped; its "everything is built" means everything must be built, not that it is delivered. P3's formal count with freeze remains a rehearsal check, not a substitute for one-line count parity. P5 sign-in per company follows from the production Keycloak plan (C11) and the task T-1359 (F1b); T-1359 is a placeholder in the Letflow plan, not built. No phase is marked walked here.
 
 | # | Phase | Who | Done when |
 |---|---|---|---|
@@ -267,9 +270,9 @@ Copied from the PM plan, section 3. **The final parity decision overrides P1's o
 | P1 | Product gaps: ledger slices L6 and L7 (the stock module is not allowed for a real company until both are done); quantity compare script; extras only if P0 says they are used (second place, barcodes, weekly workbook, voice letter words) | Letflow team | merged, on QA |
 | P2 | Rehearsal 1 on QA with a test set of the same shape (no real data leaves production, D-050) | operator | all 6 reconciliation checks pass; time written down |
 | P3 | Rehearsal 2 on a fresh QA tenant, with four-eyes off and a count with freeze | operator | same result |
-| P4 | Owner decisions and money (below, section 4) | owner | production approved |
-| P5 | Production set-up: server, DNS, backups with a restore test, alerts, sign-in per company | infra, owner | restore drill passed |
-| P6 | Client side: ask questions (O-007), agree the window, users list, train in ru and kk, notice a week before | owner (contact), team writes the texts | window agreed |
+| P4 | (no owner decision left here except the production go, C6; no money, D-152) | - | - |
+| P5 | Production set-up on the existing bizdala.com host: separate stack, DNS and certificate, backups with a restore test, alerts, sign-in per company | infra, operator | restore drill passed |
+| P6 | Client side: the team sets the window, writes the users list default and the ru and kk training and notice texts; no questions to the client | team | texts ready, window set |
 | P7 | Move, outside the client's working hours: freeze Qoimeks writes, copy, check-only run, load, post, six checks, users switch | operator, infra, client | all checks pass, else roll back |
 | P8 | 30 days parallel: Qoimeks read-only, no double entry; weekly check against the bookkeeper workbook | operator | first full business day without rollback = point of no return |
 | P9 | Retire Qoimeks for Client 1 (retirement criteria) | owner | after the 30 days |
@@ -285,29 +288,20 @@ Read these conditions alongside the phase order in section 2.7. Parity is decide
 | C3 | Ledger slices L6 and L7 built and merged, with OQ-R4 before L7 (G1) | L6 = T-2021 (about M); OQ-R4 = T-2022 (about L); L7 = T-2023 after T-2022 (about L). Requirement tasks set real sizes; update when known. Planned, not built | team; the owner's WMS order |
 | C4 | Owner decisions on Qoimeks functionality | **decided by the owner 2026-11-16: parity** | designs explain changes where Letflow rules conflict |
 | C5 | Quantity compare tool (RH-7) and all parity gaps in section 1.2, including inventory §8.10 move rules | quantity compare tool (RH-7) = T-2024 (size S); T-2026–T-2039 assigned to parity gaps, not built. The earlier PM hold on second place, barcodes, weekly workbook and voice letter words pending P0 counts is superseded by parity | team |
-| C6 | **Production go**: owner approval (D-086; `pilot-rollout.md`, "Before the pilot starts" 1), including whether the real extract may go from Qoimeks production to Letflow production (D-050) | not approved | owner |
-| C7 | **VPS**: option A chosen (T-1600 row a); the purchase waits for the PM's money step. Whether data may stay in Germany is open (client question 11) | prepared, not bought | owner, PM, infra |
-| C8 | **DNS**: wildcard `*.letflow.ai-dala.com` accepted (T-1600 row b); the DNS-edit token model is still to agree. Cloudflare notes of G17 go to infra here | open | infra, owner |
-| C9 | **Backups**: off-site copy wanted (T-1600 row f). Who holds the gpg private key, and `LETFLOW_SECRETS_MASTER_KEY` kept apart from the data (T-1600 sections 3, 4.6); a restore drill passed | open | owner, infra |
-| C10 | **Monitoring**: alert log and runbooks for the AI on-call (T-1600 section 4) | not built | infra, team |
-| C11 | Production sign-in (owner-questions A7, A15, A18); personal accounts and old-token parity (G13); each account user seen signing in once (M5) | QA only; T-1359 (sign-in per company) held until owner decides O-012 | owner, infra; T-2034 design |
-| C12 | Voice keys and money, if voice is used (G15) | unset | owner |
+| C6 | **Production go**: the owner's go, **announced before it runs and never self-started** (D-152). It is the only item left for the owner in the production section | not given | owner |
+| C7 | **Server**: the existing host `ubuntu-16gb-nbg1-1` next to QA, no new VPS, 0 new cost (D-152). Separate compose project, own Postgres and Keycloak, own systemd slice with a 3.84 GiB ceiling, loopback ports; QA is killed first under memory pressure. A pending reboot (uptime 141 days) would stop QA, demo and production together and is scheduled, not left to chance | planned, not built | infra, operator |
+| C8 | **DNS**: the bizdala.com zone, `letflow.bizdala.com` and `*.letflow.bizdala.com`, `auth.letflow.bizdala.com` for Keycloak, through the existing token route D-028; a new certificate lineage; no wildcard under `ai-dala.com`. Cloudflare notes of G17 go to infra here | planned, not built | infra |
+| C9 | **Backups**: dumps twice a day on the host, no WAL (D-116). The QA-host copy is the same machine and is **not** off-site. Real off-site: the agent host (pull twice a day) and the owner's PC (weekly push over the tunnel, best effort). The gpg key pair is made on the agent host; `LETFLOW_SECRETS_MASTER_KEY` stays apart from the data and from the gpg key. Key creation, the pull drill and the stage-1 dry run are announced before they run. A restore drill must pass | planned, not built | infra, operator |
+| C10 | **Monitoring**: alert log and runbooks (T-1600 section 4); preparation only, no on-call for non-paying clients (D-116); alert when a backup status is red or older than 30 h, disk at 75% and 85%, reboot pending more than 7 days. Production mail (T-0245) is missing | not built | infra, team |
+| C11 | Production sign-in per company follows from C7 to C8: a separate production Keycloak, one realm per company, the company found by its hostname `<company>.letflow.bizdala.com`, realms from the `bpm-default` template. Task T-1359 (F1b) is a placeholder, not built, with a security review before it ships; personal accounts and old-token parity (G13); each account user seen signing in once (M5) | QA only; not built | infra, team; T-1359, T-2034 design |
+| C12 | Voice keys: the Qoimeks provider keys are **reused as they are** (D-152); infra pipes them host to host into a mode-600 file on the production host; a key is never printed. Env names: `LETFLOW_VOICE_STT_PROVIDER`/`_MODEL`/`_BASE_URL`/`_API_KEY` and `LETFLOW_VOICE_LLM_PROVIDER`/`_MODEL`/`_BASE_URL`/`_API_KEY` (`docs/runbooks/stock-voice.md`). **Build item T-2035:** Letflow knows only the provider kinds `openai_transcriptions` and `openai_chat`. Qoimeks uses xAI Grok (OpenAI-compatible chat: its key and base URL fit `openai_chat`) and ElevenLabs speech, which is not the OpenAI transcription API, so reusing that key needs a new client. Not built. Keys are shared with Qoimeks: one quota, one bill | not built | infra (keys), team (T-2035) |
 | C13 | Two clean rehearsals on QA (section 2.3) | not started | C3, C5 |
-| C14 | Phase F gate of the owner (`pilot-rollout.md`, "Before the pilot starts" 4); whether Client 1 pays and may pause (client question 8) | open | owner |
-| C15 | Training in ru and kk (parity counts, minus warning, token/accounts and sign-in) and user notice a week before | not walked; training follows parity designs | owner, PM |
-| C16 | Window agreed with the client, outside working hours (section 2.5) | open | owner, PM, client |
+| C14 | Phase F gate (`pilot-rollout.md`, "Before the pilot starts" 4): the manual gate after the parity rehearsals. Whether Client 1 pays is not a condition of the move | not reached | team, owner (go only, C6) |
+| C15 | Training texts in ru and kk (parity counts, minus warning, token/accounts and sign-in) and user notice a week before | not written; follows parity designs | team |
+| C16 | Window set by the team, outside the Qoimeks working hours (section 2.5); no one asks the client | not set | team |
 | C17 | **Four eyes** (G22, section 1.4): one administrator issues an opening, switches stock_opening / approve off with a reason, approves alone; exactly one self-approved entry and one switch entry in the audit; switch back on and verify refusal | **T-1986–T-1990 merged**; rehearsal planned on a fresh QA tenant after infra provides it. **Not walked; date to be recorded when walked** | infra (fresh QA tenant), operator (rehearsal); owner (open design rows) |
 
-**Owner items that block the move** (C6, C7, C8, C9, C11, C12, C14, C15, C16; functionality parity in C4 is already decided):
-- the production "go", including D-050 for the real extract;
-- the VPS money and the Germany data location;
-- the DNS token model;
-- the backup key holder and the off-site target;
-- production sign-in;
-- voice keys;
-- whether Client 1 pays;
-- who trains;
-- the window.
+**What really remains for the owner:** only the **production go, announced before it runs** (C6). Everything else in this section is team, infra or operator work, none of it built or walked yet.
 
 ## 4. One table for the owner
 
@@ -323,16 +317,15 @@ Read these conditions alongside the phase order in section 2.7. Parity is decide
 | Items, places, balances | Half | Quantity check tool RH-7, T-2024 (S); other parity gaps in section 1.2 | Team |
 | Barcodes, second place, voice words | Planned | Required for parity: T-2033, T-2026, T-2035 | Team |
 | Phone app | In design | Android and iPhone web parity, T-2036 | Team |
-| Voice | Built | Keys and money, if used | You |
-| People sign in | QA only | O-012; T-1359 held until the owner decides | You, infra |
-| Server | Chosen, not bought | Money step; may data stay in Germany? | You, PM |
-| Domain name | Chosen | DNS token with infra | Infra |
-| Backups | Planned | Who keeps the key; off-site place; one test restore | You, infra |
+| Voice | Built for OpenAI-style providers | Qoimeks keys reused; ElevenLabs speech needs a new client, T-2035; not built | Team, infra |
+| People sign in | QA only | Production Keycloak per company (C11); T-1359 is a placeholder, not built | Infra, team |
+| Server | Chosen: the existing bizdala.com host, 0 new cost | Not built; reboot pending on the host | Infra |
+| Domain name | Chosen: `*.letflow.bizdala.com` | D-028 token route; not built | Infra |
+| Backups | Planned | Off-site: agent host and your PC (the QA-host copy is not off-site); keys apart; one test restore; not built | Infra, operator |
 | Alerts | Not built | Alert list and runbooks | Infra, team |
-| Does Client 1 pay? | Unknown | Your answer | You |
-| Production "go" | No | Your yes | You |
+| Production "go" | No | Your yes, announced before it runs; the only item left for you | You |
 | Practice move on QA | Not started | Needs the lines above | Team |
-| Tell the users | Not started | Who and when | You, PM |
+| Tell the users | Not started | The team writes the ru and kk notice | Team |
 
 ## Assumptions (all UAT assumptions, to be confirmed by the process owner)
 
