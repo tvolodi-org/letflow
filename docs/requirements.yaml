@@ -57599,7 +57599,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-884 -- G9 part 1 extends the check route of REQ-884 and the load route of REQ-885, both pending
+    gh: 4615
     # Source: task T-2031 (Qoimeks parity row G9, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 8ebc41e6b: docs/status/qoimeks-migration-readiness.md (section 1.2 rows G8 and G9, section 1.3 B "Daily entries or weekly Excel"), REQ-884 (pending, gh 4607: "Only the first worksheet is read ... choosing a sheet of the weekly workbook is row G9, task T-2031"), REQ-885 (pending, gh 4606), REQ-886 (pending, gh 4605), lib/letflow/entities/xlsx_import.ex (moduledoc: "only the first worksheet (workbook order) is read"), lib/letflow/ledger.ex (defdelegate balances/4). Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md: importer.go package doc and parse/2 (sheet choice), store/import.go ImportReport.NotInFile and its query, api/import.go importWorkbook (sheet, sheets), web.html (sheet select, block "Нет в файле").
     description: >
       Why. The bookkeepers' weekly workbook is the authority on balances (readiness note section 1.2 row G9).
@@ -57651,7 +57651,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-887 -- the screen this part changes is REQ-887, pending
+    gh: 4614
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending, gh 4604: the screen at admin/stock/workbook-import, its states and the not-checked rule), REQ-888 (this task: sheet, sheets, not_in_file). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): select "Лист" with the first option «Первый лист (последняя неделя)», filled with the sheets after the first check, a change of sheet makes the check void; block «Нет в файле» with the hint «— у этих товаров есть остаток в системе, но в файле их нет. Остаток не изменяется.» and the columns №, Артикул, Номенклатура, Место, Остаток.
     description: >
       Why. Qoimeks parity row G9 for the people who use it: the bookkeepers load the newest week (the first
@@ -57686,7 +57686,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-888 -- builds on the sheet-aware check and load of REQ-888 and REQ-885, pending
+    gh: 4613
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-884 (rules (a) R8 "артикул не найден, строка пропущена" and (f) R6, and "the second place, unit and codes are master data, row G9"), REQ-885, REQ-886, lib/letflow/routers/entities/record_import.ex (import_scope/2: decision 0081 D4, STOREKEEPER imports stock_opening_line only), docs/migration/decisions/0081-storekeeper-role.md, lib/letflow/modules/catalog_items/catalog_items.ex (import_row/3, lookup/2), lib/letflow/modules/catalog_items/import.ex (row/3 keys by external ref, Records.upsert_record_by_external_ref/3), priv/modules/catalog_items/pack.json (uq_catalog_item_code, uq_catalog_item_external_ref), lib/letflow/modules/locations/locations.ex (defdelegate create_node/3 to Tree), priv/modules/locations/pack.json (uq_location_node_code; code, name, node_kind required by Locations.Import), scripts/pilot/qoimeks_convert.py (node_kind "location", unit code from the unit text), lib/letflow/modules/stock/stock.ex (depends_on catalog_items, codes, locations, org). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): store/import.go Import (locations insert on conflict do nothing; skus upsert: name, places, active = true), importer.go locationName and NoLocation "?", web.html report counts «новых товаров», «обновится товаров», «новых мест»; inventory section 7 (default unit шт), copied as sources/client1-inventory.copy.md.
     description: >
       Why. In Qoimeks every load of the weekly workbook also keeps the catalog in step with the file: an
@@ -57767,7 +57767,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-890 -- needs the masters step of REQ-890 and the stock_item_place link of REQ-841, both pending
+    gh: 4612
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-841 (pending, gh 4555: stock_item_place, one link per catalog item, usual_location_id and second_location_id, a blank place clears the earlier one, audit stock_item_place.created / .updated), REQ-865 (pending: "the place of its first row is its usual place; when column G is empty, the first later row whose place differs from the usual place gives the second place"), REQ-884 (R10 copied without the Qoimeks rename clause), REQ-890 (this task). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): importer.go column G altShape ^([A-Z])([A-Z]?)(\d*)$ after removing spaces, upper case and look-alike letters, its remark «второе место %q не похоже на код места, пропущено», home = the "?" place for a quantity without a place; store/import.go skus upsert location_id = home and alt_location_id = alt (a blank clears).
     description: >
       Why. Qoimeks parity rows G9 and G3: every load of the weekly workbook also sets each article's usual
@@ -57813,7 +57813,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-891 -- shows the masters block of REQ-890 and REQ-891 on the screen of REQ-887, all pending
+    gh: 4611
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending: the screen and its states), REQ-889, REQ-890 and REQ-891 (this task: masters, masters_writable, balances, the masters block). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): report counts «новых товаров», «обновится товаров», «новых мест», «остатков изменится», checkbox «Записать остатки из файла» with its hint.
     description: >
       Why. Qoimeks parity row G9 for the people who use it: before loading the weekly workbook the user sees
