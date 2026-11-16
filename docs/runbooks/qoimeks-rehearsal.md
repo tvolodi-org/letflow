@@ -57,12 +57,16 @@ together with its first real balance (below).
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
    Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
 
-8. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
+8. **Compare masters (REQ-881)**: save the Letflow records export (POST `/api/v1/entities/records/<type>/export`, format `json`) for each of `location_node`, `catalog_uom` and `catalog_item` as one or more JSON files in a directory `EXPDIR` (file names `<type>-<anything>.json`). Then run
+   `python3 -I scripts/pilot/qoimeks_masters_compare.py --locations IN/locations.csv --items IN/items.csv --export-dir EXPDIR`.
+   It prints one `DIFF` line per code that differs or is on one side only, `ROWS` and one sha256 `HASH` per side over the sorted (code, name) list for each of the three tables, and `RESULT` per table then overall. Exit 0 means all three tables are equal, 1 differences, 2 bad input. Export records with `deleted: true` are excluded.
+
+9. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
    before the extract and switches it off after the last check; write down the time it was on (about 40 s was enough
    for Client 1). Letflow does not switch it.
-9. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
-   the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
-10. **Rollback**: lift the Qoimeks write freeze (step 8). The Qoimeks data was never changed, and the phones still hold the
+10. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
+    the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
+11. **Rollback**: lift the Qoimeks write freeze (step 9). The Qoimeks data was never changed, and the phones still hold the
     Qoimeks address and token. The Letflow company is kept, not deleted. For anything entered in Letflow after the switch, take
     the stock movements export (`stock-movements.xlsx`) and enter it in Qoimeks by hand.
 
@@ -78,12 +82,12 @@ The move rules of Qoimeks Client 1 and where Letflow meets them. State: built, t
 |---|---|---|
 | Copy | The runbook works on a copy; the source is untouched (intro, step 1) | built |
 | One transaction | One transaction per file (`atomic=true`, `check_atomic` in `lib/letflow/routers/entities/record_import.ex`, steps 3 and 5) on a company that is empty before the load (step 6). The whole load is not one transaction: it is several files and posting tasks | built |
-| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (REQ-881) | built; master hash planned, REQ-881 |
+| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (step 8, `scripts/pilot/qoimeks_masters_compare.py`) | built |
 | Current balances equal | Step 7, `scripts/pilot/qoimeks_balances_compare.py` | built |
 | Check-only run first | `dry_run=true` before `atomic=true` (steps 3 and 5) | built |
-| Short write freeze | Step 8, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
-| ANALYZE after the load | Step 9, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
-| Rollback | Step 10, lift the Qoimeks freeze; the Letflow company is kept | this section |
+| Short write freeze | Step 9, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
+| ANALYZE after the load | Step 10, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
+| Rollback | Step 11, lift the Qoimeks freeze; the Letflow company is kept | this section |
 | Outside working hours | The operator schedules the move outside Client 1's working hours | this section |
 | No real data leaves production | Work on a copy and a QA company only (D-050); output files stay outside the repository | this section |
 | Old copy kept 30 days | The Qoimeks copy and its extract are kept 30 days after the move | this section |
