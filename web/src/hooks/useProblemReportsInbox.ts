@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { platformProblemReportsApi } from '@/api/platformProblemReports'
 import type { DecisionAction, InboxDetail, InboxFilter, InboxList } from '@/api/platformProblemReports'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
+import { client } from '@/api/client'
 import type { ApiError } from '@/types/api'
 
 export function useInboxList(status: InboxFilter) {
@@ -35,5 +36,23 @@ export function useDecideReport() {
       qc.setQueryData(keys.detail(vars.id), detail)
       void qc.invalidateQueries({ queryKey: keys.lists() })
     },
+  })
+}
+
+const BASE_PROBLEM_REPORTS = '/api/v1/platform-problem-reports'
+
+/** T-2015 — fetches the blob URL for one problem-report image. Returns isLoading/isError/data for
+ *  the caller to render; the blob URL is kept for the lifetime of the query (staleTime: Infinity). */
+export function useReportImage(reportId: string, imageId: string) {
+  const keys = useTenantScopedQueryKeys().problemReportsInbox
+  return useQuery<string, ApiError>({
+    queryKey: keys.image(reportId, imageId),
+    queryFn: async () => {
+      const result = await client.getBlob(
+        `${BASE_PROBLEM_REPORTS}/${encodeURIComponent(reportId)}/images/${encodeURIComponent(imageId)}`,
+      )
+      return URL.createObjectURL(result.blob)
+    },
+    staleTime: Infinity,
   })
 }

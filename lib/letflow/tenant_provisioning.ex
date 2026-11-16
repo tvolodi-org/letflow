@@ -1012,7 +1012,11 @@ defmodule Letflow.TenantProvisioning do
      "20261115200001_create_approval_rule_settings.exs"},
     # T-1982 (0089 D5): official_form_templates, created empty; no existing row is altered.
     {20_261_115_300_001, Letflow.Repo.Migrations.CreateOfficialFormTemplates,
-     "20261115300001_create_official_form_templates.exs"}
+     "20261115300001_create_official_form_templates.exs"},
+    # T-2015: problem_report_images (screenshots on problem reports). Created empty in every schema,
+    # written only in the platform company's schema; nothing to backfill.
+    {20_261_116_100_001, Letflow.Repo.Migrations.CreateProblemReportImages,
+     "20261116100001_create_problem_report_images.exs"}
   ]
 
   @doc """

@@ -73,12 +73,14 @@ import { metricsScreens } from './fixtures/metrics'
 import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { taskInboxAssetsScreens } from './fixtures/taskInboxAssets'
+import { taskInboxHandoverScreens } from './fixtures/taskInboxHandover'
 import { taskUpgradeScreens } from './fixtures/taskUpgrade'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { processDiscoveryScreens } from './fixtures/processDiscovery'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
+import { definitionListScreens } from './fixtures/definitionList'
 import { instanceReplayScreens } from './fixtures/instanceReplay'
 import { instanceDetailScreens } from './fixtures/instanceDetail'
 import { waitingSinceScreens } from './fixtures/waitingSince'
@@ -327,6 +329,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...processDesignerEditScreens,
     ...processDiscoveryScreens,
     ...processDesignerVersionsScreens,
+    ...definitionListScreens,
     ...instanceReplayScreens,
     ...instanceDetailScreens,
     ...waitingSinceScreens,
@@ -379,6 +382,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...groupsT1610Screens,
     ...taskInboxScreens,
     ...taskInboxAssetsScreens,
+    ...taskInboxHandoverScreens,
     ...taskUpgradeScreens,
     ...navRoleScreens,
     ...a11yDialogScreens,

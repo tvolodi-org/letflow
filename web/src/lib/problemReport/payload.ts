@@ -2,6 +2,7 @@
  *  this object as JSON before sending and posts the same object (one snapshot, one builder). */
 import type { ActionEntry, RequestEntry } from './capture'
 import { maskText, normalizePath, oneLine } from './redact'
+import type { ReportImage } from './images'
 
 export type ReportContext = {
   route: string
@@ -12,7 +13,12 @@ export type ReportContext = {
   requests: RequestEntry[]
   crash?: { name: string; message: string }
 }
-export type ReportBody = { text: string; consent: true; context: ReportContext }
+export type ReportBody = {
+  text: string
+  consent: true
+  context: ReportContext
+  images?: { data_base64: string; content_type: string }[]
+}
 
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 const ID_VALUE = /^[A-Za-z0-9_-]{1,64}$/
@@ -41,7 +47,7 @@ export function extractEntityIds(pathname: string, search: string): Record<strin
 export function buildReportBody(
   text: string,
   snap: { actions: ActionEntry[]; requests: RequestEntry[] },
-  opts: { uiLanguage: 'en' | 'ru' | 'kk'; crash?: Error | null },
+  opts: { uiLanguage: 'en' | 'ru' | 'kk'; crash?: Error | null; images?: ReportImage[] },
 ): ReportBody {
   const language = typeof navigator.language === 'string' && /^[A-Za-z-]{2,16}$/.test(navigator.language) ? navigator.language : undefined
   const context: ReportContext = {
@@ -62,7 +68,11 @@ export function buildReportBody(
       message: maskText(oneLine(opts.crash.message)).slice(0, 300),
     }
   }
-  return { text: maskText(text.trim()), consent: true, context }
+  const body: ReportBody = { text: maskText(text.trim()), consent: true, context }
+  if (opts.images && opts.images.length > 0) {
+    body.images = opts.images.map((img) => ({ data_base64: img.dataBase64, content_type: img.contentType }))
+  }
+  return body
 }
 
 function entityIdsField(): { entity_ids?: Record<string, string> } {

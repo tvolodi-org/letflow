@@ -48,6 +48,7 @@ export interface InboxDetail {
   trace_id: string | null
   reply_text: string | null
   dev_summary: string | null
+  images?: { id: string; content_type: string; position: number }[]
 }
 
 const BASE = '/api/v1/platform-problem-reports'

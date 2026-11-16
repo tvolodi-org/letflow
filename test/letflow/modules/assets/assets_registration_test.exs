@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.28.0"
+    assert m.version == "0.29.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -158,6 +158,17 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
         "enum_values" => ["fixed", "low_value", "intangible"]
       },
       %{"name" => "org_unit_id", "type" => "string", "queried" => true},
+      %{"name" => "manufacturer", "type" => "string"},
+      %{"name" => "asset_type", "type" => "string"},
+      %{"name" => "model", "type" => "string"},
+      %{"name" => "type", "type" => "string"},
+      %{"name" => "brand", "type" => "string"},
+      %{"name" => "category", "type" => "string"},
+      %{"name" => "sort", "type" => "string"},
+      %{"name" => "serial_number", "type" => "string"},
+      %{"name" => "passport_number", "type" => "string"},
+      %{"name" => "useful_life_months", "type" => "integer"},
+      %{"name" => "commissioning_date", "type" => "date"},
       %{"name" => "acquisition_date", "type" => "date"},
       %{"name" => "currency", "type" => "string"},
       Map.put(dec, "name", "acquisition_cost"),

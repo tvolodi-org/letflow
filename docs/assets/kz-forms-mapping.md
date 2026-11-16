@@ -777,26 +777,115 @@ deleted or other-tenant id is the one 404. A card form, so it is a card route, n
 document is 422 `invalid_form`). Layout `priv/print_forms/da2.json` (annex 17), data `Letflow.Modules.Assets.FormDa2`, read
 `Letflow.Modules.Assets.CardPrintSource`. Web: the "Official form" menu in the card header, for active and retired cards.
 
-**Filled, from stored facts:** name and BIN of the legal entity, the unit, the materially responsible person, the card
-name, inventory number and acquisition date, and for a KZT card the original cost, accumulated depreciation and book
-value (the live card values; the form has no as-of field).
+**Filled, from stored facts (T-2017 slice 1, assets 0.29.0):** name and BIN of the legal entity,
+unit, materially responsible person, card name, inventory number and acquisition date; for a KZT card,
+original cost, accumulated depreciation and book value (live card values, no as-of field). The card now
+also supplies manufacturer (`maker`), the reference characteristic (`model`: nonempty `asset_type`,
+`model`, `type`, `brand`, `category`, `sort`, in that order, separated by comma and space), serial number
+(`lines.factory`), passport number (`lines.passport`), useful life in months (`lines.life`) and
+commissioning date (`lines.commissioned`, date only until slice 1b adds the act number).
+`asset_type` means «вид» and is distinct from the fixed/low_value/intangible classification `kind`.
+The reference says «возраст», not grade/class. No separate grade or age attribute is introduced;
+no age is inferred without a manufacture date.
+
+All eleven new card fields are optional in this slice. A supplied commissioning date must be a valid
+ISO date; invalid input returns `field_invalid` naming `commissioning_date`. Existing tenants first
+call `POST /api/v1/tenant/modules/assets/upgrade/plan`, then
+`POST /api/v1/tenant/modules/assets/upgrade` with the returned `plan_hash` and a `rationale`, as tenant
+admin. This activates the additive managed definition without rewriting old cards or requiring a
+SQL migration/backfill. Missing attributes print blank. Required-at-opening/commission
+checks ship with the screens that can enter the values, in slice 2.
 
 **Holder rule:** unit and person come from the asset register (`asset-register.md` section 7.2) only when the card has
 exactly one non-zero row. A never commissioned, written-off or split low-value card takes the unit from the card's own
 `org_unit_id` and prints the person blank. A refused or unreadable register read prints the person blank.
 
-**Blank (never invented):** manufacturer, model, factory and passport number, release year, acquisition document name and
-number (G7), useful life, liquidation value, impairment, ownership, the commissioning act (column 3) and the disposal
-columns 16-18 (a follow-up "ДА-2 history" slice: `GET /movements` has no asset filter), precious materials, the repair,
-revaluation, movement and characteristics tables (headers only), the document number and compile date, and "Карточку
-заполнил" (G4). Gaps G11.
+**Blank (never invented):** release year, ownership, precious materials, elements and signatures have
+no captured source. Commission-document number/date, acquisition document name/number and the act
+number in column 3 await slice 1b's tenant-scoped document source. Disposal, repair/modernisation,
+revaluation and internal move histories await their event-family slices. Liquidation value and
+impairment have no source yet and remain blank, including on a freshly commissioned asset. They are
+not fabricated zeros. The field-source guard below is an inventory of both supported sources and
+explicit gaps; a `manual` or `on_event` row does not claim a history source has been implemented.
+
+**Field-source guard:** F2 in `form_da2_test.exs` enumerates all 54 layout paths, including signature
+parts, requires exactly one source/applicability row per path, and checks every supported `always` or
+`after_commission` cell is nonblank on a fully filled commissioned-card fixture. Event/manual cells
+remain blank on that fixture. Source and applicability inventory:
+
+| Layout path | Source or explicit gap | Applicability |
+|---|---|---|
+| `org_name` | org_legal_entity.name | `always` |
+| `org_bin` | org_legal_entity.bin | `always` |
+| `unit` | org_unit.name (single register holder, else card.org_unit_id) | `always` |
+| `mol` | org_employee.full_name (single register holder) | `after_commission` |
+| `number` | commission document.number (slice 1b) | `manual` |
+| `date` | commission document.issued_at (slice 1b) | `manual` |
+| `full_name` | assets_card.name | `always` |
+| `maker` | assets_card.manufacturer | `always` |
+| `model` | assets_card.asset_type,model,type,brand,category,sort | `always` |
+| `lines.name` | assets_card.name | `always` |
+| `lines.cost` | assets_card.acquisition_cost (KZT only) | `always` |
+| `lines.commissioned` | assets_card.commissioning_date; commission act number pending slice 1b | `after_commission` |
+| `lines.released` | manufacture year: not captured | `manual` |
+| `lines.inv` | assets_card.inventory_number | `always` |
+| `lines.factory` | assets_card.serial_number | `always` |
+| `lines.passport` | assets_card.passport_number | `always` |
+| `lines.acq_doc` | commission document kind (slice 1b) | `manual` |
+| `lines.acq_no` | commission document.number (slice 1b) | `manual` |
+| `lines.acquired` | assets_card.acquisition_date | `always` |
+| `lines.life` | assets_card.useful_life_months (months) | `always` |
+| `lines.depr` | assets_card.accumulated_depreciation (KZT only) | `always` |
+| `lines.liquidation` | residual value: not captured | `on_event:disposal` |
+| `lines.impairment` | impairment loss: not captured | `on_event:revaluation` |
+| `lines.ownership` | ownership: not captured | `manual` |
+| `lines.out_doc` | disposal document: pending history slice | `on_event:disposal` |
+| `lines.out_reason` | disposal reason: pending history slice | `on_event:disposal` |
+| `lines.out_income` | disposal proceeds: pending history slice | `on_event:disposal` |
+| `lines.book` | assets_card.book_value (KZT only) | `always` |
+| `precious` | precious metals: manual declaration | `manual` |
+| `repairs.m_date` | modernisation document date: pending history slice | `on_event:modernisation` |
+| `repairs.m_no` | modernisation document number: pending history slice | `on_event:modernisation` |
+| `repairs.m_inv` | modernised asset number: pending history slice | `on_event:modernisation` |
+| `repairs.m_sum` | modernisation cost: pending history slice | `on_event:modernisation` |
+| `repairs.r_date` | repair document date: pending history slice | `on_event:repair` |
+| `repairs.r_no` | repair document number: pending history slice | `on_event:repair` |
+| `repairs.r_kind` | repair type: pending history slice | `on_event:repair` |
+| `repairs.r_sum` | repair cost: pending history slice | `on_event:repair` |
+| `revaluations.v_date` | revaluation date: pending history slice | `on_event:revaluation` |
+| `revaluations.v_coef` | revaluation coefficient: pending history slice | `on_event:revaluation` |
+| `revaluations.v_cost` | revalued cost: pending history slice | `on_event:revaluation` |
+| `moves.t_doc` | transfer document: pending history slice | `on_event:move` |
+| `moves.t_op` | transfer operation: pending history slice | `on_event:move` |
+| `moves.t_unit` | destination unit: pending history slice | `on_event:move` |
+| `moves.t_book` | transfer book value: pending history slice | `on_event:move` |
+| `moves.t_note` | transfer note: pending history slice | `on_event:move` |
+| `elements.e_name` | component name: manual declaration | `manual` |
+| `elements.e_main` | component characteristics: manual declaration | `manual` |
+| `elements.e_extra` | component characteristics: manual declaration | `manual` |
+| `elements.e_extra2` | component characteristics: manual declaration | `manual` |
+| `elements.e_extra3` | component characteristics: manual declaration | `manual` |
+| `elements.e_extra4` | component characteristics: manual declaration | `manual` |
+| `filled.position` | preparer position: manual signature | `manual` |
+| `filled.signature` | preparer signature: manual signature | `manual` |
+| `filled.name` | preparer name: manual signature | `manual` |
 
 **Layout limits:** the ru line "продолжение таблицы" has no counterpart in the official kk text and is left out; the
 official characteristics table is numbered 1-6 but names three columns, so it has three; the engine has one header level.
 
-**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that ДА-2 is printed for every card kind,
-low-value included; that the live card values are what the card shows, with no as-of date; that the document number and
-date stay blank for a system card; that the register's single holder is the "Материально – ответственное лицо".
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** ДА-2 for every card kind,
+low-value included; live card values without an as-of date; the single register holder as the
+"Материально – ответственное лицо". Commission-document number/date mapping remains slice 1b.
+
+**Remainder (operator queues in order):** slice 1b adds tenant-scoped commission-document sources
+(number/date, act number, acquisition document/name/number); slice 2 adds card/opening/commission
+screens in en/ru/kk and fixed-asset issue validation together, preserving loaded values on full-line
+replacement saves, with the full screenshot matrix. Slice 3 adds lifecycle sources per event family.
+Slice 4 is the post-CD QA acceptance walk as gate-b6-admin, after module upgrade plan/apply: open an
+asset, commission, print ДА-2, inspect applicable cells and capture desktop/phone shots at each step.
+The existing CI-listed assets-print spec checks the slice-1 attributes after commissioning through
+real screens (its card POST is enriched with the new attributes until slice 2 exposes the controls).
+The QA owner walkthrough remains **not ready** until that post-deploy acceptance passes.
 
 **Proof:** `test/letflow/modules/assets/form_da2_test.exs`, `test/letflow/modules/assets/form_da2_router_test.exs` (real
 tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/CardFormPrint.test.tsx`, E12 and E13 of

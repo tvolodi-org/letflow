@@ -26,6 +26,15 @@ defmodule Letflow.ProblemReports.Capture do
   a space is not masked; IIN/BIN (12 digits) are not masked (a BIN is needed in asset reports and the
   user sees the text before sending). The regexes take no `u` flag and use explicit ASCII classes, so
   they behave like a JS regex without `u`.
+
+  ## Images (T-2015)
+
+  `parse_images/1` accepts a list of base64-encoded PNG or JPEG images (up to 3, up to 5 MiB each).
+  Magic-byte sniffing ensures the declared type matches the actual format. EXIF stripping is done
+  client-side by canvas re-encoding before base64 encoding. The server does not strip EXIF again:
+  the bytes are stored only in the platform schema and are accessible only to holders of
+  `:ProblemReportsManage`. Full server-side stripping would add an image-processing library dependency;
+  that trade-off has been deferred (noted in the security review for T-2015).
   """
 
   alias Letflow.Secrets.Redaction
@@ -46,16 +55,72 @@ defmodule Letflow.ProblemReports.Capture do
   @phone ~r/(?<![0-9A-Za-z+])\+?[0-9](?:[ ()-]{1,2}[0-9]|[0-9])*(?![0-9A-Za-z])/
   @uuid ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
+  @max_images 3
+  @max_image_bytes 5_242_880
+  @accepted_content_types ~w(image/png image/jpeg)
+
   @spec parse(term()) ::
-          {:ok, %{text: String.t(), context: map()}} | {:error, {:invalid, String.t()}}
+          {:ok, %{text: String.t(), context: map(), images: list()}}
+          | {:error, {:invalid, String.t()}}
   def parse(body) when is_map(body) do
     with {:ok, text} <- parse_text(Map.get(body, "text")),
-         {:ok, context} <- parse_context(Map.get(body, "context")) do
-      {:ok, %{text: text, context: context}}
+         {:ok, context} <- parse_context(Map.get(body, "context")),
+         {:ok, images} <- parse_images(Map.get(body, "images")) do
+      {:ok, %{text: text, context: context, images: images}}
     end
   end
 
   def parse(_other), do: {:error, {:invalid, "text"}}
+
+  @doc """
+  Parses the optional `images` list from a problem report body. Accepts nil/absent → empty list.
+  Each item must be `%{"data_base64" => str, "content_type" => ct}` where ct is `image/png` or
+  `image/jpeg`. Decodes base64, checks magic bytes and size ≤ 5 MB.
+  Returns `{:ok, [%{content_type, bytes, size}]}` or an error.
+  """
+  @spec parse_images(term()) ::
+          {:ok, list(%{content_type: String.t(), bytes: binary(), size: non_neg_integer()})}
+          | {:error, {:invalid, String.t()}}
+  def parse_images(nil), do: {:ok, []}
+
+  def parse_images(list) when is_list(list) and length(list) <= @max_images do
+    result =
+      Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
+        case parse_image(item) do
+          {:ok, img} -> {:cont, {:ok, acc ++ [img]}}
+          {:error, _} = err -> {:halt, err}
+        end
+      end)
+
+    result
+  end
+
+  def parse_images(_other), do: {:error, {:invalid, "images"}}
+
+  defp parse_image(%{"data_base64" => b64, "content_type" => ct})
+       when is_binary(b64) and ct in @accepted_content_types do
+    case Base.decode64(b64, ignore: :whitespace) do
+      {:ok, bytes} ->
+        size = byte_size(bytes)
+
+        with true <- (size >= 1 and size <= @max_image_bytes) || {:error, :image_too_large},
+             {:ok, sniffed_ct} <- sniff_magic(bytes),
+             true <- sniffed_ct == ct || {:error, :type_mismatch} do
+          {:ok, %{content_type: ct, bytes: bytes, size: size}}
+        else
+          {:error, _} -> {:error, {:invalid, "images"}}
+        end
+
+      :error ->
+        {:error, {:invalid, "images"}}
+    end
+  end
+
+  defp parse_image(_other), do: {:error, {:invalid, "images"}}
+
+  defp sniff_magic(<<0x89, 0x50, 0x4E, 0x47, _::binary>>), do: {:ok, "image/png"}
+  defp sniff_magic(<<0xFF, 0xD8, 0xFF, _::binary>>), do: {:ok, "image/jpeg"}
+  defp sniff_magic(_), do: {:error, :bad_image_type}
 
   # ── text ────────────────────────────────────────────────────────────────
 

@@ -60,7 +60,7 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
     assert detail["reporter"]["tenant_name"] == ctx.a.tenant.display_name
 
     assert Enum.sort(Map.keys(detail)) ==
-             ~w(class context decided_at decided_by_user_id dev_summary id last_action number received_at reply_text reporter server_version status text trace_id)
+             ~w(class context decided_at decided_by_user_id dev_summary id images last_action number received_at reply_text reporter server_version status text trace_id)
 
     assert Enum.sort(Map.keys(detail["reporter"])) ==
              ~w(name permissions roles tenant_id tenant_name user_id)
@@ -209,5 +209,67 @@ defmodule Letflow.Routers.PlatformProblemReportsTest do
   test "M6 own list is unavailable when the platform pin is absent", ctx do
     Fixture.unpin!()
     assert request(ctx.a, ctx.caller, :get, @mine).status == 503
+  end
+
+  # ── T-2015 image route tests (RI1-RI4) ──────────────────────────────────
+
+  alias Letflow.ProblemReports.ReportImage
+  alias Letflow.Support.OwnerListFixture, as: F
+
+  defp report_with_image!(ctx) do
+    conn =
+      request(ctx.a, ctx.caller, :post, @mine, %{
+        "consent" => true,
+        "text" => "Screenshot test",
+        "context" => %{"route" => "/assets"},
+        "images" => [%{"data_base64" => Base.encode64(F.png()), "content_type" => "image/png"}]
+      })
+
+    assert conn.status == 201, conn.resp_body
+    report_id = json(conn)["id"]
+
+    [img] =
+      Repo.all(from(i in ReportImage, where: i.report_id == ^report_id),
+        prefix: ctx.p.schema_name
+      )
+
+    {report_id, img}
+  end
+
+  test "RI1 GET /:id/images/:image_id with ProblemReportsManage returns 200 with correct bytes and security headers",
+       ctx do
+    {report_id, img} = report_with_image!(ctx)
+    path = "#{@path}/#{report_id}/images/#{img.id}"
+    conn = request(ctx.p, ctx.owner, :get, path)
+    assert conn.status == 200, conn.resp_body
+    assert conn.resp_body == F.png()
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/png"]
+    assert Plug.Conn.get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    assert Plug.Conn.get_resp_header(conn, "content-security-policy") == ["default-src 'none'"]
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, no-store"]
+  end
+
+  test "RI2 GET /:id/images/:image_id without ProblemReportsManage returns 403", ctx do
+    {report_id, img} = report_with_image!(ctx)
+    path = "#{@path}/#{report_id}/images/#{img.id}"
+    no_manage_token = Fixture.mint_token!(ctx.p, ["TASK_WORKER"])
+    conn = request(ctx.p, no_manage_token, :get, path)
+    assert conn.status == 403
+  end
+
+  test "RI3 GET /:id/images/:image_id with wrong image_id returns 404 (INV-5)", ctx do
+    {report_id, _img} = report_with_image!(ctx)
+    wrong_id = Ecto.UUID.generate()
+    path = "#{@path}/#{report_id}/images/#{wrong_id}"
+    conn = request(ctx.p, ctx.owner, :get, path)
+    assert conn.status == 404
+  end
+
+  test "RI4 GET /:id/images/:image_id with wrong report_id returns 404 (INV-5)", ctx do
+    {_report_id, img} = report_with_image!(ctx)
+    wrong_report_id = Ecto.UUID.generate()
+    path = "#{@path}/#{wrong_report_id}/images/#{img.id}"
+    conn = request(ctx.p, ctx.owner, :get, path)
+    assert conn.status == 404
   end
 end
