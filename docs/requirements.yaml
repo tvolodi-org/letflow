@@ -56081,6 +56081,115 @@ requirements:
       - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
       - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
     depends_on: [REQ-847]
+  - id: REQ-865
+    title: "Qoimeks parity G11 part 1: module stock answers the whole current stock as one xlsx workbook in the Qoimeks import layout, one row per item and place with the usual place first, that reads back by the Qoimeks import rules"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4579
+    # Source: task T-2032 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"; "The export must round-trip into the import. Depends on G3 for the second place."). Read on origin/main 6e7c4bbaa: docs/status/qoimeks-migration-readiness.md section 1.2 rows G3, G10, G11 (G11: ".xlsx in the import layout: Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., «Коды / Codes»"; "The balances xlsx export has its own columns"); REQ-841 (pending, gh 4555: stock_item_place with catalog_item_id, usual_location_id, second_location_id); lib/letflow/modules/stock/router.ex (authz_get "/balances", StockRead, format=xlsx one page per file, params/2 refuses unknown keys with invalid_filter, send_xlsx/3, "Opening needs a tenant-wide reader: any other principal is 404"); lib/letflow/modules/stock/xlsx_export.ex (quantity cell rule: a number cell only with at most 15 significant digits, text cells never formulas); lib/letflow/modules/stock/count_sheet.ex (read_book/4: the first balance page is read at :latest and fixes the cutoff N, later pages at N; @balance_page 200; full_reader/2 accepts only scope :all; the :stock_count_max_lines seam that can only lower a cap); lib/letflow/documents/xlsx_style.ex (bold, frozen header row); lib/letflow/data_export.ex (moduledoc: "Each dataset is capped at 10,000 rows"); lib/letflow/modules/catalog_items/catalog_items.ex (list_active/1, lookup/2); lib/letflow/modules/locations/locations.ex (lookup/2); lib/letflow/modules/codes/codes.ex (codes_for/3: codes with an open assignment to a target, ordered by value); lib/letflow/modules/codes/writes.ex (@targets location_node catalog_item catalog_lot); priv/modules/catalog_items/entity_definitions/catalog_item.json (code, name, base_uom_id, kind material or service, active) and catalog_uom.json (code, name); lib/letflow/identity/tenant_timezone.ex (of/1, today/1); docs/roles.md (StockRead held by TENANT_ADMIN, PLATFORM_ADMIN and STOREKEEPER; TASK_WORKER holds no stock atom); test/letflow/modules/stock/router_test.exs (T-R-SC scoped reader tests). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2032/sources/qoimeks-export-extract.md): Qoimeks-team/product/server/internal/importer/export.go (Write), export_test.go (TestWriteThenParse), importer.go (column layout, altShape, parse), internal/store/stock.go (Stock: every active SKU), internal/api/web.go (GET /api/stock/export, sheet "Остатки <day>", file "stock-<day>.xlsx"). Written by the business analyst (T-2032) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks parity row G11 (docs/status/qoimeks-migration-readiness.md, section 1.2). Qoimeks saves the whole
+      current stock as one workbook in the layout its Excel import reads, so the bookkeepers can correct it in
+      Excel and load it back (Qoimeks route GET /api/stock/export, function importer.Write). Letflow's balances
+      xlsx (REQ-728) has its own columns, record ids instead of codes and one page per file, so it cannot be
+      loaded back. This part adds the workbook on the server; the web button is part 2 (REQ-866, planned, not yet
+      on main). The Letflow workbook import that will load this file is parity row G8 (task T-2030, no
+      requirement yet); see the last paragraph.
+      The Qoimeks layout, copied from Qoimeks importer.go and export.go (read only, outside this repository):
+      one sheet; row 1 holds the headers A "Артикул", B "Номенклатура", C "Конечный остаток", D "Зона", E
+      "Стеллаж", F "Полка", G "Второе место", H "Место", I "Ед. изм.", J "Коды / Codes". The Qoimeks import
+      starts after the row whose first cell is "Артикул" and reads A article, B name, C closing balance, D zone
+      letter, E rack letter, F shelf number (the place code is D+E+F), G the second place written together (for
+      example RK2, accepted when it fits the pattern ^([A-Z])([A-Z]?)(\d*)$); columns H to J are for people and
+      are ignored on loading. Rows of one article are added up by place; the place of its first row is its usual
+      place; when column G is empty, the first later row whose place differs from the usual place gives the
+      second place (Qoimeks rule, kept as it is). The Qoimeks export writes every active SKU sorted by code, one
+      row per place that holds a non-zero balance, its usual place first (with a zero quantity when it holds
+      nothing there, so that loading the file back keeps that place), and one row with empty place cells and a
+      zero quantity for a SKU with neither stock nor usual place; D, E and F come from splitting the place code by
+      that pattern (all three empty when the code does not fit), F is a number cell; J lists the SKU's codes
+      joined by "; ".
+      What Letflow does (decided here, with reasons): a new route of module stock, GET
+      /api/v1/modules/stock/stock-workbook (permission StockRead, the stock router), that takes no query key and
+      answers the workbook of the whole current stock. Planned module Letflow.Modules.Stock.StockWorkbook in
+      lib/letflow/modules/stock/stock_workbook.ex (planned, not yet on main), pure renderer plus the read, in the
+      form of XlsxExport and CountSheet. (1) Reader: only a tenant-wide reader (Ledger authorize result with scope
+      :all, as CountSheet's full_reader/2 for the count opening); a scoped reader gets the same 404 as an unknown
+      path, because the workbook lists every item and a hidden unit's stock would show as a zero, which reads back
+      as "no stock". (2) Snapshot: every balance page is read at one cutoff (the first page at :latest fixes the
+      posting counter N, later pages at N, as CountSheet.read_book/4), so the file is one consistent moment. (3)
+      Items: every active catalog_item of kind material, plus every catalog_item, whatever its kind or active
+      state, that holds a non-zero balance. EXTRA over Qoimeks (which leaves out a retired SKU even when it holds
+      stock): the workbook never hides a quantity. (4) Rows: one row per item, place and unit with a non-zero
+      balance, the balance rows of one item, place and unit added up over org unit, responsible and lot (the
+      layout has no such columns; Qoimeks keeps one balance per article and place); rows of one item at one place
+      in two units stay two rows, one per unit, never converted. Order: items by code ascending (byte order);
+      within an item, the usual place (REQ-841 usual_location_id) first, with quantity 0 when the item holds
+      nothing there, then the other places by place code ascending; an item with neither a non-zero balance nor a
+      usual place gets one row with D to H empty and quantity 0. (5) Cells: A the item code, B the item name, C
+      the quantity (a number cell by the rule of XlsxExport: text form only above 15 significant digits), D, E, F
+      from the stored location_node code split by the pattern above as stored (no case change; F a number cell
+      when it is digits with no leading zero, otherwise a text cell, so a code such as RI02 reads back as RI02:
+      EXTRA, Qoimeks would turn it into RI2), G the code of the item's second place (REQ-841
+      second_location_id, empty when none), H the place code, I the code of the row's catalog_uom (the balance
+      row's unit_ref; for a zero usual-place row or a row with no place, the item's base_uom_id), J the values of
+      the codes with an open assignment to the item (Codes.codes_for/3 with target type catalog_item, in its value
+      order) joined by "; ". A place whose code does not fit the pattern (for example the converter's "?" place or
+      a code such as WH-01) has D to F empty and its code in H: the Qoimeks import cannot read it back from D to F,
+      so it is named in H for people and for the later Letflow import. A retired usual or second place still shows
+      its code. A negative balance, once the ledger allows one (row G4, REQ-833, pending), is written as a negative
+      number like any other quantity. (6) Sheet "Остатки YYYY-MM-DD" and file name stock-YYYY-MM-DD.xlsx, the date
+      being today in the tenant time zone (TenantTimezone), as Qoimeks names them; header row bold and frozen
+      (XlsxStyle). (7) Size cap: more than 10,000 data rows is refused 422 workbook_too_large and no file is sent.
+      Source of the number: the per-dataset row cap of Letflow.DataExport (moduledoc "Each dataset is capped at
+      10,000 rows"); Client 1 has 666 SKUs and 600 balance rows (readiness note section 1.1). The file is not
+      truncated, because a cut file loaded back would read as missing stock. A test seam (app env
+      :stock_workbook_max_rows, like :stock_count_max_lines) can only lower the cap, and one
+      (:stock_workbook_balance_page) can only lower the balance page size. (8) Read only: no record, ledger
+      posting or audit entry is written (as the balances xlsx of REQ-728). No new permission, no migration.
+      For the G8 import (task T-2030, no requirement yet): its requirement should take this workbook as an
+      accepted input and read H when D to F are empty; that is noted for the operator, not built here. Size M
+      (the task guessed S: the masters, codes and one-cutoff read across pages make it larger than a renderer).
+    acceptance_criteria:
+      - "1. Access (router tests in test/letflow/modules/stock/, the form of router_test.exs): a TENANT_ADMIN and a STOREKEEPER get 200 with content type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet and a Content-Disposition file name stock-YYYY-MM-DD.xlsx, YYYY-MM-DD being today in the tenant time zone; a TASK_WORKER (no StockRead) gets 403 with title Forbidden and detail insufficient permissions, as test T-R-403 in router_test.exs asserts for /balances; a STOREKEEPER whose stock read is scoped to one org unit (the form of test T-R-SC) gets the same 404 body as an unknown stock path; a request with any query key (for example format=json or a tenant key) is refused 422 with reason invalid_filter and no workbook."
+      - "2. Layout: the workbook has exactly one sheet, named 'Остатки YYYY-MM-DD' with the same date; row 1 is exactly, in columns A to J, 'Артикул', 'Номенклатура', 'Конечный остаток', 'Зона', 'Стеллаж', 'Полка', 'Второе место', 'Место', 'Ед. изм.', 'Коды / Codes', bold, with the pane frozen below row 1."
+      - "3. Rows, the fixture of the Qoimeks test TestWriteThenParse (unit code шт, place codes RI2, RK2, LA1): item Z-1 'Z-1 Замок' with usual place RI2, second place RK2, balance 10 at RI2 and 3 at LA1, and open code assignments with values 4600000000017 and Q-1; item Z-2 'Z-2 Кнопка' with usual place LA1, no second place and balance 4.5 at RK2; item Z-3 'Z-3 Пусто' with no place link and no balance. The data rows are exactly, in order: (Z-1, 'Z-1 Замок', 10, R, I, 2, RK2, RI2, шт, '4600000000017; Q-1'), (Z-1, 'Z-1 Замок', 3, L, A, 1, RK2, LA1, шт, '4600000000017; Q-1'), (Z-2, 'Z-2 Кнопка', 0, L, A, 1, empty, LA1, шт, empty), (Z-2, 'Z-2 Кнопка', 4.5, R, K, 2, empty, RK2, шт, empty), (Z-3, 'Z-3 Пусто', 0, empty, empty, empty, empty, empty, шт, empty); C and F are number cells."
+      - "4. Round trip: the test reads the workbook of criterion 3 back by the Qoimeks import rules quoted in the description (header row starting 'Артикул'; A, B, C, D+E+F, G; H to J ignored; rows of one article added up by place; the first row's place is the usual place; an empty G takes the first later differing place) and gets exactly: Z-1 usual RI2, second RK2, quantities RI2 10 and LA1 3; Z-2 usual LA1, second RK2, quantities LA1 0 and RK2 4.5; Z-3 no place and no quantity, which is the expected result of the Qoimeks test TestWriteThenParse for the same input."
+      - "5. Aggregation and items, each a case of one test: two balance rows of one item at one place in two org units give one row with the sum, and so do two rows in two lots; balances of one item at one place in two units give two rows, one per unit code; a retired catalog_item holding a non-zero balance has its rows; a retired item with no balance and an item of kind service with no balance have no row; a balance row whose quantity is zero gives no row except the usual-place row."
+      - "6. Place cells: a place code WH-01 and a place code ? each give D, E and F empty and the code in H; a code RI02 gives D R, E I and F the text cell 02; a code L5 gives D L, E empty and F the number 5; a code ri2 (lower case) gives D to F empty and ri2 in H; a retired usual place still shows its code in H of the usual-place row."
+      - "7. Paging and one cutoff: with the balance page lowered to 2 by the :stock_workbook_balance_page seam and five balance rows at five places, every row is in the workbook exactly once. The one-cutoff rule (first balance page read at :latest, every later page at the cutoff the first one returned, as CountSheet.read_book/4) is a reader check of the read code; the implement summary quotes the lines that do it."
+      - "8. Cap: with the cap lowered to 3 by the :stock_workbook_max_rows seam, a stock of four data rows is refused 422 with reason workbook_too_large and no file; three data rows give 200."
+      - "9. Read only and tenancy (INV-1): a download writes no entity record, no ledger entry and no audit entry (counts before and after equal); in a test with two tenants A and B holding items with the same codes and different quantities, B's workbook has only B's rows, quantities and code values."
+      - "10. Docs and pins: the stock router moduledoc route table gains the row for GET /stock-workbook with its permission, reader rule and refusals; the stock module moduledoc names the workbook and the Qoimeks layout; every route-count, route-scope and stock registration pin the new route and file move is updated (including the stock Rule 8 file-count pin when a file is added under lib/letflow/modules/stock/); mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-841, REQ-728, REQ-687, REQ-648]
+  - id: REQ-866
+    title: "Qoimeks parity G11 part 2: the web stock Balances screen downloads the whole-stock workbook in the Qoimeks import layout, with its refusals shown in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4578
+    # Source: task T-2032 (see REQ-865). Read on origin/main 6e7c4bbaa: web/src/modules/stock/register/BalancesPage.tsx (REQ-724; onExport with stockApi.balancesXlsx and saveBlob(blob, 'stock-balances.xlsx'), the exportFailed banner, the exportHint caption when more pages exist); web/src/modules/stock/register/stock.api.ts (balancesXlsx through client.getBlob); web/src/api/client.ts (getBlob returns blob, contentType, contentDisposition, headers); web/src/modules/stock/stockMessages.ts (stock.balances.export, stock.balances.exportFailed). Qoimeks, read only: the web page downloads the stock workbook from GET /api/stock/export (server/internal/api/web.go; extract in state/tasks/T-2032/sources/qoimeks-export-extract.md). Written by the business analyst (T-2032) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of parity row G11 (part 1 is REQ-865, planned, not yet on main). In Qoimeks the bookkeepers and the
+      warehouse manager download the stock workbook from the web page. The Letflow stock Balances screen
+      (web/src/modules/stock/register/BalancesPage.tsx) has one Export button today, which saves the current page
+      of the filtered balances (REQ-728 layout). This part adds a second button next to it, "Stock workbook
+      (Qoimeks layout)", that downloads the workbook of REQ-865 (GET /api/v1/modules/stock/stock-workbook) through
+      a new stockApi call on client.getBlob and saves it under the file name of the answer's Content-Disposition
+      (stock-YYYY-MM-DD.xlsx). The button ignores the screen's filters and pages (the workbook is always the whole
+      current stock), and a caption under it says so. While the download runs the button shows its loading state;
+      a 422 workbook_too_large shows its own banner ("too many rows for one workbook, more than 10,000"); a 404
+      shows a banner that the workbook needs a reader of the whole company (the only 404 a reader of this screen
+      gets from that route, REQ-865 criterion 1); any other failure shows the existing export failure banner. No
+      new permission: everyone who sees the Balances screen sees the button. Labels in en, ru and kk (wording is a
+      UAT assumption, to be confirmed by the process owner). Size S.
+    acceptance_criteria:
+      - "1. A component test of BalancesPage: the button 'Stock workbook (Qoimeks layout)' is next to the existing Export button; clicking it requests the stock-workbook route once with no query key, whatever filters are set on the screen, and saves the blob under the file name from Content-Disposition (stock-2026-11-16.xlsx in the test); the existing Export button still saves stock-balances.xlsx with the screen's filters."
+      - "2. Refusals, each a case of one test: a 422 answer with reason workbook_too_large shows the too-many-rows banner; a 404 shows the whole-company-reader banner; a 500 shows the existing export failure banner; in every case no file is saved and the balance rows stay on the screen."
+      - "3. The labels, the caption and the two new banners exist in the en, ru and kk catalogs of module stock (ru button 'Остатки для Excel (как в Qoimeks)', kk button 'Excel үшін қалдықтар (Qoimeks сияқты)'; UAT assumption, wording to be confirmed by the process owner), checked by the module's catalog completeness test."
+      - "4. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the Balances screen with the new button, during the download and with each of the two new banners is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
+    depends_on: [REQ-865, REQ-724]
   - id: REQ-875
     title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
     owner: CODE-DESIGNER
@@ -56124,7 +56233,7 @@ requirements:
       route, no migration in this part. Size S.
     acceptance_criteria:
       - "1. docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md ends with the section 'Amended by REQ-875 (movement history archive, Qoimeks parity G18)' holding the seven numbered rules of the description; git diff of that file shows added lines at the end only."
-      - "2. Rule 1 names the three sources that refuse option (a) (0079 D1, 0073 D-T with the 96 and 720 hour figures, 0079 D9 out of scope) and lists what (a) would change; rule 2 lists every field of the description with its type and required flag, and the kind and entry_source lists exactly as the Qoimeks schema copied in state/tasks/T-2037/sources/qoimeks-movements-extract.md."
+      - "2. Rule 1 names the three sources that refuse option (a) (0079 D1, 0073 D-T with the 96 and 720 hour figures, 0079 D9 out of scope) and lists what (a) would change; rule 2 lists every field of the description with its type and required flag, and exactly these lists: kind is one of receipt, issue, transfer, adjustment; entry_source is one of keyboard, voice, import."
       - "3. Rule 4 names each read path that must not include an archive row (balances, movements, reconcile, counts, stock card print, the D8 exports) and states that no file of the archive calls a function of Letflow.Ledger."
       - "4. Every Letflow file the section names exists on origin/main at implement time, checked with git ls-tree and the command quoted in the section; every rule not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'UAT assumption, to be confirmed by the process owner' and listed in the owner table."
       - "5. Row G18 in section 1.2 and the Movement history row in section 2.1 of docs/status/qoimeks-migration-readiness.md name the amendment; mix letflow.check.static passes."
@@ -56191,7 +56300,7 @@ requirements:
       history export. The module moduledoc route table, the route-count and route-scope pins and the
       tenant-isolation list of test/letflow/modules/asset_stock_isolation_test.exs are updated. Size M.
     acceptance_criteria:
-      - "1. Router tests with a real token through the real router: TENANT_ADMIN and STOREKEEPER get 200 with rows newest first; a user without StockRead, an API token and a scoped principal get the same 404 body as a tenant without the module."
+      - "1. Router tests with a real token through the real router: TENANT_ADMIN and STOREKEEPER get 200 with rows newest first; a TASK_WORKER (no StockRead) gets 403 with detail 'insufficient permissions', as T-R-403 in test/letflow/modules/stock/router_test.exs asserts for the other stock read routes; an API token and a scoped principal get the same 404 body as a tenant without the module."
       - "2. Each filter narrows the answer, shown by one test each on a fixture of six rows over two items, three places, all four kinds and three days, including a transfer found by its to-place, a from/to range whose bounds are Asia/Almaty days that differ from the UTC day, and an operator part in other letter case; limit 2 with cursor walks all six rows once."
       - "3. A bad uuid, an unknown kind, a date not YYYY-MM-DD, from after to, limit 0 or 101, an unknown key and a tenant key are each 422 invalid_filter."
       - "4. INV-10: a second tenant's archive rows never appear, and a cross-tenant sku or location id answers an empty list, in test/letflow/modules/asset_stock_isolation_test.exs or a new test next to it."
