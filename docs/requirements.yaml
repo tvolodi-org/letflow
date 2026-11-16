@@ -55962,7 +55962,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-832 -- the stock pilot gate (decision 0073 note 17) needs L7 before any new posting shape reaches a customer tenant; this core part can be built before it
+    gh: 4565
     # Source: task T-2028 (Qoimeks parity row G5, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Files read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md (section 1.2 row G5), docs/runbooks/stock-counts.md, docs/migration/decisions/0073-domain-neutral-ledger-primitive.md ("Amended by REQ-764", "Amended by REQ-774"), lib/letflow/ledger.ex (moduledoc "Order of work" step 4, refusal_for/5), lib/letflow/ledger/codes.ex (@core, @aliasable), lib/letflow/ledger/validate.ex (check_quantity, :quantity_zero), lib/letflow/ledger/handler_post.ex. Qoimeks source copied to the task folder state/tasks/T-2028/sources/qoimeks-adjustment-extract.md (client1-inventory.md section 8 item 4; server/internal/store/store.go appendBalance and Post).
     description: >
       Why. In Qoimeks a count (kind adjustment) is one line that SETS the balance of one item at one place to
@@ -56005,7 +56005,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-853 -- needs the expected_on_hand precondition of the ledger core, and the stock pilot gate (L7, REQ-832) before a customer tenant
+    gh: 4564
     # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: docs/runbooks/stock-counts.md (whole file), docs/migration/decisions/0079-counts-inventory-taking.md (sections 4 and 8), lib/letflow/modules/stock/stock.ex (moduledoc Causes and Permissions, route_policies, role_grants STOREKEEPER, posting_guard, error_aliases posting_held to location_frozen), lib/letflow/modules/stock/freeze_guard.ex (check/2, pair rule), lib/letflow/modules/stock/documents/kinds.ex (the closed kind table, withdrawable?/1), lib/letflow/modules/stock/documents/posting.ex (stock_opening submit completed at issue, approve posts), priv/modules/stock/generate_pack.exs (two_step_definition, process_definition), lib/letflow/modules/stock/ledger_policy/declare.ex (count_difference :either), lib/letflow/ledger/read.ex (balances/4), lib/letflow/approval_rules.ex (list/1 answers every active step that names distinct_from), docs/design/four-eyes-switch.md (section 2 rows 3 and 14).
     description: >
       What the user gets. A storekeeper counts one item at one place and types (or says, part 4) the number;
@@ -56093,7 +56093,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-854 -- needs the POST /quick-counts route and the quick_count document kind
+    gh: 4563
     # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/stockPermissions.ts, web/src/modules/stock/documents/DocumentActions.tsx, web/src/modules/stock/documents/documentsModel.ts, web/src/modules/stock/counts/ScanField.tsx, web/src/lib/references/referenceMessages.ts (docType names).
     description: >
       A web screen "Quick count" in the stock module, shown to a user whose stock access lists StockQuickCount
@@ -56123,7 +56123,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-854 -- needs the POST /quick-counts route and the quick_count document kind
+    gh: 4562
     # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/stock_routes.dart, apps/mobile/lib/features/stock/stock_home_screen.dart, apps/mobile/lib/features/stock/count_detail_controller.dart (applyVoiceDraft: kind count only inside a formal count), apps/mobile/lib/features/stock/documents/document_form_controller.dart (applyVoiceDraft), apps/mobile/lib/features/stock/voice/voice_panel.dart, lib/letflow/modules/stock/voice_draft.ex (@kinds receipt issue transfer count; zero allowed for count only), docs/runbooks/stock-voice.md.
     description: >
       The phone side of the Qoimeks count. A screen "Quick count" on the stock home of apps/mobile (route
