@@ -46,8 +46,8 @@ cannot be resolved for a request of tenant A. Per-tenant keys stay an open quest
 
 | Client (source) | Error | Cause |
 |---|---|---|
-| `SpeechClient` (speech) | `:provider_error` | URL refused, non-2xx, not JSON, no `text`, transport error, redirect |
-| `SpeechClient` (speech) | `:provider_timeout` | no answer within `:timeout_ms` |
+| `SpeechClient` (speech) | `:provider_error` | URL refused, non-2xx, not JSON, no `text`, transport error, redirect — both `openai_transcriptions` and `elevenlabs` |
+| `SpeechClient` (speech) | `:provider_timeout` | no answer within `:timeout_ms` — both `openai_transcriptions` and `elevenlabs` |
 | `ModelClient` (llm) | `:provider_error` | URL refused, non-2xx, unreadable body, no content, transport error |
 | `ModelClient` (llm) | `:provider_timeout` | no answer within `:timeout_ms` |
 | `ModelClient` (llm) | `:truncated` | `finish_reason` is `length` |
