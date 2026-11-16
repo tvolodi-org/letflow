@@ -56195,7 +56195,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-727 -- registration placeholder, the engine files the issue; REQ-727 (stock opening line import, the import pattern this record extends) is merged but its status is not flipped by this team
+    gh: 4592
     # Source: task T-2037 (owner decision via PM 2026-11-16, parity required; row G18 of docs/status/qoimeks-migration-readiness.md section 1.2 and the Movement history row of section 2.1). Files read on origin/main 1520cf186: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (section 0, D1, D7, D9 "Out of scope ... import of historical movements into the ledger"), docs/migration/decisions/0076-master-data-layer.md (R7), docs/runbooks/qoimeks-rehearsal.md ("Deliberately not here ... movement history"), lib/letflow/modules/stock/stock.ex (manifest import_functions, scope_declarations), lib/letflow/entities/managed_import.ex, lib/letflow/routers/entities/record_import.ex. Qoimeks schema and History listing copied to state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
     description: >
       Qoimeks keeps 600 movements of Client 1 (docs/status/qoimeks-migration-readiness.md section 1.1) and
@@ -56243,7 +56243,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-875 -- the archive shape is decided there
+    gh: 4591
     # Source: task T-2037 and REQ-875 (written with this one). Files read on origin/main 1520cf186: lib/letflow/modules/stock/stock.ex (version "0.17.0", entity_types, scope_declarations, import_functions), priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/, lib/letflow/modules/stock/documents/opening_import.ex (reference resolution by external id), lib/letflow/entities/managed_import.ex (call/5: outcomes created, updated, unchanged), lib/letflow/routers/entities/record_import.ex (@import_record_cap 200, base_reason_json/1 constant refusals), lib/letflow/ledger/validate.ex (quantity_scale), test/letflow/modules/stock/opening_import_test.exs. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
     description: >
       Rules 2 to 4 of the REQ-875 amendment of decision 0079 (planned, not yet on main) in module stock. The pack
@@ -56281,7 +56281,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-876 -- the archive type is built there
+    gh: 4590
     # Source: task T-2037, rule 5 of the REQ-875 amendment. Files read on origin/main 1520cf186: lib/letflow/modules/stock/router.ex (moduledoc route tables, slot_filters/1, 422 invalid_filter, format=json|xlsx), lib/letflow/modules/stock/access.ex, lib/letflow/modules/stock/documents.ex (@default_limit 50, @max_limit 100, @cursor), lib/letflow/modules/stock/xlsx_export.ex, test/letflow/modules/asset_stock_isolation_test.exs. Qoimeks History listing (newest first by seq) in state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
     description: >
       One read route of module stock, GET /api/v1/modules/stock/archive-movements, in
@@ -56311,7 +56311,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-877 -- the read route is built there
+    gh: 4589
     # Source: task T-2037, rule 6 of the REQ-875 amendment. Files read on origin/main 1520cf186: web/src/modules/stock/index.ts (nav entries), web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/register/MovementsPage.tsx, web/src/components/layout/navMessages.ts, web/src/components/layout/AppShell.tsx, web/src/modules/catalog_items/items/ItemDetails.tsx (History section), web/src/modules/catalog_items/catalogItemsStock.api.ts, web/src/modules/locations/LocationTreePage.tsx (details tab), web/src/dev/harness/registry.tsx. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
     description: >
       The screen of rule 6 of the REQ-875 amendment over the route of REQ-877 (both planned, not yet on main). A new
@@ -56341,7 +56341,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-876 -- the archive columns and import function are built there
+    gh: 4588
     # Source: task T-2037. Files read on origin/main 1520cf186: scripts/pilot/qoimeks_convert.py (MAX_ROWS 200, NEEDED, manifest.json upload_order, expected_counts.txt, report.txt rules, exit codes), docs/runbooks/qoimeks-rehearsal.md, test/scripts/qoimeks_rehearsal_test.exs, test/fixtures/qoimeks_rehearsal/, test/letflow/modules/stock/qoimeks_files_test.exs. Qoimeks columns in state/tasks/T-2037/sources/qoimeks-movements-extract.md. REQ-837 and REQ-842 (pending) edit the same converter. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
     description: >
       The migration path of the archive (REQ-876, planned, not yet on main). scripts/pilot/qoimeks_convert.py
