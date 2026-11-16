@@ -47,7 +47,7 @@ export function PortalMenu({ anchor, menuRef, label, children }: PortalMenuProps
       data-testid="portal-menu"
       style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos === null ? 'hidden' : 'visible' }}
     >
-      <div className="lf-lang__menu" role="menu" aria-label={label} ref={menuRef}>
+      <div className="lf-lang__menu" role="menu" aria-label={label} ref={menuRef as RefObject<HTMLDivElement>}>
         {children}
       </div>
     </div>,
