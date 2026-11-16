@@ -454,6 +454,12 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     that is not a live `code_tag` of the tenant is the same 404 as an unknown id; a code that cannot be printed (kind
     `epc` or `tid`, retired, value not encodable, glyph missing, longer than 20 characters) is 422 `entry_invalid`
     with the index and `entry_reason`, never the value. The sheet size and the 20-character limit are UAT assumptions.
+21. **Code import (GH #4569, REQ-850, codes 0.5.0).** `POST /api/v1/entities/records/code_tag/import` (TENANT_ADMIN;
+    `dry_run`, `atomic`, 200 rows) runs `Letflow.Modules.Codes.Import`: a code is identified by its value (not by the external
+    ref pair, which is only the row key). A new value is created `not_assigned` with one `code.received` audit entry; the same
+    value and kind is unchanged; the same value with another kind is `value_taken`; a blank value is `value_invalid`, a kind
+    outside barcode, qr, epc, tid is `kind_invalid`, a `status` cell is `field_not_allowed`. No pack change: a tenant on 0.1.0
+    to 0.4.0 upgrades in place. `code_assignment` has no import yet.
 
 ## Stock module limits
 

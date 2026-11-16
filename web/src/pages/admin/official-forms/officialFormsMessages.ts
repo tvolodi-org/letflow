@@ -57,6 +57,8 @@ const UI: Record<string, Triple> = {
   'officialForms.form.z5.name': ['Internal stock transfer note', 'Накладная на внутреннее перемещение запасов', 'Қорларды ішкі ауыстыруға арналған жүкқұжат'],
   'officialForms.form.z6.code': ['Z-6', 'З-6', 'Қ-6'],
   'officialForms.form.z6.name': ['Stock write-off act', 'Акт списания запасов', 'Қорларды есептен шығару актісі'],
+  'officialForms.form.z7.code': ['Z-7', 'З-7', 'Қ-7'],
+  'officialForms.form.z7.name': ['Stock balance sheet', 'Ведомость учета остатков запасов на складе', 'Қоймадағы қорлардың қалдықтарын есепке алу тізімдемесі'],
 
   'officialForms.locale.default': ['Both languages', 'Оба языка', 'Екі тіл'],
   'officialForms.locale.ru': ['Russian', 'Русский', 'Орыс тілі'],
