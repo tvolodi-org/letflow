@@ -176,8 +176,8 @@ defmodule Letflow.Documents.FormPrintCompanyTemplateTest do
         |> Enum.map(&hd/1)
       end)
 
-    # stock: z3, z1/z2/z5/z6, inv10/inv18; assets: inv8, da1/da3/da4, da2
-    assert length(calls) == 6
+    # stock: z3, z1/z2/z5/z6, z7, inv10/inv18; assets: inv8, da1/da3/da4, da2
+    assert length(calls) == 7
     assert Enum.all?(calls, &(&1 =~ "tenant:"))
   end
 

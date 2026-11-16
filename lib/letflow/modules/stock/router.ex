@@ -308,7 +308,8 @@ defmodule Letflow.Modules.Stock.Router do
            true <- Map.has_key?(filters, "location"),
            {:ok, from, to} <- sheet_period(params),
            {:ok, sheet} <- StockSheetSource.read(authorized, filters["location"], from, to),
-           {:ok, bin} <- FormPrint.build("z7", FormZ7.data(sheet), lang, format) do
+           {:ok, bin} <-
+             FormPrint.build("z7", FormZ7.data(sheet), lang, format, tenant: authorized.prefix) do
         {type, ext} = form_type(format)
         code = sheet.header.location_code |> to_string()
 

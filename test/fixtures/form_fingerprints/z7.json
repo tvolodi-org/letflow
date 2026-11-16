@@ -1,0 +1,15 @@
+{
+ "form": "z7",
+ "annex": 31,
+ "fingerprint_version": 1,
+ "page": {"height": 16838, "orientation": "portrait", "width": 11906},
+ "margins": {"bottom": 1134, "left": 1276, "right": 850, "top": 1134},
+ "tables": [
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [100.0]},
+  {"columns": 5, "head_merged": {"gridspan": 2, "vmerge": 0}, "nested_in": null, "shares": [41.4, 19.3, 3.9, 26.2, 9.2]},
+  {"columns": 1, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": 1, "shares": [100.0]},
+  {"columns": 7, "head_merged": {"gridspan": 0, "vmerge": 0}, "nested_in": null, "shares": [13.5, 14.5, 13.2, 33.2, 6.9, 8.2, 10.5]},
+  {"columns": 13, "head_merged": {"gridspan": 4, "vmerge": 25}, "nested_in": null, "shares": [6.6, 11.4, 12.6, 8.1, 8.9, 7.1, 5.5, 8.6, 5.6, 7.9, 4.9, 7.9, 4.9]},
+  {"columns": 14, "head_merged": {"gridspan": 9, "vmerge": 12}, "nested_in": null, "shares": [9.1, 6.0, 8.4, 5.3, 8.4, 5.3, 9.1, 6.0, 8.4, 5.3, 8.4, 5.3, 9.1, 6.0]}
+ ]
+}

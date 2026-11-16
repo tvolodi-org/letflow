@@ -33,7 +33,7 @@ defmodule Letflow.Documents.FormFingerprintTest do
 
   # Measured 2026-11-15 (T-1979): the owner finding of the official forms is fixed slice by slice
   # (docs/status/official-forms-vs-templates.md); DA-1, DA-3 and DA-4 already match.
-  @known_deviations ~w(da2 inv8 inv10 inv18 z1 z2 z3 z5 z6)
+  @known_deviations ~w(da2 inv8 inv10 inv18 z1 z2 z3 z5 z6 z7)
 
   defp fingerprint_of(bytes) do
     path = Path.join(System.tmp_dir!(), "t1979_#{System.unique_integer([:positive])}.docx")

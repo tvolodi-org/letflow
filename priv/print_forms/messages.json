@@ -405,6 +405,7 @@
   "z7.c6": {"ru": "Цена за единицу, в теңге", "kk": "Бірлігінің бағасы, теңгемен", "kk_status": "official"},
   "z7.c7": {"ru": "Норма запаса", "kk": "Қор нормасы", "kk_status": "official"},
   "z7.g_balance": {"ru": "Остаток на ___", "kk": "________ қалдық", "kk_status": "official"},
+  "z7.g_balance_end": {"ru": "Остаток на ___", "kk": "________ қалдық", "kk_status": "official"},
   "z7.g_in": {"ru": "Приход", "kk": "Кіріс", "kk_status": "official"},
   "z7.g_out": {"ru": "Расход", "kk": "Шығыс", "kk_status": "official"},
   "z7.qty": {"ru": "количество", "kk": "саны", "kk_status": "official"},
