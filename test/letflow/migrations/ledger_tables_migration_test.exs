@@ -510,11 +510,25 @@ defmodule Letflow.LedgerTablesMigrationTest do
       )
     )
 
-    refused(
-      insert_sql(schema, "ledger_balance", %{bal | k1: "i3", on_hand: {:raw, "-1"}}),
-      :check_violation,
-      "ledger_balance_on_hand_check"
-    )
+    # REQ-834 (decision 0090 section 3): the CHECK on_hand >= 0 is dropped; a negative on_hand is now
+    # accepted, and the column type numeric(30,9) is the lower bound (SQLSTATE 22003 at 10^21).
+    ok!(insert_sql(schema, "ledger_balance", %{bal | k1: "i3", on_hand: {:raw, "-1"}}))
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :numeric_value_out_of_range}}} =
+             run(
+               insert_sql(schema, "ledger_balance", %{
+                 bal
+                 | k1: "i3b",
+                   on_hand: {:raw, "-1000000000000000000000"}
+               })
+             )
+
+    assert {:ok, %{rows: [[0]]}} =
+             Repo.query(
+               "SELECT count(*)::int FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace " <>
+                 "WHERE n.nspname = $1 AND c.conname LIKE 'ledger_balance_on_hand_check%'",
+               [schema]
+             )
 
     refused(
       insert_sql(schema, "ledger_balance", Map.merge(bal, %{k1: "i4", max_on_hand: {:raw, "4"}})),

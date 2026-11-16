@@ -1020,7 +1020,11 @@ defmodule Letflow.TenantProvisioning do
     # T-2040: attachment_blobs and attachment_links (photo service core). Created empty in every
     # schema; nothing to backfill.
     {20_261_116_200_001, Letflow.Repo.Migrations.CreateAttachments,
-     "20261116200001_create_attachments.exs"}
+     "20261116200001_create_attachments.exs"},
+    # REQ-834 (0090): the per-tenant negative balance setting table, created empty (no row =
+    # refuse), and the database check on_hand >= 0 dropped; no existing row is altered.
+    {20_261_117_100_001, Letflow.Repo.Migrations.CreateNegativeBalanceSettings,
+     "20261117100001_create_negative_balance_settings.exs"}
   ]
 
   @doc """

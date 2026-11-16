@@ -33,7 +33,7 @@ defmodule Letflow.CreateAttachmentsTest do
     schema = fx.schema_name
 
     assert {@version, CreateAttachments} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -1)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     assert :ok = Ecto.Migrator.down(Repo, @version, CreateAttachments, prefix: schema, log: false)
     assert {:error, _} = q(schema, "SELECT 1 FROM S.attachment_blobs", [])
