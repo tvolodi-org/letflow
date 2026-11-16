@@ -40,6 +40,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
         {"kind", "enum", true, true},
         @active,
         {"tracking_policy", "enum", false, true},
+        {"default_location_id", "string", false, true},
         {"density_kg_per_l", "decimal", false, false},
         {"net_mass_kg", "decimal", false, false},
         {"net_volume_l", "decimal", false, false}
