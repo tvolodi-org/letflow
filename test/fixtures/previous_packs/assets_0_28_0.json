@@ -1,0 +1,2059 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003891",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_commission",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003890",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "reverse"
+          },
+          {
+            "id": "e2",
+            "source": "reverse",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "reason_code": {
+                      "var": "reason_code"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "reverse_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "reverse",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_reversal",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0081-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_change",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0082-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_handover",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0083-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_writeoff",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0084-000000003901",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_kind_change",
+                  "module": "assets"
+                },
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "stock_posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_kind_change_out",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_kind_change",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0085-000000004037",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "submit"
+          },
+          {
+            "id": "e2",
+            "source": "submit",
+            "target": "approve"
+          },
+          {
+            "id": "e3",
+            "source": "approve",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "role": "ASSETS_OPENING_SUBMIT"
+            },
+            "id": "submit",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "distinct_from": [
+                "submit"
+              ],
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "approve",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_opening",
+      "version": "1.0.0"
+    }
+  ],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "inventory_number"
+            ],
+            "name": "uq_assets_card_inventory_number",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_assets_card_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3894 / REQ-748, docs/assets/asset-register.md section 3, owner decision D-097, decisions 0050 D6, 0051 M4, 0076 R7. The asset card of module assets (Russian: Карточка актива; Kazakh: Актив карточкасы). One row per asset; the card holds no location, no responsible person, no actual user and no quantity: those live only in the register. inventory_number is unique per tenant (uq_assets_card_inventory_number). org_unit_id is the record_id of an org_unit of module org; it is another pack, so it has no foreign key and the write logic checks it. It is optional (T-1488): empty until a document or the import sets it, never typed by a route; an empty value is visible to tenant-wide principals only. It is the scope column of the card (scope declaration {:column, org_unit_id}, immutable). kind is fixed, low_value or intangible. currency is optional text; the tenant currency is the module setting currency (KZT by default). The decimals are exact strings (decimal_strict) and information only. depreciation_method and depreciation_rate are typed or imported information (T-1530). valid_until is allowed only for kind intangible (write rule, a later step). active false retires the card; there is no delete. external_ref_system and external_ref_id are the nullable import key, unique as a pair.",
+        "display_name": "Asset card",
+        "fields": [
+          {
+            "name": "inventory_number",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "fixed",
+              "low_value",
+              "intangible"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "acquisition_date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "acquisition_cost",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "accumulated_depreciation",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "book_value",
+            "type": "decimal"
+          },
+          {
+            "name": "depreciation_as_of",
+            "type": "date"
+          },
+          {
+            "name": "depreciation_method",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "depreciation_rate",
+            "type": "decimal"
+          },
+          {
+            "name": "valid_until",
+            "queried": true,
+            "type": "date"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "assets_card"
+      },
+      "display_name": "Asset card",
+      "entity_definition_id": "1cdfbd2c-8b56-31a6-5aab-9eec562480bd",
+      "logical_shape_version": "7c728d849a5280847416623d05f6a32a523b99bdef3d9be52d078d2eb42b386d",
+      "name": "assets_card"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3891 / REQ-751 (assets C10), docs/assets/asset-workflow-documents.md sections 1 and 2. The header of an asset commission document (putting assets into the register). It is written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status or posted time is stored here (they are read from the versioned document and the posting mark). org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the commissioning, ISO 8601 with offset, stored in UTC. location_id, material_responsible_id and actual_user_id are record ids of modules locations and org (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes.",
+        "display_name": "Asset commission (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_commission_document_id"
+          }
+        ],
+        "name": "assets_commission"
+      },
+      "display_name": "Asset commission (header)",
+      "entity_definition_id": "304df40e-bc77-68c3-ab99-86f26d3f8563",
+      "logical_shape_version": "361c3212087a7b86a8e59443800b34f4d690101c111bb20c7a81caaf5a60a3a1",
+      "name": "assets_commission"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3891 / REQ-751 (assets C10), docs/assets/asset-workflow-documents.md sections 1 and 2. One line of an asset commission: one asset card and a quantity. header_id is the record_id of the assets_commission header (not the document id); the foreign_keys entry fk_assets_commission_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. asset_id is the record id of an assets_card. quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule (whole number, 1 for fixed and intangible assets) is checked at issue. Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset commission (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_commission_line_header_id",
+            "references_entity": "assets_commission"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_commission_line_header_id"
+          }
+        ],
+        "name": "assets_commission_line"
+      },
+      "display_name": "Asset commission (line)",
+      "entity_definition_id": "e63ce895-75e1-0901-9226-d001c5bf7825",
+      "logical_shape_version": "83d8cecc34d7e00cbf097c6bf533d48c1433dffc6af4ce935b9815637a93821e",
+      "name": "assets_commission_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a change of the material responsible or the actual user at one place (cause change, prefix ACH). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset change of responsible or user (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "from_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "to_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_change_document_id"
+          }
+        ],
+        "name": "assets_change"
+      },
+      "display_name": "Asset change of responsible or user (header)",
+      "entity_definition_id": "37944175-2ab4-2d49-9af6-ff65abd1880b",
+      "logical_shape_version": "781ab197eb903fb7854cad1c2479c3b3b14fb50aa9a57462abb5db535d389ff5",
+      "name": "assets_change"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a change of the material responsible or the actual user at one place (cause change, prefix ACH): one asset card and a quantity. header_id is the record_id of the assets_change header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset change of responsible or user (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_change_line_header_id",
+            "references_entity": "assets_change"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_change_line_header_id"
+          }
+        ],
+        "name": "assets_change_line"
+      },
+      "display_name": "Asset change of responsible or user (line)",
+      "entity_definition_id": "dc4ebf42-dfdf-9f92-6dbc-16711bac35f7",
+      "logical_shape_version": "b60b46e2bebfed2cc92bc48ed70f27a23e2e17d88fc2a6933fd010d402dd9fb7",
+      "name": "assets_change_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a hand over of assets to another org unit or location (cause handover, prefix AHO). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset hand over (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_location_id",
+            "type": "string"
+          },
+          {
+            "name": "from_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "to_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_location_id",
+            "type": "string"
+          },
+          {
+            "name": "to_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_handover_document_id"
+          }
+        ],
+        "name": "assets_handover"
+      },
+      "display_name": "Asset hand over (header)",
+      "entity_definition_id": "5978e078-c553-7d98-530c-52a48101f7aa",
+      "logical_shape_version": "0cc7c268f844a2a95d62dd406fd7956b392cb5e46d0d5f4721c4b5e1fd394186",
+      "name": "assets_handover"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a hand over of assets to another org unit or location (cause handover, prefix AHO): one asset card and a quantity. header_id is the record_id of the assets_handover header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset hand over (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_handover_line_header_id",
+            "references_entity": "assets_handover"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_handover_line_header_id"
+          }
+        ],
+        "name": "assets_handover_line"
+      },
+      "display_name": "Asset hand over (line)",
+      "entity_definition_id": "5dd089cc-1889-259a-aeb4-98bb31ef8128",
+      "logical_shape_version": "87a6a65b8684c8cd81d94fa965022be0a9faa3342f064f931f69350c663a8cfa",
+      "name": "assets_handover_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a write off of assets (cause writeoff, prefix AWO). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset write off (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "disposed",
+              "lost",
+              "broken",
+              "expired",
+              "other"
+            ],
+            "name": "reason_code",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_writeoff_document_id"
+          }
+        ],
+        "name": "assets_writeoff"
+      },
+      "display_name": "Asset write off (header)",
+      "entity_definition_id": "4c507871-b38f-45fe-b1e0-3a4c0803d68e",
+      "logical_shape_version": "e684051352ac72fc986cf1c1531ad38d06936dd2bd4d25322f0079f20050d6d3",
+      "name": "assets_writeoff"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a write off of assets (cause writeoff, prefix AWO): one asset card and a quantity. header_id is the record_id of the assets_writeoff header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset write off (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_writeoff_line_header_id",
+            "references_entity": "assets_writeoff"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_writeoff_line_header_id"
+          }
+        ],
+        "name": "assets_writeoff_line"
+      },
+      "display_name": "Asset write off (line)",
+      "entity_definition_id": "d2a1ac9d-33bf-c4b1-3c36-6abb83461ba1",
+      "logical_shape_version": "ad864aeb6498c298a68c188ce6ebe65ac74558d51b899a1fc098eb4bcf841158",
+      "name": "assets_writeoff_line"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "document_id",
+              "mark"
+            ],
+            "name": "uq_assets_posting_mark_doc_mark",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3890 / REQ-752 (assets C10), decision 0073 (Consequences, cost note), docs/assets/asset-workflow-documents.md section 8. The bookkeeping record that says an asset document was posted (mark posted) or reversed (mark reversed). It is written only by the write handlers post_document and reverse_document of module assets, in the same transaction as the ledger entry (HandlerWrites.create/3 and post/3). document_id is the id of the versioned document, document_type its type key, version_no the issued version, org_unit_id the issuing org unit (queried; the scope column of decision 0076 R7), reason_code the reversal reason (set on a reversed mark only). The unique constraint uq_assets_posting_mark_doc_mark allows one posted and one reversed mark per document: a second completion of a posting for the same document violates it, so the whole completion transaction rolls back before any ledger write.",
+        "display_name": "Asset posting mark",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "document_type",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "posted",
+              "reversed"
+            ],
+            "name": "mark",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_code",
+            "type": "string"
+          }
+        ],
+        "name": "assets_posting_mark"
+      },
+      "display_name": "Asset posting mark",
+      "entity_definition_id": "c94db604-08c9-b9d8-8fce-a0096c2d9e4e",
+      "logical_shape_version": "a5ead807f2b333c991b938aa09a3d8dcdb84b1885fc8e5de8e6dcc269470634d",
+      "name": "assets_posting_mark"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3902 / REQ-759 (assets C15 part 2), docs/assets/change-of-kind.md sections 2 and 8. The header of a change of kind document: a stock SKU becomes an asset card. Written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number (AKC) and the issued time: no number, status or posted time is stored here. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7) and the stock side org unit. event_time is the time of the change, ISO 8601 with offset, stored in UTC. This document posts nothing and creates no card (REQ-760 does); after issue nothing of the header changes.",
+        "display_name": "Asset change of kind (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_kind_change_document_id"
+          }
+        ],
+        "name": "assets_kind_change"
+      },
+      "display_name": "Asset change of kind (header)",
+      "entity_definition_id": "bbd6ea41-8a2b-314e-08a4-5e8f0e94e4ef",
+      "logical_shape_version": "795839ea66d203292254ccf74b2af5dfb817fd897ee150b7b69e8943e4e31afa",
+      "name": "assets_kind_change"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3902 / REQ-759 (assets C15 part 2), docs/assets/change-of-kind.md section 2. One line of a change of kind: a stock SKU (item, unit, optional lot, quantity, stock location and stock responsible) that becomes an asset (target kind, asset org unit, asset location, material responsible, optional actual user, inventory number, name). header_id is the record_id of the assets_kind_change header (not the document id); the foreign_keys entry promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column). line_no is the position 1..n. asset_card_id stays empty here: the card is created by the posting of REQ-760. The ids point to records of other packs (no foreign key); the module checks them at issue. quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule is checked at issue. There is no price or value field. Written only by module assets.",
+        "display_name": "Asset change of kind (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "stock_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "stock_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "low_value",
+              "fixed"
+            ],
+            "name": "target_kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "asset_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "asset_card_id",
+            "type": "string"
+          },
+          {
+            "name": "inventory_number",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_name",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_kind_change_line_header_id",
+            "references_entity": "assets_kind_change"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_kind_change_line_header_id"
+          }
+        ],
+        "name": "assets_kind_change_line"
+      },
+      "display_name": "Asset change of kind (line)",
+      "entity_definition_id": "6677ecf3-b012-bc68-8e9e-2936656310b6",
+      "logical_shape_version": "eed21f023116369f11e5161364dd6cc89a02a0511815cd557498af428bab05dd",
+      "name": "assets_kind_change_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #4037 (assets G5 part 1), decision 0083 D3, docs/assets/asset-workflow-documents.md section 1.4. The header of an asset opening document (existing assets enter the register at the posting time of the document). It is written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status or posted time is stored here. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7); every card on a line must belong to it. There is no event_time: an opening is posted at its posting time, never backdated. external_ref_system and external_ref_id are an optional pair that names the document for the xlsx import of its lines (G6, decision 0083 D7); their uniqueness among live documents is checked by the module, not by a table constraint. After issue nothing of the header changes.",
+        "display_name": "Asset opening (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_opening_document_id"
+          }
+        ],
+        "name": "assets_opening"
+      },
+      "display_name": "Asset opening (header)",
+      "entity_definition_id": "8b4b52f9-24f5-3102-7d34-32c2e9b4ab86",
+      "logical_shape_version": "2242576529cb0bc9a66dda144557e00f7e98795788375a654f4a1c3777fc02de",
+      "name": "assets_opening"
+    },
+    {
+      "definition_json": {
+        "description": "GH #4037 (assets G5 part 1), decision 0083 D3, docs/assets/asset-workflow-documents.md section 1.4. One line of an asset opening document: one asset card at one placement (location, material responsible, actual user) and a quantity. header_id is the record_id of the assets_opening header (not the document id); the foreign_keys entry fk_assets_opening_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. asset_id is the record id of an assets_card; location_id, material_responsible_id and actual_user_id are record ids of modules locations and org (other packs: no foreign key; checked at issue). quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule is checked at issue. external_ref_system and external_ref_id are an optional pair by which the xlsx import (G6) finds the line within its document. Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset opening (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_opening_line_header_id",
+            "references_entity": "assets_opening"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_opening_line_header_id"
+          }
+        ],
+        "name": "assets_opening_line"
+      },
+      "display_name": "Asset opening (line)",
+      "entity_definition_id": "c2f9d281-ca73-4ba9-2c1b-31b5f6a5829c",
+      "logical_shape_version": "7c29dc74e7086e99894fdc7572ef36723af10a38ddf82a934e7b60ec62f16c73",
+      "name": "assets_opening_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-816 / GH #4375 (asset count K1, D-128). The header of a fixed asset count order: one org unit, the kinds to count (json list of fixed, low_value, intangible, stored in that order), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, sheet_signed, signed or cancelled (all seven are declared now: widening an enum later is a class B upgrade). org_unit_id is the scope column. Master references (org unit, employee, location) are record ids checked in code (0076 R6), not foreign keys. K2 (REQ-817) added the optional fields cut_off_at, cutoff_seq, opened_by (open), sheet_document_id, sheet_number, closed_at, closed_by (close) and sheet_signed_at, sheet_signed_by (sheet marks); later slices K3 to K5 add more optional fields (class A, optional_field_added). K5 (REQ-820) added the freeze fields: freeze_started_at, freeze_until, freeze_whole_unit, freeze_location_ids (set at open of a freeze order). K4 (REQ-819) added the optional fields result_decisions (json: the decision of each result line by sheet line number), result_document_id, result_number, signed_at, signed_by (set when the result is signed).",
+        "display_name": "Asset count order",
+        "fields": [
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "kinds",
+            "required": true,
+            "type": "json"
+          },
+          {
+            "name": "planned_start",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "planned_end",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "chair_employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "draft",
+              "ordered",
+              "counting",
+              "counted",
+              "sheet_signed",
+              "signed",
+              "cancelled"
+            ],
+            "name": "status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "freeze_locations",
+            "type": "boolean"
+          },
+          {
+            "name": "freeze_started_at",
+            "type": "datetime"
+          },
+          {
+            "name": "freeze_until",
+            "type": "datetime"
+          },
+          {
+            "name": "freeze_whole_unit",
+            "type": "boolean"
+          },
+          {
+            "name": "freeze_location_ids",
+            "type": "json"
+          },
+          {
+            "name": "document_id",
+            "type": "string"
+          },
+          {
+            "name": "number",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "issued_at",
+            "type": "datetime"
+          },
+          {
+            "name": "issued_by",
+            "type": "string"
+          },
+          {
+            "name": "cancelled_at",
+            "type": "datetime"
+          },
+          {
+            "name": "cancelled_by",
+            "type": "string"
+          },
+          {
+            "name": "cut_off_at",
+            "type": "datetime"
+          },
+          {
+            "name": "cutoff_seq",
+            "type": "integer"
+          },
+          {
+            "name": "opened_by",
+            "type": "string"
+          },
+          {
+            "name": "sheet_document_id",
+            "type": "string"
+          },
+          {
+            "name": "sheet_number",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "closed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "closed_by",
+            "type": "string"
+          },
+          {
+            "name": "sheet_signed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "sheet_signed_by",
+            "type": "string"
+          },
+          {
+            "name": "result_decisions",
+            "type": "json"
+          },
+          {
+            "name": "result_document_id",
+            "type": "string"
+          },
+          {
+            "name": "result_number",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "signed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "signed_by",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "org_unit_id",
+              "status"
+            ],
+            "name": "idx_assets_count_order_unit_status"
+          }
+        ],
+        "name": "assets_count_order"
+      },
+      "display_name": "Asset count order",
+      "entity_definition_id": "8cd065ce-16b3-dfd7-f0f8-3fa624c3b233",
+      "logical_shape_version": "e1b4ecb78fa37631e241563281ffd90b4d130b751faf54a1d7092406aaa6d2d1",
+      "name": "assets_count_order"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-816 / GH #4375. One root location of an asset count order (the order covers the root and every location below it; no row means the whole org unit). count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
+        "display_name": "Asset count order scope",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_scope_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id"
+            ],
+            "name": "idx_assets_count_scope_order_id"
+          }
+        ],
+        "name": "assets_count_scope"
+      },
+      "display_name": "Asset count order scope",
+      "entity_definition_id": "7527d086-43f6-5953-fbe4-8307f8c216ff",
+      "logical_shape_version": "8b9cd0b2614df62c9ad7576d407ab13ab71e5532436d1c1ad275db0466588499",
+      "name": "assets_count_scope"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-816 / GH #4375. One member of the commission of an asset count order. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column; employee_id is a record id checked in code (0076 R6).",
+        "display_name": "Asset count commission member",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_member_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id"
+            ],
+            "name": "idx_assets_count_member_order_id"
+          }
+        ],
+        "name": "assets_count_member"
+      },
+      "display_name": "Asset count commission member",
+      "entity_definition_id": "9fe096c8-7c82-ac94-d974-c0c1822de996",
+      "logical_shape_version": "b6857dd4e28cdd4c83f5818dcc61b63d18388c453cd73fe0cd4e783a64080e38",
+      "name": "assets_count_member"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One line of the count sheet of an asset count order: a book line (read from the asset ledger at the cut-off, the card values copied as stored) or a surplus line (a card with no book line, or a described thing). counted_quantity is the typed input (1 or 0 for a fixed or intangible line, a whole number for a low-value one). Quantities and card money values are TEXT, not decimal: the asset ledger carries whole numbers only and the card values are kept exactly as stored. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column; master ids are checked in code (0076 R6).",
+        "display_name": "Asset count sheet line",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "book",
+              "surplus"
+            ],
+            "name": "kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "fixed",
+              "low_value",
+              "intangible"
+            ],
+            "name": "asset_kind",
+            "type": "enum"
+          },
+          {
+            "name": "inventory_number",
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "acquisition_date",
+            "type": "string"
+          },
+          {
+            "name": "acquisition_cost",
+            "type": "string"
+          },
+          {
+            "name": "book_value",
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "name": "book_location_id",
+            "type": "string"
+          },
+          {
+            "name": "book_material_responsible_id",
+            "type": "string"
+          },
+          {
+            "name": "book_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "book_quantity",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "counted_quantity",
+            "type": "string"
+          },
+          {
+            "name": "observed_location_id",
+            "type": "string"
+          },
+          {
+            "name": "observed_material_responsible_id",
+            "type": "string"
+          },
+          {
+            "name": "observed_actual_user_id",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "in_use",
+              "not_in_use",
+              "damaged"
+            ],
+            "name": "condition",
+            "type": "enum"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_line_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "line_no"
+            ],
+            "name": "idx_assets_count_line_order_line"
+          }
+        ],
+        "name": "assets_count_line"
+      },
+      "display_name": "Asset count sheet line",
+      "entity_definition_id": "8e38f7fd-2f61-56f6-0bfd-e6630529f445",
+      "logical_shape_version": "0906b96545207098b2fd46e29790eb476c577eb161fc4da4c41a01c9ba58aeeb",
+      "name": "assets_count_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One entry of the append-only log of an asset count order: who typed which input on which sheet line and when, with the value before and after. entry_no is 1..n per order. No function of module assets updates or deletes an entry. method is typed or scan (REQ-818 / GH #4373, K3: a scan entry has scanned_text, scan_outcome and, for a location, location_id; a location scan has no line_no). count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column.",
+        "display_name": "Asset count entry",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entry_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "line_no",
+            "type": "integer"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "recorded",
+              "surplus_added"
+            ],
+            "name": "action",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "enum_values": [
+              "typed",
+              "scan"
+            ],
+            "name": "method",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "value_before",
+            "type": "json"
+          },
+          {
+            "name": "value_after",
+            "required": true,
+            "type": "json"
+          },
+          {
+            "name": "entered_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entered_by_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "entered_at",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "scanned_text",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "location_set",
+              "counted",
+              "already_counted",
+              "surplus_added"
+            ],
+            "name": "scan_outcome",
+            "type": "enum"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_entry_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "entry_no"
+            ],
+            "name": "idx_assets_count_entry_order_entry"
+          }
+        ],
+        "name": "assets_count_entry"
+      },
+      "display_name": "Asset count entry",
+      "entity_definition_id": "95790b20-f0d2-c8c4-173e-5ea9da143d77",
+      "logical_shape_version": "9834d4d8e43809d9738effcfd806593ec381cfc7cfe0d957d08babe21780a6b1",
+      "name": "assets_count_entry"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-817 / GH #4374 (asset count K2, D-128). One row per signer of a count document: the chair records that the person signed the printout on paper (the system does not verify the signature). Append-only: no function of module assets updates or deletes a row. document_kind is sheet now; result is declared for K4 so that slice needs no enum widening. count_order_id is a real foreign key onto assets_count_order; org_unit_id is a copy of the header's, the scope column. document_id and version_no name the issued document version that was signed.",
+        "display_name": "Asset count signature",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "sheet",
+              "result"
+            ],
+            "name": "document_kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "chair",
+              "member",
+              "responsible"
+            ],
+            "name": "signer_role",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_assets_count_signature_order_id",
+            "references_entity": "assets_count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "document_kind"
+            ],
+            "name": "idx_assets_count_signature_order_kind"
+          }
+        ],
+        "name": "assets_count_signature"
+      },
+      "display_name": "Asset count signature",
+      "entity_definition_id": "f97c011b-1015-e83f-fedc-21b679b8c15e",
+      "logical_shape_version": "b12be3bae9e8ab683e3983e6fd45dc63dcdc982a1a29bd3b64b1a2571b2022b9",
+      "name": "assets_count_signature"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-assets",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.6.0"
+}

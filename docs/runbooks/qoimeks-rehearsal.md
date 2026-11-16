@@ -46,6 +46,12 @@ together with its first real balance (below).
    `scripts/pilot/qoimeks_compare.sh OUT/expected_counts.txt after.txt TENANT_SLUG`. Exit 0 means equal, 1 prints
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
 
+7. **Compare quantities (RH-7)**: export the stock balances (`stock-balances.xlsx`, sheet `balances`) and run
+   `python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
+   It prints one `DIFF` line per item and place that differs (with names), `ROWS` and one sha256 `HASH` per side over the sorted
+   (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
+   Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
+
 Repeating: re-upload the master files (step 3) and the lines files (step 5) with the same files; every row is `unchanged`.
 Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
 headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.

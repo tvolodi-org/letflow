@@ -16,7 +16,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   (`assets/upgrade_from_090_test.exs`).
 
   `G1` is the guard: it pins, per module, the current version the upgrade tests were last run for.
-  A version bump fails it until a new previous-pack case exists and the pin is moved. P1..P6 the
+  A version bump fails it until a new previous-pack case exists and the pin is moved. P1..P7 the
   cases, G1 the guard. `async: false` (committed tenants).
   """
 
@@ -40,6 +40,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
 
   # The upgrade pairs with a test behind them: {module, old version, fixture, current version}.
   @pairs [
+    {"assets", "0.28.0", "assets_0_28_0.json", "0.29.0"},
     {"catalog_items", "0.2.0", "catalog_items_0_2_0.json", "0.4.0"},
     {"locations", "0.4.0", "locations_0_4_0.json", "0.5.0"},
     {"stock", "0.10.0", "stock_0_10_0.json", "0.17.0"},
@@ -51,7 +52,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   # The current version each module's upgrade test was last run for (G1). A first release has no
   # previous pack and is pinned as such.
   @tested %{
-    "assets" => "0.28.0",
+    "assets" => "0.29.0",
     "catalog_items" => "0.4.0",
     "codes" => "0.4.0",
     "locations" => "0.5.0",
@@ -177,6 +178,49 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
       again = post_json(ctx, "/api/v1/tenant/modules/#{module_id}/upgrade/plan", %{})
       assert Jason.decode!(again.resp_body)["up_to_date"] == true
     end
+  end
+
+  @tag timeout: 180_000
+  test "DA2 upgrade preserves existing cards and accepts new attributes", ctx do
+    assert ["assets_card"] = downgrade!(ctx.schema, "assets", "0.28.0", "assets_0_28_0.json")
+    actor = Ecto.UUID.generate()
+    opts = fn -> %{actor_id: actor, idempotency_key: Ecto.UUID.generate()} end
+    cards = Letflow.Modules.Assets.Cards
+
+    assert {:ok, old} =
+             cards.create_card(
+               ctx.schema,
+               %{"inventory_number" => "DA2-UP", "name" => "Existing asset", "kind" => "fixed"},
+               opts.()
+             )
+
+    report = upgrade!(ctx, "assets")
+    assert report["from_version"] == "0.28.0"
+    assert report["to_version"] == "0.29.0"
+
+    assert {:ok, unchanged} =
+             Letflow.Modules.ReadApi.lookup(ctx.schema, old["record_id"], ["assets_card"])
+
+    assert unchanged == old
+
+    assert {:ok, updated} =
+             cards.update_card(
+               ctx.schema,
+               old["record_id"],
+               %{
+                 "manufacturer" => "Upgrade Works",
+                 "model" => "M29",
+                 "serial_number" => "SN-UP",
+                 "useful_life_months" => 60,
+                 "commissioning_date" => "2026-11-16"
+               },
+               opts.()
+             )
+
+    assert updated["manufacturer"] == "Upgrade Works" and updated["useful_life_months"] == 60
+    assert updated["inventory_number"] == old["inventory_number"]
+    again = post_json(ctx, "/api/v1/tenant/modules/assets/upgrade/plan", %{})
+    assert Jason.decode!(again.resp_body)["up_to_date"]
   end
 
   test "G1 every module's current version is the one its upgrade test was last run for" do

@@ -525,5 +525,9 @@ defmodule Letflow.CiBackendPathFilterTest do
     test "scripts/pilot/qoimeks_convert.py alone sets backend=true" do
       assert %{"backend" => "true"} = run_filter(["scripts/pilot/qoimeks_convert.py"])
     end
+
+    test "scripts/pilot/qoimeks_balances_compare.py alone sets backend=true (T-2024)" do
+      assert %{"backend" => "true"} = run_filter(["scripts/pilot/qoimeks_balances_compare.py"])
+    end
   end
 end
