@@ -4,6 +4,7 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
 
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.FixtureLedger
+  alias Letflow.Modules.FixtureLedgerOther
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.WriteHandlerSpec
 
@@ -206,6 +207,55 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
 
       assert {:error, {:write_handler_update_not_target, _name, "not_a_target"}} =
                Catalog.validate(%{base | write_handlers: [stray | rest]})
+    end
+
+    test "R-1 / R-2 reads (REQ-829): shape, default, reachability rule, hash only when non-empty" do
+      assert {:ok, %WriteHandlerSpec{reads: []}} = WriteHandlerSpec.new(@valid)
+
+      assert {:ok, %WriteHandlerSpec{reads: ["fxl_ledger"]}} =
+               WriteHandlerSpec.new(Map.put(@valid, :reads, ["fxl_ledger"]))
+
+      for bad <- [%{}, "t", [:a], ["a", "a"]] do
+        assert {:error, {:invalid_field, :reads}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :reads, bad))
+      end
+
+      base = FixtureLedger.manifest()
+      [first | rest] = base.write_handlers
+
+      put = fn manifest, reads ->
+        %{manifest | write_handlers: [%{first | reads: reads} | rest]}
+      end
+
+      # R-2: no reads (or an empty list) keeps the hash, one type changes it, order does not matter
+      assert ManifestHash.compute(put.(base, [])) == ManifestHash.compute(base)
+      assert ManifestHash.compute(put.(base, ["fxl_balance"])) != ManifestHash.compute(base)
+
+      assert ManifestHash.compute(put.(base, ["fxl_balance", "fxl_ledger"])) ==
+               ManifestHash.compute(put.(base, ["fxl_ledger", "fxl_balance"]))
+
+      # R-1: the module's own type is accepted
+      assert :ok = Catalog.validate(put.(base, ["fxl_balance"]), Catalog.all_manifests())
+
+      # a type of a module named in depends_on is accepted, one of a module that is not is refused
+      other = %{FixtureLedgerOther.manifest() | depends_on: ["fixture_ledger"]}
+      [other_first | other_rest] = other.write_handlers
+
+      reading = fn type ->
+        %{other | write_handlers: [%{other_first | reads: [type]} | other_rest]}
+      end
+
+      known = [base, other]
+
+      assert :ok = Catalog.validate(reading.("fxl_ledger"), known)
+
+      assert {:error, {:write_handler_read_not_reachable, name, "fxl_ledger"}} =
+               Catalog.validate(%{reading.("fxl_ledger") | depends_on: []}, known -- [base])
+
+      assert name == other_first.name
+
+      assert {:error, {:write_handler_read_not_reachable, ^name, "no_such_type"}} =
+               Catalog.validate(reading.("no_such_type"), known)
     end
   end
 end

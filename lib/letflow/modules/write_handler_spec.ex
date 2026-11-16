@@ -24,10 +24,16 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   fields of a target type the handler may change through `Letflow.Entities.HandlerWrites.update/3`
   (default `%{}`: the handler updates nothing). `Catalog` rule 10 checks every key is one of the
   handler's `targets`. It is covered by the manifest hash only when non-empty.
+
+  `reads` (REQ-829, decision 0073 D6, OQ-R4) is the last optional key: a list of entity type names the
+  handler may read one record of by id through `Letflow.Entities.HandlerWrites.read/3` and `active?/3`
+  (default `[]`: the handler reads nothing). `Catalog` rule 10 checks every type is managed by the
+  handler's own module or by a module named in its `depends_on`. It is covered by the manifest hash
+  only when non-empty.
   """
 
   @enforce_keys [:name, :function, :targets, :args]
-  defstruct [:name, :function, :targets, :args, posts_ledger: nil, updates: %{}]
+  defstruct [:name, :function, :targets, :args, posts_ledger: nil, updates: %{}, reads: []]
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -35,11 +41,12 @@ defmodule Letflow.Modules.WriteHandlerSpec do
           targets: [String.t()],
           args: %{String.t() => %{required: boolean()}},
           posts_ledger: String.t() | nil,
-          updates: %{optional(String.t()) => [String.t()]}
+          updates: %{optional(String.t()) => [String.t()]},
+          reads: [String.t()]
         }
 
   @required_keys [:name, :function, :targets, :args]
-  @optional_keys [:posts_ledger, :updates]
+  @optional_keys [:posts_ledger, :updates, :reads]
   @keys @required_keys ++ @optional_keys
 
   @doc "Builds a spec from a map or keyword list, rejecting missing, unknown or ill-typed fields."
@@ -96,6 +103,9 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   end
 
   defp valid_field?(:updates, _other), do: false
+
+  defp valid_field?(:reads, reads),
+    do: is_list(reads) and Enum.all?(reads, &is_binary/1) and Enum.uniq(reads) == reads
 
   defp valid_field?(:function, {module, fun}), do: is_atom(module) and is_atom(fun)
   defp valid_field?(:function, _other), do: false
