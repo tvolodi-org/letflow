@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
-import { Printer } from 'lucide-react'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
 import { formsForDocument, isDocumentForm, DOCUMENT_FORM_SUFFIX } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
@@ -188,20 +187,21 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
             {(doc.state === 'posted' || doc.state === 'reversed') && (
               <Link to={movementsLinkFor(doc.id)}>{t('stock.doc.movementsLink')}</Link>
             )}
-            {documentPrintable(doc) && (
-              <Button
-                variant="secondary"
-                icon={<Printer className="lf-icon" aria-hidden="true" />}
-                loading={pdf.busyKey === 'print'}
-                onClick={() => void pdf.run('print', () => documentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId)}
-                data-testid="document-print"
-              >
-                {t('stock.doc.print')}
-              </Button>
-            )}
             <OfficialFormMenu
               forms={formsForDocument(doc)}
               busyKey={pdf.busyKey}
+              plain={
+                documentPrintable(doc)
+                  ? [
+                      {
+                        key: 'print',
+                        label: t('stock.doc.print'),
+                        testId: 'document-print',
+                        onPick: () => void pdf.run('print', () => documentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId),
+                      },
+                    ]
+                  : []
+              }
               onPick={(form, format, lang) => {
                 if (!isDocumentForm(form)) return
                 void pdf.run(

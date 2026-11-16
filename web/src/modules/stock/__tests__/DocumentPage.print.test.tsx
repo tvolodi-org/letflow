@@ -9,6 +9,7 @@ import { docEn, docKk, docRu } from '../documents/documentsMessages'
 import { DOC_KINDS, DOC_STATES, documentPrintable, printErrorMessageId } from '../documents/documentsModel'
 import { formsForDocument } from '../forms/officialForms'
 import { DOCS, LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc } from './stockTestKit'
+import { menuItem } from '@/test-utils/menuItem'
 
 expect.extend(jestDomMatchers)
 
@@ -45,13 +46,13 @@ describe('D1 button and download', () => {
   it.each(KINDS.flatMap((k) => STATES.map((s) => [k, s])))('%s in %s shows the button', async (kind, state) => {
     fakeDocument(clientMock, stockDoc({ kind, state, number: 'DOC-1' }))
     renderStock(VIEW)
-    expect(await screen.findByTestId('document-print')).toBeInTheDocument()
+    expect(await menuItem('document-print')).toBeInTheDocument()
   })
   it('click calls the print route with the UI language and saves under the header name', async () => {
     fakeDocument(clientMock, stockDoc({ kind: 'transfer', state: 'issued', number: 'TR-1' }))
     clientMock.getBlob.mockResolvedValue(file('attachment; filename="TR-1-ru.pdf"'))
     renderStock(VIEW)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     await waitFor(() => expect(downloads).toEqual(['TR-1-ru.pdf']))
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { lang: 'en' })
   })
@@ -59,7 +60,7 @@ describe('D1 button and download', () => {
     fakeDocument(clientMock, stockDoc({ kind: 'return', state: 'posted', number: 'RT-7' }))
     clientMock.getBlob.mockResolvedValue(file(null))
     renderStock(VIEW)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     await waitFor(() => expect(downloads).toEqual(['RT-7.pdf']))
   })
 })
@@ -81,7 +82,7 @@ describe('D3 language', () => {
     fakeDocument(clientMock, stockDoc({ kind: 'hand_over', state: 'issued', number: 'H-1' }))
     clientMock.getBlob.mockResolvedValue(file(null))
     renderStock(VIEW)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { lang: l }))
   })
 })
@@ -91,20 +92,20 @@ describe('D4 refusals', () => {
   it.each(['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const)('422 %s', async (r) => {
     clientMock.getBlob.mockRejectedValue(refusal(422, r))
     renderStock(VIEW)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     expect(await screen.findByText(docEn[`stock.doc.print.reason.${r}`])).toBeInTheDocument()
   })
   it.each([[404, 'stock.doc.error.notFound'], [403, 'stock.doc.error.generic'], [500, 'stock.doc.error.generic']] as const)('%s', async (status, id) => {
     clientMock.getBlob.mockRejectedValue(refusal(status))
     renderStock(VIEW)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     expect(await screen.findByText(docEn[id])).toBeInTheDocument()
   })
   it('a second click while the request runs sends nothing', async () => {
     let done: (v: ReturnType<typeof file>) => void = () => {}
     clientMock.getBlob.mockReturnValue(new Promise((res) => { done = res }))
     renderStock(VIEW)
-    const btn = await screen.findByTestId('document-print')
+    const btn = await menuItem('document-print')
     await userEvent.click(btn)
     await userEvent.click(btn)
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)

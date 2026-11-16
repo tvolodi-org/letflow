@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
-import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
@@ -215,20 +214,21 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
         actions={
           <>
             <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
-            {documentPrintable(doc) && (
-              <Button
-                variant="secondary"
-                icon={<Printer className="lf-icon" aria-hidden="true" />}
-                loading={pdf.busyKey === 'print'}
-                onClick={() => void pdf.run('print', () => assetDocumentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId)}
-                data-testid="document-print"
-              >
-                {t('assets.doc.print')}
-              </Button>
-            )}
             <AssetFormMenu
               forms={formsForAssetDocument(doc)}
               busyKey={pdf.busyKey}
+              plain={
+                documentPrintable(doc)
+                  ? [
+                      {
+                        key: 'print',
+                        label: t('assets.doc.print'),
+                        testId: 'document-print',
+                        onPick: () => void pdf.run('print', () => assetDocumentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId),
+                      },
+                    ]
+                  : []
+              }
               onPick={(form, format, lang) =>
                 void pdf.run(
                   `form-${form}-${format}`,

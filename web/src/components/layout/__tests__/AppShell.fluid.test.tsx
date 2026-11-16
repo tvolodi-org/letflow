@@ -84,4 +84,14 @@ describe('J3-8 AppShell fluid content for the data screens that opt in', () => {
     await renderAt('/admin/stock/balances')
     expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
   })
+
+  it.each([
+    '/admin/stock/documents/d1',
+    '/admin/stock/counts/c1',
+    '/admin/assets/documents/d1',
+    '/admin/assets/counts/c1',
+  ])('T-2020 the document screen %s uses the full width of a 2560 px window', async (path) => {
+    await renderAt(path)
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
+  })
 })
