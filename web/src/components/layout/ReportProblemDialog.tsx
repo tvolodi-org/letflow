@@ -1,12 +1,18 @@
 /** Consent dialog of "Report a problem" (T-1950). Takes one snapshot of the capture rings when it opens; the preview
  *  and the posted body are built from that snapshot by the same function, so the user sees exactly what is sent.
  *  Nothing is sent before the consent tick and Send.
+ *  T-2020: a side panel, not a modal: the screen behind stays visible and usable (no scrim, no focus trap) so the user
+ *  can look at it while describing the problem; the captured facts stay. Escape closes while focus is in the panel.
  *  T-2015: adds screenshot upload (paste, drag-and-drop, file picker; max 3 images; PNG/JPEG/WebP). */
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
-import { Dialog } from '@/components/ui/Dialog'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
+import { Banner } from '@/components/ui/Banner'
+import { Button } from '@/components/ui/Button'
+import { useUiMessages } from '@/components/ui/uiMessages'
 import { Field } from '@/components/ui/Field'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { useToast } from '@/hooks/useToast'
@@ -36,6 +42,8 @@ export function ReportProblemDialog({
   preloadImages?: boolean
 }) {
   const m = useReportProblemMessages()
+  const ui = useUiMessages()
+  const panelRef = useRef<HTMLElement | null>(null)
   const uiLocale = useUiLocale()
   const { session } = useAuth()
   const access = useAccess()
@@ -129,21 +137,39 @@ export function ReportProblemDialog({
     })
   }
 
-  return (
-    <Dialog
-      open
-      testId="report-dialog"
-      size="l"
-      title={m.title}
-      subtitle={m.subtitle}
-      confirmText={m.send}
-      cancelText={m.cancel}
-      confirmDisabled={!text.trim() || !consent}
-      isLoading={mutation.isPending}
-      error={error}
-      onConfirm={send}
-      onCancel={onClose}
+  const busy = mutation.isPending
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && !busy) {
+      e.stopPropagation()
+      onClose()
+    }
+  }
+
+  return createPortal(
+    <aside
+      ref={panelRef}
+      className="lf-report__panel"
+      data-testid="report-dialog"
+      role="complementary"
+      aria-labelledby="report-panel-title"
+      aria-busy={busy || undefined}
+      onKeyDown={onKeyDown}
     >
+      <div className="lf-report__panel-head">
+        <div>
+          <h3 className="lf-dialog__title" id="report-panel-title">{m.title}</h3>
+          <p className="lf-dialog__sub">{m.subtitle}</p>
+        </div>
+        <button type="button" className="lf-btn lf-btn--ghost lf-btn--icon" data-testid="report-dialog-close" aria-label={ui.close} disabled={busy} onClick={onClose}>
+          <X className="lf-icon" aria-hidden="true" />
+        </button>
+      </div>
+      <div className="lf-report__panel-body">
+        {error != null && error !== '' && (
+          <div data-testid="report-dialog-error">
+            <Banner tone="danger">{error}</Banner>
+          </div>
+        )}
       <Field label={m.textLabel} hint={`${text.length} / ${MAX_TEXT}`}>
         <textarea
           className="lf-control"
@@ -252,6 +278,12 @@ export function ReportProblemDialog({
       </ul>
 
       <Checkbox data-testid="report-consent" label={m.consent} checked={consent} onChange={setConsent} />
-    </Dialog>
+      </div>
+      <div className="lf-report__panel-foot">
+        <Button variant="ghost" data-testid="report-dialog-cancel" onClick={onClose} disabled={busy}>{m.cancel}</Button>
+        <Button variant="primary" data-testid="report-dialog-confirm" onClick={send} disabled={busy || !text.trim() || !consent} loading={busy}>{m.send}</Button>
+      </div>
+    </aside>,
+    document.body,
   )
 }

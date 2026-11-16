@@ -108,6 +108,10 @@ const FLUID_PATHS = [
   '/admin/catalog/items',
   '/admin/stock/movements',
   '/admin/stock/balances',
+  '/admin/stock/documents',
+  '/admin/stock/counts',
+  '/admin/assets/documents',
+  '/admin/assets/counts',
   '/admin/problem-reports',
 ]
 

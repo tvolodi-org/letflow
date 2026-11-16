@@ -35,7 +35,7 @@ const view = (name: string, id: string): HarnessScreen => ({
 })
 
 /** T-1921: the "Official form" menu opened by a click on the real screen (the menu state is local, a shot cannot click). */
-const FORM_MENU_LABELS = ['Official form', 'Официальная форма', 'Ресми нысан']
+const FORM_MENU_LABELS = ['Print', 'Печать', 'Басып шығару']
 const menuOpen = (name: string, id: string): HarnessScreen => ({
   name,
   routes,

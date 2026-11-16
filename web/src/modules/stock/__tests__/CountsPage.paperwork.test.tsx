@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { countsEn } from '../counts/countsMessages'
 import { BASE, LIST, fakeCounts, order, problem, renderCounts } from './countsTestKit'
+import { menuItem } from '@/test-utils/menuItem'
 
 expect.extend(jestDomMatchers)
 
@@ -39,24 +40,24 @@ describe('P1 downloads', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x', contentDisposition: 'attachment; filename="CNT-0001-sheet.xlsx"' })
     renderCounts(`${LIST}/c1`)
-    await screen.findByTestId('paperwork-order')
-    expect(screen.getByTestId('paperwork-sheet')).toBeInTheDocument()
+    await menuItem('paperwork-order')
+    expect((await menuItem('paperwork-sheet'))).toBeInTheDocument()
     expect(screen.queryByTestId('paperwork-differences')).toBeNull()
-    await userEvent.click(screen.getByTestId('paperwork-sheet'))
+    await userEvent.click((await menuItem('paperwork-sheet')))
     await waitFor(() => expect(downloads).toEqual(['CNT-0001-sheet.xlsx']))
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/sheet`, { lang: 'en' })
-    await userEvent.click(screen.getByTestId('paperwork-order'))
+    await userEvent.click((await menuItem('paperwork-order')))
     await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/order`, { lang: 'en' }))
     // X6: the UI language is sent
     useUiLocaleStore.getState().setLocaleTransient('ru')
-    await userEvent.click(screen.getByTestId('paperwork-order'))
+    await userEvent.click((await menuItem('paperwork-order')))
     await waitFor(() => expect(clientMock.getBlob).toHaveBeenLastCalledWith(`${BASE}/c1/paperwork/order`, { lang: 'ru' }))
   })
   it('falls back to a name built from the number when there is no header', async () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x', contentDisposition: null })
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('paperwork-order'))
+    await userEvent.click(await menuItem('paperwork-order'))
     await waitFor(() => expect(downloads).toEqual(['count-CNT-0001-order.xlsx']))
   })
 })
@@ -66,7 +67,7 @@ describe('P2 refusal', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockRejectedValue(problem(422, 'document_not_issued'))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('paperwork-order'))
+    await userEvent.click(await menuItem('paperwork-order'))
     expect(await screen.findByText(countsEn['counts.reason.document_not_issued'])).toBeInTheDocument()
   })
 })

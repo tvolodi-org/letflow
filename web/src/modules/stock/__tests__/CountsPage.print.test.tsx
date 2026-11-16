@@ -8,6 +8,7 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
 import { printReasonMessageId } from '../counts/countsModel'
 import { BASE, LIST, fakeCounts, order, problem, renderCounts } from './countsTestKit'
+import { menuItem } from '@/test-utils/menuItem'
 
 expect.extend(jestDomMatchers)
 
@@ -40,8 +41,8 @@ describe('P1 which print buttons show', () => {
   it('print shows exactly when the xlsx button shows', async () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     renderCounts(`${LIST}/c1`)
-    await screen.findByTestId('print-order')
-    expect(screen.getByTestId('print-sheet')).toBeInTheDocument()
+    await menuItem('print-order')
+    expect((await menuItem('print-sheet'))).toBeInTheDocument()
     expect(screen.queryByTestId('print-differences')).toBeNull()
     expect(screen.queryByTestId('paperwork-differences')).toBeNull()
   })
@@ -53,7 +54,7 @@ describe('P2 download and language', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockResolvedValue(file('attachment; filename="CNT-0001-sheet.pdf"'))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('print-sheet'))
+    await userEvent.click(await menuItem('print-sheet'))
     await waitFor(() => expect(downloads).toEqual(['CNT-0001-sheet.pdf']))
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/print/sheet`, { lang: l })
@@ -62,7 +63,7 @@ describe('P2 download and language', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockResolvedValue(file(null))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('print-sheet'))
+    await userEvent.click(await menuItem('print-sheet'))
     await waitFor(() => expect(downloads).toEqual(['count-CNT-0001-sheet.pdf']))
   })
 })
@@ -73,10 +74,9 @@ describe('P3 single flight', () => {
     let done: (v: ReturnType<typeof file>) => void = () => {}
     clientMock.getBlob.mockReturnValue(new Promise((res) => { done = res }))
     renderCounts(`${LIST}/c1`)
-    const btn = await screen.findByTestId('print-order')
-    await userEvent.click(btn)
-    await userEvent.click(btn)
-    await userEvent.click(screen.getByTestId('paperwork-order'))
+    await userEvent.click(await menuItem('print-order'))
+    // The one Print menu is busy while the request runs: its trigger is disabled, so no second item can be picked.
+    expect(screen.getByTestId('official-form-menu')).toBeDisabled()
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
     done(file(null))
     await waitFor(() => expect(downloads).toHaveLength(1))
@@ -88,7 +88,7 @@ describe('P4 refusals', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockRejectedValue(problem(422, r))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('print-order'))
+    await userEvent.click(await menuItem('print-order'))
     expect(await screen.findByText(countsEn[`counts.print.reason.${r}`])).toBeInTheDocument()
   })
   it('404 shows not found; 403 and 500 show the generic message', async () => {
@@ -96,7 +96,7 @@ describe('P4 refusals', () => {
       fakeCounts(clientMock, { orders: [ISSUED] })
       clientMock.getBlob.mockRejectedValue(problem(status))
       renderCounts(`${LIST}/c1`)
-      await userEvent.click(await screen.findByTestId('print-order'))
+      await userEvent.click(await menuItem('print-order'))
       expect(await screen.findByText(countsEn[id])).toBeInTheDocument()
       cleanup()
     }
@@ -106,7 +106,7 @@ describe('P4 refusals', () => {
     fakeCounts(clientMock, { orders: [ISSUED] })
     clientMock.getBlob.mockRejectedValue(problem(422, 'invalid_lang'))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('print-order'))
+    await userEvent.click(await menuItem('print-order'))
     expect(await screen.findByText(countsRu['counts.print.reason.invalid_lang'])).toBeInTheDocument()
   })
 })
