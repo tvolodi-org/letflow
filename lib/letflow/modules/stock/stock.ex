@@ -109,6 +109,12 @@ defmodule Letflow.Modules.Stock do
   the stock card of one item at one place on Z-3 / Q-3 (annex 27), both on the E5b print engine
   (`FormZ5`, `FormZ3`, `StockCardSource`). No migration, record type or permission.
 
+  ## Official form Z-7 (T-1925; no version bump)
+
+  `GET /stock-sheet/print?location&from&to&format&lang` (`StockRead`, the guard of `/movements`) prints the stock
+  balances sheet of one location and one period on Z-7 / Q-7 (annex 31): `StockSheetSource` folds the ledger
+  movements, `FormZ7` and `priv/print_forms/z7.json` shape it. No migration, record type or permission.
+
   ## Official form Z-1 (T-1912; no version bump)
 
   `GET /documents/:id/print?form=z1&format=pdf|docx&lang=ru|kk` prints the issued or posted receipt on Z-1 / Қ-1
@@ -365,6 +371,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/documents/:id", :StockRead},
       {"GET", "/documents/:id/print", :StockRead},
       {"GET", "/stock-card/print", :StockRead},
+      {"GET", "/stock-sheet/print", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},

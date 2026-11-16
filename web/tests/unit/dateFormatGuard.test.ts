@@ -26,6 +26,7 @@ const ALLOW: Record<string, { names: string[]; reason: string }> = {
   'modules/assets/documents/documentForm.ts': { names: ['Intl.DateTimeFormat'], reason: 'offsetMinutes: zone arithmetic for the input value, not display' },
   'modules/stock/documents/documentsModel.ts': { names: ['Intl.DateTimeFormat'], reason: 'offsetMinutes: zone arithmetic for the input value, not display' },
   'modules/stock/counts/countsModel.ts': { names: ['Intl.DateTimeFormat'], reason: 'parts(): the datetime-local input value, not display' },
+  'modules/stock/register/stockRegisterModel.ts': { names: ['Intl.DateTimeFormat'], reason: 'tenantTodayIso(): the tenant day as a date-input value (zone arithmetic), not display' },
 }
 
 export function violations(file: string, content: string): string[] {

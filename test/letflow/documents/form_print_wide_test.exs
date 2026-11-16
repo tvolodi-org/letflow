@@ -51,7 +51,8 @@ defmodule Letflow.Documents.FormPrintWideTest do
                "z2",
                "z3",
                "z5",
-               "z6"
+               "z6",
+               "z7"
              ]
 
       for form <- FormPrint.forms() do
