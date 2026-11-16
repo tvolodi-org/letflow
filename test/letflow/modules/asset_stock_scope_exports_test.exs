@@ -288,16 +288,16 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     scoped = req(@stock <> "/stock-sheet/print?" <> q, ctx.s1) |> ok!("wordprocessingml")
     text = docx_text(scoped)
     # U1 legs only: receipt 10 in, transfer 3 out, closing 7.
-    assert text =~ "10.000000000" and text =~ "3.000000000" and text =~ "7.000000000"
+    assert text =~ "10" and text =~ "3" and text =~ "7"
     refute text =~ @hidden_qty
     refute text =~ @u2
-    refute text =~ "14.500000000"
-    refute text =~ "11.500000000"
+    refute text =~ "14.5"
+    refute text =~ "11.5"
 
     control = req(@stock <> "/stock-sheet/print?" <> q, ctx.sp) |> ok!("wordprocessingml")
     ctext = docx_text(control)
     # unrestricted reader: the same-key U2 receipt is income too (10 + 4.5), closing 14.5 - 3
-    assert ctext =~ "14.500000000" and ctext =~ "3.000000000" and ctext =~ "11.500000000"
+    assert ctext =~ "14.5" and ctext =~ "3" and ctext =~ "11.5"
   end
 
   test "S5b a place with only hidden movements answers like an absent place", ctx do

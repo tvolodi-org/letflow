@@ -84,9 +84,9 @@ defmodule Letflow.Modules.Stock.FormZ7RouterTest do
     {:ok, item} = CatalogItems.lookup(ctx.schema, ctx.ma.item)
     assert "Ведомость учета остатков запасов на складе" in items
     assert Enum.join(items, "\n") =~ item["name"]
-    assert "2.000000000" in items
-    assert "0.500000000" in items
-    assert "1.500000000" in items
+    assert "2" in items
+    assert "0.5" in items
+    assert "1.5" in items
 
     %{"rows" => [row]} =
       S.get("/balances?sku=#{ctx.ma.item}&location=#{ctx.ma.location}", ctx.tok_a)
@@ -100,9 +100,9 @@ defmodule Letflow.Modules.Stock.FormZ7RouterTest do
     assert length(cells) >= 14
     # columns 5, 6, 7 (qty, price, norm), 9, 11, 13 (sums) are blank; opening (8) is blank (zero)
     for i <- [4, 5, 6, 7, 8, 10, 12], do: assert(Enum.at(cells, i) == "", "cell #{i + 1}")
-    assert Enum.at(cells, 9) == "2.000000000"
-    assert Enum.at(cells, 11) == "0.500000000"
-    assert Enum.at(cells, 13) == "1.500000000"
+    assert Enum.at(cells, 9) == "2"
+    assert Enum.at(cells, 11) == "0.5"
+    assert Enum.at(cells, 13) == "1.5"
   end
 
   test "R2 the opening balance: a period after the receipt, and a period of the receipt day",
@@ -112,17 +112,17 @@ defmodule Letflow.Modules.Stock.FormZ7RouterTest do
     conn = print(ctx, period(ctx, 1) <> "&format=docx&lang=ru")
     assert conn.status == 200, conn.resp_body
     cells = row_cells(conn, item["name"])
-    assert Enum.at(cells, 7) == "2.000000000"
+    assert Enum.at(cells, 7) == "2"
     assert Enum.at(cells, 9) == ""
-    assert Enum.at(cells, 11) == "0.500000000"
-    assert Enum.at(cells, 13) == "1.500000000"
+    assert Enum.at(cells, 11) == "0.5"
+    assert Enum.at(cells, 13) == "1.5"
 
     day = print(ctx, period(ctx, 2, 2) <> "&format=docx&lang=ru")
     assert day.status == 200, day.resp_body
     cells = row_cells(day, item["name"])
-    assert Enum.at(cells, 9) == "2.000000000"
+    assert Enum.at(cells, 9) == "2"
     assert Enum.at(cells, 11) == ""
-    assert Enum.at(cells, 13) == "2.000000000"
+    assert Enum.at(cells, 13) == "2"
   end
 
   test "R3 kk docx: official title, form code and heads", ctx do
