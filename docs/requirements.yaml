@@ -55981,18 +55981,20 @@ requirements:
       quantity), and nothing is written. The check runs after unit_mismatch and before insufficient_balance.
       Two legs of one balance key that carry different expected_on_hand values, or a negative or malformed
       value, are invalid_posting at validation (no lock taken). The value is part of the command and so of
-      payload_hash (a retry with another expected value is idempotency_key_reuse); it is not stored in the leg,
-      the entry or the digest (no migration). A reversal never carries it: its legs are the negated target legs
+      payload_hash (a retry with another expected value is idempotency_key_reuse). It enters the stored entry
+      and its digest only through payload_hash (an entry header column, one of the @header_fields of
+      lib/letflow/ledger/digest.ex, so the entry digest and the chain hash cover it); no leg column stores it
+      and no column is added (no migration). A reversal never carries it: its legs are the negated target legs
       as today. Every other rule (append-only entries, quantity zero refused, the no-negative guard, bounds, unit
       pin, event-time window, idempotency, lock order) is unchanged. Domain-neutral (Rule 7): no count
       vocabulary in the core. Not in this part: any module that sends the key (REQ-854, planned, not yet on
       main), the per-tenant negative balance setting of REQ-833..REQ-840 (pending), which this rule does
       not depend on: the comparison is with the locked on_hand, negative or not. Size S.
     acceptance_criteria:
-      - "1. A posting with one leg whose expected_on_hand equals the locked on_hand of its balance key is written exactly as the same posting without the key (same entry, legs, balances and digest fields); a test compares the two."
+      - "1. A posting with one leg whose expected_on_hand equals the locked on_hand of its balance key is written as the same posting without the key would be: the same legs, the same balances and every entry header field equal except payload_hash (and so the entry digest and the chain hash, which cover payload_hash); a test compares the two field by field."
       - "2. A posting whose expected_on_hand differs from the locked on_hand is refused {:ledger_refused, :balance_changed, _, %{leg_nos: [n]}} with no entry, leg, balance or counter change; the HTTP status of balance_changed is 409 in Letflow.Ledger.Codes.core/0, it is in aliasable/0 and in reserved/0, and test/letflow/ledger/codes_test.exs is updated for it."
       - "3. A first-touch balance key (no balance row before the posting) is compared as on_hand 0: expected_on_hand 0 passes and expected_on_hand 1 is refused balance_changed."
-      - "4. Race (Sandbox auto mode, committed tenant): process A builds a posting with expected_on_hand equal to the current balance; process B commits another posting on the same key before A takes the balance lock; A is then refused balance_changed and writes nothing. The test holds A at a named point between build and lock with a bounded wait (no sleep)."
+      - "4. Race (Sandbox auto mode, committed tenant): process A builds a posting with expected_on_hand equal to the current balance; process B commits another posting on the same key before A takes the balance lock; A is then refused balance_changed and writes nothing. The test holds A at a named point between build and lock with a bounded wait (no sleep): this part adds that point as a test seam in the shape of FreezeGuard.hook/1 (an Application env key, nil in production, read only in one private function of Letflow.Ledger, sending a message to the test and waiting for go with a bounded timeout), placed after the posting is validated and before the balance rows are locked."
       - "5. Order of checks: a leg that is both unit_mismatch and balance_changed is answered unit_mismatch; a leg that would be both balance_changed and insufficient_balance is answered balance_changed."
       - "6. Validation: a negative expected_on_hand, more than 9 decimals, a non-decimal value, or two legs of one balance key with different expected_on_hand values give invalid_posting before any lock (a test asserts no balance row is created); a reversal command that carries expected_on_hand is invalid_posting."
       - "7. Idempotency: the same client_op_id with the same command returns the first entry with duplicate true; the same client_op_id with only expected_on_hand changed is idempotency_key_reuse."
@@ -56040,10 +56042,23 @@ requirements:
       The event time is the posting time (online, as the opening). (5) Relation to the formal count: a quick
       count on a key inside the scope of a count order of the same org unit that has been opened and is not
       posted or cancelled (counting, counted, signed; the pair rule of decision 0079 section 4) is refused at
-      POST /quick-counts with 409 count_in_progress and held_by the order number, and at approval by
-      FreezeGuard.check/2 (the guard's only answer, posting_held, stock alias location_frozen, with held_by),
-      whether or not the order freezes locations; this also holds for the reversal of a count_set entry. A
-      quick count before the order is opened is in the book of the cut-off. A frozen location refuses it like
+      POST /quick-counts with 422 count_in_progress and held_by the order number (the code and status of
+      decision 0079 section 4 "Freeze method" and of the assets module, lib/letflow/modules/assets/count_freeze.ex),
+      inside the issue transaction, with nothing stored and no number taken. The "scope" of an order is the
+      location_id of each of its count_order_scope rows and every location below one
+      (Letflow.Modules.Locations.Tree.descendant_ids/2), the same set the count sheet open reads. At approval
+      the same rule is enforced by the posting guard, which needs a change in this part (today
+      Letflow.Modules.Stock.FreezeGuard.check/2 holds a posting only under an order whose freeze is in force,
+      from FreezeState.active/2): check/2 also answers {:held, number} for a summary whose document_type is
+      stock_quick_count (this recognises both the count_set posting and its reversal, whose cause is reversal:
+      Documents.Posting.start_reversal/5 sets document_type to the kind's type_key, and HandlerPost's
+      guard_summary falls back to the reversed entry's document_type) when one of its keys has the org_unit of
+      an opened, unposted, uncancelled count order and a location inside that order's scope, frozen or not.
+      The refusal at approval is the platform's posting_held, stock alias location_frozen, with held_by (the
+      guard's only answer). A summary of any other document_type is decided exactly as today (REQ-765
+      unchanged: a no-freeze order holds nothing else). The FreezeGuard moduledoc and the freeze section of
+      docs/runbooks/stock-counts.md say this. A quick count before the order is opened is in the book of the
+      cut-off. A frozen location refuses it like
       every posting. Why: in the default no-freeze mode the formal count posts a delta from the cut-off, so a
       quick count after the cut-off would be counted twice (stock-counts.md, Known gaps 1 and 3). (6)
       Permission StockQuickCount: TENANT_ADMIN by the tenant-scope rule, PLATFORM_ADMIN by the core rule,
@@ -56062,15 +56077,16 @@ requirements:
       - "1. POST /quick-counts by a STOREKEEPER with item, location, org unit, unit, counted_quantity '7', reason_code recount on a key whose balance is 10 answers 201 with an issued QCT document whose line shows book_quantity '10', counted_quantity '7', difference '-3'; GET /documents/:id answers the same fields."
       - "2. With four eyes ON (no approval rule row), the counter's own completion of the approve task is refused separation_of_duties (403) and a second user who may post completes it; after it, GET /balances shows 7 for the key and GET /movements shows one entry of cause count_set with quantity -3 and the reason code."
       - "3. With the approval rule of stock_quick_count / approve switched OFF by a TENANT_ADMIN, the counter completes approve alone; the balance becomes the counted quantity; one task.self_approved audit entry is written."
-      - "4. counted_quantity '0' on a key with balance 4 posts -4 and the balance reads 0; counted_quantity '0' on a document of any other kind stays refused as today (quantity_invalid or the kind's existing refusal), shown by one test per kind family."
+      - "4. counted_quantity '0' on a key with balance 4 posts -4 and the balance reads 0; a line quantity '0' stays refused 422 quantity_invalid (with the line_no) on POST /documents for each of the kinds receipt, issue, write_off, transfer, hand_over, return and opening, one test case per kind, with nothing stored and no number taken."
       - "5. Stale: a receipt of +2 on the key is posted after the quick count is issued and before approve; completing approve is refused 409 quick_count_stale, nothing is written, the task stays pending and the balance is 12; after cancel the document reads cancelled."
       - "6. counted equal to book: the document is issued with difference '0', no process instance is started, no ledger entry is written, and the document reads state confirmed."
-      - "7. Formal count: with a count order of the same org unit opened (no freeze) whose scope covers the location, POST /quick-counts answers 409 count_in_progress with held_by the order number; a quick count issued before the open has its approve refused location_frozen with held_by; the same key under another org unit is accepted (pair rule); after the order is posted or cancelled the quick count is accepted again."
-      - "8. Input refusals, each with nothing stored and no number taken: a negative quantity, more than 9 decimals, a missing reason_code or reason_code other without reason_text (reason_invalid), a lot-tracked item without lot, a serial-tracked item (tracking_policy_not_supported), and POST /documents with kind quick_count (unknown_kind)."
-      - "9. Access: a caller without StockQuickCount (a role without the grant) gets 403 on POST /quick-counts; a caller without the tenant-wide stock read gets the unknown-document 404; an API token gets the same 404 as other stock routes; the permission matrix golden shows StockQuickCount true for TENANT_ADMIN, PLATFORM_ADMIN and STOREKEEPER only."
-      - "10. Cross-tenant negative (INV-10): a STOREKEEPER of tenant B sends POST /quick-counts naming an item, location and org unit id of tenant A: refused as unknown masters with no row written in either schema; GET /documents/:id of tenant A's quick count from tenant B answers 404."
-      - "11. Reversal: POST /documents/:id/reverse of a posted quick count reverses the one entry (the balance returns to the book quantity when nothing else moved) and a second reverse is refused as for other kinds."
-      - "12. Docs in step: docs/runbooks/stock-counts.md has the section 'Quick count (REQ-854)' with the route, refusals, four-eyes switch and the formal count rule; decision 0079 ends with 'Amended by REQ-854'; the Letflow.Modules.Stock moduledoc lists the cause count_set and the permission StockQuickCount."
+      - "7. Formal count: with a count order of the same org unit opened (no freeze) whose scope covers the location, POST /quick-counts answers 422 count_in_progress with held_by the order number and nothing stored; a quick count issued before the open has its approve refused location_frozen with held_by, and so has the reversal of a quick count posted before the open; the same key under another org unit is accepted (pair rule); after the order is posted or cancelled the quick count is accepted again."
+      - "8. REQ-765 unchanged: under an opened count order without freeze_locations whose scope covers the key, a receipt, an issue and the reversal of a receipt on that key are posted as today (FreezeGuard.check/2 answers :ok for them); under a freeze order the existing freeze tests of REQ-765 pass unchanged."
+      - "9. Input refusals, each with nothing stored and no number taken: a negative quantity, more than 9 decimals, a missing reason_code or reason_code other without reason_text (reason_invalid), a lot-tracked item without lot, a serial-tracked item (tracking_policy_not_supported), and POST /documents with kind quick_count (unknown_kind)."
+      - "10. Access: a caller without StockQuickCount (a role without the grant) gets 403 on POST /quick-counts; a caller without the tenant-wide stock read gets the unknown-document 404; an API token gets the same 404 as other stock routes; the permission matrix golden shows StockQuickCount true for TENANT_ADMIN, PLATFORM_ADMIN and STOREKEEPER only."
+      - "11. Cross-tenant negative (INV-10): a STOREKEEPER of tenant B sends POST /quick-counts naming an item, location and org unit id of tenant A: refused as unknown masters with no row written in either schema; GET /documents/:id of tenant A's quick count from tenant B answers 404."
+      - "12. Reversal: POST /documents/:id/reverse of a posted quick count reverses the one entry (the balance returns to the book quantity when nothing else moved) and a second reverse is refused as for other kinds."
+      - "13. Docs in step: docs/runbooks/stock-counts.md has the section 'Quick count (REQ-854)' with the route, refusals, four-eyes switch and the formal count rule; decision 0079 ends with 'Amended by REQ-854' (naming the quick count, the 422 count_in_progress at the route and the guard rule for no-freeze orders); the Letflow.Modules.Stock.FreezeGuard moduledoc states the stock_quick_count rule; the Letflow.Modules.Stock moduledoc lists the cause count_set and the permission StockQuickCount."
     depends_on: [REQ-853, REQ-726, REQ-765, REQ-832]
   - id: REQ-855
     title: "Qoimeks parity G5 part 3: web stock quick count screen, one form that shows the current balance of an item at a place, takes the counted quantity and a reason and submits it, in English, Russian and Kazakh"
