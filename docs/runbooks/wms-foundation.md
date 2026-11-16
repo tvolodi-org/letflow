@@ -459,7 +459,13 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     ref pair, which is only the row key). A new value is created `not_assigned` with one `code.received` audit entry; the same
     value and kind is unchanged; the same value with another kind is `value_taken`; a blank value is `value_invalid`, a kind
     outside barcode, qr, epc, tid is `kind_invalid`, a `status` cell is `field_not_allowed`. No pack change: a tenant on 0.1.0
-    to 0.4.0 upgrades in place. `code_assignment` has no import yet.
+    to 0.4.0 upgrades in place. `code_assignment` is imported by REQ-851 (below).
+    **Assignment import (GH #4568, REQ-851, codes 0.6.0).** `POST /api/v1/entities/records/code_assignment/import` (TENANT_ADMIN;
+    `dry_run`, `atomic`, 200 rows) runs `Letflow.Modules.Codes.ImportAssignment`: `code_id` is the code VALUE, `target_id` the external
+    id of the item, lot or place under the row's own external ref system. A new link is assigned as `assign_code/5` does; a code
+    already open on the same target is unchanged; on another record `code_assigned`; a retired code `code_retired`; an unknown
+    code or target `reference_not_found` (header `code_id` or `target_id`); an inactive target `reference_inactive`; a cell
+    `assigned_at`, `assigned_by`, `released_at` or `released_by` is `field_not_allowed`. No release or retire by import.
 
 ## Stock module limits
 

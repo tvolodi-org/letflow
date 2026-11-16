@@ -57,7 +57,7 @@ Load in the order of the table. Use the xlsx import (Admin > Import data) with a
 | 9 | `catalog_counterparty` | `catalog_items` | yes | xlsx import (Admin > Import data), dry run first | `lib/letflow/modules/catalog_items/catalog_items.ex` |
 | 10 | `catalog_lot` | `catalog_items` | yes | xlsx import (Admin > Import data), dry run first | `lib/letflow/modules/catalog_items/catalog_items.ex` |
 | 11 | `code_tag` | `codes` | yes | xlsx import (Admin > Import data), dry run first; columns value, kind (barcode, qr, epc, tid) and the external ref pair; codes arrive not assigned, a known value is unchanged | `lib/letflow/modules/codes/codes.ex` |
-| 12 | `code_assignment` | `codes` | no | by hand in the generic entity screens, after the module is installed | `lib/letflow/modules/codes/codes.ex` |
+| 12 | `code_assignment` | `codes` | yes | xlsx import (Admin > Import data), dry run first, after `code_tag` and after the masters it names; columns code_id (the code value), target_type, target_id (external id of the item, lot or place) and the external ref pair | `lib/letflow/modules/codes/codes.ex` |
 | 13 | `code_value_change` | `codes` | no | by hand in the generic entity screens, after the module is installed | `lib/letflow/modules/codes/codes.ex` |
 | 14 | `location_node` | `locations` | yes | xlsx import (Admin > Import data), dry run first | `lib/letflow/modules/locations/locations.ex` |
 | 15 | `location_org_unit_link` | `locations` | no | by hand in the generic entity screens | `lib/letflow/modules/locations/locations.ex` |
