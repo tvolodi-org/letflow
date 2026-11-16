@@ -77,6 +77,7 @@ import { taskUpgradeScreens } from './fixtures/taskUpgrade'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
+import { diagramEditorFixScreens } from './fixtures/diagramEditorFix'
 import { processDiscoveryScreens } from './fixtures/processDiscovery'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { definitionListScreens } from './fixtures/definitionList'
@@ -326,6 +327,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,
+    ...diagramEditorFixScreens,
     ...processDiscoveryScreens,
     ...processDesignerVersionsScreens,
     ...definitionListScreens,
