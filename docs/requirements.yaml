@@ -56195,7 +56195,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of the inventory §8.10 move rules (task T-2039); runbook text and its test only, no pending dependency
+    gh: 4594
     # Source: task T-2039 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"). Read: Qoimeks-team/project/client1-inventory.md section 8 items 9 and 10 (read only; copy in state/tasks/T-2039/sources/client1-inventory-s8.md), ai-dala-portfolio/proposals/qoimeks-migration-plan.md phase P7 (copy in state/tasks/T-2039/sources/), Qoimeks features-to-port.md line on MAINTENANCE_MODE (copy in state/tasks/T-2039/sources/features-to-port-s9.md), the C17 rehearsal record state/rehearsals/c17-four-eyes.md (copy in state/tasks/T-2039/sources/c17-four-eyes.md). On origin/main 1520cf186: docs/status/qoimeks-migration-readiness.md sections 2.3 to 2.6, docs/runbooks/qoimeks-rehearsal.md, scripts/pilot/qoimeks_compare.sh, scripts/pilot/qoimeks_balances_compare.py, lib/letflow/routers/entities/record_import.ex (check_atomic, "the whole file in one transaction"), lib/letflow/modules/router_kit.ex (with_request, required idempotency_key), lib/letflow/modules/org/masters.ex (@company_create_keys, @site_create_keys), lib/letflow/modules/org/import.ex (org_employee full_name), lib/letflow/entities/managed_types.ex (check_tenant_write), lib/letflow/modules/stock/documents/shape.ex (quantity_text accepts only a text), lib/letflow/modules/stock/documents/opening_checks.ex (not_linked), test/letflow/pilot_rollout_runbook_test.exs (precedent of a runbook text test). Written by the business analyst (T-2039) 2026-11-16. Not yet validated.
     description: >
       The Qoimeks inventory (section 8 item 10) states the move rules of Client 1: the move is a copy (the
@@ -56243,7 +56243,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-880 -- the move rules table of REQ-880 names this tool in its "counts and hashes per table" row
+    gh: 4593
     # Source: task T-2039, as REQ-880. Read on origin/main 1520cf186: scripts/pilot/qoimeks_balances_compare.py (offline, stdlib only, sha256 HASH per side over sorted lines, exit 0/1/2), test/scripts/qoimeks_balances_compare_test.exs (BC-1 to BC-7), scripts/pilot/qoimeks_convert.py (read_csv: utf-8-sig, comma or semicolon, --mapping, cells stripped; NEEDED columns; uom code and name are the unit text, emit of 02-uoms.xlsx), lib/letflow/routers/entities.ex (run_export and export_record_map: the JSON export body is records with record_id, field_values and deleted, plus next_cursor), lib/letflow/api/pagination.ex (@max_page_size 200), lib/letflow/modules/locations/import.ex (@required code name node_kind), scripts/ci_changed_paths.sh (BACKEND_PATHS_RE lists scripts/pilot/qoimeks_balances_compare.py by name), test/letflow/ci_backend_path_filter_test.exs. Written by the business analyst (T-2039) 2026-11-16. Not yet validated.
     description: >
       The Qoimeks move rule "counts and md5 per table" (inventory section 8 item 10) compares each table of the
