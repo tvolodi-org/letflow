@@ -97,6 +97,7 @@ import { installHintMessages } from '@/components/layout/installHintMessages'
 import { navMessages } from '@/components/layout/navMessages'
 import { uiMessages } from '@/components/ui/uiMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
+import { myProblemReportsMessages } from '@/pages/me/myProblemReportsMessages'
 import { TASK_MESSAGES } from '@/pages/tasks/taskMessages'
 import { dashboardMessages } from '@/pages/dashboard/dashboardMessages'
 import { feedbackMessages } from '@/components/ui/feedbackMessages'
@@ -482,6 +483,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkStructuredCatalog('mySettings', mySettingsMessages)
   })
 
+  it('myProblemReportsMessages (structured): no empty values in any locale', () => {
+    checkStructuredCatalog('myProblemReports', myProblemReportsMessages)
+  })
+
   it('dashboardMessages (structured): no empty values in any locale', () => {
     checkStructuredCatalog('dashboard', dashboardMessages)
   })
@@ -556,6 +561,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['nav', navMessages],
       ['ui', uiMessages],
       ['mySettings', mySettingsMessages],
+      ['myProblemReports', myProblemReportsMessages],
       ['tasks', TASK_MESSAGES],
       ['reference', REFERENCE_MESSAGES],
       ['feedback', feedbackMessages],

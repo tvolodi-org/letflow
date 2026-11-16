@@ -33,6 +33,7 @@ defmodule Letflow.Ledger.Validate do
           | :quantity_scale
           | :quantity_zero
           | :quantity_range
+          | :expected_on_hand_invalid
           | :k1_empty
           | :slot_invalid
           | :unit_invalid
@@ -70,6 +71,7 @@ defmodule Letflow.Ledger.Validate do
     :quantity_scale,
     :quantity_zero,
     :quantity_range,
+    :expected_on_hand_invalid,
     :k1_empty,
     :slot_invalid,
     :unit_invalid,
@@ -127,7 +129,7 @@ defmodule Letflow.Ledger.Validate do
          :ok <- check_unavailable(posting),
          {:ok, offline} <- check_offline(command) do
       if reversal?(posting),
-        do: reversal_posting(posting, offline),
+        do: reversal_posting(posting, command, offline),
         else: ordinary_posting(posting, offline, registration)
     end
   end
@@ -136,10 +138,11 @@ defmodule Letflow.Ledger.Validate do
     do: posting.cause == "reversal" or Map.get(posting, :reverses_entry_id) != nil
 
   # The target is resolved by `Letflow.Ledger` (it needs a read); here only the shape.
-  defp reversal_posting(posting, offline) do
+  defp reversal_posting(posting, command, offline) do
     target = Map.get(posting, :reverses_entry_id)
 
     with :ok <- check_reversal_shape(posting, target),
+         :ok <- check_reversal_no_expected(posting, command),
          :ok <- check_reason(Map.get(posting, :reason_code)),
          :ok <- check_text(posting),
          {:ok, target_id} <- cast_target(target) do
@@ -168,6 +171,20 @@ defmodule Letflow.Ledger.Validate do
     if posting.cause == "reversal" and target != nil and posting.legs == [],
       do: :ok,
       else: invalid(:posting_shape)
+  end
+
+  # REQ-853: a reversal's legs are the negated target legs; it never carries a precondition.
+  defp check_reversal_no_expected(posting, command) do
+    carried? =
+      Enum.any?([posting, command], fn
+        map when is_map(map) ->
+          Map.has_key?(map, :expected_on_hand) or Map.has_key?(map, "expected_on_hand")
+
+        _other ->
+          false
+      end)
+
+    if carried?, do: invalid(:expected_on_hand_invalid), else: :ok
   end
 
   defp check_reason(reason) when is_binary(reason) and reason != "", do: :ok
@@ -320,26 +337,44 @@ defmodule Letflow.Ledger.Validate do
       end
     end)
     |> case do
-      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:ok, acc} -> acc |> Enum.reverse() |> check_expected_agree()
       error -> error
+    end
+  end
+
+  # REQ-853: two legs of one balance key may not carry different expected_on_hand values.
+  defp check_expected_agree(legs) do
+    conflict =
+      legs
+      |> Enum.filter(&Map.has_key?(&1, :expected_on_hand))
+      |> Enum.group_by(& &1.k)
+      |> Enum.find_value(fn {_k, [first | rest]} ->
+        Enum.find(rest, &(not Decimal.eq?(&1.expected_on_hand, first.expected_on_hand)))
+      end)
+
+    case conflict do
+      nil -> {:ok, legs}
+      leg -> invalid(:expected_on_hand_invalid, leg.leg_no)
     end
   end
 
   defp check_leg(leg, n, registration) when is_map(leg) do
     with {:ok, quantity} <- check_quantity(Map.get(leg, :quantity), n),
+         {:ok, expected} <- check_expected(Map.get(leg, :expected_on_hand), n),
          {:ok, k} <- check_slots(Map.get(leg, :k), n, registration.slots),
          {:ok, unit} <- check_unit(Map.get(leg, :unit_ref), n, Map.get(registration, :units)),
          {:ok, attrs} <- check_attrs(Map.get(leg, :attrs), n),
          {:ok, line_id} <- check_line_id(Map.get(leg, :document_line_id), n) do
-      {:ok,
-       %{
-         leg_no: n,
-         k: k,
-         quantity: quantity,
-         unit_ref: unit,
-         attrs: attrs,
-         document_line_id: line_id
-       }}
+      base = %{
+        leg_no: n,
+        k: k,
+        quantity: quantity,
+        unit_ref: unit,
+        attrs: attrs,
+        document_line_id: line_id
+      }
+
+      {:ok, if(expected, do: Map.put(base, :expected_on_hand, expected), else: base)}
     end
   end
 
@@ -357,6 +392,22 @@ defmodule Letflow.Ledger.Validate do
   end
 
   defp check_quantity(_other, n), do: invalid(:quantity_invalid, n)
+
+  # REQ-853: the optional compare-and-set value of a leg, a decimal >= 0 with at most 9 decimals.
+  defp check_expected(nil, _n), do: {:ok, nil}
+
+  defp check_expected(%Decimal{coef: coef} = q, n) when is_integer(coef) do
+    normal = Decimal.normalize(q)
+
+    cond do
+      Decimal.lt?(q, 0) -> invalid(:expected_on_hand_invalid, n)
+      normal.exp < -9 -> invalid(:expected_on_hand_invalid, n)
+      Decimal.compare(q, @max_abs) != :lt -> invalid(:expected_on_hand_invalid, n)
+      true -> {:ok, Decimal.round(q, 9)}
+    end
+  end
+
+  defp check_expected(_other, n), do: invalid(:expected_on_hand_invalid, n)
 
   defp check_slots(k, n, slots) when is_list(k) and length(k) <= length(slots) do
     padded = k ++ List.duplicate("", 8 - length(k))
