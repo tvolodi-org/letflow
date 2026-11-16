@@ -124,7 +124,10 @@ test('E1b the commission task row shows its number and named people', async () =
 })
 
 test('E2 the issued commission prints a PDF with the title and the inventory number', async () => {
-  const text = await download(() => page.getByTestId('document-print').click())
+  const text = await download(async () => {
+    await page.getByTestId('official-form-menu').click()
+    await page.getByTestId('document-print').click()
+  })
   expect(text).toContain('Act of commissioning')
   expect(text).toContain(inventoryNumber)
 })
@@ -135,14 +138,20 @@ test('E3 the posted commission prints too', async () => {
     await reopen()
     await expect(page.getByTestId('document-header')).toContainText('Posted')
   }).toPass({ timeout: 60_000 })
-  const text = await download(() => page.getByTestId('document-print').click())
+  const text = await download(async () => {
+    await page.getByTestId('official-form-menu').click()
+    await page.getByTestId('document-print').click()
+  })
   expect(text).toContain('Act of commissioning')
 })
 
 test('E4 in Russian the act is Russian', async () => {
   await setPrefs(page, { lang: 'ru' })
   await reopen()
-  const text = await download(() => page.getByTestId('document-print').click())
+  const text = await download(async () => {
+    await page.getByTestId('official-form-menu').click()
+    await page.getByTestId('document-print').click()
+  })
   expect(text).toContain('Акт ввода в эксплуатацию')
   await setPrefs(page, { lang: 'en' })
 })
