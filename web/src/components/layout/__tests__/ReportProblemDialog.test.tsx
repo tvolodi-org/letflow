@@ -216,4 +216,21 @@ describe('image upload (W9, W10, W11)', () => {
     await waitFor(() => expect(screen.queryByTestId('report-image-error')).not.toBeNull())
     expect(screen.getByTestId('report-image-error')).toHaveTextContent(M.en.imageTooLarge)
   })
+
+  it('W12: drop zone is keyboard-operable — Enter and Space open the file picker', async () => {
+    mount()
+    const dropZone = screen.getByTestId('report-drop-zone')
+    expect(dropZone).toHaveAttribute('role', 'button')
+    expect(dropZone).toHaveAttribute('tabindex', '0')
+
+    // Enter key triggers the file input click (focus then key press)
+    dropZone.focus()
+    const input = screen.getByTestId('report-image-input') as HTMLInputElement
+    const clickSpy = vi.spyOn(input, 'click')
+    await userEvent.keyboard('{Enter}')
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+
+    await userEvent.keyboard(' ')
+    expect(clickSpy).toHaveBeenCalledTimes(2)
+  })
 })

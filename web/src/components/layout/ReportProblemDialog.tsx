@@ -47,17 +47,16 @@ export function ReportProblemDialog({
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Harness-only: pre-seed images state for the report-problem-with-images screen
   const [images, setImages] = useState<ReportImage[]>(() => {
     if (!preloadImages) return []
-    // 1×1 red PNG base64 and 1×1 blue JPEG base64 (tiny placeholders, no EXIF)
+    // 1×1 solid-colour PNGs (red, blue) so the fixture always shows visible thumbnails
     const redPng =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=='
-    const blueJpeg =
-      '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVIP/2Q=='
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGO4Y2QEAAMuAUHwMaabAAAAAElFTkSuQmCC'
+    const bluePng =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMwSrkDAAI+AXNw2boZAAAAAElFTkSuQmCC'
     return [
       { dataBase64: redPng, contentType: 'image/png', preview: `data:image/png;base64,${redPng}`, name: 'placeholder1.png' },
-      { dataBase64: blueJpeg, contentType: 'image/jpeg', preview: `data:image/jpeg;base64,${blueJpeg}`, name: 'placeholder2.jpg' },
+      { dataBase64: bluePng, contentType: 'image/png', preview: `data:image/png;base64,${bluePng}`, name: 'placeholder2.png' },
     ]
   })
   const [imageError, setImageError] = useState<string | null>(null)
@@ -156,10 +155,19 @@ export function ReportProblemDialog({
       </Field>
 
       <div className="lf-report__images">
-        <h4 className="lf-report__h">{m.imagesHeading}</h4>
+        <h4 className="lf-report__h">
+          {m.imagesHeading}
+          {images.length > 0 && (
+            <span className="lf-muted" data-testid="report-image-count"> {fill(m.imagesCount, { n: images.length })}</span>
+          )}
+        </h4>
         <div
+          role="button"
+          tabIndex={0}
           className="lf-report__drop"
           data-testid="report-drop-zone"
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
         >
