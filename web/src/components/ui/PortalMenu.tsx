@@ -18,7 +18,7 @@ const GAP = 6
 const EDGE = 8
 
 export function PortalMenu({ anchor, menuRef, label, children }: PortalMenuProps) {
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null)
 
   useLayoutEffect(() => {
     const place = () => {
@@ -30,7 +30,9 @@ export function PortalMenu({ anchor, menuRef, label, children }: PortalMenuProps
       let left = r.right - w
       if (left < EDGE) left = r.left
       left = Math.max(EDGE, Math.min(left, window.innerWidth - w - EDGE))
-      setPos({ top: r.bottom + GAP, left })
+      const top = r.bottom + GAP
+      // A long menu (plain items + official forms) must stay reachable on a short window: it scrolls inside the box.
+      setPos({ top, left, maxHeight: Math.max(120, window.innerHeight - top - EDGE) })
     }
     place()
     window.addEventListener('resize', place)
@@ -47,7 +49,13 @@ export function PortalMenu({ anchor, menuRef, label, children }: PortalMenuProps
       data-testid="portal-menu"
       style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos === null ? 'hidden' : 'visible' }}
     >
-      <div className="lf-lang__menu" role="menu" aria-label={label} ref={menuRef as RefObject<HTMLDivElement>}>
+      <div
+        className="lf-lang__menu"
+        role="menu"
+        aria-label={label}
+        ref={menuRef as RefObject<HTMLDivElement>}
+        style={{ maxHeight: pos?.maxHeight, overflowY: 'auto' }}
+      >
         {children}
       </div>
     </div>,
