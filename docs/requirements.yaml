@@ -56127,6 +56127,140 @@ requirements:
       - "4. The section renders only for a caller with TokensManage (it sits inside the existing RequirePermission of admin/tokens); navRoleWalk.test.tsx is unchanged."
       - "5. All new texts exist in en, ru and kk; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the states not-enabled, none, just-created with the value shown, exists and the confirm dialog."
     depends_on: [REQ-858]
+  - id: REQ-850
+    title: "Qoimeks parity G12 part 1: xlsx or CSV import of code_tag (barcode and QR codes received as not assigned) through the core import route, by code value"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4569
+    # Source: task T-2033 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 3b071fe84: docs/status/qoimeks-migration-readiness.md section 1.2 row G12 ("code_tag and code_assignment have no file import (pilot-rollout.md rows 11-12). The converter does not carry codes"; "Required for parity, regardless of counts") and section 5 check 5 ("Barcodes: the count per type is equal"); docs/runbooks/pilot-rollout.md "Data load" table rows 11 to 13 (File import no for code_tag, code_assignment, code_value_change) and its sentence that the column is checked against Letflow.Modules.Catalog.import_function/2 by test/letflow/pilot_rollout_runbook_test.exs; lib/letflow/modules/codes/codes.ex (manifest version 0.4.0, depends_on [], manages_entity_types, no import_functions, model rules R1 to R8, permission CodesWrite held by TENANT_ADMIN and PLATFORM_ADMIN only); lib/letflow/modules/codes/writes.ex (receive_codes/3: kinds barcode qr epc tid, valid_value?/1, refusals :value_invalid, :kind_invalid, :duplicate_in_batch, :value_taken, audit code.received, tenant advisory lock keyed by the text codes); priv/modules/codes/entity_definitions/code_tag.json (fields value, kind, status; no external_ref fields; unique constraint uq_code_tag_value); lib/letflow/modules/catalog.ex (import_function/2, call_import_function/5, validate_import_functions rule 14: an import type must be in manages_entity_types and the function exported); lib/letflow/entities/managed_import.ex (rows in file order, f(prefix, entry, ctx), dry run in one rolled-back transaction, atomic mode); lib/letflow/routers/entities/record_import.ex (base_reason_json/1: module refusals are rendered only when the atom is listed there, otherwise internal_error); lib/letflow/modules/catalog_items/import.ex (form of an import function); docs/roles.md (EntitiesRecordsImportAnyType TENANT_ADMIN only; STOREKEEPER imports only stock_opening_line; codes section). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2033/sources/qoimeks-codes-extract.md): server/internal/store/migrations/001_init.sql (skus.barcode text) and 011_codes.sql (table codes: object_type sku or location, code_type ean13 ean8 code128 qr manual, code trimmed and non-empty, one active owner per code); server/internal/importer/importer.go (optional column "Штрихкод" of the item workbook, a code already given to another article is skipped with a warning); server/internal/store/import.go importCodes (a code the SKU already has is a no-op, a code held by another object is skipped with a warning). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks parity row G12 (docs/status/qoimeks-migration-readiness.md, section 1.2). Qoimeks keeps barcodes of
+      SKUs (skus.barcode, filled from the "Штрихкод" column of the item workbook) and, on QA, a codes table of
+      barcodes and QR codes on SKUs and places. Letflow has the codes module (lib/letflow/modules/codes/codes.ex)
+      with scanning, but its three types have no file import (docs/runbooks/pilot-rollout.md rows 11 to 13), so
+      codes can only be received one call at a time. G12 is delivered in three parts, smallest first: this part
+      1, the import of code_tag; part 2 (REQ-851, planned, not yet on main), the import of code_assignment; part 3
+      (REQ-852, planned, not yet on main), the Qoimeks converter carries the codes into those two files.
+      code_value_change gets no import: Qoimeks has no value history to carry, so row 13 of the runbook stays no.
+      This part: module codes registers an import function for code_tag in its manifest import_functions (planned
+      name Letflow.Modules.Codes.import_code_tag/3, the form of import_row/3 of catalog_items), reached through the
+      core route POST /api/v1/entities/records/code_tag/import with upsert_by external_ref, dry_run and atomic
+      offered, 200 rows per file, as for every managed import. A row has the cells value and kind and the external
+      ref pair external_ref_system, external_ref_id that the route asks of every managed import row. The code is
+      identified by its value (model rule R2, value unique in the tenant over every status), not by the external
+      ref: the code_tag definition and priv/modules/codes/pack.json are unchanged (no external_ref fields are added).
+      Per row, in this order: (1) value must pass the rule of receive_codes/3 (non-empty valid text without a NUL
+      byte; a blank or absent cell fails it), else :value_invalid; kind must be one of barcode, qr, epc, tid, else :kind_invalid; (2) a code with that
+      value already in the tenant (any status) with the same kind is the outcome unchanged, nothing is written; one
+      with another kind is :value_taken, nothing is written (a code is never changed by import); (3) otherwise one
+      code_tag with status not_assigned is created and one audit entry code.received is written in the same
+      transaction, exactly as receive_codes/3 writes it, under the module's tenant advisory lock. A status cell is
+      {:field_not_allowed, "status"}: an imported code is always not_assigned. Each refusal atom is added to the rendered list of record_import.ex, so the answer
+      carries the constant type (and the header for field refusals) and never the cell text. Access is the core
+      rule, unchanged: TENANT_ADMIN (and PLATFORM_ADMIN) import code_tag, a STOREKEEPER is refused as for every type
+      other than stock_opening_line. No new route, permission or migration. The codes manifest version rises one
+      minor step above the version on origin/main at implement time (0.4.0 at the time of writing); the pack is
+      unchanged, so min_upgradable_from stays 0.1.0 and an installed codes module upgrades in place. Size S.
+      EXTRA, not in this part: a symbology sub-kind (EAN-13, EAN-8, Code 128) on code_tag; Letflow keeps one kind
+      barcode for all of them (see part 3).
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_tag\") is :ok and Letflow.Modules.Catalog.import_function(\"codes\", \"code_value_change\") is {:error, :not_found}; the codes manifest version is one minor step above the one on origin/main at implement time and min_upgradable_from is still 0.1.0; priv/modules/codes/pack.json is byte-identical to origin/main (test/letflow/modules/codes/pack_drift_test.exs passes unchanged). The codes registration tests (test/letflow/modules/codes/registration_test.exs and every pin the version change moves) are updated and pass."
+      - "2. Happy path, through the real import route (as test/letflow/modules/stock/opening_import_test.exs drives an import): a TENANT_ADMIN of a tenant with the codes module installed imports a CSV file of three rows under system S: value 4870001112223 kind barcode, value QR-0001 kind qr, value 2000000000015 kind barcode; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 for each value returns the code with that kind and status not_assigned; exactly three audit entries code.received are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Conflict and refusals, each a separate row of one file, nothing written for a refused row and no audit entry for it: a row with value 4870001112223 and kind qr after criterion 2 gives value_taken; a row with a blank value cell (a blank CSV cell has no key) gives value_invalid; a row with kind ean13 gives kind_invalid; a row with a status cell gives field_not_allowed with header status. Each refusal in the answer has the constant type, and none echoes the cell value (the test asserts the value text does not occur in the response body)."
+      - "4. Dry run and atomic: a dry run (dry_run=true) of the criterion 2 file on an empty tenant reports three created rows and leaves the code_tag count at 0 and writes no audit entry; an atomic import (atomic=true) of a file with one good row and one row giving kind_invalid writes nothing."
+      - "5. Access: a STOREKEEPER's import of a code_tag file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "6. Tenant isolation (INV-1): in a test with two tenants A and B, a code value imported in tenant A is created as a new code in tenant B by the same file (not unchanged, not value_taken); the code_tag count of A is unchanged by the import into B."
+      - "7. Docs in step: docs/runbooks/pilot-rollout.md row 11 (code_tag) says File import yes and how it comes in (xlsx import, dry run first), rows 12 and 13 stay no, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and the rules of the description. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-648, REQ-651, REQ-663, REQ-667]
+  - id: REQ-851
+    title: "Qoimeks parity G12 part 2: xlsx or CSV import of code_assignment (a code value assigned to an item, a lot or a place named by external id) through the core import route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4568
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: lib/letflow/modules/codes/writes.ex (assign_code/5: targets location_node, catalog_item, catalog_lot; refusals in order :code_not_found, :code_assigned, :code_retired, :target_type_not_allowed, :target_not_found, :target_inactive, :assignment_conflict; audit code.assigned; rule R4 kept by the advisory lock); priv/modules/codes/entity_definitions/code_assignment.json (fields code_id, target_type, target_id, assigned_at, assigned_by required, released_at, released_by); lib/letflow/modules/read_api.ex (lookup_by_external_ref/5 reads external_ref_system and external_ref_id of field_values for a list of types; codes already reads targets through ReadApi.lookup/3, so no depends_on entry is needed, Rule 4 of lib/mix/tasks/letflow.check_boundaries.ex); priv/modules/catalog_items/entity_definitions/catalog_item.json, catalog_lot.json and priv/modules/locations/entity_definitions/location_node.json (each has external_ref_system and external_ref_id); lib/letflow/routers/entities/record_import.ex (base_reason_json/1 renders {:reference_not_found, field} and {:reference_inactive, field} with the header). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): a code points at one SKU or one location; a code the object already has is a no-op; a code held by another object is skipped with a warning (server/internal/store/import.go importCodes). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of parity row G12 (part 1 is REQ-850, planned, not yet on main). Qoimeks codes point at a SKU or a
+      place; Letflow keeps that link as an open code_assignment (model rule R4: at most one open assignment per
+      code). This part: module codes registers an import function for code_assignment (planned name
+      Letflow.Modules.Codes.import_code_assignment/3) in its manifest import_functions, reached through the core
+      route POST /api/v1/entities/records/code_assignment/import with upsert_by external_ref, dry_run and atomic, 200
+      rows per file. A row has the cells code_id, target_type, target_id and the external ref pair. Reference cells
+      follow the rule of the other module imports, adapted to codes: code_id holds the VALUE of a code of this
+      tenant (the code has no external id, part 1); target_id holds the external id of the target under the row's
+      own external ref system. Per row, in this order: (1) a cell assigned_at, assigned_by, released_at or
+      released_by is {:field_not_allowed, field} (the function sets assigned_at to the server time and assigned_by to
+      the importing actor, as assign_code/5 does); (2) target_type must be location_node, catalog_item or
+      catalog_lot, else :target_type_not_allowed; (3) no live code with that value is {:reference_not_found,
+      "code_id"}; (4) no live record of target_type with that external ref in the tenant (a soft-deleted target counts as none, and so
+      does a record id given instead of an external id) is {:reference_not_found, "target_id"}, a target with active
+      false is {:reference_inactive, "target_id"}; (5) a retired code is :code_retired; a code whose open
+      assignment names this same target is the outcome unchanged, nothing written; a code whose open assignment
+      names another record is :code_assigned (Qoimeks skips such a code with a warning: here the row is refused and
+      the other rows of a non-atomic import go on); (6) otherwise the code is assigned exactly as assign_code/5 does
+      (one open code_assignment row, the code_tag status assigned, one audit entry code.assigned, same transaction,
+      same advisory lock). No release, retire or value change by import. Field names in refusals are constants,
+      never cell text; every new refusal atom is added to the rendered list of record_import.ex. Access, route,
+      permission, migration and pack rules as in part 1 (TENANT_ADMIN imports, a STOREKEEPER is refused; the codes
+      manifest version rises one minor step above origin/main at implement time; pack.json unchanged). Size S to M.
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_assignment\") is :ok; the codes manifest version is one minor step above the one on origin/main at implement time; priv/modules/codes/pack.json is byte-identical to origin/main; the codes registration tests and every pin the version change moves are updated and pass."
+      - "2. Happy path, through the real import route: in a tenant with an active catalog_item I1 (external ref S/ITEM-1), an active location_node P1 (S/LOC-1) and an active catalog_lot L1 (S/LOT-1), and three not_assigned codes with values V1, V2, V3 received through part 1, a TENANT_ADMIN imports a CSV file of three rows under system S assigning V1 to catalog_item ITEM-1, V2 to location_node LOC-1 and V3 to catalog_lot LOT-1; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 of V1, V2, V3 returns status assigned and the record ids of I1, P1 and L1; exactly three audit entries code.assigned are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Refusals, each a separate row of one file, nothing written and no audit entry for a refused row: a value that names no code gives reference_not_found with header code_id; an item external id that names nothing gives reference_not_found with header target_id; the record id of I1 in target_id gives reference_not_found with header target_id; a target whose active is false gives reference_inactive with header target_id; target_type org_unit gives target_type_not_allowed; a retired code gives code_retired; V1 assigned to location_node LOC-1 after criterion 2 gives code_assigned; a row with an assigned_by cell gives field_not_allowed with header assigned_by. No response body contains a cell value of a refused row."
+      - "4. Rule R4 holds: after criterion 3 every code has at most one code_assignment row with released_at empty (a query over the tenant's code_assignment rows in the test)."
+      - "5. Dry run and atomic: a dry run of the criterion 2 file reports three created rows and writes nothing (the code statuses stay not_assigned, no audit entry); an atomic import of one good row and one row giving reference_not_found writes nothing."
+      - "6. Access: a STOREKEEPER's import of a code_assignment file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "7. Tenant isolation (INV-1): in a test with two tenants A and B, a code_assignment file imported in tenant B whose code values and target external ids exist only in tenant A gives reference_not_found with header code_id for every row; the code_assignment counts of both schemas are unchanged."
+      - "8. Docs in step: docs/runbooks/pilot-rollout.md row 12 (code_assignment) says File import yes, imported after code_tag and after the masters it names, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and its rules. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-850, REQ-663, REQ-651]
+  - id: REQ-852
+    title: "Qoimeks parity G12 part 3: the Qoimeks converter carries each SKU's barcode (the Штрихкод column) and the Qoimeks codes of SKUs and places into a codes file and a code-assignments file, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4567
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: scripts/pilot/qoimeks_convert.py (NEEDED columns, read_csv with --mapping, MAX_ROWS = 200, constant drop reasons, emit and manifest upload_order, expected_counts.txt keys records.<type>, report.txt without cell text, exit 3 on drops unless --allow-drops); scripts/pilot/qoimeks_compare.sh (an absent key of the snapshot counts as 0); docs/runbooks/qoimeks-rehearsal.md (table "Does the stock module accept the same files?", steps 1 to 6, "Repeating"); test/scripts/qoimeks_rehearsal_test.exs (CV-1 to CV-9); test/letflow/modules/stock/qoimeks_files_test.exs (pushes converted files through the real import routes; installs org, catalog_items, locations and codes). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): skus.barcode from the optional "Штрихкод" column, a code given to a second article is skipped and the first keeps it (server/internal/importer/importer.go); table codes with object_type sku or location, code_type ean13, ean8, code128, qr, manual, code trimmed, active rows are those with removed_at empty (server/internal/store/migrations/011_codes.sql). docs/status/qoimeks-migration-readiness.md section 5 check 5 ("Barcodes: the count per type is equal"). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 3 of parity row G12 (parts 1 and 2 are REQ-850 and REQ-851, planned, not yet on main). The T-1616
+      converter (scripts/pilot/qoimeks_convert.py) reads items.csv with sku, sku_name, unit and drops every
+      barcode, so the move loses them. This part, inputs: (a) items.csv may carry an optional neutral column barcode
+      (Qoimeks skus.barcode, the "Штрихкод" column), nameable through --mapping like every other column; a blank
+      cell is no code; (b) an optional extract codes.csv with the columns object_type (sku or location), object_code
+      (the SKU code or the place code), code_type (ean13, ean8, code128, qr or manual) and code, holding the
+      active rows of the Qoimeks codes table; the converter works without it. Rules: each code is trimmed; kind is
+      qr for code_type qr and barcode for every other code_type and for the barcode column (Letflow's kinds are
+      barcode, qr, epc, tid; the EAN sub-type is not kept, see EXTRA in REQ-850); the same code given twice to the
+      same object is one code, not a drop. Constant drop reasons, row numbers only, no cell text: code_invalid (a
+      space or control character inside the trimmed code, the Qoimeks rule), code_type_unknown,
+      code_object_type_unknown, code_unknown_item (the SKU is not among the converted items), code_unknown_location
+      (the place is not among the converted locations), code_taken (the code was already given to another object:
+      the first in the order items.csv rows, then codes.csv rows keeps it, as the Qoimeks importer keeps the first
+      article). Outputs, only when at least one code survives: 06-codes-NN.xlsx (entity type code_tag, columns
+      value, kind, external_ref_system, external_ref_id, where external_ref_id is the code value) and
+      07-code-assignments-NN.xlsx (entity type code_assignment, columns code_id, target_type, target_id,
+      external_ref_system, external_ref_id, where code_id is the code value, target_type catalog_item for a SKU and
+      location_node for a place, target_id the SKU code or the place code, which are the external ids the converter
+      already gives items and locations, and external_ref_id the code value), 200 rows per file. manifest.json upload_order keeps REQ-842's rule for
+      05-item-places (right after the last 03-items file) and lists the 06-codes files right after the last
+      05-item-places file (right after the last 03-items file when no 05 file is written), then the 07-code-assignments
+      files, all before the first 04-opening-lines file. expected_counts.txt and report.txt always gain the two lines
+      records.code_assignment N and records.code_tag N (N the number of surviving codes, 0 when none), in the sorted
+      order of the existing count lines; report.txt gains no other line when no code survives. Runbook
+      docs/runbooks/qoimeks-rehearsal.md: the table gains the rows for code_tag and code_assignment (with their
+      importers and columns), step 1 names the optional barcode column and codes.csv, step 3 uploads the 06 and 07
+      code files after the 05 item-places files (after the items when there are none), "Repeating" says they come back unchanged. Converter stays file-only: no network, no
+      database, --out inside the checkout refused. QA only, no real client data in tests or git (D-050). Note:
+      REQ-842 (on main, gh: 4553) also extends items.csv (home_loc, alt_loc) and writes 05-item-places-NN.xlsx;
+      this part keeps those columns and that file as they are and takes the file numbers 06 and 07. Size S to M.
+    acceptance_criteria:
+      - "1. Barcode column (a test in test/scripts/qoimeks_rehearsal_test.exs in the form of CV-1): items.csv with three converted SKUs A, B, C where A has barcode 4870001112223, B has a blank barcode and C has barcode QR-7 writes 06-codes-01.xlsx with exactly the header value, kind, external_ref_system, external_ref_id and two rows (4870001112223 barcode; QR-7 barcode) and 07-code-assignments-01.xlsx with exactly the header code_id, target_type, target_id, external_ref_system, external_ref_id and two rows (4870001112223 catalog_item A; QR-7 catalog_item C); expected_counts.txt has records.code_tag 2 and records.code_assignment 2; manifest.json upload_order lists 06-codes-01.xlsx right after the last 05-item-places file (or right after the last 03-items file when the input has no places columns), 07-code-assignments-01.xlsx right after it, and both before the first 04-opening-lines file. An items.csv without a barcode column and no codes.csv writes neither file; expected_counts.txt and report.txt each differ from the output of the converter on origin/main for the same input only by the two added lines 'records.code_assignment 0' and 'records.code_tag 0'; every xlsx file and manifest.json are byte-identical to that output."
+      - "2. codes.csv: rows sku A ean13 4870001112223 (the same code as A's barcode), sku B qr QR-B, location L1 code128 LOC-L1 give one code for A (not a drop), a qr code for B and a barcode for place L1 assigned with target_type location_node and target_id L1."
+      - "3. Drops, each with its constant reason and the input row number in report.txt and no cell text (the test asserts the code text does not occur in report.txt): a code with an inner space (code_invalid); code_type ean14 (code_type_unknown); object_type pallet (code_object_type_unknown); a SKU not among the converted items (code_unknown_item); a place not among the converted locations (code_unknown_location); a code given to SKU B after SKU A holds it (code_taken, A keeps it). The exit code is 3 without --allow-drops and 0 with it; the codes file holds only the surviving codes."
+      - "4. Splitting: 201 surviving codes write 06-codes-01.xlsx with 200 rows and 06-codes-02.xlsx with 1 row, and the same split for the 07-code-assignments files."
+      - "5. Real routes: test/letflow/modules/stock/qoimeks_files_test.exs pushes the converted code files of a fixture with item and place codes through the real import routes after the masters: every row is created, a second upload of the same files reports every row unchanged, and Letflow.Modules.Codes.resolve/2 of each code returns status assigned and the record id of its SKU's catalog_item or its place's location_node."
+      - "6. Docs in step: docs/runbooks/qoimeks-rehearsal.md has the two new table rows, the optional barcode column and codes.csv in step 1, the upload of the code files in step 3 and the unchanged re-upload in Repeating; the module docstring of scripts/pilot/qoimeks_convert.py lists the new inputs and outputs; the tests named here pass when run by path and mix letflow.check.static passes."
+    depends_on: [REQ-850, REQ-851]
   - id: REQ-853
     title: "Qoimeks parity G5 part 1: the ledger core accepts an optional expected on-hand quantity on a posting leg and refuses the posting with balance_changed when the locked balance differs"
     owner: ELIXIR-DEV
@@ -56548,3 +56682,182 @@ requirements:
       - "3. The labels, the caption and the two new banners exist in the en, ru and kk catalogs of module stock (ru button 'Остатки для Excel (как в Qoimeks)', kk button 'Excel үшін қалдықтар (Qoimeks сияқты)'; UAT assumption, wording to be confirmed by the process owner), checked by the module's catalog completeness test."
       - "4. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the Balances screen with the new button, during the download and with each of the two new banners is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
     depends_on: [REQ-865, REQ-724]
+  - id: REQ-875
+    title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4592
+    # Source: task T-2037 (owner decision via PM 2026-11-16, parity required; row G18 of docs/status/qoimeks-migration-readiness.md section 1.2 and the Movement history row of section 2.1). Files read on origin/main 1520cf186: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (section 0, D1, D7, D9 "Out of scope ... import of historical movements into the ledger"), docs/migration/decisions/0076-master-data-layer.md (R7), docs/runbooks/qoimeks-rehearsal.md ("Deliberately not here ... movement history"), lib/letflow/modules/stock/stock.ex (manifest import_functions, scope_declarations), lib/letflow/entities/managed_import.ex, lib/letflow/routers/entities/record_import.ex. Qoimeks schema and History listing copied to state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks keeps 600 movements of Client 1 (docs/status/qoimeks-migration-readiness.md section 1.1) and
+      shows them on its History screen; the Letflow rehearsal moves opening balances only
+      (docs/runbooks/qoimeks-rehearsal.md, "Deliberately not here"). The owner requires parity: the user sees
+      that history in Letflow. Two ways were weighed. (a) Import the movements into the stock ledger flagged
+      historical: this needs an event_time months back, which 0079 D1 and 0073 D-T refuse (lateness cap 96 hours,
+      720 at most by rule 12, no override), a new ledger flag that balances, reconcile, the gap-free counter, counts
+      and the stock card must all skip, and it reopens 0079 D9, which puts "import of historical movements into the
+      ledger" out of scope. (b) A read-only archive beside the ledger, with its own read route and screen, linked
+      from the item and the place. This part decides (b): no ledger rule changes, so it goes first, as the task
+      asks. Deliverable: one section appended at the end of decision 0079, headed "Amended by REQ-875 (movement
+      history archive, Qoimeks parity G18)", that states, each as a numbered rule: (1) the choice of (b) and the
+      reasons above, with (a) recorded as rejected for this parity and what (a) would have to change; (2) the
+      archive is the module-managed record type stock_archive_movement of module stock, scoped by the column
+      org_unit_id (0076 R7), with the fields org_unit_id, source_seq (the Qoimeks seq), kind (receipt, issue,
+      transfer, adjustment: the Qoimeks list), occurred_at (the Qoimeks created_at, a stored field, never a ledger
+      event_time), catalog_item_id, location_id, to_location_id (transfer only), quantity (moved, or counted for an
+      adjustment), change and balance_after (at location_id, from the Qoimeks balances row of that movement),
+      to_balance_after (transfer only), operator_label (the Qoimeks free-text operator), entry_source (keyboard,
+      voice, import), transcript (optional), reverses_ref (the Qoimeks id of the reversed movement), import_ref
+      (optional) and the external ref pair (system and the Qoimeks movement id); (3) it is written only by its
+      import function (manifest import_functions, called through Letflow.Entities.ManagedImport), never by a
+      generic record write, a process step or a stock document; a row once stored is never changed or deleted: the
+      same row again is unchanged, a changed row is refused archive_row_changed; (4) it is not a balance source:
+      no ledger function reads or writes it, balances, movements, reconcile, counts, the stock card print and the
+      exports of 0079 D8 are unchanged and never include an archive row, and an archive row cannot be reversed
+      (a pre-move mistake is corrected by a new stock document after the move); (5) the read: one route of module
+      stock under StockRead and Letflow.Modules.Stock.Access, filters item, place, kind, date range and operator
+      text, newest first, json and xlsx; (6) the web screen and the links from the item details and the place
+      details; (7) an owner table of every choice the owner may change, each marked "UAT assumption, to be
+      confirmed by the process owner", including keeping transcript and the operator label. Row G18 of
+      docs/status/qoimeks-migration-readiness.md and the Movement history row of its section 2.1 then point at the
+      amendment and the parts REQ-876 to REQ-879 (written with this one, planned, not yet on main). No code, no
+      route, no migration in this part. Size S.
+    acceptance_criteria:
+      - "1. docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md ends with the section 'Amended by REQ-875 (movement history archive, Qoimeks parity G18)' holding the seven numbered rules of the description; git diff of that file shows added lines at the end only."
+      - "2. Rule 1 names the three sources that refuse option (a) (0079 D1, 0073 D-T with the 96 and 720 hour figures, 0079 D9 out of scope) and lists what (a) would change; rule 2 lists every field of the description with its type and required flag, and exactly these lists: kind is one of receipt, issue, transfer, adjustment; entry_source is one of keyboard, voice, import."
+      - "3. Rule 4 names each read path that must not include an archive row (balances, movements, reconcile, counts, stock card print, the D8 exports) and states that no file of the archive calls a function of Letflow.Ledger."
+      - "4. Every Letflow file the section names exists on origin/main at implement time, checked with git ls-tree and the command quoted in the section; every rule not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'UAT assumption, to be confirmed by the process owner' and listed in the owner table."
+      - "5. Row G18 in section 1.2 and the Movement history row in section 2.1 of docs/status/qoimeks-migration-readiness.md name the amendment; mix letflow.check.static passes."
+    depends_on: [REQ-687, REQ-727]
+  - id: REQ-876
+    title: "Qoimeks parity G18 part 2: module stock stores the Qoimeks movement history as the read-only archive type stock_archive_movement, loaded by its own xlsx import function, never touching the stock ledger"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4591
+    # Source: task T-2037 and REQ-875 (written with this one). Files read on origin/main 1520cf186: lib/letflow/modules/stock/stock.ex (version "0.17.0", entity_types, scope_declarations, import_functions), priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/, lib/letflow/modules/stock/documents/opening_import.ex (reference resolution by external id), lib/letflow/entities/managed_import.ex (call/5: outcomes created, updated, unchanged), lib/letflow/routers/entities/record_import.ex (@import_record_cap 200, base_reason_json/1 constant refusals), lib/letflow/ledger/validate.ex (quantity_scale), test/letflow/modules/stock/opening_import_test.exs. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Rules 2 to 4 of the REQ-875 amendment of decision 0079 (planned, not yet on main) in module stock. The pack
+      (priv/modules/stock/generate_pack.exs, entity_definitions/stock_archive_movement.json, pack.json) gains the
+      managed type stock_archive_movement with the fields of rule 2, scope_declarations gains
+      "stock_archive_movement" => {:column, "org_unit_id"}, and the manifest import_functions gains its import
+      function next to import_opening_line, in a new file lib/letflow/modules/stock/archive_import.ex (planned, not
+      yet on main) that calls no function of Letflow.Ledger. Per row of an xlsx upload through the existing record
+      import route (at most @import_record_cap rows per file, dry run as for every managed import), the first
+      refusal wins and writes nothing: the reference cells org_unit_id, catalog_item_id, location_id and
+      to_location_id hold external ids under the row's own external-ref system and are resolved through the owning
+      module's lookup_by_external_ref/4 as in lib/letflow/modules/stock/documents/opening_import.ex, giving
+      reference_not_found with the cell name; unlike an opening line, an inactive item or place is accepted (the
+      history of a retired item); a cell that breaks a Qoimeks rule gives {:archive_field_invalid, header}: kind
+      or entry_source outside its list, occurred_at not an ISO 8601 time with offset, quantity not a decimal with at
+      most 9 decimals (the ledger's quantity_scale) or below zero, quantity zero on a kind other than adjustment,
+      to_location_id present unless the kind is transfer, absent on a transfer, or equal to location_id, a
+      to_balance_after present unless the kind is transfer (change, balance_after and to_balance_after may be
+      negative: Qoimeks allowed negative balances); then the row is matched by its external ref pair: none
+      stored creates it (outcome created), the same values stored is unchanged, any different value is refused
+      archive_row_changed (outcome updated is never returned). Both new reasons render through
+      base_reason_json/1 of lib/letflow/routers/entities/record_import.ex as constant types with no cell text. A
+      generic record create, update or delete of the type is refused as for every managed type. The module version
+      in stock.ex is raised by one minor step from origin/main at implement time, and the pins the new type and
+      version move (pack, registration and permission matrix tests) are re-derived. Size M.
+    acceptance_criteria:
+      - "1. A new test file test/letflow/modules/stock/archive_import_test.exs uploads through the real record import route an xlsx (a STOREKEEPER upload is refused 403, managed_import_allowed in lib/letflow/routers/entities/record_import.ex; the test uploads as TENANT_ADMIN) of four rows (a receipt, an issue, a transfer and an adjustment of quantity 0) with masters created by external ref: all four are created; a second upload of the same file reports all four unchanged; a third upload with one changed quantity reports that row archive_row_changed and the stored value is the first one."
+      - "2. One test per refusal of the description (each reference cell unknown, each archive_field_invalid rule including a transfer without to_location_id, an issue with to_location_id, from equal to to, quantity 0 on an issue, quantity with 10 decimals, a bad occurred_at, an unknown kind and entry_source) asserts the reason JSON of the row and that nothing was written; a row naming a retired item is created."
+      - "3. A test reads Letflow.Ledger.balances/4 and Letflow.Ledger.entries/3 of the stock ledger before and after a 4-row archive import and asserts both answers are equal; a source scan asserts lib/letflow/modules/stock/archive_import.ex contains no 'Ledger.' call."
+      - "4. A generic create, update and delete of a stock_archive_movement record through the entity record routes is refused 403 with entity_type_managed (the :managed branch of handle_create_record, handle_update_record and handle_delete_record in lib/letflow/routers/entities/record_writes.ex), as test/letflow/modules/stock/counts_registration_test.exs asserts for the count types."
+      - "5. The stock module version in lib/letflow/modules/stock/stock.ex is above the one on origin/main at implement time; mix letflow.permission_matrix --write was run after the last merge; mix letflow.check.static passes and the new and changed test files pass when run by path."
+    depends_on: [REQ-875, REQ-727, REQ-651]
+  - id: REQ-877
+    title: "Qoimeks parity G18 part 3: read route GET /archive-movements of module stock: search the archived Qoimeks movements by item, place, kind, date and operator, newest first, as json or xlsx"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4590
+    # Source: task T-2037, rule 5 of the REQ-875 amendment. Files read on origin/main 1520cf186: lib/letflow/modules/stock/router.ex (moduledoc route tables, slot_filters/1, 422 invalid_filter, format=json|xlsx), lib/letflow/modules/stock/access.ex, lib/letflow/modules/stock/documents.ex (@default_limit 50, @max_limit 100, @cursor), lib/letflow/modules/stock/xlsx_export.ex, test/letflow/modules/asset_stock_isolation_test.exs. Qoimeks History listing (newest first by seq) in state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      One read route of module stock, GET /api/v1/modules/stock/archive-movements, in
+      lib/letflow/modules/stock/router.ex, permission StockRead, behind Letflow.Modules.Stock.Access like every
+      stock route (an API token or a scoped principal gets the same 404 as a tenant without the module). It reads
+      the archive type of REQ-876 (planned, not yet on main) through module code, not SQL in the router (boundary
+      Rule 8), and never calls Letflow.Ledger. Query keys, each optional: sku (catalog item id), location (matches
+      location_id or to_location_id), kind (one of the four kinds), from and to (calendar days YYYY-MM-DD in
+      Asia/Almaty, the stock module's constant zone, inclusive, on occurred_at), operator (a case-insensitive part of
+      operator_label, with % and _ matched literally and the value bound as a query parameter, INV-7), limit (1..100, default 50, as the stock documents list) and cursor;
+      a malformed value, an unknown key or a tenant key is 422 invalid_filter before anything is read. Order:
+      occurred_at descending, then source_seq descending (Qoimeks lists newest first). Each row carries every field
+      of the type plus the item code and name, the unit, and the place and to-place codes and names, which are
+      tenant-wide (0076 R7). Body rows and next_cursor. format=xlsx renders the same page through a sibling of
+      Letflow.Modules.Stock.XlsxExport with a report sheet (filters, timezone), EXTRA beyond Qoimeks, which had no
+      history export. The module moduledoc route table, the route-count and route-scope pins and the
+      tenant-isolation list of test/letflow/modules/asset_stock_isolation_test.exs are updated. Size M.
+    acceptance_criteria:
+      - "1. Router tests with a real token through the real router: TENANT_ADMIN and STOREKEEPER get 200 with rows newest first; a TASK_WORKER (no StockRead) gets 403 with detail 'insufficient permissions', as T-R-403 in test/letflow/modules/stock/router_test.exs asserts for the other stock read routes; an API token and a scoped principal get the same 404 body as a tenant without the module."
+      - "2. Each filter narrows the answer, shown by one test each on a fixture of six rows over two items, three places, all four kinds and three days, including a transfer found by its to-place, a from/to range whose bounds are Asia/Almaty days that differ from the UTC day, and an operator part in other letter case; limit 2 with cursor walks all six rows once."
+      - "3. A bad uuid, an unknown kind, a date not YYYY-MM-DD, from after to, limit 0 or 101, an unknown key and a tenant key are each 422 invalid_filter."
+      - "4. INV-10: a second tenant's archive rows never appear, and a cross-tenant sku or location id answers an empty list, in test/letflow/modules/asset_stock_isolation_test.exs or a new test next to it."
+      - "5. format=xlsx answers an xlsx whose first sheet has one row per json row in the same order and whose report sheet names the filters and the time zone; Letflow.Ledger is not called (source scan of the new module file); the route-count pins are re-derived after the last merge and mix letflow.check.static passes."
+    depends_on: [REQ-876, REQ-728]
+  - id: REQ-878
+    title: "Qoimeks parity G18 part 4: web screen 'History before Letflow' of the stock module with search, and links to it from the item details and the place details"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4589
+    # Source: task T-2037, rule 6 of the REQ-875 amendment. Files read on origin/main 1520cf186: web/src/modules/stock/index.ts (nav entries), web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/register/MovementsPage.tsx, web/src/components/layout/navMessages.ts, web/src/components/layout/AppShell.tsx, web/src/modules/catalog_items/items/ItemDetails.tsx (History section), web/src/modules/catalog_items/catalogItemsStock.api.ts, web/src/modules/locations/LocationTreePage.tsx (details tab), web/src/dev/harness/registry.tsx. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The screen of rule 6 of the REQ-875 amendment over the route of REQ-877 (both planned, not yet on main). A new
+      page at admin/stock/archive in web/src/modules/stock/stockRoutes.tsx under RequirePermission StockRead, with a
+      nav entry in web/src/modules/stock/index.ts after Movements and its texts in navMessages.ts and the AppShell
+      route list, built on the pattern of web/src/modules/stock/register/MovementsPage.tsx. It shows a banner that
+      these are the movements kept from the previous system, read-only, not part of the balances; filters item,
+      place, kind, date range and operator text, read from and written to the URL query so a link opens the screen
+      filtered; a table newest first with time, kind, item, place, to-place, quantity, change, balance after,
+      operator and source; a row marked as reversed or as a reversal shows the paired row's number (source_seq);
+      the row details show the transcript when present; paging by the route's cursor; an xlsx download of the
+      current filter. The item details History section (web/src/modules/catalog_items/items/ItemDetails.tsx) and
+      the place details tab (web/src/modules/locations/LocationTreePage.tsx) each show a link 'History before
+      Letflow' that opens the screen filtered by that item or place, shown only to a StockRead holder and only when
+      a limit=1 read for that item or place returns a row (the links are URL strings, no import of the stock
+      module, as catalogItemsStock.api.ts does). Texts in en, ru and kk. Own harness fixture file, one line in the
+      harness registry. Size M.
+    acceptance_criteria:
+      - "1. Component tests with a mocked API: the screen lists rows in the order the API returns, shows the banner, and each filter change sends the matching query key; opening the URL with sku and location sends both on the first request; next page sends the cursor."
+      - "2. A reversal row shows the paired number, and the details of a voice row show its transcript; empty, loading, error and no-permission states each render their own message."
+      - "3. ItemDetails and LocationTreePage show the link with the right URL when the limit=1 read returns a row, and no link (and for a user without StockRead no request at all, asserted on the mocked client) otherwise; their existing tests pass without edits to their assertions."
+      - "4. The nav entry is shown to a StockRead holder only; the EXPECTED_COUNT pin of web/src/components/layout/__tests__/navRoleWalk.test.tsx is updated if it moves; texts exist in en, ru and kk."
+      - "5. npm run check passes in the engine's checks step; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the list, a filtered list, the row details, the empty state and the item and place links, from the screen's own harness fixture."
+    depends_on: [REQ-877]
+  - id: REQ-879
+    title: "Qoimeks parity G18 part 5: the Qoimeks converter writes the movement history into archive import files, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4588
+    # Source: task T-2037. Files read on origin/main 1520cf186: scripts/pilot/qoimeks_convert.py (MAX_ROWS 200, NEEDED, manifest.json upload_order, expected_counts.txt, report.txt rules, exit codes), docs/runbooks/qoimeks-rehearsal.md, test/scripts/qoimeks_rehearsal_test.exs, test/fixtures/qoimeks_rehearsal/, test/letflow/modules/stock/qoimeks_files_test.exs. Qoimeks columns in state/tasks/T-2037/sources/qoimeks-movements-extract.md. REQ-837 and REQ-842 (pending) edit the same converter. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The migration path of the archive (REQ-876, planned, not yet on main). scripts/pilot/qoimeks_convert.py
+      convert reads an optional movements.csv from --in with the neutral columns mv_id, mv_seq, kind, sku, loc,
+      to_loc, qty, operator, source, transcript, reverses, import_id, created_at, change, balance_after,
+      to_balance_after (nameable through --mapping like every other column; change and balance_after are the
+      Qoimeks balances row of the movement at loc, to_balance_after the row at to_loc). When the file is present it
+      writes archive-movements-NN.xlsx files (at most MAX_ROWS rows each, so 600 movements give three files) with
+      the columns of stock_archive_movement, every reference cell an external id under the --system value
+      (org_unit_id from --org-unit-ext, sku, loc and to_loc codes) and the external ref pair (--system, mv_id),
+      lists them in manifest.json upload_order after every other file the converter writes on origin/main at
+      implement time, and adds records.stock_archive_movement with the row count to expected_counts.txt. A row whose
+      sku or loc is not in the converted masters is dropped with unknown_item or unknown_location, and a row that
+      breaks a rule of REQ-876 with archive_row_invalid; report.txt names row numbers and constant reasons only,
+      exit codes as today (3 on a drop, 0 with --allow-drops). Without movements.csv the output is byte for byte as
+      today. docs/runbooks/qoimeks-rehearsal.md: the file table, the extract step (which columns movements.csv
+      needs and that it is joined with the balances rows), an upload step after the opening lines, the count check
+      (the archive row count read back equals expected_counts) and "movement history" removed from "Deliberately
+      not here". No real client data (D-050): a new fixture test/fixtures/qoimeks_rehearsal/movements.csv of made-up
+      rows. Size S.
+    acceptance_criteria:
+      - "1. test/scripts/qoimeks_rehearsal_test.exs: with the new movements.csv fixture (one row of each kind, a reversal pair, a voice row with a transcript, a negative balance_after) convert writes one archive-movements-01.xlsx whose rows and column order match the fixture, manifest.json lists it last, and expected_counts.txt has the records.stock_archive_movement line with the right count."
+      - "2. A row with an unknown sku, one with an unknown loc and one transfer without to_loc are dropped with unknown_item, unknown_location and archive_row_invalid, named by row number in report.txt, and the exit code is 3 (0 with --allow-drops)."
+      - "3. A fixture of 201 rows gives two files of 200 and 1 rows; without movements.csv the existing test inputs give the same files and bytes as before this change."
+      - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted archive file through the real import route after the masters: every row is created, a second upload reports every row unchanged, and the stock ledger balances are equal before and after."
+      - "5. docs/runbooks/qoimeks-rehearsal.md has the file row, the extract columns, the upload step and the count check, and no longer lists movement history under 'Deliberately not here'; the test files named here and any runbook test that pins lines of qoimeks-rehearsal.md pass when run by path."
+    depends_on: [REQ-876]
