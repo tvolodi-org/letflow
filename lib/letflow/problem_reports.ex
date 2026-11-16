@@ -16,11 +16,14 @@ defmodule Letflow.ProblemReports do
       holding the number and the sent field names, never the text. The customer's auditor can see that
       data left the company.
     * D8: at most 10 reports per user per rolling hour (counted in the platform table).
-    * D9 (T-2015): up to 3 PNG/JPEG images stored in `problem_report_images` in the platform schema,
-      deleted with their report (cascade FK) or at 30 days via `purge_old_report_images/1`, whichever
-      comes first. The existing attachment service (T-2014) was not reused because report images belong
-      to the platform company only, not to any tenant, and their retention (30 days for screenshots vs.
-      90 days for reports) is different. Pre-existing reports have no images; the new table starts empty.
+    * D9 (T-2015, moved onto the attachment service in T-2043): up to 3 screenshots are links owned by
+      `problem_report` with purpose `screenshot` in the platform schema. The service decides the type
+      from the first bytes, strips metadata, applies its caps, quota and rate checks, and writes one
+      `attachment.added` audit per new image. `retain_until` is sent + 30 days;
+      `expire_screenshots/1` deletes expired links and unshared blobs. Refused or malformed images
+      answer invalid images; a full allowance, unavailable scanner or upload-rate refusal is
+      `:unavailable`, and every refusal rolls back the report and all of its images. Legacy
+      `problem_report_images` rows stay readable and are purged at 30 days until the table is removed.
 
   T-1963: every reader here (export, `list_mine/2`, the throttle) sees only `class = 'problem'` rows; the
   owner list is `class = 'review'` and is read through `Letflow.ProblemReports.Review`.
@@ -35,6 +38,7 @@ defmodule Letflow.ProblemReports do
   require Logger
 
   alias Ecto.Multi
+  alias Letflow.Attachments
   alias Letflow.Audit
   alias Letflow.BuildInfo
   alias Letflow.Identity
@@ -148,16 +152,23 @@ defmodule Letflow.ProblemReports do
         parsed.images
         |> Enum.with_index(1)
         |> Enum.reduce(m, fn {img, position}, acc ->
-          image = %ReportImage{
-            position: position,
-            content_type: img.content_type,
-            bytes: img.bytes,
-            size: img.size,
-            inserted_at: now
-          }
+          Multi.run(acc, {:image, position}, fn _repo, %{report: stored} ->
+            owner = %{kind: "problem_report", id: stored.id}
 
-          Multi.run(acc, {:image, position}, fn repo, %{report: stored} ->
-            repo.insert(%{image | report_id: stored.id}, prefix: platform_prefix)
+            ctx = %{
+              actor_id: auth_context.user_id,
+              trace_id: stored.trace_id
+            }
+
+            case Attachments.add(
+                   platform_prefix,
+                   owner,
+                   %{purpose: "screenshot", original: img.bytes},
+                   ctx
+                 ) do
+              {:ok, link, _created_or_replayed} -> {:ok, link}
+              {:error, reason} -> {:error, reason}
+            end
           end)
         end)
       end)
@@ -193,6 +204,20 @@ defmodule Letflow.ProblemReports do
       {:ok, %{report: stored}} ->
         Letflow.ProblemReports.Status.notify(stored, :received)
         {:ok, %{id: stored.id, number: number(stored), received_at: stored.consented_at}}
+
+      {:error, {:image, _position}, reason, _changes}
+      when reason in [
+             :photo_too_large,
+             :photo_type_not_allowed,
+             :photo_malformed,
+             :photo_infected,
+             :owner_cap_reached
+           ] ->
+        {:error, {:invalid, "images"}}
+
+      {:error, {:image, _position}, reason, _changes}
+      when reason in [:storage_quota_exceeded, :scan_unavailable, :upload_rate_exceeded] ->
+        {:error, :unavailable}
 
       {:error, _step, _reason, _changes} ->
         {:error, :internal}
@@ -301,14 +326,33 @@ defmodule Letflow.ProblemReports do
   end
 
   @doc """
-  Removes problem report images older than 30 days (T-2015, owner table line 8: "we keep them 30 days").
+  Expires service-backed screenshots and purges the legacy T-2015 image rows, in the platform schema
+  only. The hourly `Letflow.TenantProvisioner.Sweep` calls this as an isolated maintenance step.
+  Option `now:` injects the clock. Returns both counts, an attachment expiry error unchanged, or
+  `{:error, :unavailable}` when no platform tenant is pinned.
+  """
+  @spec expire_screenshots(keyword()) ::
+          {:ok, %{expired: non_neg_integer(), legacy_purged: non_neg_integer()}}
+          | {:error, :unavailable | :storage_failed | :audit_failed}
+  def expire_screenshots(opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    with {:ok, prefix} <- platform_prefix(),
+         {:ok, expired} <- Attachments.expire(prefix, now: now),
+         {:ok, legacy_purged} <- purge_old_report_images(now: now) do
+      {:ok, %{expired: expired, legacy_purged: legacy_purged}}
+    end
+  end
+
+  @doc """
+  Removes legacy problem report images older than 30 days (T-2015, owner table line 8).
   Screenshots are personal data. The report row itself is kept for 90 days after close (owner table line 9);
   images are purged earlier by this function, independent of the report's lifecycle. The cascade FK
   (`problem_report_images.report_id REFERENCES problem_reports ON DELETE CASCADE`) ensures images are
   also removed if the report is deleted first.
 
-  Called by the maintenance scheduler (slice-2 retention job, once it is built); can also be called
-  directly for a manual sweep. Option `now:` lets tests inject a fixed timestamp.
+  Called by `expire_screenshots/1` from the hourly maintenance sweep; can also be called directly for
+  a manual sweep. Option `now:` lets tests inject a fixed timestamp.
 
   Returns `{:ok, count}` with the number of rows deleted, or `{:error, :unavailable}`.
   """

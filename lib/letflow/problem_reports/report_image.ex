@@ -1,8 +1,8 @@
 defmodule Letflow.ProblemReports.ReportImage do
   @moduledoc """
-  T-2015: one PNG or JPEG screenshot attached to a problem report. `content_type` is set from the
-  first bytes, never from the client. `bytes` is never selected by list or detail queries; only the
-  image route reads it.
+  Legacy T-2015 screenshot storage. New reports use `Letflow.Attachments` (T-2043); existing rows
+  remain readable here until the hourly screenshot expiry purges them at 30 days. `bytes` is never
+  selected by list or detail queries; only the image route reads it.
   """
 
   use Ecto.Schema

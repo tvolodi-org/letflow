@@ -232,6 +232,39 @@ defmodule Letflow.TenantProvisioner.SweepTest do
     refute log =~ "boom"
   end
 
+  test "W1 the screenshot step receives the sweep clock" do
+    now = DateTime.utc_now()
+
+    screenshots = fn opts ->
+      send(self(), {:shots, opts})
+      {:ok, %{expired: 0, legacy_purged: 0}}
+    end
+
+    assert %{expired: 0, purged: 0, skipped: 0, failed: 0} =
+             Sweep.run(now: now, screenshots: screenshots)
+
+    assert_receive {:shots, opts}
+    assert opts[:now] == now
+  end
+
+  test "W2 a screenshot failure is isolated and does not change the counters" do
+    log =
+      capture_log(fn ->
+        send(
+          self(),
+          {:counters,
+           Sweep.run(
+             now: DateTime.utc_now(),
+             screenshots: fn _opts -> raise "screenshot test failure" end
+           )}
+        )
+      end)
+
+    assert_received {:counters, %{expired: 0, purged: 0, skipped: 0, failed: 0}}
+    assert log =~ "screenshot expiry failed (reason=RuntimeError)"
+    refute log =~ "screenshot test failure"
+  end
+
   # --- SW8 settings ----------------------------------------------------------
 
   describe "settings" do

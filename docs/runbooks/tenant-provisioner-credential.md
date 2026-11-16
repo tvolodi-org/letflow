@@ -67,7 +67,11 @@ every `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` minutes (default 60); the fir
 
 1. expires a demo tenant whose `expires_at` has passed (the same function as `POST /admin/v1/tenants/:id/expire`);
 2. purges a `suspended` or `expired` tenant, not production, whose retention has run out (`expires_at` for an expired tenant, `deletion_requested_at` for a
-   suspended one, plus `LETFLOW_PROVISIONER_RETENTION_DAYS`), through `Letflow.TenantPurge.purge/3` with trigger `sweep` (the audit entry says so).
+   suspended one, plus `LETFLOW_PROVISIONER_RETENTION_DAYS`), through `Letflow.TenantPurge.purge/3` with trigger `sweep` (the audit entry says so);
+3. closes stale sign-up requests and restarts stuck ones through `Letflow.Signup.Sweep.run/1` (when sign-up is enabled);
+4. expires 30-day problem-report screenshots in the platform schema through `Letflow.ProblemReports.expire_screenshots/1`, including the legacy
+   `problem_report_images` rows from T-2015. Non-zero counts are logged as `screenshot expiry: expired=N legacy=M`. A missing platform pin is silent;
+   a fault is logged as `screenshot expiry failed (reason=...)` without screenshot or report content and does not change the tenant counters.
 
 It never touches an active tenant (other than step 1), a suspended tenant with neither `deletion_requested_at` nor `expires_at`, a production tenant, or a
 purged one. One tenant's failure is logged as `provisioner sweep failed for tenant (tenant_id=..., step=..., reason=...)` (no tenant data) and the run goes on.

@@ -273,16 +273,14 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert {:ok, []} = Capture.parse_images(nil)
   end
 
-  test "IM-U2 parse_images accepts a valid PNG image" do
+  test "IM-U2 parse_images accepts PNG-shaped bytes and returns only the bytes" do
     assert {:ok, [img]} = Capture.parse_images([encode_image(@png, "image/png")])
-    assert img.content_type == "image/png"
-    assert img.bytes == @png
-    assert img.size == byte_size(@png)
+    assert img == %{bytes: @png}
   end
 
-  test "IM-U3 parse_images accepts a valid JPEG image" do
+  test "IM-U3 parse_images accepts JPEG-shaped bytes and returns only the bytes" do
     assert {:ok, [img]} = Capture.parse_images([encode_image(@jpeg, "image/jpeg")])
-    assert img.content_type == "image/jpeg"
+    assert img == %{bytes: @jpeg}
   end
 
   test "IM-U4 parse_images rejects more than 3 images" do
@@ -290,8 +288,8 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert {:error, {:invalid, "images"}} = Capture.parse_images(four)
   end
 
-  test "IM-U5 parse_images rejects a type mismatch (PNG bytes declared as JPEG)" do
-    assert {:error, {:invalid, "images"}} =
+  test "IM-U5 parse_images ignores the declared type (the service sniffs the bytes)" do
+    assert {:ok, [%{bytes: @png}]} =
              Capture.parse_images([encode_image(@png, "image/jpeg")])
   end
 
@@ -302,8 +300,8 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert {:error, {:invalid, "images"}} = Capture.parse_images([encode_image(big, "image/png")])
   end
 
-  test "IM-U7 parse_images rejects a GIF (unsupported type)" do
+  test "IM-U7 GIF passes the shape check; the attachment service refuses its bytes (S4)" do
     gif = "GIF89a" <> :binary.copy(<<0>>, 10)
-    assert {:error, {:invalid, "images"}} = Capture.parse_images([encode_image(gif, "image/gif")])
+    assert {:ok, [%{bytes: ^gif}]} = Capture.parse_images([encode_image(gif, "image/gif")])
   end
 end

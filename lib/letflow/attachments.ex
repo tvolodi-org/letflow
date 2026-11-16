@@ -18,7 +18,7 @@ defmodule Letflow.Attachments do
       `:actor_invalid` where a refusal is needed). INV-5, INV-8.
     * **One advisory transaction lock per owner** serialises cap, position and main-flag changes.
       Postgres arbitrates; there is no process per owner (REQ-045). The lock key is a bound parameter.
-    * **Blob deletion** happens in `delete/5` only when no other link uses the blob
+    * **Blob deletion** happens in `delete/5` and `expire/2` only when no other link uses the blob
       (`BlobStore.release/2`; `ON DELETE RESTRICT` is the backstop).
     * **Audit**: one entry per change in the owner's schema, in the same transaction, with no bytes
       and no caption text. A failing audit write rolls the change back as `{:error, :audit_failed}`.
@@ -27,7 +27,8 @@ defmodule Letflow.Attachments do
       the existing link (`:replayed`), without a write or an audit entry.
     * **Caps** are module attributes (`limits/0`); the quota check counts the full new bytes and is not
       serialised across owners, so concurrent uploads can overshoot the allowance by their own size.
-    * `locked_at` and `retain_until` exist as columns; setting the lock is slice P6, the expiry job P5.
+    * `locked_at` is set in slice P6. `retain_until` is set from the owner's optional `retain_days`
+      rule; `expire/2` (T-2043, P5) deletes expired, unlocked links and their unshared blobs.
   """
 
   import Ecto.Query
@@ -244,10 +245,18 @@ defmodule Letflow.Attachments do
         thumb_blob_id: thumb_blob_id,
         uploaded_by: actor,
         inserted_at: now,
-        updated_at: now
+        updated_at: now,
+        retain_until: retain_until(rules, now)
       },
       prefix: ref.prefix
     )
+  end
+
+  defp retain_until(rules, now) do
+    case Map.get(rules, :retain_days) do
+      days when is_integer(days) and days > 0 -> DateTime.add(now, days * 86_400, :second)
+      _ -> nil
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -263,6 +272,37 @@ defmodule Letflow.Attachments do
         from(l in Link,
           where: l.owner_kind == ^kind and l.owner_id == ^id and l.purpose == ^purpose,
           order_by: [asc: l.position]
+        ),
+        prefix: prefix
+      )
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  Summary maps of one owner's links, including the blob's content type and byte size but no bytes.
+  An unusable owner gives `[]`.
+  """
+  @spec list_summaries(String.t(), owner(), String.t()) :: [map()]
+  def list_summaries(prefix, owner, purpose) when is_binary(prefix) do
+    with {:ok, kind, id} <- read_owner(owner),
+         true <- is_binary(purpose) do
+      Repo.all(
+        from(l in Link,
+          join: b in Blob,
+          on: b.id == l.blob_id,
+          where: l.owner_kind == ^kind and l.owner_id == ^id and l.purpose == ^purpose,
+          order_by: [asc: l.position],
+          select: %{
+            id: l.id,
+            position: l.position,
+            content_type: b.content_type,
+            byte_size: b.byte_size,
+            is_main: l.is_main,
+            caption: l.caption,
+            has_thumbnail: not is_nil(l.thumb_blob_id)
+          }
         ),
         prefix: prefix
       )
@@ -535,6 +575,129 @@ defmodule Letflow.Attachments do
           end
         end)
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # retention
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Deletes expired, unlocked links in one tenant schema, compacts positions and releases blobs that
+  no remaining link uses. Options: `now:` (default the real clock) and `limit:` (default 500), the
+  maximum number of distinct `(owner_kind, owner_id, purpose)` owners considered in this run.
+
+  Returns `{:ok, deleted_link_count}`. One `attachment.expired` audit entry is written per non-empty
+  run. Locked links are evidence and never expire. The caller chooses the schema: P5 calls this only
+  for the platform schema, where problem-report screenshots live; a later retained purpose in a
+  customer schema needs its own caller.
+  """
+  @spec expire(String.t(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, :storage_failed | :audit_failed}
+  def expire(prefix, opts \\ []) when is_binary(prefix) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    limit = Keyword.get(opts, :limit, 500)
+
+    refs =
+      Repo.all(
+        from(l in Link,
+          where: not is_nil(l.retain_until) and l.retain_until <= ^now and is_nil(l.locked_at),
+          distinct: true,
+          order_by: [asc: l.owner_kind, asc: l.owner_id, asc: l.purpose],
+          limit: ^limit,
+          select: %{kind: l.owner_kind, id: l.owner_id, purpose: l.purpose}
+        ),
+        prefix: prefix
+      )
+
+    case refs do
+      [] ->
+        {:ok, 0}
+
+      refs ->
+        Repo.transaction(fn ->
+          Enum.each(refs, &lock_owner!(Map.put(&1, :prefix, prefix)))
+
+          {count, by_kind, blob_ids} =
+            Enum.reduce(refs, {0, %{}, []}, fn ref, {count, by_kind, blob_ids} ->
+              ref = Map.put(ref, :prefix, prefix)
+              {deleted, released} = expire_owner!(ref, now)
+
+              {
+                count + deleted,
+                Map.update(by_kind, ref.kind, deleted, &(&1 + deleted)),
+                released ++ blob_ids
+              }
+            end)
+
+          blob_ids |> Enum.uniq() |> Enum.each(&@blob_store.release(prefix, &1))
+          if count > 0, do: expire_audit!(prefix, now, count, by_kind)
+          count
+        end)
+    end
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.ConstraintError] ->
+      log_storage_failure(e)
+      {:error, :storage_failed}
+  end
+
+  defp expire_owner!(ref, now) do
+    expired =
+      Repo.all(
+        from(l in owner_purpose_query(ref),
+          where: not is_nil(l.retain_until) and l.retain_until <= ^now and is_nil(l.locked_at),
+          order_by: [asc: l.position],
+          lock: "FOR UPDATE"
+        ),
+        prefix: ref.prefix
+      )
+
+    case expired do
+      [] ->
+        {0, []}
+
+      links ->
+        ids = Enum.map(links, & &1.id)
+        Repo.delete_all(from(l in Link, where: l.id in ^ids), prefix: ref.prefix)
+
+        remaining_ids =
+          Repo.all(
+            from(l in owner_purpose_query(ref), order_by: [asc: l.position], select: l.id),
+            prefix: ref.prefix
+          )
+
+        apply_order!(ref, remaining_ids)
+        if Enum.any?(links, & &1.is_main), do: promote_first!(ref, ref.purpose)
+
+        blob_ids =
+          links
+          |> Enum.flat_map(&[&1.blob_id, &1.thumb_blob_id])
+          |> Enum.reject(&is_nil/1)
+
+        {length(links), blob_ids}
+    end
+  end
+
+  defp expire_audit!(prefix, now, count, by_kind) do
+    attrs = %{
+      actor_id: nil,
+      action: "attachment.expired",
+      resource_type: "attachment",
+      resource_id: "expiry",
+      before_state: nil,
+      after_state: %{
+        "count" => count,
+        "by_owner_kind" => by_kind,
+        "retain_cutoff" => DateTime.to_iso8601(now)
+      },
+      trace_id: nil
+    }
+
+    case Audit.insert_entry(Repo, attrs, prefix) do
+      {:ok, _entry} -> :ok
+      _ -> Repo.rollback(:audit_failed)
+    end
+  rescue
+    _ -> Repo.rollback(:audit_failed)
   end
 
   # Shared shell of delete / set_main / set_caption: cast ids, one transaction under the owner lock,

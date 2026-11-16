@@ -12,7 +12,7 @@ defmodule Letflow.ProblemReports.Inbox do
   import Ecto.Query
   require Logger
 
-  alias Letflow.{Audit, PlatformTenant, ProblemReports, Repo}
+  alias Letflow.{Attachments, Audit, PlatformTenant, ProblemReports, Repo}
   alias Letflow.ProblemReports.{Capture, Report, ReportImage, Review, Status}
 
   @actions ~w(answer develop reject ask fixed)
@@ -252,7 +252,7 @@ defmodule Letflow.ProblemReports.Inbox do
   end
 
   defp detail(r, prefix) do
-    images =
+    legacy_images =
       Repo.all(
         from(i in ReportImage,
           where: i.report_id == ^r.id,
@@ -261,6 +261,13 @@ defmodule Letflow.ProblemReports.Inbox do
         ),
         prefix: prefix
       )
+
+    service_images =
+      prefix
+      |> Attachments.list_summaries(%{kind: "problem_report", id: r.id}, "screenshot")
+      |> Enum.map(&%{"id" => &1.id, "content_type" => &1.content_type, "position" => &1.position})
+
+    images = Enum.sort_by(legacy_images ++ service_images, & &1["position"])
 
     summary(r)
     |> Map.delete("text_preview")

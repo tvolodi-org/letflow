@@ -7,7 +7,7 @@ defmodule Letflow.TenantProvisioner.Sweep do
   `Letflow.TenantProvisioner.Config.sweep_interval_minutes/0`
   (`LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES`, default 60).
 
-  `run/1` does two tenant steps, each tenant in its own `try`, then a third, sign-up step:
+  `run/1` does two tenant steps, each tenant in its own `try`, then two isolated maintenance steps:
 
   1. **Expire**: a `demo` tenant whose lifecycle is `active` or `suspended` and whose `expires_at` has
      passed goes through `Letflow.TenantProvisioner.transition/2` with `:expire`, the function the expire
@@ -18,8 +18,11 @@ defmodule Letflow.TenantProvisioner.Sweep do
      `:sweep`. `purge/3` re-checks eligibility under the row lock.
 
   3. **Sign-up** (only when the sign-up flag is on, decision 0085 addendum): `Letflow.Signup.Sweep.run/1`
-     closes stale sign-up requests and restarts stuck ones. It runs last and in its own `try`, so a fault
-     there cannot skip steps 1 and 2; its counts are logged, not returned.
+     closes stale sign-up requests and restarts stuck ones. It runs in its own `try`, so a fault there
+     cannot skip steps 1 and 2; its counts are logged, not returned.
+  4. **Screenshots** (T-2043): `Letflow.ProblemReports.expire_screenshots/1` deletes expired
+     service-backed screenshots and legacy image rows in the platform schema. It is isolated like the
+     sign-up step, logs non-zero counts and never changes the returned tenant counters.
 
   Never selected: an active tenant (unless its `expires_at` has passed, then only step 1), a suspended
   tenant with neither `deletion_requested_at` nor `expires_at`, a production tenant, a purged one.
@@ -40,6 +43,7 @@ defmodule Letflow.TenantProvisioner.Sweep do
   require Logger
 
   alias Letflow.Identity.Tenant
+  alias Letflow.ProblemReports
   alias Letflow.Repo
   alias Letflow.Signup.Sweep, as: SignupSweep
   alias Letflow.TenantProvisioner
@@ -88,9 +92,9 @@ defmodule Letflow.TenantProvisioner.Sweep do
   defp schedule(interval_ms), do: Process.send_after(self(), :tick, interval_ms)
 
   @doc """
-  One sweep. `opts`: `now:` (the clock, default the real one); `expire:` and `purge:` (replacements of
-  `TenantProvisioner.transition/2` and `TenantPurge.purge/3`, a seam for the failure test only; the
-  `GenServer` always calls `run/0`).
+  One sweep. `opts`: `now:` (the clock, default the real one); `expire:`, `purge:`, `signup:` and
+  `screenshots:` (replacements of the four operations, seams for failure tests only; the `GenServer`
+  always calls `run/0`).
   """
   @spec run(keyword()) :: counters()
   def run(opts \\ []) do
@@ -124,6 +128,7 @@ defmodule Letflow.TenantProvisioner.Sweep do
       end)
 
     signup_step(now, Keyword.get(opts, :signup, &SignupSweep.run/1))
+    screenshots_step(now, Keyword.get(opts, :screenshots, &ProblemReports.expire_screenshots/1))
     counters
   end
 
@@ -140,6 +145,31 @@ defmodule Letflow.TenantProvisioner.Sweep do
   catch
     kind, _reason ->
       Logger.error("signup sweep failed (reason=#{inspect(kind)})")
+  end
+
+  # Isolated like sign-up (INV-8): a screenshot fault never changes the tenant counters or stops the run.
+  defp screenshots_step(now, screenshots) do
+    case screenshots.(now: now) do
+      {:ok, %{expired: expired, legacy_purged: legacy}} ->
+        if expired > 0 or legacy > 0 do
+          Logger.info("screenshot expiry: expired=#{expired} legacy=#{legacy}")
+        end
+
+      {:error, :unavailable} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("screenshot expiry failed (reason=#{inspect(reason)})")
+
+      _other ->
+        Logger.error("screenshot expiry failed (reason=error_result)")
+    end
+  rescue
+    exception ->
+      Logger.error("screenshot expiry failed (reason=#{inspect(exception.__struct__)})")
+  catch
+    kind, _reason ->
+      Logger.error("screenshot expiry failed (reason=#{inspect(kind)})")
   end
 
   defp guarded(id, step, counters, call, classify) do

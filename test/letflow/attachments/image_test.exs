@@ -184,9 +184,13 @@ defmodule Letflow.Attachments.ImageTest do
     end
   end
 
-  test "O-1 registry holds assets_card/photo only" do
-    assert Owners.kinds() == ["assets_card"]
+  test "O-1 registry holds asset photos and retained problem-report screenshots" do
+    assert Owners.kinds() == ["assets_card", "problem_report"]
     assert {:ok, %{purposes: %{"photo" => %{max: 10, main: true}}}} = Owners.fetch("assets_card")
+
+    assert {:ok, %{purposes: %{"screenshot" => %{max: 3, main: false, retain_days: 30}}}} =
+             Owners.fetch("problem_report")
+
     assert :error = Owners.fetch("catalog_item")
     assert :error = Owners.fetch(nil)
   end

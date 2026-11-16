@@ -25,7 +25,7 @@ defmodule Letflow.ProblemReports.Review do
   import Ecto.Query
   require Logger
 
-  alias Letflow.{Audit, PlatformTenant, Repo, TenantProvisioning}
+  alias Letflow.{Attachments, Audit, PlatformTenant, Repo, TenantProvisioning}
   alias Letflow.ProblemReports.{Comment, CommentImage, Report, ReportImage}
 
   @open_states ~w(for_review waiting owner_reviewed in_work ready)
@@ -125,7 +125,11 @@ defmodule Letflow.ProblemReports.Review do
     error -> internal(error)
   end
 
-  @doc "The bytes of one image; checks comment images first (review items), then report images (problem reports). One query keyed by report and image (INV-5)."
+  @doc """
+  The bytes of one image: comment images first (review items), then legacy report images, then
+  service-backed problem-report screenshots (T-2043). Every lookup is keyed by report and image
+  (INV-5); an unknown, malformed or cross-report id is `:not_found`.
+  """
   def image(id, image_id) do
     with {:ok, prefix} <- prefix(),
          {:ok, id} <- cast_id(id),
@@ -147,8 +151,16 @@ defmodule Letflow.ProblemReports.Review do
             )
 
           case Repo.one(report_query, prefix: prefix) do
-            nil -> {:error, :not_found}
-            image -> {:ok, image}
+            nil ->
+              Attachments.content(
+                prefix,
+                %{kind: "problem_report", id: id},
+                image_id,
+                :original
+              )
+
+            image ->
+              {:ok, image}
           end
 
         image ->

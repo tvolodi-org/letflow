@@ -9,6 +9,9 @@ defmodule Letflow.ProblemReports.ProblemReportsImagesTest do
 
   import Ecto.Query
 
+  alias Letflow.Attachments
+  alias Letflow.Attachments.Link
+  alias Letflow.AttachmentsImageFixture, as: ImageFx
   alias Letflow.ProblemReports
   alias Letflow.ProblemReports.{Report, ReportImage}
   alias Letflow.Repo
@@ -83,5 +86,38 @@ defmodule Letflow.ProblemReports.ProblemReportsImagesTest do
        %{} do
     Fixture.unpin!()
     assert {:error, :unavailable} = ProblemReports.purge_old_report_images()
+  end
+
+  test "X1 expire_screenshots keeps both kinds at 29 days and removes both at 31", %{p: p} do
+    now = DateTime.utc_now()
+    service_report = insert_report(p)
+    legacy_report = insert_report(p)
+    legacy = insert_image(p, legacy_report, now)
+    actor = Ecto.UUID.generate()
+
+    {:ok, link, :created} =
+      Attachments.add(
+        p.schema_name,
+        %{kind: "problem_report", id: service_report.id},
+        %{purpose: "screenshot", original: ImageFx.png()},
+        %{actor_id: actor, trace_id: nil}
+      )
+
+    assert {:ok, %{expired: 0, legacy_purged: 0}} =
+             ProblemReports.expire_screenshots(now: DateTime.add(now, 29 * 86_400, :second))
+
+    assert Repo.get(Link, link.id, prefix: p.schema_name)
+    assert Repo.get(ReportImage, legacy.id, prefix: p.schema_name)
+
+    assert {:ok, %{expired: 1, legacy_purged: 1}} =
+             ProblemReports.expire_screenshots(now: DateTime.add(now, 31 * 86_400, :second))
+
+    assert Repo.get(Link, link.id, prefix: p.schema_name) == nil
+    assert Repo.get(ReportImage, legacy.id, prefix: p.schema_name) == nil
+  end
+
+  test "X2 expire_screenshots returns unavailable when the platform pin is absent" do
+    Fixture.unpin!()
+    assert {:error, :unavailable} = ProblemReports.expire_screenshots()
   end
 end
