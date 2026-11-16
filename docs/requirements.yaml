@@ -55627,17 +55627,22 @@ requirements:
       Part 4 of parity row G3 (REQ-841, planned, not yet on main, adds the data). In Qoimeks choosing a SKU in an
       operation fills the place with the SKU's usual place while the place is empty or was filled that way, and the
       screen shows "look also" with the second place when it differs from the chosen place. Letflow stock
-      documents carry the place on the header, not on the line, so the same help is: in the web document form
+      documents carry the place on the header, not on the line, and one header place covers every line. A Qoimeks
+      operation has one SKU, so replacing its place moves nothing else; in Letflow a later line must never move the
+      place under the earlier lines. So the help is: in the web document form
       (web/src/modules/stock/documents/DocumentForm.tsx) of a receipt, an issue and a write off (header location_id)
-      and of a transfer (header from_location_id), when the user picks the item of a line while that header place
-      is empty, or still holds the value the form itself filled, the header place is set to that item's usual
-      place, if it has an active one; a place the user picked by hand is never changed. Each line shows, under its
+      and of a transfer (header from_location_id), the header place is filled only from the item of the first line
+      (in line order) that has an item, and only while the header place is empty; it is set to that item's usual
+      place, if it has an active one. An item picked on any later line never changes the header place. If the item
+      of that first line is changed or removed while the header place still holds the value the form filled, the
+      place follows the new first item with an item (its active usual place, or empty when it has none or no line
+      has an item). A place the user picked by hand is never changed. Each line shows, under its
       item, the item's usual place and second place codes (the dash when not set), and the second place is marked
       "look also" when it differs from the header place. Hand over, return and opening are not changed (Qoimeks
       has no such kinds; opening has no header place). The server checks are unchanged; this is help, not a rule.
       Labels in en, ru and kk. Size M.
     acceptance_criteria:
-      - "1. A component test of the receipt form: with an empty header place, picking item A (usual place P1) on line 1 sets the header place to P1; picking item B (usual place P3) on line 2 then sets it to P3 only because P1 was filled by the form, and a header place picked by hand (P2) is not changed by any later item pick."
+      - "1. A component test of the receipt form: with an empty header place, picking item A (usual place P1) on line 1 sets the header place to P1; picking item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a header place picked by hand (P2) is not changed by any of these item picks, changes or removals."
       - "2. The same rule for an issue and a write off (location_id) and for a transfer (from_location_id; to_location_id is never filled); a hand-over, a return and an opening form fill nothing from the links (one test per kind)."
       - "3. An item whose usual place is retired (active false) or that has no link fills nothing; the line shows the dash for a missing place."
       - "4. A line whose item has second place P2 different from the header place shows P2 with the 'look also' label (ru 'Смотреть также', kk 'Тағы қараңыз', from Qoimeks); when P2 equals the header place the label is not shown."
@@ -55655,13 +55660,17 @@ requirements:
       because in Qoimeks the operators work on the phone (Android APK) and the usual-place fill and the "look also"
       hint live in the phone's operation screen. In the stock document draft of the generic mobile client
       (apps/mobile/lib/features/stock/documents/, REQ-746), for a receipt, an issue and a write off (location_id) and
-      a transfer (from_location_id): choosing a line's item by scan, typing or voice while the header place is empty
-      or still holds the value the form itself filled sets it to the item's active usual place; a place set by hand,
-      by a location scan or by voice is never changed. Each line shows the item's usual and second place codes, and
+      a transfer (from_location_id), with the same rule as REQ-844 because one header place covers every line: the
+      header place is filled only from the item of the first line (in line order) that has an item, chosen by scan,
+      typing or voice, and only while the header place is empty; it is set to that item's active usual place. An
+      item chosen on any later line never changes it. If the item of that first line is changed or removed while
+      the header place still holds the value the form filled, the place follows the new first item with an item
+      (its active usual place, or empty when it has none or no line has an item). A place set by hand, by a
+      location scan or by voice is never changed. Each line shows the item's usual and second place codes, and
       "look also" with the second place when it differs from the header place. Hand over, return and opening are not
       changed. Labels in en, ru and kk. Size M.
     acceptance_criteria:
-      - "1. Controller tests (document_form_controller) with a hand-written fake of the links read: an empty header place is filled with item A's usual place P1 when A is chosen; a later item B with usual place P3 replaces it only while the place is still the form-filled P1; a place set by applyLocationScan, by the voice fill or by hand is never replaced; an item whose usual place is retired or that has no link fills nothing."
+      - "1. Controller tests (document_form_controller) with a hand-written fake of the links read: with an empty header place, choosing item A (usual place P1) on line 1 sets the header place to P1; choosing item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a place set by applyLocationScan, by the voice fill or by hand is never replaced by any of these; an item whose usual place is retired or that has no link fills nothing."
       - "2. The same for issue, write off and transfer (from_location_id only); hand over, return and opening fill nothing (one test per kind)."
       - "3. A widget test shows the line hint with both codes, the dash for a missing place, and 'look also' (ru 'Смотреть также', kk 'Тағы қараңыз') only when the second place differs from the header place."
       - "4. flutter analyze is clean and flutter test passes for apps/mobile."
