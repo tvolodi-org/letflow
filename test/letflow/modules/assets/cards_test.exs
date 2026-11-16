@@ -69,6 +69,45 @@ defmodule Letflow.Modules.Assets.CardsTest do
         prefix: schema
       )
 
+  test "DA2 card attributes persist, update and clear without changing kind", %{
+    schema: s,
+    unit: u
+  } do
+    extra = %{
+      "manufacturer" => "Almaty Machines",
+      "asset_type" => "Lathe",
+      "model" => "M16",
+      "type" => "Universal",
+      "brand" => "AM",
+      "category" => "Industrial",
+      "sort" => "First",
+      "serial_number" => "SN-7",
+      "passport_number" => "PASS-7",
+      "useful_life_months" => 120,
+      "commissioning_date" => "2026-03-02"
+    }
+
+    assert {:ok, card} = Cards.create_card(s, attrs(u, "DA2", extra), opts())
+    assert Map.take(card, Map.keys(extra)) == extra
+    assert card["kind"] == "fixed"
+    assert {:ok, changed} = Cards.update_card(s, card["record_id"], %{"model" => "M17"}, opts())
+    assert changed["model"] == "M17" and changed["manufacturer"] == extra["manufacturer"]
+    assert {:ok, cleared} = Cards.update_card(s, card["record_id"], %{"model" => nil}, opts())
+    refute Map.has_key?(cleared, "model")
+    assert {:ok, _} = Cards.create_card(s, attrs(u, "DA2-LEGACY"), opts())
+
+    for bad <- ["not-a-date", "2026-02-30", 7] do
+      assert {:error, {:field_invalid, "commissioning_date"}} =
+               Cards.update_card(s, card["record_id"], %{"commissioning_date" => bad}, opts())
+
+      assert {:error, {:field_invalid, "commissioning_date"}} =
+               Cards.create_card(s, attrs(u, "DA2-BAD", %{"commissioning_date" => bad}), opts())
+    end
+
+    assert {:error, {:record_payload_invalid, _}} =
+             Cards.update_card(s, card["record_id"], %{"useful_life_months" => "many"}, opts())
+  end
+
   test "R-1: keys outside the allow-list are refused", %{schema: s, unit: u} do
     assert {:error, {:field_not_allowed, "active"}} =
              Cards.create_card(s, attrs(u, "R1", %{"active" => false}), opts())

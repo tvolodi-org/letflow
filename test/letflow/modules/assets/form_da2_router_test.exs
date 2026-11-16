@@ -97,6 +97,57 @@ defmodule Letflow.Modules.Assets.FormDa2RouterTest do
   defp safe_name(inventory, ext),
     do: String.replace(inventory <> "_DA-2", ~r/[^A-Za-z0-9._-]/, "_") <> "." <> ext
 
+  test "DA2 new attributes survive commissioning and print in ru and kk PDF and DOCX", ctx do
+    attrs = %{
+      "inventory_number" => "DA2-2017",
+      "name" => "Lathe",
+      "kind" => "fixed",
+      "manufacturer" => "DA2 Works",
+      "asset_type" => "Lathe",
+      "model" => "M16",
+      "type" => "Bench",
+      "brand" => "AM",
+      "category" => "Tool",
+      "sort" => "First",
+      "serial_number" => "SN-2017",
+      "passport_number" => "PASS-17",
+      "useful_life_months" => 120,
+      "commissioning_date" => "2026-03-02",
+      "idempotency_key" => Ecto.UUID.generate()
+    }
+
+    created = D.request(:post, "/cards", ctx.tok_a, attrs) |> D.status!(201)
+    card = created["record_id"]
+    assert is_binary(card)
+    ctx = %{ctx | ma: %{ctx.ma | fixed: card}}
+    D.commission!(ctx)
+
+    for lang <- ~w(ru kk), format <- ~w(pdf docx) do
+      conn = print(ctx, card, "form=da2&format=#{format}&lang=#{lang}")
+      assert conn.status == 200
+
+      text =
+        if format == "pdf",
+          do: Enum.join(PdfProbe.items(conn.resp_body), "\n"),
+          else: docx_text(conn)
+
+      for value <- [
+            "DA2 Works",
+            "Lathe, M16, Bench, AM, Tool, First",
+            "SN-2017",
+            "PASS-17",
+            "120",
+            "02.03.2026"
+          ] do
+        assert text =~ value, "missing #{value} in #{lang} #{format}"
+      end
+    end
+
+    foreign = print(ctx, card, "form=da2&format=docx", ctx.tok_b)
+    assert foreign.status == 404
+    refute foreign.resp_body =~ "DA2 Works"
+  end
+
   describe "R1 docx" do
     test "ru: the stored facts are on the form", ctx do
       {card, ctx} = commissioned!(ctx)
