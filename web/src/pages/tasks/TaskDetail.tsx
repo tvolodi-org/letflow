@@ -22,6 +22,7 @@ import { useReferenceLabels, type ReferenceIds } from '@/lib/references/useRefer
 import { formatDateTimeInZone } from '@/i18n/format'
 import { TASKS_TIME_ZONE } from './taskTimeZone'
 import { actionKind, classify } from './taskInboxModel'
+import { fromSide, hasTwoSides, sumQuantities, toSide } from './taskParties'
 import { taskErrorText } from './taskErrors'
 import type { TaskMessages } from './taskMessages'
 import { useTaskContexts, type TaskDoc } from './useTaskDocument'
@@ -29,10 +30,11 @@ import type { UiLocale } from '@/i18n/uiLocaleStore'
 
 function docIds(doc: TaskDoc | null): ReferenceIds {
   if (!doc) return {}
-  const orgUnits = [doc.orgUnitId].filter((x): x is string => !!x)
+  const orgUnits = [doc.orgUnitId, doc.toOrgUnitId].filter((x): x is string => !!x)
   const locations = [doc.locationId, doc.fromLocationId, doc.toLocationId, ...doc.locationIds].filter((x): x is string => !!x)
   return {
     org_unit: orgUnits,
+    org_employee: [doc.responsibleId, doc.fromResponsibleId, doc.toResponsibleId].filter((x): x is string => !!x),
     location_node: [...locations, ...doc.lines.map((l) => l.locationId).filter((x): x is string => !!x)],
     catalog_item: doc.lines.map((l) => l.catalog_item_id).filter((x) => x !== ''),
     catalog_uom: doc.lines.map((l) => l.catalog_uom_id).filter((x) => x !== ''),
@@ -56,10 +58,14 @@ function DocumentSummary({ doc, m, refMsg, label, locale, issuer }: {
   const isAsset = doc.typeKey?.startsWith('assets_') === true
   const kindWord = refMsg.docType[doc.type === 'count' ? 'count' : (doc.typeKey ?? `stock_${doc.kind}`)] ?? doc.kind
   rows.push([m.number, doc.number], [m.kind, kindWord], [m.state, m.states[doc.state] ?? doc.state])
-  if (doc.orgUnitId) rows.push([m.orgUnit, label('org_unit', doc.orgUnitId)])
-  if (doc.locationId) rows.push([m.location, label('location_node', doc.locationId)])
-  if (doc.fromLocationId) rows.push([m.from, label('location_node', doc.fromLocationId)])
-  if (doc.toLocationId) rows.push([m.to, label('location_node', doc.toLocationId)])
+  if (hasTwoSides(doc)) {
+    // transfer / handover: whole parties, from whom to whom (org unit, location, person)
+    rows.push([m.from, fromSide(doc, label)], [m.to, toSide(doc, label)])
+  } else {
+    if (doc.orgUnitId) rows.push([m.orgUnit, label('org_unit', doc.orgUnitId)])
+    if (doc.locationId) rows.push([m.location, label('location_node', doc.locationId)])
+    if (doc.responsibleId) rows.push([m.responsible, label('org_employee', doc.responsibleId)])
+  }
   if (doc.locationIds.length > 0) rows.push([m.location, doc.locationIds.map((id) => label('location_node', id)).join(', ')])
   if (doc.eventTime) rows.push([m.created, fmt(doc.eventTime, locale)])
   if (doc.plannedStart && doc.plannedEnd) rows.push([m.plannedPeriod, `${fmt(doc.plannedStart, locale)} – ${fmt(doc.plannedEnd, locale)}`])
@@ -101,6 +107,12 @@ function DocumentSummary({ doc, m, refMsg, label, locale, issuer }: {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr data-testid="task-document-totals">
+                <th scope="row" colSpan={isAsset ? 2 : 3}>{m.totalLines}: {doc.lines.length}. {m.totalQuantity}</th>
+                <td className="is-num">{formatQuantity(sumQuantities(doc.lines.map((l) => l.quantity)), locale)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
