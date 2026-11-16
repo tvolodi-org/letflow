@@ -40,7 +40,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
 
   # The upgrade pairs with a test behind them: {module, old version, fixture, current version}.
   @pairs [
-    {"assets", "0.28.0", "assets_0_28_0.json", "0.29.0"},
+    {"assets", "0.28.0", "assets_0_28_0.json", "0.30.0"},
     {"catalog_items", "0.2.0", "catalog_items_0_2_0.json", "0.5.0"},
     {"locations", "0.4.0", "locations_0_4_0.json", "0.5.0"},
     {"stock", "0.10.0", "stock_0_10_0.json", "0.17.0"},
@@ -52,7 +52,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   # The current version each module's upgrade test was last run for (G1). A first release has no
   # previous pack and is pinned as such.
   @tested %{
-    "assets" => "0.29.0",
+    "assets" => "0.30.0",
     "catalog_items" => "0.5.0",
     "codes" => "0.6.0",
     "locations" => "0.5.0",
@@ -196,7 +196,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
 
     report = upgrade!(ctx, "assets")
     assert report["from_version"] == "0.28.0"
-    assert report["to_version"] == "0.29.0"
+    assert report["to_version"] == "0.30.0"
 
     assert {:ok, unchanged} =
              Letflow.Modules.ReadApi.lookup(ctx.schema, old["record_id"], ["assets_card"])

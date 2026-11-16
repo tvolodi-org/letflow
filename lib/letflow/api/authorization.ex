@@ -156,6 +156,10 @@ defmodule Letflow.Api.Authorization do
     under `/documents/official-form-templates`; TENANT_ADMIN by the derived tenant-scope rule,
     PLATFORM_ADMIN by the catch-all (no false clause, unlike `:ApprovalRulesManage`); not in
     `grantable/0` (the tenant-defined roles of 0088 are not built).
+  * `:PhotosAdd` and `:PhotosDelete` (T-2041, photos P2) — **not** route-level. Read in-handler by
+    `Letflow.Modules.Assets.CardPhotos`; the gallery routes themselves are keyed `AssetsRead`.
+    Tenant scope; TENANT_ADMIN by the derived rule and the platform tenant's PLATFORM_ADMIN by the
+    catch-all. Non-assignable: not in `grantable/0`; other owner kinds reuse the atoms in P4.
   * `:TasksReassignRouted` (roles stage 0 S0-4) — **not** route-level. Read in-handler by
     `Letflow.Tasks.authorize_reassign/3` (`POST /tasks/:id/reassign` of a ROLE- or GROUP-routed task).
     Held by TENANT_ADMIN only; an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
@@ -421,6 +425,8 @@ defmodule Letflow.Api.Authorization do
           | :DataExport
           | :ApprovalRulesManage
           | :OfficialFormTemplatesManage
+          | :PhotosAdd
+          | :PhotosDelete
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -501,6 +507,8 @@ defmodule Letflow.Api.Authorization do
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
           | :OfficialFormTemplatesManage
+          | :PhotosAdd
+          | :PhotosDelete
           | :SolutionOverridesManage
           | :EntitiesExtensionsManage
           | :IntegrationMappingsManage
@@ -625,7 +633,10 @@ defmodule Letflow.Api.Authorization do
     # T-1986 four-eyes switch (docs/design/four-eyes-switch.md, D-144): switch the four-eyes rule of a process step on or off. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2); non-assignable.
     :ApprovalRulesManage,
     # T-2003 official-form templates S4b (decision 0089 D5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN through the derived rule and the catch-all; non-assignable.
-    :OfficialFormTemplatesManage
+    :OfficialFormTemplatesManage,
+    # T-2041 photos P2 (docs/design/photos.md 5.5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN by the derived rule and the catch-all; read in-handler by Letflow.Modules.Assets.CardPhotos; non-assignable.
+    :PhotosAdd,
+    :PhotosDelete
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -653,7 +664,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-nine core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -701,7 +712,8 @@ defmodule Letflow.Api.Authorization do
   Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`, plus T-1986's
   `:ApprovalRulesManage` (the four-eyes switch under `/approval-rules`, TENANT_ADMIN only),
   plus T-2003's `:OfficialFormTemplatesManage` (company templates of the official forms under
-  `/documents/official-form-templates`).
+  `/documents/official-form-templates`), plus T-2041's `:PhotosAdd` and `:PhotosDelete` (card photo
+  gallery writes, read in-handler by `Letflow.Modules.Assets.CardPhotos`).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by

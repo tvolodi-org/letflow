@@ -14,7 +14,7 @@ defmodule Letflow.Api.CurrenciesRouteClassesTest do
   alias Letflow.Support.RouteInventory
 
   test "C1 the permission is the fourth to last core permission, tenant scope, admins only" do
-    assert Enum.at(Authorization.core_permissions(), -4) == :CurrenciesManage
+    assert Enum.at(Authorization.core_permissions(), -6) == :CurrenciesManage
     assert Authorization.permission_scope(:CurrenciesManage) == :tenant
     assert Authorization.required_permission(:CurrenciesManage) == :CurrenciesManage
 

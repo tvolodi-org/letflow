@@ -3,6 +3,7 @@ DELETE /definitions/:id DefinitionsDelete
 DELETE /entity-type-hooks/:entity_type EntityTypeHooksManage
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
+DELETE /modules/assets/cards/:id/photos/:photo_id AssetsRead
 DELETE /modules/assets/documents/:id AssetsPost
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
@@ -31,6 +32,9 @@ GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/assets/balances AssetsRead
 GET /modules/assets/cards/:id/lock AssetsRead
+GET /modules/assets/cards/:id/photos AssetsRead
+GET /modules/assets/cards/:id/photos/:photo_id/original AssetsRead
+GET /modules/assets/cards/:id/photos/:photo_id/thumbnail AssetsRead
 GET /modules/assets/cards/:id/print AssetsRead
 GET /modules/assets/counts AssetsRead
 GET /modules/assets/counts/:id AssetsRead
@@ -110,6 +114,7 @@ GET /webhooks/subscriptions/:id/deliveries WebhookSubscriptionsManage
 PATCH /admin/services/:service_id AdminServicesManage
 PATCH /definitions/:id DefinitionsPatch
 PATCH /modules/assets/cards/:id AssetsCardWrite
+PATCH /modules/assets/cards/:id/photos/:photo_id AssetsRead
 PATCH /modules/catalog_items/lots/:id CatalogLotsWrite
 PATCH /modules/locations/nodes/:id LocationsWrite
 PATCH /modules/org/employees/:id OrgEmployeesWrite
@@ -144,6 +149,8 @@ POST /instances/:id/rebind-pins InstancesCancel
 POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
 POST /modules/assets/cards AssetsCardWrite
+POST /modules/assets/cards/:id/photos AssetsRead
+POST /modules/assets/cards/:id/photos/:photo_id/main AssetsRead
 POST /modules/assets/cards/:id/retire AssetsCardWrite
 POST /modules/assets/counts AssetsCountOrder
 POST /modules/assets/counts/:id/cancel AssetsCountOrder
@@ -267,6 +274,7 @@ POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
 PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
+PUT /modules/assets/cards/:id/photos/order AssetsRead
 PUT /modules/assets/counts/:id AssetsCountOrder
 PUT /modules/assets/counts/:id/lines/:line_no AssetsCountRecord
 PUT /modules/assets/counts/:id/result/lines/:line_no AssetsRead

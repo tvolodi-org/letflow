@@ -2,7 +2,7 @@ defmodule Letflow.Api.ApprovalRulesManageTest do
   @moduledoc """
   T-1986 (four-eyes switch, slice 1): the permission `:ApprovalRulesManage`.
 
-    * P1 the atom: second to last core permission, tenant scope, resolves to itself, both routes carry its key;
+    * P1 the atom: fourth to last core permission, tenant scope, resolves to itself, both routes carry its key;
     * P2 holders are exactly TENANT_ADMIN; PLATFORM_ADMIN is refused by the explicit false clause;
     * P3 non-assignable: not in `grantable/0`, a forged overlay grants it to no role, Catalog cannot grant it;
     * P4 the golden carries exactly nine rows, only TENANT_ADMIN true;
@@ -21,8 +21,8 @@ defmodule Letflow.Api.ApprovalRulesManageTest do
   @perm :ApprovalRulesManage
   @golden "priv/permission_matrix/effective.golden"
 
-  test "P1 second to last core permission, tenant scope, resolves to itself, both routes carry the key" do
-    assert Enum.at(Authorization.core_permissions(), -2) == @perm
+  test "P1 fourth to last core permission, tenant scope, resolves to itself, both routes carry the key" do
+    assert Enum.at(Authorization.core_permissions(), -4) == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
     assert Authorization.endpoint_policy_key("GET", "/approval-rules") == @perm

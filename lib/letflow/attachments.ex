@@ -4,9 +4,11 @@ defmodule Letflow.Attachments do
   and later evidence photos, asset-store files and problem-report screenshots, are links from an
   owner (kind + id) to a deduplicated, really deletable blob in the tenant's own schema.
 
-  No route, no permission atom, no screen in P1: the caller (a router in a later slice) decides who
-  may read or write; this module decides the owner-relative facts a caller must not get wrong (the
-  owner filter on every link lookup, the own-unlocked-photo delete rule, lock refusals, caps).
+  P1 had no route, permission atom or screen: the caller decides who may read or write; this module
+  decides the owner-relative facts a caller must not get wrong (the owner filter on every link
+  lookup, the own-unlocked-photo delete rule, lock refusals, caps). P2 (T-2041) exposes the asset
+  card gallery through `Letflow.Modules.Assets.CardPhotos`, whose routes are keyed `AssetsRead` and
+  whose writes check the core atoms `PhotosAdd` / `PhotosDelete`.
 
   ## Decisions
 
@@ -40,6 +42,7 @@ defmodule Letflow.Attachments do
   @blob_store Letflow.Attachments.BlobStore.Postgres
   @uploads_per_hour 60
   @caption_max 200
+  @caption_max_bytes 4 * @caption_max + 1024
 
   @type owner :: %{kind: String.t(), id: Ecto.UUID.t()}
   @type ctx :: %{actor_id: Ecto.UUID.t(), trace_id: String.t() | nil}
@@ -835,6 +838,14 @@ defmodule Letflow.Attachments do
   # Code points, the same unit as PostgreSQL `char_length` in the table CHECK. `String.valid?/1`
   # first: `String.to_charlist/1` raises on invalid UTF-8.
   defp normalize_caption(nil), do: {:ok, nil}
+
+  # The byte bound comes first (INV-8): the caption is untrusted input that reaches this function
+  # unbounded over HTTP (multipart parts up to the 25 MiB body cap), and the charlist below costs
+  # 16 bytes per code point. A UTF-8 code point is at most 4 bytes, so a valid caption is at most
+  # `4 * @caption_max` bytes plus the surrounding whitespace that is trimmed away.
+  defp normalize_caption(caption)
+       when is_binary(caption) and byte_size(caption) > @caption_max_bytes,
+       do: {:error, :caption_invalid}
 
   defp normalize_caption(caption) when is_binary(caption) do
     trimmed = if String.valid?(caption), do: String.trim(caption), else: nil

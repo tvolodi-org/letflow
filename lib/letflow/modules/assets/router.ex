@@ -15,6 +15,13 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
   | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool, "held": bool}` |
   | `GET /cards/:id/print[?form=da2&format=pdf\|docx&lang=ru\|kk]` (T-1924) | `AssetsRead` | `CardPrintSource.read/3`, `FormDa2.data/3`, `FormPrint.build/5 (`tenant:`)` | 200 `application/pdf` or `.docx`; 404 as an unknown card; 422 `invalid_form`, `invalid_format`, `invalid_lang`, `print_unsupported_character`, `form_template_outdated` (docx, 0089 S3) |
+  | `GET /cards/:id/photos` (T-2041, P2) | `AssetsRead` | `CardPhotos.list/1` | 200 photo list, capabilities and limits |
+  | `POST /cards/:id/photos` (multipart original, optional thumbnail and caption) | `AssetsRead` + in-handler `PhotosAdd` | `CardPhotos.upload/1` | 201 photo, 200 on replay |
+  | `GET /cards/:id/photos/:photo_id/original`, `GET .../thumbnail` | `AssetsRead` | `CardPhotos.content/2` | 200 stored bytes; 404 as an unknown photo |
+  | `PATCH /cards/:id/photos/:photo_id` (caption only) | `AssetsRead` + in-handler `PhotosAdd` | `CardPhotos.caption/1` | 200 photo |
+  | `POST /cards/:id/photos/:photo_id/main` (empty body) | `AssetsRead` + in-handler `PhotosAdd` | `CardPhotos.main/1` | 200 photo |
+  | `PUT /cards/:id/photos/order` (complete id list) | `AssetsRead` + in-handler `PhotosAdd` | `CardPhotos.order/1` | 200 photo list |
+  | `DELETE /cards/:id/photos/:photo_id` | `AssetsRead` + in-handler `PhotosDelete` (or `PhotosAdd` for one's own) | `CardPhotos.delete/1` | 204 |
 
   Card locks (T-1490): a changed `inventory_number` or `kind` of a card with a posted document is 422
   `inventory_number_locked` / `kind_locked`; `GET /cards/:id/lock` tells the screen which case it is.
@@ -135,6 +142,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.CardLocks
+  alias Letflow.Modules.Assets.CardPhotos
   alias Letflow.Modules.Assets.CardPrintSource
   alias Letflow.Modules.Assets.Cards
   alias Letflow.Modules.Assets.CountPrintSource
@@ -217,6 +225,39 @@ defmodule Letflow.Modules.Assets.Router do
       :error ->
         Response.not_found(conn)
     end
+  end
+
+  # T-2041 (photos P2): one card gallery; CardPhotos owns the guard order and refusal map.
+  authz_get "/cards/:id/photos", :AssetsRead do
+    CardPhotos.list(conn)
+  end
+
+  authz_post "/cards/:id/photos", :AssetsRead do
+    CardPhotos.upload(conn)
+  end
+
+  authz_get "/cards/:id/photos/:photo_id/original", :AssetsRead do
+    CardPhotos.content(conn, :original)
+  end
+
+  authz_get "/cards/:id/photos/:photo_id/thumbnail", :AssetsRead do
+    CardPhotos.content(conn, :thumbnail)
+  end
+
+  authz_patch "/cards/:id/photos/:photo_id", :AssetsRead do
+    CardPhotos.caption(conn)
+  end
+
+  authz_post "/cards/:id/photos/:photo_id/main", :AssetsRead do
+    CardPhotos.main(conn)
+  end
+
+  authz_put "/cards/:id/photos/order", :AssetsRead do
+    CardPhotos.order(conn)
+  end
+
+  authz_delete "/cards/:id/photos/:photo_id", :AssetsRead do
+    CardPhotos.delete(conn)
   end
 
   authz_get "/balances", :AssetsRead do

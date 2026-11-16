@@ -92,7 +92,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :CurrenciesManage,
     :DataExport,
     :ApprovalRulesManage,
-    :OfficialFormTemplatesManage
+    :OfficialFormTemplatesManage,
+    :PhotosAdd,
+    :PhotosDelete
   ]
 
   @new_permissions [

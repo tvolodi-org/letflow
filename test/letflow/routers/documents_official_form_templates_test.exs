@@ -620,7 +620,7 @@ defmodule Letflow.Routers.DocumentsOfficialFormTemplatesTest do
       assert Authorization.evaluate_access(ctx.(:TASK_WORKER), key).kind == :Deny403
 
       refute Enum.any?(Authorization.grantable() |> Map.values(), &(@perm in &1))
-      assert List.last(Authorization.core_permissions()) == @perm
+      assert Enum.at(Authorization.core_permissions(), -3) == @perm
       assert Authorization.permission_scope(@perm) == :tenant
       assert Authorization.required_permission(@perm) == @perm
     end

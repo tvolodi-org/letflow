@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.29.0,catalog_items@0.5.0,codes@0.6.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
+# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.6.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 99
-# rows: 891
+# permissions: 101
+# rows: 909
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
 AGENT_RUNNER AssetsCardWrite false module:assets -
@@ -73,6 +73,8 @@ AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER OfficialFormTemplatesManage false core -
 AGENT_RUNNER OrgEmployeesWrite false module:org -
 AGENT_RUNNER OrgStructureWrite false module:org -
+AGENT_RUNNER PhotosAdd false core -
+AGENT_RUNNER PhotosDelete false core -
 AGENT_RUNNER PlatformServicesManage false core -
 AGENT_RUNNER ProblemReportsManage false core -
 AGENT_RUNNER ProcurementLineRecord false module:procurement -
@@ -172,6 +174,8 @@ CANDIDATE NumberSequencesManage false core -
 CANDIDATE OfficialFormTemplatesManage false core -
 CANDIDATE OrgEmployeesWrite false module:org -
 CANDIDATE OrgStructureWrite false module:org -
+CANDIDATE PhotosAdd false core -
+CANDIDATE PhotosDelete false core -
 CANDIDATE PlatformServicesManage false core -
 CANDIDATE ProblemReportsManage false core -
 CANDIDATE ProcurementLineRecord false module:procurement -
@@ -271,6 +275,8 @@ PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN OfficialFormTemplatesManage true core core
 PLATFORM_ADMIN OrgEmployeesWrite true module:org core
 PLATFORM_ADMIN OrgStructureWrite true module:org core
+PLATFORM_ADMIN PhotosAdd true core core
+PLATFORM_ADMIN PhotosDelete true core core
 PLATFORM_ADMIN PlatformServicesManage true core core
 PLATFORM_ADMIN ProblemReportsManage true core core
 PLATFORM_ADMIN ProcurementLineRecord true module:procurement core
@@ -370,6 +376,8 @@ PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER OfficialFormTemplatesManage false core -
 PROCESS_DESIGNER OrgEmployeesWrite false module:org -
 PROCESS_DESIGNER OrgStructureWrite false module:org -
+PROCESS_DESIGNER PhotosAdd false core -
+PROCESS_DESIGNER PhotosDelete false core -
 PROCESS_DESIGNER PlatformServicesManage false core -
 PROCESS_DESIGNER ProblemReportsManage false core -
 PROCESS_DESIGNER ProcurementLineRecord false module:procurement -
@@ -469,6 +477,8 @@ PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR OfficialFormTemplatesManage false core -
 PROCESS_OPERATOR OrgEmployeesWrite false module:org -
 PROCESS_OPERATOR OrgStructureWrite false module:org -
+PROCESS_OPERATOR PhotosAdd false core -
+PROCESS_OPERATOR PhotosDelete false core -
 PROCESS_OPERATOR PlatformServicesManage false core -
 PROCESS_OPERATOR ProblemReportsManage false core -
 PROCESS_OPERATOR ProcurementLineRecord false module:procurement -
@@ -568,6 +578,8 @@ STOREKEEPER NumberSequencesManage false core -
 STOREKEEPER OfficialFormTemplatesManage false core -
 STOREKEEPER OrgEmployeesWrite false module:org -
 STOREKEEPER OrgStructureWrite false module:org -
+STOREKEEPER PhotosAdd false core -
+STOREKEEPER PhotosDelete false core -
 STOREKEEPER PlatformServicesManage false core -
 STOREKEEPER ProblemReportsManage false core -
 STOREKEEPER ProcurementLineRecord false module:procurement -
@@ -667,6 +679,8 @@ TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER OfficialFormTemplatesManage false core -
 TASK_WORKER OrgEmployeesWrite false module:org -
 TASK_WORKER OrgStructureWrite false module:org -
+TASK_WORKER PhotosAdd false core -
+TASK_WORKER PhotosDelete false core -
 TASK_WORKER PlatformServicesManage false core -
 TASK_WORKER ProblemReportsManage false core -
 TASK_WORKER ProcurementLineRecord false module:procurement -
@@ -766,6 +780,8 @@ TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN OfficialFormTemplatesManage true core core
 TENANT_ADMIN OrgEmployeesWrite true module:org core
 TENANT_ADMIN OrgStructureWrite true module:org core
+TENANT_ADMIN PhotosAdd true core core
+TENANT_ADMIN PhotosDelete true core core
 TENANT_ADMIN PlatformServicesManage false core -
 TENANT_ADMIN ProblemReportsManage false core -
 TENANT_ADMIN ProcurementLineRecord true module:procurement core
@@ -865,6 +881,8 @@ TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR OfficialFormTemplatesManage false core -
 TENANT_AUDITOR OrgEmployeesWrite false module:org -
 TENANT_AUDITOR OrgStructureWrite false module:org -
+TENANT_AUDITOR PhotosAdd false core -
+TENANT_AUDITOR PhotosDelete false core -
 TENANT_AUDITOR PlatformServicesManage false core -
 TENANT_AUDITOR ProblemReportsManage false core -
 TENANT_AUDITOR ProcurementLineRecord false module:procurement -
