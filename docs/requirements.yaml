@@ -55287,3 +55287,158 @@ requirements:
       - "3. A component test of the stock receipt lines with tenant currency USD shows the price and value headers with USD and no ₸; grep -n '₸' web/src/components/ui/lines/linesMessages.ts prints nothing."
       - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the card form with the open dropdown, the card facts and the receipt lines is in the task folder."
     depends_on: [REQ-824, REQ-826, REQ-827]
+  - id: REQ-829
+    title: "OQ-R4 read facade: a write handler reads one record of a manifest-declared read type by id (read/3, active?/3), no lock, no write, no raw query (decision 0073 D6, ledger note 14.6; prerequisite of ledger slice L7 master checks)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4527
+    # Source: task T-2022 (operator; Qoimeks Client 1 migration, owner decision D-143, readiness note docs/status/qoimeks-migration-readiness.md section 3 row C3 and section 1.2 row G1). Files read on origin/main: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md D6 and D-P; lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 14.6 and 17 (rows PILOT GATE and L7); lib/letflow/design/gh2590-req501-module-write-handlers.md table row F-R5, D-R.17, 4.6, 15 (OQ-R4) and 16; docs/migration/decisions/0054-process-step-writes-entity.md section "Amendment (T-1489 / assets G2): D6 handler UPDATE"; lib/letflow/entities/handler_writes.ex (create/3, update/3, next_record_id/1, dry_postings/4, the moduledoc); lib/letflow/modules/write_handler_spec.ex; lib/letflow/modules/catalog.ex (rule 10 write-handler checks); lib/letflow/modules/manifest_hash.ex; lib/letflow/modules/read_api.ex; lib/letflow/entities/record/latest.ex (get_live/3); lib/letflow/engine.ex (maybe_entity_write_timeouts/2); test/letflow/entities/handler_writes_callers_test.exs (H4); test/letflow/entities/module_write_owner_path_test.exs (public function pin); test/letflow/entities/ledger_boundaries_test.exs (T-SC-4e); test/support/platform_tenant_fixture.ex (capture_repo_queries/1).
+    description: >
+      Decision 0073 D6 keeps OQ-R4 owed: "update-kind handler writes plus the narrow read facade"; master checks
+      (item, location and unit active), expected_document_version and retired-master checks of ledger slice L7 are
+      DEPENDENT on that facade, and until it exists the ledger accepts any well-formed slot values. The update-kind
+      half is already on main: HandlerWrites.update/3 with the manifest allow-list updates (decision 0054, section
+      "Amendment (T-1489 / assets G2)", merged in #4051). This requirement delivers the other half only, the read
+      facade, as a platform primitive with no consumer. Wiring it into the stock module (L7) is a separate
+      requirement. (1) Declaration. The write-handler registration of lib/letflow/modules/write_handler_spec.ex
+      gets one more optional key, reads, a list of entity type names (default empty). The Catalog check of rule 10
+      in lib/letflow/modules/catalog.ex refuses a reads type that is neither in the handler module's own
+      manages_entity_types nor in the manages_entity_types of a module named in that module's depends_on, with
+      {:write_handler_read_not_reachable, handler_name, type}. lib/letflow/modules/manifest_hash.ex hashes reads
+      only when it is non-empty, the way it hashes updates, so no existing manifest hash changes. (2) Functions.
+      Letflow.Entities.HandlerWrites gets read(ctx, entity_type, record_id) and active?(ctx, entity_type,
+      record_id). Both re-resolve the handler's reads list from the Catalog registration on every call, never from
+      the context (as update/3 does for updates). read/3 answers {:ok, map} with the same map as
+      Letflow.Modules.ReadApi.lookup/3 (string keys record_id, entity_type and every stored field value), or
+      {:error, :not_found} for a non-uuid id, an unknown id, a record of another type and a soft-deleted record,
+      or {:error, :read_not_registered} for a type outside reads, or {:error, :invalid_write_command} for an
+      absent or forged context (the same per-call token check as create/3). active?/3 is true only when read/3
+      answers {:ok, map} and the map's active field is true; otherwise false. (3) Where it runs. Only while the
+      handler builds its Multi inside the completion transaction, which already runs under the 5 s statement
+      timeout that Letflow.Engine sets in maybe_entity_write_timeouts/2; the facade adds no SET statement of its
+      own. In a dry build (the ledger pre-step of dry_postings/4, which has no database access) read/3 makes no
+      database call and answers {:error, :dry_build}, and active?/3 answers false. (4) What it reads. Only the
+      tenant's latest-record table (entity_record_latest, Letflow.Entities.Record.Latest) in the schema ctx.prefix, by record id and type, with bound parameters: no
+      lock (no FOR UPDATE or FOR SHARE), no write, no ledger table, no other schema, no role, grant or identity
+      table. A fact read is data, never authority, and may be stale at commit (accepted, note 14.6). (5) Scans.
+      Handler files may call HandlerWrites.read/3 and HandlerWrites.active?/3 (scan H4 in
+      test/letflow/entities/handler_writes_callers_test.exs); a ledger policy file still names no Letflow module
+      but Letflow.Ledger.Policy and its own (T-SC-4e in test/letflow/entities/ledger_boundaries_test.exs), so
+      declare/2 cannot read. OUT OF SCOPE: any use by the stock or assets modules, the master checks themselves,
+      expected_document_version, retired-master checks, per-instance ledger ids (all slice L7), a read cap per
+      handler call, a list or search read, scope filtering of the read (slice L6), and a pre-transaction plan
+      phase (note 14.6, later target).
+    acceptance_criteria:
+      - "1. Declaration: a test registers fixture handlers and shows that a reads type of the handler's own module and a reads type managed by a module named in its depends_on are accepted, and that a reads type managed by a module not in depends_on is refused with {:write_handler_read_not_reachable, handler_name, type}."
+      - "2. Manifest hash: a test shows that a handler without reads (or with an empty list) has the same manifest hash as before this change, and that adding one type to reads changes the hash."
+      - "3. read/3 answers: in a real HUMAN_TASK completion of a fixture definition whose handler reads, a test shows {:ok, map} with record_id, entity_type and the stored field values for a live record of a declared type, {:error, :not_found} for a non-uuid id, an unknown uuid, a record of another type and a soft-deleted record, and {:error, :read_not_registered} for a type outside reads."
+      - "4. active?/3: in the same kind of test it is true for a live record whose active field is true, and false for a record whose active field is false, a soft-deleted record, an unknown id and a type outside reads."
+      - "5. Context: read/3 called with a HandlerContext that has no valid per-call token (outside a handler call, or forged, as test S2 of test/letflow/entities/step_source_record_id_test.exs does for next_record_id/1) answers {:error, :invalid_write_command}, and active?/3 answers false."
+      - "6. No lock, no write, one schema: a test captures with PlatformTenantFixture.capture_repo_queries/1 every statement of two otherwise equal fixture completions, one whose handler calls read/3 once and one whose handler does not, and asserts that each extra statement of the first is a SELECT on the table entity_record_latest in the schema ctx.prefix, and that none of them contains FOR UPDATE or FOR SHARE or names a table whose name starts with ledger_."
+      - "7. Dry build: a fixture handler that calls read/3 and active?/3 and builds its posting only when they answer {:error, :dry_build} and false gives {:ok, [capability]} from a direct call of HandlerWrites.dry_postings/4 (as test/letflow/engine/service_ledger_posting_test.exs calls it), and capture_repo_queries/1 around that call captures no statement."
+      - "8. Tenant isolation (INV-1): a test with two tenants shows that read/3 in a completion of tenant A answers {:error, :not_found} for the record id of a live record that exists only in tenant B."
+      - "9. Scans: scan H4 accepts HandlerWrites.read/3 and HandlerWrites.active?/3 in a handler file and still flags HandlerWrites calls of any other name or arity; the pinned public function list of HandlerWrites in test/letflow/entities/module_write_owner_path_test.exs gains active?: 3 and read: 3; and a negative control that names HandlerWrites.read in a ledger policy file is flagged by the T-SC-4e scan."
+      - "10. Documentation: the moduledoc of Letflow.Entities.HandlerWrites describes read/3 and active?/3 with the rules of description points (2) to (4), and decision 0073 gets a short amendment section stating that the read facade of D6 now exists, that the update-kind half was delivered by #4051, and that master checks, expected_document_version and retired-master checks remain owed to slice L7."
+    depends_on: [REQ-501, REQ-688]
+  - id: REQ-830
+    title: "Ledger slice L6 part 1: posting scope in the core: the run-time authority check of a posting accepts a scoped principal when the registered scope slot of every leg (both sides of a transfer, the reversed entry for a reversal) is inside the principal's units, fail closed (decision 0073 row L6, OQ-13, OQ-21)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4533
+    # Source: task T-2021 (operator; Qoimeks Client 1 migration, D-143; prio 1; QA only, nothing on production). Files read on origin/main 6104d0bcc: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D9 OQ-21 "a warehouse-scoped principal cannot post until slice L6"; Consequences slice table row L6 "scope enforcement for post/3 through the registered scope_slot, fail closed: gates the pilot" and the PILOT GATE row; Open OQ-13 "NOT DECIDED here ... until then scoped principals are refused"; section Amended (REQ-682, assets B6) S2 the scope slot is the org_unit record id compared as text, S8 row L6 "the posting rule for a transfer with a hidden side stays OQ-13", S10); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (M9 and T12: scope is checked on the old and the new value of every write path, every row, all or nothing, one generic error; NULL scope is unresolvable); lib/letflow/design/gh2657-wms-stock-ledger-core.md section 16.2 (scope recipe, the known limitation, L6 named); lib/letflow/ledger/authority.ex (check/1, check_with_read/1, check_scope/5: anything but {:ok, :all} is scoped_principal_unsupported); lib/letflow/ledger/handler_post.ex (authority/1 runs before release/1 of the deferred refusal; guard_keys/2 reads a reversal's keys with Ledger.guard_reversal/3); lib/letflow/ledger.ex (guard_reversal/3, scope_slot_name/1 of the scoped read); lib/letflow/api/scope.ex (allowed_set/2: {:ok, :all}, {:ok, :none}, {:ok, {:nodes, ids}} of live descendants, ScopeSetError); lib/letflow/modules/stock/stock.ex and lib/letflow/modules/assets/assets.ex (both ledger registrations name scope_slot "org_unit"); lib/letflow/entities/step_writes.ex (a {:ledger_denied, detail} is the uniform write_not_permitted refusal); test/letflow/ledger/scope_refusal_test.exs (T-SEC-2a, T-SEC-2b), test/support/ledger_post_fixture.ex, test/support/role_scope_grants_fixture.ex, test/support/modules/fixture_ledger_post/fixture_ledger_post.ex (scope_slot nil today). Written by the business analyst (T-2021) 2026-11-16. Not yet validated.
+    description: >
+      Decision 0073 keeps the stock module off for a customer tenant until slices L6 and L7 are done; without L6 a
+      storekeeper whose grants name some org units (not the whole tenant) cannot post at all. Today
+      Letflow.Ledger.Authority.check_with_read/1 (lib/letflow/ledger/authority.ex) refuses every principal whose
+      Letflow.Api.Scope.allowed_set/2 for the post (or reverse) atom is not {:ok, :all} with the denial
+      scoped_principal_unsupported. This part changes only that core check, in the same place and order
+      (inside the completion transaction, after the credential and role checks, before the deferred build-time
+      refusal is released by Letflow.Ledger.HandlerPost). Decision on OQ-13, in plain words for the owner: a
+      user who may post only for some units may post a movement only when every unit it touches is one of
+      theirs. A transfer, hand over or return between one of their units and a unit they cannot see is refused,
+      in both directions; the user asks someone with access to both units (or to the whole tenant) to post it.
+      Reversing an entry follows the same rule over the units of the entry being reversed. Reasons: decision
+      0051 M9 and T12 already require a scoped write to be checked on both the old and the new value, on every
+      row, all or nothing, with one generic refusal; a posting moves quantity out of one unit and into another,
+      so both sides are written; this is also the "fail closed" wording of row L6. This is the strictest
+      reading, it gives no one more than today plus their own units, and the owner may relax it later by a new
+      amendment (for example "the sending side is enough"). The rule is core and domain-neutral (decision 0073
+      Rule 7): it reads the registration's own scope_slot, so it applies to every registration that names one
+      (stock and assets both name "org_unit"); the module routes that start postings stay as they are in this
+      part (Letflow.Api.ModuleGuard still requires tenant-wide), the stock document routes are part 2 (REQ-831,
+      planned, not yet on main, drafted by the same task). Size M.
+    acceptance_criteria:
+      - "1. Rule (lib/letflow/ledger/authority.ex): when allowed_set/2 answers {:ok, {:nodes, ids}} and the capability's registration names a scope_slot, the check passes only if the scope slot value of EVERY leg of the posting is a member of ids (byte equality on the text value, as section S2 of the B6 amendment of 0073 says); for a reversal the legs checked are those of the reversed entry, read prefix- and ledger-scoped through Letflow.Ledger.guard_reversal/3 (as HandlerPost.guard_keys/2 does). {:ok, :all} passes as today. Every other case is refused, nothing is written and the ledger counts stay unchanged."
+      - "2. Denials: the @type denial of Letflow.Ledger.Authority gains exactly one atom, :scope_denied, used for: a leg whose scope slot value is not in ids, a scope slot value that is the empty string, {:ok, :none}, a Scope.ScopeSetError (fail closed, INV-8), a posting that Letflow.Ledger.Validate.posting/3 does not accept (the legs cannot be read), and a reversal whose target entry is not found.  Order: a registration WITHOUT scope_slot answers :scoped_principal_unsupported for every allowed_set/2 result except {:ok, :all} ({:ok, :none} and ScopeSetError included, as authority.ex check_scope/5 does today); the cases above answer :scope_denied only for a registration that names a scope_slot. Each surfaces as {:ledger_denied, detail}, which StepWrites turns into the one write_not_permitted refusal as today."
+      - "3. Order and non-disclosure: the scope check stays before the release of the deferred refusal, so for an out-of-scope principal a command with an invalid cause or malformed legs gives the same reason {:ledger_denied, :scope_denied} as a valid out-of-scope command (the existing assertion pattern of T-SEC-2a)."
+      - "4. Test registration: test/support/modules/fixture_ledger_post/fixture_ledger_post.ex gains one ledger registration with a scope_slot of format uuid (the existing registrations keep scope_slot nil), and test/letflow/ledger/scope_refusal_test.exs is rewritten for it with at least these cases, each asserting the result and Fx.ledger_counts/1: (a) a grant scoped to unit U, a receipt on U: the entry is written; (b) a grant on a parent P, a receipt on a child C of P: written; (c) a receipt on a unit H outside the grant: {:ledger_denied, :scope_denied}, counts unchanged; (d) a two-sided posting U to H and one H to U: both refused; U to U2 with both granted: written; (e) a reversal of an entry with a leg on H: refused; a reversal of an entry whose legs are all on granted units: written; (f) a scoped principal on a registration without scope_slot: {:ledger_denied, :scoped_principal_unsupported}; (g) a tenant-wide TENANT_ADMIN posts on H and on U as before; (h) a grant that names no live unit: refused :scope_denied."
+      - "5. Cross-tenant negative (INV-1, INV-10): a test with two committed tenants A and B, where the completer in B holds a grant scoped to a unit of B, and a posting in B whose scope slot value is the id of a unit of A: refused {:ledger_denied, :scope_denied}, and the ledger counts of both schemas are unchanged. The allowed set is built only from the capability's prefix (Scope.load_grants/2 with cap.prefix), never from a command field."
+      - "6. Unchanged behaviour: test/letflow/ledger/security_test.exs, handler_post_test.exs, credential_callers_test.exs, posting_guard_test.exs and test/letflow/api/module_guard_test.exs pass without edits to their assertions; Letflow.Api.ModuleGuard and the module routers are not changed by this part; mix letflow.check_boundaries passes (Rule 7 neutral vocabulary and Rule 7b: no module name in the changed core files)."
+      - "7. Records: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md gets a new section at its end, 'Amended by REQ-830 (slice L6 part 1, OQ-13)', that states the rule of criteria 1 and 2, the OQ-13 decision in the plain words of this entry's description with its reasons (0051 M9 and T12), that it applies to every registration with a scope_slot (stock and assets), and that the stock document routes follow in part 2 (REQ-831); no earlier text of 0073 is edited. The moduledoc of Letflow.Ledger.Authority (point 4) and the 'Known limitation' bullet of section 16.2 of lib/letflow/design/gh2657-wms-stock-ledger-core.md are brought in step."
+      - "8. mix letflow.check.static passes, and the test files of criteria 4 to 6 pass when run by path."
+    depends_on: [REQ-685, REQ-693, REQ-682, REQ-616]
+  - id: REQ-831
+    title: "Ledger slice L6 part 2: stock document routes for a scoped storekeeper: save, replace, discard, issue, check, post, reverse and cancel accept a principal whose post or reverse grant names units when every org unit of the document is one of them, else the not-found answer; the posting instance carries the document's org unit as scope node (decision 0073 row L6, OQ-13)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4532
+    # Source: task T-2021 (as REQ-830). Files read on origin/main 6104d0bcc: lib/letflow/modules/stock/access.ex (check/2 delegates to ModuleGuard.check/2; moduledoc "In phase B scoped posting is not built (L6), so a scoped principal gets the same 404"); lib/letflow/api/module_guard.ex (check/2 requires Scope.allowed_set/2 == {:ok, :all}; also used by assets); lib/letflow/modules/stock/router.ex (with_access/3; the write routes POST /documents, PUT /documents/:id, DELETE /documents/:id, POST /documents/:id/issue, /check, /post under :post and /reverse, /cancel under :reverse; GET /documents and /documents/:id under :read; voice draft routes under :post; counts routes in count_posting_write); lib/letflow/modules/stock/documents/kinds.ex (header unit keys: org_unit_id for every kind, to_org_unit_id for transfer and hand_over, from_org_unit_id for return; opening has org_unit_id); lib/letflow/modules/stock/documents/posting.ex (start_post/4, start_reversal/5 and start/7 call Letflow.Engine.create/2 without scope_node_id); lib/letflow/engine.ex (scope_node_id must name a live scope node, else invalid_scope_node); docs/roles.md (STOREKEEPER section; "Known limitation: scoped approvers": under enforcement a scoped caller completes a task only with a TASK_WORKER grant covering the task's scope node, and a task without a scope node is invisible to a scoped caller); lib/letflow/routers/tasks.ex (ScopeGate.scope_set_for_holders/3 on the complete route); lib/letflow/api/scope_gate.ex (honours the tenant's scope_enforcement mode); test/letflow/modules/stock/documents_router_test.exs (A-TEN-1: a scoped admin of another tenant gets the no-module 404 on every route), test/letflow/api/module_guard_test.exs, lib/letflow/tasks.ex (authorize_completion/3: a ROLE-routed task needs the routing role); priv/modules/stock/generate_pack.exs (posting HUMAN_TASKs routed to TENANT_ADMIN). Rework after gate attempt 1, also read: lib/letflow/api/scope/enforce.ex (check/3, the before-send backstop), lib/letflow/api/route_scope.ex (class_of/1, @expected_resolver_routes), lib/letflow/api/scope_gate.ex (scope_set/2, the marker), lib/letflow/routers/documents.ex and lib/letflow/documents/scope_resolver.ex (the resolver pattern), lib/letflow/api/authorized_router.ex (scope: option), test/support/scope_on_fixture.ex (store_mode!/2), test/fixtures/route_scope/tenant_wide_default_routes.txt. Written by the business analyst (T-2021) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of slice L6 (part 1 is REQ-830, planned, not yet on main). A storekeeper whose StockPost or
+      StockReverse grant names some org units must be able to prepare, issue and post the stock documents of
+      those units through the stock routes. Today Letflow.Modules.Stock.Access.check/2
+      (lib/letflow/modules/stock/access.ex) uses Letflow.Api.ModuleGuard.check/2, which answers :error (the
+      router's not-found 404) for anyone who is not tenant-wide. This part (1) adds
+      Letflow.Api.ModuleGuard.check_scoped/2, which is check/2 except that it also accepts {:ok, {:nodes, ids}}
+      and returns the set in the access map (scope :all or {:nodes, ids}); check/2 itself and the assets module
+      are unchanged; (2) makes Stock.Access.check/2 use check_scoped/2 for :post and :reverse (:read keeps
+      check/2); (3) in the stock router checks, for a scoped caller, every org unit id of the document (the
+      header keys org_unit_id, to_org_unit_id and from_org_unit_id that its kind has, Kinds) against the set: on
+      POST /documents the parsed body; on PUT the stored document and the new body (decision 0051 M9, old and
+      new value); on DELETE, issue, check, post, reverse and cancel the stored document. A unit outside the set
+      gives the same not-found answer as an unknown document, before any master check or write (INV-5); this is
+      the OQ-13 rule of REQ-830 applied at the route, so a transfer to or from a unit the user cannot see is
+      refused here already. (4) Posting.start_post/4 and start_reversal/5 start their instance with scope_node_id
+      set to the document's header org_unit_id, so that the post task carries the unit as its scope node, which a scoped caller needs to see it under
+      enforcement (docs/roles.md, "Known limitation: scoped approvers"); instances
+      started before this change keep no scope node (visible to tenant-wide users only). (5) Route scope class:
+      the eight write routes declare no scope: class today, so they are default-sourced
+      (test/fixtures/route_scope/tenant_wide_default_routes.txt), which Letflow.Api.RouteScope treats exactly as
+      :tenant_wide, and in a tenant whose scope enforcement is `on` Letflow.Api.Scope.Enforce.check/3 answers a
+      scoped caller the uniform 403 before the handler runs. This part declares on each of the eight
+      `scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}}`, the pattern of the two document hold
+      routes in lib/letflow/routers/documents.ex; the new pure function Letflow.Modules.Stock.Access.document_scope/1
+      answers {:node, org_unit_id} for a document map whose org_unit_id is a non-empty string and :unresolvable
+      for anything else (as Letflow.Documents.ScopeResolver.document_scope/1 does). Each of the eight handlers
+      calls Letflow.Api.ScopeGate.scope_set/2 with its own policy key (:StockPost or :StockReverse) before its
+      first read and continues with the conn it returns, so that its 2xx answer carries the marker Enforce's
+      before-send check requires (without it the 2xx becomes the 500 of scope_not_applied). The unit decision
+      itself uses the set Stock.Access returns (it reads Scope.allowed_set/2 in every enforcement mode, as
+      ModuleGuard and the ledger core do), so the eight routes answer the same in modes off, shadow and on.
+      Knock-on edits: the eight lines leave tenant_wide_default_routes.txt and are added to
+      @expected_resolver_routes of lib/letflow/api/route_scope.ex; the `length(snapshot) ==` pins in
+      test/letflow/api/route_scope_resolver_test.exs, route_scope_self_service_test.exs and
+      tasks_route_classes_test.exs move by -8 from the value on origin/main at implement time (293 at the time of
+      writing), each with a comment line naming REQ-831. The other stock routes keep no declared class and stay
+      tenant-wide. Not in this part: the
+      read routes GET /documents and GET /documents/:id (a scoped document list is later work under D-067), the
+      opening kind (a scoped caller gets the not-found answer for it), the counts routes and the voice draft
+      routes (all stay tenant-wide), and the asset module routes. Not decided here, for the owner: the post and reversal
+      HUMAN_TASKs of the stock processes are routed to the role TENANT_ADMIN (priv/modules/stock/generate_pack.exs,
+      process_definition), and Letflow.Tasks.authorize_completion/3 refuses a caller outside that routing role
+      (assignee_role_not_held), so through POST /tasks/:id/complete only a TENANT_ADMIN group member completes them
+      today, scoped or not; who the posting task is routed to is a separate change. Size M.
+    acceptance_criteria:
+      - "1. Letflow.Api.ModuleGuard.check_scoped/2 exists with the conditions of check/2 (interactive OIDC user, a role allowing the permission with the overlay, uuid user id, ScopeSetError is :error) and answers {:ok, %{prefix: p, actor_id: a, scope: :all}} or {:ok, %{prefix: p, actor_id: a, scope: {:nodes, ids}}}; {:ok, :none} is :error. test/letflow/api/module_guard_test.exs gains tests for the three answers and keeps its check/2 assertions unchanged."
+      - "2. Letflow.Modules.Stock.Access.check/2 uses check_scoped/2 for :post and :reverse and check/2 for :read; a test shows a scoped principal gets {:ok, _} with its set for :post and :error for :read."
+      - "3. Every document write route (POST /documents, PUT /documents/:id, DELETE /documents/:id, POST /documents/:id/issue, /check, /post, /reverse, /cancel) is tested for a STOREKEEPER whose grant (a role_scope_grants row on the user through Letflow.Support.RoleScopeGrantsFixture) is scoped to unit U: with a receipt (or issue) of U the route answers as it does for a tenant-wide caller; with a document of a unit H outside the grant it answers 404 with a body equal (trace_id removed) to the answer for an unknown document id, and D.counts/1 of the schema is unchanged. Every case runs twice, once in a tenant whose stored scope enforcement mode is `on` and once with mode `off` (Letflow.Support.ScopeOnFixture.store_mode!/2), and gives the same status and body in both; in `on` no accepted answer is the 500 of scope_not_applied."
+      - "4. Two-sided kinds (test/letflow/modules/stock/two_side_router_test.exs or a new file next to it): for the scoped storekeeper of criterion 3, a transfer U to U2 with both units granted is saved and issued and POST /documents/:id/post starts its posting instance; a transfer U to H and a return from H to U are refused 404 on save; a PUT that moves a saved U-to-U2 transfer to H is refused 404 and the stored document is unchanged (read back by a tenant-wide caller). These cases run with the stored mode `on`."
+      - "5. Posting instance and the core check together (Sandbox auto, committed tenant; the stock definitions are activated first by a tenant-wide admin, since a storekeeper does not hold DefinitionsActivate, Posting.ensure_active/3): the scoped storekeeper of criterion 3 saves and issues a receipt of U and starts its post through POST /documents/:id/post; the started instance's scope_node_id equals the receipt's org_unit_id; completing its post task with Letflow.Engine.complete_task/3 as that storekeeper with credential :oidc writes the ledger entry, and GET /documents/:id read by a tenant-wide caller shows posted_at. The pending post task's scope_node_id (copied from the instance, docs/roles.md \"Known limitation: scoped approvers\") equals the same org_unit_id."
+      - "6. Unchanged for tenant-wide callers and other routes: the existing tests of documents_router_test.exs, two_side_router_test.exs and opening_router_test.exs pass without edits to their assertions (A-TEN-1 included: a scoped admin of another tenant still gets the no-module 404 on every route); a scoped caller is refused on GET /documents, GET /documents/:id and POST /counts/:id/post (routes that keep no declared class): with the stored mode `on` the answer is the 403 `insufficient permissions` of Letflow.Api.Scope.Enforce, with mode `off` the 404 not-found answer of Stock.Access (one test per route and mode); a write route for an opening document answers a scoped caller 404 in both modes (the route has the resolver class, the handler refuses the opening kind)."
+      - "7. Cross-tenant negative (INV-10): the scoped storekeeper of tenant B sends each route of criterion 3 with the id of a document of tenant A whose org unit id equals no unit of B: 404 with the unknown-document body; the counts of both schemas are unchanged. Run with the stored mode `on` in tenant B."
+      - "8. Route class: the route walk of Letflow.Api.RouteScope over the real route table reports no error (test/letflow/api/route_scope_resolver_test.exs); the eight write routes have class {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} with source :declared; function_exported?(Letflow.Modules.Stock.Access, :document_scope, 1) is true; tenant_wide_default_routes.txt no longer has their eight lines and still has the GET /modules/stock/documents, GET /modules/stock/documents/:id and GET /modules/stock/documents/:id/print lines; the three `length(snapshot) ==` pins are 8 lower than on origin/main at implement time; a test shows document_scope/1 gives {:node, id} for a map with org_unit_id id and :unresolvable for a map without it and for an empty string."
+      - "9. Docs in step: the moduledoc of Letflow.Modules.Stock.Access and of Letflow.Api.ModuleGuard describe the scoped write rule; decision 0073 gets 'Amended by REQ-831 (slice L6 part 2)' at its end stating which routes accept a scoped caller, which stay tenant-wide (reads, opening, counts, voice) and the scope node of the posting instance, and that with REQ-830 slice L6 is done; no earlier text of 0073 is edited. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-830, REQ-712, REQ-713, REQ-721, REQ-531]
