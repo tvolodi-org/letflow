@@ -306,9 +306,97 @@ defmodule Letflow.PwaWebHostingTest do
       assert list =~ "build-info.json"
       assert File.exists?(Path.join(out, "SHA256SUMS"))
     end
+
+    defp stamped_pkg(ctx, index) do
+      dir = good_build(tmp(ctx, "b"))
+      put(dir, "index.html", index)
+      out = tmp(ctx, "out")
+      sha = "abcdef0123456789abcdef0123456789abcdef01"
+
+      {o, code} =
+        sh(@package, [dir, out], [{"GITHUB_SHA", sha}, {"PWA_API_BASE_URL", "https://a.example"}])
+
+      {dir, out, sha, o, code}
+    end
+
+    defp tar_member(out, sha, name) do
+      tar = Path.join(out, "letflow-pwa-web-#{String.slice(sha, 0, 12)}.tar")
+      {body, 0} = System.cmd("tar", ["-xOf", tar, "./" <> name])
+      body
+    end
+
+    test "P7 relative references get ?v=<sha12>", ctx do
+      index =
+        ~s(<base href="/">\n<link rel="manifest" href="manifest.json">\n<script id="z" src="zxing/zxing-reader.iife.js"></script>\n<script src="zxing/zxing-config.js"></script>\n<script src="flutter_bootstrap.js" async></script>)
+
+      {_dir, out, sha, o, code} = stamped_pkg(ctx, index)
+      assert code == 0, o
+      v = String.slice(sha, 0, 12)
+      html = tar_member(out, sha, "index.html")
+
+      for f <-
+            ~w(flutter_bootstrap.js zxing/zxing-reader.iife.js zxing/zxing-config.js manifest.json) do
+        assert html =~ ~s(="#{f}?v=#{v}")
+      end
+
+      info = out |> Path.join("build-info.json") |> File.read!() |> Jason.decode!()
+      assert info["sha"] == sha
+      assert tar_member(out, sha, "build-info.json") |> Jason.decode!() |> Map.get("sha") == sha
+    end
+
+    test "P8 absolute and fragment references stay; index.html is not renamed", ctx do
+      index =
+        ~s(<script src="https://example.org/a.js"></script><link href="#x"><link href="//cdn.example/b.css"><script src="/abs.js"></script><script src="flutter_bootstrap.js"></script>)
+
+      {_dir, out, sha, o, code} = stamped_pkg(ctx, index)
+      assert code == 0, o
+      html = tar_member(out, sha, "index.html")
+      assert html =~ ~s(src="https://example.org/a.js")
+      assert html =~ ~s(href="#x")
+      assert html =~ ~s(href="//cdn.example/b.css")
+      assert html =~ ~s(src="/abs.js")
+      assert html =~ "flutter_bootstrap.js?v="
+    end
+
+    test "P9 a relative reference holding ? exits 1 and writes no tar", ctx do
+      {_dir, out, _sha, o, code} =
+        stamped_pkg(ctx, ~s(<script src="flutter_bootstrap.js?x=1"></script>))
+
+      assert code == 1
+      assert o =~ "flutter_bootstrap.js?x=1"
+      assert Path.wildcard(Path.join(out, "*.tar")) == []
+    end
+
+    test "P10 SHA256SUMS and index.html.gz match the stamped index.html", ctx do
+      index =
+        ~s(<base href="/">\n<script src="flutter_bootstrap.js" async></script>) <>
+          String.duplicate("<!-- padding padding padding -->\n", 50)
+
+      {dir, _out, _sha, o, 0} = stamped_pkg(ctx, index)
+      assert o =~ "wrote"
+      assert File.read!(Path.join(dir, "index.html")) =~ "flutter_bootstrap.js?v="
+
+      assert {_, 0} =
+               System.cmd("sha256sum", ["-c", "SHA256SUMS"], cd: dir, stderr_to_stdout: true)
+
+      {plain, 0} = System.cmd("gunzip", ["-c", Path.join(dir, "index.html.gz")])
+      assert plain == File.read!(Path.join(dir, "index.html"))
+    end
   end
 
   describe "N: nginx example and runbook" do
+    test "N4 runbook documents ?v=, the cache rule and Install and update" do
+      rb = File.read!(@runbook)
+      assert rb =~ "?v="
+
+      assert rb =~
+               "no cache in front of the PWA may keep a file longer than the origin's Cache-Control allows"
+
+      assert rb =~ "## Install and update"
+      assert rb =~ "Add to Home Screen"
+      assert rb =~ "Install app"
+    end
+
     test "N1 nginx example carries the header rules" do
       conf = File.read!(@nginx)
       assert conf =~ "location /fonts-fallback/"

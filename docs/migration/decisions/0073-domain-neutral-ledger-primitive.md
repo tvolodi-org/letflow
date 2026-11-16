@@ -360,3 +360,7 @@ reading and gives no one more than today plus their own units; the owner may rel
 `scope_slot` (stock and assets both name `org_unit`). The module routes that start postings are unchanged in this part
 (`Letflow.Api.ModuleGuard` still requires tenant-wide); the stock document routes for a scoped storekeeper follow in
 part 2 (REQ-831).
+
+## Amended by 0090 (negative balances per tenant, REQ-833)
+
+D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).
