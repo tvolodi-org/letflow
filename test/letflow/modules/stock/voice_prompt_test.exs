@@ -29,7 +29,11 @@ defmodule Letflow.Modules.Stock.VoicePromptTest do
           "переместил",
           "ауыстырдым",
           "инвентаризация",
-          "түгендеу"
+          "түгендеу",
+          "получил",
+          "отпустил",
+          "списал",
+          "по факту"
         ] do
       assert p =~ s
     end
@@ -62,5 +66,63 @@ defmodule Letflow.Modules.Stock.VoicePromptTest do
   test "VP-5 empty catalog still builds" do
     p = VoicePrompt.build([], [])
     assert p =~ "<locations>\n</locations>\n<skus>\n</skus>"
+  end
+
+  @letter_name_line "Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, икс X, зэт Z."
+
+  @letter_pairs [
+    "а A",
+    "бэ B",
+    "цэ/си C",
+    "дэ D",
+    "е E",
+    "эф F",
+    "гэ/жэ G",
+    "аш H",
+    "и I",
+    "ка K",
+    "эл L",
+    "эм M",
+    "эн N",
+    "о O",
+    "пэ P",
+    "ку Q",
+    "эр R",
+    "эс S",
+    "тэ T",
+    "у U",
+    "вэ V",
+    "икс X",
+    "зэт Z"
+  ]
+
+  test "VP-6 letter-name line is in the prompt exactly, all 23 pairs present, before <locations>" do
+    for p <- [VoicePrompt.build(@items, @locations), VoicePrompt.build([], [])] do
+      assert p =~ @letter_name_line
+
+      for pair <- @letter_pairs do
+        assert p =~ pair, "expected pair #{inspect(pair)} in prompt"
+      end
+
+      {letter_idx, _} = :binary.match(p, @letter_name_line)
+      {loc_idx, _} = :binary.match(p, "<locations>")
+      assert letter_idx < loc_idx, "letter-name line must appear before <locations>"
+    end
+  end
+
+  test "VP-7 zone rule and spelled-article hint are in the prompt" do
+    p = VoicePrompt.build(@items, @locations)
+
+    assert p =~ "L left/слева/сол жақ"
+    assert p =~ "R right/справа/оң жақ"
+    assert p =~ "D straight ahead/прямо/тура"
+    assert p =~ ~s("слева а три")
+    assert p =~ ~s("эл а три")
+    assert p =~ "LA3"
+    assert p =~ ~s("сол жақ эн екі")
+    assert p =~ "LN2"
+    assert p =~ "ST-EL350"
+    assert p =~ ~s("а один")
+    assert p =~ "A-01"
   end
 end

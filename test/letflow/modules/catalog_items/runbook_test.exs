@@ -150,10 +150,19 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
   end
 
   test "P3: item 23 names the dimension, the three attributes and the version" do
-    {23, text} = List.last(items())
+    {23, text} = Enum.find(items(), &(elem(&1, 0) == 23))
 
     for word <-
           ~w(dimension density_kg_per_l net_mass_kg net_volume_l MES-U1 0.4.0 field_invalid) do
+      assert text =~ word, word
+    end
+  end
+
+  test "P4: item 24 names the usual place, its import errors and the version" do
+    {24, text} = List.last(items())
+
+    for word <-
+          ~w(default_location_id 0.5.0 reference_not_found reference_inactive home_loc alt_loc) do
       assert text =~ word, word
     end
   end

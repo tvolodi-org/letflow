@@ -31,6 +31,15 @@ defmodule Letflow.Modules.Codes do
   UAT assumption), `assign_code/5` (targets `location_node`, `catalog_item`, `catalog_lot`),
   `release_code/3`, `retire_code/3` and `change_code_value/4`. The routes call them.
 
+  ## Import (G12 part 1, GH #4569 / REQ-850, version 0.5.0)
+
+  `code_tag` has an import function (`import_code_tag/3`, `Letflow.Modules.Codes.Import`) reached through
+  the core route `POST /api/v1/entities/records/code_tag/import` (TENANT_ADMIN; dry run and atomic as for
+  every managed import). A code is identified by its value, not by an external ref: a new value creates a
+  `not_assigned` code and one `code.received` audit entry as `receive_codes/3` does; the same value with the
+  same kind is unchanged; the same value with another kind is `value_taken`; a `status` cell is
+  `field_not_allowed`. `code_assignment` and `code_value_change` have no import.
+
   ## Scope (D-067, decision 0051 M4)
 
   All three types are `:tenant_wide` in `scope_declarations`, immutable once set. `resolve/2` and the
@@ -70,9 +79,9 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.4.0",
+    version: "0.5.0",
     # REQ-770: step-less module, every version since 0.1.0 differs only in permissions and routes
-    # (entity types and pack.json are unchanged), so any 0.1.0..0.4.0 install upgrades in place (T-1485).
+    # (entity types and pack.json are unchanged), so any 0.1.0..0.5.0 install upgrades in place (T-1485).
     min_upgradable_from: "0.1.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
@@ -94,8 +103,18 @@ defmodule Letflow.Modules.Codes do
       "code_tag" => :tenant_wide,
       "code_assignment" => :tenant_wide,
       "code_value_change" => :tenant_wide
-    }
+    },
+    import_functions: [%{entity_type: "code_tag", function: :import_code_tag}]
   )
+
+  @doc """
+  The import function of `code_tag` (G12 part 1, GH #4569 / REQ-850, manifest `:import_functions`):
+  one row of a file, called by the core import route. See `Letflow.Modules.Codes.Import`.
+  """
+  @spec import_code_tag(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_code_tag(prefix, entry, ctx),
+    do: Letflow.Modules.Codes.Import.row(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Codes.Router

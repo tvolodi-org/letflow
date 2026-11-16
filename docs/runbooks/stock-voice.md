@@ -120,3 +120,14 @@ change is needed; the operator sets:
 ## Regression tests
 
 A fixed phrase list (ru, kk) with expected drafts: `docs/runbooks/stock-voice-regression.md`.
+
+## Prompt words
+
+The following four additions are in the base prompt rules for every tenant (owner decision 2026-11-16, REQ-862 / GH #4577). They apply regardless of a tenant's location code scheme; the existing rule "Use only codes from `<skus>` and `<locations>` below" and `VoiceDraft.check/3` still reject any code the tenant does not have.
+
+1. **Letter-name table.** Latin letters are spoken with their Russian names (23 letters: A through Z, excluding J, W and Y which Qoimeks has no name for). Example: «эс тэ е эл триста пятьдесят» is ST-EL350.
+2. **Spelled-article hint.** Operators often say the article code letter by letter with digits as words; a named location can help the model choose between similar articles.
+3. **Zone rule.** Location codes are often a zone letter (L = left/слева/сол жақ, R = right/справа/оң жақ, D = straight ahead/прямо/тура) followed by a rack letter and a shelf number, said in any form.
+4. **Qoimeks kind words.** получил (receipt), отпустил and списал (issue), по факту (count). The kind identifiers in the answer JSON remain receipt, issue, transfer, count.
+
+[UAT assumption, to be confirmed by the process owner: these go into the fixed rules for every tenant, as in Qoimeks, not into a tenant setting.]

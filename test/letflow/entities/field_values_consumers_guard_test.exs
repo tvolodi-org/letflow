@@ -29,6 +29,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     "letflow/modules/assets/currency_migration.ex",
     "letflow/modules/catalog_items/import.ex",
     "letflow/modules/catalog_items/lots.ex",
+    "letflow/modules/codes/import.ex",
     "letflow/modules/codes/writes.ex",
     "letflow/modules/exam/snapshot.ex",
     "letflow/modules/locations/links.ex",

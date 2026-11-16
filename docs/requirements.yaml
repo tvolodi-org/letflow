@@ -55502,178 +55502,102 @@ requirements:
       - "9. Docs in step: the moduledoc of Letflow.Modules.Stock.Access and of Letflow.Api.ModuleGuard describe the scoped write rule; decision 0073 gets 'Amended by REQ-831 (slice L6 part 2)' at its end stating which routes accept a scoped caller, which stay tenant-wide (reads, opening, counts, voice) and the scope node of the posting instance, and that with REQ-830 slice L6 is done; no earlier text of 0073 is edited. mix letflow.check.static passes and the test files named here pass when run by path."
     depends_on: [REQ-830, REQ-712, REQ-713, REQ-721, REQ-531]
   - id: REQ-841
-    title: "Qoimeks parity G3 part 1: a usual place and a second place per item, stored as one stock_item_place link per catalog item (owned by module stock), written by xlsx or CSV import with references by external id, readable as reference data"
+    title: "Qoimeks parity G3 part 1: one optional default (usual) location per catalog item, a single reference on the item, written by the item import with the place given by external id, readable with the item"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4555
-    # Source: task T-2026 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md section 1.2 rows G3 and G11 and section 2.1 (Items row: "the second place is not carried (G3)"); lib/letflow/modules/catalog_items/catalog_items.ex (manifest: depends_on [], manages_entity_types, scope_declarations :tenant_wide, import_functions, "the only write functions" of the module); lib/letflow/modules/catalog_items/import.ex (reference resolution by external id under the row's system, {:reference_not_found, field}, {:reference_inactive, field}, audit per created or updated row); lib/letflow/modules/stock/stock.ex (manifest version 0.17.0, depends_on ["catalog_items", "codes", "locations", "org"], manages_entity_types, scope_declarations, import_opening_line/3 in import_functions, "Opening line import" section, new types reach an install through the module-upgrade path); lib/letflow/modules/stock/documents/opening_import.ex (same reference codes); lib/letflow/modules/locations/locations.ex (lookup/2, active?/2 of location_node); priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/; docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D3.5 ("Validation lives in the referencing module ... through depends_on") and D3.6 (declarative string references, no FK); lib/mix/tasks/letflow.check_boundaries.ex Rule 4 (a module may reference another only if it is in its depends_on); lib/letflow/routers/entities.ex (the import route, EntitiesRecordsImport, upsert_by external_ref, dry_run); docs/roles.md (STOREKEEPER holds EntitiesQuery and imports only stock_opening_line; EntitiesRecordsImportAnyType is TENANT_ADMIN only); lib/letflow/entities/records.ex (an update replaces the whole field_values). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2026/sources/qoimeks-places-extract.md): Qoimeks-team/product/server/internal/store/migrations/002_sku_locations.sql ("Where a SKU normally lives, and a second place to look when that one is full": skus.location_id and skus.alt_location_id, both nullable references to locations); server/internal/store/import.go (each import row sets both columns, an empty cell stores none); server/internal/importer/importer.go (column G "Второе место" is a place code; a cell that is not a place code is skipped with a warning and the SKU is kept). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026 (operator; owner decision 2026-11-16 via the PM), REWRITTEN by task T-2119 (owner rule via the PM 2026-11-16: "keep a Qoimeks habit only if mainstream WMS/ERP do the same: SAP fixed bin, Odoo putaway rule, ERPNext default warehouse. Smallest version: ONE optional default location per item = a single reference to a location, no list"). The earlier text (a stock_item_place link with a usual and a second place) is withdrawn. Read on origin/main 351b51848: lib/letflow/modules/catalog_items/import.ex (reference resolution, one audit entry per created or updated row), priv/modules/catalog_items/entity_definitions/catalog_item.json, lib/letflow/modules/read_api.ex lookup_by_external_ref/5 (the locations import writes its external id into the type's own fields, not the record-level key), docs/status/qoimeks-migration-readiness.md section 1.2 row G3.
     description: >
-      Qoimeks parity row G3 (docs/status/qoimeks-migration-readiness.md, section 1.2): in Qoimeks every SKU has a
-      usual place (where it normally lives) and a second place (where to look when the usual one is full, Excel
-      column G "Второе место"); both are optional and both are set by the Excel import. Letflow has no such data:
-      catalog_item has no place field and no other type links an item to a place. This part adds the data, its
-      import and its read; the converter is part 2 (REQ-842), the web screens parts 3 and 4 (REQ-843, REQ-844),
-      the phone part 5 (REQ-845), all planned, not yet on main. The stock export in the Qoimeks layout (row G11,
-      task T-2032) reads this data and is not part of this requirement.
-      Shape (decided here, with reasons): a link, not item fields. A new entity type stock_item_place is owned by
-      module stock (lib/letflow/modules/stock/stock.ex): manages_entity_types, scope_declarations :tenant_wide
-      (item masters are tenant-wide, as the catalog_items types are) and one import function in import_functions,
-      the form of import_opening_line/3. Reasons: module catalog_items has depends_on [] and decision 0050 D3.5
-      puts the validation of a reference in the referencing module through depends_on, so a place field on
-      catalog_item would make catalog_items depend on locations (Rule 4 of letflow.check_boundaries); module stock
-      already depends on both catalog_items and locations, and a usual place is a warehouse fact, not an item
-      fact. Fields (definition generated by priv/modules/stock/generate_pack.exs into the stock pack):
-      catalog_item_id (string, required, queried, unique: one link per item), usual_location_id (string,
-      optional, queried), second_location_id (string, optional, queried), external_ref_system and external_ref_id
-      (queried, unique as a pair, decision 0057 D1). References are declarative strings (0050 D3.6, no FK).
-      The import function (planned name Letflow.Modules.Stock.import_item_place/3, through the core route POST
-      /api/v1/entities/records/stock_item_place/import with upsert by external ref, dry run as for every managed
-      import) per row: (1) catalog_item_id holds the external id of a catalog_item under the row's own system,
-      usual_location_id and second_location_id each the external id of a location_node under that system; each is
-      resolved in the tenant to the record id; a cell that names nothing (or a deleted record) is
-      {:reference_not_found, field} and an inactive target {:reference_inactive, field}, field being the constant
-      field name, never cell text (the codes and rules of Letflow.Modules.CatalogItems.Import and
-      Letflow.Modules.Stock.Documents.OpeningImport); (2) a blank place cell stores no value for that place, and
-      because an update replaces the whole record (Records), a re-import with a blank second place removes the
-      earlier second place, as the Qoimeks import does; (3) the usual and the second place may be the same place,
-      and a link with neither place is accepted (Qoimeks accepts both; parity, no new refusal); (4) one audit entry
-      stock_item_place.created or stock_item_place.updated per created or updated row, with the stored values
-      before and after, in the same transaction (the form of REQ-706); unchanged rows and refused rows write none.
-      Who may import: the core import route rules are unchanged, so TENANT_ADMIN (and PLATFORM_ADMIN) import it
-      and a STOREKEEPER is refused as for every type other than stock_opening_line. Who may read: the generic
-      entity query (EntitiesQuery), like every other master, so a STOREKEEPER reads it. No new route, no new
-      permission, no migration; the stock manifest version rises by one minor step above the version on
-      origin/main at implement time (0.17.0 at the time of writing), and an installed stock module takes the new
-      type through the module-upgrade path (as the earlier added stock types did). Not in this part, EXTRA for a
-      later requirement: changing one item's places by hand on a screen (Qoimeks sets them only by import, so
-      parity does not need it). Size M.
+      Qoimeks keeps per SKU a usual place (skus.location_id) and a second place (skus.alt_location_id). Mainstream
+      systems keep ONE default place per item (SAP fixed bin, Odoo putaway rule, ERPNext default warehouse), so
+      Letflow takes the usual place only. catalog_item gains one optional string field default_location_id (queried):
+      the record id of one location_node, a declarative reference without a foreign key (decision 0050 D3.6). The
+      module catalog_items keeps depends_on [] (Rule 4 of letflow.check_boundaries): the import reads the place
+      through the core ReadApi.lookup_by_external_ref/5 with the type name as a string, as the stock opening import
+      does, and a tenant without the locations module answers reference_not_found. The module version rises from
+      0.4.0 to 0.5.0, upgrade class A (optional field, no step). The item import (Letflow.Modules.CatalogItems.Import)
+      resolves the cell default_location_id, an external id under the row's own system, to the record id: an
+      unknown or deleted place is the row error {:reference_not_found, "default_location_id"}, a retired one
+      {:reference_inactive, "default_location_id"}, and that row writes nothing (nothing partial). A re-import
+      replaces the row as for every field, so a blank cell clears the place. The place is read with the item
+      (CatalogItems.lookup/2, the entity query). NOT built here: a list of places, a second place, search by place,
+      phone screens, document prefill, voice use, any warning or enforcement, an item write route. The balances
+      export in the Qoimeks layout (REQ-865, row G11) writes the default location into its usual-place column and
+      leaves the second-place column empty; that is part of REQ-865, not of this requirement. Size S.
     acceptance_criteria:
-      - "1. Definition: the stock pack (priv/modules/stock/pack.json, regenerated by priv/modules/stock/generate_pack.exs) has the type stock_item_place with exactly the fields catalog_item_id (string, required, queried), usual_location_id (string, queried), second_location_id (string, queried), external_ref_system and external_ref_id (string, queried), a unique constraint on catalog_item_id and a unique constraint on the pair external_ref_system, external_ref_id; the stock manifest lists stock_item_place in manages_entity_types, as :tenant_wide in scope_declarations and with the import function in import_functions; the manifest version is one minor step above the one on origin/main at implement time. The stock registration tests (test/letflow/modules/stock/registration_test.exs and every pin a type or version change moves) are updated and pass."
-      - "2. Import, happy path (a test through the real import route, as test/letflow/modules/stock/opening_import_test.exs drives the opening line import): a TENANT_ADMIN imports a CSV file of three rows under system S: item A with usual place P1 and second place P2, item B with usual place P1 only, item C with second place P2 only; the answer reports three created rows, and a read of the stored records shows catalog_item_id, usual_location_id and second_location_id equal to the record ids of A, B, C, P1 and P2 as given (absent where the cell was blank). The same file imported again reports three unchanged rows and writes no audit entry."
-      - "3. Update and removal: re-importing item A with usual place P2 and a blank second place reports one updated row; the stored link of A has usual_location_id equal to P2's record id and no second_location_id; exactly one audit entry stock_item_place.updated is written for it, holding the values before and after."
-      - "4. Refusals, each a separate row of one test, nothing written for the refused row and no audit entry: an item external id that names no catalog_item gives {:reference_not_found, \"catalog_item_id\"}; a usual place external id that names no location_node gives {:reference_not_found, \"usual_location_id\"}; a retired (active false) location as second place gives {:reference_inactive, \"second_location_id\"}; a retired catalog_item gives {:reference_inactive, \"catalog_item_id\"}; a location id given as a record id instead of an external id gives {:reference_not_found, \"usual_location_id\"}. The refusal text names the field, never the cell value."
-      - "5. Parity cases accepted: a row whose usual and second place are the same location is created; a row with both place cells blank is created and stores neither place."
-      - "6. Access: a STOREKEEPER's import of a stock_item_place file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written; a STOREKEEPER reads the stored links through the entity query route (EntitiesQuery) with a filter on catalog_item_id; a dry run (dry_run=true) by a TENANT_ADMIN reports the outcomes and writes nothing."
-      - "7. Tenant isolation (INV-1): in a test with two tenants A and B, a stock_item_place file imported in tenant B whose item and place external ids exist only in tenant A gives {:reference_not_found, \"catalog_item_id\"} for every row; the record counts of stock_item_place in both schemas are unchanged."
-      - "8. Upgrade: a tenant with the stock module installed at the version on origin/main before this change upgrades to the new version through the module-upgrade path and can then import stock_item_place (a test in the form of test/letflow/modules/stock/upgrade_http_test.exs)."
-      - "9. Docs in step: the stock moduledoc gains a section for this part (the type, its fields, the import rules of the description, the reason for a link instead of item fields); docs/runbooks/qoimeks-rehearsal.md table 'Does the stock module accept the same files?' gains no row yet (part 2 adds the file). mix letflow.check.static passes and the test files named here pass when run by path."
-    depends_on: [REQ-687, REQ-651, REQ-727, REQ-706]
+      - "1. Definition: priv/modules/catalog_items/entity_definitions/catalog_item.json (and the regenerated pack.json) has exactly one place field, default_location_id, type string, optional, queried; the manifest version is 0.5.0 and depends_on stays []. Test: DL5 in test/letflow/modules/catalog_items/default_location_test.exs, entity_definitions_test.exs, registration_test.exs."
+      - "2. Import: a catalog_item row whose default_location_id is the external id of an active location_node (same system) is created and the stored value is that place's record id; CatalogItems.lookup/2 returns it. Test DL1."
+      - "3. An unknown place gives {:reference_not_found, \"default_location_id\"}, a retired place {:reference_inactive, \"default_location_id\"}, a record id instead of an external id and a place that exists only in another tenant give reference_not_found; the item row is not written (item count unchanged). Tests DL2, DL3, DL6."
+      - "4. A re-import with another place changes it (outcome updated); a re-import with the cell blank clears it. An item with no place stays valid. Tests DL4, DL5."
+      - "5. Docs in step: docs/runbooks/wms-foundation.md item 24 and test P4 in test/letflow/modules/catalog_items/runbook_test.exs; the manifest-hash pins and the permission-matrix golden header are re-taken."
+    depends_on: [REQ-651, REQ-727]
   - id: REQ-842
-    title: "Qoimeks parity G3 part 2: the Qoimeks converter carries each SKU's usual place and second place into an item-places import file, and the rehearsal loads it"
+    title: "Qoimeks parity G3 part 2: the Qoimeks converter carries each SKU's usual place into the items import file, counts the rows that had a second place, and the rehearsal loads and counts the places"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4553
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: scripts/pilot/qoimeks_convert.py (NEEDED columns, ITEM_COLS, MAX_ROWS = 200, drop reasons, emit/manifest upload_order, expected_counts.txt keys records.<type>, report.txt); scripts/pilot/qoimeks_compare.sh (EXPECTED key lines, an absent key counts as 0); docs/runbooks/qoimeks-rehearsal.md (table of files, steps 1-3 and 6); test/letflow/modules/stock/qoimeks_files_test.exs (pushes the converted files through the real import routes); test/scripts/qoimeks_rehearsal_test.exs. Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): skus.location_id is the usual place and skus.alt_location_id the second place (server/internal/store/migrations/002_sku_locations.sql). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026, REWRITTEN by task T-2119 (see REQ-841). Read on origin/main 351b51848: scripts/pilot/qoimeks_convert.py, scripts/pilot/qoimeks_compare.sh, scripts/demo/demo_counts.sh, test/scripts/qoimeks_rehearsal_test.exs, test/letflow/modules/stock/qoimeks_files_test.exs.
     description: >
-      Part 2 of parity row G3 (part 1 is REQ-841, planned, not yet on main). The T-1616 converter
-      (scripts/pilot/qoimeks_convert.py) reads items.csv with the columns sku, sku_name, unit and writes neither
-      place, so the move loses every SKU's usual and second place (docs/status/qoimeks-migration-readiness.md
-      section 2.1, Items row). This part: items.csv may carry two optional neutral columns, home_loc (the usual
-      place code, Qoimeks skus.location_id) and alt_loc (the second place code, Qoimeks skus.alt_location_id),
-      both nameable through --mapping like every other column. When at least one item row has a non-blank home_loc
-      or alt_loc, the converter writes 05-item-places-NN.xlsx (at most MAX_ROWS rows per file) for entity type
-      stock_item_place with the columns catalog_item_id, usual_location_id, second_location_id,
-      external_ref_system, external_ref_id and the values sku, home_loc, alt_loc, the --system value and sku:
-      every reference cell is an external id under the row's own system, as in the other files. A place code that
-      is not a loc_code of the converted locations drops only that item's place row with the reason
-      unknown_location (the item row itself stays in 03-items), as Qoimeks keeps the SKU and skips a bad place; an
-      item dropped from 03-items has no place row. The file is listed in manifest.json upload_order right after
-      the 03-items files, expected_counts.txt gains the key records.stock_item_place, and report.txt names row
-      numbers and constant reasons only, never cell text. Without the two columns the output is byte for byte as
-      today. Size S.
+      Part 2 of parity row G3. items.csv of the extract may carry two optional neutral columns (renamed by --mapping
+      as for the others): home_loc, the usual place (a loc_code), and alt_loc, the second place. The converter writes
+      home_loc into the items file 03-items-NN.xlsx as the column default_location_id (the header carries it only
+      when at least one kept item has a usual place; the external id of the place is its loc_code under the run's
+      system, the same value the locations file carries). An item whose home_loc names no kept location is dropped
+      with the constant reason unknown_default_location (no cell text), as an unknown location drops a balance. The
+      second place is NOT imported: report.txt carries the line "items with a second place, not imported (G3) N"
+      (kept items only), so nothing is silent. expected_counts.txt gains the key items_with_default_location (items
+      kept with a usual place); scripts/demo/demo_counts.sh snapshot gains the same key per tenant (items with a
+      non-empty default_location_id), so qoimeks_compare.sh compares it. Size S.
     acceptance_criteria:
-      - "1. A converter test (test/scripts/qoimeks_rehearsal_test.exs or a new test file next to it) with an items.csv of four items: one with home_loc and alt_loc, one with home_loc only, one with alt_loc only, one with both blank: 05-item-places-01.xlsx has exactly three data rows in the column order catalog_item_id, usual_location_id, second_location_id, external_ref_system, external_ref_id, with blank cells where the CSV was blank; expected_counts.txt has the line 'records.stock_item_place 3'; manifest.json upload_order has 05-item-places-01.xlsx right after the last 03-items file."
-      - "2. A home_loc or alt_loc code that is not in locations.csv: report.txt has 'dropped item_places row N: unknown_location' for that items.csv row, the item stays in 03-items, the place row is not written, and the exit code is 3 (0 with --allow-drops), as for every other drop."
-      - "3. An items.csv without home_loc and alt_loc (the existing test inputs) gives the same output files and bytes as before this change, and no 05 file; a --mapping that maps two extract columns to home_loc and alt_loc is honoured."
-      - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted 05 file through the real import route after the masters, and every row is created; a second upload reports every row unchanged."
-      - "5. docs/runbooks/qoimeks-rehearsal.md: the file table gains the row for stock_item_place with its importer and columns, step 1 names the optional home_loc and alt_loc columns of items.csv, step 3 uploads the 05 file after the items, and the Outputs list names 05-item-places-NN.xlsx. The test files named here pass when run by path."
+      - "1. Converter (test CV-G3 in test/scripts/qoimeks_rehearsal_test.exs): with home_loc and alt_loc columns the items file read back with the production reader has default_location_id equal to the loc_code for the items that have one, and no key for the others; no second-place column exists in any file."
+      - "2. An item whose home_loc is unknown is dropped with the reason unknown_default_location and the report shows no cell text; report.txt carries 'items with a second place, not imported (G3) N' with N the kept items that had an alt_loc (CV-G3), and 0 for input without the columns (CV-G3b)."
+      - "3. expected_counts.txt carries items_with_default_location (CV-6, CV-G3); qoimeks_compare.sh compares it with the snapshot key (CP-G3); demo_counts.sh emits the key."
+      - "4. Rehearsal: the converted files go through the real import routes and the stored count of items with a usual place equals the expected count (ST-G3 in test/letflow/modules/stock/qoimeks_files_test.exs)."
     depends_on: [REQ-841]
   - id: REQ-843
-    title: "Qoimeks parity G3 part 3: the web Items screen and the stock Balances screen show each item's usual place and second place by place code, in English, Russian and Kazakh"
+    title: "Qoimeks parity G3 part 3: the item card on the web shows the item's usual place"
     owner: FRONTEND-DEV
     status: pending
     stage: S7
     gh: 4552
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/catalog_items/items/ItemsPage.tsx and ItemDetails.tsx (T-1402: list columns code, title, unit, tracking, status; Overview, Related, History); web/src/modules/catalog_items/catalogItemsStock.api.ts (the catalog_items web module may not import the stock module, ESLint boundary, so it calls stock URLs itself); web/src/modules/stock/register/BalancesPage.tsx (REQ-724: columns item, location, org unit, responsible, lot, unit, quantity; names through the master pickers); web/src/modules/stock/register/stockPickers.ts; docs/roles.md (STOREKEEPER holds EntitiesQuery). Qoimeks, read only: the stock list shows the usual place and the second place per SKU (export columns 'Второе место' and 'Место', server/internal/importer/export.go). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Source: task T-2026, REWRITTEN by task T-2119 (see REQ-841). Read on origin/main 351b51848: web/src/modules/catalog_items/items/ItemsPage.tsx and ItemDetails.tsx (view-only: items have no create or edit route; the in-pane edit form is the generic RegistryForm and is not wired to items), itemsModel.ts, catalogItemsItemsMessages.ts.
     description: >
-      Part 3 of parity row G3 (REQ-841, planned, not yet on main, adds the data). The Items screen
-      (web/src/modules/catalog_items/items/ItemsPage.tsx, ItemDetails.tsx) and the stock Balances screen
-      (web/src/modules/stock/register/BalancesPage.tsx) show each item's usual place and second place, read from
-      the stock_item_place links through the entity query, by the place's code (as Qoimeks shows it, for example
-      RI2), with the screen's dash when a place is not set or no link exists. Items screen: the Overview of the
-      details pane shows two rows, "Usual place" and "Second place"; the list is unchanged. Balances screen: two
-      columns, "Usual place" and "Second place", right after the Location column, for the item of each row. A
-      place that is retired still shows its code. A failed read of the links leaves both values as the dash and
-      does not hide the screen's own rows. The existing balances xlsx export is unchanged (the Qoimeks layout
-      export is row G11, task T-2032). Labels in en, ru and kk; the screens are read by everyone who reads them
-      today (no new permission). Size S to M (two screens and their state matrix).
+      The Items card (Overview) gains one field "Usual place" (ru: Обычное место, kk: Әдеттегі орын), shown as
+      "code - name" through the reference-label hook, never an id; an item without a place shows a dash. Items have
+      no edit form and no write route on the web yet (the head says view-only and links to the import screen), so the
+      place is changed by import; the edit form shows the place when items get one (a later requirement). No list
+      column, no search by place, no phone screen. Size S.
     acceptance_criteria:
-      - "1. Items screen: a component test with an item that has usual place RI2 and second place RK2 shows both codes in the Overview under the labels Usual place and Second place; an item with no link shows the dash in both rows; an item with only a second place shows the dash for the usual place and the code of the second place."
-      - "2. Balances screen: a component test with two rows of different items shows the columns Usual place and Second place right after the Location column, each filled with the code of that row's item's place or the dash; a failed links read shows the dash in both columns and keeps the balance rows."
-      - "3. The links are read through the entity query of stock_item_place with a filter on the shown items' ids (no read per row); a test asserts the request count for one page of rows is one."
-      - "4. The labels exist in the en, ru and kk catalogs of the two modules (ru 'Основное место' and 'Второе место', kk 'Негізгі орын' and 'Екінші орын', en 'Usual place' and 'Second place'; UAT assumption, wording to be confirmed by the process owner)."
-      - "5. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for both screens with places set, with places not set and with a failed links read is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
+      - "1. The card of an item with a place shows its code and name, never a UUID (ItemsPage.test.tsx, G3 usual place on the card); an item without a place shows a dash."
+      - "2. The label exists in en, ru and kk and the ru and kk texts differ from en (same test file); itemsModel.test.ts maps default_location_id to defaultLocationId."
+      - "3. The card is walked at 1440 and 390 px, light and dark, en, ru and kk, with screenshots and a state table."
     depends_on: [REQ-841, REQ-724]
   - id: REQ-844
-    title: "Qoimeks parity G3 part 4: the web stock document form fills the document's place from the first item's usual place while the place is empty, and shows each line item's usual and second place"
+    title: "CANCELLED (owner: a workaround, not a feature): Qoimeks parity G3 part 4, the usual place prefills a stock document on the web"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # G3 prefill is a workaround, not a feature; no mainstream product does it (owner 2026-11-16)
     stage: S7
     gh: 4550
-    # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/stock/documents/DocumentForm.tsx (REQ-722; header locationId picker from usePickerOptions('location_node'); the hand-over rule that To starts as From); web/src/modules/stock/documents/LinesEditor.tsx; priv/modules/stock/entity_definitions/stock_receipt.json, stock_issue.json, stock_writeoff.json (header location_id) and stock_transfer.json, stock_handover.json, stock_return.json (from_location_id, to_location_id); stock_opening.json (no header location). Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): mobile/lib/operation_screen.dart _setSku (when the place is empty or still the previous SKU's usual place, choosing a SKU sets the place to its usual place) and the balance hint 'Смотреть также:' / 'Тағы қараңыз:' with the second place code when it differs from the chosen place. Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Cancelled by task T-2119 (owner rule via the PM 2026-11-16, 'a workaround, not a feature'). The status flip to cancelled is made by the operator (this team does not flip statuses). Do not implement.
     description: >
-      Part 4 of parity row G3 (REQ-841, planned, not yet on main, adds the data). In Qoimeks choosing a SKU in an
-      operation fills the place with the SKU's usual place while the place is empty or was filled that way, and the
-      screen shows "look also" with the second place when it differs from the chosen place. Letflow stock
-      documents carry the place on the header, not on the line, and one header place covers every line. A Qoimeks
-      operation has one SKU, so replacing its place moves nothing else; in Letflow a later line must never move the
-      place under the earlier lines. So the help is: in the web document form
-      (web/src/modules/stock/documents/DocumentForm.tsx) of a receipt, an issue and a write off (header location_id)
-      and of a transfer (header from_location_id), the header place is filled only from the item of the first line
-      (in line order) that has an item, and only while the header place is empty; it is set to that item's usual
-      place, if it has an active one. An item picked on any later line never changes the header place. If the item
-      of that first line is changed or removed while the header place still holds the value the form filled, the
-      place follows the new first item with an item (its active usual place, or empty when it has none or no line
-      has an item). A place the user picked by hand is never changed. Each line shows, under its
-      item, the item's usual place and second place codes (the dash when not set), and the second place is marked
-      "look also" when it differs from the header place. Hand over, return and opening are not changed (Qoimeks
-      has no such kinds; opening has no header place). The server checks are unchanged; this is help, not a rule.
-      Labels in en, ru and kk. Size M.
+      Withdrawn. Prefilling a document header place from the item's usual place, and the 'see also' hint with a
+      second place, are not built: mainstream WMS/ERP do not do it this way and the owner calls it a workaround.
     acceptance_criteria:
-      - "1. A component test of the receipt form: with an empty header place, picking item A (usual place P1) on line 1 sets the header place to P1; picking item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a header place picked by hand (P2) is not changed by any of these item picks, changes or removals."
-      - "2. The same rule for an issue and a write off (location_id) and for a transfer (from_location_id; to_location_id is never filled); a hand-over, a return and an opening form fill nothing from the links (one test per kind)."
-      - "3. An item whose usual place is retired (active false) or that has no link fills nothing; the line shows the dash for a missing place."
-      - "4. A line whose item has second place P2 different from the header place shows P2 with the 'look also' label (ru 'Смотреть также', kk 'Тағы қараңыз', from Qoimeks); when P2 equals the header place the label is not shown."
-      - "5. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the receipt and the transfer form with a filled place and the line hints is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
+      - "1. None: do not implement."
     depends_on: [REQ-841, REQ-722]
   - id: REQ-845
-    title: "Qoimeks parity G3 part 5: the phone stock document draft fills the document's place from the first item's usual place while the place is empty, and shows each line item's usual and second place"
+    title: "CANCELLED (owner: a workaround, not a feature): Qoimeks parity G3 part 5, the usual place helps the phone document form"
     owner: MOBILE-DEV
-    status: pending
+    status: cancelled  # G3 prefill is a workaround, not a feature; no mainstream product does it (owner 2026-11-16)
     stage: S7
     gh: 4549
-    # Source: task T-2026 (see REQ-841 and REQ-844). Read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/document_form_controller.dart (header keys location_id, from_location_id, to_location_id; applyLocationScan; the voice fill of places), document_form_screen.dart (REQ-746 draft form of six kinds), document_pickers.dart. Qoimeks, read only: mobile/lib/operation_screen.dart _setSku and the 'Смотреть также:' hint (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
+    # Cancelled by task T-2119 (owner rule via the PM 2026-11-16, 'a workaround, not a feature'). The status flip to cancelled is made by the operator. Do not implement.
     description: >
-      Part 5 of parity row G3: the phone gets the same help as the web form of REQ-844 (planned, not yet on main),
-      because in Qoimeks the operators work on the phone (Android APK) and the usual-place fill and the "look also"
-      hint live in the phone's operation screen. In the stock document draft of the generic mobile client
-      (apps/mobile/lib/features/stock/documents/, REQ-746), for a receipt, an issue and a write off (location_id) and
-      a transfer (from_location_id), with the same rule as REQ-844 because one header place covers every line: the
-      header place is filled only from the item of the first line (in line order) that has an item, chosen by scan,
-      typing or voice, and only while the header place is empty; it is set to that item's active usual place. An
-      item chosen on any later line never changes it. If the item of that first line is changed or removed while
-      the header place still holds the value the form filled, the place follows the new first item with an item
-      (its active usual place, or empty when it has none or no line has an item). A place set by hand, by a
-      location scan or by voice is never changed. Each line shows the item's usual and second place codes, and
-      "look also" with the second place when it differs from the header place. Hand over, return and opening are not
-      changed. Labels in en, ru and kk. Size M.
+      Withdrawn together with REQ-844. No phone prefill, no 'see also' hint, no voice use of the place.
     acceptance_criteria:
-      - "1. Controller tests (document_form_controller) with a hand-written fake of the links read: with an empty header place, choosing item A (usual place P1) on line 1 sets the header place to P1; choosing item B (usual place P3) on line 2 leaves it at P1; changing line 1 from A to B then sets it to P3; removing line 1 so that the line with item B becomes the first line with an item keeps P3, and clearing every line's item empties the place; a place set by applyLocationScan, by the voice fill or by hand is never replaced by any of these; an item whose usual place is retired or that has no link fills nothing."
-      - "2. The same for issue, write off and transfer (from_location_id only); hand over, return and opening fill nothing (one test per kind)."
-      - "3. A widget test shows the line hint with both codes, the dash for a missing place, and 'look also' (ru 'Смотреть также', kk 'Тағы қараңыз') only when the second place differs from the header place."
-      - "4. flutter analyze is clean and flutter test passes for apps/mobile."
+      - "1. None: do not implement."
     depends_on: [REQ-841, REQ-746]
   - id: REQ-833
     title: "Qoimeks parity G4 part 1: decision record for negative balances as a per-tenant setting of a ledger registration (what changes in the no-negative rule of decision 0073 and why, what every other ledger rule does with a negative balance)"
@@ -55958,13 +55882,14 @@ requirements:
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
   - id: REQ-857
-    title: "Qoimeks parity G13 part 1: decision record for a per-tenant shared stock access next to personal accounts (a credential, not a role; stock read, post and reverse only; operator name; a per-tenant address the old Qoimeks app can use)"
+    title: "Qoimeks parity G13 part 1: decision record for a per-tenant stock-only token: one scoped API token per tenant, holding only the stock read, post and reverse permissions, revocable by a tenant administrator through the API, with no time limit and no Tokens screen (a credential, not a role; operator name; a per-tenant address the old Qoimeks app can use)"
     owner: CODE-DESIGNER
     status: pending
     stage: S7
     gh: 4574
     # Source: task T-2034 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality (not less but possible more)"; enabling it for a real tenant stays with the owner; QA only, D-050), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 rows G13 and G14 and section 2.4 row R-5 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2034/sources/qoimeks-token-extract.md (client1-inventory.md section 8 items 8 and 11; qoimeks-migration-plan.md sections 1 and 2; Qoimeks server/internal/api/api.go routes, requireToken, storeError, writeError, balances and movements handlers; server/internal/store/store.go NewMovement and Movement with integer sku_id and location_id; server/internal/store/migrations/001_init.sql kinds and the operator <> '' check; mobile/lib/api.dart base address plus path, Authorization Bearer and X-Operator headers; the list of calls the old app makes; docs/self-host.md "openssl rand -hex 32"). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/access.ex, lib/letflow/api/module_guard.ex (check/2 accepts only kind :user), lib/letflow/api/scope.ex (principal_from_conn/1, principal_kind :api_token -> :token), lib/letflow/plugs/auth_pipeline.ex ("lf_tok_" dispatch, X-Tenant-Slug, the 401 "invalid or expired bearer token"), lib/letflow/plugs/auth_attempt_limit.ex (modes :failures and :requests, defaults/0, send_rate_limited/2), lib/letflow/identity.ex (create_token/3, mint_token/4, revoke_token/2, verify_api_token/2, hash_token_value/1 SHA-256, audit actions token.create and token.revoke), lib/letflow/router.ex (forwards outside /api/v1, /admin/v1), lib/letflow/modules/stock/router.ex (route list and guards), lib/letflow/modules/stock/actor_label.ex, docs/roles.md (STOREKEEPER; "The provisioner is a credential, not a role"), priv/permission_matrix/effective.golden (TokensManage held by TENANT_ADMIN and PLATFORM_ADMIN only), web/src/router.tsx (admin/tokens). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
+      REWORDED 2026-11-16 (task T-2120, owner rule: Qoimeks habits kept only if industry practice exists): the shared stock access is a per-tenant stock-only token: one scoped API token per tenant, holding only the stock read, post and reverse permissions, revocable by a tenant administrator through the API, with no time limit and no Tokens screen. Wherever the text below says rotate with a given value, expiry, a Tokens screen or a screen for it, read: the administrator creates and revokes it through the API only; the value never expires; there is no screen (REQ-861 is cancelled).
       Qoimeks Client 1 has no accounts: every phone sends one shared token as "Authorization: Bearer <token>",
       and the operator types a free name that is stored with each movement (inventory 8.8 and 8.11; the token
       "must keep working indefinitely", no setting change on phones). Letflow's stock routes accept only an
@@ -56027,13 +55952,14 @@ requirements:
       - "7. No file other than the new record and, if the record is cited there, docs/status/qoimeks-migration-readiness.md row G13 changes; mix letflow.check.static passes."
     depends_on: [REQ-831, REQ-832, REQ-833, REQ-572, REQ-712]
   - id: REQ-858
-    title: "Qoimeks parity G13 part 2: the tenant administrator creates, rotates, revokes and reads the status of the tenant's shared stock access (off unless the tenant is listed in the deployment setting; hash only; audited)"
+    title: "Qoimeks parity G13 part 2: the tenant administrator creates, revokes and reads the status of the tenant's stock-only token through the API (scoped to stock read, post and reverse; revocable by an administrator; no time limit; no Tokens screen; off unless the tenant is listed in the deployment setting; hash only; audited)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4573
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/routers/identity.ex (POST and GET /tokens under :TokensManage), lib/letflow/identity.ex (hash_token_value/1, the audit actions token.create and token.revoke), lib/letflow/routers/approval_rules.ex (tenant-wide interactive admin route precedent), priv/permission_matrix/effective.golden (TokensManage true only for PLATFORM_ADMIN and TENANT_ADMIN), config/runtime.exs (LETFLOW_* settings read there). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
+      REWORDED 2026-11-16 (task T-2120, owner rule: Qoimeks habits kept only if industry practice exists): the shared stock access is a per-tenant stock-only token: one scoped API token per tenant, holding only the stock read, post and reverse permissions, revocable by a tenant administrator through the API, with no time limit and no Tokens screen. Wherever the text below says rotate with a given value, expiry, a Tokens screen or a screen for it, read: the administrator creates and revokes it through the API only; the value never expires; there is no screen (REQ-861 is cancelled).
       Builds the life cycle of decision 0091 sections 2 to 4 (REQ-857; the record path is planned, not yet on
       main). New routes under /api/v1, in lib/letflow/routers/identity.ex next to the token routes and under
       the existing permission TokensManage (no new permission atom): GET /shared-stock-access (status),
@@ -56053,13 +55979,14 @@ requirements:
       - "7. The route-count, route-scope and tenant table pins this adds are updated from the final tree; mix letflow.check.static passes and the new test file passes when run by path."
     depends_on: [REQ-857, REQ-076, REQ-447]
   - id: REQ-859
-    title: "Qoimeks parity G13 part 3: the per-tenant old-app address accepts the shared stock access and answers the old app's reads (catalog, balances, movements list) in the Qoimeks shape, with the same 401 for every unproven request and a rate limit"
+    title: "Qoimeks parity G13 part 3: the per-tenant old-app address accepts the stock-only token and answers the old app's reads (catalog, balances, movements list) in the Qoimeks shape, with the same 401 for every unproven request and a rate limit"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4572
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/router.ex (forwards outside /api/v1), lib/letflow/plugs/auth_attempt_limit.ex (mode :failures, record_failure/1, send_rate_limited/2, Bucket, defaults/0 request_capacity 60 and request_refill_per_sec 1), lib/letflow/modules/stock/router.ex (GET /balances and GET /movements under :StockRead), lib/letflow/modules/stock/access.ex. Qoimeks call list and field names in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
+      REWORDED 2026-11-16 (task T-2120, owner rule: Qoimeks habits kept only if industry practice exists): the shared stock access is a per-tenant stock-only token: one scoped API token per tenant, holding only the stock read, post and reverse permissions, revocable by a tenant administrator through the API, with no time limit and no Tokens screen. Wherever the text below says rotate with a given value, expiry, a Tokens screen or a screen for it, read: the administrator creates and revokes it through the API only; the value never expires; there is no screen (REQ-861 is cancelled).
       Builds decision 0091 sections 6 to 8 for reads (REQ-857; the record path is planned, not yet on main):
       the per-tenant address of section 6 as a new forward in lib/letflow/router.ex outside /api/v1, with
       Letflow.Plugs.AuthAttemptLimit mounted in mode :failures, that accepts "Authorization: Bearer <value>"
@@ -56079,13 +56006,14 @@ requirements:
       - "7. mix letflow.check.static passes; the new test file passes when run by path; every route-count and router-forward pin this moves (grep length(named) and @named_routes in test/) is updated from the final tree."
     depends_on: [REQ-857, REQ-858, REQ-831, REQ-832]
   - id: REQ-860
-    title: "Qoimeks parity G13 part 4: the old-app address posts and reverses movements with the shared stock access, records the typed operator name on each stock document and shows it in the stock reads"
+    title: "Qoimeks parity G13 part 4: the old-app address posts and reverses movements with the stock-only token, records the typed operator name on each stock document and shows it in the stock reads"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4571
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/router.ex (POST /documents, /documents/:id/issue, /documents/:id/post, /documents/:id/reverse), lib/letflow/modules/stock/actor_label.ex, lib/letflow/modules/stock/documents/posting.ex (the posting fields posted_by_label and reversed_by_label of a document view; the refusal document_reversed). Qoimeks NewMovement, kinds and checks in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
+      REWORDED 2026-11-16 (task T-2120, owner rule: Qoimeks habits kept only if industry practice exists): the shared stock access is a per-tenant stock-only token: one scoped API token per tenant, holding only the stock read, post and reverse permissions, revocable by a tenant administrator through the API, with no time limit and no Tokens screen. Wherever the text below says rotate with a given value, expiry, a Tokens screen or a screen for it, read: the administrator creates and revokes it through the API only; the value never expires; there is no screen (REQ-861 is cancelled).
       Adds the two write calls of the decision 0091 section 7 contract table (REQ-857; the record path is
       planned, not yet on main) to the address of REQ-859: the movement post (kinds receipt, issue and
       transfer, Qoimeks fields id, kind, sku_id, location_id, to_location_id, qty, operator, source) and the
@@ -56109,7 +56037,7 @@ requirements:
   - id: REQ-861
     title: "Qoimeks parity G13 part 5: the tenant administrator's Tokens page shows the shared stock access status and creates, sets, rotates and revokes it, with the value shown once"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # no Tokens screen (owner 2026-11-16)
     stage: S7
     gh: 4570
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: web/src/router.tsx (admin/tokens under RequirePermission TokensManage), web/src/pages/admin/TokensPage.tsx, web/src/api/identity.ts, web/src/components/layout/AppShell.tsx (Tokens nav item, tenantAdmin group). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
@@ -56505,7 +56433,7 @@ requirements:
   - id: REQ-856
     title: "Qoimeks parity G5 part 4: phone stock quick count screen with voice, a spoken or typed count phrase outside a formal count fills one quick count line that the user confirms"
     owner: MOBILE-DEV
-    status: pending
+    status: cancelled  # voice count phrase not built: typed count only (owner 2026-11-16)
     stage: S7
     gh: 4562
     # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/stock_routes.dart, apps/mobile/lib/features/stock/stock_home_screen.dart, apps/mobile/lib/features/stock/count_detail_controller.dart (applyVoiceDraft: kind count only inside a formal count), apps/mobile/lib/features/stock/documents/document_form_controller.dart (applyVoiceDraft), apps/mobile/lib/features/stock/voice/voice_panel.dart, lib/letflow/modules/stock/voice_draft.ex (@kinds receipt issue transfer count; zero allowed for count only), docs/runbooks/stock-voice.md.
@@ -56689,7 +56617,7 @@ requirements:
   - id: REQ-873
     title: "Qoimeks parity G19 part 2: Markdown download of the user's own problem reports on My reports and of one report in the owner inbox"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # no Markdown export (owner 2026-11-16)
     stage: S7
     gh: 4585
     # Source: task T-2038, as REQ-872; Qoimeks layout copied below from Qoimeks server/internal/api/feedback.go (read only, outside this repository).
@@ -56726,7 +56654,7 @@ requirements:
   - id: REQ-874
     title: "Qoimeks parity G19 part 3: Markdown export of the owner inbox list of problem reports, one file for the chosen status filter"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # no Markdown export (owner 2026-11-16)
     stage: S7
     gh: 4584
     # Source: task T-2038, as REQ-872 and REQ-873.
@@ -56842,7 +56770,7 @@ requirements:
   - id: REQ-869
     title: "Qoimeks parity G16 part 3: the Android app reads latest.json, shows a dismissible update banner for a newer build and a banner that cannot be dismissed below minVersionCode, and shows its installed version with a check for updates"
     owner: MOBILE-DEV
-    status: pending
+    status: cancelled  # no update banner (owner 2026-11-16)
     stage: S9
     gh: 4581
     # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Update check in the app" (manifest read on start at most once a day; newer versionCode shows a dismissible banner with notes in the app language; below minVersionCode a banner that cannot be dismissed; tap opens the url in the browser; settings show the installed version and check for updates; a missing network or a broken manifest shows nothing on the automatic check and never blocks work; empty manifest URL turns the check off) and Qoimeks/mobile/lib/update.dart (parseManifest: versionCode int, versionName string, url non-empty string, minVersionCode int, notes map; notesFor lang else ru), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/lib/definitions/tenant_home_screen.dart (AppBar actions LanguageSwitcher), apps/mobile/lib/auth/auth.dart (non-secret pointer store, key letflow.ui_locale), apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/android/app/src/main/kotlin/com/bizdala/letflow/MainActivity.kt, apps/mobile/pubspec.yaml (dependency comment from REQ-419: no runtime package beyond the list; dio present, no url_launcher, no package_info_plus). Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
@@ -57074,7 +57002,7 @@ requirements:
   - id: REQ-875
     title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
     owner: CODE-DESIGNER
-    status: pending
+    status: cancelled  # movement history stays in Qoimeks, read-only (owner 2026-11-16)
     stage: S7
     gh: 4592
     # Source: task T-2037 (owner decision via PM 2026-11-16, parity required; row G18 of docs/status/qoimeks-migration-readiness.md section 1.2 and the Movement history row of section 2.1). Files read on origin/main 1520cf186: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (section 0, D1, D7, D9 "Out of scope ... import of historical movements into the ledger"), docs/migration/decisions/0076-master-data-layer.md (R7), docs/runbooks/qoimeks-rehearsal.md ("Deliberately not here ... movement history"), lib/letflow/modules/stock/stock.ex (manifest import_functions, scope_declarations), lib/letflow/entities/managed_import.ex, lib/letflow/routers/entities/record_import.ex. Qoimeks schema and History listing copied to state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
@@ -57122,7 +57050,7 @@ requirements:
   - id: REQ-876
     title: "Qoimeks parity G18 part 2: module stock stores the Qoimeks movement history as the read-only archive type stock_archive_movement, loaded by its own xlsx import function, never touching the stock ledger"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # movement history stays in Qoimeks, read-only (owner 2026-11-16)
     stage: S7
     gh: 4591
     # Source: task T-2037 and REQ-875 (written with this one). Files read on origin/main 1520cf186: lib/letflow/modules/stock/stock.ex (version "0.17.0", entity_types, scope_declarations, import_functions), priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/, lib/letflow/modules/stock/documents/opening_import.ex (reference resolution by external id), lib/letflow/entities/managed_import.ex (call/5: outcomes created, updated, unchanged), lib/letflow/routers/entities/record_import.ex (@import_record_cap 200, base_reason_json/1 constant refusals), lib/letflow/ledger/validate.ex (quantity_scale), test/letflow/modules/stock/opening_import_test.exs. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
@@ -57160,7 +57088,7 @@ requirements:
   - id: REQ-877
     title: "Qoimeks parity G18 part 3: read route GET /archive-movements of module stock: search the archived Qoimeks movements by item, place, kind, date and operator, newest first, as json or xlsx"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # movement history stays in Qoimeks, read-only (owner 2026-11-16)
     stage: S7
     gh: 4590
     # Source: task T-2037, rule 5 of the REQ-875 amendment. Files read on origin/main 1520cf186: lib/letflow/modules/stock/router.ex (moduledoc route tables, slot_filters/1, 422 invalid_filter, format=json|xlsx), lib/letflow/modules/stock/access.ex, lib/letflow/modules/stock/documents.ex (@default_limit 50, @max_limit 100, @cursor), lib/letflow/modules/stock/xlsx_export.ex, test/letflow/modules/asset_stock_isolation_test.exs. Qoimeks History listing (newest first by seq) in state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
@@ -57190,7 +57118,7 @@ requirements:
   - id: REQ-878
     title: "Qoimeks parity G18 part 4: web screen 'History before Letflow' of the stock module with search, and links to it from the item details and the place details"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # movement history stays in Qoimeks, read-only (owner 2026-11-16)
     stage: S7
     gh: 4589
     # Source: task T-2037, rule 6 of the REQ-875 amendment. Files read on origin/main 1520cf186: web/src/modules/stock/index.ts (nav entries), web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/register/MovementsPage.tsx, web/src/components/layout/navMessages.ts, web/src/components/layout/AppShell.tsx, web/src/modules/catalog_items/items/ItemDetails.tsx (History section), web/src/modules/catalog_items/catalogItemsStock.api.ts, web/src/modules/locations/LocationTreePage.tsx (details tab), web/src/dev/harness/registry.tsx. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
@@ -57220,7 +57148,7 @@ requirements:
   - id: REQ-879
     title: "Qoimeks parity G18 part 5: the Qoimeks converter writes the movement history into archive import files, and the rehearsal loads and counts them"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # movement history stays in Qoimeks, read-only (owner 2026-11-16)
     stage: S7
     gh: 4588
     # Source: task T-2037. Files read on origin/main 1520cf186: scripts/pilot/qoimeks_convert.py (MAX_ROWS 200, NEEDED, manifest.json upload_order, expected_counts.txt, report.txt rules, exit codes), docs/runbooks/qoimeks-rehearsal.md, test/scripts/qoimeks_rehearsal_test.exs, test/fixtures/qoimeks_rehearsal/, test/letflow/modules/stock/qoimeks_files_test.exs. Qoimeks columns in state/tasks/T-2037/sources/qoimeks-movements-extract.md. REQ-837 and REQ-842 (pending) edit the same converter. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
@@ -57253,7 +57181,7 @@ requirements:
   - id: REQ-882
     title: "Qoimeks parity G8 part 1: the record import answers the SHA-256 of an uploaded xlsx or csv file, and a load sent with the sha256 of another file is refused 409 with nothing written"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # no SHA-256 file binding (owner 2026-11-16)
     stage: S7
     gh: 4609
     # Source: task T-2030 (Qoimeks parity row G8, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 row G8), docs/runbooks/qoimeks-rehearsal.md (steps 3 and 5, dry_run=true then atomic=true), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, import_records_with_access/5, import_body/4, xlsx_bytes/1, csv_text/1, check_dry_run/3, check_atomic/2, import_results_ok/5; no 409 on this route today), lib/letflow/plugs/xlsx_body_parser.ex and lib/letflow/plugs/csv_body_parser.ex (raw bytes kept under "_xlsx" and "_csv"), lib/letflow/api/response.ex (conflict/2, unprocessable/2), docs/migration/decisions/0077-xlsx-import-export.md. Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2030/sources/qoimeks-import-extract.md: client1-inventory.md section 8 item 7 and server/internal/api/import.go importWorkbook.
@@ -57296,7 +57224,7 @@ requirements:
   - id: REQ-883
     title: "Qoimeks parity G8 part 2: the web import screen loads only the file it checked, sending its SHA-256, and says in English, Russian and Kazakh when the file changed after the check"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # no SHA-256 file binding (owner 2026-11-16)
     stage: S7
     gh: 4608
     # Source: task T-2030 (row G8). Read on origin/main b074d5c71: web/src/pages/admin/import/importApi.ts (runImport/3: dry_run=true for the check, atomic=true for the load), web/src/pages/admin/import/MasterDataImportPage.tsx (onRun/1, phases checked/done/notApplied, button data-testid import-confirm enabled only when checkedClean), web/src/pages/admin/import/importModel.ts (ImportAnswer), web/src/i18n/importMessages.ts, web/src/modules/stock/documents/LinesEditor.tsx (calls runImport with dryRun false and no check).
@@ -57325,7 +57253,7 @@ requirements:
       - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for the states checked-clean and file-changed of the import screen, with STATE-TABLE.md in the task folder."
     depends_on: [REQ-882, REQ-675]
   - id: REQ-884
-    title: "Qoimeks parity G8 part 3: module stock checks a Qoimeks-layout balances workbook against the stock of one org unit, normalising look-alike letters and decimal commas, with Russian per-row warnings and the file SHA-256, and writes nothing"
+    title: "Qoimeks parity G8 part 3: module stock checks a Qoimeks-layout balances workbook against the stock of one org unit, normalising look-alike letters and decimal commas, with Russian per-row warnings, and writes nothing"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
@@ -57357,13 +57285,13 @@ requirements:
       bounded reader of Letflow.Entities.XlsxImport (one parse: a new public function of that module answers
       the first worksheet's name and its rows as text cells, with the same 25 MiB inflate limit and refusals,
       so no second unzip exists). Only the first worksheet is read (Qoimeks reads the first sheet when none is
-      named; choosing a sheet of the weekly workbook is row G9, task T-2031). An unreadable workbook is 422
+      named; no sheet choice is built). An unreadable workbook is 422
       xlsx_unreadable. Rows before the first row whose cell A is "Артикул" are skipped; no such row is 422
       header_missing. After it, a row with A or B empty is skipped without a remark (blank line or a group
       heading). More than 10,000 data rows is 422 workbook_too_large: the cap of the workbook REQ-865 writes,
       so every workbook Letflow writes reads back. Columns: A article (the catalog_item code, matched exactly
       after trimming and collapsing inner spaces), B name, C quantity, D zone, E rack, F shelf; G, I and J are
-      not read in this part (the second place, unit and codes are master data, row G9); H is read only when D,
+      not read in this part (the second place, unit and codes are not part of this check); H is read only when D,
       E and F are all empty (EXTRA over Qoimeks, as REQ-865 asks: a place code that does not fit the pattern
       is named in H).
       Normalising (the Qoimeks rules, copied): text is trimmed and runs of white space become one space. Zone
@@ -57408,10 +57336,9 @@ requirements:
       R10 "<a>: артикул повторяется с другим названием "<name>". Остатки сложены";
       R11 "<a>: место "<zone>" "<rack>" <shelf> прочитано как <code>".
       R2, R4, R10 and R11 are the Qoimeks texts (R1 and R3 with the Qoimeks wording, R3 ending as R1 because
-      Letflow does not guess the place; R10 without the Qoimeks rename clause, renaming being master data). The
+      Letflow does not guess the place; R10 without the Qoimeks rename clause, renaming is out of scope). The
       remark texts are UAT decisions of this requirement, to be confirmed by the process owner.
-      Answer 200: file_sha256 (as REQ-882: the SHA-256 of the body bytes, 64 lower-case hexadecimal
-      characters), sheet, rows_read (data rows after the header), remarks (list of {row, text}, sheet order),
+      Answer 200: sheet, rows_read (data rows after the header), remarks (list of {row, text}, sheet order),
       changes (list of {row, item_code, item_name, place_code, book_quantity, file_quantity, difference},
       quantities as decimal strings, row null for a place emptied because the file does not name it; items in
       file order, places by code), unchanged_count (the plain keys of the file's items that hold a non-zero book
@@ -57429,30 +57356,28 @@ requirements:
       - "4. Changes: in a tenant where item Z-1 has 10 at RI2 and 3 at LA1 (plain keys of the org unit), a file with Z-1 rows (RI2, 7) and (RI2, 1) gives the changes RI2 book 10 file 8 difference -2 (with remark R2) and LA1 book 3 file 0 difference -3 with row null; an item of the tenant that is not in the file has no change; a row whose quantity equals the book adds to unchanged_count only."
       - "5. Remarks, one test case each, with the exact text of the description and the item's balances absent from changes: R1, R3, R5 (no '?' place), R6, R7 (a second balance row of the item in another org unit), R8, R9 (lot-tracked item); R4: with a location '?' in the tenant, a row of quantity 2 with no place gives a change to place ? with file_quantity 2; R10 keeps the sum."
       - "6. Header and caps: a sheet with two title rows above the 'Артикул' row reads the rows after it; a sheet without an 'Артикул' cell in column A is 422 header_missing; a non-workbook body is 422 xlsx_unreadable; with the cap lowered by a test seam (app env :stock_workbook_import_max_rows, which can only lower it) to 3, four data rows are 422 workbook_too_large; with the change cap lowered by a test seam (app env :stock_workbook_import_max_changes, which can only lower it) to 2, three changes give too_many_changes true and two give false."
-      - "7. Read only and tenancy (INV-1): a check writes no record, ledger entry, audit entry or document number (counts before and after equal); with two tenants A and B holding the same item and place codes and different quantities, B's check reads only B's book; file_sha256 equals the SHA-256 of the body bytes."
+      - "7. Read only and tenancy (INV-1): a check writes no record, ledger entry, audit entry or document number (counts before and after equal); with two tenants A and B holding the same item and place codes and different quantities, B's check reads only B's book."
       - "8. One parse: StockWorkbookImport reads the workbook only through the new public function of Letflow.Entities.XlsxImport (a source check in the test: the module calls no :zip function); an xlsx with a <!DOCTYPE in a sheet part is refused as the record import refuses it."
       - "9. Docs in step: docs/runbooks/stock-workbook-import.md exists with the route, the layout, the normalising rules and the remark list R1 to R11; the Letflow.Modules.Stock moduledoc names the route; route_policies of module stock lists the new route with StockRead, and the stock route-count pins are updated and pass."
     depends_on: [REQ-865, REQ-882, REQ-650]
   - id: REQ-885
-    title: "Qoimeks parity G8 part 4: 'Записать остатки из файла', module stock loads a checked balances workbook only with its SHA-256 and turns its differences into one quick count document whose posting sets each balance to the file"
+    title: "Qoimeks parity G8 part 4: 'Записать остатки из файла', module stock loads a checked balances workbook and turns its differences into one quick count document whose posting sets each balance to the file"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 4606
-    # Source: task T-2030 (row G8: "optional 'Записать остатки из файла' turns differences into count adjustments (uses G5)"). Read on origin/main b074d5c71: REQ-853 (pending, gh 4565: expected_on_hand, balance_changed), REQ-854 (pending, gh 4564: kind quick_count, document type stock_quick_count, POST /quick-counts, StockQuickCount, process stock_quick_count, cause count_set, quick_count_stale, count_in_progress, "Not in this part ... several lines per quick count and the 'balances from the file as adjustments' import (row G8, sibling task T-2030)"), lib/letflow/modules/stock/documents/shape.ex (@max_lines 1000), lib/letflow/ledger/validate.ex (@max_legs 2000), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER, version "0.17.0"). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go: apply needs sha256, 409; store/import.go: PostBalances, ImportRecord; migrations 003 and 004).
+    # Source: task T-2030 (row G8: "optional 'Записать остатки из файла' turns differences into count adjustments (uses G5)"). Read on origin/main b074d5c71: REQ-853 (pending, gh 4565: expected_on_hand, balance_changed), REQ-854 (pending, gh 4564: kind quick_count, document type stock_quick_count, POST /quick-counts, StockQuickCount, process stock_quick_count, cause count_set, quick_count_stale, count_in_progress, "Not in this part ... several lines per quick count and the 'balances from the file as adjustments' import (row G8, sibling task T-2030)"), lib/letflow/modules/stock/documents/shape.ex (@max_lines 1000), lib/letflow/ledger/validate.ex (@max_legs 2000), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER, version "0.17.0"). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go: apply; store/import.go: PostBalances, ImportRecord; migrations 003 and 004).
     description: >
       Why. In Qoimeks the load of a checked workbook with «Записать остатки из файла» sets every differing
       balance to the file's number as stock-count movements, records the import (who, file name, sheet,
-      SHA-256, counts) and can be cancelled later (Qoimeks store/import.go, copied to the task folder). The
-      load needs the SHA-256 of the checked file. Letflow's set-to count is the quick count of REQ-854
+      counts) and can be cancelled later (Qoimeks store/import.go, copied to the task folder). The
+      load does not bind to the checked file by a hash (no file hash is built). Letflow's set-to count is the quick count of REQ-854
       (pending), one line per document; REQ-854 leaves "several lines per quick count and the balances from the
       file import" to this task.
-      Route. POST /api/v1/modules/stock/stock-workbook/apply?org_unit_id=<id>&sha256=<hex>&file_name=<text>,
+      Route. POST /api/v1/modules/stock/stock-workbook/apply?org_unit_id=<id>&file_name=<text>,
       the same body and body parser clause as the check of REQ-884 (planned, not yet on main), permission
       StockQuickCount (REQ-854) and a tenant-wide stock read (a scoped reader gets the unknown-path 404 as in
-      REQ-884). sha256 is required here (Qoimeks parity): missing is 422 sha256_required, not 64 hexadecimal
-      characters is 422 sha256_invalid, a value that differs from the SHA-256 of the body bytes is 409 with
-      detail "this is not the file that was checked; check it again" (the text of REQ-882). file_name is
+      REQ-884). The load re-reads and re-checks the body it receives and writes only what that check finds. file_name is
       optional, 1 to 255 characters, default "workbook.xlsx"; org_unit_id as in REQ-884; any other key is 422
       invalid_filter. The check rules of REQ-884 run again inside the load's transaction (the book read at one
       cutoff there), so the load writes what a check of the same bytes at that moment answers.
@@ -57463,7 +57388,7 @@ requirements:
       taken. Otherwise one stock_quick_count document of the org unit is created and issued, with one line per
       change in the order of the check's changes: catalog item, location, unit (base unit), book_quantity,
       counted_quantity = the file's target, difference, reason_code other and reason_text "Записать остатки
-      из файла"; the header carries source workbook, file_sha256, file_name, sheet, rows_read and
+      из файла"; the header carries source workbook, file_name, sheet, rows_read and
       remarks_count. This part lets a stock_quick_count document hold 1 to 1000 lines when its source is
       workbook; POST /quick-counts keeps exactly one line and POST /documents keeps refusing kind quick_count
       (REQ-854). Answer 201: document_id, number, lines (the count), remarks (as the check) and the approve task
@@ -57480,8 +57405,8 @@ requirements:
       which file" is the document (created_by, created_at and the header fields); Qoimeks' separate imports
       table is not copied. Size M.
     acceptance_criteria:
-      - "1. sha256: a load without sha256 is 422 sha256_required, with 'abc' 422 sha256_invalid, with the sha256 of the checked file and one changed cell 409 'this is not the file that was checked; check it again'; nothing is written in each case (document, record, ledger entry and audit counts unchanged)."
-      - "2. Load: a STOREKEEPER (holding StockQuickCount and a tenant-wide stock read) loads the workbook of REQ-884 criterion 4 with its sha256: 201 with lines 2; GET /documents/:id answers a stock_quick_count document with source workbook, the sha256, file_name, sheet, two lines (RI2 book 10 counted 8 difference -2; LA1 book 3 counted 0 difference -3) and reason_text 'Записать остатки из файла'."
+      - "1. Re-check: a load re-checks the body it receives; with a file that has a bad header it is refused as the check refuses it (422 header_missing) and nothing is written (document, record, ledger entry and audit counts unchanged)."
+      - "2. Load: a STOREKEEPER (holding StockQuickCount and a tenant-wide stock read) loads the workbook of REQ-884 criterion 4 201 with lines 2; GET /documents/:id answers a stock_quick_count document with source workbook, file_name, sheet, two lines (RI2 book 10 counted 8 difference -2; LA1 book 3 counted 0 difference -3) and reason_text 'Записать остатки из файла'."
       - "3. Four eyes ON: the loader's own completion of approve is refused separation_of_duties; a second user completes it; GET /balances then shows Z-1 8 at RI2 and 0 at LA1 and GET /movements shows one entry of cause count_set with two legs, -2 and -3."
       - "4. Four eyes OFF for stock_quick_count / approve: the loader completes approve alone and the balances equal the file; a check of the same file afterwards gives changes []."
       - "5. Stale: a receipt of +1 on Z-1 at RI2 posted after the load and before approve makes approve refused 409 quick_count_stale with no ledger entry; the task stays pending; balances are 11 and 3."
@@ -57490,7 +57415,7 @@ requirements:
       - "8. Same file twice: two loads of the same file before either is approved give two documents; after the first is approved, approving the second is refused quick_count_stale; a load after the first approval answers applied false."
       - "9. Access and tenancy: a caller without StockQuickCount gets 403; a scoped stock reader with StockQuickCount gets the unknown-path 404; an org_unit_id of another tenant is 422 org_unit_not_found with nothing written in either schema (INV-10 negative)."
       - "10. Unchanged one-line rules: POST /quick-counts with two lines is refused as REQ-854 refuses it and POST /documents with kind quick_count is still unknown_kind (the REQ-854 tests pass unchanged)."
-      - "11. Docs in step: docs/runbooks/stock-workbook-import.md has the load section (sha256, the 201 answer, four eyes, quick_count_stale); decision 0079 ends with 'Amended by REQ-885'; module stock's version moved and its pins are updated; the permission matrix golden is regenerated with mix letflow.permission_matrix --write and passes."
+      - "11. Docs in step: docs/runbooks/stock-workbook-import.md has the load section (the 201 answer, four eyes, quick_count_stale); decision 0079 ends with 'Amended by REQ-885'; module stock's version moved and its pins are updated; the permission matrix golden is regenerated with mix letflow.permission_matrix --write and passes."
     depends_on: [REQ-884, REQ-854, REQ-853]
   - id: REQ-886
     title: "Qoimeks parity G8 part 5: module stock lists the balances workbook loads newest first and cancels one with a reason, which cancels the document before approval or starts the reversal of its posting after it"
@@ -57500,7 +57425,7 @@ requirements:
     gh: 4605
     # Source: task T-2030 (row G8: "an import can be cancelled and reverses its balance changes (by reversals)"). Read on origin/main b074d5c71: lib/letflow/modules/stock/router.ex (authz_post "/documents/:id/reverse" and "/documents/:id/cancel", both :StockReverse), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER holds StockReverse), REQ-854 (pending: reversal of a posted quick count, guard location_frozen), REQ-833 (pending, gh 4554: negative balances). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go importHistory and cancelImport; store/import.go Imports(ctx, 50) and CancelImport: reverses every movement of the import not yet reversed, newest first, "this import has no balance changes left to cancel").
     description: >
-      Why. Qoimeks lists the last 50 imports (who, file, sheet, SHA-256, counts) and cancels one: every
+      Why. Qoimeks lists the last 50 imports (who, file, sheet, counts) and cancels one: every
       balance change of that import that is not yet reversed is reversed, in the name of who asked (Qoimeks
       store/import.go CancelImport, copied to the task folder). In Letflow a workbook load is one quick count
       document (REQ-885, planned, not yet on main), so its balance changes are one ledger entry and its cancel
@@ -57508,7 +57433,7 @@ requirements:
       Routes (stock router). GET /api/v1/modules/stock/stock-workbook/imports, permission StockRead with a
       tenant-wide stock read (scoped reader: the unknown-path 404), no query key (any key 422 invalid_filter):
       the stock_quick_count documents with source workbook, newest first by created_at, at most 50 (the
-      Qoimeks limit), each with document_id, number, created_at, created_by, file_name, file_sha256, sheet,
+      Qoimeks limit), each with document_id, number, created_at, created_by, file_name, sheet,
       lines (count), remarks_count, state (as GET /documents/:id answers it) and reversal_pending (true while
       a reversal of it is started and its reverse task is not completed). POST
       /api/v1/modules/stock/stock-workbook/imports/:id/cancel, permission StockReverse, JSON body
@@ -57572,9 +57497,7 @@ requirements:
       difference; a place emptied because the file does not name it is marked) and unchanged_count. (2) Load:
       the button «Записать остатки из файла» (en "Write balances from the file", kk "Файлдағы қалдықтарды
       жазу"; kk a UAT assumption, to be confirmed by a Kazakh reader) is enabled only after a check of the
-      chosen file and org unit with at least one change and too_many_changes false; it sends that check's
-      file_sha256 and the file name. A 409 shows "The file changed after the check. Check it again." (the
-      texts of REQ-883 in en, ru and kk) and returns to the not-checked state. Choosing another file or org
+      chosen file and org unit with at least one change and too_many_changes false; it sends the file and the file name. Choosing another file or org
       unit returns to the not-checked state. A 201 shows the document number with a link to the document
       (admin/stock/documents/:id, where the approve task is done) and says that the balances change after the
       approval. applied false shows "No balance differs from the file." in the three languages. (3) Loads: a
@@ -57588,8 +57511,8 @@ requirements:
     acceptance_criteria:
       - "1. Access: the Balances screen shows the button to the new screen for a user holding StockQuickCount and not for a STOREKEEPER role without it (component test with the permission set); the route is wrapped in RequirePermission for StockQuickCount."
       - "2. Check (component test with a fake API): choosing an org unit and a file and pressing Check posts the file to the check route with org_unit_id; the remarks are shown with the exact server texts in en, ru and kk locales; the changes table shows each change and marks a row-null change as emptied."
-      - "3. Load: the load button is disabled before a check, after a check with no change, and with too_many_changes true; after a check it posts with that check's sha256 and the file name; choosing another file or org unit disables it again."
-      - "4. Answers: 201 shows the number and a link to admin/stock/documents/<id>; applied false shows the no-difference text; 409 shows the file-changed text of REQ-883 and disables the load button; each in en, ru and kk."
+      - "3. Load: the load button is disabled before a check, after a check with no change, and with too_many_changes true; after a check it posts the file and the file name; choosing another file or org unit disables it again."
+      - "4. Answers: 201 shows the number and a link to admin/stock/documents/<id>; applied false shows the no-difference text; each in en, ru and kk."
       - "5. Loads and cancel: the list shows the fields of the description; Cancel is shown only with StockReverse and only for a load not cancelled, not reversed and without reversal_pending; it opens a confirmation dialog with a required reason field (confirm disabled while the trimmed reason is empty, at most 500 characters) and, confirmed, posts the cancel route with body {reason} and refreshes the list; the answer reverse_pending shows that the balances return after the reverse task is completed, with a link to admin/stock/documents/<id>; a load with reversal_pending true shows that state; a 422 import_already_cancelled and a 409 reversal_pending show their messages."
       - "6. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
       - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for every state of the description, with STATE-TABLE.md in the task folder and a harness fixture per state."
@@ -57597,7 +57520,7 @@ requirements:
   - id: REQ-888
     title: "Qoimeks parity G9 part 1: the stock balances workbook check and load read the week sheet the user names, answer every sheet name, and list the stock of items the file does not mention, which is left unchanged"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # G9 weekly workbook: no known industry practice (owner 2026-11-16)
     stage: S7
     gh: 4615
     # Source: task T-2031 (Qoimeks parity row G9, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 8ebc41e6b: docs/status/qoimeks-migration-readiness.md (section 1.2 rows G8 and G9, section 1.3 B "Daily entries or weekly Excel"), REQ-884 (pending, gh 4607: "Only the first worksheet is read ... choosing a sheet of the weekly workbook is row G9, task T-2031"), REQ-885 (pending, gh 4606), REQ-886 (pending, gh 4605), lib/letflow/entities/xlsx_import.ex (moduledoc: "only the first worksheet (workbook order) is read"), lib/letflow/ledger.ex (defdelegate balances/4). Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md: importer.go package doc and parse/2 (sheet choice), store/import.go ImportReport.NotInFile and its query, api/import.go importWorkbook (sheet, sheets), web.html (sheet select, block "Нет в файле").
@@ -57649,7 +57572,7 @@ requirements:
   - id: REQ-889
     title: "Qoimeks parity G9 part 2: the web 'Загрузка остатков из Excel' screen lets the user pick the week sheet and shows the stock not in the file, in English, Russian and Kazakh"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # G9 weekly workbook: no known industry practice (owner 2026-11-16)
     stage: S7
     gh: 4614
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending, gh 4604: the screen at admin/stock/workbook-import, its states and the not-checked rule), REQ-888 (this task: sheet, sheets, not_in_file). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): select "Лист" with the first option «Первый лист (последняя неделя)», filled with the sheets after the first check, a change of sheet makes the check void; block «Нет в файле» with the hint «— у этих товаров есть остаток в системе, но в файле их нет. Остаток не изменяется.» and the columns №, Артикул, Номенклатура, Место, Остаток.
@@ -57684,7 +57607,7 @@ requirements:
   - id: REQ-890
     title: "Qoimeks parity G9 part 3: the stock balances workbook, with masters=true, also creates the items and places the file names and Letflow lacks, renames and reactivates items as the file says, previewed by the check and written by the load"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # G9 weekly workbook: no known industry practice (owner 2026-11-16)
     stage: S7
     gh: 4613
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-884 (rules (a) R8 "артикул не найден, строка пропущена" and (f) R6, and "the second place, unit and codes are master data, row G9"), REQ-885, REQ-886, lib/letflow/routers/entities/record_import.ex (import_scope/2: decision 0081 D4, STOREKEEPER imports stock_opening_line only), docs/migration/decisions/0081-storekeeper-role.md, lib/letflow/modules/catalog_items/catalog_items.ex (import_row/3, lookup/2), lib/letflow/modules/catalog_items/import.ex (row/3 keys by external ref, Records.upsert_record_by_external_ref/3), priv/modules/catalog_items/pack.json (uq_catalog_item_code, uq_catalog_item_external_ref), lib/letflow/modules/locations/locations.ex (defdelegate create_node/3 to Tree), priv/modules/locations/pack.json (uq_location_node_code; code, name, node_kind required by Locations.Import), scripts/pilot/qoimeks_convert.py (node_kind "location", unit code from the unit text), lib/letflow/modules/stock/stock.ex (depends_on catalog_items, codes, locations, org). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): store/import.go Import (locations insert on conflict do nothing; skus upsert: name, places, active = true), importer.go locationName and NoLocation "?", web.html report counts «новых товаров», «обновится товаров», «новых мест»; inventory section 7 (default unit шт), copied as sources/client1-inventory.copy.md.
@@ -57765,7 +57688,7 @@ requirements:
   - id: REQ-891
     title: "Qoimeks parity G9 part 4: the stock balances workbook with masters=true sets each item's usual place and second place from the file, previewed by the check and written by the load"
     owner: ELIXIR-DEV
-    status: pending
+    status: cancelled  # G9 weekly workbook: no known industry practice (owner 2026-11-16)
     stage: S7
     gh: 4612
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-841 (pending, gh 4555: stock_item_place, one link per catalog item, usual_location_id and second_location_id, a blank place clears the earlier one, audit stock_item_place.created / .updated), REQ-865 (pending: "the place of its first row is its usual place; when column G is empty, the first later row whose place differs from the usual place gives the second place"), REQ-884 (R10 copied without the Qoimeks rename clause), REQ-890 (this task). Qoimeks (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): importer.go column G altShape ^([A-Z])([A-Z]?)(\d*)$ after removing spaces, upper case and look-alike letters, its remark «второе место %q не похоже на код места, пропущено», home = the "?" place for a quantity without a place; store/import.go skus upsert location_id = home and alt_location_id = alt (a blank clears).
@@ -57811,7 +57734,7 @@ requirements:
   - id: REQ-892
     title: "Qoimeks parity G9 part 5: the web 'Загрузка остатков из Excel' screen offers 'also update items and places from the file' to those who may, shows the new items, renames, new places and place changes, and can load the items and places only"
     owner: FRONTEND-DEV
-    status: pending
+    status: cancelled  # G9 weekly workbook: no known industry practice (owner 2026-11-16)
     stage: S7
     gh: 4611
     # Source: task T-2031 (row G9). Read on origin/main 8ebc41e6b: REQ-887 (pending: the screen and its states), REQ-889, REQ-890 and REQ-891 (this task: masters, masters_writable, balances, the masters block). Qoimeks web.html (copied to state/tasks/T-2031/sources/qoimeks-weekly-workbook-extract.md): report counts «новых товаров», «обновится товаров», «новых мест», «остатков изменится», checkbox «Записать остатки из файла» with its hint.

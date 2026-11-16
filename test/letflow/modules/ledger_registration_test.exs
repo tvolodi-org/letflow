@@ -42,9 +42,9 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
       assert Catalog.validate(Letflow.Modules.FixtureLedgerOther.manifest()) == :ok
     end
 
-    test "T-LR-02 the fixture passes through Catalog.validate/2 with two registrations" do
+    test "T-LR-02 the fixture passes through Catalog.validate/2 with three registrations" do
       assert Catalog.validate(base()) == :ok
-      assert Enum.sort(Map.keys(base().ledger)) == ["alpha", "beta"]
+      assert Enum.sort(Map.keys(base().ledger)) == ["alpha", "beta", "gamma"]
     end
   end
 

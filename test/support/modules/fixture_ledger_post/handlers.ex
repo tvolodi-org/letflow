@@ -21,6 +21,11 @@ defmodule Letflow.Modules.FixtureLedgerPost.Handlers do
           {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
   def post_beta(multi, ctx, args), do: note_and_post(multi, ctx, args, "fixture_ledger_post:beta")
 
+  @spec post_gamma(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def post_gamma(multi, ctx, args),
+    do: note_and_post(multi, ctx, args, "fixture_ledger_post:gamma")
+
   @spec plain(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
           {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
   def plain(multi, ctx, args), do: note(multi, ctx, args)

@@ -106,11 +106,46 @@ defmodule Letflow.Api.ModuleGuardTest do
     ok = conn([])
     assert AssetsAccess.check(ok, :read) == ModuleGuard.check(ok, :AssetsRead)
     assert AssetsAccess.check(ok) == ModuleGuard.check(ok, :AssetsCardWrite)
-    assert StockAccess.check(ok, :post) == ModuleGuard.check(ok, :StockPost)
-    assert StockAccess.check(ok, :reverse) == ModuleGuard.check(ok, :StockReverse)
+    assert StockAccess.check(ok, :read) == ModuleGuard.check(ok, :StockRead)
+    # REQ-831: :post and :reverse use check_scoped/2
+    assert StockAccess.check(ok, :post) == ModuleGuard.check_scoped(ok, :StockPost)
+    assert StockAccess.check(ok, :reverse) == ModuleGuard.check_scoped(ok, :StockReverse)
 
     worker = conn(role: "TASK_WORKER")
     assert :error = AssetsAccess.check(worker, :read)
     assert :error = StockAccess.check(worker, :read)
+  end
+
+  describe "check_scoped/2 (REQ-831)" do
+    test "tenant-wide: scope :all" do
+      assert {:ok, %{prefix: @prefix, actor_id: @user, scope: :all}} =
+               ModuleGuard.check_scoped(conn([]), :StockPost)
+    end
+
+    test "grant rows that name no unit for the permission are :error, never :all" do
+      c = conn(role: "STOREKEEPER", grants: grants(@user, %{}))
+      assert :error = ModuleGuard.check_scoped(c, :StockPost)
+      assert :error = ModuleGuard.check(c, :StockPost)
+
+      # the {:nodes, ids} answer needs the tenant's scope node table: it is proved through the real
+      # router in test/letflow/modules/stock/scoped_documents_router_test.exs (SW-1..8)
+    end
+
+    test "no grants for the permission, an API token and no principal are :error" do
+      assert :error = ModuleGuard.check_scoped(conn(role: "TASK_WORKER"), :StockPost)
+
+      assert :error =
+               ModuleGuard.check_scoped(conn(credential: :api_token, grants: :token), :StockPost)
+
+      assert :error = ModuleGuard.check_scoped(%Plug.Conn{}, :StockPost)
+    end
+
+    test "Stock.Access: :post scoped accepted, :read refused; document_scope/1" do
+      assert {:ok, %{scope: :all}} = StockAccess.check(conn([]), :post)
+      assert function_exported?(StockAccess, :document_scope, 1)
+      assert {:node, "u1"} = StockAccess.document_scope(%{org_unit_id: "u1"})
+      assert :unresolvable = StockAccess.document_scope(%{})
+      assert :unresolvable = StockAccess.document_scope(%{org_unit_id: ""})
+    end
   end
 end

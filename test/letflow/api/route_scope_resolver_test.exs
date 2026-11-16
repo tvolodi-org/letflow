@@ -44,6 +44,18 @@ defmodule Letflow.Api.RouteScopeResolverTest do
     "PUT /entities/records/:entity_type/:record_id EntitiesRecordsWrite"
   ]
 
+  # REQ-831: the eight stock document write routes (handled with the entity lines in the walk below)
+  @stock_resolver_lines [
+    "DELETE /modules/stock/documents/:id StockPost",
+    "POST /modules/stock/documents StockPost",
+    "POST /modules/stock/documents/:id/cancel StockReverse",
+    "POST /modules/stock/documents/:id/check StockPost",
+    "POST /modules/stock/documents/:id/issue StockPost",
+    "POST /modules/stock/documents/:id/post StockPost",
+    "POST /modules/stock/documents/:id/reverse StockReverse",
+    "PUT /modules/stock/documents/:id StockPost"
+  ]
+
   @tenant_wide_lines [
     "GET /entities/definitions EntitiesDefinitionsRead",
     "GET /entities/definitions/:id EntitiesDefinitionsRead",
@@ -243,7 +255,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       ]
 
       assert resolver_rows |> Enum.map(&RouteScope.snapshot_line/1) |> Enum.sort() ==
-               Enum.sort(@resolver_lines ++ task_lines)
+               Enum.sort(@resolver_lines ++ @stock_resolver_lines ++ task_lines)
 
       for row <- resolver_rows do
         assert row.source == :declared
@@ -257,6 +269,9 @@ defmodule Letflow.Api.RouteScopeResolverTest do
 
           Letflow.Routers.Entities ->
             assert row.class == @resolver
+
+          Letflow.Modules.Stock.Router ->
+            assert row.class == {:resolver, {Letflow.Modules.Stock.Access, :document_scope}}
         end
       end
 
@@ -311,11 +326,13 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-816 (GH #4375) added the six assets count lines (267 -> 273).
       # REQ-817 (GH #4374) added the eight assets count sheet lines (273 -> 281).
       # T-1924 added the asset card print route line (281 -> 282).
+      # T-1925 added the stock sheet print route line (285 -> 286).
       # T-1949 added the three owner problem-report route lines (282 -> 285).
       # REQ-819 (GH #4372) added the three assets count result lines (285 -> 288).
       # REQ-818 (GH #4373) added the assets count scan line (288 -> 289).
       # T-1963 added the three owner review route lines (289 -> 292).
-      assert length(snapshot) == 293
+      # REQ-831 (GH #4532): the eight stock document write routes got a declared resolver class (294 -> 286).
+      assert length(snapshot) == 286
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
