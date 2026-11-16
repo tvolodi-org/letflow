@@ -55957,6 +55957,578 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-857
+    title: "Qoimeks parity G13 part 1: decision record for a per-tenant shared stock access next to personal accounts (a credential, not a role; stock read, post and reverse only; operator name; a per-tenant address the old Qoimeks app can use)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4574
+    # Source: task T-2034 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality (not less but possible more)"; enabling it for a real tenant stays with the owner; QA only, D-050), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 rows G13 and G14 and section 2.4 row R-5 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2034/sources/qoimeks-token-extract.md (client1-inventory.md section 8 items 8 and 11; qoimeks-migration-plan.md sections 1 and 2; Qoimeks server/internal/api/api.go routes, requireToken, storeError, writeError, balances and movements handlers; server/internal/store/store.go NewMovement and Movement with integer sku_id and location_id; server/internal/store/migrations/001_init.sql kinds and the operator <> '' check; mobile/lib/api.dart base address plus path, Authorization Bearer and X-Operator headers; the list of calls the old app makes; docs/self-host.md "openssl rand -hex 32"). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/access.ex, lib/letflow/api/module_guard.ex (check/2 accepts only kind :user), lib/letflow/api/scope.ex (principal_from_conn/1, principal_kind :api_token -> :token), lib/letflow/plugs/auth_pipeline.ex ("lf_tok_" dispatch, X-Tenant-Slug, the 401 "invalid or expired bearer token"), lib/letflow/plugs/auth_attempt_limit.ex (modes :failures and :requests, defaults/0, send_rate_limited/2), lib/letflow/identity.ex (create_token/3, mint_token/4, revoke_token/2, verify_api_token/2, hash_token_value/1 SHA-256, audit actions token.create and token.revoke), lib/letflow/router.ex (forwards outside /api/v1, /admin/v1), lib/letflow/modules/stock/router.ex (route list and guards), lib/letflow/modules/stock/actor_label.ex, docs/roles.md (STOREKEEPER; "The provisioner is a credential, not a role"), priv/permission_matrix/effective.golden (TokensManage held by TENANT_ADMIN and PLATFORM_ADMIN only), web/src/router.tsx (admin/tokens). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks Client 1 has no accounts: every phone sends one shared token as "Authorization: Bearer <token>",
+      and the operator types a free name that is stored with each movement (inventory 8.8 and 8.11; the token
+      "must keep working indefinitely", no setting change on phones). Letflow's stock routes accept only an
+      interactive signed-in person: Letflow.Api.ModuleGuard.check/2 (lib/letflow/api/module_guard.ex) matches
+      kind :user only, so an API token (kind :token) gets the 404 of lib/letflow/modules/stock/access.ex. The
+      owner decided parity (2026-11-16). Ledger and access rules are never changed silently, so this first,
+      docs-only part writes the decision record the later parts (REQ-858 to REQ-861, written with this one)
+      build on. Deliverable: docs/migration/decisions/0091-shared-stock-access.md (planned, not yet on main;
+      0090 is reserved by REQ-833; take the next free number at implement time and use it everywhere this
+      chain says 0091). It must decide, each in its own numbered section: (1) what changes in the rule
+      "stock accepts only an interactive user" and why, and that personal accounts keep working unchanged
+      next to it; (2) the shared access is a credential, not a role (as the tenant provisioner in
+      docs/roles.md): one per tenant at most, holding exactly the permissions StockRead, StockPost and
+      StockReverse, never StockReconcile, StockCountOrder, StockCountRecord, any import, users, tokens,
+      modules, settings or audit; the nine roles and the permission matrix do not change; (3) how it is
+      turned on: off by default for every tenant; only a tenant listed in the new setting
+      LETFLOW_SHARED_STOCK_ACCESS_TENANTS (comma-separated tenant slugs, unset or empty means none) may have
+      one, so the owner keeps the decision per real tenant (QA only until the owner says otherwise);
+      removing a tenant from the list stops its credential at once; the record has a settings-table row for
+      the name, default, who sets it and the reason it is a deployment setting; (4) storage and life cycle:
+      only the SHA-256 hash of the value is stored (as hash_token_value/1 of lib/letflow/identity.ex does for
+      API tokens); the tenant administrator creates it with a generated value or with a given value (the old
+      Qoimeks token), rotates it (the old value stops at once) and revokes it; the value is shown once, at
+      creation, and is never in a log, an audit entry, an error or a later response (INV-4); where the hash
+      and its creation and rotation times are stored (the record chooses ONE storage: a new tenant table in
+      the tenant schema, or an existing one, and says why); the minimum
+      length of a given value; which actor id is written into the stock documents (the record chooses ONE
+      mechanism and says why it cannot sign in or hold a role binding); (5) the operator name: required on
+      every write, trimmed, its length limit, stored with each document written through the shared access and
+      shown in the stock reads instead of a person's name; (6) where it is accepted: ONLY at a per-tenant
+      address outside /api/v1, declared as its own forward in lib/letflow/router.ex, whose path carries the
+      tenant slug, so the old app needs only a new server address (Qoimeks mobile/lib/api.dart builds every
+      call as base address plus path); it is not accepted on any /api/v1 route; the record names the exact
+      path; (7) the contract table: one row per old-app call that this chain serves (catalog, balances,
+      movements list, movement post, movement reverse), with its Qoimeks request and answer fields, the
+      Letflow function it calls, and how Qoimeks integer sku_id and location_id are given stable per-tenant
+      integer numbers; the old-app calls not served here (codes, feedback, voice, parse) are listed with the
+      readiness row that owns each (G12, G19, G15); (8) refusals and limits: every refusal before the
+      credential is proven (unknown slug, tenant not listed, no credential, wrong value, tenant not active,
+      stock module not active) gives the same 401 body (INV-5); wrong values are counted by
+      Letflow.Plugs.AuthAttemptLimit in mode :failures; accepted requests are limited per credential with the
+      bucket of that module, with defaults equal to its request_capacity and request_refill_per_sec;
+      (9) interplay with the other ledger rules: the posting scope of slice L6 (REQ-831; the shared access is
+      refused while the tenant's scope enforcement is on), the master checks of slice L7 (REQ-832, applied
+      unchanged), four eyes (a document that needs approval is approved by a personal account, never by the
+      shared access), negative balances (decision 0090 of REQ-833, planned), the one-line count (task T-2028)
+      and retry by client id (task T-2029); (10) the security review: each of INV-1, INV-4, INV-5, INV-6,
+      INV-8, INV-9 and INV-10 of docs/agents/instructions/security-invariants.md with how the design keeps it,
+      and the residual risks of a shared secret (who did what is only the typed name; a leaked value works
+      until rotated); (11) EXTRA ideas, each tagged EXTRA and not built by this chain (for example the
+      Letflow app or PWA signing in with the shared access); (12) an owner table: every value that is an
+      assumption (length limits, rate defaults, the setting name) marked "assumption, owner may change".
+    acceptance_criteria:
+      - "1. The decision record docs/migration/decisions/0091-shared-stock-access.md (or the next free number) exists with the twelve numbered sections listed in the description, in that order; each section states its rules, and every rule not taken from the owner decision, a Qoimeks source, docs/roles.md or an existing decision record is marked 'assumption, owner may change' and listed in the owner table (section 12)."
+      - "2. Section 2 names exactly the three permissions StockRead, StockPost and StockReverse, and says the role list of Letflow.Api.Authorization.roles/0 and priv/permission_matrix/effective.golden do not change."
+      - "3. Section 3 has a settings-table row for LETFLOW_SHARED_STOCK_ACCESS_TENANTS with default 'none', and states that a tenant not listed can neither create nor use a shared access."
+      - "4. Section 6 names one exact path that contains the tenant slug, outside /api/v1 and /admin/v1, and states that no /api/v1 route accepts the shared access value."
+      - "5. Section 7 has one table row for each of the five old-app calls named in the description, each with the Qoimeks field names copied from Qoimeks server/internal/store/store.go and server/internal/api/api.go (quoted in the record with their paths) and the Letflow module and function it calls, checked on main by grep at implement time; and a list of the old-app calls not served, each with its readiness row."
+      - "6. Section 10 has one paragraph per invariant INV-1, INV-4, INV-5, INV-6, INV-8, INV-9 and INV-10; the record ends with the line 'Enabling the shared access for a real tenant is the owner decision; this record covers QA only.'"
+      - "7. No file other than the new record and, if the record is cited there, docs/status/qoimeks-migration-readiness.md row G13 changes; mix letflow.check.static passes."
+    depends_on: [REQ-831, REQ-832, REQ-833, REQ-572, REQ-712]
+  - id: REQ-858
+    title: "Qoimeks parity G13 part 2: the tenant administrator creates, rotates, revokes and reads the status of the tenant's shared stock access (off unless the tenant is listed in the deployment setting; hash only; audited)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4573
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/routers/identity.ex (POST and GET /tokens under :TokensManage), lib/letflow/identity.ex (hash_token_value/1, the audit actions token.create and token.revoke), lib/letflow/routers/approval_rules.ex (tenant-wide interactive admin route precedent), priv/permission_matrix/effective.golden (TokensManage true only for PLATFORM_ADMIN and TENANT_ADMIN), config/runtime.exs (LETFLOW_* settings read there). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Builds the life cycle of decision 0091 sections 2 to 4 (REQ-857; the record path is planned, not yet on
+      main). New routes under /api/v1, in lib/letflow/routers/identity.ex next to the token routes and under
+      the existing permission TokensManage (no new permission atom): GET /shared-stock-access (status),
+      POST /shared-stock-access (create, or rotate when one exists; an empty body generates the value, a body
+      {"value": "<text>"} sets a given value, the old Qoimeks token) and DELETE /shared-stock-access (revoke).
+      Each needs an interactive signed-in caller who holds TokensManage tenant-wide. A new tenant table (or the
+      storage the record chose) keeps the SHA-256 hash, the creation and rotation times and the creating user;
+      never the value. The setting LETFLOW_SHARED_STOCK_ACCESS_TENANTS is read in config/runtime.exs. This part
+      does not yet let anything use the value; REQ-859 does.
+    acceptance_criteria:
+      - "1. With the tenant listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, a TENANT_ADMIN's POST with an empty body answers 201 with the generated value once; a following GET answers 200 with enabled true, exists true, created_at and created_by, and no field that holds the value or its hash."
+      - "2. POST with {\"value\": V} stores V; the stored row holds only the lowercase hex SHA-256 of V (a test reads the row and compares it with :crypto.hash(:sha256, V)); a V shorter than the minimum of decision 0091 section 4, or with a space or control character, answers 422 with reason shared_access_value_invalid and changes nothing."
+      - "3. A second POST rotates: afterwards the stored hash is that of the new value only and created_at is unchanged while rotated_at is set; DELETE answers 204 and a following GET shows exists false; DELETE with none answers 404."
+      - "4. With the tenant not listed (setting unset, empty, or listing only another slug), POST answers 409 with reason shared_access_not_enabled and writes nothing, and GET answers enabled false."
+      - "5. Refusals: STOREKEEPER, TENANT_AUDITOR and PROCESS_OPERATOR callers get 403 on all three routes; an API token (lf_tok_) of a TENANT_ADMIN user gets 403 (interactive sign-in only); TokensManage stays not granted to any role except TENANT_ADMIN and PLATFORM_ADMIN (priv/permission_matrix/effective.golden unchanged); a TENANT_ADMIN of tenant B sees and changes only tenant B's state while tenant A has one (INV-10 cross-tenant negative test: A's row is unchanged after B's POST and DELETE)."
+      - "6. Audit: create, rotate and revoke each write one audit entry (shared_stock_access.created, shared_stock_access.rotated, shared_stock_access.revoked) with the actor and trace id, in the same transaction; a test greps every audit entry, log line captured with ExUnit.CaptureLog and response body of the test for the value and finds it only in the 201 body."
+      - "7. The route-count, route-scope and tenant table pins this adds are updated from the final tree; mix letflow.check.static passes and the new test file passes when run by path."
+    depends_on: [REQ-857, REQ-076, REQ-447]
+  - id: REQ-859
+    title: "Qoimeks parity G13 part 3: the per-tenant old-app address accepts the shared stock access and answers the old app's reads (catalog, balances, movements list) in the Qoimeks shape, with the same 401 for every unproven request and a rate limit"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4572
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/router.ex (forwards outside /api/v1), lib/letflow/plugs/auth_attempt_limit.ex (mode :failures, record_failure/1, send_rate_limited/2, Bucket, defaults/0 request_capacity 60 and request_refill_per_sec 1), lib/letflow/modules/stock/router.ex (GET /balances and GET /movements under :StockRead), lib/letflow/modules/stock/access.ex. Qoimeks call list and field names in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Builds decision 0091 sections 6 to 8 for reads (REQ-857; the record path is planned, not yet on main):
+      the per-tenant address of section 6 as a new forward in lib/letflow/router.ex outside /api/v1, with
+      Letflow.Plugs.AuthAttemptLimit mounted in mode :failures, that accepts "Authorization: Bearer <value>"
+      of the tenant named in the path, and serves the three read calls of the section 7 contract table:
+      catalog, balances (by sku_id) and the movements list (limit as in Qoimeks: 50 when missing or out of
+      1..500). Answers use the Qoimeks field names and its error shape {"error": text}. Reads use the tenant
+      schema of the slug only (INV-1) and the stock read functions the table names; no write is possible
+      through this part. The stock module guards for personal accounts (lib/letflow/modules/stock/access.ex)
+      do not change.
+    acceptance_criteria:
+      - "1. With tenant A listed and holding a shared access with value V, GET of the catalog, balances (sku_id of a seeded item) and movements calls at A's address with Bearer V answer 200 with exactly the field names of decision 0091 section 7 for each call; the numbers equal the same tenant's GET /modules/stock/balances and GET /modules/stock/movements read by a TENANT_ADMIN account on the same seeded data."
+      - "2. Same 401 body: an unknown slug, a listed tenant without a shared access, a tenant not listed, a wrong value, no Authorization header, a revoked or rotated-away value, an inactive tenant, a tenant without the stock module, and V of tenant A sent to tenant B's address (INV-10 cross-tenant negative test) all answer 401 with a byte-identical body and no tenant-dependent header."
+      - "3. Wrong values are counted: after the failure_capacity of Letflow.Plugs.AuthAttemptLimit (set low in the test config) wrong values from one address, the next request answers 429 with retry-after through send_rate_limited/2, and a request with the right value from another address answers 200."
+      - "4. Accepted requests are limited per credential: with the request capacity of the shared access set to 2 in the test config, the third accepted request in the window answers 429 with retry-after; another tenant's shared access is not affected; the defaults are request_capacity and request_refill_per_sec of AuthAttemptLimit.defaults/0, and docs/runbooks/auth-rate-limits.md names the new keys."
+      - "5. The value V is never passed to /api/v1: a request to GET /api/v1/modules/stock/balances with Bearer V and the tenant's X-Tenant-Slug answers 401; a POST, PUT or DELETE to the address of this part answers 404 and changes no stock row (writes come in REQ-860)."
+      - "6. While tenant A's scope enforcement is on, the reads at A's address answer 403 with the error text of decision 0091 section 9; personal accounts of A are not affected."
+      - "7. mix letflow.check.static passes; the new test file passes when run by path; every route-count and router-forward pin this moves (grep length(named) and @named_routes in test/) is updated from the final tree."
+    depends_on: [REQ-857, REQ-858, REQ-831, REQ-832]
+  - id: REQ-860
+    title: "Qoimeks parity G13 part 4: the old-app address posts and reverses movements with the shared stock access, records the typed operator name on each stock document and shows it in the stock reads"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4571
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/router.ex (POST /documents, /documents/:id/issue, /documents/:id/post, /documents/:id/reverse), lib/letflow/modules/stock/actor_label.ex, lib/letflow/modules/stock/documents/posting.ex (the posting fields posted_by_label and reversed_by_label of a document view; the refusal document_reversed). Qoimeks NewMovement, kinds and checks in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      Adds the two write calls of the decision 0091 section 7 contract table (REQ-857; the record path is
+      planned, not yet on main) to the address of REQ-859: the movement post (kinds receipt, issue and
+      transfer, Qoimeks fields id, kind, sku_id, location_id, to_location_id, qty, operator, source) and the
+      movement reverse (fields id and operator). Each call writes and posts one stock document through the
+      Letflow functions the table names, so the ledger rules (append-only, one reversal, L6, L7, freeze guard)
+      apply unchanged. The operator name of section 5 is required; it is stored with the document and the
+      stock reads show it in place of a person's name. Kind adjustment (task T-2028), a balance below zero
+      (decision 0090, REQ-833 chain) and a retry with the same client id (task T-2029) are answered as those
+      requirements decide once they are merged; until then this part answers them as Letflow does today and
+      says so in the runbook. A runbook section in docs/runbooks/pilot-rollout.md tells the operator how to
+      point a phone at the new address and what the phone keeps (token and operator name).
+    acceptance_criteria:
+      - "1. A receipt, an issue and a transfer posted at tenant A's address with Bearer V and operator 'Айгуль' each answer 201 with the Qoimeks movement fields of decision 0091 section 7; GET /modules/stock/documents read by a TENANT_ADMIN account of A shows each as a posted document, and the balances of A change by the posted quantities."
+      - "2. The operator name is kept: GET /modules/stock/documents/:id of such a document answers posted_by_label equal to 'Айгуль' and a boolean posted_via_shared_access true (the posting fields of Letflow.Modules.Stock.Documents.Posting, lib/letflow/modules/stock/documents/posting.ex); a document posted by a personal account has posted_via_shared_access false and its posted_by_label unchanged (Letflow.Modules.Stock.ActorLabel)."
+      - "3. The reverse call on a movement posted in criterion 1 with operator 'Ерлан' answers 201, the document read shows reversed_by_label 'Ерлан' and reversed_via_shared_access true; a second reverse of the same movement answers 409 (the stock refusal document_reversed of lib/letflow/modules/stock/documents/posting.ex, in the {\"error\": text} shape), and a reverse of the movement id the reversal answered with also answers 409 (Qoimeks: a reversal cannot be reversed, inventory 8.5)."
+      - "4. A write with no operator, an operator that is blank after trimming, or one longer than the limit of decision 0091 section 5 answers 400 with {\"error\": text} and writes no document and no ledger row (counts of stock documents and ledger entries of A unchanged)."
+      - "5. The shared access cannot reach anything else: with Bearer V, a count, an import, a reconcile, a user, token, approval or task route under /api/v1 answers 401, and the old-app calls not served (codes, feedback, voice, parse) answer 404 at the address; with Bearer V, POST /api/v1/tasks/:id/complete (Letflow.Routers.Tasks, mounted at /tasks in lib/letflow/plugs/api_pipeline.ex) answers 401, and the address serves only the five calls of decision 0091 section 7, so no approval step can be completed through the shared access."
+      - "6. A transfer of tenant A's sku_id to a location number of tenant B is refused with the status decision 0091 section 7 gives an unknown location and writes nothing in either schema (INV-1, INV-10)."
+      - "7. The runbook section exists in docs/runbooks/pilot-rollout.md and names the setting LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the address form of decision 0091 section 6 and the owner's decision for a real tenant; mix letflow.check.static passes and the new test file passes when run by path."
+    depends_on: [REQ-857, REQ-859, REQ-831, REQ-832]
+  - id: REQ-861
+    title: "Qoimeks parity G13 part 5: the tenant administrator's Tokens page shows the shared stock access status and creates, sets, rotates and revokes it, with the value shown once"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4570
+    # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: web/src/router.tsx (admin/tokens under RequirePermission TokensManage), web/src/pages/admin/TokensPage.tsx, web/src/api/identity.ts, web/src/components/layout/AppShell.tsx (Tokens nav item, tenantAdmin group). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
+    description: >
+      A section "Shared stock access" on the existing Tokens page (web/src/pages/admin/TokensPage.tsx; no new
+      route and no new nav item) that calls GET, POST and DELETE /shared-stock-access of REQ-858. It shows
+      whether the tenant may have one (enabled), whether one exists, when it was created and rotated and by
+      whom; it offers create with a generated value, set a given value (the old Qoimeks token), rotate and
+      revoke, each rotate and revoke behind a confirmation. A generated value is shown once with a copy
+      button and a warning that it is not shown again. Texts in en, ru and kk.
+    acceptance_criteria:
+      - "1. Component tests: with GET answering enabled false the section shows the not-enabled text and no action button; with enabled true and exists false it shows create and set-value; with exists true it shows created and rotated times, rotate and revoke."
+      - "2. After create, the generated value from the 201 body is shown once with a copy button; after the page is reloaded (a new render with the GET fixture) no value is shown anywhere in the DOM (test asserts the value string is absent)."
+      - "3. Rotate and revoke each open a confirmation; cancel sends no request (the fetch mock records none), confirm sends exactly one POST or DELETE; a 422 shared_access_value_invalid and a 409 shared_access_not_enabled are shown as their own texts, not a generic error."
+      - "4. The section renders only for a caller with TokensManage (it sits inside the existing RequirePermission of admin/tokens); navRoleWalk.test.tsx is unchanged."
+      - "5. All new texts exist in en, ru and kk; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the states not-enabled, none, just-created with the value shown, exists and the confirm dialog."
+    depends_on: [REQ-858]
+  - id: REQ-862
+    title: "Qoimeks parity G15 part 1: the voice draft prompt gets the Qoimeks letter-name table (а A, бэ B ... зэт Z), the zone words слева/сол жақ, справа/оң жақ, прямо/тура and the Qoimeks kind words, for every tenant"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4577
+    # Source: task T-2035 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 row G15. Qoimeks sources read only, outside this repository, copied with paths into state/tasks/T-2035/sources/qoimeks-voice-extract.md (Qoimeks server/internal/parse/parse.go const instructions; Qoimeks-team/project/client1-inventory.md section 8.2). Letflow files read on origin/main 6e7c4bbaa: lib/letflow/modules/stock/voice_prompt.ex (moduledoc "Out of scope (open owner questions 4 and 5) ... the letter-name table and the zone words of Qoimeks"; rules/0; kinds/0), lib/letflow/modules/stock/voice_draft.ex (check/3, said?/2), lib/letflow/modules/stock/voice_service.ex (moduledoc "Read only: nothing is stored"), test/letflow/modules/stock/voice_prompt_test.exs (VP-1..VP-5), test/letflow/modules/stock/voice_regression_test.exs (R-1..R-9), test/fixtures/voice/phrases.yaml, docs/assets/voice-port-design.md (section 3, section 10 question 5), docs/runbooks/stock-voice.md. Written by the business analyst (T-2035) 2026-11-16. Not yet validated.
+    description: >
+      Parity row G15 (inventory section 8.2): Qoimeks operators say an article letter by letter with the Russian
+      names of Latin letters, and say a place with a zone word. The Letflow prompt of the voice draft
+      (lib/letflow/modules/stock/voice_prompt.ex, rules/0) has neither: its moduledoc keeps "the letter-name
+      table and the zone words of Qoimeks" out of scope as open owner question 5 of
+      docs/assets/voice-port-design.md (section 10: base prompt or tenant setting). The owner's parity decision
+      of 2026-11-16 brings them in. Decided here (UAT assumption, to be confirmed by the process owner): they go
+      into the fixed rules text of the prompt for every tenant, as in Qoimeks, not into a tenant setting; a
+      tenant whose location codes do not start with L, R or D is not harmed, because the existing rule "Use only
+      codes from <skus> and <locations> below" and VoiceDraft.check/3 still drop any code the tenant does not
+      have. The text added to rules/0, copied from Qoimeks server/internal/parse/parse.go (extract in the task
+      folder): (a) the letter-name table, one line, exactly "Latin letters are spoken with their Russian names:
+      а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R,
+      эс S, тэ T, у U, вэ V, икс X, зэт Z." (23 letters; Qoimeks has no name for J, W and Y and none is added
+      here); (b) the spelled-article hint "Operators often say the article instead of the name, letter by
+      letter and with digits as words ("эс тэ е эл триста пятьдесят" for ST-EL350, "а один" for A-01); a
+      location they name can help choose between similar articles."; (c) the zone rule "Location codes are often
+      a zone letter (L left/слева/сол жақ, R right/справа/оң жақ, D straight ahead/прямо/тура), a rack letter
+      and a shelf number, said in any form: "слева а три" and "эл а три" are both LA3, "сол жақ эн екі" is
+      LN2."; (d) the Qoimeks kind words Letflow lacks: получил (receipt), отпустил and списал (issue), по факту
+      (count). The kind names stay receipt, issue, transfer, count (Qoimeks says adjustment for count); the answer
+      JSON and its seven keys do not change, so voice_draft.ex, voice_service.ex, the routes and the model client
+      do not change. Already built and kept: the draft is never posted by voice (nothing is stored, the person
+      confirms the draft in the form), the answer is checked against the tenant's own catalog, and a general name
+      that fits several items gives the best three codes for the operator to choose. The voice_prompt.ex moduledoc
+      out-of-scope line keeps only the catalog size cap; docs/runbooks/stock-voice.md gets a short "Prompt words"
+      section naming the four additions and this decision. Size S (one module, one test file, two doc edits).
+    acceptance_criteria:
+      - "1. A new test in test/letflow/modules/stock/voice_prompt_test.exs asserts that VoicePrompt.build/2, for the existing fixture catalog and for an empty catalog, contains the letter-name line of the description exactly, and asserts each of the 23 pairs on its own (from а A to зэт Z, including цэ/си C and гэ/жэ G)."
+      - "2. The same test file asserts that the prompt contains the zone rule with the six zone words слева, сол жақ, справа, оң жақ, прямо, тура next to their letters L, R and D, the two examples (слева а три and эл а три give LA3, сол жақ эн екі gives LN2), and the spelled-article hint (ST-EL350, A-01)."
+      - "3. VP-1 is extended to assert the kind words получил, отпустил, списал and по факту in the prompt, and still asserts VoicePrompt.kinds() == ~w(receipt issue transfer count)."
+      - "4. The added text sits in the rules before the <locations> tag: a test asserts that the index of the letter-name line in the prompt is lower than the index of <locations>, so catalog data cannot precede or rewrite it; VP-3 (a hostile name cannot add a tag or a line) and VP-4 (same catalog gives the same prompt, sorted, no ids) pass unchanged."
+      - "5. Nothing else changes: git diff of the change touches no file under lib/ other than lib/letflow/modules/stock/voice_prompt.ex, and test/letflow/modules/stock/voice_draft_test.exs, voice_router_test.exs and voice_regression_test.exs (R-1..R-9, stored model answers) pass unchanged."
+      - "6. The voice_prompt.ex moduledoc no longer names the letter-name table or the zone words as out of scope (grep for 'letter-name table' in that file finds only the sentence that says it is in the prompt), and docs/runbooks/stock-voice.md has a section 'Prompt words' that lists the four additions and says they apply to every tenant (UAT assumption, to be confirmed by the process owner)."
+      - "7. mix format --check-formatted and mix compile --warnings-as-errors pass; mix test test/letflow/modules/stock/voice_prompt_test.exs passes."
+    depends_on: [REQ-739, REQ-741]
+  - id: REQ-863
+    title: "Qoimeks parity G15 part 2: an ElevenLabs speech-to-text provider kind for the voice draft, so the Qoimeks ElevenLabs key works with the existing LETFLOW_VOICE_STT_* settings"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4576
+    # Source: task T-2035 (operator note 2026-11-16: the owner reuses the Qoimeks provider keys as they are, D-152; Letflow knows only openai_transcriptions and openai_chat; ElevenLabs speech is a different API, so the requirement must add an ElevenLabs speech client kind; keys never printed; env variables stay LETFLOW_VOICE_*). Qoimeks sources read only, copied with paths into state/tasks/T-2035/sources/qoimeks-voice-extract.md (Qoimeks server/internal/stt/stt.go type ElevenLabs and Transcribe; server/internal/providers/providers_test.go default model scribe_v2; server/internal/parse/provider.go xAI preset base URL https://api.x.ai/v1, JSON mode schema; Qoimeks-team/project/client1-inventory.md section 5). Letflow files read on origin/main 6e7c4bbaa: lib/letflow/voice/settings.ex (speech/0 accepts only "openai_transcriptions"; Speech struct; inspect hides :api_key), lib/letflow/voice/speech_client.ex (transcribe/4, POST <base>/audio/transcriptions, bearer header, multipart model/language/file, parse of "text"), lib/letflow/voice/http.ex (post/5, INV-9 URL check, no redirect, bare error atoms), lib/letflow/voice/model_client.ex (POST <base>/chat/completions; json_mode schema), lib/letflow/modules/stock/voice_service.ex (speech_settings/0, transcribe/4 through speech_client/0), config/runtime.exs (nine LETFLOW_VOICE_* variables), test/letflow/voice/settings_test.exs (S6 uses "elevenlabs" as the unknown provider), test/letflow/voice/speech_client_test.exs (SP1..SP13), test/letflow/voice/voice_runtime_config_test.exs, docs/runbooks/stock-voice.md (Settings, Rules, Failures). Written by the business analyst (T-2035) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks transcribes with ElevenLabs (inventory section 5) and the owner reuses that key as it is. Letflow's
+      speech step knows one provider kind: Letflow.Voice.Settings.speech/0 (lib/letflow/voice/settings.ex) answers
+      a settings struct only for LETFLOW_VOICE_STT_PROVIDER=openai_transcriptions, and
+      Letflow.Voice.SpeechClient (lib/letflow/voice/speech_client.ex) speaks only the OpenAI-style
+      /audio/transcriptions API with a bearer key. ElevenLabs is a different API (Qoimeks
+      server/internal/stt/stt.go): POST <base>/speech-to-text with the key in header xi-api-key, multipart parts
+      file, model_id, language_code and tag_audio_events=false, answer JSON with "text". This change adds the
+      provider kind "elevenlabs": Settings.speech/0 accepts it with the same three other required values (model,
+      base URL, key; no default URL, so the INV-9 check of the operator-set URL stays as it is), and the Speech
+      struct gets a provider field (:openai_transcriptions or :elevenlabs); SpeechClient.transcribe/4 keeps its
+      arity and branches on that field, building the ElevenLabs request through the same Letflow.Voice.Http.post/5
+      (URL check, no redirect, one request, no retry, timeout_ms, bare error atoms) and the same safe_token? check
+      of the content type and language. The language sent is the route's lang value (ru or kk), as Qoimeks sends
+      its own lang value. No new env variable: the nine LETFLOW_VOICE_* variables stay; for ElevenLabs the operator
+      sets STT_PROVIDER=elevenlabs, STT_BASE_URL=https://api.elevenlabs.io/v1 (Qoimeks's endpoint host and path
+      prefix), STT_MODEL (Qoimeks's default is scribe_v2) and STT_API_KEY. The model side needs no code: xAI Grok is
+      OpenAI-compatible chat, so LLM_PROVIDER=openai_chat with LLM_BASE_URL=https://api.x.ai/v1 and LLM_JSON_MODE=schema
+      (Qoimeks's xAI preset) is a runbook line only. Keys stay unset by default and are set by the owner; QA only.
+      Size S (two modules, two test files, one runbook).
+    acceptance_criteria:
+      - "1. test/letflow/voice/settings_test.exs: with stt_provider \"elevenlabs\" and model, base URL and key set, Settings.speech/0 answers {:ok, %Settings.Speech{provider: :elevenlabs}} with those values; with \"openai_transcriptions\" it answers provider :openai_transcriptions; S6 keeps its meaning with an unknown value that is not a known kind (\"whisper_local\") and still answers :off; each of model, base URL and key missing or blank answers :off for \"elevenlabs\" too; inspect/1 of the elevenlabs struct does not contain the key or its first four characters."
+      - "2. test/letflow/voice/speech_client_test.exs, new tests against the local test server already used by SP1 (validation off as in SP1): with provider :elevenlabs, one POST to path <base path>/speech-to-text whose header xi-api-key equals the key, with no authorization header, and whose multipart body has the parts model_id (the model), language_code (ru), tag_audio_events (false) and file (filename audio.m4a, the audio bytes); a 200 answer {\"text\":\"hello\"} gives {:ok, \"hello\"}."
+      - "3. The same file: for provider :elevenlabs a non-2xx answer, a non-JSON answer and JSON without text each give {:error, :provider_error}, no answer within timeout_ms gives {:error, :provider_timeout}, a 3xx is not followed, exactly one request is made, an http URL with validation on is refused with no connection, and the key does not appear in any result or in the captured log."
+      - "4. SP1..SP13 pass unchanged for provider :openai_transcriptions (the request to /audio/transcriptions with the bearer header is the same as today)."
+      - "5. test/letflow/voice/voice_runtime_config_test.exs: LETFLOW_VOICE_STT_PROVIDER=elevenlabs is read into config :letflow, :voice as stt_provider \"elevenlabs\"; config/runtime.exs still reads exactly the nine LETFLOW_VOICE_* variables (no new variable)."
+      - "6. lib/letflow/modules/stock/voice_service.ex is not changed, and test/letflow/modules/stock/voice_router_test.exs passes unchanged."
+      - "7. docs/runbooks/stock-voice.md: the LETFLOW_VOICE_STT_PROVIDER row names both kinds openai_transcriptions and elevenlabs; a new subsection 'Providers used by Qoimeks' gives the ElevenLabs values (base URL https://api.elevenlabs.io/v1, path /speech-to-text, header xi-api-key, model example scribe_v2) and the xAI values for openai_chat (base URL https://api.x.ai/v1, json mode schema) with no key value, and says the keys are the owner's, unset by default, QA only; the Failures table names ElevenLabs under SpeechClient."
+      - "8. mix format --check-formatted and mix compile --warnings-as-errors pass; mix test test/letflow/voice/ passes."
+    depends_on: [REQ-740]
+  - id: REQ-850
+    title: "Qoimeks parity G12 part 1: xlsx or CSV import of code_tag (barcode and QR codes received as not assigned) through the core import route, by code value"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4569
+    # Source: task T-2033 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 3b071fe84: docs/status/qoimeks-migration-readiness.md section 1.2 row G12 ("code_tag and code_assignment have no file import (pilot-rollout.md rows 11-12). The converter does not carry codes"; "Required for parity, regardless of counts") and section 5 check 5 ("Barcodes: the count per type is equal"); docs/runbooks/pilot-rollout.md "Data load" table rows 11 to 13 (File import no for code_tag, code_assignment, code_value_change) and its sentence that the column is checked against Letflow.Modules.Catalog.import_function/2 by test/letflow/pilot_rollout_runbook_test.exs; lib/letflow/modules/codes/codes.ex (manifest version 0.4.0, depends_on [], manages_entity_types, no import_functions, model rules R1 to R8, permission CodesWrite held by TENANT_ADMIN and PLATFORM_ADMIN only); lib/letflow/modules/codes/writes.ex (receive_codes/3: kinds barcode qr epc tid, valid_value?/1, refusals :value_invalid, :kind_invalid, :duplicate_in_batch, :value_taken, audit code.received, tenant advisory lock keyed by the text codes); priv/modules/codes/entity_definitions/code_tag.json (fields value, kind, status; no external_ref fields; unique constraint uq_code_tag_value); lib/letflow/modules/catalog.ex (import_function/2, call_import_function/5, validate_import_functions rule 14: an import type must be in manages_entity_types and the function exported); lib/letflow/entities/managed_import.ex (rows in file order, f(prefix, entry, ctx), dry run in one rolled-back transaction, atomic mode); lib/letflow/routers/entities/record_import.ex (base_reason_json/1: module refusals are rendered only when the atom is listed there, otherwise internal_error); lib/letflow/modules/catalog_items/import.ex (form of an import function); docs/roles.md (EntitiesRecordsImportAnyType TENANT_ADMIN only; STOREKEEPER imports only stock_opening_line; codes section). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2033/sources/qoimeks-codes-extract.md): server/internal/store/migrations/001_init.sql (skus.barcode text) and 011_codes.sql (table codes: object_type sku or location, code_type ean13 ean8 code128 qr manual, code trimmed and non-empty, one active owner per code); server/internal/importer/importer.go (optional column "Штрихкод" of the item workbook, a code already given to another article is skipped with a warning); server/internal/store/import.go importCodes (a code the SKU already has is a no-op, a code held by another object is skipped with a warning). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks parity row G12 (docs/status/qoimeks-migration-readiness.md, section 1.2). Qoimeks keeps barcodes of
+      SKUs (skus.barcode, filled from the "Штрихкод" column of the item workbook) and, on QA, a codes table of
+      barcodes and QR codes on SKUs and places. Letflow has the codes module (lib/letflow/modules/codes/codes.ex)
+      with scanning, but its three types have no file import (docs/runbooks/pilot-rollout.md rows 11 to 13), so
+      codes can only be received one call at a time. G12 is delivered in three parts, smallest first: this part
+      1, the import of code_tag; part 2 (REQ-851, planned, not yet on main), the import of code_assignment; part 3
+      (REQ-852, planned, not yet on main), the Qoimeks converter carries the codes into those two files.
+      code_value_change gets no import: Qoimeks has no value history to carry, so row 13 of the runbook stays no.
+      This part: module codes registers an import function for code_tag in its manifest import_functions (planned
+      name Letflow.Modules.Codes.import_code_tag/3, the form of import_row/3 of catalog_items), reached through the
+      core route POST /api/v1/entities/records/code_tag/import with upsert_by external_ref, dry_run and atomic
+      offered, 200 rows per file, as for every managed import. A row has the cells value and kind and the external
+      ref pair external_ref_system, external_ref_id that the route asks of every managed import row. The code is
+      identified by its value (model rule R2, value unique in the tenant over every status), not by the external
+      ref: the code_tag definition and priv/modules/codes/pack.json are unchanged (no external_ref fields are added).
+      Per row, in this order: (1) value must pass the rule of receive_codes/3 (non-empty valid text without a NUL
+      byte; a blank or absent cell fails it), else :value_invalid; kind must be one of barcode, qr, epc, tid, else :kind_invalid; (2) a code with that
+      value already in the tenant (any status) with the same kind is the outcome unchanged, nothing is written; one
+      with another kind is :value_taken, nothing is written (a code is never changed by import); (3) otherwise one
+      code_tag with status not_assigned is created and one audit entry code.received is written in the same
+      transaction, exactly as receive_codes/3 writes it, under the module's tenant advisory lock. A status cell is
+      {:field_not_allowed, "status"}: an imported code is always not_assigned. Each refusal atom is added to the rendered list of record_import.ex, so the answer
+      carries the constant type (and the header for field refusals) and never the cell text. Access is the core
+      rule, unchanged: TENANT_ADMIN (and PLATFORM_ADMIN) import code_tag, a STOREKEEPER is refused as for every type
+      other than stock_opening_line. No new route, permission or migration. The codes manifest version rises one
+      minor step above the version on origin/main at implement time (0.4.0 at the time of writing); the pack is
+      unchanged, so min_upgradable_from stays 0.1.0 and an installed codes module upgrades in place. Size S.
+      EXTRA, not in this part: a symbology sub-kind (EAN-13, EAN-8, Code 128) on code_tag; Letflow keeps one kind
+      barcode for all of them (see part 3).
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_tag\") is :ok and Letflow.Modules.Catalog.import_function(\"codes\", \"code_value_change\") is {:error, :not_found}; the codes manifest version is one minor step above the one on origin/main at implement time and min_upgradable_from is still 0.1.0; priv/modules/codes/pack.json is byte-identical to origin/main (test/letflow/modules/codes/pack_drift_test.exs passes unchanged). The codes registration tests (test/letflow/modules/codes/registration_test.exs and every pin the version change moves) are updated and pass."
+      - "2. Happy path, through the real import route (as test/letflow/modules/stock/opening_import_test.exs drives an import): a TENANT_ADMIN of a tenant with the codes module installed imports a CSV file of three rows under system S: value 4870001112223 kind barcode, value QR-0001 kind qr, value 2000000000015 kind barcode; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 for each value returns the code with that kind and status not_assigned; exactly three audit entries code.received are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Conflict and refusals, each a separate row of one file, nothing written for a refused row and no audit entry for it: a row with value 4870001112223 and kind qr after criterion 2 gives value_taken; a row with a blank value cell (a blank CSV cell has no key) gives value_invalid; a row with kind ean13 gives kind_invalid; a row with a status cell gives field_not_allowed with header status. Each refusal in the answer has the constant type, and none echoes the cell value (the test asserts the value text does not occur in the response body)."
+      - "4. Dry run and atomic: a dry run (dry_run=true) of the criterion 2 file on an empty tenant reports three created rows and leaves the code_tag count at 0 and writes no audit entry; an atomic import (atomic=true) of a file with one good row and one row giving kind_invalid writes nothing."
+      - "5. Access: a STOREKEEPER's import of a code_tag file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "6. Tenant isolation (INV-1): in a test with two tenants A and B, a code value imported in tenant A is created as a new code in tenant B by the same file (not unchanged, not value_taken); the code_tag count of A is unchanged by the import into B."
+      - "7. Docs in step: docs/runbooks/pilot-rollout.md row 11 (code_tag) says File import yes and how it comes in (xlsx import, dry run first), rows 12 and 13 stay no, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and the rules of the description. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-648, REQ-651, REQ-663, REQ-667]
+  - id: REQ-851
+    title: "Qoimeks parity G12 part 2: xlsx or CSV import of code_assignment (a code value assigned to an item, a lot or a place named by external id) through the core import route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4568
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: lib/letflow/modules/codes/writes.ex (assign_code/5: targets location_node, catalog_item, catalog_lot; refusals in order :code_not_found, :code_assigned, :code_retired, :target_type_not_allowed, :target_not_found, :target_inactive, :assignment_conflict; audit code.assigned; rule R4 kept by the advisory lock); priv/modules/codes/entity_definitions/code_assignment.json (fields code_id, target_type, target_id, assigned_at, assigned_by required, released_at, released_by); lib/letflow/modules/read_api.ex (lookup_by_external_ref/5 reads external_ref_system and external_ref_id of field_values for a list of types; codes already reads targets through ReadApi.lookup/3, so no depends_on entry is needed, Rule 4 of lib/mix/tasks/letflow.check_boundaries.ex); priv/modules/catalog_items/entity_definitions/catalog_item.json, catalog_lot.json and priv/modules/locations/entity_definitions/location_node.json (each has external_ref_system and external_ref_id); lib/letflow/routers/entities/record_import.ex (base_reason_json/1 renders {:reference_not_found, field} and {:reference_inactive, field} with the header). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): a code points at one SKU or one location; a code the object already has is a no-op; a code held by another object is skipped with a warning (server/internal/store/import.go importCodes). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of parity row G12 (part 1 is REQ-850, planned, not yet on main). Qoimeks codes point at a SKU or a
+      place; Letflow keeps that link as an open code_assignment (model rule R4: at most one open assignment per
+      code). This part: module codes registers an import function for code_assignment (planned name
+      Letflow.Modules.Codes.import_code_assignment/3) in its manifest import_functions, reached through the core
+      route POST /api/v1/entities/records/code_assignment/import with upsert_by external_ref, dry_run and atomic, 200
+      rows per file. A row has the cells code_id, target_type, target_id and the external ref pair. Reference cells
+      follow the rule of the other module imports, adapted to codes: code_id holds the VALUE of a code of this
+      tenant (the code has no external id, part 1); target_id holds the external id of the target under the row's
+      own external ref system. Per row, in this order: (1) a cell assigned_at, assigned_by, released_at or
+      released_by is {:field_not_allowed, field} (the function sets assigned_at to the server time and assigned_by to
+      the importing actor, as assign_code/5 does); (2) target_type must be location_node, catalog_item or
+      catalog_lot, else :target_type_not_allowed; (3) no live code with that value is {:reference_not_found,
+      "code_id"}; (4) no live record of target_type with that external ref in the tenant (a soft-deleted target counts as none, and so
+      does a record id given instead of an external id) is {:reference_not_found, "target_id"}, a target with active
+      false is {:reference_inactive, "target_id"}; (5) a retired code is :code_retired; a code whose open
+      assignment names this same target is the outcome unchanged, nothing written; a code whose open assignment
+      names another record is :code_assigned (Qoimeks skips such a code with a warning: here the row is refused and
+      the other rows of a non-atomic import go on); (6) otherwise the code is assigned exactly as assign_code/5 does
+      (one open code_assignment row, the code_tag status assigned, one audit entry code.assigned, same transaction,
+      same advisory lock). No release, retire or value change by import. Field names in refusals are constants,
+      never cell text; every new refusal atom is added to the rendered list of record_import.ex. Access, route,
+      permission, migration and pack rules as in part 1 (TENANT_ADMIN imports, a STOREKEEPER is refused; the codes
+      manifest version rises one minor step above origin/main at implement time; pack.json unchanged). Size S to M.
+    acceptance_criteria:
+      - "1. Registration: Letflow.Modules.Catalog.import_function(\"codes\", \"code_assignment\") is :ok; the codes manifest version is one minor step above the one on origin/main at implement time; priv/modules/codes/pack.json is byte-identical to origin/main; the codes registration tests and every pin the version change moves are updated and pass."
+      - "2. Happy path, through the real import route: in a tenant with an active catalog_item I1 (external ref S/ITEM-1), an active location_node P1 (S/LOC-1) and an active catalog_lot L1 (S/LOT-1), and three not_assigned codes with values V1, V2, V3 received through part 1, a TENANT_ADMIN imports a CSV file of three rows under system S assigning V1 to catalog_item ITEM-1, V2 to location_node LOC-1 and V3 to catalog_lot LOT-1; the answer reports three created rows; Letflow.Modules.Codes.resolve/2 of V1, V2, V3 returns status assigned and the record ids of I1, P1 and L1; exactly three audit entries code.assigned are written. The same file imported again reports three unchanged rows and writes no record and no audit entry."
+      - "3. Refusals, each a separate row of one file, nothing written and no audit entry for a refused row: a value that names no code gives reference_not_found with header code_id; an item external id that names nothing gives reference_not_found with header target_id; the record id of I1 in target_id gives reference_not_found with header target_id; a target whose active is false gives reference_inactive with header target_id; target_type org_unit gives target_type_not_allowed; a retired code gives code_retired; V1 assigned to location_node LOC-1 after criterion 2 gives code_assigned; a row with an assigned_by cell gives field_not_allowed with header assigned_by. No response body contains a cell value of a refused row."
+      - "4. Rule R4 holds: after criterion 3 every code has at most one code_assignment row with released_at empty (a query over the tenant's code_assignment rows in the test)."
+      - "5. Dry run and atomic: a dry run of the criterion 2 file reports three created rows and writes nothing (the code statuses stay not_assigned, no audit entry); an atomic import of one good row and one row giving reference_not_found writes nothing."
+      - "6. Access: a STOREKEEPER's import of a code_assignment file is refused with the same answer the import route gives a STOREKEEPER for catalog_item today, and nothing is written."
+      - "7. Tenant isolation (INV-1): in a test with two tenants A and B, a code_assignment file imported in tenant B whose code values and target external ids exist only in tenant A gives reference_not_found with header code_id for every row; the code_assignment counts of both schemas are unchanged."
+      - "8. Docs in step: docs/runbooks/pilot-rollout.md row 12 (code_assignment) says File import yes, imported after code_tag and after the masters it names, and test/letflow/pilot_rollout_runbook_test.exs passes; the codes moduledoc names the import function and its rules. mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-850, REQ-663, REQ-651]
+  - id: REQ-852
+    title: "Qoimeks parity G12 part 3: the Qoimeks converter carries each SKU's barcode (the Штрихкод column) and the Qoimeks codes of SKUs and places into a codes file and a code-assignments file, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4567
+    # Source: task T-2033 (see REQ-850). Read on origin/main 3b071fe84: scripts/pilot/qoimeks_convert.py (NEEDED columns, read_csv with --mapping, MAX_ROWS = 200, constant drop reasons, emit and manifest upload_order, expected_counts.txt keys records.<type>, report.txt without cell text, exit 3 on drops unless --allow-drops); scripts/pilot/qoimeks_compare.sh (an absent key of the snapshot counts as 0); docs/runbooks/qoimeks-rehearsal.md (table "Does the stock module accept the same files?", steps 1 to 6, "Repeating"); test/scripts/qoimeks_rehearsal_test.exs (CV-1 to CV-9); test/letflow/modules/stock/qoimeks_files_test.exs (pushes converted files through the real import routes; installs org, catalog_items, locations and codes). Qoimeks, read only (extract in state/tasks/T-2033/sources/qoimeks-codes-extract.md): skus.barcode from the optional "Штрихкод" column, a code given to a second article is skipped and the first keeps it (server/internal/importer/importer.go); table codes with object_type sku or location, code_type ean13, ean8, code128, qr, manual, code trimmed, active rows are those with removed_at empty (server/internal/store/migrations/011_codes.sql). docs/status/qoimeks-migration-readiness.md section 5 check 5 ("Barcodes: the count per type is equal"). Written by the business analyst (T-2033) 2026-11-16. Not yet validated.
+    description: >
+      Part 3 of parity row G12 (parts 1 and 2 are REQ-850 and REQ-851, planned, not yet on main). The T-1616
+      converter (scripts/pilot/qoimeks_convert.py) reads items.csv with sku, sku_name, unit and drops every
+      barcode, so the move loses them. This part, inputs: (a) items.csv may carry an optional neutral column barcode
+      (Qoimeks skus.barcode, the "Штрихкод" column), nameable through --mapping like every other column; a blank
+      cell is no code; (b) an optional extract codes.csv with the columns object_type (sku or location), object_code
+      (the SKU code or the place code), code_type (ean13, ean8, code128, qr or manual) and code, holding the
+      active rows of the Qoimeks codes table; the converter works without it. Rules: each code is trimmed; kind is
+      qr for code_type qr and barcode for every other code_type and for the barcode column (Letflow's kinds are
+      barcode, qr, epc, tid; the EAN sub-type is not kept, see EXTRA in REQ-850); the same code given twice to the
+      same object is one code, not a drop. Constant drop reasons, row numbers only, no cell text: code_invalid (a
+      space or control character inside the trimmed code, the Qoimeks rule), code_type_unknown,
+      code_object_type_unknown, code_unknown_item (the SKU is not among the converted items), code_unknown_location
+      (the place is not among the converted locations), code_taken (the code was already given to another object:
+      the first in the order items.csv rows, then codes.csv rows keeps it, as the Qoimeks importer keeps the first
+      article). Outputs, only when at least one code survives: 06-codes-NN.xlsx (entity type code_tag, columns
+      value, kind, external_ref_system, external_ref_id, where external_ref_id is the code value) and
+      07-code-assignments-NN.xlsx (entity type code_assignment, columns code_id, target_type, target_id,
+      external_ref_system, external_ref_id, where code_id is the code value, target_type catalog_item for a SKU and
+      location_node for a place, target_id the SKU code or the place code, which are the external ids the converter
+      already gives items and locations, and external_ref_id the code value), 200 rows per file. manifest.json upload_order keeps REQ-842's rule for
+      05-item-places (right after the last 03-items file) and lists the 06-codes files right after the last
+      05-item-places file (right after the last 03-items file when no 05 file is written), then the 07-code-assignments
+      files, all before the first 04-opening-lines file. expected_counts.txt and report.txt always gain the two lines
+      records.code_assignment N and records.code_tag N (N the number of surviving codes, 0 when none), in the sorted
+      order of the existing count lines; report.txt gains no other line when no code survives. Runbook
+      docs/runbooks/qoimeks-rehearsal.md: the table gains the rows for code_tag and code_assignment (with their
+      importers and columns), step 1 names the optional barcode column and codes.csv, step 3 uploads the 06 and 07
+      code files after the 05 item-places files (after the items when there are none), "Repeating" says they come back unchanged. Converter stays file-only: no network, no
+      database, --out inside the checkout refused. QA only, no real client data in tests or git (D-050). Note:
+      REQ-842 (on main, gh: 4553) also extends items.csv (home_loc, alt_loc) and writes 05-item-places-NN.xlsx;
+      this part keeps those columns and that file as they are and takes the file numbers 06 and 07. Size S to M.
+    acceptance_criteria:
+      - "1. Barcode column (a test in test/scripts/qoimeks_rehearsal_test.exs in the form of CV-1): items.csv with three converted SKUs A, B, C where A has barcode 4870001112223, B has a blank barcode and C has barcode QR-7 writes 06-codes-01.xlsx with exactly the header value, kind, external_ref_system, external_ref_id and two rows (4870001112223 barcode; QR-7 barcode) and 07-code-assignments-01.xlsx with exactly the header code_id, target_type, target_id, external_ref_system, external_ref_id and two rows (4870001112223 catalog_item A; QR-7 catalog_item C); expected_counts.txt has records.code_tag 2 and records.code_assignment 2; manifest.json upload_order lists 06-codes-01.xlsx right after the last 05-item-places file (or right after the last 03-items file when the input has no places columns), 07-code-assignments-01.xlsx right after it, and both before the first 04-opening-lines file. An items.csv without a barcode column and no codes.csv writes neither file; expected_counts.txt and report.txt each differ from the output of the converter on origin/main for the same input only by the two added lines 'records.code_assignment 0' and 'records.code_tag 0'; every xlsx file and manifest.json are byte-identical to that output."
+      - "2. codes.csv: rows sku A ean13 4870001112223 (the same code as A's barcode), sku B qr QR-B, location L1 code128 LOC-L1 give one code for A (not a drop), a qr code for B and a barcode for place L1 assigned with target_type location_node and target_id L1."
+      - "3. Drops, each with its constant reason and the input row number in report.txt and no cell text (the test asserts the code text does not occur in report.txt): a code with an inner space (code_invalid); code_type ean14 (code_type_unknown); object_type pallet (code_object_type_unknown); a SKU not among the converted items (code_unknown_item); a place not among the converted locations (code_unknown_location); a code given to SKU B after SKU A holds it (code_taken, A keeps it). The exit code is 3 without --allow-drops and 0 with it; the codes file holds only the surviving codes."
+      - "4. Splitting: 201 surviving codes write 06-codes-01.xlsx with 200 rows and 06-codes-02.xlsx with 1 row, and the same split for the 07-code-assignments files."
+      - "5. Real routes: test/letflow/modules/stock/qoimeks_files_test.exs pushes the converted code files of a fixture with item and place codes through the real import routes after the masters: every row is created, a second upload of the same files reports every row unchanged, and Letflow.Modules.Codes.resolve/2 of each code returns status assigned and the record id of its SKU's catalog_item or its place's location_node."
+      - "6. Docs in step: docs/runbooks/qoimeks-rehearsal.md has the two new table rows, the optional barcode column and codes.csv in step 1, the upload of the code files in step 3 and the unchanged re-upload in Repeating; the module docstring of scripts/pilot/qoimeks_convert.py lists the new inputs and outputs; the tests named here pass when run by path and mix letflow.check.static passes."
+    depends_on: [REQ-850, REQ-851]
+  - id: REQ-853
+    title: "Qoimeks parity G5 part 1: the ledger core accepts an optional expected on-hand quantity on a posting leg and refuses the posting with balance_changed when the locked balance differs"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4565
+    # Source: task T-2028 (Qoimeks parity row G5, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Files read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md (section 1.2 row G5), docs/runbooks/stock-counts.md, docs/migration/decisions/0073-domain-neutral-ledger-primitive.md ("Amended by REQ-764", "Amended by REQ-774"), lib/letflow/ledger.ex (moduledoc "Order of work" step 4, refusal_for/5), lib/letflow/ledger/codes.ex (@core, @aliasable), lib/letflow/ledger/validate.ex (check_quantity, :quantity_zero), lib/letflow/ledger/handler_post.ex. Qoimeks source copied to the task folder state/tasks/T-2028/sources/qoimeks-adjustment-extract.md (client1-inventory.md section 8 item 4; server/internal/store/store.go appendBalance and Post).
+    description: >
+      Why. In Qoimeks a count (kind adjustment) is one line that SETS the balance of one item at one place to
+      the counted number: the server takes an advisory lock on (item, place), reads the current quantity and
+      writes delta = counted minus current in the same transaction (appendBalance in Qoimeks store.go, copied to
+      the task folder). The Letflow ledger only accepts legs that carry a fixed signed quantity, fixed when the
+      write handler builds the posting (Letflow.Ledger.HandlerPost, build time B1..B7: no read, a handler is
+      pure), before the balance rows are locked (lib/letflow/ledger.ex, "Order of work", steps 3 and 4). So a
+      module cannot compute "counted minus current" under the lock. This part adds the smallest core rule that
+      makes a set-to count exact without changing any ledger rule that exists: a compare-and-set precondition.
+      What. A leg may carry the optional key expected_on_hand (a decimal, at most 9 decimals, the same form as
+      quantity in Letflow.Ledger.Validate). Under the FOR UPDATE lock of its balance row, in the guard of step 4
+      (refusal_for in lib/letflow/ledger.ex), the core compares it with the locked row's on_hand BEFORE the legs
+      of the posting are applied; a balance row created by this posting (first touch) has on_hand 0. If they
+      differ the posting is refused with the new core code balance_changed (409), details leg_nos only (never a
+      quantity), and nothing is written. The check runs after unit_mismatch and before insufficient_balance.
+      Two legs of one balance key that carry different expected_on_hand values, or a negative or malformed
+      value, are invalid_posting at validation (no lock taken). The value is part of the command and so of
+      payload_hash (a retry with another expected value is idempotency_key_reuse). It enters the stored entry
+      and its digest only through payload_hash (an entry header column, one of the @header_fields of
+      lib/letflow/ledger/digest.ex, so the entry digest and the chain hash cover it); no leg column stores it
+      and no column is added (no migration). A reversal never carries it: its legs are the negated target legs
+      as today. Every other rule (append-only entries, quantity zero refused, the no-negative guard, bounds, unit
+      pin, event-time window, idempotency, lock order) is unchanged. Domain-neutral (Rule 7): no count
+      vocabulary in the core. Not in this part: any module that sends the key (REQ-854, planned, not yet on
+      main), the per-tenant negative balance setting of REQ-833..REQ-840 (pending), which this rule does
+      not depend on: the comparison is with the locked on_hand, negative or not. Size S.
+    acceptance_criteria:
+      - "1. A posting with one leg whose expected_on_hand equals the locked on_hand of its balance key is written as the same posting without the key would be: the same legs, the same balances and every entry header field equal except payload_hash (and so the entry digest and the chain hash, which cover payload_hash); a test compares the two field by field."
+      - "2. A posting whose expected_on_hand differs from the locked on_hand is refused {:ledger_refused, :balance_changed, _, %{leg_nos: [n]}} with no entry, leg, balance or counter change; the HTTP status of balance_changed is 409 in Letflow.Ledger.Codes.core/0, it is in aliasable/0 and in reserved/0, and test/letflow/ledger/codes_test.exs is updated for it."
+      - "3. A first-touch balance key (no balance row before the posting) is compared as on_hand 0: expected_on_hand 0 passes and expected_on_hand 1 is refused balance_changed."
+      - "4. Race (Sandbox auto mode, committed tenant): process A builds a posting with expected_on_hand equal to the current balance; process B commits another posting on the same key before A takes the balance lock; A is then refused balance_changed and writes nothing. The test holds A at a named point between build and lock with a bounded wait (no sleep): this part adds that point as a test seam in the shape of FreezeGuard.hook/1 (an Application env key, nil in production, read only in one private function of Letflow.Ledger, sending a message to the test and waiting for go with a bounded timeout), placed after the posting is validated and before the balance rows are locked."
+      - "5. Order of checks: a leg that is both unit_mismatch and balance_changed is answered unit_mismatch; a leg that would be both balance_changed and insufficient_balance is answered balance_changed."
+      - "6. Validation: a negative expected_on_hand, more than 9 decimals, a non-decimal value, or two legs of one balance key with different expected_on_hand values give invalid_posting before any lock (a test asserts no balance row is created); a reversal command that carries expected_on_hand is invalid_posting."
+      - "7. Idempotency: the same client_op_id with the same command returns the first entry with duplicate true; the same client_op_id with only expected_on_hand changed is idempotency_key_reuse."
+      - "8. Docs in step: the moduledoc of Letflow.Ledger names the precondition in step 4 of 'Order of work'; decision 0073 gets 'Amended by REQ-853 (Qoimeks parity G5, set-to count)' at its end stating the key, the refusal, the check order and that no other ledger rule changes."
+    depends_on: [REQ-764, REQ-774]
+  - id: REQ-854
+    title: "Qoimeks parity G5 part 2: module stock quick count, one line that sets the balance of one item at one place to the counted quantity (zero allowed), posted as the difference with a reason, own permission, four-eyes step and the formal count rule"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4564
+    # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: docs/runbooks/stock-counts.md (whole file), docs/migration/decisions/0079-counts-inventory-taking.md (sections 4 and 8), lib/letflow/modules/stock/stock.ex (moduledoc Causes and Permissions, route_policies, role_grants STOREKEEPER, posting_guard, error_aliases posting_held to location_frozen), lib/letflow/modules/stock/freeze_guard.ex (check/2, pair rule), lib/letflow/modules/stock/documents/kinds.ex (the closed kind table, withdrawable?/1), lib/letflow/modules/stock/documents/posting.ex (stock_opening submit completed at issue, approve posts), priv/modules/stock/generate_pack.exs (two_step_definition, process_definition), lib/letflow/modules/stock/ledger_policy/declare.ex (count_difference :either), lib/letflow/ledger/read.ex (balances/4), lib/letflow/approval_rules.ex (list/1 answers every active step that names distinct_from), docs/design/four-eyes-switch.md (section 2 rows 3 and 14).
+    description: >
+      What the user gets. A storekeeper counts one item at one place and types (or says, part 4) the number;
+      after posting, the balance of that key IS the counted number, whatever it was before, and the change is a
+      normal ledger movement with a reason, undone by one reversal. Quantity 0 is allowed here and only here
+      (Qoimeks rule, inventory section 8 item 4). This is the Qoimeks adjustment; the formal count order of
+      REQ-700..REQ-718 and REQ-765 stays as it is and is the tool for a commission count.
+      Shape (module stock, version bump to the next free version). (1) A new kind quick_count in
+      Letflow.Modules.Stock.Documents.Kinds with record types stock_quick_count and stock_quick_count_line
+      (scoped by org_unit_id, decision 0076 R7), document type stock_quick_count (prefix QCT, year numbering,
+      pad 6; assumption), exactly one line: catalog item, location, org unit, responsible employee (optional),
+      lot (required when the item is lot-tracked; serial-tracked items refused tracking_policy_not_supported as
+      for receipts), unit (the item's unit), counted_quantity (decimal string, 0 or more, at most 9 decimals,
+      the limit of Letflow.Ledger.Validate), reason_code (closed list recount, found, missing, damaged, other; assumption) and reason_text with
+      the write-off rule of Letflow.Modules.Stock.Documents.Shape (1..500 characters, not blank, required for
+      other; a wrong or missing value is reason_invalid). (2) One new route
+      POST /api/v1/modules/stock/quick-counts with the new module permission StockQuickCount: it creates and
+      issues the document in one call; inside the same transaction it reads the book quantity of the key
+      through Letflow.Ledger.balances/4 under the caller's stock read authority (no tenant-wide read: the same
+      404 as an unknown document, as CountSheet.open/3) and stores it on the line as book_quantity, with
+      difference = counted minus book. POST /documents and PUT /documents/:id refuse kind quick_count with
+      unknown_kind, so the permission cannot be bypassed. Read, cancel, reverse and print stay on the existing
+      /documents routes. (3) A new two-step process stock_quick_count, the shape of stock_opening
+      (two_step_definition in priv/modules/stock/generate_pack.exs): submit is completed by the counter at
+      issue; approve has distinct_from ["submit"] and posts. Four eyes are ON by default and are switched per
+      tenant by the existing switch (ApprovalRulesManage, Letflow.ApprovalRules list/1 shows the step
+      automatically); with it OFF one person counts and approves, which is the Qoimeks habit. (4) Posting: the
+      approve task runs post_document with the new stock cause count_set (sign rule any, reason required), ONE
+      leg, quantity = difference, expected_on_hand = book_quantity (REQ-853). So if anything moved the key
+      between the count and the approval, the core refuses balance_changed (stock alias quick_count_stale), the
+      task stays pending, and the user cancels the document and counts again: the balance never ends as "old
+      plus difference" by accident. counted equal to book makes no posting instance and no ledger entry; the
+      document reads state confirmed (a count that confirmed the balance is still recorded with who and when).
+      The event time is the posting time (online, as the opening). (5) Relation to the formal count: a quick
+      count on a key inside the scope of a count order of the same org unit that has been opened and is not
+      posted or cancelled (counting, counted, signed; the pair rule of decision 0079 section 4) is refused at
+      POST /quick-counts with 422 count_in_progress and held_by the order number (the code and status of
+      decision 0079 section 4 "Freeze method" and of the assets module, lib/letflow/modules/assets/count_freeze.ex),
+      inside the issue transaction, with nothing stored and no number taken. The "scope" of an order is the
+      location_id of each of its count_order_scope rows and every location below one
+      (Letflow.Modules.Locations.Tree.descendant_ids/2), the same set the count sheet open reads. At approval
+      the same rule is enforced by the posting guard, which needs a change in this part (today
+      Letflow.Modules.Stock.FreezeGuard.check/2 holds a posting only under an order whose freeze is in force,
+      from FreezeState.active/2): check/2 also answers {:held, number} for a summary whose document_type is
+      stock_quick_count (this recognises both the count_set posting and its reversal, whose cause is reversal:
+      Documents.Posting.start_reversal/5 sets document_type to the kind's type_key, and HandlerPost's
+      guard_summary falls back to the reversed entry's document_type) when one of its keys has the org_unit of
+      an opened, unposted, uncancelled count order and a location inside that order's scope, frozen or not.
+      The refusal at approval is the platform's posting_held, stock alias location_frozen, with held_by (the
+      guard's only answer). A summary of any other document_type is decided exactly as today (REQ-765
+      unchanged: a no-freeze order holds nothing else). The FreezeGuard moduledoc and the freeze section of
+      docs/runbooks/stock-counts.md say this. A quick count before the order is opened is in the book of the
+      cut-off. A frozen location refuses it like
+      every posting. Why: in the default no-freeze mode the formal count posts a delta from the cut-off, so a
+      quick count after the cut-off would be counted twice (stock-counts.md, Known gaps 1 and 3). (6)
+      Permission StockQuickCount: TENANT_ADMIN by the tenant-scope rule, PLATFORM_ADMIN by the core rule,
+      STOREKEEPER by role_grants (assumption, owner may change; Qoimeks gives every user full access). The
+      approve task is routed like the other stock posting tasks (role TENANT_ADMIN; see "Not decided here" of
+      REQ-831). Knock-on: the permission matrix golden (mix letflow.permission_matrix --write), the stock
+      registration and role-grant pins, the route-count pins, the module version pins, the managed-type list
+      and the runbook. Docs: a section "Quick count (REQ-854)" in docs/runbooks/stock-counts.md and
+      'Amended by REQ-854' at the end of decision 0079 (a count without a commission exists for one key; why;
+      the formal count rule of point 5). Not in this part: the web screen (REQ-855, planned), the phone screen
+      and voice (REQ-856, planned), several lines per quick count and the "balances from the file as
+      adjustments" import (row G8, sibling task T-2030), a client retry id (row G7, T-2029; a retried create
+      makes a second document, whose approval is refused quick_count_stale once the first posted, or which
+      confirms with no difference). Size L.
+    acceptance_criteria:
+      - "1. POST /quick-counts by a STOREKEEPER with item, location, org unit, unit, counted_quantity '7', reason_code recount on a key whose balance is 10 answers 201 with an issued QCT document whose line shows book_quantity '10', counted_quantity '7', difference '-3'; GET /documents/:id answers the same fields."
+      - "2. With four eyes ON (no approval rule row), the counter's own completion of the approve task is refused separation_of_duties (403) and a second user who may post completes it; after it, GET /balances shows 7 for the key and GET /movements shows one entry of cause count_set with quantity -3 and the reason code."
+      - "3. With the approval rule of stock_quick_count / approve switched OFF by a TENANT_ADMIN, the counter completes approve alone; the balance becomes the counted quantity; one task.self_approved audit entry is written."
+      - "4. counted_quantity '0' on a key with balance 4 posts -4 and the balance reads 0; a line quantity '0' stays refused 422 quantity_invalid (with the line_no) on POST /documents for each of the kinds receipt, issue, write_off, transfer, hand_over, return and opening, one test case per kind, with nothing stored and no number taken."
+      - "5. Stale: a receipt of +2 on the key is posted after the quick count is issued and before approve; completing approve is refused 409 quick_count_stale, nothing is written, the task stays pending and the balance is 12; after cancel the document reads cancelled."
+      - "6. counted equal to book: the document is issued with difference '0', no process instance is started, no ledger entry is written, and the document reads state confirmed."
+      - "7. Formal count: with a count order of the same org unit opened (no freeze) whose scope covers the location, POST /quick-counts answers 422 count_in_progress with held_by the order number and nothing stored; a quick count issued before the open has its approve refused location_frozen with held_by, and so has the reversal of a quick count posted before the open; the same key under another org unit is accepted (pair rule); after the order is posted or cancelled the quick count is accepted again."
+      - "8. REQ-765 unchanged: under an opened count order without freeze_locations whose scope covers the key, a receipt, an issue and the reversal of a receipt on that key are posted as today (FreezeGuard.check/2 answers :ok for them); under a freeze order the existing freeze tests of REQ-765 pass unchanged."
+      - "9. Input refusals, each with nothing stored and no number taken: a negative quantity, more than 9 decimals, a missing reason_code or reason_code other without reason_text (reason_invalid), a lot-tracked item without lot, a serial-tracked item (tracking_policy_not_supported), and POST /documents with kind quick_count (unknown_kind)."
+      - "10. Access: a caller without StockQuickCount (a role without the grant) gets 403 on POST /quick-counts; a caller without the tenant-wide stock read gets the unknown-document 404; an API token gets the same 404 as other stock routes; the permission matrix golden shows StockQuickCount true for TENANT_ADMIN, PLATFORM_ADMIN and STOREKEEPER only."
+      - "11. Cross-tenant negative (INV-10): a STOREKEEPER of tenant B sends POST /quick-counts naming an item, location and org unit id of tenant A: refused as unknown masters with no row written in either schema; GET /documents/:id of tenant A's quick count from tenant B answers 404."
+      - "12. Reversal: POST /documents/:id/reverse of a posted quick count reverses the one entry (the balance returns to the book quantity when nothing else moved) and a second reverse is refused as for other kinds."
+      - "13. Docs in step: docs/runbooks/stock-counts.md has the section 'Quick count (REQ-854)' with the route, refusals, four-eyes switch and the formal count rule; decision 0079 ends with 'Amended by REQ-854' (naming the quick count, the 422 count_in_progress at the route and the guard rule for no-freeze orders); the Letflow.Modules.Stock.FreezeGuard moduledoc states the stock_quick_count rule; the Letflow.Modules.Stock moduledoc lists the cause count_set and the permission StockQuickCount."
+    depends_on: [REQ-853, REQ-726, REQ-765, REQ-832]
+  - id: REQ-855
+    title: "Qoimeks parity G5 part 3: web stock quick count screen, one form that shows the current balance of an item at a place, takes the counted quantity and a reason and submits it, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4563
+    # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/stockPermissions.ts, web/src/modules/stock/documents/DocumentActions.tsx, web/src/modules/stock/documents/documentsModel.ts, web/src/modules/stock/counts/ScanField.tsx, web/src/lib/references/referenceMessages.ts (docType names).
+    description: >
+      A web screen "Quick count" in the stock module, shown to a user whose stock access lists StockQuickCount
+      (web/src/modules/stock/stockPermissions.ts). One form: item (search or a keyboard scanner into the item
+      field, as ScanField does on the count sheet), place, org unit, lot when the item is lot-tracked, counted
+      quantity (0 allowed), reason (the closed list of REQ-854) and reason text when the reason is other. When
+      item, place and org unit are chosen the form shows the current balance of that key (GET /balances) and
+      the difference the count will make. Submit calls POST /quick-counts and then shows the issued document
+      (number, book, counted, difference, state). If the caller may complete the approve task alone (GET /tasks/:id answers self_approval_allowed true, the field
+      web/src/pages/tasks/TaskDetail.tsx reads), the result offers Approve, which
+      completes the task without leaving the screen; otherwise it says that a second person approves in My
+      Tasks. Refusals of REQ-854 are shown as plain messages: count_in_progress and location_frozen with the
+      count order number, quick_count_stale with "the balance changed, count again", the input refusals at
+      their fields. The document type name stock_quick_count is added to referenceMessages.ts in en, ru and kk.
+      Layout at 1440 and 390 px, light and dark, en, ru and kk (the design-system shot matrix). Not in this
+      part: voice on the web (row G16, the PWA, sibling task T-2036). Size M.
+    acceptance_criteria:
+      - "1. The screen is reachable from the stock navigation only for a user whose access lists StockQuickCount; a component test renders it hidden for a user without it."
+      - "2. A component test with a mocked API: choosing item, place and org unit shows the balance '10'; typing '7' shows the difference '-3'; submitting sends POST /quick-counts with exactly the form fields and then shows the document number, book '10', counted '7', difference '-3'."
+      - "3. The quantity field accepts '0' and refuses a negative number and more than 9 decimals before sending; reason other requires a reason text."
+      - "4. Each refusal code count_in_progress, location_frozen, quick_count_stale and unknown_kind maps to its own message in en, ru and kk (a test per code), and count_in_progress shows the held_by order number."
+      - "5. With the mocked GET /tasks/:id answering self_approval_allowed true, the result shows Approve and clicking it completes the approve task; with four eyes ON it shows the hint that a second person approves in My Tasks."
+      - "6. stock_quick_count has a name in referenceMessages.ts in en, ru and kk; npm run check passes; the shot matrix (1440 and 390, light and dark, en, ru, kk) covers the empty form, the filled form with balance, the result, a refusal and the four-eyes hint."
+    depends_on: [REQ-854]
+  - id: REQ-856
+    title: "Qoimeks parity G5 part 4: phone stock quick count screen with voice, a spoken or typed count phrase outside a formal count fills one quick count line that the user confirms"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 4562
+    # Source: task T-2028 (row G5). Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/stock_routes.dart, apps/mobile/lib/features/stock/stock_home_screen.dart, apps/mobile/lib/features/stock/count_detail_controller.dart (applyVoiceDraft: kind count only inside a formal count), apps/mobile/lib/features/stock/documents/document_form_controller.dart (applyVoiceDraft), apps/mobile/lib/features/stock/voice/voice_panel.dart, lib/letflow/modules/stock/voice_draft.ex (@kinds receipt issue transfer count; zero allowed for count only), docs/runbooks/stock-voice.md.
+    description: >
+      The phone side of the Qoimeks count. A screen "Quick count" on the stock home of apps/mobile (route
+      under kStockHomePath in stock_routes.dart), shown when the user's stock access lists StockQuickCount,
+      with the same fields and rules as the web form of REQ-855 (current balance, counted quantity with 0
+      allowed, reason) and a code scan into the item and place fields. Voice: the existing voice panel
+      (voice_panel.dart, POST /voice/draft and /voice/draft-text of REQ-741) is offered on this screen; a draft
+      of kind count fills item, place and quantity for the user to confirm, several matching items let the user
+      choose (as applyVoiceDraft does on the document form), and a draft of another kind shows the existing
+      stock.voice.kindMismatch notice. Voice never submits by itself. Inside an open formal count the count
+      detail screen keeps its own voice handling (count_detail_controller.dart) unchanged. Refusals as in
+      REQ-855 in en, ru and kk. No backend change: the voice draft already takes kind count with quantity 0.
+      Not in this part: the Qoimeks letter-name table and zone words (row G15, sibling task T-2035), offline
+      queueing of a quick count. Size M.
+    acceptance_criteria:
+      - "1. A widget test with a fake API: choosing item, place and org unit shows the balance; typing 0 and a reason and confirming sends one POST /quick-counts with exactly those fields and shows the document number and difference."
+      - "2. A widget test applies a voice draft of kind count with one item, a place and quantity '5': the form shows them and nothing is sent until the user confirms; a draft with two items shows the choice; a draft of kind receipt shows stock.voice.kindMismatch and changes nothing."
+      - "3. The screen is not offered to a user whose access lacks StockQuickCount (widget test)."
+      - "4. The refusals count_in_progress (with the order number), location_frozen and quick_count_stale each show their own message in en, ru and kk (a test per code)."
+      - "5. The count detail screen's voice tests pass unchanged; flutter analyze is clean and flutter test passes."
+    depends_on: [REQ-854, REQ-747]
   - id: REQ-846
     title: "Qoimeks parity G7 part 1: creating a stock document is retry-safe by a client key (same key and body give the same document, a changed body is refused 409)"
     owner: ELIXIR-DEV
@@ -56081,6 +56653,231 @@ requirements:
       - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
       - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
     depends_on: [REQ-847]
+  - id: REQ-872
+    title: "Qoimeks parity G19 part 1: a My reports screen where every signed-in user, a storekeeper without admin rights included, sees the status of each problem report it sent"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4586
+    # Source: task T-2038 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md row G19, design docs/design/platform-maintenance.md sections 1.2, 8 and 10 (slice 4 "the reporter's own report screen remains part B").
+    description: >
+      Qoimeks (inventory row "Feedback «Сообщить о проблеме» / web «Отзывы», Markdown export", 0 rows used at
+      2026-10-29) lets any user send feedback and see the feedback list in the web page «Отзывы». Letflow already
+      has the sending half: the top-bar button "Report a problem" (web/src/components/layout/ReportProblemButton.tsx,
+      not permission-gated, rendered by web/src/components/layout/AppShell.tsx, which wraps every signed-in screen)
+      posts to POST /api/v1/me/problem-reports (lib/letflow/routers/me.ex, permission MyPreferencesSet), and the
+      reporter's own list exists on the server as GET /api/v1/me/problem-reports (lib/letflow/routers/me.ex,
+      permission MyAccessRead, Letflow.ProblemReports.list_mine/2 in lib/letflow/problem_reports.ex: newest 50 of
+      the caller's own reports, fields id, number, status, question, reply_text, text, received_at, decided_at,
+      plus has_more). docs/roles.md grants MyAccessRead and MyPreferencesSet to every role, STOREKEEPER included.
+      What is missing is the screen: web/src/api/problemReports.ts has only submit, and no route of
+      web/src/router.tsx shows the list (docs/design/platform-maintenance.md section 8 "A My reports page lists
+      them"; section 10 slice 4 "the reporter's own report screen remains part B"). This slice adds that screen at
+      the web path /me/problem-reports (planned, not yet on main), not wrapped in RequirePermission or
+      platformPage, reached from a link in the "Report a problem" dialog's receipt and from a top-bar link placed
+      next to the existing /me/settings link (data-testid topbar-my-settings) in AppShell.tsx. Status labels reuse the existing texts
+      problemReports.status.* of web/src/pages/admin/problem-reports/problemReportsMessages.ts (en, ru, kk). No
+      backend change apart from the one router test of criterion 1; no new permission, route or table. Size S.
+    acceptance_criteria:
+      - "1. A new test in test/letflow/routers/me_problem_reports_test.exs: a caller holding only STOREKEEPER (the existing caller! helper with [\"STOREKEEPER\"]) gets 201 on POST /me/problem-reports with consent true, and its GET /me/problem-reports then answers 200 with that report's number and status received; a second STOREKEEPER user of the same company gets an empty list."
+      - "2. A component test of the new screen with a fake API: given a list holding one report in each status (received, in_work with question true, answered, fixed, not_done) it shows one row per report with its number, received date, the status label from problemReports.status.* in the session language, the text, and the reply text only for the rows where the server sent reply_text; the in_work row with question true shows the owner's question."
+      - "3. The same test: an empty list shows an empty state that names the Report a problem button; a 503 answer shows an unavailable message and no rows; has_more true shows a line saying only the newest 50 are listed."
+      - "4. A routing test renders /me/problem-reports for a session whose only role is STOREKEEPER and for one whose only role is CANDIDATE: the screen is shown (not the no-permission page) and the list request goes to /api/v1/me/problem-reports."
+      - "5. A test of ReportProblemDialog: after a 201 the receipt shows a link to /me/problem-reports; a test of AppShell shows the My reports top-bar link to /me/problem-reports next to the topbar-my-settings link for a STOREKEEPER-only and a TENANT_ADMIN session."
+      - "6. Labels exist in en, ru and kk; npm run check passes in web/; the shot matrix of the design-system skill (1440 and 390, light and dark, en, ru, kk) covers the list, the empty state and the unavailable state."
+    depends_on: []
+  - id: REQ-873
+    title: "Qoimeks parity G19 part 2: Markdown download of the user's own problem reports on My reports and of one report in the owner inbox"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4585
+    # Source: task T-2038, as REQ-872; Qoimeks layout copied below from Qoimeks server/internal/api/feedback.go (read only, outside this repository).
+    description: >
+      Qoimeks exports feedback as a Markdown file for handing to the developer (route GET /api/feedback/export.md,
+      quoted in docs/design/platform-maintenance.md section 1.2). Its renderer feedbackMarkdown (Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository) writes a title line "# Отзывы", a line
+      "Записей: N", then per row a heading "## #id · kind · created_at UTC", a list of facts, the text, and the
+      errors; the file is sent as "text/markdown; charset=utf-8" with the name feedback-YYYY-MM-DD.md. This slice
+      gives Letflow the same file in the browser, built on the client from data the screens already load, with no
+      new route: (a) on My reports (REQ-872, path /me/problem-reports, planned, not yet on main) a "Download as
+      Markdown" button saves the listed reports (at most the 50 the list route returns) as
+      problem-reports-YYYY-MM-DD.md; (b) in the owner inbox web/src/pages/admin/problem-reports/ProblemReportsPage.tsx
+      the detail of one report (GET /api/v1/platform-problem-reports/:id, lib/letflow/routers/platform_problem_reports.ex,
+      fields of the detail map in Letflow.ProblemReports.Inbox in lib/letflow/problem_reports/inbox.ex) gets the same
+      button and saves <number>.md. One formatter module, web/src/lib/problemReport/markdown.ts (planned, not yet on
+      main), renders both. Layout, in the session language (en, ru, kk): a title line, a line with the report
+      count, then per report a heading "## <number> · <status label> · <received_at in UTC, YYYY-MM-DD HH:MM:SS UTC>",
+      a list of facts, the report text, and the reply. Own export facts: status, received, decided. Owner export
+      facts: status, received, decided, company name, reporter name, roles, server version, trace id, image count;
+      the captured context as a fenced json block; never the reporter's permission list, tenant id, user id,
+      decided_by_user_id or the image bytes. Free text (report text, reply, context) is put inside a fenced code block whose backtick fence is
+      longer than the longest run of backticks in that text, so a report cannot add headings or links to the file
+      (Qoimeks replaced backticks inside error lines for the same reason). EXTRA over Qoimeks: the reporter can
+      export its own reports, and the export is in three languages. Size S.
+    acceptance_criteria:
+      - "1. Unit tests of markdown.ts: two reports give a file that starts with the title line and a count line of 2, then two headings in the given order with the number, the status label and the UTC time in the format YYYY-MM-DD HH:MM:SS UTC; an empty list gives the title and a count of 0 only."
+      - "2. Unit test: a report text holding a line \"## forged\" and a run of three backticks is rendered inside a fence of four backticks, and the file has exactly one level-2 heading per report."
+      - "3. Unit test of the owner form: the output holds company name, reporter name, roles, server version, trace id and image count, and does not hold the reporter's tenant id, user id or any permission name from the detail fixture."
+      - "4. Labels in en, ru and kk: a test renders the same two reports with each language and finds that language's title and status labels (the status labels are the problemReports.status.* texts)."
+      - "5. Component tests: on My reports the button saves one Blob of type text/markdown;charset=utf-8 named problem-reports-YYYY-MM-DD.md from the loaded list (no extra request is sent, asserted on the fake API); in the owner inbox the detail's button saves <number>.md; the button is disabled while the list or the detail is loading."
+      - "6. npm run check passes in web/; shots (design-system matrix) of My reports and the owner detail with the button."
+    depends_on: [REQ-872]
+  - id: REQ-874
+    title: "Qoimeks parity G19 part 3: Markdown export of the owner inbox list of problem reports, one file for the chosen status filter"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4584
+    # Source: task T-2038, as REQ-872 and REQ-873.
+    description: >
+      Qoimeks hands the whole feedback list to the developer as one Markdown file (GET /api/feedback/export.md; its
+      handler feedbackExport reads at most maxFeedbackLimit = 1000 newest rows, Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository; headers Content-Type
+      "text/markdown; charset=utf-8", Content-Disposition attachment, Cache-Control no-store). In Letflow the owner
+      of that handoff is the platform company's owner inbox (lib/letflow/routers/platform_problem_reports.ex,
+      permission ProblemReportsManage, platform scope, granted to PLATFORM_ADMIN only per docs/roles.md). Its list
+      route GET /api/v1/platform-problem-reports (Letflow.ProblemReports.Inbox.list/1 in
+      lib/letflow/problem_reports/inbox.ex) pages at most 100 summaries with a 140-character text preview, so the
+      client cannot build a full-list file from it. This slice adds GET /api/v1/platform-problem-reports/export.md
+      in the same router, declared before the /:id route, permission ProblemReportsManage, query status
+      (open, closed or all, the same filter as the list route, default open) and lang (en, ru or kk, default ru,
+      as Qoimeks). It reads only class problem rows of the platform schema, newest first, at most 1000 (the Qoimeks
+      cap), and renders them with an Elixir renderer whose layout is the owner form of REQ-873 (planned, not yet on
+      main), with the same fencing rule for free text and the same excluded fields. The owner inbox screen
+      web/src/pages/admin/problem-reports/ProblemReportsPage.tsx gets a "Download list as Markdown" button that
+      calls the route with the current filter and the session language. Route-count and scope-inventory pins move
+      (grep __authz_routes__ and the platform route lists in test/). Size S to M.
+    acceptance_criteria:
+      - "1. Router tests in test/letflow/routers/platform_problem_reports_test.exs: a platform administrator of the platform tenant gets 200 with content-type text/markdown; charset=utf-8, content-disposition attachment with filename problem-reports-YYYY-MM-DD.md, and cache-control no-store; the body has one level-2 heading per class problem report of the chosen filter, newest first, and none for a class review row."
+      - "2. Refusals as the existing P1 P2 P3 test does: a TENANT_ADMIN of a customer company and a PLATFORM_ADMIN outside the platform tenant get the same refusal as on GET /platform-problem-reports, and the body names no report number."
+      - "3. status=closed lists only answered, fixed and not_done reports; status=bogus and lang=xx answer 400 as the list route answers an invalid filter (Response.bad_request in respond/3); with 1001 reports only the newest 1000 are in the file (the count line says 1000)."
+      - "4. A unit test of the renderer: a text holding \"## forged\" and three backticks is inside a four-backtick fence; the file holds no reporter tenant id, user id or permission name; lang=en, ru and kk each give that language's title line."
+      - "5. GET /platform-problem-reports/export.md is not answered by the /:id route (a test asserts 200 and a Markdown body, not the 404 of an unknown id); with the platform pin unset it answers 503 as the list route does."
+      - "6. A web component test: the button sends the current status filter and the session language to the route and saves the answer; npm run check passes in web/; mix letflow.check.static passes."
+    depends_on: [REQ-873]
+  - id: REQ-867
+    title: "Qoimeks parity G16 part 1: the PWA entry file names its scripts with ?v=<build sha> next to the no-cache rule, and the hosting runbook gives the install and update steps on iPhone and Android"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4583
+    # Source: task T-2036 (owner decision via PM 2026-11-16, "support old Qoimeks functionality, not less but possibly more"); docs/status/qoimeks-migration-readiness.md section 1.2 rows G16 and G17; Qoimeks-team/project/client1-inventory.md section 8 items 9 and 11 and the Android and APK lines of sections 0-1, and Qoimeks/README.md "Release build" and "Update check in the app" (outside the worktree; the passages are copied into state/tasks/T-2036/sources.md). Files read on origin/main 6e7c4bbaa: docs/runbooks/mobile-web-pwa-hosting.md ("Headers and why": Cache-Control no-cache on every file, no service worker, names not content-hashed), scripts/pwa_web_package.sh (build-info.json, SHA256SUMS, .gz/.br, tar), scripts/pwa_web_build.sh, scripts/pwa_web_verify.sh, apps/mobile/web/index.html (script src flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js; link manifest.json, favicon.png, icons/apple-touch-icon.png), apps/mobile/web/flutter_bootstrap.js, deploy/nginx/letflow-pwa-web.conf.example, test/letflow/pwa_web_hosting_test.exs (P1-P6, N1, N2, N3), docs/runbooks/pwa-client-test/script.en.md step 1 (Safari, Share, "Add to Home Screen"), docs/mobile/pwa-parity.md. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks serves its web app (the iPhone way, /web/) cached for up to 4 hours with the entry file versioned
+      ?v= (inventory section 8 item 9). Letflow's PWA (the web build of apps/mobile) answers Cache-Control
+      no-cache on every file and has no service worker and no content-hashed names
+      (docs/runbooks/mobile-web-pwa-hosting.md, "Headers and why"), so a new deploy is seen on the next open:
+      that part is already stricter than Qoimeks and stays. The 4-hour cache is not adopted (it only delays an
+      update). What is missing is the Qoimeks ?v= stamp: behind a cache that does not honour no-cache (the
+      hosting is not chosen, readiness row G17) a new index.html can be paired with an old flutter_bootstrap.js.
+      Change: scripts/pwa_web_package.sh, before it writes SHA256SUMS and compresses, rewrites index.html of the
+      build so that every src or href attribute value of a script or link element that is a relative path (not
+      starting with a scheme, //, / or #) gets the suffix ?v=<sha12>, where sha12 is the first 12 characters of
+      the sha it records in build-info.json. A relative reference that already holds "?" makes the script exit 1
+      and name it (none exists in apps/mobile/web/index.html today). index.html itself stays unversioned: it is
+      the entry and is always revalidated. main.dart.js and canvaskit are loaded by the Flutter loader by their
+      plain names and stay covered by no-cache only; the runbook says so and states the hosting rule that no
+      cache in front of the PWA may keep a file longer than the origin's Cache-Control allows. The runbook also
+      gets a section "Install and update" with the steps on iPhone (Safari, Share, "Add to Home Screen", open
+      from the icon) and on Android (Chrome menu, "Install app" or "Add to Home screen"), and the update rule:
+      close the app and open it again from the icon; nothing is reinstalled and no setting is entered again.
+      No change to the nginx example, the workflow or the Flutter code. Size S.
+    acceptance_criteria:
+      - "1. A new test P7 in test/letflow/pwa_web_hosting_test.exs packages a build whose index.html references flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js and manifest.json, with GITHUB_SHA set to a known 40-character value; the index.html inside the tar references each of them with ?v= followed by the first 12 characters of that value, and build-info.json in the tar records the same sha."
+      - "2. A new test P8: an absolute reference (https://example.org/a.js) and a fragment reference (#x) in index.html are left unchanged, and the file is still named index.html in the tar (the entry gets no version)."
+      - "3. A new test P9: an index.html with a relative reference that already contains ? makes pwa_web_package.sh exit 1, names that reference in its output, and writes no tar."
+      - "4. A new test P10: the SHA256SUMS line of index.html verifies against the stamped index.html, and index.html.gz (when written) decompresses to the stamped bytes."
+      - "5. A new test N4 in test/letflow/pwa_web_hosting_test.exs asserts that docs/runbooks/mobile-web-pwa-hosting.md contains the text ?v=, the hosting rule sentence about caches in front of the PWA, and a section titled Install and update naming Add to Home Screen and Install app."
+      - "6. MIX_TEST_PARTITION=<task> mix test test/letflow/pwa_web_hosting_test.exs passes with P1-P6, V1-V10, B1-B4, W1, W2, N1, N2 and N3 unchanged."
+    depends_on: []
+  - id: REQ-868
+    title: "Qoimeks parity G16 part 2: signed Android release build (APK and AAB) from a script that never signs with the debug key, release manifest latest.json, and an Android release and distribution runbook"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4582
+    # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Release build" (scripts/release-android.sh, key.properties, version guard, latest.json fields) and client1-inventory.md (published APK 0.1.2, "APK self-update banner yes (APK 0.1.2, manifest minVersionCode 2)", APK download page), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/android/app/build.gradle.kts (release buildType signs with signingConfigs.getByName("debug"); versionCode/versionName from flutter; manifestPlaceholders platformHost from -Pplatform-host), apps/mobile/android/.gitignore (key.properties, **/*.keystore, **/*.jks), apps/mobile/pubspec.yaml (version 1.0.0+1), apps/mobile/lib/api/api_client.dart (String.fromEnvironment LETFLOW_API_BASE_URL), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (kPlatformHost from LETFLOW_PLATFORM_HOST), .github/workflows/ci.yml mobile job (flutter build apk --debug only), test/letflow/pwa_web_hosting_test.exs (pattern for script tests with a tmp_dir), scripts/ci_changed_paths.sh (scripts/.*\.sh$ and docs/runbooks/ are backend paths). grep -rn "apksigner\|appbundle\|assembleRelease" .github/workflows scripts: no hit. ls docs/runbooks | grep -i android: no hit. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks ships an Android APK (0.1.2) built by a release script that refuses to sign with the debug key,
+      refuses a version code not higher than the last published one, and writes the APK, its sha256 and a
+      release manifest latest.json for its download page. Letflow's Android release build is signed with the
+      debug key (signingConfigs.getByName("debug") in apps/mobile/android/app/build.gradle.kts) and there is no
+      release script and no release runbook. Change, three parts. (1) build.gradle.kts: the release buildType
+      signs with a config read from apps/mobile/android/key.properties (keys storeFile, storePassword, keyAlias,
+      keyPassword; the file and keystores are already git-ignored); with the file missing a release build fails
+      with a message naming the file; the debug-key fallback is removed. Debug builds (ci.yml runs flutter build
+      apk --debug) do not change. (2) A new script scripts/android_release_build.sh (planned, not yet on main):
+      reads versionName and versionCode from the version line of apps/mobile/pubspec.yaml; options --out DIR
+      (required, refused when inside the repository), --base-url URL (required, https only: where the files will
+      be published), --api-base-url URL (https only, passed as --dart-define=LETFLOW_API_BASE_URL), --platform-host
+      HOST (passed as --dart-define=LETFLOW_PLATFORM_HOST and -Pplatform-host), --min-version-code N (default: the
+      value in <out>/latest.json, else 1), --notes-file FILE (lines "ru: ", "kk: ", "en: "), --last-published N or
+      --first-release, --dry-run (runs every check and prints the build commands, builds nothing). It exits 2
+      without building when key.properties is missing, when a URL is not https, or when the version code is not
+      higher than the last published one (from <out>/latest.json, else --last-published; with neither,
+      --first-release is required). It runs flutter build apk --release and flutter build appbundle --release
+      with the same defines, then apksigner verify --print-certs on the APK and exits 1 when verification fails
+      or the signer certificate is the Android debug certificate (subject CN=Android Debug). It writes into --out:
+      letflow-<versionName>-<versionCode>.apk, the same name with .apk.sha256, letflow-<versionName>-<versionCode>.aab,
+      and latest.json with versionCode, versionName, url (base URL plus the APK name), sha256, minVersionCode,
+      notes (ru, kk, en) and published (UTC). No password or key.properties value is printed, also not in
+      --dry-run. (3) A new runbook docs/runbooks/mobile-android-release.md (planned, not yet on main): making the
+      upload keystore once with keytool and keeping it and its passwords outside git with a backup (a lost key
+      means installed phones cannot take an update), the key.properties layout, running the script for QA,
+      handing the output folder to infra for the QA download location, installing on a phone (allow installs
+      from this source) and updating. A store listing (Google Play) and its account are the owner's money and
+      accounts step and are not decided here; the AAB is built so that step needs no new build. QA only: the
+      Qoimeks production and its APK are never touched (D-050). No CI workflow signs a release (no signing
+      secret exists). Size M.
+    acceptance_criteria:
+      - "1. A new test file test/letflow/android_release_build_test.exs (planned) runs the script with a fake flutter and a fake apksigner first on PATH inside a tmp_dir copy of the inputs it needs: with key.properties missing it exits 2, names key.properties, and the fake flutter was not called."
+      - "2. In that file: a version code equal to the versionCode in an existing <out>/latest.json exits 2 without calling flutter; with no latest.json and neither --last-published nor --first-release it exits 2; an http:// --base-url or --api-base-url exits 2."
+      - "3. In that file: a good run calls the fake flutter with build apk --release and build appbundle --release, both carrying --dart-define=LETFLOW_API_BASE_URL and --dart-define=LETFLOW_PLATFORM_HOST with the given values, and writes the .apk, .apk.sha256 (matching sha256sum of the .apk), .aab and a latest.json that parses with exactly the top-level keys versionCode, versionName, url, sha256, minVersionCode, notes (an object with exactly the keys ru, kk and en) and published, url equal to base URL plus the APK file name."
+      - "4. In that file: a fake apksigner that prints a certificate subject CN=Android Debug makes the script exit 1 and write no latest.json; the passwords written into the test's key.properties appear nowhere in the script output of any case, including --dry-run, and --dry-run calls no flutter build."
+      - "5. A test reads apps/mobile/android/app/build.gradle.kts and asserts it no longer contains getByName(\"debug\") inside the release buildType and that it reads key.properties; flutter build apk --debug in the mobile job of ci.yml still passes."
+      - "6. docs/runbooks/mobile-android-release.md exists and a test asserts it names keytool, key.properties, scripts/android_release_build.sh, latest.json, and the sentence that the store account is the owner's decision."
+      - "7. MIX_TEST_PARTITION=<task> mix test test/letflow/android_release_build_test.exs passes; flutter analyze is clean for apps/mobile."
+    depends_on: []
+  - id: REQ-869
+    title: "Qoimeks parity G16 part 3: the Android app reads latest.json, shows a dismissible update banner for a newer build and a banner that cannot be dismissed below minVersionCode, and shows its installed version with a check for updates"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4581
+    # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Update check in the app" (manifest read on start at most once a day; newer versionCode shows a dismissible banner with notes in the app language; below minVersionCode a banner that cannot be dismissed; tap opens the url in the browser; settings show the installed version and check for updates; a missing network or a broken manifest shows nothing on the automatic check and never blocks work; empty manifest URL turns the check off) and Qoimeks/mobile/lib/update.dart (parseManifest: versionCode int, versionName string, url non-empty string, minVersionCode int, notes map; notesFor lang else ru), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/lib/definitions/tenant_home_screen.dart (AppBar actions LanguageSwitcher), apps/mobile/lib/auth/auth.dart (non-secret pointer store, key letflow.ui_locale), apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/android/app/src/main/kotlin/com/bizdala/letflow/MainActivity.kt, apps/mobile/pubspec.yaml (dependency comment from REQ-419: no runtime package beyond the list; dio present, no url_launcher, no package_info_plus). Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks' Android app checks a release manifest and asks the operator to update (APK self-update banner,
+      manifest minVersionCode 2). Letflow's Android app has no update check and shows no version. Change in
+      apps/mobile, Android build only (the web build has neither the check nor the button). Two compile-time
+      values, both empty by default: LETFLOW_ANDROID_UPDATE_MANIFEST_URL (an empty value turns the check and the
+      button off, so a later store build cannot update itself) and LETFLOW_APP_VERSION_CODE (the installed
+      version code). This change extends scripts/android_release_build.sh (planned in REQ-868, not yet on main;
+      REQ-868 passes neither value and has no such option): it adds both defines to its two flutter build calls,
+      the URL as <base-url>latest.json and the code equal to the pubspec versionCode, and a new option
+      --no-update-check that builds with an empty URL. With a
+      URL set, the app reads the manifest at start at most once in 24 hours (the time of the last check is kept
+      under a new key in the same non-secret store as letflow.ui_locale), through a plain Dio request that
+      carries no authorization header. A manifest is valid only with versionCode and minVersionCode as integers,
+      versionName as a string and url as an https URL; anything else is ignored. A versionCode above the
+      installed code shows a banner on the tenant home screen with versionName and the notes in the app's UI
+      language (else ru, else none) that the user can dismiss until the next newer versionCode; an installed
+      code below minVersionCode shows a banner without a dismiss control. A tap on either banner opens the
+      manifest url in the device browser through a small method channel in MainActivity.kt (an ACTION_VIEW
+      intent; no new package, per the pubspec dependency rule of REQ-419). The tenant home screen's app bar gets
+      a menu entry showing the installed versionName and versionCode and, with a URL set, "Check for updates",
+      which checks at once and says "You have the latest version", shows the banner, or says that the check
+      failed. A failed or invalid automatic check shows nothing; no check ever blocks a screen or a document.
+      The texts are added to app_en.arb, app_ru.arb and app_kk.arb. Size M.
+    acceptance_criteria:
+      - "1. Unit tests of the manifest parser: a manifest with the four required fields of the right types parses; a missing field, a string versionCode, an http url or a non-JSON body gives no manifest."
+      - "2. Widget tests with a fake manifest source and installed code 5: versionCode 6 with minVersionCode 1 shows a banner with a dismiss control and the ru notes when the UI language is ru; after dismissing it is not shown again for versionCode 6 and is shown for versionCode 7; versionCode 7 with minVersionCode 6 shows a banner with no dismiss control; versionCode 5 shows none."
+      - "3. A widget or unit test: a second app start within 24 hours of a successful check makes no manifest request (counted on the fake); a start 25 hours later makes one; a failing request on the automatic check shows no banner and no error text, and the home screen stays usable."
+      - "4. A widget test: with an empty LETFLOW_ANDROID_UPDATE_MANIFEST_URL, and on the web build (kIsWeb replaced by an injectable flag, the way offlineQueueEnabledProvider in apps/mobile/lib/features/stock/documents/offline_providers.dart wraps kIsWeb), no request is made and the menu shows the version without Check for updates; with a URL, Check for updates on an up-to-date manifest shows You have the latest version."
+      - "5. A test asserts the manifest request carries no Authorization header, and a tap on the banner calls the open-url method channel with the manifest url (fake channel handler)."
+      - "6. A test in test/letflow/android_release_build_test.exs: a good run of the release script passes --dart-define=LETFLOW_ANDROID_UPDATE_MANIFEST_URL=<base-url>latest.json and --dart-define=LETFLOW_APP_VERSION_CODE=<pubspec versionCode>; with --no-update-check the URL define is empty."
+      - "7. The new texts are present in app_en.arb, app_ru.arb and app_kk.arb; flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
+    depends_on: [REQ-868]
   - id: REQ-865
     title: "Qoimeks parity G11 part 1: module stock answers the whole current stock as one xlsx workbook in the Qoimeks import layout, one row per item and place with the usual place first, that reads back by the Qoimeks import rules"
     owner: ELIXIR-DEV
@@ -56190,3 +56987,182 @@ requirements:
       - "3. The labels, the caption and the two new banners exist in the en, ru and kk catalogs of module stock (ru button 'Остатки для Excel (как в Qoimeks)', kk button 'Excel үшін қалдықтар (Qoimeks сияқты)'; UAT assumption, wording to be confirmed by the process owner), checked by the module's catalog completeness test."
       - "4. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the Balances screen with the new button, during the download and with each of the two new banners is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
     depends_on: [REQ-865, REQ-724]
+  - id: REQ-875
+    title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4592
+    # Source: task T-2037 (owner decision via PM 2026-11-16, parity required; row G18 of docs/status/qoimeks-migration-readiness.md section 1.2 and the Movement history row of section 2.1). Files read on origin/main 1520cf186: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (section 0, D1, D7, D9 "Out of scope ... import of historical movements into the ledger"), docs/migration/decisions/0076-master-data-layer.md (R7), docs/runbooks/qoimeks-rehearsal.md ("Deliberately not here ... movement history"), lib/letflow/modules/stock/stock.ex (manifest import_functions, scope_declarations), lib/letflow/entities/managed_import.ex, lib/letflow/routers/entities/record_import.ex. Qoimeks schema and History listing copied to state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks keeps 600 movements of Client 1 (docs/status/qoimeks-migration-readiness.md section 1.1) and
+      shows them on its History screen; the Letflow rehearsal moves opening balances only
+      (docs/runbooks/qoimeks-rehearsal.md, "Deliberately not here"). The owner requires parity: the user sees
+      that history in Letflow. Two ways were weighed. (a) Import the movements into the stock ledger flagged
+      historical: this needs an event_time months back, which 0079 D1 and 0073 D-T refuse (lateness cap 96 hours,
+      720 at most by rule 12, no override), a new ledger flag that balances, reconcile, the gap-free counter, counts
+      and the stock card must all skip, and it reopens 0079 D9, which puts "import of historical movements into the
+      ledger" out of scope. (b) A read-only archive beside the ledger, with its own read route and screen, linked
+      from the item and the place. This part decides (b): no ledger rule changes, so it goes first, as the task
+      asks. Deliverable: one section appended at the end of decision 0079, headed "Amended by REQ-875 (movement
+      history archive, Qoimeks parity G18)", that states, each as a numbered rule: (1) the choice of (b) and the
+      reasons above, with (a) recorded as rejected for this parity and what (a) would have to change; (2) the
+      archive is the module-managed record type stock_archive_movement of module stock, scoped by the column
+      org_unit_id (0076 R7), with the fields org_unit_id, source_seq (the Qoimeks seq), kind (receipt, issue,
+      transfer, adjustment: the Qoimeks list), occurred_at (the Qoimeks created_at, a stored field, never a ledger
+      event_time), catalog_item_id, location_id, to_location_id (transfer only), quantity (moved, or counted for an
+      adjustment), change and balance_after (at location_id, from the Qoimeks balances row of that movement),
+      to_balance_after (transfer only), operator_label (the Qoimeks free-text operator), entry_source (keyboard,
+      voice, import), transcript (optional), reverses_ref (the Qoimeks id of the reversed movement), import_ref
+      (optional) and the external ref pair (system and the Qoimeks movement id); (3) it is written only by its
+      import function (manifest import_functions, called through Letflow.Entities.ManagedImport), never by a
+      generic record write, a process step or a stock document; a row once stored is never changed or deleted: the
+      same row again is unchanged, a changed row is refused archive_row_changed; (4) it is not a balance source:
+      no ledger function reads or writes it, balances, movements, reconcile, counts, the stock card print and the
+      exports of 0079 D8 are unchanged and never include an archive row, and an archive row cannot be reversed
+      (a pre-move mistake is corrected by a new stock document after the move); (5) the read: one route of module
+      stock under StockRead and Letflow.Modules.Stock.Access, filters item, place, kind, date range and operator
+      text, newest first, json and xlsx; (6) the web screen and the links from the item details and the place
+      details; (7) an owner table of every choice the owner may change, each marked "UAT assumption, to be
+      confirmed by the process owner", including keeping transcript and the operator label. Row G18 of
+      docs/status/qoimeks-migration-readiness.md and the Movement history row of its section 2.1 then point at the
+      amendment and the parts REQ-876 to REQ-879 (written with this one, planned, not yet on main). No code, no
+      route, no migration in this part. Size S.
+    acceptance_criteria:
+      - "1. docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md ends with the section 'Amended by REQ-875 (movement history archive, Qoimeks parity G18)' holding the seven numbered rules of the description; git diff of that file shows added lines at the end only."
+      - "2. Rule 1 names the three sources that refuse option (a) (0079 D1, 0073 D-T with the 96 and 720 hour figures, 0079 D9 out of scope) and lists what (a) would change; rule 2 lists every field of the description with its type and required flag, and exactly these lists: kind is one of receipt, issue, transfer, adjustment; entry_source is one of keyboard, voice, import."
+      - "3. Rule 4 names each read path that must not include an archive row (balances, movements, reconcile, counts, stock card print, the D8 exports) and states that no file of the archive calls a function of Letflow.Ledger."
+      - "4. Every Letflow file the section names exists on origin/main at implement time, checked with git ls-tree and the command quoted in the section; every rule not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'UAT assumption, to be confirmed by the process owner' and listed in the owner table."
+      - "5. Row G18 in section 1.2 and the Movement history row in section 2.1 of docs/status/qoimeks-migration-readiness.md name the amendment; mix letflow.check.static passes."
+    depends_on: [REQ-687, REQ-727]
+  - id: REQ-876
+    title: "Qoimeks parity G18 part 2: module stock stores the Qoimeks movement history as the read-only archive type stock_archive_movement, loaded by its own xlsx import function, never touching the stock ledger"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4591
+    # Source: task T-2037 and REQ-875 (written with this one). Files read on origin/main 1520cf186: lib/letflow/modules/stock/stock.ex (version "0.17.0", entity_types, scope_declarations, import_functions), priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/, lib/letflow/modules/stock/documents/opening_import.ex (reference resolution by external id), lib/letflow/entities/managed_import.ex (call/5: outcomes created, updated, unchanged), lib/letflow/routers/entities/record_import.ex (@import_record_cap 200, base_reason_json/1 constant refusals), lib/letflow/ledger/validate.ex (quantity_scale), test/letflow/modules/stock/opening_import_test.exs. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Rules 2 to 4 of the REQ-875 amendment of decision 0079 (planned, not yet on main) in module stock. The pack
+      (priv/modules/stock/generate_pack.exs, entity_definitions/stock_archive_movement.json, pack.json) gains the
+      managed type stock_archive_movement with the fields of rule 2, scope_declarations gains
+      "stock_archive_movement" => {:column, "org_unit_id"}, and the manifest import_functions gains its import
+      function next to import_opening_line, in a new file lib/letflow/modules/stock/archive_import.ex (planned, not
+      yet on main) that calls no function of Letflow.Ledger. Per row of an xlsx upload through the existing record
+      import route (at most @import_record_cap rows per file, dry run as for every managed import), the first
+      refusal wins and writes nothing: the reference cells org_unit_id, catalog_item_id, location_id and
+      to_location_id hold external ids under the row's own external-ref system and are resolved through the owning
+      module's lookup_by_external_ref/4 as in lib/letflow/modules/stock/documents/opening_import.ex, giving
+      reference_not_found with the cell name; unlike an opening line, an inactive item or place is accepted (the
+      history of a retired item); a cell that breaks a Qoimeks rule gives {:archive_field_invalid, header}: kind
+      or entry_source outside its list, occurred_at not an ISO 8601 time with offset, quantity not a decimal with at
+      most 9 decimals (the ledger's quantity_scale) or below zero, quantity zero on a kind other than adjustment,
+      to_location_id present unless the kind is transfer, absent on a transfer, or equal to location_id, a
+      to_balance_after present unless the kind is transfer (change, balance_after and to_balance_after may be
+      negative: Qoimeks allowed negative balances); then the row is matched by its external ref pair: none
+      stored creates it (outcome created), the same values stored is unchanged, any different value is refused
+      archive_row_changed (outcome updated is never returned). Both new reasons render through
+      base_reason_json/1 of lib/letflow/routers/entities/record_import.ex as constant types with no cell text. A
+      generic record create, update or delete of the type is refused as for every managed type. The module version
+      in stock.ex is raised by one minor step from origin/main at implement time, and the pins the new type and
+      version move (pack, registration and permission matrix tests) are re-derived. Size M.
+    acceptance_criteria:
+      - "1. A new test file test/letflow/modules/stock/archive_import_test.exs uploads through the real record import route an xlsx (a STOREKEEPER upload is refused 403, managed_import_allowed in lib/letflow/routers/entities/record_import.ex; the test uploads as TENANT_ADMIN) of four rows (a receipt, an issue, a transfer and an adjustment of quantity 0) with masters created by external ref: all four are created; a second upload of the same file reports all four unchanged; a third upload with one changed quantity reports that row archive_row_changed and the stored value is the first one."
+      - "2. One test per refusal of the description (each reference cell unknown, each archive_field_invalid rule including a transfer without to_location_id, an issue with to_location_id, from equal to to, quantity 0 on an issue, quantity with 10 decimals, a bad occurred_at, an unknown kind and entry_source) asserts the reason JSON of the row and that nothing was written; a row naming a retired item is created."
+      - "3. A test reads Letflow.Ledger.balances/4 and Letflow.Ledger.entries/3 of the stock ledger before and after a 4-row archive import and asserts both answers are equal; a source scan asserts lib/letflow/modules/stock/archive_import.ex contains no 'Ledger.' call."
+      - "4. A generic create, update and delete of a stock_archive_movement record through the entity record routes is refused 403 with entity_type_managed (the :managed branch of handle_create_record, handle_update_record and handle_delete_record in lib/letflow/routers/entities/record_writes.ex), as test/letflow/modules/stock/counts_registration_test.exs asserts for the count types."
+      - "5. The stock module version in lib/letflow/modules/stock/stock.ex is above the one on origin/main at implement time; mix letflow.permission_matrix --write was run after the last merge; mix letflow.check.static passes and the new and changed test files pass when run by path."
+    depends_on: [REQ-875, REQ-727, REQ-651]
+  - id: REQ-877
+    title: "Qoimeks parity G18 part 3: read route GET /archive-movements of module stock: search the archived Qoimeks movements by item, place, kind, date and operator, newest first, as json or xlsx"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4590
+    # Source: task T-2037, rule 5 of the REQ-875 amendment. Files read on origin/main 1520cf186: lib/letflow/modules/stock/router.ex (moduledoc route tables, slot_filters/1, 422 invalid_filter, format=json|xlsx), lib/letflow/modules/stock/access.ex, lib/letflow/modules/stock/documents.ex (@default_limit 50, @max_limit 100, @cursor), lib/letflow/modules/stock/xlsx_export.ex, test/letflow/modules/asset_stock_isolation_test.exs. Qoimeks History listing (newest first by seq) in state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      One read route of module stock, GET /api/v1/modules/stock/archive-movements, in
+      lib/letflow/modules/stock/router.ex, permission StockRead, behind Letflow.Modules.Stock.Access like every
+      stock route (an API token or a scoped principal gets the same 404 as a tenant without the module). It reads
+      the archive type of REQ-876 (planned, not yet on main) through module code, not SQL in the router (boundary
+      Rule 8), and never calls Letflow.Ledger. Query keys, each optional: sku (catalog item id), location (matches
+      location_id or to_location_id), kind (one of the four kinds), from and to (calendar days YYYY-MM-DD in
+      Asia/Almaty, the stock module's constant zone, inclusive, on occurred_at), operator (a case-insensitive part of
+      operator_label, with % and _ matched literally and the value bound as a query parameter, INV-7), limit (1..100, default 50, as the stock documents list) and cursor;
+      a malformed value, an unknown key or a tenant key is 422 invalid_filter before anything is read. Order:
+      occurred_at descending, then source_seq descending (Qoimeks lists newest first). Each row carries every field
+      of the type plus the item code and name, the unit, and the place and to-place codes and names, which are
+      tenant-wide (0076 R7). Body rows and next_cursor. format=xlsx renders the same page through a sibling of
+      Letflow.Modules.Stock.XlsxExport with a report sheet (filters, timezone), EXTRA beyond Qoimeks, which had no
+      history export. The module moduledoc route table, the route-count and route-scope pins and the
+      tenant-isolation list of test/letflow/modules/asset_stock_isolation_test.exs are updated. Size M.
+    acceptance_criteria:
+      - "1. Router tests with a real token through the real router: TENANT_ADMIN and STOREKEEPER get 200 with rows newest first; a TASK_WORKER (no StockRead) gets 403 with detail 'insufficient permissions', as T-R-403 in test/letflow/modules/stock/router_test.exs asserts for the other stock read routes; an API token and a scoped principal get the same 404 body as a tenant without the module."
+      - "2. Each filter narrows the answer, shown by one test each on a fixture of six rows over two items, three places, all four kinds and three days, including a transfer found by its to-place, a from/to range whose bounds are Asia/Almaty days that differ from the UTC day, and an operator part in other letter case; limit 2 with cursor walks all six rows once."
+      - "3. A bad uuid, an unknown kind, a date not YYYY-MM-DD, from after to, limit 0 or 101, an unknown key and a tenant key are each 422 invalid_filter."
+      - "4. INV-10: a second tenant's archive rows never appear, and a cross-tenant sku or location id answers an empty list, in test/letflow/modules/asset_stock_isolation_test.exs or a new test next to it."
+      - "5. format=xlsx answers an xlsx whose first sheet has one row per json row in the same order and whose report sheet names the filters and the time zone; Letflow.Ledger is not called (source scan of the new module file); the route-count pins are re-derived after the last merge and mix letflow.check.static passes."
+    depends_on: [REQ-876, REQ-728]
+  - id: REQ-878
+    title: "Qoimeks parity G18 part 4: web screen 'History before Letflow' of the stock module with search, and links to it from the item details and the place details"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4589
+    # Source: task T-2037, rule 6 of the REQ-875 amendment. Files read on origin/main 1520cf186: web/src/modules/stock/index.ts (nav entries), web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/register/MovementsPage.tsx, web/src/components/layout/navMessages.ts, web/src/components/layout/AppShell.tsx, web/src/modules/catalog_items/items/ItemDetails.tsx (History section), web/src/modules/catalog_items/catalogItemsStock.api.ts, web/src/modules/locations/LocationTreePage.tsx (details tab), web/src/dev/harness/registry.tsx. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The screen of rule 6 of the REQ-875 amendment over the route of REQ-877 (both planned, not yet on main). A new
+      page at admin/stock/archive in web/src/modules/stock/stockRoutes.tsx under RequirePermission StockRead, with a
+      nav entry in web/src/modules/stock/index.ts after Movements and its texts in navMessages.ts and the AppShell
+      route list, built on the pattern of web/src/modules/stock/register/MovementsPage.tsx. It shows a banner that
+      these are the movements kept from the previous system, read-only, not part of the balances; filters item,
+      place, kind, date range and operator text, read from and written to the URL query so a link opens the screen
+      filtered; a table newest first with time, kind, item, place, to-place, quantity, change, balance after,
+      operator and source; a row marked as reversed or as a reversal shows the paired row's number (source_seq);
+      the row details show the transcript when present; paging by the route's cursor; an xlsx download of the
+      current filter. The item details History section (web/src/modules/catalog_items/items/ItemDetails.tsx) and
+      the place details tab (web/src/modules/locations/LocationTreePage.tsx) each show a link 'History before
+      Letflow' that opens the screen filtered by that item or place, shown only to a StockRead holder and only when
+      a limit=1 read for that item or place returns a row (the links are URL strings, no import of the stock
+      module, as catalogItemsStock.api.ts does). Texts in en, ru and kk. Own harness fixture file, one line in the
+      harness registry. Size M.
+    acceptance_criteria:
+      - "1. Component tests with a mocked API: the screen lists rows in the order the API returns, shows the banner, and each filter change sends the matching query key; opening the URL with sku and location sends both on the first request; next page sends the cursor."
+      - "2. A reversal row shows the paired number, and the details of a voice row show its transcript; empty, loading, error and no-permission states each render their own message."
+      - "3. ItemDetails and LocationTreePage show the link with the right URL when the limit=1 read returns a row, and no link (and for a user without StockRead no request at all, asserted on the mocked client) otherwise; their existing tests pass without edits to their assertions."
+      - "4. The nav entry is shown to a StockRead holder only; the EXPECTED_COUNT pin of web/src/components/layout/__tests__/navRoleWalk.test.tsx is updated if it moves; texts exist in en, ru and kk."
+      - "5. npm run check passes in the engine's checks step; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the list, a filtered list, the row details, the empty state and the item and place links, from the screen's own harness fixture."
+    depends_on: [REQ-877]
+  - id: REQ-879
+    title: "Qoimeks parity G18 part 5: the Qoimeks converter writes the movement history into archive import files, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4588
+    # Source: task T-2037. Files read on origin/main 1520cf186: scripts/pilot/qoimeks_convert.py (MAX_ROWS 200, NEEDED, manifest.json upload_order, expected_counts.txt, report.txt rules, exit codes), docs/runbooks/qoimeks-rehearsal.md, test/scripts/qoimeks_rehearsal_test.exs, test/fixtures/qoimeks_rehearsal/, test/letflow/modules/stock/qoimeks_files_test.exs. Qoimeks columns in state/tasks/T-2037/sources/qoimeks-movements-extract.md. REQ-837 and REQ-842 (pending) edit the same converter. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The migration path of the archive (REQ-876, planned, not yet on main). scripts/pilot/qoimeks_convert.py
+      convert reads an optional movements.csv from --in with the neutral columns mv_id, mv_seq, kind, sku, loc,
+      to_loc, qty, operator, source, transcript, reverses, import_id, created_at, change, balance_after,
+      to_balance_after (nameable through --mapping like every other column; change and balance_after are the
+      Qoimeks balances row of the movement at loc, to_balance_after the row at to_loc). When the file is present it
+      writes archive-movements-NN.xlsx files (at most MAX_ROWS rows each, so 600 movements give three files) with
+      the columns of stock_archive_movement, every reference cell an external id under the --system value
+      (org_unit_id from --org-unit-ext, sku, loc and to_loc codes) and the external ref pair (--system, mv_id),
+      lists them in manifest.json upload_order after every other file the converter writes on origin/main at
+      implement time, and adds records.stock_archive_movement with the row count to expected_counts.txt. A row whose
+      sku or loc is not in the converted masters is dropped with unknown_item or unknown_location, and a row that
+      breaks a rule of REQ-876 with archive_row_invalid; report.txt names row numbers and constant reasons only,
+      exit codes as today (3 on a drop, 0 with --allow-drops). Without movements.csv the output is byte for byte as
+      today. docs/runbooks/qoimeks-rehearsal.md: the file table, the extract step (which columns movements.csv
+      needs and that it is joined with the balances rows), an upload step after the opening lines, the count check
+      (the archive row count read back equals expected_counts) and "movement history" removed from "Deliberately
+      not here". No real client data (D-050): a new fixture test/fixtures/qoimeks_rehearsal/movements.csv of made-up
+      rows. Size S.
+    acceptance_criteria:
+      - "1. test/scripts/qoimeks_rehearsal_test.exs: with the new movements.csv fixture (one row of each kind, a reversal pair, a voice row with a transcript, a negative balance_after) convert writes one archive-movements-01.xlsx whose rows and column order match the fixture, manifest.json lists it last, and expected_counts.txt has the records.stock_archive_movement line with the right count."
+      - "2. A row with an unknown sku, one with an unknown loc and one transfer without to_loc are dropped with unknown_item, unknown_location and archive_row_invalid, named by row number in report.txt, and the exit code is 3 (0 with --allow-drops)."
+      - "3. A fixture of 201 rows gives two files of 200 and 1 rows; without movements.csv the existing test inputs give the same files and bytes as before this change."
+      - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted archive file through the real import route after the masters: every row is created, a second upload reports every row unchanged, and the stock ledger balances are equal before and after."
+      - "5. docs/runbooks/qoimeks-rehearsal.md has the file row, the extract columns, the upload step and the count check, and no longer lists movement history under 'Deliberately not here'; the test files named here and any runbook test that pins lines of qoimeks-rehearsal.md pass when run by path."
+    depends_on: [REQ-876]
