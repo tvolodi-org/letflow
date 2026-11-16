@@ -736,14 +736,27 @@ defmodule Letflow.Modules.Stock.Router do
   defp doc_write(conn, purpose, mode, fun) do
     {conn, _set} = Letflow.Api.ScopeGate.scope_set(conn, Access.permission(purpose))
 
-    with_access(conn, purpose, fn conn, access ->
+    with_scoped_access(conn, purpose, fn conn, access ->
       if Access.units_allowed?(access, mode, conn.params["id"], body(conn)),
         do: fun.(conn, access),
         else: Response.not_found(conn)
     end)
   end
 
+  # Tenant-wide callers only: a scoped answer of `Access.check/2` (REQ-831, :post and :reverse) is
+  # refused with the same 404 as before, so a route with no unit check (the voice drafts read the
+  # whole tenant's catalog) never serves a scoped principal.
   defp with_access(conn, purpose, fun) do
+    with_scoped_access(conn, purpose, fn conn, access ->
+      case access do
+        %{scope: {:nodes, _ids}} -> Response.not_found(conn)
+        _tenant_wide -> fun.(conn, access)
+      end
+    end)
+  end
+
+  # Also serves a scoped caller; the handler must check the units itself (`doc_write/4`).
+  defp with_scoped_access(conn, purpose, fun) do
     case Access.check(conn, purpose) do
       {:ok, access} -> fun.(conn, access)
       :error -> Response.not_found(conn)

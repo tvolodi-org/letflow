@@ -243,6 +243,35 @@ defmodule Letflow.Modules.Stock.ScopedDocumentsRouterTest do
       end
     end
 
+    test "VO-1 the voice draft routes stay tenant-wide only: a scoped caller 403 on, 404 off",
+         ctx do
+      Letflow.Support.VoiceDoubles.install!()
+
+      for {mode, status} <- [on: 403, off: 404],
+          path <- ["/voice/draft", "/voice/draft-text"] do
+        :ok = SO.store_mode!(ctx.a, mode)
+        conn = D.request(:post, path, ctx.sk, %{"text" => "x", "lang" => "ru"})
+        assert conn.status == status, "#{mode} #{path}: #{conn.status}"
+      end
+
+      for mode <- [:on, :off] do
+        :ok = SO.store_mode!(ctx.a, mode)
+
+        D.request(:post, "/voice/draft-text", ctx.tok_a, %{"text" => "hello", "lang" => "ru"})
+        |> P.status!(200)
+      end
+    end
+
+    test "UK-1 every kind's header carries a unit key (units_allowed? is never vacuously true)" do
+      for spec <- Letflow.Modules.Stock.Documents.Kinds.all() do
+        assert Enum.any?(
+                 spec.header_keys,
+                 &(&1 in ~w(org_unit_id to_org_unit_id from_org_unit_id))
+               ),
+               "kind #{spec.kind} has no unit key"
+      end
+    end
+
     test "XT-1 the scoped storekeeper of tenant B cannot reach a document of tenant A", ctx do
       b = ctx.b
       doc = admin_doc!(ctx, ctx.ma)
