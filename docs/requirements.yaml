@@ -55962,7 +55962,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-831 -- the record settles how the shared access meets the posting-scope rules of slice L6 (REQ-831, pending) and is written first
+    gh: 4574
     # Source: task T-2034 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality (not less but possible more)"; enabling it for a real tenant stays with the owner; QA only, D-050), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 rows G13 and G14 and section 2.4 row R-5 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2034/sources/qoimeks-token-extract.md (client1-inventory.md section 8 items 8 and 11; qoimeks-migration-plan.md sections 1 and 2; Qoimeks server/internal/api/api.go routes, requireToken, storeError, writeError, balances and movements handlers; server/internal/store/store.go NewMovement and Movement with integer sku_id and location_id; server/internal/store/migrations/001_init.sql kinds and the operator <> '' check; mobile/lib/api.dart base address plus path, Authorization Bearer and X-Operator headers; the list of calls the old app makes; docs/self-host.md "openssl rand -hex 32"). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/access.ex, lib/letflow/api/module_guard.ex (check/2 accepts only kind :user), lib/letflow/api/scope.ex (principal_from_conn/1, principal_kind :api_token -> :token), lib/letflow/plugs/auth_pipeline.ex ("lf_tok_" dispatch, X-Tenant-Slug, the 401 "invalid or expired bearer token"), lib/letflow/plugs/auth_attempt_limit.ex (modes :failures and :requests, defaults/0, send_rate_limited/2), lib/letflow/identity.ex (create_token/3, mint_token/4, revoke_token/2, verify_api_token/2, hash_token_value/1 SHA-256, audit actions token.create and token.revoke), lib/letflow/router.ex (forwards outside /api/v1, /admin/v1), lib/letflow/modules/stock/router.ex (route list and guards), lib/letflow/modules/stock/actor_label.ex, docs/roles.md (STOREKEEPER; "The provisioner is a credential, not a role"), priv/permission_matrix/effective.golden (TokensManage held by TENANT_ADMIN and PLATFORM_ADMIN only), web/src/router.tsx (admin/tokens). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
       Qoimeks Client 1 has no accounts: every phone sends one shared token as "Authorization: Bearer <token>",
@@ -56031,7 +56031,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-857 -- builds sections 2 to 4 of decision 0091 (REQ-857, pending), which must merge first
+    gh: 4573
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/routers/identity.ex (POST and GET /tokens under :TokensManage), lib/letflow/identity.ex (hash_token_value/1, the audit actions token.create and token.revoke), lib/letflow/routers/approval_rules.ex (tenant-wide interactive admin route precedent), priv/permission_matrix/effective.golden (TokensManage true only for PLATFORM_ADMIN and TENANT_ADMIN), config/runtime.exs (LETFLOW_* settings read there). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
       Builds the life cycle of decision 0091 sections 2 to 4 (REQ-857; the record path is planned, not yet on
@@ -56057,7 +56057,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-858 -- needs the stored credential of REQ-858 (pending) and the address and contract of decision 0091 (REQ-857)
+    gh: 4572
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/router.ex (forwards outside /api/v1), lib/letflow/plugs/auth_attempt_limit.ex (mode :failures, record_failure/1, send_rate_limited/2, Bucket, defaults/0 request_capacity 60 and request_refill_per_sec 1), lib/letflow/modules/stock/router.ex (GET /balances and GET /movements under :StockRead), lib/letflow/modules/stock/access.ex. Qoimeks call list and field names in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
       Builds decision 0091 sections 6 to 8 for reads (REQ-857; the record path is planned, not yet on main):
@@ -56083,7 +56083,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-859 -- adds the write calls to the address of REQ-859 (pending)
+    gh: 4571
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: lib/letflow/modules/stock/router.ex (POST /documents, /documents/:id/issue, /documents/:id/post, /documents/:id/reverse), lib/letflow/modules/stock/actor_label.ex, lib/letflow/modules/stock/documents/posting.ex (the posting fields posted_by_label and reversed_by_label of a document view; the refusal document_reversed). Qoimeks NewMovement, kinds and checks in state/tasks/T-2034/sources/qoimeks-token-extract.md. Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
       Adds the two write calls of the decision 0091 section 7 contract table (REQ-857; the record path is
@@ -56111,7 +56111,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-858 -- calls the three routes of REQ-858 (pending)
+    gh: 4570
     # Source: as REQ-857 (task T-2034). Letflow files read on origin/main 3b071fe84: web/src/router.tsx (admin/tokens under RequirePermission TokensManage), web/src/pages/admin/TokensPage.tsx, web/src/api/identity.ts, web/src/components/layout/AppShell.tsx (Tokens nav item, tenantAdmin group). Written by the business analyst (T-2034) 2026-11-16. Not yet validated.
     description: >
       A section "Shared stock access" on the existing Tokens page (web/src/pages/admin/TokensPage.tsx; no new
