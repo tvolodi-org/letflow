@@ -142,7 +142,7 @@ export const leftoversR15ShellScreens: HarnessScreen[] = [
           <main className="lf-content">
             <CatalogItemsIntlProvider>
               <ItemDetails
-                item={{ id: 'SKU-1', code: 'SKU-1', name: 'Cement M500', uomId: '', kind: 'material', tracking: 'none', active: true, externalRef: '' }}
+                item={{ id: 'SKU-1', code: 'SKU-1', name: 'Cement M500', uomId: '', kind: 'material', tracking: 'none', active: true, externalRef: '', defaultLocationId: '' }}
               />
             </CatalogItemsIntlProvider>
           </main>

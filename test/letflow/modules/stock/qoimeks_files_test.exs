@@ -48,11 +48,24 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
     types = ~w(location_node catalog_uom catalog_item stock_opening_line)
 
     Map.new(types, &{&1, count(schema, &1)})
+    |> Map.put("items_with_default_location", with_place(schema))
     |> Map.put(
       "documents",
       Repo.aggregate(Letflow.Documents.Document, :count, :id, prefix: schema)
     )
   end
+
+  defp with_place(schema),
+    do:
+      Repo.aggregate(
+        from(r in Latest,
+          where:
+            r.entity_type == "catalog_item" and not r.deleted and
+              fragment("coalesce(?->>'default_location_id', '') <> ''", r.field_values)
+        ),
+        :count,
+        prefix: schema
+      )
 
   defp opts, do: %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
 
@@ -311,6 +324,28 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
     assert count(schema, "location_node") > 0
     assert count(schema, "catalog_item") > 0
     assert count(schema, "catalog_uom") > 0
+  end
+
+  test "ST-G3 the usual place is loaded from the converted file and counted", ctx do
+    dir = Path.join(ctx.dir, "in_g3")
+    File.mkdir_p!(dir)
+
+    File.write!(
+      Path.join(dir, "locations.csv"),
+      "loc_code,loc_name,loc_parent\nL1,Sample L1,\nL2,Sample L2,\n"
+    )
+
+    File.write!(
+      Path.join(dir, "items.csv"),
+      "sku,sku_name,unit,home_loc,alt_loc\nA,Sample A,pcs,L1,L2\nB,Sample B,pcs,L2,\nC,Sample C,pcs,,\n"
+    )
+
+    File.write!(Path.join(dir, "balances.csv"), "sku,loc,qty\nA,L1,1\n")
+    out = convert!(ctx, dir, "og3")
+    assert expected(out)["items_with_default_location"] == 2
+    rehearse!(ctx, out)
+    assert_counts(ctx, out)
+    assert with_place(ctx.schema) - ctx.base["items_with_default_location"] == 2
   end
 
   test "ST-5 balance keys that differ only in where a colon sits both survive", ctx do
