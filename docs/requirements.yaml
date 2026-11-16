@@ -57255,7 +57255,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of Qoimeks parity G8; it depends on nothing that is still pending
+    # impl_order: UNREGISTERED -- first slice of Qoimeks parity G8; it depends on nothing undelivered (REQ-650's xlsx import is on main)
     # Source: task T-2030 (Qoimeks parity row G8, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 row G8), docs/runbooks/qoimeks-rehearsal.md (steps 3 and 5, dry_run=true then atomic=true), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, import_records_with_access/5, import_body/4, xlsx_bytes/1, csv_text/1, check_dry_run/3, check_atomic/2, import_results_ok/5; no 409 on this route today), lib/letflow/plugs/xlsx_body_parser.ex and lib/letflow/plugs/csv_body_parser.ex (raw bytes kept under "_xlsx" and "_csv"), lib/letflow/api/response.ex (conflict/2, unprocessable/2), docs/migration/decisions/0077-xlsx-import-export.md. Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2030/sources/qoimeks-import-extract.md: client1-inventory.md section 8 item 7 and server/internal/api/import.go importWorkbook.
     description: >
       Why. In Qoimeks the Excel load is "check, then load": the check answers the SHA-256 of the file it read,
@@ -57344,7 +57344,9 @@ requirements:
       Route. POST /api/v1/modules/stock/stock-workbook/check?org_unit_id=<id>, body of media type
       application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, permission StockRead, in the stock
       router. Letflow.Plugs.XlsxBodyParser gets one more path clause for it (the 2 MiB body limit of the API
-      pipeline stays, an over-limit body is 413 as on the record import). The caller must be a tenant-wide
+      pipeline stays, an over-limit body is 413 as on the record import; this is a stated narrowing of the Qoimeks
+      12 MB upload limit, kept because the 2 MiB limit is the platform's one body limit and a 10,000-row
+      workbook of this layout is well below it). The caller must be a tenant-wide
       stock reader (Ledger authorize result with scope :all, as REQ-865's workbook); a scoped reader gets the
       same 404 as an unknown stock path, because the check reads every balance of the items in the file. The
       only query key is org_unit_id: missing is 422 org_unit_required; an id that is not an active org_unit of
@@ -57391,7 +57393,7 @@ requirements:
       a place the file does not name for it that holds a non-zero balance has target 0 (Qoimeks PostBalances:
       "a SKU of the file is emptied at places the file does not list for it"); items that are not in the file
       are left alone. A change is a key whose target differs from its book quantity; difference = target minus
-      book. A zone or rack that normalising changed adds remark R11 to the row (not a refusal).
+      book. A zone or rack whose normalised value differs from its upper-cased cell text (a look-alike letter or a zero; a case change alone gives no remark, as Qoimeks importer.go) adds remark R11 to the row (not a refusal).
       Remarks (Russian, the Qoimeks texts where Qoimeks has one; the others decided here). Each remark is
       "строка N: " + the text, N the sheet row number; <a> is the article, <q> a quantity as in the file:
       R1 "<a>: остаток "<raw>" не является количеством. Остатки этого товара в системе не изменяются";
@@ -57412,8 +57414,9 @@ requirements:
       characters), sheet, rows_read (data rows after the header), remarks (list of {row, text}, sheet order),
       changes (list of {row, item_code, item_name, place_code, book_quantity, file_quantity, difference},
       quantities as decimal strings, row null for a place emptied because the file does not name it; items in
-      file order, places by code), unchanged_count (plain keys of the file's items whose target equals the
-      book) and too_many_changes (true when changes has more than 1000 entries, the line cap of
+      file order, places by code), unchanged_count (the plain keys of the file's items that hold a non-zero book
+      quantity and whose target equals it; a place the file names with 0 where the item has no balance row
+      is not counted) and too_many_changes (true when changes has more than 1000 entries, the line cap of
       Letflow.Modules.Stock.Documents.Shape, which REQ-885 refuses). The check writes nothing: no record, no
       ledger entry, no audit entry, no document number. Docs: a new runbook
       docs/runbooks/stock-workbook-import.md (planned, not yet on main) with the layout, the normalising rules
@@ -57421,8 +57424,8 @@ requirements:
       Letflow.Modules.ManifestHash), so no version bump. Size M.
     acceptance_criteria:
       - "1. Access (router tests in test/letflow/modules/stock/, the form of router_test.exs): a TENANT_ADMIN and a STOREKEEPER with a tenant-wide stock read get 200; a TASK_WORKER (no StockRead) gets 403 'insufficient permissions'; a STOREKEEPER whose stock read is scoped to one org unit gets the same 404 body as an unknown stock path; no org_unit_id is 422 org_unit_required; an unknown org unit id and an org unit id of another tenant both give 422 org_unit_not_found with byte-identical bodies after dropping trace_id; a query key other than org_unit_id is 422 invalid_filter."
-      - "2. Round trip: the workbook GET /stock-workbook (REQ-865) answers for the fixture of its criterion 3, uploaded to the check of the same tenant and org unit, gives changes [] and remarks [] and unchanged_count equal to the number of plain keys of the fixture's items."
-      - "3. Normalising (pure tests of StockWorkbookImport): zone 'р' rack 'К' shelf 2 reads as place RK2 with remark R11 'строка N: <a>: место \"р\" \"К\" 2 прочитано как RK2'; zone 'L' rack '0' shelf 1 reads as LO1; the quantity cells '1 234,5', '1.234,5', '1,234.5', '1’234', '12,0' and the number cell 7.25 read as 1234.5, 1234.5, 1234.5, 1234, 12 and 7.25; the cells '-3', 'abc' and '1,2,3.4.5' are not a quantity and give remark R1 with the raw text."
+      - "2. Round trip: the workbook GET /stock-workbook (REQ-865) answers for the fixture of its criterion 3, uploaded to the check of the same tenant and org unit, (all its balances on plain keys of the chosen org unit) gives changes [] and remarks [] and unchanged_count 3 (Z-1 at RI2 and LA1, Z-2 at RK2; Z-2's row at LA1 with 0 and no balance row, and Z-3's row with 0 and no place, are not counted)."
+      - "3. Normalising (pure tests of StockWorkbookImport): zone 'К' rack 'р' shelf 2 (both Cyrillic) reads as place KP2 with remark R11 'строка N: <a>: место \"К\" \"р\" 2 прочитано как KP2'; zone 'r' rack 'a' (Latin) shelf 1 reads as RA1 with no remark; zone 'L' rack '0' shelf 1 reads as LO1 with remark R11; the quantity cells '1 234,5', '1.234,5', '1,234.5', '1’234', '12,0' and the number cell 7.25 read as 1234.5, 1234.5, 1234.5, 1234, 12 and 7.25; the cells '-3', 'abc' and '1,2,3.4.5' are not a quantity and give remark R1 with the raw text."
       - "4. Changes: in a tenant where item Z-1 has 10 at RI2 and 3 at LA1 (plain keys of the org unit), a file with Z-1 rows (RI2, 7) and (RI2, 1) gives the changes RI2 book 10 file 8 difference -2 (with remark R2) and LA1 book 3 file 0 difference -3 with row null; an item of the tenant that is not in the file has no change; a row whose quantity equals the book adds to unchanged_count only."
       - "5. Remarks, one test case each, with the exact text of the description and the item's balances absent from changes: R1, R3, R5 (no '?' place), R6, R7 (a second balance row of the item in another org unit), R8, R9 (lot-tracked item); R4: with a location '?' in the tenant, a row of quantity 2 with no place gives a change to place ? with file_quantity 2; R10 keeps the sum."
       - "6. Header and caps: a sheet with two title rows above the 'Артикул' row reads the rows after it; a sheet without an 'Артикул' cell in column A is 422 header_missing; a non-workbook body is 422 xlsx_unreadable; with the cap lowered by a test seam (app env :stock_workbook_import_max_rows, which can only lower it) to 3, four data rows are 422 workbook_too_large; with the change cap lowered by a test seam (app env :stock_workbook_import_max_changes, which can only lower it) to 2, three changes give too_many_changes true and two give false."
@@ -57490,7 +57493,7 @@ requirements:
       - "11. Docs in step: docs/runbooks/stock-workbook-import.md has the load section (sha256, the 201 answer, four eyes, quick_count_stale); decision 0079 ends with 'Amended by REQ-885'; module stock's version moved and its pins are updated; the permission matrix golden is regenerated with mix letflow.permission_matrix --write and passes."
     depends_on: [REQ-884, REQ-854, REQ-853]
   - id: REQ-886
-    title: "Qoimeks parity G8 part 5: module stock lists the balances workbook loads newest first and cancels one, which cancels the document before approval or reverses its posting after it"
+    title: "Qoimeks parity G8 part 5: module stock lists the balances workbook loads newest first and cancels one with a reason, which cancels the document before approval or starts the reversal of its posting after it"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
@@ -57501,30 +57504,52 @@ requirements:
       balance change of that import that is not yet reversed is reversed, in the name of who asked (Qoimeks
       store/import.go CancelImport, copied to the task folder). In Letflow a workbook load is one quick count
       document (REQ-885, planned, not yet on main), so its balance changes are one ledger entry and its cancel
-      is one reversal.
+      is one cancel before approval or one reversal after it.
       Routes (stock router). GET /api/v1/modules/stock/stock-workbook/imports, permission StockRead with a
       tenant-wide stock read (scoped reader: the unknown-path 404), no query key (any key 422 invalid_filter):
       the stock_quick_count documents with source workbook, newest first by created_at, at most 50 (the
       Qoimeks limit), each with document_id, number, created_at, created_by, file_name, file_sha256, sheet,
-      lines (count), remarks_count and state (as GET /documents/:id answers it). POST
-      /api/v1/modules/stock/stock-workbook/imports/:id/cancel, permission StockReverse: a document awaiting
-      approval is cancelled as POST /documents/:id/cancel cancels it (answer action cancelled); a posted one is
-      reversed as POST /documents/:id/reverse reverses it, one reversal entry that negates every leg (answer
-      action reversed); the answer is 200 {action, cancelled: <lines>}. A document already cancelled or
-      reversed is 422 import_already_cancelled (the Qoimeks "no balance changes left to cancel"). An unknown
-      id, a document that is not a workbook load and a document of another tenant are the same 404. The
-      reversal's refusals are those of POST /documents/:id/reverse, unchanged (for example location_frozen
-      under an opened count order, REQ-854; and, while negative balances are not allowed, the refusal of a
-      reversal that would take a balance below zero, which Qoimeks allows: that gap is row G4, REQ-833,
-      pending). No new permission, no migration, no manifest change (routes only), so no version bump. Size S.
+      lines (count), remarks_count, state (as GET /documents/:id answers it) and reversal_pending (true while
+      a reversal of it is started and its reverse task is not completed). POST
+      /api/v1/modules/stock/stock-workbook/imports/:id/cancel, permission StockReverse, JSON body
+      {"reason": text}: the reason is required, trimmed non-empty and at most 500 characters (the rule of
+      Letflow.Documents.validate_cancel_reason/1; the same 500 is Posting's reason_text limit); missing or
+      blank is 422 reason_required and longer is 422 reason_too_long, checked before anything else changes.
+      (a) A document awaiting approval is cancelled exactly as POST /documents/:id/cancel cancels it, with
+      "reason" forwarded (Posting.cancel/5): the approve task is withdrawn and the document reads cancelled;
+      answer 200 {action: "cancelled", lines: N}. This needs kind quick_count in the withdrawable list of
+      Letflow.Modules.Stock.Documents.Kinds (withdrawable?/1), which REQ-854 criterion 5 ("after cancel the
+      document reads cancelled" with approve pending) needs as well; the build of this part adds quick_count
+      to that list when it is not there. (b) A posted document gets its reversal STARTED exactly as POST
+      /documents/:id/reverse starts it (Posting.reverse/6), with reason_code "other" and reason_text the
+      given reason; answer 200 {action: "reverse_pending", lines: N}. The balances do not change at the cancel
+      call: as for every stock reversal on main (docs/runbooks/stock-counts.md, "Reverse starts
+      stock_reversal; completing its reverse task reverses the whole entry"), they return when the reverse
+      task of that stock_reversal instance is completed, by any user who may complete it (the caller
+      included), and that completion posts one reversal entry negating every leg. This is a stated difference
+      from Qoimeks, which reverses at once: Letflow does not let a route complete a posting task in the
+      caller's name, because every stock posting and reversal is the completion of a process task (the ledger
+      rule kept intact); the user's extra step is one task completion from the inbox or the document screen.
+      (c) A load whose reversal is started and not completed is 409 reversal_pending (the answer of POST
+      /documents/:id/reverse and /cancel today). (d) A load already cancelled or reversed is 422
+      import_already_cancelled (the Qoimeks "no balance changes left to cancel"). (e) An unknown id, a document
+      that is not a workbook load and a document of another tenant are the same 404. (f) The other refusals of
+      the start are those of POST /documents/:id/reverse, unchanged. The guards of the reversal posting stay
+      where REQ-854 puts them, at the completion of the reverse task, not at the cancel call: under an opened
+      count order whose scope covers a key, completing the reverse task is refused location_frozen with
+      held_by (REQ-854 criterion 7) and the task stays pending; while negative balances are not allowed, a
+      reversal that would take a balance below zero is refused there too, which Qoimeks allows: that gap is
+      row G4, REQ-833, pending. No new permission, no migration, no manifest change (routes only), so no
+      version bump. Size S.
     acceptance_criteria:
-      - "1. List: after three loads by two users, GET /stock-workbook/imports answers three items newest first with each field of the description; with 51 loads it answers 50; a scoped stock reader gets the unknown-path 404; a query key is 422 invalid_filter; a TASK_WORKER gets 403."
-      - "2. Cancel before approval: POST /stock-workbook/imports/:id/cancel of a load awaiting approval answers 200 {action: 'cancelled', cancelled: 2}; GET /documents/:id reads cancelled, the approve task is no longer open and the balances are unchanged."
-      - "3. Cancel after posting: for the load of REQ-885 criterion 3 (balances 8 and 0 after approve), cancel answers 200 {action: 'reversed', cancelled: 2}; GET /balances shows 10 at RI2 and 3 at LA1; GET /movements shows one reversal entry with legs +2 and +3."
-      - "4. Twice: a second cancel of the same load is 422 import_already_cancelled with nothing written; a load already reversed through POST /documents/:id/reverse is 422 import_already_cancelled too."
-      - "5. Not a load: cancel of a one-line quick count from POST /quick-counts, of a receipt document, of an unknown id and of tenant A's load from tenant B (INV-10) each give the same 404 body after dropping trace_id, with nothing written in either schema."
-      - "6. Guards unchanged: with a count order opened whose scope covers RI2, cancel of a posted load is refused as POST /documents/:id/reverse refuses it (location_frozen with held_by) and the balances are unchanged; a caller without StockReverse gets 403."
-      - "7. Docs in step: docs/runbooks/stock-workbook-import.md has the list and cancel section, including the negative-balance gap and row G4; route_policies of module stock lists both routes and the stock route-count pins are updated and pass."
+      - "1. List: after three loads by two users, GET /stock-workbook/imports answers three items newest first with each field of the description; with 51 loads it answers 50; a load with a started reversal reads reversal_pending true; a scoped stock reader gets the unknown-path 404; a query key is 422 invalid_filter; a TASK_WORKER gets 403."
+      - "2. Reason: cancel with no body, with {\"reason\": \"  \"} and with no reason key is 422 reason_required; with a reason of 501 characters 422 reason_too_long; in each case the document state, its open tasks and the balances are unchanged and no reversal instance is started."
+      - "3. Cancel before approval: cancel with {\"reason\": \"файл с ошибкой\"} of a load awaiting approval answers 200 {action: 'cancelled', lines: 2}; GET /documents/:id reads cancelled, the approve task is no longer open and the balances are unchanged."
+      - "4. Cancel after posting: for the load of REQ-885 criterion 3 (balances 8 at RI2 and 0 at LA1 after approve), cancel with a reason answers 200 {action: 'reverse_pending', lines: 2} and GET /balances still shows 8 and 0; the stock_reversal instance of the document has an open reverse task and carries reason_code other and reason_text the given reason; after that task is completed, GET /balances shows 10 at RI2 and 3 at LA1 and GET /movements shows one reversal entry with legs +2 and +3."
+      - "5. Pending and twice: a cancel while that reverse task is open is 409 reversal_pending with nothing started; after the reversal is completed, a cancel is 422 import_already_cancelled; a cancel of a load cancelled before approval is 422 import_already_cancelled; a load reversed through POST /documents/:id/reverse is 422 import_already_cancelled too; nothing is written in each case."
+      - "6. Not a load: cancel of a one-line quick count from POST /quick-counts, of a receipt document, of an unknown id and of tenant A's load from tenant B (INV-10) each give the same 404 body after dropping trace_id, with nothing written in either schema; a caller without StockReverse gets 403."
+      - "7. Guards at completion: with a count order of the same org unit opened whose scope covers RI2 after the load was posted, cancel answers 200 reverse_pending, completing the reverse task is refused location_frozen with held_by the order number, the task stays pending and the balances are unchanged; after the order is cancelled the same task completes and the balances return."
+      - "8. Docs in step: docs/runbooks/stock-workbook-import.md has the list and cancel section (the reason, the two answers, completing the reverse task, reversal_pending, the negative-balance gap and row G4); route_policies of module stock lists both routes and the stock route-count pins are updated and pass."
     depends_on: [REQ-885]
   - id: REQ-887
     title: "Qoimeks parity G8 part 6: web screen 'Загрузка остатков из Excel' of the stock module, check a workbook, show the Russian remarks and the differences, write the balances from the file, list the loads and cancel one, in English, Russian and Kazakh"
@@ -57554,8 +57579,10 @@ requirements:
       (admin/stock/documents/:id, where the approve task is done) and says that the balances change after the
       approval. applied false shows "No balance differs from the file." in the three languages. (3) Loads: a
       list of the last loads (the list route) with date, user, file name, lines, remarks count and state, and a
-      Cancel button for a user holding StockReverse on a load not cancelled or reversed, behind a confirmation
-      dialog; the answer refreshes the list; a refusal shows the server's reason. States: loading, empty (no
+      Cancel button for a user holding StockReverse on a load not cancelled, not reversed and without a
+      pending reversal, behind a confirmation dialog that asks for the reason (required by REQ-886); a posted
+      load answers reverse_pending and the screen says the balances return when the reverse task is completed,
+      with the document link; the answer refreshes the list; a refusal shows the server's reason. States: loading, empty (no
       loads), error, checked with remarks, checked without changes, too many changes, loaded, file changed,
       cancel confirmation. Size M.
     acceptance_criteria:
@@ -57563,7 +57590,7 @@ requirements:
       - "2. Check (component test with a fake API): choosing an org unit and a file and pressing Check posts the file to the check route with org_unit_id; the remarks are shown with the exact server texts in en, ru and kk locales; the changes table shows each change and marks a row-null change as emptied."
       - "3. Load: the load button is disabled before a check, after a check with no change, and with too_many_changes true; after a check it posts with that check's sha256 and the file name; choosing another file or org unit disables it again."
       - "4. Answers: 201 shows the number and a link to admin/stock/documents/<id>; applied false shows the no-difference text; 409 shows the file-changed text of REQ-883 and disables the load button; each in en, ru and kk."
-      - "5. Loads and cancel: the list shows the fields of the description; Cancel is shown only with StockReverse and only for a load not cancelled or reversed; it opens a confirmation dialog and, confirmed, posts the cancel route and refreshes the list; a 422 import_already_cancelled shows its message."
+      - "5. Loads and cancel: the list shows the fields of the description; Cancel is shown only with StockReverse and only for a load not cancelled, not reversed and without reversal_pending; it opens a confirmation dialog with a required reason field (confirm disabled while the trimmed reason is empty, at most 500 characters) and, confirmed, posts the cancel route with body {reason} and refreshes the list; the answer reverse_pending shows that the balances return after the reverse task is completed, with a link to admin/stock/documents/<id>; a load with reversal_pending true shows that state; a 422 import_already_cancelled and a 409 reversal_pending show their messages."
       - "6. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
       - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for every state of the description, with STATE-TABLE.md in the task folder and a harness fixture per state."
     depends_on: [REQ-884, REQ-885, REQ-886, REQ-883]
