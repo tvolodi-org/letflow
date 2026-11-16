@@ -9,8 +9,9 @@ secret and touches no database. Run it on a copy of the data, QA only (docs/runb
   python3 -I scripts/pilot/qoimeks_convert.py headers --out DIR --responses DIR \\
       --org-unit-id UUID --responsible-id UUID
 
-`convert` reads locations.csv (loc_code, loc_name, loc_parent), items.csv (sku, sku_name, unit) and balances.csv
-(sku, loc, qty, [as_of]) from --in. `--mapping` is a JSON object {"<column in the extract>": "<neutral name>"}.
+`convert` reads locations.csv (loc_code, loc_name, loc_parent), items.csv (sku, sku_name, unit, [home_loc], [alt_loc])
+and balances.csv (sku, loc, qty, [as_of]) from --in. `home_loc` (the usual place, a loc_code) goes into the items file
+as `default_location_id` (G3); `alt_loc` (the second place) is NOT carried: the report counts the rows that had one. `--mapping` is a JSON object {"<column in the extract>": "<neutral name>"}.
 It writes into --out: 01-locations-NN.xlsx, 02-uoms.xlsx, 03-items-NN.xlsx, 04-opening-lines-NN.xlsx, manifest.json,
 report.txt and expected_counts.txt. A file type with no rows is not written.
 
@@ -40,6 +41,7 @@ MAX_LINES = 100  # lines per opening document
 LOC_COLS = ["code", "name", "node_kind", "parent_id", "external_ref_system", "external_ref_id"]
 UOM_COLS = ["code", "name", "active", "external_ref_system", "external_ref_id"]
 ITEM_COLS = ["code", "name", "base_uom_id", "kind", "active", "external_ref_system", "external_ref_id"]
+ITEM_COLS_PLACE = ITEM_COLS + ["default_location_id"]  # G3: used when at least one kept item has a usual place
 LINE_COLS = [
     "header_id", "org_unit_id", "location_id", "responsible_id", "catalog_item_id",
     "catalog_uom_id", "quantity", "received_on", "external_ref_system", "external_ref_id",
@@ -212,6 +214,7 @@ def cmd_convert(a):
     loc_codes = {r["loc_code"] for r in locations}
 
     good_items, seen = [], set()
+    second_places = 0  # kept items that had a second place; it is not imported (G3), so it is counted, not silent
     for n, r in enumerate(items, 1):
         if r.get("_surplus"):
             drops.append(("items", n, "too_many_fields"))
@@ -223,9 +226,13 @@ def cmd_convert(a):
             drops.append(("items", n, "missing_unit"))
         elif r["sku"] in seen:
             drops.append(("items", n, "duplicate_sku"))
+        elif r.get("home_loc") and r["home_loc"] not in loc_codes:
+            drops.append(("items", n, "unknown_default_location"))
         else:
             seen.add(r["sku"])
             good_items.append(r)
+            if r.get("alt_loc"):
+                second_places += 1
     units = sorted({r["unit"] for r in good_items})
     if len(units) > MAX_ROWS:
         fail("more than %d distinct units" % MAX_ROWS)
@@ -279,11 +286,14 @@ def cmd_convert(a):
     if units:
         emit("02-uoms.xlsx", "catalog_uom", UOM_COLS, [[u, u, "true", sysn, u] for u in units])
     uom_pos = {u: ("02-uoms.xlsx", j + 2) for j, u in enumerate(units)}
-    item_rows = [[r["sku"], r["sku_name"], r["unit"], "material", "true", sysn, r["sku"]] for r in good_items]
+    with_place = [r for r in good_items if r.get("home_loc")]
+    item_cols = ITEM_COLS_PLACE if with_place else ITEM_COLS
+    item_rows = [[r["sku"], r["sku_name"], r["unit"], "material", "true", sysn, r["sku"]]
+                 + ([r.get("home_loc", "")] if with_place else []) for r in good_items]
     item_pos = {}
     for i, part in enumerate(chunks(item_rows, MAX_ROWS), 1):
         name = "03-items-%02d.xlsx" % i
-        emit(name, "catalog_item", ITEM_COLS, part)
+        emit(name, "catalog_item", item_cols, part)
         for j, row in enumerate(part):
             item_pos[row[0]] = (name, j + 2)
 
@@ -312,6 +322,7 @@ def cmd_convert(a):
         "records.catalog_uom": len(units),
         "records.location_node": len(loc_rows),
         "records.stock_opening_line": len(lines),
+        "items_with_default_location": len(with_place),
     }
     (out / "expected_counts.txt").write_text("".join("%s %d\n" % kv for kv in sorted(counts.items())), encoding="utf-8")
     manifest = {
@@ -328,6 +339,7 @@ def cmd_convert(a):
                         ("items", "records.catalog_item"), ("lines", "records.stock_opening_line")):
         if counts[label] == 0:
             report.append("no rows for %s: no file written" % label.split(".")[1])
+    report.append("items with a second place, not imported (G3) %d" % second_places)
     for kind, n, reason in sorted(drops, key=lambda d: (d[0], d[1])):
         report.append("dropped %s row %d: %s" % (kind, n, reason))
     report.append("dropped total %d" % len(drops))

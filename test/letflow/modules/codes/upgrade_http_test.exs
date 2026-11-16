@@ -162,11 +162,11 @@ defmodule Letflow.Modules.Codes.UpgradeHttpTest do
   test "W1 every version from 0.1.0 has an empty path, below the window has none" do
     m = Codes.manifest()
 
-    for v <- ["0.1.0", "0.2.0", "0.3.0", "0.4.0"] do
-      assert Catalog.upgrade_path(m, v, "0.4.0") == {:ok, []}
+    for v <- ["0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0"] do
+      assert Catalog.upgrade_path(m, v, "0.5.0") == {:ok, []}
     end
 
-    assert {:error, {:no_upgrade_path, _, _}} = Catalog.upgrade_path(m, "0.0.9", "0.4.0")
+    assert {:error, {:no_upgrade_path, _, _}} = Catalog.upgrade_path(m, "0.0.9", "0.5.0")
   end
 
   # ── U: the upgrade through the real HTTP path ────────────────────────────────────────
@@ -179,7 +179,7 @@ defmodule Letflow.Modules.Codes.UpgradeHttpTest do
 
     report = plan(ctx.tok_a) |> status!(200)
     assert report["from_version"] == "0.3.0"
-    assert report["to_version"] == "0.4.0"
+    assert report["to_version"] == "0.5.0"
     assert report["upgrade_path_available"] == true
     assert report["path_error"] == nil
     assert report["steps"] == []
@@ -202,7 +202,7 @@ defmodule Letflow.Modules.Codes.UpgradeHttpTest do
     assert applied["entity_versions_created"] == 0
 
     m = row(ctx.a.schema)
-    assert m.version == "0.4.0"
+    assert m.version == "0.5.0"
     assert m.manifest_hash == ctx.compiled_hash
     assert data_snapshot(ctx.a.schema) == before.data
     assert defs(ctx.a.schema) == before.defs

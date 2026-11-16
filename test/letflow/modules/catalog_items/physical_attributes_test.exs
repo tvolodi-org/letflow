@@ -242,7 +242,7 @@ defmodule Letflow.Modules.CatalogItems.PhysicalAttributesTest do
   end
 
   test "PA8: module version moved on purpose" do
-    assert CatalogItems.manifest().version == "0.4.0"
+    assert CatalogItems.manifest().version == "0.5.0"
   end
 
   test "PA9: another tenant does not see the item and keeps its own record" do

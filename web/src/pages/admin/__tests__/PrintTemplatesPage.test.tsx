@@ -37,6 +37,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 })
 
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { renderWithAccess } from '@/auth/access/testing'
 
 const BASE = '/api/v1/documents/print-overrides'
@@ -242,5 +243,20 @@ describe('REQ-614 S1-S4 server errors', () => {
     const box = await saveWith(json(500, { title: 'boom', detail: 'SECRET-MARKER', status: 500 }))
     expect(box.textContent).toBe('Something went wrong. Try again.')
     expect(document.body.textContent).not.toContain('SECRET-MARKER')
+  })
+})
+
+describe('T-1926 title and scope note in three languages', () => {
+  afterEach(() => useUiLocaleStore.getState().setLocaleTransient('en'))
+  it.each([
+    ['en', 'Print templates', 'official forms'],
+    ['ru', 'Шаблоны печати', 'официальные формы'],
+    ['kk', 'Басып шығару үлгілері', 'ресми нысандар'],
+  ] as const)('%s', async (loc, title, fragment) => {
+    useUiLocaleStore.getState().setLocaleTransient(loc)
+    renderPage()
+    await screen.findByTestId('override-row-o-draft')
+    expect(screen.getByRole('heading', { level: 1, name: title })).toBeInTheDocument()
+    expect(screen.getByTestId('print-templates-scope-note').textContent).toContain(fragment)
   })
 })

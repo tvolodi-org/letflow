@@ -1,5 +1,5 @@
 defmodule Letflow.CreateProblemReportImagesTest do
-  @moduledoc "T-2015 MG-RI: problem_report_images migration (last in manifest)."
+  @moduledoc "T-2015 MG-RI: problem_report_images migration (second to last in manifest since T-2040)."
   use Letflow.DataCase, async: false
 
   alias Letflow.{Repo, TenantFixture, TenantProvisioning}
@@ -12,7 +12,7 @@ defmodule Letflow.CreateProblemReportImagesTest do
     schema = fx.schema_name
 
     assert {@version, CreateProblemReportImages} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -1)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, CreateProblemReportImages,

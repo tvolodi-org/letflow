@@ -37,7 +37,7 @@ Qoimeks behaviour (read only, outside this repository; copied extracts are in `s
 
 Letflow files (all checked on origin/main at T-2059 with
 `git ls-tree origin/main lib/letflow/ledger.ex lib/letflow/ledger/codes.ex lib/letflow/ledger/read.ex lib/letflow/ledger/reconcile.ex lib/letflow/modules/ledger_registration.ex lib/letflow/modules/assets/assets.ex lib/letflow/modules/stock/stock.ex lib/letflow/modules/stock/count_posting.ex lib/letflow/modules/stock/documents/shape.ex lib/letflow/modules/stock/documents/opening_shape.ex lib/letflow/approval_rules.ex lib/letflow/routers/approval_rules.ex lib/letflow/api/authorization.ex priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs priv/repo/migrations/20261115200001_create_approval_rule_settings.exs docs/design/four-eyes-switch.md scripts/pilot/qoimeks_convert.py docs/status/qoimeks-migration-readiness.md`,
-all 19 paths listed, none missing):
+all 18 paths listed, none missing):
 
 - `lib/letflow/ledger.ex`: `refusal_for/5` answers `insufficient_balance` when the new on-hand of any locked key is below
   zero, and `balance_bound_exceeded` through `over_bound?/2` at `@limit` (1.0E+21) or above or over `max_on_hand`.
@@ -110,7 +110,7 @@ The refusal details (REQ-686 `available` disclosure, reversal `leg_nos` and `cou
 
 1. **Storage.** A new tenant table `ledger_balance_settings`, one row per registration name, in the tenant schema without
    `tenant_id` (0006 D2; placement per-tenant as `approval_rule_settings`). Columns: `id uuid PRIMARY KEY`,
-   `registration_name text NOT NULL CHECK (char_length BETWEEN 1 AND 255)` with a unique index, `allow_negative boolean
+   `registration_name text NOT NULL CHECK (char_length(registration_name) BETWEEN 1 AND 255)` with a unique index, `allow_negative boolean
    NOT NULL`, `changed_by uuid NOT NULL`, `changed_at timestamptz NOT NULL`, `reason text NOT NULL`,
    `inserted_at timestamptz NOT NULL`, `updated_at timestamptz NOT NULL`. No row means refuse. The migration is tenant
    scoped (the `if prefix() do` guard, registered in the `Letflow.TenantProvisioning` manifest, no interpolation except

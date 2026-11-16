@@ -9,6 +9,7 @@ import type { UserSession } from '@/types/api'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navMessages } from '../navMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
+import { myProblemReportsMessages } from '@/pages/me/myProblemReportsMessages'
 import { UI_LOCALES } from '@/i18n/uiLocaleStore'
 import { NAV_ITEMS } from '../AppShell'
 
@@ -41,7 +42,7 @@ afterEach(() => {
   useUiLocaleStore.getState().reloadFromEnvironment()
 })
 
-async function renderShell() {
+async function renderShell(fixture: 'platformAdmin' | 'storekeeper' | 'tenantAdmin' = 'platformAdmin') {
   const { useAuth } = await import('@/auth/AuthContext')
   vi.mocked(useAuth).mockReturnValue({
     session: SESSION,
@@ -61,7 +62,7 @@ async function renderShell() {
   render(
     <MemoryRouter initialEntries={['/instances']}>
       <BrandingProvider>
-        <AccessStateProvider state={accessState('platformAdmin')}>
+        <AccessStateProvider state={accessState(fixture)}>
           <Routes>
             <Route element={<AppShell />}>
               <Route path="/instances" element={<div>page</div>} />
@@ -93,6 +94,23 @@ describe('AppShell language switch', () => {
     await userEvent.click(screen.getByTestId('language-switcher-trigger'))
     await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
     expect(screen.getByTestId('topbar-my-settings')).toHaveAccessibleName(mySettingsMessages.ru.link)
+  })
+
+  it('REQ-872 has the My reports link next to My settings, for a warehouse-only and a tenant-admin session', async () => {
+    for (const fixture of ['storekeeper', 'tenantAdmin'] as const) {
+      await renderShell(fixture)
+      const bar = within(screen.getByTestId('topbar'))
+      const link = bar.getByTestId('topbar-my-reports')
+      expect(link).toHaveAttribute('href', '/me/problem-reports')
+      expect(link).toHaveAccessibleName(myProblemReportsMessages.en.link)
+      const settings = bar.getByTestId('topbar-my-settings')
+      expect(link.nextElementSibling).toBe(settings)
+      await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+      await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
+      expect(screen.getByTestId('topbar-my-reports')).toHaveAccessibleName(myProblemReportsMessages.ru.link)
+      cleanup()
+      useUiLocaleStore.getState().setLocaleTransient('en')
+    }
   })
 
   it('has the switcher in the TopBar with the three languages', async () => {

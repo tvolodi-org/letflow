@@ -20,6 +20,12 @@ describe('A3 itemsModel', () => {
     expect(ROWS[2]?.active).toBe(false)
   })
 
+  it('G3: the usual place is the stored location id, empty when absent or not text', () => {
+    expect(toItemRow(rec('4', { code: 'X', default_location_id: 'loc-1' })).defaultLocationId).toBe('loc-1')
+    expect(ROWS[0]?.defaultLocationId).toBe('')
+    expect(toItemRow(rec('5', { code: 'Y', default_location_id: 7 })).defaultLocationId).toBe('')
+  })
+
   it('hides retired items unless asked, filters by tracking (none included) and by code or title', () => {
     const f = { q: '', tracking: '' as const, showRetired: false }
     expect(filterItems(ROWS, f).map((r) => r.code)).toEqual(['B-10', 'A-2'])

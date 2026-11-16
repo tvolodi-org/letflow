@@ -14,6 +14,8 @@ export interface ItemRow {
   kind: string
   tracking: TrackingPolicy
   active: boolean
+  /** The usual storage place (G3): the record id of one location, '' when the item has none. */
+  defaultLocationId: string
   externalRef: string
 }
 
@@ -36,6 +38,7 @@ export function toItemRow(r: EntityRecord): ItemRow {
     kind: str(f['kind']),
     tracking: (TRACKING_POLICIES as readonly string[]).includes(t) ? (t as TrackingPolicy) : 'none',
     active: f['active'] !== false,
+    defaultLocationId: str(f['default_location_id']),
     externalRef: [str(f['external_ref_system']), str(f['external_ref_id'])].filter(Boolean).join(' / '),
   }
 }
