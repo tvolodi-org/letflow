@@ -98,4 +98,17 @@ describe('My Tasks, asset opening (T-1952)', () => {
     expect(container.textContent).not.toContain(CARD1)
     expect(noUuidInDom(container)).toBe(true)
   })
+
+  it('the panel links to the document inside the documents list (list | document), T-2018', async () => {
+    installBackend()
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    renderWithAccess(
+      <QueryClientProvider client={qc}><MemoryRouter><TaskInboxPage /></MemoryRouter></QueryClientProvider>,
+      accessState('tenantAdmin', ME),
+    )
+    const user = userEvent.setup()
+    await user.click((await screen.findAllByTestId('task-row'))[0])
+    const link = await screen.findByTestId('task-document-open')
+    expect(link).toHaveAttribute('href', `/admin/assets/documents/${D1}`)
+  })
 })
