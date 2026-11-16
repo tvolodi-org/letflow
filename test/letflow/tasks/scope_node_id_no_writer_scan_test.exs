@@ -98,6 +98,8 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
       "defp with_scope_node/2"
     ],
     "lib/letflow/event_store/instance_projection.ex" => ["def insert_changeset/2", "schema"],
+    # REQ-831: stock posting hands the document's org unit to Engine.create/2 as an INSTANCE attr.
+    "lib/letflow/modules/stock/documents/posting.ex" => ["defp attempt/9"],
     "lib/letflow/routers/instances.ex" => [
       "defp create_attrs/3",
       "defp create_attrs/3 (string)",
