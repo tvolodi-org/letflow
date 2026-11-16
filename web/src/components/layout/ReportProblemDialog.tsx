@@ -3,6 +3,8 @@
  *  Nothing is sent before the consent tick and Send.
  *  T-2020: a side panel, not a modal: the screen behind stays visible and usable (no scrim, no focus trap) so the user
  *  can look at it while describing the problem; the captured facts stay. Escape closes while focus is in the panel.
+ *  REQ-872: after Send the panel stays open and shows the receipt (number, hint, link to My reports) instead of a toast
+ *  that would cover the panel text.
  *  T-2015: adds screenshot upload (paste, drag-and-drop, file picker; max 3 images; PNG/JPEG/WebP). */
 import { useEffect, useRef, useState } from 'react'
 import { Link, useInRouterContext } from 'react-router-dom'
@@ -16,7 +18,6 @@ import { Button } from '@/components/ui/Button'
 import { useUiMessages } from '@/components/ui/uiMessages'
 import { Field } from '@/components/ui/Field'
 import { Checkbox } from '@/components/ui/Checkbox'
-import { useToast } from '@/hooks/useToast'
 import { useSubmitProblemReport } from '@/hooks/useSubmitProblemReport'
 import { snapshot } from '@/lib/problemReport/capture'
 import { buildReportBody } from '@/lib/problemReport/payload'
@@ -48,7 +49,6 @@ export function ReportProblemDialog({
   const uiLocale = useUiLocale()
   const { session } = useAuth()
   const access = useAccess()
-  const toast = useToast()
   const mutation = useSubmitProblemReport()
   const [snap] = useState(() => snapshot())
   const [text, setText] = useState(crash ? m.crashPrefill : '')
@@ -133,7 +133,6 @@ export function ReportProblemDialog({
     setError(null)
     mutation.mutate(body, {
       onSuccess: (r) => {
-        toast.success(fill(m.received, { number: r.number }), { description: m.receivedHint })
         setReceipt(r.number)
       },
       onError: (e) => setError(messageFor(e, m)),

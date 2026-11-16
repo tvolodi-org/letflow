@@ -142,7 +142,7 @@ describe('write errors and success (W8)', () => {
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(2))
   })
 
-  it('W8b: success shows a toast with the number and a receipt with a link to My reports (REQ-872)', async () => {
+  it('W8b: success shows a receipt (no toast over the panel) with a link to My reports (REQ-872)', async () => {
     submit.mockResolvedValue({ id: '1', number: 'SR-7', received_at: 'x' })
     const onClose = mount()
     await userEvent.type(screen.getByTestId('report-text'), 'It fails')
@@ -151,9 +151,7 @@ describe('write errors and success (W8)', () => {
     const receipt = await screen.findByTestId('report-receipt')
     expect(receipt).toHaveTextContent('SR-7')
     expect(screen.getByTestId('report-receipt-link')).toHaveAttribute('href', '/me/problem-reports')
-    const toast = getToastSnapshot()[0]
-    expect(toast.variant).toBe('success')
-    expect(toast.message).toContain('SR-7')
+    expect(getToastSnapshot()).toHaveLength(0)
     expect(onClose).not.toHaveBeenCalled()
     await userEvent.click(screen.getByTestId('report-receipt-close'))
     expect(onClose).toHaveBeenCalledTimes(1)

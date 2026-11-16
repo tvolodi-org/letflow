@@ -16,7 +16,7 @@ import { formatDateTime } from '@/i18n/format'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { problemReportsMessages } from '@/pages/admin/problem-reports/problemReportsMessages'
 import { STATUS_LOOK, UNKNOWN_LOOK } from '@/pages/admin/problem-reports/problemReportsModel'
-import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
+import { ReportProblemButton } from '@/components/layout/ReportProblemButton'
 import { myProblemReportsMessages } from './myProblemReportsMessages'
 
 export default function MyProblemReportsPage() {
@@ -50,7 +50,8 @@ export default function MyProblemReportsPage() {
             <EmptyState
               data-testid="my-reports-empty"
               title={m.emptyTitle}
-              text={`${m.emptyText} (${reportProblemMessages[locale].button})`}
+              text={m.emptyText}
+              action={<ReportProblemButton variant="labelled" testId="my-reports-empty-report" />}
             />
           ) : (
             <>

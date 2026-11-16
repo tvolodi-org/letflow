@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { accessState, type AccessFixtureName } from '@/auth/access/fixtures'
@@ -103,12 +104,17 @@ describe('REQ-872 criterion 2: one row per report', () => {
 })
 
 describe('REQ-872 criterion 3: empty, unavailable, has_more', () => {
-  it('empty list shows an empty state that names the Report a problem button', async () => {
+  it('empty list shows an empty state with the Report a problem button, which opens the panel', async () => {
     clientMock.get.mockResolvedValue({ reports: [], has_more: false })
     renderPage()
     const empty = await screen.findByTestId('my-reports-empty')
-    expect(empty).toHaveTextContent(reportProblemMessages.en.button!)
+    expect(empty).not.toHaveTextContent('(')
+    const button = within(empty).getByTestId('my-reports-empty-report')
+    expect(button).toHaveTextContent(reportProblemMessages.en.button!)
     expect(screen.queryAllByTestId('my-report-row')).toHaveLength(0)
+    expect(screen.queryByTestId('report-dialog')).toBeNull()
+    await userEvent.click(button)
+    expect(await screen.findByTestId('report-dialog')).toBeInTheDocument()
   })
 
   it('a 503 answer shows the unavailable message and no rows', async () => {
