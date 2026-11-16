@@ -135,10 +135,10 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
 
   test "QR-5 freeze, ANALYZE and rollback are numbered steps; one transaction is per file" do
     steps = section(md(), "Steps")
-    assert steps =~ ~r/^8\. \*\*Write freeze/m
-    assert steps =~ ~r/^9\. \*\*ANALYZE/m
+    assert steps =~ ~r/^9\. \*\*Write freeze/m
+    assert steps =~ ~r/^10\. \*\*ANALYZE/m
     assert steps =~ "changes no row"
-    assert steps =~ ~r/^10\. \*\*Rollback/m
+    assert steps =~ ~r/^11\. \*\*Rollback/m
     assert steps =~ "stock-movements.xlsx"
     [_, tx] = Regex.run(~r/\| One transaction \|([^\n]*)/, md())
     assert tx =~ "atomic=true"
