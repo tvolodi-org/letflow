@@ -376,6 +376,19 @@ reading and gives no one more than today plus their own units; the owner may rel
 (`Letflow.Api.ModuleGuard` still requires tenant-wide); the stock document routes for a scoped storekeeper follow in
 part 2 (REQ-831).
 
+## Amended by REQ-829 (OQ-R4 read facade)
+
+- D6 left OQ-R4 owed as "update-kind handler writes plus the narrow read facade". Both halves now exist: the update-kind
+  half was delivered by #4051 (`HandlerWrites.update/3` with the manifest allow-list, decision 0054 amendment T-1489), and
+  the read facade is `HandlerWrites.read/3` and `HandlerWrites.active?/3`, declared per handler by the optional `reads` key
+  of the write-handler registration (own managed types and those of `depends_on` modules only; Catalog rule 10
+  `{:write_handler_read_not_reachable, handler, type}`; hashed only when non-empty).
+- The facade reads one record by id and type from `entity_record_latest` of the tenant schema, with no lock and no write;
+  a dry build answers `{:error, :dry_build}` (and `active?/3` false) without a query. A fact read is data, never authority,
+  and may be stale at commit (note 14.6).
+- Still owed to slice L7 (no consumer exists yet): the master checks (item, location, unit active), `expected_document_version`
+  and the retired-master checks. Until L7 lands, the ledger still accepts any well-formed slot values.
+
 ## Amended by 0090 (negative balances per tenant, REQ-833)
 
 D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).

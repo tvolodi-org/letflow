@@ -13,7 +13,7 @@ defmodule Letflow.Entities.HandlerWrites do
   `ledger_consent_nodes` and records an OIDC credential; the consent and the pre-step result reach
   `post/3` through the per-call token, never through the `HandlerContext`.
 
-  ## Handler-facing API: `create/3`, `update/3` and `post/3`
+  ## Handler-facing API: `create/3`, `update/3`, `post/3` (and the read facade below)
 
   A module's handler builds Multi steps by calling `create/3` and, when its manifest entry names a
   `posts_ledger` registration, `post/3` (REQ-685) and nothing else (the contract is in
@@ -40,6 +40,22 @@ defmodule Letflow.Entities.HandlerWrites do
   type) is surfaced as a failing `{:line, key, :build}` step, exactly as `StepWrites` does, so
   the transaction rolls back and the engine's failure mapping applies; the three contract
   errors of 1-3 are returned to the handler.
+
+  ## Handler-facing read facade: `read/3` and `active?/3` (REQ-829, decision 0073 D6, OQ-R4)
+
+  `read(ctx, entity_type, record_id)` answers `{:ok, map}` (the map of `Letflow.Modules.ReadApi.lookup/3`),
+  `{:error, :not_found}` (non-uuid id, unknown id, record of another type, soft-deleted record),
+  `{:error, :read_not_registered}` (a type outside the manifest entry's `reads`), or
+  `{:error, :invalid_write_command}` (absent or forged context, the per-call token check of `create/3`).
+  `active?/3` is true only when `read/3` answers `{:ok, map}` and the map's `active` field is `true`.
+  Rules: the `reads` list is re-resolved from the Catalog on every call, never from the context;
+  it runs only while the handler builds its Multi inside the completion transaction (already under the
+  5 s statement timeout of `Letflow.Engine.maybe_entity_write_timeouts/2`; the facade sets none); in a
+  dry build (the ledger pre-step, no database access) `read/3` answers `{:error, :dry_build}` without a
+  query and `active?/3` is false; it reads only `entity_record_latest` in `ctx.prefix` by record id and
+  type with bound parameters: no lock, no write, no ledger table, no other schema. A fact read is data,
+  never authority, and may be stale at commit (ledger note 14.6). A ledger policy file cannot reach it
+  (scan T-SC-4e): `declare/2` reads nothing.
 
   ## Platform-facing functions (not for handler code; scan H4 forbids them in handler files)
 
@@ -231,6 +247,62 @@ defmodule Letflow.Entities.HandlerWrites do
   end
 
   def next_record_id(_ctx), do: {:error, :invalid_write_command}
+
+  @doc """
+  REQ-829 (decision 0073 D6, OQ-R4): reads ONE live record of a type the handler's manifest entry lists
+  under `reads`, by id. Answers `{:ok, map}` (the map of `Letflow.Modules.ReadApi.lookup/3`: string keys
+  `record_id`, `entity_type` and every stored field value), `{:error, :not_found}` (a non-uuid id, an
+  unknown id, a record of another type, a soft-deleted record), `{:error, :read_not_registered}` (a type
+  outside `reads`), `{:error, :invalid_write_command}` (an absent or forged context, the same per-call
+  token check as `create/3`) or `{:error, :dry_build}` (the ledger pre-step has no database access).
+
+  The `reads` list is re-resolved from the Catalog on every call, never from the context. It reads only
+  the tenant's latest-record table (`entity_record_latest`) in `ctx.prefix`, by record id and type with
+  bound parameters: no lock, no write, no ledger table, no other schema. A fact read is data, never
+  authority, and may be stale at commit (ledger note 14.6).
+  """
+  @spec read(HandlerContext.t(), String.t(), String.t()) ::
+          {:ok, map()}
+          | {:error, :not_found | :read_not_registered | :invalid_write_command | :dry_build}
+  def read(%HandlerContext{} = ctx, entity_type, record_id) when is_binary(entity_type) do
+    with {:ok, token} <- fetch_token(ctx),
+         true <- valid_context?(ctx),
+         :not_dry <- dry_mode(token),
+         :ok <- check_readable(ctx, entity_type) do
+      with {:ok, uuid} <- Ecto.UUID.cast(record_id),
+           {:ok, %Latest{} = row} <- Latest.get_live(uuid, entity_type, ctx.prefix) do
+        {:ok,
+         Map.merge(row.field_values, %{
+           "record_id" => row.record_id,
+           "entity_type" => row.entity_type
+         })}
+      else
+        _absent -> {:error, :not_found}
+      end
+    else
+      :dry -> {:error, :dry_build}
+      false -> {:error, :invalid_write_command}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def read(_ctx, _entity_type, _record_id), do: {:error, :invalid_write_command}
+
+  @doc "REQ-829: true only when `read/3` answers `{:ok, map}` and the map's `active` field is `true`."
+  @spec active?(HandlerContext.t(), String.t(), String.t()) :: boolean()
+  def active?(ctx, entity_type, record_id) do
+    match?({:ok, %{"active" => true}}, read(ctx, entity_type, record_id))
+  end
+
+  # The read list is re-resolved from the Catalog (never from the context), like the update allow-list.
+  defp check_readable(%HandlerContext{handler: %{module_id: module_id, name: name}}, type) do
+    with {:ok, %{reads: reads}} <- Catalog.write_handler(module_id, name),
+         true <- type in reads do
+      :ok
+    else
+      _not_registered -> {:error, :read_not_registered}
+    end
+  end
 
   defp dry_mode(token), do: if(Map.has_key?(token, :dry), do: :dry, else: :not_dry)
 

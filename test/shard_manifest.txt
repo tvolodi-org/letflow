@@ -1541,3 +1541,4 @@
 32 test/letflow/scripts/meridian_kyc_screening_env_limitation_test.exs 41.54
 32 test/letflow/webhooks_mapping_test.exs 25708.48
 32 test/scripts/companion_dry_run_test.exs 109867.58
+19 test/letflow/entities/handler_writes_read_test.exs 7433.53
