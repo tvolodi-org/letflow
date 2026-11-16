@@ -55292,7 +55292,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- no pending blocker: the update-kind half of OQ-R4 and every primitive this builds on are on main (HandlerWrites.update/3 by #4051)
+    gh: 4527
     # Source: task T-2022 (operator; Qoimeks Client 1 migration, owner decision D-143, readiness note docs/status/qoimeks-migration-readiness.md section 3 row C3 and section 1.2 row G1). Files read on origin/main: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md D6 and D-P; lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 14.6 and 17 (rows PILOT GATE and L7); lib/letflow/design/gh2590-req501-module-write-handlers.md table row F-R5, D-R.17, 4.6, 15 (OQ-R4) and 16; docs/migration/decisions/0054-process-step-writes-entity.md section "Amendment (T-1489 / assets G2): D6 handler UPDATE"; lib/letflow/entities/handler_writes.ex (create/3, update/3, next_record_id/1, dry_postings/4, the moduledoc); lib/letflow/modules/write_handler_spec.ex; lib/letflow/modules/catalog.ex (rule 10 write-handler checks); lib/letflow/modules/manifest_hash.ex; lib/letflow/modules/read_api.ex; lib/letflow/entities/record/latest.ex (get_live/3); lib/letflow/engine.ex (maybe_entity_write_timeouts/2); test/letflow/entities/handler_writes_callers_test.exs (H4); test/letflow/entities/module_write_owner_path_test.exs (public function pin); test/letflow/entities/ledger_boundaries_test.exs (T-SC-4e); test/support/platform_tenant_fixture.ex (capture_repo_queries/1).
     description: >
       Decision 0073 D6 keeps OQ-R4 owed: "update-kind handler writes plus the narrow read facade"; master checks
