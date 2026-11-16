@@ -55506,7 +55506,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of the G4 parity chain; no pending requirement blocks it
+    gh: 4548
     # Source: task T-2027 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 row G4 and section 2.4 rows R-2 and R-3 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2027/sources/ (client1-inventory.md sections 4 count 8 and 8.3 to 8.5; qoimeks-migration-plan.md section 2; qoimeks-negative-balance-extract.md quoting Qoimeks server/internal/api/api_test.go "Issuing more than is there is allowed; the balance simply goes negative", server/internal/store/store.go func reverse with no balance check, mobile/lib/operation_screen.dart goesNegative for issue and transfer, mobile/lib/l10n.dart ru «Остаток станет отрицательным» and kk «Қалдық теріс болады»). Letflow files read on origin/main 2b1fd9b57: lib/letflow/ledger.ex (moduledoc order of work step 4; refusal_for/5 and over_bound?/2 with @limit 1.0E+21), lib/letflow/ledger/codes.ex (insufficient_balance 409), lib/letflow/modules/ledger_registration.ex (@registration_keys, closed reason list), lib/letflow/modules/stock/stock.ex (ledger registration "stock": causes and sign rules, key_bounds [], error_aliases insufficient_balance to insufficient_stock, posting_guard FreezeGuard), priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs (balance_sql/1: CHECK on_hand >= 0 and on_hand <= max_on_hand), lib/letflow/modules/stock/count_posting.ex (shortage_check/3, shortage_exceeds_balance), lib/letflow/modules/stock/documents/shape.ex (quantity_text/1 greater than zero), lib/letflow/modules/stock/documents/opening_shape.ex (quantity/2), lib/letflow/ledger/read.ex (nonzero filter on_hand != 0), scripts/pilot/qoimeks_convert.py (quantity_not_positive), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D5: core enforces "non-negative balance and registered per-key bounds"), 0057-wms-customer-draft-reconciliation.md (D5), docs/design/four-eyes-switch.md and lib/letflow/api/authorization.ex (:ApprovalRulesManage, the per-tenant switch precedent, owner decision D-144). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Qoimeks allows a balance below zero and only warns «Остаток станет отрицательным» before an issue or a
@@ -55572,7 +55572,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-833 -- the decision record fixes the names and rules this part builds
+    gh: 4547
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/ledger.ex (lock_postings/1, guard/5, refusal_for/5, over_bound?/2), lib/letflow/modules/ledger_registration.ex (@registration_keys, @required_keys, closed reason order), priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs (balance_sql/1), priv/repo/migrations/20261115200001_create_approval_rule_settings.exs (tenant table precedent without tenant_id), test/letflow/migrations/ledger_tables_migration_test.exs (the on_hand -1 refusal asserting ledger_balance_on_hand_check), lib/letflow/ledger/reconcile.ex. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Builds rules 1 to 3 and the storage of rule 5 of decision 0090 (REQ-833; the record path is planned,
@@ -55611,7 +55611,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-834 -- the settings table and the context read come from part 2
+    gh: 4546
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/routers/approval_rules.ex (GET / and PUT /:definition_name/:node_id, 422 invalid_body / invalid_reason / not_a_four_eyes_step, Scope.require_tenant_wide/2), lib/letflow/approval_rules.ex (put/5 validation order, audit approval_rule.changed in one transaction, a PUT equal to the current value writes nothing), lib/letflow/plugs/api_pipeline.ex (forward "/approval-rules"), lib/letflow/api/authorization.ex (:ApprovalRulesManage moduledoc paragraph, core_role_allows?(:PLATFORM_ADMIN, :ApprovalRulesManage) false, endpoint_policy_key). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Builds the switch of rule 5 of decision 0090 (REQ-833, planned, not yet on main) on the pattern of the
@@ -55643,7 +55643,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-834 -- the stock registration can declare the key only after part 2
+    gh: 4545
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/modules/stock/stock.ex (version "0.17.0", ledger registration "stock", causes receipt/opening positive, issue/write_off/kind_change_out negative, transfer/hand_over/return zero_sum_by_slot_1, count_difference any), lib/letflow/modules/stock/count_posting.ex (shortage_check/3), lib/letflow/modules/stock/documents/shape.ex (quantity_text/1), lib/letflow/modules/stock/documents/opening_shape.ex (quantity/2), lib/letflow/modules/stock/documents/opening_import.ex (quantity_invalid), lib/letflow/modules/stock/router.ex (route table moduledoc, mounted at /api/v1/modules/stock; no SQL in the router, Rule 8), web/src/pages/tasks/taskErrors.ts (insufficient_stock message). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       The stock part of decision 0090 (REQ-833, planned, not yet on main). (a) The "stock" ledger
@@ -55679,7 +55679,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-836 -- negative opening lines load only after the stock opt-in
+    gh: 4544
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: scripts/pilot/qoimeks_convert.py (cmd_convert: drop reasons quantity_comma_decimal, quantity_invalid, quantity_not_positive; MAX_LINES 100; 04-opening-lines-NN.xlsx; exit 0 ok, 3 rows dropped, 2 bad input), test/scripts/qoimeks_rehearsal_test.exs (CV-4 asserts "dropped balances row 6: quantity_not_positive"), test/fixtures/qoimeks_rehearsal/balances.csv (row 6 SKU-6 quantity 0), docs/runbooks/qoimeks-rehearsal.md, docs/uat/ba-decisions/T-1907.md (R-2, withdrawn by the owner decision of 2026-11-16). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Rule 7 of decision 0090 (REQ-833, planned, not yet on main) in the migration tooling.
@@ -55707,7 +55707,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-836 -- the warning reads GET /posting-rules, which part 4 adds
+    gh: 4543
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: web/src/modules/stock/documents/DocumentForm.tsx (REQ-722 draft form of receipt, issue and write off; two-side kinds REQ-723), web/src/modules/stock/documents/LinesEditor.tsx, web/src/modules/stock/documents/documentsMessages.ts, web/src/modules/stock/register/stock.api.ts (balances(params) on ${BASE}/balances), web/src/modules/stock/stockPermissions.ts, web/src/pages/tasks/taskErrors.ts (errInsufficientStock). Qoimeks condition and texts from state/tasks/T-2027/sources/qoimeks-negative-balance-extract.md. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Rule 6 of decision 0090 (REQ-833, planned, not yet on main) on the web. In the stock document form
@@ -55737,7 +55737,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-835 -- the page calls the routes of part 3
+    gh: 4542
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: web/src/pages/admin/approval-rules/ApprovalRulesPage.tsx, web/src/api/approvalRules.ts, web/src/api/queryKeys.ts, web/src/components/layout/AppShell.tsx and navMessages.ts (the four-eyes page entry), web/src/router.tsx, web/src/dev/harness/fixtures/approvalRules.tsx. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       The admin screen for the switch of rule 5 of decision 0090 (REQ-833, planned, not yet on main), on the
@@ -55761,7 +55761,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-836 -- the warning reads GET /posting-rules, which part 4 adds
+    gh: 4541
     # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/document_form_screen.dart (_hasVoice: voice on receipt, issue, transfer, REQ-747), document_form_controller.dart (voice fill, voiceEpoch), document_kinds.dart (issue, write_off, transfer, hand_over, return), documents_api.dart, apps/mobile/lib/features/stock/voice/voice_api.dart; grep -rn "balances" apps/mobile/lib (no hit: the app does not read balances yet). Qoimeks texts from state/tasks/T-2027/sources/qoimeks-negative-balance-extract.md. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
     description: >
       Rule 6 of decision 0090 (REQ-833, planned, not yet on main) in the Flutter app (apps/mobile). Qoimeks
