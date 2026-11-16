@@ -55287,3 +55287,57 @@ requirements:
       - "3. A component test of the stock receipt lines with tenant currency USD shows the price and value headers with USD and no ₸; grep -n '₸' web/src/components/ui/lines/linesMessages.ts prints nothing."
       - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the card form with the open dropdown, the card facts and the receipt lines is in the task folder."
     depends_on: [REQ-824, REQ-826, REQ-827]
+  - id: REQ-829
+    title: "OQ-R4 read facade: a write handler reads one record of a manifest-declared read type by id (read/3, active?/3), no lock, no write, no raw query (decision 0073 D6, ledger note 14.6; prerequisite of ledger slice L7 master checks)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- no pending blocker: the update-kind half of OQ-R4 and every primitive this builds on are on main (HandlerWrites.update/3 by #4051)
+    # Source: task T-2022 (operator; Qoimeks Client 1 migration, owner decision D-143, readiness note docs/status/qoimeks-migration-readiness.md section 3 row C3 and section 1.2 row G1). Files read on origin/main: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md D6 and D-P; lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 14.6 and 17 (rows PILOT GATE and L7); lib/letflow/design/gh2590-req501-module-write-handlers.md table row F-R5, D-R.17, 4.6, 15 (OQ-R4) and 16; docs/migration/decisions/0054-process-step-writes-entity.md section "Amendment (T-1489 / assets G2): D6 handler UPDATE"; lib/letflow/entities/handler_writes.ex (create/3, update/3, next_record_id/1, dry_postings/4, the moduledoc); lib/letflow/modules/write_handler_spec.ex; lib/letflow/modules/catalog.ex (rule 10 write-handler checks); lib/letflow/modules/manifest_hash.ex; lib/letflow/modules/read_api.ex; lib/letflow/entities/record/latest.ex (get_live/3); lib/letflow/engine.ex (maybe_entity_write_timeouts/2); test/letflow/entities/handler_writes_callers_test.exs (H4); test/letflow/entities/module_write_owner_path_test.exs (public function pin); test/letflow/entities/ledger_boundaries_test.exs (T-SC-4e); test/support/platform_tenant_fixture.ex (capture_repo_queries/1).
+    description: >
+      Decision 0073 D6 keeps OQ-R4 owed: "update-kind handler writes plus the narrow read facade"; master checks
+      (item, location and unit active), expected_document_version and retired-master checks of ledger slice L7 are
+      DEPENDENT on that facade, and until it exists the ledger accepts any well-formed slot values. The update-kind
+      half is already on main: HandlerWrites.update/3 with the manifest allow-list updates (decision 0054, section
+      "Amendment (T-1489 / assets G2)", merged in #4051). This requirement delivers the other half only, the read
+      facade, as a platform primitive with no consumer. Wiring it into the stock module (L7) is a separate
+      requirement. (1) Declaration. The write-handler registration of lib/letflow/modules/write_handler_spec.ex
+      gets one more optional key, reads, a list of entity type names (default empty). The Catalog check of rule 10
+      in lib/letflow/modules/catalog.ex refuses a reads type that is neither in the handler module's own
+      manages_entity_types nor in the manages_entity_types of a module named in that module's depends_on, with
+      {:write_handler_read_not_reachable, handler_name, type}. lib/letflow/modules/manifest_hash.ex hashes reads
+      only when it is non-empty, the way it hashes updates, so no existing manifest hash changes. (2) Functions.
+      Letflow.Entities.HandlerWrites gets read(ctx, entity_type, record_id) and active?(ctx, entity_type,
+      record_id). Both re-resolve the handler's reads list from the Catalog registration on every call, never from
+      the context (as update/3 does for updates). read/3 answers {:ok, map} with the same map as
+      Letflow.Modules.ReadApi.lookup/3 (string keys record_id, entity_type and every stored field value), or
+      {:error, :not_found} for a non-uuid id, an unknown id, a record of another type and a soft-deleted record,
+      or {:error, :read_not_registered} for a type outside reads, or {:error, :invalid_write_command} for an
+      absent or forged context (the same per-call token check as create/3). active?/3 is true only when read/3
+      answers {:ok, map} and the map's active field is true; otherwise false. (3) Where it runs. Only while the
+      handler builds its Multi inside the completion transaction, which already runs under the 5 s statement
+      timeout that Letflow.Engine sets in maybe_entity_write_timeouts/2; the facade adds no SET statement of its
+      own. In a dry build (the ledger pre-step of dry_postings/4, which has no database access) read/3 makes no
+      database call and answers {:error, :dry_build}, and active?/3 answers false. (4) What it reads. Only the
+      tenant's latest-record table (entity_record_latest, Letflow.Entities.Record.Latest) in the schema ctx.prefix, by record id and type, with bound parameters: no
+      lock (no FOR UPDATE or FOR SHARE), no write, no ledger table, no other schema, no role, grant or identity
+      table. A fact read is data, never authority, and may be stale at commit (accepted, note 14.6). (5) Scans.
+      Handler files may call HandlerWrites.read/3 and HandlerWrites.active?/3 (scan H4 in
+      test/letflow/entities/handler_writes_callers_test.exs); a ledger policy file still names no Letflow module
+      but Letflow.Ledger.Policy and its own (T-SC-4e in test/letflow/entities/ledger_boundaries_test.exs), so
+      declare/2 cannot read. OUT OF SCOPE: any use by the stock or assets modules, the master checks themselves,
+      expected_document_version, retired-master checks, per-instance ledger ids (all slice L7), a read cap per
+      handler call, a list or search read, scope filtering of the read (slice L6), and a pre-transaction plan
+      phase (note 14.6, later target).
+    acceptance_criteria:
+      - "1. Declaration: a test registers fixture handlers and shows that a reads type of the handler's own module and a reads type managed by a module named in its depends_on are accepted, and that a reads type managed by a module not in depends_on is refused with {:write_handler_read_not_reachable, handler_name, type}."
+      - "2. Manifest hash: a test shows that a handler without reads (or with an empty list) has the same manifest hash as before this change, and that adding one type to reads changes the hash."
+      - "3. read/3 answers: in a real HUMAN_TASK completion of a fixture definition whose handler reads, a test shows {:ok, map} with record_id, entity_type and the stored field values for a live record of a declared type, {:error, :not_found} for a non-uuid id, an unknown uuid, a record of another type and a soft-deleted record, and {:error, :read_not_registered} for a type outside reads."
+      - "4. active?/3: in the same kind of test it is true for a live record whose active field is true, and false for a record whose active field is false, a soft-deleted record, an unknown id and a type outside reads."
+      - "5. Context: read/3 called with a HandlerContext that has no valid per-call token (outside a handler call, or forged, as test S2 of test/letflow/entities/step_source_record_id_test.exs does for next_record_id/1) answers {:error, :invalid_write_command}, and active?/3 answers false."
+      - "6. No lock, no write, one schema: a test captures with PlatformTenantFixture.capture_repo_queries/1 every statement of two otherwise equal fixture completions, one whose handler calls read/3 once and one whose handler does not, and asserts that each extra statement of the first is a SELECT on the table entity_record_latest in the schema ctx.prefix, and that none of them contains FOR UPDATE or FOR SHARE or names a table whose name starts with ledger_."
+      - "7. Dry build: a fixture handler that calls read/3 and active?/3 and builds its posting only when they answer {:error, :dry_build} and false gives {:ok, [capability]} from a direct call of HandlerWrites.dry_postings/4 (as test/letflow/engine/service_ledger_posting_test.exs calls it), and capture_repo_queries/1 around that call captures no statement."
+      - "8. Tenant isolation (INV-1): a test with two tenants shows that read/3 in a completion of tenant A answers {:error, :not_found} for the record id of a live record that exists only in tenant B."
+      - "9. Scans: scan H4 accepts HandlerWrites.read/3 and HandlerWrites.active?/3 in a handler file and still flags HandlerWrites calls of any other name or arity; the pinned public function list of HandlerWrites in test/letflow/entities/module_write_owner_path_test.exs gains active?: 3 and read: 3; and a negative control that names HandlerWrites.read in a ledger policy file is flagged by the T-SC-4e scan."
+      - "10. Documentation: the moduledoc of Letflow.Entities.HandlerWrites describes read/3 and active?/3 with the rules of description points (2) to (4), and decision 0073 gets a short amendment section stating that the read facade of D6 now exists, that the update-kind half was delivered by #4051, and that master checks, expected_document_version and retired-master checks remain owed to slice L7."
+    depends_on: [REQ-501, REQ-688]
