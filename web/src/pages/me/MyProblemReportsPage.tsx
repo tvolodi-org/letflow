@@ -8,10 +8,10 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { FetchError } from '@/components/ui/FetchError'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Skeleton } from '@/components/ui/Skeleton'
+import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { classifyError } from '@/utils/classifyError'
 import { formatDateTime } from '@/i18n/format'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { problemReportsMessages } from '@/pages/admin/problem-reports/problemReportsMessages'
@@ -37,54 +37,55 @@ export default function MyProblemReportsPage() {
   return (
     <>
       <PageHeader eyebrow={m.eyebrow} title={m.title} lede={m.lede} />
-      {q.isPending ? (
-        <div data-testid="my-reports-loading" aria-busy="true" aria-label={m.loading}>
-          <Skeleton width="60%" />
-        </div>
-      ) : unavailable ? (
+      {unavailable ? (
         <div data-testid="my-reports-unavailable">
           <Banner tone="warning">{m.unavailable}</Banner>
         </div>
-      ) : q.isError ? (
-        <FetchError onRetry={() => void q.refetch()} />
-      ) : q.data.reports.length === 0 ? (
-        <EmptyState
-          data-testid="my-reports-empty"
-          title={m.emptyTitle}
-          text={`${m.emptyText} (${reportProblemMessages[locale].button})`}
-        />
       ) : (
-        <>
-          <ul className="lf-myreports" data-testid="my-reports-list">
-            {q.data.reports.map((r) => {
-              const look = STATUS_LOOK[r.status] ?? UNKNOWN_LOOK
-              return (
-                <li key={r.id} className="lf-card lf-myreports__row" data-testid="my-report-row" data-report-number={r.number}>
-                  <p className="lf-myreports__head">
-                    <code data-testid="my-report-number">{r.number}</code>{' '}
-                    <span className="lf-muted" data-testid="my-report-received">
-                      {m.colReceived}: {formatDateTime(r.received_at, undefined, locale)}
-                    </span>{' '}
-                    <StatusPill tone={look.tone} glyph={look.glyph} data-testid="my-report-status">
-                      {statusLabel(r.status)}
-                    </StatusPill>
-                  </p>
-                  <p data-testid="my-report-text">{r.text}</p>
-                  {r.reply_text != null && r.reply_text !== '' && (
-                    <p data-testid="my-report-reply">
-                      <strong>{r.question ? m.question : m.reply}:</strong> {r.reply_text}
-                    </p>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-          {q.data.has_more && (
-            <p className="lf-hint" data-testid="my-reports-has-more">
-              {m.hasMore}
-            </p>
+        <QueryStateBoundary
+          state={q.isPending ? 'loading' : q.isError ? classifyError(q.error) : 'success'}
+          onRetry={() => void q.refetch()}
+        >
+          {q.data && q.data.reports.length === 0 ? (
+            <EmptyState
+              data-testid="my-reports-empty"
+              title={m.emptyTitle}
+              text={`${m.emptyText} (${reportProblemMessages[locale].button})`}
+            />
+          ) : (
+            <>
+              <ul className="lf-myreports" data-testid="my-reports-list">
+                {q.data?.reports.map((r) => {
+                  const look = STATUS_LOOK[r.status] ?? UNKNOWN_LOOK
+                  return (
+                    <li key={r.id} className="lf-card lf-myreports__row" data-testid="my-report-row" data-report-number={r.number}>
+                      <p className="lf-myreports__head">
+                        <code data-testid="my-report-number">{r.number}</code>{' '}
+                        <span className="lf-muted" data-testid="my-report-received">
+                          {m.colReceived}: {formatDateTime(r.received_at, undefined, locale)}
+                        </span>{' '}
+                        <StatusPill tone={look.tone} glyph={look.glyph} data-testid="my-report-status">
+                          {statusLabel(r.status)}
+                        </StatusPill>
+                      </p>
+                      <p data-testid="my-report-text">{r.text}</p>
+                      {r.reply_text != null && r.reply_text !== '' && (
+                        <p data-testid="my-report-reply">
+                          <strong>{r.question ? m.question : m.reply}:</strong> {r.reply_text}
+                        </p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+              {q.data?.has_more && (
+                <p className="lf-hint" data-testid="my-reports-has-more">
+                  {m.hasMore}
+                </p>
+              )}
+            </>
           )}
-        </>
+        </QueryStateBoundary>
       )}
     </>
   )

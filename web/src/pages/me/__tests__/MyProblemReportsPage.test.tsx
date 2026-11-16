@@ -139,11 +139,11 @@ describe('REQ-872 criterion 3: empty, unavailable, has_more', () => {
   it('shows a skeleton while loading', () => {
     clientMock.get.mockReturnValue(new Promise(() => undefined))
     renderPage()
-    expect(screen.getByTestId('my-reports-loading')).toBeInTheDocument()
+    expect(screen.getByLabelText(/loading/i)).toHaveAttribute('aria-busy', 'true')
   })
 })
 
-describe('REQ-872 criterion 4: the real route is open to STOREKEEPER and CANDIDATE', () => {
+describe('REQ-872 criterion 4: the real route is open to a warehouse-only and a candidate session', () => {
   const route = router.routes.find((r) => r.path === '/')?.children?.find((c) => c.path === 'me/problem-reports')
 
   it('the route exists and is not wrapped in a permission guard', () => {

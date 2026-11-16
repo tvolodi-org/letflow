@@ -1,5 +1,5 @@
 /** Harness fixtures of "My reports" (REQ-872). Invented data only. The REAL AppShell (with the top-bar My reports link)
- *  around the real page, signed in as a STOREKEEPER-only user. `my-reports-list` has one report in each status,
+ *  around the real page, signed in as a warehouse-only user. `my-reports-list` has one report in each status,
  *  `my-reports-has-more` adds the "newest 50" line, `my-reports-empty` an empty list, `my-reports-unavailable` answers 503. */
 import { lazy, Suspense, type ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'

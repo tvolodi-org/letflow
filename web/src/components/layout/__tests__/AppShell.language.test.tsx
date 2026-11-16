@@ -96,7 +96,7 @@ describe('AppShell language switch', () => {
     expect(screen.getByTestId('topbar-my-settings')).toHaveAccessibleName(mySettingsMessages.ru.link)
   })
 
-  it('REQ-872 has the My reports link next to My settings, for a STOREKEEPER-only and a TENANT_ADMIN session', async () => {
+  it('REQ-872 has the My reports link next to My settings, for a warehouse-only and a tenant-admin session', async () => {
     for (const fixture of ['storekeeper', 'tenantAdmin'] as const) {
       await renderShell(fixture)
       const bar = within(screen.getByTestId('topbar'))
