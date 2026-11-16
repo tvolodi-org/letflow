@@ -26,6 +26,9 @@ defmodule Letflow.Modules.Assets.Cards do
   or rewritten, and the card stays editable. The check lives here, not in the entity definition, so
   the definition keeps `string` and a legacy value never fails another edit.
 
+  `commissioning_date`, when sent, is an ISO date or empty (clears it); an invalid value is
+  `{:field_invalid, "commissioning_date"}`. The record date type alone checks text, not date syntax.
+
   The card has no location, quantity or responsible-person field: those rules belong to the
   commission document (REQ-751).
 
@@ -70,7 +73,8 @@ defmodule Letflow.Modules.Assets.Cards do
   @types ["assets_card"]
   @allowed ~w(inventory_number name kind acquisition_date currency acquisition_cost
               accumulated_depreciation book_value depreciation_as_of depreciation_method depreciation_rate valid_until
-              external_ref_system external_ref_id)
+              manufacturer asset_type model type brand category sort serial_number passport_number
+              useful_life_months commissioning_date external_ref_system external_ref_id)
   # The import is the one channel that may still carry the unit (D-097; G6 revisits it).
   @import_allowed ["org_unit_id" | @allowed]
   @required ~w(inventory_number name kind)
@@ -306,6 +310,9 @@ defmodule Letflow.Modules.Assets.Cards do
       Map.has_key?(merged, "valid_until") and merged["kind"] != "intangible" ->
         {:error, :valid_until_not_allowed}
 
+      not valid_commissioning_date?(Map.get(body, "commissioning_date")) ->
+        {:error, {:field_invalid, "commissioning_date"}}
+
       is_binary(currency) and currency != "" and not Catalog.known?(currency) ->
         {:error, :currency_unknown}
 
@@ -316,6 +323,13 @@ defmodule Letflow.Modules.Assets.Cards do
         :ok
     end
   end
+
+  defp valid_commissioning_date?(value) when value in [nil, ""], do: true
+
+  defp valid_commissioning_date?(value) when is_binary(value),
+    do: match?({:ok, _}, Date.from_iso8601(value))
+
+  defp valid_commissioning_date?(_), do: false
 
   # Trims and upper-cases the `"currency"` key if present. Applied before checks and storage
   # so that `" kzt "` stores as `"KZT"` (REQ-826 C4).

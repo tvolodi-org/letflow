@@ -530,6 +530,50 @@
             "type": "string"
           },
           {
+            "name": "manufacturer",
+            "type": "string"
+          },
+          {
+            "name": "asset_type",
+            "type": "string"
+          },
+          {
+            "name": "model",
+            "type": "string"
+          },
+          {
+            "name": "type",
+            "type": "string"
+          },
+          {
+            "name": "brand",
+            "type": "string"
+          },
+          {
+            "name": "category",
+            "type": "string"
+          },
+          {
+            "name": "sort",
+            "type": "string"
+          },
+          {
+            "name": "serial_number",
+            "type": "string"
+          },
+          {
+            "name": "passport_number",
+            "type": "string"
+          },
+          {
+            "name": "useful_life_months",
+            "type": "integer"
+          },
+          {
+            "name": "commissioning_date",
+            "type": "date"
+          },
+          {
             "name": "acquisition_date",
             "type": "date"
           },
@@ -599,7 +643,7 @@
       },
       "display_name": "Asset card",
       "entity_definition_id": "1cdfbd2c-8b56-31a6-5aab-9eec562480bd",
-      "logical_shape_version": "7c728d849a5280847416623d05f6a32a523b99bdef3d9be52d078d2eb42b386d",
+      "logical_shape_version": "332754555d3692a15828e41839e4beae974fd306d23a358130709e33e661d039",
       "name": "assets_card"
     },
     {
