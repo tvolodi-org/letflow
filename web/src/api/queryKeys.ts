@@ -267,6 +267,9 @@ export const queryKeys = {
     lists: (tenantId: string) => [...queryKeys.problemReportsInbox.all(tenantId), 'list'] as const,
     list: (tenantId: string, status: string) => [...queryKeys.problemReportsInbox.lists(tenantId), status] as const,
     detail: (tenantId: string, id: string) => [...queryKeys.problemReportsInbox.all(tenantId), 'detail', id] as const,
+    /** T-2015 — blob URL for one problem-report image (platform screen). */
+    image: (tenantId: string, reportId: string, imageId: string) =>
+      [...queryKeys.problemReportsInbox.all(tenantId), 'image', reportId, imageId] as const,
   },
 
   /** REQ-381 design §3.2 — solution-pack update review/apply screen. */

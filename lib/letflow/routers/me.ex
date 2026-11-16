@@ -184,7 +184,7 @@ defmodule Letflow.Routers.Me do
       {:error, :consent_required} ->
         Response.unprocessable(conn, "Tick the consent box to send the report.")
 
-      {:error, {:invalid, field}} when field in ["text", "context"] ->
+      {:error, {:invalid, field}} when field in ["text", "context", "images"] ->
         Response.unprocessable(conn, "Invalid #{field}.")
 
       {:error, :throttled} ->

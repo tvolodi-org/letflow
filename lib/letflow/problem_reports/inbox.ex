@@ -13,7 +13,7 @@ defmodule Letflow.ProblemReports.Inbox do
   require Logger
 
   alias Letflow.{Audit, PlatformTenant, ProblemReports, Repo}
-  alias Letflow.ProblemReports.{Capture, Report, Review, Status}
+  alias Letflow.ProblemReports.{Capture, Report, ReportImage, Review, Status}
 
   @actions ~w(answer develop reject ask fixed)
   @closed ~w(answered fixed not_done)
@@ -141,7 +141,7 @@ defmodule Letflow.ProblemReports.Inbox do
     with {:ok, prefix} <- prefix(),
          {:ok, id} <- cast_id(id),
          %Report{} = report <- Repo.get(Report, id, prefix: prefix) do
-      if report.class == "review", do: Review.get(id), else: {:ok, detail(report)}
+      if report.class == "review", do: Review.get(id), else: {:ok, detail(report, prefix)}
     else
       nil -> {:error, :not_found}
       error -> error
@@ -209,7 +209,7 @@ defmodule Letflow.ProblemReports.Inbox do
       case result do
         {:ok, report} ->
           Status.notify(report, report.last_action)
-          {:ok, detail(report)}
+          {:ok, detail(report, prefix)}
 
         error ->
           error
@@ -251,7 +251,17 @@ defmodule Letflow.ProblemReports.Inbox do
     }
   end
 
-  defp detail(r) do
+  defp detail(r, prefix) do
+    images =
+      Repo.all(
+        from(i in ReportImage,
+          where: i.report_id == ^r.id,
+          order_by: [asc: i.position],
+          select: %{"id" => i.id, "content_type" => i.content_type, "position" => i.position}
+        ),
+        prefix: prefix
+      )
+
     summary(r)
     |> Map.delete("text_preview")
     |> Map.merge(%{
@@ -269,7 +279,8 @@ defmodule Letflow.ProblemReports.Inbox do
       "server_version" => r.server_version,
       "trace_id" => r.trace_id,
       "reply_text" => r.reply_text,
-      "dev_summary" => r.dev_summary
+      "dev_summary" => r.dev_summary,
+      "images" => images
     })
   end
 end

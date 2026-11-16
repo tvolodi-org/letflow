@@ -261,4 +261,49 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert ctx["route"] == "/documents/:id"
     assert ctx["entity_ids"] == %{"documents" => "abc"}
   end
+
+  # ── T-2015 image parsing unit tests ──────────────────────────────────────
+
+  @png <<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, "IHDR", 0, 0, 0, 1, 0, 0, 0, 1>>
+  @jpeg <<0xFF, 0xD8, 0xFF, 0xE0, 0, 16, "JFIF", 0>>
+
+  defp encode_image(bytes, ct), do: %{"data_base64" => Base.encode64(bytes), "content_type" => ct}
+
+  test "IM-U1 parse_images accepts nil and returns an empty list" do
+    assert {:ok, []} = Capture.parse_images(nil)
+  end
+
+  test "IM-U2 parse_images accepts a valid PNG image" do
+    assert {:ok, [img]} = Capture.parse_images([encode_image(@png, "image/png")])
+    assert img.content_type == "image/png"
+    assert img.bytes == @png
+    assert img.size == byte_size(@png)
+  end
+
+  test "IM-U3 parse_images accepts a valid JPEG image" do
+    assert {:ok, [img]} = Capture.parse_images([encode_image(@jpeg, "image/jpeg")])
+    assert img.content_type == "image/jpeg"
+  end
+
+  test "IM-U4 parse_images rejects more than 3 images" do
+    four = List.duplicate(encode_image(@png, "image/png"), 4)
+    assert {:error, {:invalid, "images"}} = Capture.parse_images(four)
+  end
+
+  test "IM-U5 parse_images rejects a type mismatch (PNG bytes declared as JPEG)" do
+    assert {:error, {:invalid, "images"}} =
+             Capture.parse_images([encode_image(@png, "image/jpeg")])
+  end
+
+  test "IM-U6 parse_images rejects an oversize image (> 5 MiB)" do
+    # Pad to just over 5 MiB; magic bytes kept for the PNG sniff to pass the type check,
+    # but the size check runs after decode, so the magic bytes are correct here.
+    big = @png <> :binary.copy(<<0>>, 5_242_881 - byte_size(@png))
+    assert {:error, {:invalid, "images"}} = Capture.parse_images([encode_image(big, "image/png")])
+  end
+
+  test "IM-U7 parse_images rejects a GIF (unsupported type)" do
+    gif = "GIF89a" <> :binary.copy(<<0>>, 10)
+    assert {:error, {:invalid, "images"}} = Capture.parse_images([encode_image(gif, "image/gif")])
+  end
 end

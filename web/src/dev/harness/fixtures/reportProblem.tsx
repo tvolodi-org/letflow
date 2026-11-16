@@ -1,7 +1,8 @@
 /** Harness fixtures of "Report a problem" (T-1950). Invented data only. The REAL AppShell shows the top-bar button; a
  *  `Driver` waits for the shell, seeds the capture rings (the shell resets them on mount) and walks the dialog through
  *  the real DOM (matching by data-testid, never by label, so ru and kk work). `report-problem-error` answers 503.
- *  The crash screens render `ShellCrashPanel` directly (the boundary above AppShell is not part of the harness). */
+ *  The crash screens render `ShellCrashPanel` directly (the boundary above AppShell is not part of the harness).
+ *  T-2015: adds `report-problem-with-images` using `preloadImages` prop to bypass canvas processing. */
 import { lazy, Suspense, useEffect, type ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AuthContext } from '@/auth/AuthContext'
@@ -12,6 +13,7 @@ import { LayoutPrefsProvider } from '@/hooks/useLayoutPrefs'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ToastContainer } from '@/components/ui/Toast'
 import { ShellCrashPanel } from '@/components/layout/ShellCrashPanel'
+import { ReportProblemDialog } from '@/components/layout/ReportProblemDialog'
 import { recordAction, recordRequest, resetCapture } from '@/lib/problemReport/capture'
 import { AUTH, makeRoutes } from './layoutBase'
 import type { FixtureRoute, HarnessScreen } from '../types'
@@ -147,6 +149,32 @@ function crashPage(open: boolean): ReactElement {
 
 const base = (status: number): FixtureRoute[] => [...makeRoutes(null), notificationsRoute, reportRoute(status)]
 
+function shellWithImages(lang: 'en' | 'ru' | 'kk'): ReactElement {
+  const t = TXT[lang]
+  return (
+    <AuthContext.Provider value={AUTH}>
+      <BrandingProvider>
+        <AccessStateProvider state={accessState('platformAdmin')}>
+          <LayoutPrefsProvider>
+            <Routes>
+              <Route
+                path="*"
+                element={
+                  <>
+                    <PageHeader eyebrow={t.eyebrow} title={t.title} lede={t.lede} />
+                    <ReportProblemDialog crash={null} onClose={() => undefined} preloadImages />
+                  </>
+                }
+              />
+            </Routes>
+            <ToastContainer />
+          </LayoutPrefsProvider>
+        </AccessStateProvider>
+      </BrandingProvider>
+    </AuthContext.Provider>
+  )
+}
+
 export const reportProblemScreens: HarnessScreen[] = [
   { name: 'report-problem-shell', routes: base(201), render: ({ lang }) => shell('none', lang) },
   { name: 'report-problem-open', routes: base(201), render: ({ lang }) => shell('open', lang) },
@@ -155,4 +183,5 @@ export const reportProblemScreens: HarnessScreen[] = [
   { name: 'report-problem-received', routes: base(201), render: ({ lang }) => shell('send', lang) },
   { name: 'report-problem-crash', routes: base(201), render: () => crashPage(false) },
   { name: 'report-problem-crash-open', routes: base(201), render: () => crashPage(true) },
+  { name: 'report-problem-with-images', routes: base(201), render: ({ lang }) => shellWithImages(lang) },
 ]

@@ -26,7 +26,7 @@ defmodule Letflow.ProblemReports.Review do
   require Logger
 
   alias Letflow.{Audit, PlatformTenant, Repo, TenantProvisioning}
-  alias Letflow.ProblemReports.{Comment, CommentImage, Report}
+  alias Letflow.ProblemReports.{Comment, CommentImage, Report, ReportImage}
 
   @open_states ~w(for_review waiting owner_reviewed in_work ready)
   @all_states @open_states ++ ["closed"]
@@ -125,12 +125,12 @@ defmodule Letflow.ProblemReports.Review do
     error -> internal(error)
   end
 
-  @doc "The bytes of one image of one item; one query keyed by item and image (INV-5)."
+  @doc "The bytes of one image; checks comment images first (review items), then report images (problem reports). One query keyed by report and image (INV-5)."
   def image(id, image_id) do
     with {:ok, prefix} <- prefix(),
          {:ok, id} <- cast_id(id),
          {:ok, image_id} <- cast_id(image_id) do
-      query =
+      comment_query =
         from(i in CommentImage,
           join: r in Report,
           on: r.id == i.report_id,
@@ -138,9 +138,21 @@ defmodule Letflow.ProblemReports.Review do
           select: %{content_type: i.content_type, bytes: i.bytes}
         )
 
-      case Repo.one(query, prefix: prefix) do
-        nil -> {:error, :not_found}
-        image -> {:ok, image}
+      case Repo.one(comment_query, prefix: prefix) do
+        nil ->
+          report_query =
+            from(i in ReportImage,
+              where: i.id == ^image_id and i.report_id == ^id,
+              select: %{content_type: i.content_type, bytes: i.bytes}
+            )
+
+          case Repo.one(report_query, prefix: prefix) do
+            nil -> {:error, :not_found}
+            image -> {:ok, image}
+          end
+
+        image ->
+          {:ok, image}
       end
     end
   rescue

@@ -262,6 +262,8 @@ forward) and its runbook `docs/runbooks/problem-report-handoff.md`. The web butt
 
 Slice 2 part 1 (web button, consent dialog, client ring of actions and requests, crash panel with "Report this problem") is built in T-1950; screenshots follow in part 2.
 
+Slice 2 part 2 (screenshot area in the report-a-problem dialog: paste, drag-and-drop, file picker, camera; up to 3 images, bytes-checked PNG/JPEG, EXIF stripped client-side, preview with remove; stored as `problem_report_images` rows in the platform schema; 30-day retention via `ProblemReports.purge_old_report_images/1`, to be called by the maintenance scheduler when it is built) is built in T-2015. The body-cap constraint (JSON parser: 2 MiB) makes the per-image 5 MiB cap unreachable from the router; the client enforces `MAX_TOTAL_BYTES = 1.3 MiB` total raw bytes. Entity id capture in context is built in T-2009.
+
 Slice 3 part A (server error capture, grouping, throttle, `error_group_alert`, `GET /maintenance/v1/error-groups`) is built in T-1951; web capture (`window.onerror`, rejections, boundary, `POST /api/v1/me/client-errors`) is part B, a follow-up task.
 
 ## 11. Open base or closed extra (requirement 10, note only)

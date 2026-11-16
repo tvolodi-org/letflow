@@ -237,4 +237,67 @@ defmodule Letflow.Routers.MeProblemReportsTest do
     assert post(a, token, body()).status == 201
     assert length(reports(p)) == 1
   end
+
+  # ── T-2015 image tests (IM1-IM5) ───────────────────────────────────────
+
+  alias Letflow.ProblemReports.ReportImage
+  alias Letflow.Support.OwnerListFixture, as: F
+
+  defp images(fx),
+    do: Repo.all(from(i in ReportImage, order_by: i.position), prefix: fx.schema_name)
+
+  defp image_body(images_list) do
+    body(%{
+      "images" =>
+        Enum.map(images_list, fn {bytes, ct} ->
+          %{"data_base64" => Base.encode64(bytes), "content_type" => ct}
+        end)
+    })
+  end
+
+  test "IM1 valid PNG stored under the platform prefix with correct fields", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    conn = post(a, token, image_body([{F.png(), "image/png"}]))
+    assert conn.status == 201, conn.resp_body
+
+    assert [row] = reports(p)
+    assert [img] = images(p)
+    assert img.report_id == row.id
+    assert img.content_type == "image/png"
+    assert img.bytes == F.png()
+    assert img.position == 1
+    assert img.size == byte_size(F.png())
+    # Images land only in the platform schema (INV-1)
+    assert images(a) == []
+  end
+
+  test "IM2 valid JPEG stored; PNG and JPEG together (2 images)", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    conn = post(a, token, image_body([{F.png(), "image/png"}, {F.jpeg(), "image/jpeg"}]))
+    assert conn.status == 201, conn.resp_body
+    assert [img1, img2] = images(p)
+    assert img1.content_type == "image/png"
+    assert img2.content_type == "image/jpeg"
+    assert img1.position == 1
+    assert img2.position == 2
+  end
+
+  test "IM3 more than 3 images answers 422 (invalid images field)", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    four = List.duplicate({F.png(), "image/png"}, 4)
+    conn = post(a, token, image_body(four))
+    assert conn.status == 422, conn.resp_body
+    assert reports(p) == []
+  end
+
+  test "IM4 type mismatch (PNG bytes declared as JPEG) answers 422", %{p: p, a: a} do
+    {token, _} = caller!(a)
+    conn = post(a, token, image_body([{F.png(), "image/jpeg"}]))
+    assert conn.status == 422, conn.resp_body
+    assert reports(p) == []
+  end
+
+  # IM5 (oversize > 5 MiB) cannot be tested through the router: the 2 MiB body cap is hit first
+  # (the base64 of a 5 MiB image is ~6.7 MiB). The cap is validated in Capture.parse_images;
+  # see test/letflow/problem_reports/capture_test.exs for the unit-level proof.
 end

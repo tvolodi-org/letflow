@@ -8,6 +8,7 @@
 import React, { useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 import { useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -19,9 +20,8 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { ListDetail, DetailTabs, type DetailTab } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useDocumentLayout } from '@/hooks/useDocumentLayout'
-import { useDecideReport, useInboxList, useInboxReport } from '@/hooks/useProblemReportsInbox'
+import { useDecideReport, useInboxList, useInboxReport, useReportImage } from '@/hooks/useProblemReportsInbox'
 import { useToast } from '@/hooks/useToast'
-import { useQueryClient } from '@tanstack/react-query'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { formatDateTime } from '@/i18n/format'
 import type { DecisionAction, InboxDetail, InboxFilter, InboxSummary } from '@/api/platformProblemReports'
@@ -32,6 +32,25 @@ import { ActionsTable, FactsList, RequestsTable } from './ReportFacts'
 import { ACTIONS, CAPS, STATUS_LOOK, UNKNOWN_LOOK, checkDecisionText, decisionErrorKind, isOpen, normalizeFilter, reportFacts } from './problemReportsModel'
 
 const t = (intl: IntlShape, id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `problemReports.${id}` }, values)
+
+function ReportImageThumbnail({ reportId, imageId, contentType }: { reportId: string; imageId: string; contentType: string }) {
+  const query = useReportImage(reportId, imageId)
+
+  if (query.isLoading) return <div className="lf-report__thumb lf-report__thumb--loading" aria-busy="true" />
+  if (query.isError || !query.data) return null
+
+  return (
+    <a
+      className="lf-report__thumb"
+      href={query.data}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={`pr-image-${imageId}`}
+    >
+      <img src={query.data} alt={contentType} />
+    </a>
+  )
+}
 
 function ReportPill({ status }: { status: string }) {
   const intl = useIntl()
@@ -98,6 +117,13 @@ function ReportDetail({ id, onDecide }: DetailProps) {
     <section data-testid="pr-text" aria-label={t(intl, 'text.heading')}>
       <h3 className="lf-form__title">{t(intl, 'text.heading')}</h3>
       <p className="lf-pr__text">{report.text}</p>
+      {report.images && report.images.length > 0 && (
+        <div className="lf-report__thumbs" data-testid="pr-images">
+          {report.images.map((img) => (
+            <ReportImageThumbnail key={img.id} reportId={report.id} imageId={img.id} contentType={img.content_type} />
+          ))}
+        </div>
+      )}
     </section>
   )
   const factsCard = (
