@@ -66,6 +66,8 @@ Historical searches behind the original "not found" claims (2026-11-13, before t
 
 ## 1. Fit and gap
 
+Qoimeks habits kept only if industry practice exists (owner 2026-11-16).
+
 ### 1.1 What Client 1 uses today [INV]
 
 - **Where:** Qoimeks production, release `e5fa19f`, migrations 001–009. Since 2026-10-29 Client 1's data is in its own tenant `ddee98f0-…`. The old default-schema copy is kept 30 days after the checks [INV §0].
