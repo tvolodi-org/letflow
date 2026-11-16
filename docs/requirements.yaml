@@ -55506,7 +55506,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- no pending dependency; parity row G3 of docs/status/qoimeks-migration-readiness.md, part 1 of 5 (REQ-841..REQ-845)
+    gh: 4555
     # Source: task T-2026 (operator; owner decision 2026-11-16 via the PM, quoted in the task text: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md section 1.2 rows G3 and G11 and section 2.1 (Items row: "the second place is not carried (G3)"); lib/letflow/modules/catalog_items/catalog_items.ex (manifest: depends_on [], manages_entity_types, scope_declarations :tenant_wide, import_functions, "the only write functions" of the module); lib/letflow/modules/catalog_items/import.ex (reference resolution by external id under the row's system, {:reference_not_found, field}, {:reference_inactive, field}, audit per created or updated row); lib/letflow/modules/stock/stock.ex (manifest version 0.17.0, depends_on ["catalog_items", "codes", "locations", "org"], manages_entity_types, scope_declarations, import_opening_line/3 in import_functions, "Opening line import" section, new types reach an install through the module-upgrade path); lib/letflow/modules/stock/documents/opening_import.ex (same reference codes); lib/letflow/modules/locations/locations.ex (lookup/2, active?/2 of location_node); priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/; docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D3.5 ("Validation lives in the referencing module ... through depends_on") and D3.6 (declarative string references, no FK); lib/mix/tasks/letflow.check_boundaries.ex Rule 4 (a module may reference another only if it is in its depends_on); lib/letflow/routers/entities.ex (the import route, EntitiesRecordsImport, upsert_by external_ref, dry_run); docs/roles.md (STOREKEEPER holds EntitiesQuery and imports only stock_opening_line; EntitiesRecordsImportAnyType is TENANT_ADMIN only); lib/letflow/entities/records.ex (an update replaces the whole field_values). Qoimeks, read only, outside this repository (extract copied to the task folder state/tasks/T-2026/sources/qoimeks-places-extract.md): Qoimeks-team/product/server/internal/store/migrations/002_sku_locations.sql ("Where a SKU normally lives, and a second place to look when that one is full": skus.location_id and skus.alt_location_id, both nullable references to locations); server/internal/store/import.go (each import row sets both columns, an empty cell stores none); server/internal/importer/importer.go (column G "Второе место" is a place code; a cell that is not a place code is skipped with a warning and the SKU is kept). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
     description: >
       Qoimeks parity row G3 (docs/status/qoimeks-migration-readiness.md, section 1.2): in Qoimeks every SKU has a
@@ -55564,7 +55564,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-841 -- the converter writes the file of the stock_item_place import that REQ-841 adds
+    gh: 4553
     # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: scripts/pilot/qoimeks_convert.py (NEEDED columns, ITEM_COLS, MAX_ROWS = 200, drop reasons, emit/manifest upload_order, expected_counts.txt keys records.<type>, report.txt); scripts/pilot/qoimeks_compare.sh (EXPECTED key lines, an absent key counts as 0); docs/runbooks/qoimeks-rehearsal.md (table of files, steps 1-3 and 6); test/letflow/modules/stock/qoimeks_files_test.exs (pushes the converted files through the real import routes); test/scripts/qoimeks_rehearsal_test.exs. Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): skus.location_id is the usual place and skus.alt_location_id the second place (server/internal/store/migrations/002_sku_locations.sql). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
     description: >
       Part 2 of parity row G3 (part 1 is REQ-841, planned, not yet on main). The T-1616 converter
@@ -55595,7 +55595,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-841 -- the screens read the stock_item_place links that REQ-841 adds
+    gh: 4552
     # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/catalog_items/items/ItemsPage.tsx and ItemDetails.tsx (T-1402: list columns code, title, unit, tracking, status; Overview, Related, History); web/src/modules/catalog_items/catalogItemsStock.api.ts (the catalog_items web module may not import the stock module, ESLint boundary, so it calls stock URLs itself); web/src/modules/stock/register/BalancesPage.tsx (REQ-724: columns item, location, org unit, responsible, lot, unit, quantity; names through the master pickers); web/src/modules/stock/register/stockPickers.ts; docs/roles.md (STOREKEEPER holds EntitiesQuery). Qoimeks, read only: the stock list shows the usual place and the second place per SKU (export columns 'Второе место' and 'Место', server/internal/importer/export.go). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
     description: >
       Part 3 of parity row G3 (REQ-841, planned, not yet on main, adds the data). The Items screen
@@ -55621,7 +55621,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-841 -- the form reads the stock_item_place links that REQ-841 adds
+    gh: 4550
     # Source: task T-2026 (see REQ-841). Read on origin/main 2b1fd9b57: web/src/modules/stock/documents/DocumentForm.tsx (REQ-722; header locationId picker from usePickerOptions('location_node'); the hand-over rule that To starts as From); web/src/modules/stock/documents/LinesEditor.tsx; priv/modules/stock/entity_definitions/stock_receipt.json, stock_issue.json, stock_writeoff.json (header location_id) and stock_transfer.json, stock_handover.json, stock_return.json (from_location_id, to_location_id); stock_opening.json (no header location). Qoimeks, read only (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md): mobile/lib/operation_screen.dart _setSku (when the place is empty or still the previous SKU's usual place, choosing a SKU sets the place to its usual place) and the balance hint 'Смотреть также:' / 'Тағы қараңыз:' with the second place code when it differs from the chosen place. Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
     description: >
       Part 4 of parity row G3 (REQ-841, planned, not yet on main, adds the data). In Qoimeks choosing a SKU in an
@@ -55653,7 +55653,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-841 -- the phone reads the stock_item_place links that REQ-841 adds
+    gh: 4549
     # Source: task T-2026 (see REQ-841 and REQ-844). Read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/document_form_controller.dart (header keys location_id, from_location_id, to_location_id; applyLocationScan; the voice fill of places), document_form_screen.dart (REQ-746 draft form of six kinds), document_pickers.dart. Qoimeks, read only: mobile/lib/operation_screen.dart _setSku and the 'Смотреть также:' hint (extract in state/tasks/T-2026/sources/qoimeks-places-extract.md). Written by the business analyst (T-2026) 2026-11-16. Not yet validated.
     description: >
       Part 5 of parity row G3: the phone gets the same help as the web form of REQ-844 (planned, not yet on main),
