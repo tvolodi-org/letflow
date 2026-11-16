@@ -26,6 +26,8 @@ export interface DiagramEditPaneProps {
   def: ProcessDefinition
   /** The Editor has unsaved changes: the diagram draft must not diverge from them. */
   editorDirty: boolean
+  /** This pane was opened by the save of a version copy: show the "Saved." confirmation at once. */
+  justSaved?: boolean
   onDirtyChange: (dirty: boolean) => void
   /** After a successful save. `id` is the id of the saved draft (a new id when a version copy was made). */
   onSaved: (saved: ProcessDefinition, copied: boolean) => void
@@ -46,7 +48,7 @@ function classify(err: unknown): NonNullable<SaveError> {
   return { kind: 'other', message }
 }
 
-export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onReload, demo }: DiagramEditPaneProps) {
+export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
@@ -84,7 +86,7 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
   const [error, setError] = useState<SaveError>(demo?.error ?? null)
   const [stale, setStale] = useState(demo?.stale === true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
-  const [savedTick, setSavedTick] = useState(demo?.saved === true)
+  const [savedTick, setSavedTick] = useState(demo?.saved === true || justSaved === true)
   const [version, setVersion] = useState(() => nextDraftVersion(def.version))
   const [versionTaken, setVersionTaken] = useState(demo?.versionTaken === true)
   // Violations a failed save returned for the graph that was sent (kept until that graph changes).

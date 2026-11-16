@@ -6,7 +6,7 @@
  *  is announced in an aria-live region. Under the narrow width the canvas is replaced by an editable step list. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { Background, Controls, ReactFlow, ReactFlowProvider, type AriaLabelConfig, type Connection, type NodeChange } from '@xyflow/react'
+import { Background, Controls, ReactFlow, ReactFlowProvider, type AriaLabelConfig, type Connection, type NodeChange, type ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import '@/styles/process-diagram.css'
 import type { GraphValidationViolation } from '@/api/definitions'
@@ -209,6 +209,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
     [graph, announce, refusalText],
   )
 
+  const flowRef = useRef<ReactFlowInstance | null>(null)
   const addStep = () => {
     // Left to right like the layout: a new step goes to the right of the drawing, level with the start.
     const xs = graph.nodes.map((n) => positionOf(n)?.x ?? 0)
@@ -217,6 +218,8 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
     const r = addNode(graph, addType, at)
     apply(r, r.ok ? e('announce.added', { type: t.typeName(addType) }) : undefined)
     if (r.ok && r.id) setSel({ kind: 'node', id: r.id })
+    // The new step goes to the right of the drawing: bring the whole drawing back into view, otherwise it lands off the canvas.
+    if (r.ok) requestAnimationFrame(() => flowRef.current?.fitView(FIT_VIEW_OPTIONS))
   }
 
   const deleteSelection = () => {
@@ -339,6 +342,9 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
               nodesFocusable
               deleteKeyCode={null}
               fitView
+              onInit={(inst) => {
+                flowRef.current = inst
+              }}
               fitViewOptions={FIT_VIEW_OPTIONS}
               minZoom={diagramConfig.minZoom}
               maxZoom={diagramConfig.maxZoom}
