@@ -1,4 +1,5 @@
 Code.require_file("stock_fixture.exs", __DIR__)
+Code.require_file("../catalog_items/catalog_items_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.Stock.RouterTest do
   @moduledoc """
@@ -845,6 +846,89 @@ defmodule Letflow.Modules.Stock.RouterTest do
       assert %{"rows" => [], "ledger_seq" => 0} = ok!(S.get("/balances", tok))
       assert %{"rows" => []} = ok!(S.get("/movements", tok))
       assert %{"checked_through_seq" => 0} = ok!(S.get("/reconcile", tok))
+    end
+  end
+
+  # REQ-865 / GH #4579: the whole-stock workbook route.
+  describe "stock-workbook" do
+    @xlsx_ct "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    test "T-RWB-1 TENANT_ADMIN and STOREKEEPER get 200 xlsx with correct Content-Disposition",
+         ctx do
+      for roles <- [["TENANT_ADMIN"], ["STOREKEEPER"]] do
+        tok = S.token(ctx, :a, roles, sub: "wb-#{List.first(roles)}")
+        conn = assert_status(S.get("/stock-workbook", tok), 200)
+
+        assert conn.resp_headers
+               |> Enum.into(%{})
+               |> Map.get("content-type") =~ @xlsx_ct
+
+        cd = conn.resp_headers |> Enum.into(%{}) |> Map.get("content-disposition", "")
+        assert cd =~ ~r/stock-\d{4}-\d{2}-\d{2}\.xlsx/
+
+        # The date is today in the tenant's own time zone.
+        zone = Letflow.Modules.Stock.CountPaperworkSource.zone(ctx.a.tenant_id)
+        {:ok, today} = Letflow.Identity.TenantTimezone.today(zone)
+        assert cd =~ "stock-#{Date.to_iso8601(today)}.xlsx"
+      end
+    end
+
+    test "T-RWB-5 over the row cap: 422 workbook_too_large and no file; at the cap: 200 xlsx",
+         ctx do
+      uom = Letflow.CatalogItemsFixture.uom!(ctx.a.schema_name, "pcr")
+
+      for i <- 1..4,
+          do: Letflow.CatalogItemsFixture.item!(ctx.a.schema_name, "RCAP-#{i}", uom.record_id)
+
+      Application.put_env(:letflow, :stock_workbook_max_rows, 3)
+
+      try do
+        conn = S.get("/stock-workbook", ctx.tok_a)
+        assert conn.status == 422, "expected 422, got #{conn.status}"
+        ct = conn.resp_headers |> Enum.into(%{}) |> Map.get("content-type", "")
+        refute ct =~ @xlsx_ct
+        assert ct =~ "json"
+        assert S.json(conn)["reason"] == "workbook_too_large"
+        refute conn.resp_body =~ "PK"
+
+        # Cap raised to exactly the 4 data rows: the same route answers the file.
+        Application.put_env(:letflow, :stock_workbook_max_rows, 4)
+        conn = assert_status(S.get("/stock-workbook", ctx.tok_a), 200)
+        assert conn.resp_headers |> Enum.into(%{}) |> Map.get("content-type") =~ @xlsx_ct
+      after
+        Application.delete_env(:letflow, :stock_workbook_max_rows)
+      end
+    end
+
+    test "T-RWB-2 TASK_WORKER gets 403 Forbidden with detail insufficient permissions", ctx do
+      tok = S.token(ctx, :a, ["TASK_WORKER"], sub: "wb-worker")
+      conn = S.get("/stock-workbook", tok)
+      body = assert_status(conn, 403) |> S.json()
+      assert body["title"] == "Forbidden" and body["detail"] == "insufficient permissions"
+    end
+
+    test "T-RWB-3 a scoped STOREKEEPER gets the same 404 body as an unknown stock path", ctx do
+      s = S.tenant!("stk-s2", ctx.names.s)
+      node = Letflow.Support.RoleScopeGrantsFixture.node!(s.schema_name)
+      tok = login!(ctx, "scoped-wb")
+      scope_users!(s.schema_name, [{"scoped-wb", node}])
+      reference = c_reference(ctx)
+
+      conn = S.get("/stock-workbook", tok)
+      assert conn.status == 404
+      assert strip(S.json(conn)) == reference
+    end
+
+    test "T-RWB-4 any query key is refused 422 invalid_filter", ctx do
+      tok = ctx.tok_a
+
+      for path <- [
+            "/stock-workbook?format=json",
+            "/stock-workbook?x=1",
+            "/stock-workbook?tenant_id=x"
+          ] do
+        assert reason!(S.get(path, tok), 422) == "invalid_filter"
+      end
     end
   end
 
