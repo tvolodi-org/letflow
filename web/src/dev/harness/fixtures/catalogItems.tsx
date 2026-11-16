@@ -32,8 +32,18 @@ const NAMES: [string, string, string, Record<string, unknown>][] = [
   ['Old packaging film (discontinued)', 'GATEA-P-0003', UOM, { active: false }],
 ]
 const ITEMS: EntityRecord[] = NAMES.map(([name, code, uom, extra], i) =>
-  rec(`00000000-0000-4000-8000-00000000010${i}`, 'catalog_item', { code, name, base_uom_id: uom, kind: 'material', ...extra }),
+  rec(`00000000-0000-4000-8000-00000000010${i}`, 'catalog_item', {
+    code,
+    name,
+    base_uom_id: uom,
+    kind: 'material',
+    // G3: the first item has a usual place (the second one has none)
+    ...(i === 0 ? { default_location_id: '00000000-0000-4000-8000-0000000000b1' } : {}),
+    ...extra,
+  }),
 )
+/** An item without a usual place (the card shows a dash). */
+const NO_PLACE = ITEMS[1]?.record_id ?? ''
 const SELECTED = ITEMS[0]?.record_id ?? ''
 /** The record the `-open` fixtures start with. */
 export const catalogItemsSelectedId = SELECTED
@@ -93,14 +103,14 @@ const AUTH = {
   isAuthenticated: true,
 } as unknown as AuthContextValue
 
-function screen(selected: boolean): ReactElement {
+function screen(selected: boolean, itemId: string = SELECTED): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={{ status: 'ready', info: { roles: [], platform_tenant: false, permissions: ['StockRead'] } }}>
         <LayoutPrefsProvider>
           <div className="lf-main">
             <main className="lf-content lf-content--fluid">
-              <ItemsPage initialItemId={selected ? SELECTED : undefined} />
+              <ItemsPage initialItemId={selected ? itemId : undefined} />
             </main>
           </div>
         </LayoutPrefsProvider>
@@ -119,6 +129,8 @@ const SEED_REMEMBERED = {
 export const catalogItemsScreens: HarnessScreen[] = [
   { name: 'catalog-items', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(false) },
   { name: 'catalog-items-detail', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(true) },
+  // G3: an item without a usual place
+  { name: 'catalog-items-detail-noplace', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(true, NO_PLACE) },
   // the same screen at 1920 / 2560 / 3440 (the shot script sets the viewport): fluid, no centred column
   { name: 'catalog-items-wide', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(true) },
   { name: 'catalog-items-remembered', routes: [...prefRoutes(SEED_REMEMBERED), ...catalogItemsDataRoutes], render: () => screen(true) },

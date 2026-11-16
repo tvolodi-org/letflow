@@ -287,6 +287,19 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     (optional fields, no step): a QA tenant with 0.3.0 answers `upgrade_required` on writes of the module
     until the operator's upgrade run; existing records read back unchanged.
 
+24. **Usual place of an item (Qoimeks parity G3, `catalog_items` 0.5.0).** `catalog_item` has one optional
+    string field `default_location_id`: the record id of one `location_node`, the item's usual storage place.
+    One place only: no list, no second place, no document prefill, no warning. It is written by the item import
+    (`Letflow.Modules.CatalogItems.Import`, `lib/letflow/modules/catalog_items/import.ex`): the file column `default_location_id` holds the place's external id
+    under the row's system; an unknown or deleted place is a row error `reference_not_found` and a retired one
+    `reference_inactive` (field `default_location_id`), and that row writes nothing. A re-import replaces the whole
+    row, so a blank cell clears the place. The module does not list `locations` in `depends_on`: the place is read
+    by the core `ReadApi.lookup_by_external_ref/5`, and a tenant without `locations` answers `reference_not_found`.
+    The Items card (web) shows it as "code - name". Upgrade class A (optional field, no step). The Qoimeks
+    converter (`scripts/pilot/qoimeks_convert.py`) carries `home_loc` into this column and only counts `alt_loc`
+    (the second place) in `report.txt`. Items have no edit form on the web yet (no item write route): the place
+    is set by import.
+
 ## Locations module limits
 
 Module `locations` (GH #3501 / REQ-625 skeleton, GH #3591 / REQ-645, decisions 0050 and 0066) as it

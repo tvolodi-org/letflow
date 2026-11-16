@@ -13,7 +13,7 @@
 # default `psql "$DATABASE_URL" -X -A -t -F ' '`. Infra may set it to for example
 # `docker exec -i <postgres> psql -U <user> -d <db> -X -A -t -F ' '`. No password is read or printed here.
 # Keys (see docs/runbooks/demo-operator-inputs.md): tenants, tenant.<slug>.status.<status>, .modules_active, .module.<id>, .users,
-# .users_active, .records.<entity_type>, .ledger_entries.<cause>, .ledger_legs, .documents.
+# .users_active, .records.<entity_type>, .items_with_default_location, .ledger_entries.<cause>, .ledger_legs, .documents.
 # Exit codes: 0 ok, 1 data lost (compare) or psql failed, 2 bad input.
 set -euo pipefail
 set +x
@@ -33,6 +33,7 @@ m(tmpl) AS (VALUES
   ('SELECT ''users '' || count(*) AS c FROM %I.users'),
   ('SELECT ''users_active '' || count(*) AS c FROM %I.users WHERE status = ''active'''),
   ('SELECT string_agg(''records.'' || entity_type || '' '' || n, chr(10)) AS c FROM (SELECT entity_type, count(*) AS n FROM %I.entity_record_latest WHERE NOT deleted GROUP BY entity_type) g'),
+  ('SELECT ''items_with_default_location '' || count(*) AS c FROM %I.entity_record_latest WHERE NOT deleted AND entity_type = ''catalog_item'' AND coalesce(field_values->>''default_location_id'', '''') <> '''''),
   ('SELECT string_agg(''ledger_entries.'' || cause || '' '' || n, chr(10)) AS c FROM (SELECT cause, count(*) AS n FROM %I.ledger_entry GROUP BY cause) g'),
   ('SELECT ''ledger_legs '' || count(*) AS c FROM %I.ledger_leg'),
   ('SELECT ''documents '' || count(*) AS c FROM %I.documents')

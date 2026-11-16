@@ -345,21 +345,24 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
-  authz_post "/documents", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_post "/documents", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :create, fn conn, access ->
       render_document(conn, Documents.save(access.prefix, body(conn), access.actor_id), 201)
     end)
   end
 
-  authz_put "/documents/:id", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_put "/documents/:id", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :replace, fn conn, access ->
       result = Documents.replace(access.prefix, conn.params["id"], body(conn), access.actor_id)
       render_document(conn, result, 200)
     end)
   end
 
-  authz_delete "/documents/:id", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_delete "/documents/:id", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :stored, fn conn, access ->
       case Documents.discard(access.prefix, conn.params["id"], access.actor_id) do
         :ok -> Response.no_content(conn)
         {:error, reason} -> refuse_document(conn, reason)
@@ -367,8 +370,9 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
-  authz_post "/documents/:id/issue", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_post "/documents/:id/issue", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :stored, fn conn, access ->
       opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
 
       render_document(
@@ -379,8 +383,9 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
-  authz_post "/documents/:id/check", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_post "/documents/:id/check", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :stored, fn conn, access ->
       case Documents.check(access.prefix, conn.params["id"]) do
         {:ok, result} -> Response.ok(conn, result)
         {:error, reason} -> refuse_document(conn, reason)
@@ -388,8 +393,9 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
-  authz_post "/documents/:id/post", :StockPost do
-    with_access(conn, :post, fn conn, access ->
+  authz_post "/documents/:id/post", :StockPost,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :post, :stored, fn conn, access ->
       who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
       authorized = read_authorized(conn)
       fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
@@ -397,8 +403,9 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
-  authz_post "/documents/:id/reverse", :StockReverse do
-    with_access(conn, :reverse, fn conn, access ->
+  authz_post "/documents/:id/reverse", :StockReverse,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :reverse, :stored, fn conn, access ->
       who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
       authorized = read_authorized(conn)
       fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
@@ -410,8 +417,9 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
-  authz_post "/documents/:id/cancel", :StockReverse do
-    with_access(conn, :reverse, fn conn, access ->
+  authz_post "/documents/:id/cancel", :StockReverse,
+    scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
+    doc_write(conn, :reverse, :stored, fn conn, access ->
       authorized = read_authorized(conn)
       fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
 
@@ -721,7 +729,34 @@ defmodule Letflow.Modules.Stock.Router do
 
   # -- document handlers ---------------------------------------------------------------------------
 
+  # REQ-831: a document write route. `ScopeGate.scope_set/2` first (it sets the marker the before-send
+  # backstop needs, and it must run before the first read); then `Access` (scoped callers accepted)
+  # and the unit check: every org unit of the document must be in the caller's set, else the
+  # not-found answer of an unknown document, before any write.
+  defp doc_write(conn, purpose, mode, fun) do
+    {conn, _set} = Letflow.Api.ScopeGate.scope_set(conn, Access.permission(purpose))
+
+    with_scoped_access(conn, purpose, fn conn, access ->
+      if Access.units_allowed?(access, mode, conn.params["id"], body(conn)),
+        do: fun.(conn, access),
+        else: Response.not_found(conn)
+    end)
+  end
+
+  # Tenant-wide callers only: a scoped answer of `Access.check/2` (REQ-831, :post and :reverse) is
+  # refused with the same 404 as before, so a route with no unit check (the voice drafts read the
+  # whole tenant's catalog) never serves a scoped principal.
   defp with_access(conn, purpose, fun) do
+    with_scoped_access(conn, purpose, fn conn, access ->
+      case access do
+        %{scope: {:nodes, _ids}} -> Response.not_found(conn)
+        _tenant_wide -> fun.(conn, access)
+      end
+    end)
+  end
+
+  # Also serves a scoped caller; the handler must check the units itself (`doc_write/4`).
+  defp with_scoped_access(conn, purpose, fun) do
     case Access.check(conn, purpose) do
       {:ok, access} -> fun.(conn, access)
       :error -> Response.not_found(conn)
