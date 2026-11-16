@@ -53,26 +53,28 @@ Not built yet:
 
 ## 3. Decision: one attachment service
 
-One core service, planned name `Letflow.Attachments` (planned, not yet on main), used by every owner of a file:
+One core service, `Letflow.Attachments` (slice P1, T-2040: the service and the two tables are on main; no route yet), used by every owner of a file:
 record photos, evidence photos, asset-store files, problem-report screenshots, and later the review thread images.
 Two tables in **each tenant schema** (INV-1 by `:prefix`; `tenant_id` kept in each row as elsewhere):
 
-- `attachment_blobs` (planned): `id`, `sha256` (unique per schema: dedup inside one company only, as
+- `attachment_blobs` (built, P1): `id`, `sha256` (unique per schema: dedup inside one company only, as
   `repository_artifacts` does), `content_type` (set from the first bytes, never from the client), `byte_size`
   (measured), `width`, `height` (read from the image header), `bytes`, `inserted_at`. Deletable. A blob is deleted
   in the same transaction as its last link.
-- `attachment_links` (planned): `id`, `owner_kind` (an entity type key such as `assets_card`, or `problem_report`),
+- `attachment_links` (built, P1): `id`, `owner_kind` (an entity type key such as `assets_card`, or `problem_report`),
   `owner_id`, `purpose` (`photo` | `evidence` | `file` | `screenshot`), `position` (1..n, unique per owner and
   purpose), `is_main` (at most one per owner, purpose `photo`, partial unique index), `caption` (at most 200
   characters, plain text), `blob_id`, `thumb_blob_id` (images only), `uploaded_by`, `inserted_at`, `locked_at`
   (evidence, section 5.6), `retain_until` (null = as long as the owner).
 
-An **owner registry** (code, in each module's manifest, like the existing `role_grants`) declares per `owner_kind`:
-the purposes it accepts, the per-owner caps, the read check and the write check of the owner record, and when
-evidence locks. The service never decides tenant scope and never checks a role; the module router passes the prefix
+An **owner registry** declares per `owner_kind` the purposes it accepts, the per-owner caps and the main-photo rule.
+As built in P1 it is a static map in core, `Letflow.Attachments.Owners`, keyed by owner-kind strings, not a module
+manifest key (a manifest key would move the manifest hash and every module version pin, and a core file naming a
+module file breaks boundary Rule 5); each owner is still one line, added by its own slice. The read and write check of
+the owner record, and when evidence locks, are not in the registry: the owner's router passes its own result (P2). The service never decides tenant scope and never checks a role; the module router passes the prefix
 and the result of its own permission check, as `Letflow.Modules.Procurement.Attachments` does today.
 
-Storage of the bytes, v1: **PostgreSQL, in the tenant schema**, behind a small `BlobStore` behaviour (planned)
+Storage of the bytes, v1: **PostgreSQL, in the tenant schema**, behind a small `Letflow.Attachments.BlobStore` behaviour (built, P1)
 whose only adapter is Postgres. Reasons: the daily database dump already backs it up and restores it with the
 tenant (backup content per `ai-dala-portfolio/proposals/letflow-production-plan-T-1569.md` section 2, quoted in the
 BA note); tenant isolation and tenant purge (dropping the schema) work with no extra code; no new server, credential
@@ -113,7 +115,9 @@ photo **[A]**.
 Done on the server for every upload, whatever the client did, without decoding pixels: JPEG drops APP1 (EXIF, XMP,
 GPS), APP13 (IPTC) and COM segments, keeps APP0 and the ICC profile (APP2); PNG drops `eXIf`, `tEXt`, `zTXt`,
 `iTXt`, `tIME`; WebP drops the `EXIF` and `XMP ` chunks and clears their flags in `VP8X`. A test fixture with a GPS
-tag must come out with none. Because EXIF orientation is removed too, the web client rotates the image before upload
+tag must come out with none. As built (P1) JPEG and PNG use an allowlist of kept segments and chunks, stricter than this
+list: any APPn other than APP0, an ICC APP2 and an Adobe APP14 goes, and everything after the first EOI is cut
+(MPF secondary images carry their own EXIF/GPS); every PNG chunk CRC is checked. Because EXIF orientation is removed too, the web client rotates the image before upload
 (5.3); an API client that sends a rotated EXIF photo gets it stored as the sensor wrote it (documented, accepted).
 
 ### 5.3 Size caps and thumbnails
@@ -159,7 +163,8 @@ for reading; the reporter adds them only while sending the report.
 ### 5.6 Evidence lock
 Evidence photos can be added and removed only while the line can still be changed: the count sheet is open, the
 document is a draft. When the sheet closes or the document is issued or posted, the service sets `locked_at` on its
-evidence links in the same transaction; a locked photo cannot be deleted, reordered or re-captioned by anyone
+evidence links in the same transaction (P1 ships the column and the `photo_locked` refusals; setting the lock and the
+`attachment.locked` audit action come with P6); a locked photo cannot be deleted, reordered or re-captioned by anyone
 (`photo_locked`). It goes only with its document (documents are never deleted today; retention and legal hold are
 the subject of decision 0063, which is still proposed).
 
