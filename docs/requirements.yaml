@@ -55501,3 +55501,285 @@ requirements:
       - "8. Route class: the route walk of Letflow.Api.RouteScope over the real route table reports no error (test/letflow/api/route_scope_resolver_test.exs); the eight write routes have class {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} with source :declared; function_exported?(Letflow.Modules.Stock.Access, :document_scope, 1) is true; tenant_wide_default_routes.txt no longer has their eight lines and still has the GET /modules/stock/documents, GET /modules/stock/documents/:id and GET /modules/stock/documents/:id/print lines; the three `length(snapshot) ==` pins are 8 lower than on origin/main at implement time; a test shows document_scope/1 gives {:node, id} for a map with org_unit_id id and :unresolvable for a map without it and for an empty string."
       - "9. Docs in step: the moduledoc of Letflow.Modules.Stock.Access and of Letflow.Api.ModuleGuard describe the scoped write rule; decision 0073 gets 'Amended by REQ-831 (slice L6 part 2)' at its end stating which routes accept a scoped caller, which stay tenant-wide (reads, opening, counts, voice) and the scope node of the posting instance, and that with REQ-830 slice L6 is done; no earlier text of 0073 is edited. mix letflow.check.static passes and the test files named here pass when run by path."
     depends_on: [REQ-830, REQ-712, REQ-713, REQ-721, REQ-531]
+  - id: REQ-833
+    title: "Qoimeks parity G4 part 1: decision record for negative balances as a per-tenant setting of a ledger registration (what changes in the no-negative rule of decision 0073 and why, what every other ledger rule does with a negative balance)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4548
+    # Source: task T-2027 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 row G4 and section 2.4 rows R-2 and R-3 (withdrawn). Qoimeks sources read only, outside this repository, copied with paths into the task folder state/tasks/T-2027/sources/ (client1-inventory.md sections 4 count 8 and 8.3 to 8.5; qoimeks-migration-plan.md section 2; qoimeks-negative-balance-extract.md quoting Qoimeks server/internal/api/api_test.go "Issuing more than is there is allowed; the balance simply goes negative", server/internal/store/store.go func reverse with no balance check, mobile/lib/operation_screen.dart goesNegative for issue and transfer, mobile/lib/l10n.dart ru «Остаток станет отрицательным» and kk «Қалдық теріс болады»). Letflow files read on origin/main 2b1fd9b57: lib/letflow/ledger.ex (moduledoc order of work step 4; refusal_for/5 and over_bound?/2 with @limit 1.0E+21), lib/letflow/ledger/codes.ex (insufficient_balance 409), lib/letflow/modules/ledger_registration.ex (@registration_keys, closed reason list), lib/letflow/modules/stock/stock.ex (ledger registration "stock": causes and sign rules, key_bounds [], error_aliases insufficient_balance to insufficient_stock, posting_guard FreezeGuard), priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs (balance_sql/1: CHECK on_hand >= 0 and on_hand <= max_on_hand), lib/letflow/modules/stock/count_posting.ex (shortage_check/3, shortage_exceeds_balance), lib/letflow/modules/stock/documents/shape.ex (quantity_text/1 greater than zero), lib/letflow/modules/stock/documents/opening_shape.ex (quantity/2), lib/letflow/ledger/read.ex (nonzero filter on_hand != 0), scripts/pilot/qoimeks_convert.py (quantity_not_positive), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D5: core enforces "non-negative balance and registered per-key bounds"), 0057-wms-customer-draft-reconciliation.md (D5), docs/design/four-eyes-switch.md and lib/letflow/api/authorization.ex (:ApprovalRulesManage, the per-tenant switch precedent, owner decision D-144). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks allows a balance below zero and only warns «Остаток станет отрицательным» before an issue or a
+      transfer larger than the balance at the place (inventory section 8.3); Letflow refuses it: the ledger
+      guard in lib/letflow/ledger.ex (refusal_for/5) answers insufficient_balance (409,
+      lib/letflow/ledger/codes.ex; stock alias insufficient_stock, lib/letflow/modules/stock/stock.ex), the
+      table ledger_balance carries CHECK on_hand >= 0
+      (priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs), and decision 0073 D5 lists
+      "non-negative balance" among the mechanical invariants core enforces. The owner decided parity
+      (2026-11-16), with a per-tenant setting whose default stays refuse. Ledger rules are never changed
+      silently, so this first, docs-only part writes the decision record that the later parts (REQ-834 to
+      REQ-840, written with this one) build on. Deliverable: the new decision record
+      docs/migration/decisions/0090-negative-balances-per-tenant.md (planned, not yet on main; take the next
+      free number at implement time if 0090 is taken, and use that number everywhere this chain says 0090).
+      It must decide, each in its own numbered section: (1) the rule change: a ledger registration may
+      declare that negative balances follow a per-tenant setting; a registration that does not declare it
+      (the assets ledger, every test registration) refuses as today; no stored setting means refuse; (2) the
+      exact refusal rule under refuse, chosen so that today's answers do not change: a posting is refused
+      insufficient_balance only when a balance key it lowers ends below zero, so a receipt into a key that
+      is already negative (left by an earlier allow period) is accepted; (3) the database bound: CHECK
+      ledger_balance_on_hand_check (on_hand >= 0) is dropped and the column type numeric(30,9) is the
+      database lower bound (Postgres refuses an absolute value of 10^21 or more as numeric_value_out_of_range,
+      so no CHECK at -1.0E+21 could ever fire), with the guard refusing balance_bound_exceeded at -1.0E+21 or
+      below, mirroring the upper @limit; (4) what each other
+      ledger rule does with a negative balance: max_on_hand and key_bounds (an upper bound only, untouched;
+      the stock registration has no key_bounds), the unit pin, append-only storage, zero-sum per cause, the
+      gap-free counter, idempotency, reconcile (re-derives a negative on-hand like any other), the read
+      (nonzero keeps on_hand != 0 so negative keys show), reversal (follows the same setting; a reversal is
+      still allowed once and a reversal is never reversed, Qoimeks inventory 8.5), the count (the posted
+      difference is counted minus book also when the book is negative; the advisory shortage_exceeds_balance
+      check of count_posting.ex and the completion refusal do not apply on an allow tenant; the counted
+      quantity stays zero or more), the freeze guard (unchanged), the opening balance (a negative opening line
+      is accepted only on an allow tenant; the record chooses ONE mechanism, either the opening cause's sign
+      rule becomes any or a new cause with sign rule negative is added, and says whether one opening document
+      may mix signs), and what happens when an allow tenant switches back to refuse with negative keys
+      present (they stay; only lowering postings are refused); (5) the setting: stored per tenant and per
+      registration name in a new tenant table without tenant_id (0006 D2), changed through one core route by
+      a new core permission held by TENANT_ADMIN only, with an explicit false clause for PLATFORM_ADMIN and
+      not grantable, a required reason and an audit entry, following the four-eyes switch (D-144,
+      :ApprovalRulesManage); the setting a posting obeys is the one committed when its guard step reads it;
+      (6) the warning: shown in the web and mobile stock document forms before a document is saved, for the
+      kinds with a lowering side (issue, write off, transfer, hand over, return), only on an allow tenant and
+      only to a user who may read balances; a voice draft fills the mobile form, so it gets the same warning
+      there; texts ru «Остаток станет отрицательным», kk «Қалдық теріс болады» (both from Qoimeks
+      mobile/lib/l10n.dart), en "The balance will become negative" (UAT assumption, Qoimeks has no English);
+      (7) migration rows: a negative Qoimeks balance row moves as it is, as an opening line with the negative
+      quantity on a tenant switched to allow before the load; a zero row is not loaded (an absent key reads
+      as zero) and is not a drop; (8) an owner table of the choices the owner may change (the permission
+      holder, the default, the en text, the EXTRA ideas). It also appends "Amended by 0090" lines at the end
+      of 0073 and 0057 (no earlier text of either is edited) and changes the row G4 of
+      docs/status/qoimeks-migration-readiness.md to point at the record. No code, no migration, no route in
+      this part. Size S.
+    acceptance_criteria:
+      - "1. The decision record docs/migration/decisions/0090-negative-balances-per-tenant.md (or the next free number) exists with the eight numbered sections listed in the description; each section states its rules, and every rule that is not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'assumption, owner may change' and listed in the owner table (section 8)."
+      - "2. Section 2 states the refuse-mode rule as 'refused only when a key the posting lowers ends below zero' and gives the three worked cases: on-hand 5, issue 7 under refuse is insufficient_balance; on-hand -2 (left by an allow period), receipt 3 under refuse is accepted and reads 1; on-hand 5, issue 7 under allow is accepted and reads -2."
+      - "3. Section 4 has one row per rule named in the description (max_on_hand and key_bounds, unit pin, append-only, zero-sum, counter, idempotency, reconcile, read, reversal, count, freeze guard, opening balance, switching back) and for each says either 'unchanged' with the reason or the exact change; the opening-balance row names exactly one mechanism (sign rule any on opening, or a new cause with sign rule negative) and says whether one opening document may mix positive and negative lines."
+      - "4. Section 5 names the new permission atom, the table name and its columns, the two routes (GET list and PUT per registration) with their 422 reason codes, and the audit entry kind, so that REQ-834 and REQ-835 use these names unchanged; the PLATFORM_ADMIN rule is written as 'held by TENANT_ADMIN only; an explicit false clause keeps PLATFORM_ADMIN out', as for :ApprovalRulesManage in lib/letflow/api/authorization.ex."
+      - "5. The record cites the Qoimeks behaviour from the copied sources (the over-issue test line, the unchecked reversal, the goesNegative condition, the ru and kk texts) with their Qoimeks paths, and every Letflow file it names exists on origin/main at implement time (checked with git ls-tree, the command quoted in the record)."
+      - "6. Decisions 0073 and 0057 each end with one added 'Amended by 0090' paragraph and no other line of them changes (git diff shows additions at the end only); row G4 of docs/status/qoimeks-migration-readiness.md names the record; mix letflow.check.static passes."
+    depends_on: [REQ-621, REQ-637, REQ-718, REQ-727, REQ-765]
+  - id: REQ-834
+    title: "Qoimeks parity G4 part 2: the ledger core honours a per-tenant negative balance setting for a registration that declares it, with the database check on_hand >= 0 dropped"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4547
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/ledger.ex (lock_postings/1, guard/5, refusal_for/5, over_bound?/2), lib/letflow/modules/ledger_registration.ex (@registration_keys, @required_keys, closed reason order), priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs (balance_sql/1), priv/repo/migrations/20261115200001_create_approval_rule_settings.exs (tenant table precedent without tenant_id), test/letflow/migrations/ledger_tables_migration_test.exs (the on_hand -1 refusal asserting ledger_balance_on_hand_check), lib/letflow/ledger/reconcile.ex. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Builds rules 1 to 3 and the storage of rule 5 of decision 0090 (REQ-833; the record path is planned,
+      not yet on main). (a) Letflow.Modules.LedgerRegistration (lib/letflow/modules/ledger_registration.ex)
+      accepts one more optional registration key whose name and values the record fixes (working name
+      negative_balance, values :refuse and :tenant_setting; absent means :refuse); any other value is
+      refused with its own closed reason, appended to the reason order in the moduledoc. (b) One tenant
+      migration (registered in Letflow.TenantProvisioning's manifest, the if prefix() guard, no
+      interpolation but the schema name) creates the settings table named by the record (one row per
+      registration name; no row means refuse; no tenant_id, 0006 D2) and drops CHECK ledger_balance_on_hand_check
+      (on_hand >= 0) of ledger_balance, leaving the column type numeric(30,9) as the database lower bound;
+      dropping a check needs no data step. (c) Letflow.Ledger:
+      inside lock_postings/1, before the guard, the tenant's setting for the capability's registration is
+      read with the capability's prefix (only when the registration declares :tenant_setting); the guard
+      then applies rule 2 of the record (under refuse: insufficient_balance only when a key the posting
+      lowers ends below zero; under allow: no insufficient_balance) and refuses balance_bound_exceeded at the
+      lower bound; the refusal details (REQ-686 available disclosure, reversal leg_nos and count) are
+      unchanged. A read-only function in Letflow.Ledger answers whether a registration allows negative
+      balances for a prefix, for the module routes of REQ-836. No stock registration change here (REQ-836
+      opts the stock ledger in), so no module behaviour changes with this part. Knock-on: the
+      ledger_tables_migration_test assertion that -1 is refused moves to the new bound; tenant migration
+      position pins (Enum.at(tenant_scoped_migrations(), -N)) and the tenant table list pin
+      (@expected_tenant_tables in test/support/tenant_fixture.ex) move by one. Size M.
+    acceptance_criteria:
+      - "1. A test registration that declares the setting key with :tenant_setting, a fresh tenant with no settings row: a posting that takes a key from 5 to -2 is refused insufficient_balance with the same details as today, and nothing is written (entry, legs, balance and counter unchanged)."
+      - "2. The same registration, the tenant's settings row set to allow (by a test fixture through the context function, no route): the same posting is accepted and Letflow.Ledger.balances/4 reads the key as -2.000000000; a second issue of 3 reads -5.000000000; a receipt of 6 reads 1.000000000; reconcile/2 over the ledger reports no mismatch."
+      - "3. Refuse after allow: with the key at -5 and the row switched back to refuse, a receipt of 3 is accepted (reads -2) and an issue of 1 is refused insufficient_balance (rule 2 of the record)."
+      - "4. Reversal: under allow, reversing a receipt of 10 whose key now holds 4 is accepted and reads -6; under refuse it is refused insufficient_balance with only leg_nos and count in the details; a second reversal of the same entry is still posting_already_reversed and a reversal of a reversal is still posting_is_reversal."
+      - "5. A registration WITHOUT the key (and the assets registration in lib/letflow/modules/assets/assets.ex) refuses a posting below zero even when a settings row with allow exists under its name; a registration with an unknown value for the key fails validation with the new closed reason (test in test/letflow/modules/ledger_registration_test.exs)."
+      - "6. Lower bound: under allow, a posting that would take a key to -1.0E+21 or below is refused balance_bound_exceeded; a direct SQL insert into ledger_balance with on_hand -1 now succeeds; one with on_hand -1000000000000000000000 fails with SQLSTATE 22003 numeric_value_out_of_range; no constraint named ledger_balance_on_hand_check remains (test/letflow/migrations/ledger_tables_migration_test.exs); max_on_hand behaviour is unchanged (the existing key_bounds tests pass without edits)."
+      - "7. Tenant isolation (INV-1, INV-10): with tenant A's row set to allow and tenant B without a row, a posting below zero in B is refused; the setting read uses only the capability's prefix (a test runs both tenants in one test)."
+      - "8. The migration up and down run in a test schema; the tenant table list and migration position pins are updated with a comment naming REQ-834; mix letflow.check.static passes and the changed test files pass when run by path."
+    depends_on: [REQ-833, REQ-621, REQ-637]
+  - id: REQ-835
+    title: "Qoimeks parity G4 part 3: the core route and permission that switch negative balances per tenant and registration, with reason and audit"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4546
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/routers/approval_rules.ex (GET / and PUT /:definition_name/:node_id, 422 invalid_body / invalid_reason / not_a_four_eyes_step, Scope.require_tenant_wide/2), lib/letflow/approval_rules.ex (put/5 validation order, audit approval_rule.changed in one transaction, a PUT equal to the current value writes nothing), lib/letflow/plugs/api_pipeline.ex (forward "/approval-rules"), lib/letflow/api/authorization.ex (:ApprovalRulesManage moduledoc paragraph, core_role_allows?(:PLATFORM_ADMIN, :ApprovalRulesManage) false, endpoint_policy_key). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Builds the switch of rule 5 of decision 0090 (REQ-833, planned, not yet on main) on the pattern of the
+      four-eyes switch (lib/letflow/routers/approval_rules.ex, lib/letflow/approval_rules.ex). A new core
+      router mounted in lib/letflow/plugs/api_pipeline.ex under the path the record names (working name
+      /ledger-settings) with two routes, both under the new core permission the record names (working name
+      :LedgerSettingsManage), tenant-wide (Scope.require_tenant_wide/2 in the handler, as approval rules
+      do): GET lists every ledger registration of the tenant's installed modules that declares the
+      :tenant_setting key, with its current value (refuse when no row), changed_by, changed_by_name,
+      changed_at and reason; PUT for one registration name takes a body of exactly a boolean allow and a
+      non-empty reason and, only when the value changes, writes the row and one audit entry (the kind the
+      record names) in one transaction; a PUT equal to the current value writes nothing. Refusals: 422
+      invalid_body, invalid_reason, and not_switchable for a registration name that is unknown or does not
+      declare the key. The permission is held by TENANT_ADMIN only (derived tenant-scope rule), with an
+      explicit false clause for PLATFORM_ADMIN, not grantable (0088 D4), as :ApprovalRulesManage. Knock-on:
+      the permission matrix golden (mix letflow.permission_matrix --write), the core permission position
+      pins, the route-count pins and the platform scope inventory move; the implementer greps them as the
+      four-eyes slice did. Size M.
+    acceptance_criteria:
+      - "1. A TENANT_ADMIN of a tenant with module stock installed (after REQ-836, or a test module whose registration declares the key) gets 200 from GET with one item for that registration and value refuse; after PUT with allow true and a reason the GET shows allow, changed_by equal to the caller and the reason; one audit entry of the record's kind with the old and new value is written; a repeated identical PUT writes no row and no audit entry."
+      - "2. PUT refusals, each with nothing written: a body with an extra key or a non-boolean allow is 422 invalid_body; a missing or blank reason is 422 invalid_reason; a registration name not installed, or one whose registration does not declare the key (assets), is 422 not_switchable."
+      - "3. Access: a STOREKEEPER, a TENANT_AUDITOR and a scoped TENANT_ADMIN grant are refused on both routes with the uniform answer of the existing four-eyes tests; the PLATFORM_ADMIN of the platform tenant is refused; Letflow.Api.Authorization.grantable/0 does not contain the atom; the atom is not granted to any role except TENANT_ADMIN (permission matrix golden regenerated with mix letflow.permission_matrix --write and the permission_matrix test passing)."
+      - "4. Cross-tenant negative (INV-10): a TENANT_ADMIN of tenant B switching the registration sets only B's row; tenant A's GET and its postings are unchanged (a posting below zero in A is still refused)."
+      - "5. After the switch through the route, a posting below zero on the switched registration is accepted (the guard of REQ-834 reads the row the route wrote), shown in one router-level test with a real token through the real router."
+      - "6. The route table, scope class and count pins are updated with a comment naming REQ-835; mix letflow.check.static passes and the new and changed test files pass when run by path."
+    depends_on: [REQ-834]
+  - id: REQ-836
+    title: "Qoimeks parity G4 part 4: module stock opts its ledger into the per-tenant negative balance setting (posting, reversal, count and opening balance follow it) and answers the setting to stock users"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4545
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: lib/letflow/modules/stock/stock.ex (version "0.17.0", ledger registration "stock", causes receipt/opening positive, issue/write_off/kind_change_out negative, transfer/hand_over/return zero_sum_by_slot_1, count_difference any), lib/letflow/modules/stock/count_posting.ex (shortage_check/3), lib/letflow/modules/stock/documents/shape.ex (quantity_text/1), lib/letflow/modules/stock/documents/opening_shape.ex (quantity/2), lib/letflow/modules/stock/documents/opening_import.ex (quantity_invalid), lib/letflow/modules/stock/router.ex (route table moduledoc, mounted at /api/v1/modules/stock; no SQL in the router, Rule 8), web/src/pages/tasks/taskErrors.ts (insufficient_stock message). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      The stock part of decision 0090 (REQ-833, planned, not yet on main). (a) The "stock" ledger
+      registration in lib/letflow/modules/stock/stock.ex declares the setting key with :tenant_setting and
+      the module version takes the next free number (moduledoc, registration tests and runbook citations
+      follow, and mix letflow.permission_matrix --write is re-run after the bump). From then on every stock
+      posting (receipt, issue, write off, transfer, hand over, return, the kind change out, the count
+      difference, the opening balance) and every stock reversal obeys the tenant's setting through the core
+      guard of REQ-834; the stock alias insufficient_stock stays for refusals. (b) Count: on an allow tenant
+      the advisory shortage_check of lib/letflow/modules/stock/count_posting.ex is skipped (no
+      shortage_exceeds_balance), and a count whose book quantity is negative posts the difference counted
+      minus book. (c) Opening balance: on an allow tenant an opening line may carry a negative quantity
+      (lib/letflow/modules/stock/documents/opening_shape.ex and the import row of opening_import.ex), by the
+      ONE mechanism the record chose; on a refuse tenant it stays quantity_invalid; zero stays
+      quantity_invalid on both; the document line shape of the other kinds (shape.ex quantity_text/1, greater
+      than zero) does not change. (d) A new read route in lib/letflow/modules/stock/router.ex,
+      GET /posting-rules under StockRead, answering exactly {"negative_balance": "allowed"} or
+      {"negative_balance": "refused"} for the caller's tenant, read through the core function of REQ-834 (no
+      SQL in the router); the web and mobile warning (REQ-838, REQ-840) read it. Knock-on: route-count and
+      route-scope snapshot pins, the stock registration pins (registration_test, the previous_pack G1 pin
+      after the version bump). Size M.
+    acceptance_criteria:
+      - "1. On a tenant switched to allow (fixture through the core context): a storekeeper issues 7 of an item from a key holding 5 through the stock document routes (save, issue, post task completed); the posting is written and GET /api/v1/modules/stock/balances shows the key with quantity -2.000000000; the same flow on a tenant without a setting row ends with the post task refused insufficient_stock and the balance still 5."
+      - "2. Transfer and write off under allow: a transfer of 4 from a key holding 1 reads -3 at the from key and +4 at the to key; a write off of 2 from a key holding 0 reads -2; under refuse both are refused insufficient_stock as today (the existing documents and two-side router tests pass without edits to their assertions)."
+      - "3. Reversal under allow: a posted receipt of 10 into an empty key, then an issue of 8 (the key reads 2); reversing the receipt is accepted and the key reads -8; under refuse the same reversal is refused insufficient_stock."
+      - "4. Count under allow: a count on a key whose book is -3 with counted 5 posts a difference of +8 and the key reads 5; POST /counts/:id/post on an allow tenant with a shortage larger than the current balance does not answer shortage_exceeds_balance and the posting is written; on a refuse tenant the existing count posting tests pass without edits."
+      - "5. Opening balance: on an allow tenant an opening document whose lines are all negative (one line -7) posts and the key reads -7; on a refuse tenant the same line is refused quantity_invalid on save and on xlsx import; a line with quantity 0 is refused quantity_invalid on both; the behaviour of an opening document that mixes signs is the one the record states, with a test."
+      - "6. GET /api/v1/modules/stock/posting-rules: a STOREKEEPER gets {\"negative_balance\": \"refused\"} on a tenant without a row and {\"negative_balance\": \"allowed\"} after the switch; a caller without StockRead gets the same answer as for the other stock read routes; tenant B's answer does not change when tenant A is switched (INV-10)."
+      - "7. A tenant without module stock, or the assets ledger, is unaffected (assets posting below zero still refused); the module version is higher than the one on origin/main at implement time; route-count, route-scope and registration pins are updated with a comment naming REQ-836; mix letflow.check.static passes and the changed test files pass when run by path."
+    depends_on: [REQ-834, REQ-833, REQ-712, REQ-715, REQ-718, REQ-727, REQ-637]
+  - id: REQ-837
+    title: "Qoimeks parity G4 part 5: the Qoimeks converter moves negative balance rows as negative opening lines, skips zero rows without a drop, and the rehearsal runbook switches the tenant first"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4544
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: scripts/pilot/qoimeks_convert.py (cmd_convert: drop reasons quantity_comma_decimal, quantity_invalid, quantity_not_positive; MAX_LINES 100; 04-opening-lines-NN.xlsx; exit 0 ok, 3 rows dropped, 2 bad input), test/scripts/qoimeks_rehearsal_test.exs (CV-4 asserts "dropped balances row 6: quantity_not_positive"), test/fixtures/qoimeks_rehearsal/balances.csv (row 6 SKU-6 quantity 0), docs/runbooks/qoimeks-rehearsal.md, docs/uat/ba-decisions/T-1907.md (R-2, withdrawn by the owner decision of 2026-11-16). Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Rule 7 of decision 0090 (REQ-833, planned, not yet on main) in the migration tooling.
+      scripts/pilot/qoimeks_convert.py today drops every balance row with a quantity of zero or less
+      (quantity_not_positive). Change: a negative row is written as an opening line with its negative
+      quantity, unchanged (no rounding, no sign change), into opening-lines files of its own (all-negative
+      documents, so the load works whichever opening mechanism the record chose), numbered after the
+      positive ones and listed in manifest.json; a zero row is not written and is reported in report.txt
+      under a separate "skipped" heading with the reason quantity_zero, and does not count as a drop for
+      the exit code; every other drop reason and the exit codes stay. docs/runbooks/qoimeks-rehearsal.md
+      gets one step before the load of opening lines: a tenant administrator switches the stock
+      registration of the rehearsal tenant to allow through the route of REQ-835, with the reason text
+      given in the runbook; and a check after the load that the negative keys read as in the extract. The
+      T-1907 note's R-2 paragraph is not edited (history); the readiness note row G4 points at this part.
+      No real client data (D-050): the tests use the existing fixture plus one added negative row. Size S.
+    acceptance_criteria:
+      - "1. test/fixtures/qoimeks_rehearsal/balances.csv gains one row with quantity -7 for a known item and place; convert writes that row into an opening-lines file that holds only negative lines, with quantity -7 exactly, and manifest.json lists that file."
+      - "2. The zero row (row 6, SKU-6) is not written to any opening-lines file and report.txt shows it under the skipped heading with quantity_zero; the test CV-4 in test/scripts/qoimeks_rehearsal_test.exs asserts this instead of quantity_not_positive."
+      - "3. Exit codes: an extract whose only non-loaded rows are zero rows exits 0; an extract with an unknown item still exits 3; a comma decimal is still quantity_comma_decimal; a quantity of -0 or -0.000 counts as zero (skipped), shown by a test."
+      - "4. docs/runbooks/qoimeks-rehearsal.md has the switch step before the opening-lines load and the read-back check after it, naming the route by its path and the permission by its atom as REQ-835 built them; no step names a real client value."
+      - "5. test/scripts/qoimeks_rehearsal_test.exs passes when run by path, and any runbook test that pins lines of qoimeks-rehearsal.md passes."
+    depends_on: [REQ-836, REQ-835]
+  - id: REQ-838
+    title: "Qoimeks parity G4 part 6: web stock document form warns «Остаток станет отрицательным» when a line would take a balance below zero on a tenant that allows it"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4543
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: web/src/modules/stock/documents/DocumentForm.tsx (REQ-722 draft form of receipt, issue and write off; two-side kinds REQ-723), web/src/modules/stock/documents/LinesEditor.tsx, web/src/modules/stock/documents/documentsMessages.ts, web/src/modules/stock/register/stock.api.ts (balances(params) on ${BASE}/balances), web/src/modules/stock/stockPermissions.ts, web/src/pages/tasks/taskErrors.ts (errInsufficientStock). Qoimeks condition and texts from state/tasks/T-2027/sources/qoimeks-negative-balance-extract.md. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Rule 6 of decision 0090 (REQ-833, planned, not yet on main) on the web. In the stock document form
+      (web/src/modules/stock/documents/DocumentForm.tsx and LinesEditor.tsx) of an issue, a write off, a
+      transfer, a hand over and a return, when GET /api/v1/modules/stock/posting-rules answers allowed and
+      the user holds StockRead, a line shows a warning (not an error; save, issue and post stay enabled)
+      when the sum of the document's line quantities on one balance key (item, place, the sending org unit,
+      and the line's responsible and lot where the kind has them) is greater than the on-hand that
+      GET /api/v1/modules/stock/balances shows for that key; an absent key counts as zero. Qoimeks shows it
+      for issue and transfer (operation_screen.dart goesNegative); write off, hand over and return are the
+      Letflow kinds with the same lowering side. Texts: ru «Остаток станет отрицательным», kk «Қалдық теріс
+      болады», en "The balance will become negative" (en is a UAT assumption). On a refused tenant, without
+      StockRead, for a receipt or opening, or while the balance read fails, no warning is shown and the form
+      behaves as today. The warning follows the design system's warning style and the query rules of
+      web/tests/guards/forbidlist.ts (query keys in web/src/api/queryKeys.ts). EXTRA (not in this part,
+      listed for the owner in the record): the same check on a refused tenant as an early "will be refused"
+      hint. Size M.
+    acceptance_criteria:
+      - "1. Component tests (vitest) with a mocked API: on posting-rules allowed and a key holding 5, an issue line of 7 shows the warning text in ru, kk and en (one test per locale); a line of 5 shows none; two lines of 3 and 3 on the same key show it on the lines of that key; the save and issue buttons stay enabled."
+      - "2. A transfer, a hand over and a return line of 4 from a key holding 1 show the warning on the from side; a write off of 2 from an absent key shows it; a receipt and an opening line never show it."
+      - "3. No warning when posting-rules answers refused, when the user lacks StockRead (the balance read is not even sent, asserted on the mocked client), and when the balance read fails; in each case the form renders as on origin/main (existing DocumentForm tests pass without edits to their assertions)."
+      - "4. The three texts exist in documentsMessages.ts (or the module's message file) for en, ru and kk, and the kk and ru texts are the Qoimeks texts byte for byte."
+      - "5. npm run check passes in the engine's checks step; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) is taken for the form with and without the warning, from a harness fixture that renders both states."
+    depends_on: [REQ-836, REQ-722, REQ-723, REQ-704]
+  - id: REQ-839
+    title: "Qoimeks parity G4 part 7: web admin page to switch negative balances on or off per ledger registration, with the reason and the last change shown"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4542
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: web/src/pages/admin/approval-rules/ApprovalRulesPage.tsx, web/src/api/approvalRules.ts, web/src/api/queryKeys.ts, web/src/components/layout/AppShell.tsx and navMessages.ts (the four-eyes page entry), web/src/router.tsx, web/src/dev/harness/fixtures/approvalRules.tsx. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      The admin screen for the switch of rule 5 of decision 0090 (REQ-833, planned, not yet on main), on the
+      pattern of the four-eyes page (web/src/pages/admin/approval-rules/ApprovalRulesPage.tsx and
+      web/src/api/approvalRules.ts). A new admin page, shown in the navigation only to a holder of the
+      permission REQ-835 adds, lists the switchable ledger registrations from its GET route (registration
+      shown by its module's name, value allowed or refused, last changed by name and time, reason) and
+      changes one with its PUT route: switching asks for a required reason in a dialog and, for switching
+      to allowed, states in the dialog that issues larger than the balance will then be posted and the
+      balance shown below zero. Errors 422 invalid_reason and not_switchable are shown as messages, not
+      raw codes. Texts in en, ru and kk. Harness fixture of its own, one line in the harness registry. Size
+      S.
+    acceptance_criteria:
+      - "1. Component tests with a mocked API: the list shows the stock registration as refused; switching to allowed without a reason keeps the dialog open with the required-reason message and sends no PUT; with a reason it sends PUT with allow true and the reason and the row then shows allowed, the changer's name and the time."
+      - "2. A 422 not_switchable and a 422 invalid_reason from the server are shown as localized messages in en, ru and kk; nothing else on the page changes."
+      - "3. The navigation entry and the route are shown only when the user holds the new permission (the EXPECTED_COUNT pin of web/src/components/layout/__tests__/navRoleWalk.test.tsx is updated if it moves); a STOREKEEPER sees neither."
+      - "4. npm run check passes in the engine's checks step; the screenshot matrix (1440 and 390, light and dark, en, ru and kk) covers the list, the open dialog, an error and the empty list, from its own harness fixture added to the registry with one line."
+    depends_on: [REQ-835]
+  - id: REQ-840
+    title: "Qoimeks parity G4 part 8: mobile stock document form, including a form filled from a voice draft, warns «Остаток станет отрицательным» when a line would take a balance below zero on a tenant that allows it"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 4541
+    # Source: task T-2027, as REQ-833. Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/document_form_screen.dart (_hasVoice: voice on receipt, issue, transfer, REQ-747), document_form_controller.dart (voice fill, voiceEpoch), document_kinds.dart (issue, write_off, transfer, hand_over, return), documents_api.dart, apps/mobile/lib/features/stock/voice/voice_api.dart; grep -rn "balances" apps/mobile/lib (no hit: the app does not read balances yet). Qoimeks texts from state/tasks/T-2027/sources/qoimeks-negative-balance-extract.md. Written by the business analyst (T-2027) 2026-11-16. Not yet validated.
+    description: >
+      Rule 6 of decision 0090 (REQ-833, planned, not yet on main) in the Flutter app (apps/mobile). Qoimeks
+      operators work on phones and by voice; a voice draft in Letflow fills the mobile document form
+      (REQ-747, document_form_controller.dart), so the warning belongs to that form. When online, on a
+      tenant whose GET /api/v1/modules/stock/posting-rules answers allowed, and for a user holding
+      StockRead, the form of an issue, write off, transfer, hand over or return shows a warning banner on a
+      line (not blocking save, issue or post) when the sum of the document's quantities on one balance key
+      is greater than the on-hand GET /api/v1/modules/stock/balances shows for it (absent key is zero), the
+      same rule as the web (REQ-838); it is evaluated again after a voice draft fills or changes lines.
+      Offline, on a refused tenant, without StockRead or when a read fails, no banner is shown. Texts ru
+      «Остаток станет отрицательным», kk «Қалдық теріс болады», en "The balance will become negative" in
+      the app's localization (apps/mobile/lib/i18n). The app gets its first balance read for this; it goes
+      through the existing API client, with a hand-written fake in widget tests. Size M.
+    acceptance_criteria:
+      - "1. Widget tests with a fake API: allowed, key holding 5, an issue line of 7 shows the banner in ru, kk and en; a line of 5 shows none; the save button stays enabled."
+      - "2. A voice draft (fake voice API) that fills an issue with quantity 7 on that key shows the banner once the lines are filled; a draft that fills a receipt shows none."
+      - "3. No banner when posting-rules answers refused, when the user lacks StockRead (no balance request sent, asserted on the fake), offline, or when the read fails."
+      - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
+      - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
+    depends_on: [REQ-836, REQ-747]
