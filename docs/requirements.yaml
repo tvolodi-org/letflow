@@ -55957,13 +55957,137 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-846
+    title: "Qoimeks parity G7 part 1: creating a stock document is retry-safe by a client key (same key and body give the same document, a changed body is refused 409)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4560
+    # Source: task T-2029 (Qoimeks parity row G7). Owner decision 2026-11-16 (via PM, quoted in docs/status/qoimeks-migration-readiness.md header): parity with Qoimeks is required. Qoimeks rule, Qoimeks-team/project/client1-inventory.md section 8 item 6 (read only, outside this repository; quoted): "Idempotent posting by the client UUID: same id + same data = same result, different data = 409." Files read on origin/main 2b1fd9b57: docs/status/qoimeks-migration-readiness.md (section 1.2 row G7); lib/letflow/modules/stock/documents.ex (save/3, write_header!/7 and create_line!/6 pass idempotency_key Ecto.UUID.generate(); moduledoc "a fresh idempotency key per write"; the opening external-reference advisory lock pg_advisory_xact_lock(hashtext($1))); lib/letflow/modules/stock/router.ex (authz_post "/documents", render_document/3, refuse_document/2 and @conflicts: a conflict is 409 Error.conflict("request refused") with a "reason"); lib/letflow/idempotency.ex (from_header/4, client_key/4, raw_max/1, too_long_error(:header), invalid_error(:header); "Routers must not read the caller's key themselves"); lib/letflow/routers/instances.ex (the instance routes use from_header/4 and answer 422 with too_long_error/invalid_error); lib/letflow/plugs/cors.ex (@allow_headers already has idempotency-key); lib/letflow/design/gh2543-idempotency-key-binding.md D6 (generic record routes answer reuse with 422); web/src/modules/stock/documents/documentsModel.ts (documentErrorMessageId reads "reason" on 409 and 422); apps/mobile/lib/offline/offline_sync.dart (a queued draft is resent when the answer was lost). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks parity row G7 (docs/status/qoimeks-migration-readiness.md, section 1.2): in Qoimeks a client
+      sends its own id with a movement; the same id with the same data gives the same result and the same id
+      with other data is a 409. Letflow's stock document routes mint a fresh server key for every write
+      (Letflow.Modules.Stock.Documents.save/3 in lib/letflow/modules/stock/documents.ex), so a phone or a
+      browser that retries POST /documents after a lost answer creates a second draft (the mobile offline
+      queue, apps/mobile/lib/offline/offline_sync.dart, resends an entry whose answer did not arrive). This
+      part makes the create route retry-safe. The client sends its key in the `idempotency-key` request
+      header (the header the instance routes already read through Letflow.Idempotency.from_header/4 and that
+      lib/letflow/plugs/cors.ex already allows). The router resolves it only through Letflow.Idempotency,
+      which gains the route family `:stock_create` (stored key `client:stock_create:<actor_id>:<key>`, raw
+      key at most 199 bytes, the same as `:inst_start`), so a caller key can never equal a server key and
+      one user's key never matches another user's request. The binding of a stored key to the document it
+      created and to the request body is kept in the tenant's schema (INV-1) with no expiry; where it is
+      stored (a header field, a new tenant table or the event_idempotency table) is the design's choice, and
+      the design states how existing documents and the QA tenants already deployed are handled. "Same body"
+      means the decoded JSON body is equal as a map (key order and white space do not matter). A request
+      without the header keeps today's behaviour exactly. Refusal status: a reused key answers 409 with the
+      reason `idempotency_key_reuse`, which deviates on purpose from the 422 of the generic record routes
+      (lib/letflow/design/gh2543-idempotency-key-binding.md D6): the Qoimeks rule says 409, and the stock
+      routes already answer state conflicts as 409 with a `reason` that the stock web screens read
+      (web/src/modules/stock/documents/documentsModel.ts), so the "reload and retry" reading of a bare 409
+      that D6 avoided does not apply on these routes. The design records this deviation. Ledger rules are
+      untouched: nothing here posts; the posting instance and the ledger keep their own keys. Issue and post
+      are part 2 (REQ-847, planned, not yet on main); the web client is REQ-848 and the mobile and PWA client
+      REQ-849 (both planned, not yet on main). Size M.
+    acceptance_criteria:
+      - "1. Same key, same body (new test file test/letflow/modules/stock/documents_idempotency_test.exs, planned, not yet on main): a STOREKEEPER sends POST /modules/stock/documents with a receipt body and the header idempotency-key K and gets 201; the same request again gets 201 with the same document id and a body equal (trace_id removed) to what GET /modules/stock/documents/:id answers at that moment; the number of documents rows, stock_receipt header records and stock_receipt_line records in the tenant schema is the same after the second request as after the first."
+      - "2. Same key, same body sent with its JSON keys in another order: same answer as criterion 1 (no second draft)."
+      - "3. Same key, changed body (one line quantity changed, or another kind): 409 with reason idempotency_key_reuse; the body contains neither the first document's id nor any of its field values; the row and record counts of criterion 1 are unchanged."
+      - "4. Replay after the draft moved on: the document created with key K is replaced (PUT) and then the create request with K and the original body is sent again: the answer is 201 with the document as GET shows it now (the replaced content) and nothing is written. After a DELETE of that draft the same replay answers what GET /modules/stock/documents/:id answers for it (status and body, trace_id removed) and no new draft is created."
+      - "5. Keys are per user: a second STOREKEEPER of the same tenant sends the same key K with the same body and gets 201 with a new document id (two documents exist)."
+      - "6. A refused request binds nothing: a create with key K and a body that fails the shape check gets its usual 422; the same K with a valid body then gets 201 and creates one document."
+      - "7. Concurrency: two create requests with the same key and body started together (two processes, Sandbox auto mode, committed tenant) both answer 201 with the same document id and exactly one document exists afterwards; the design names the lock that serialises them (a transaction-scoped advisory lock on the stored key, as save/3 already takes for the opening external reference pair)."
+      - "8. Key checks: a header value longer than 199 bytes answers 422 with Letflow.Idempotency.too_long_error(:header); a value with a NUL byte or invalid UTF-8 answers 422 with Letflow.Idempotency.invalid_error(:header); neither writes anything. Without the header, two identical creates make two drafts (today's behaviour), and the existing tests of test/letflow/modules/stock/documents_router_test.exs pass without edits to their assertions."
+      - "9. Namespacing: test/letflow/idempotency_test.exs shows Letflow.Idempotency.client_key(:stock_create, actor, nil, \"k\") == \"client:stock_create:\" <> actor <> \":k\" and raw_max(:stock_create) == 199, and its router source scan still passes (the stock router does not read the header itself)."
+      - "10. Cross-tenant (INV-10): a STOREKEEPER of tenant B who sends the key K a user of tenant A used, with the same body, gets 201 with a new document in tenant B; tenant A's counts are unchanged."
+      - "11. Docs in step: the moduledoc of Letflow.Modules.Stock.Documents (the \"fresh idempotency key per write\" sentence), the route table of Letflow.Modules.Stock.Router (POST /documents row: header idempotency-key, 409 idempotency_key_reuse) and the idempotency-key comment of lib/letflow/plugs/cors.ex (\"no SPA call sends it any more\") are corrected; mix letflow.check.static passes and the test files named here pass when run by path."
+    depends_on: [REQ-712, REQ-831]
+  - id: REQ-847
+    title: "Qoimeks parity G7 part 2: issuing and posting a stock document are retry-safe by a client key (a retried issue or post returns the document instead of a conflict)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4559
+    # Source: task T-2029 (Qoimeks parity row G7), the same sources as REQ-846 (planned, not yet on main). Also read on origin/main 2b1fd9b57: lib/letflow/modules/stock/documents.ex (issue/4: draft?/1 refuses a second issue as document_not_draft; issue_once/3; start_posting/3); lib/letflow/modules/stock/documents/posting.ex (post/4 and postable/2: document_posted, posting_pending, document_not_issued, document_cancelled); lib/letflow/modules/stock/router.ex (authz_post "/documents/:id/issue" and "/documents/:id/post"). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
+    description: >
+      Part 2 of parity row G7. In Letflow the step that corresponds to a Qoimeks posting is the issue of a
+      document (issue/4 in lib/letflow/modules/stock/documents.ex takes the number and starts the posting
+      instance) and, when that start failed, POST /documents/:id/post (Posting.post/4 in
+      lib/letflow/modules/stock/documents/posting.ex). A client whose answer was lost and who retries gets a
+      conflict today: issue answers 409 document_not_draft, post answers 409 posting_pending or
+      document_posted, although its first request succeeded. With the `idempotency-key` header (resolved
+      through Letflow.Idempotency, new families `:stock_issue` and `:stock_post`, stored keys
+      `client:stock_issue:<actor_id>:<key>` and `client:stock_post:<actor_id>:<key>`, at most 199 bytes,
+      bound to the document id of the first successful request, in the tenant's schema, no expiry, stored
+      the way REQ-846 chose), a retry of the same request returns the document instead. "Same data" for
+      these two routes is the document id in the path (they take no body). A request without the header
+      keeps today's answers. Nothing here changes the posting instance, its keys or the ledger: a replay
+      starts no second instance and posts nothing. Size S.
+    acceptance_criteria:
+      - "1. Issue replay (test/letflow/modules/stock/documents_idempotency_test.exs, planned, not yet on main): a STOREKEEPER issues a draft receipt with header idempotency-key K and gets 200; the same request again gets 200 with a body equal (trace_id removed) to GET /modules/stock/documents/:id at that moment; the document keeps one number and exactly one posting instance exists for it."
+      - "2. Post replay: for an issued document whose posting instance was not started (the case POST /documents/:id/post exists for), POST /documents/:id/post with key K starts one instance and answers 200; the same request again answers 200 with the document as GET shows it and no second instance is started; after the post task is completed (posted state) the replay still answers 200 with the posted document and the ledger has one entry for it."
+      - "3. Same key, other document: key K used to issue document A, then sent to issue draft B: 409 with reason idempotency_key_reuse, B stays a draft with no number, and the body contains nothing of A. The same holds for the post route."
+      - "4. Without the key, or with a new key, the existing answers stay: a second issue of an issued document is 409 document_not_draft; a post of a posted document is 409 document_posted; while its post task is pending, 409 posting_pending (the existing tests of documents_router_test.exs pass without edits to their assertions)."
+      - "5. A refused request binds nothing: an issue with key K refused by a master check (its usual 422 with the reason and line_no) leaves K free; after the draft is fixed (PUT) the same request with K issues it once."
+      - "6. Keys are per user and per action: a key K a user used on create (REQ-846) may be used by the same user on issue without a conflict; a second STOREKEEPER who sends K on issue of the same issued document gets 409 document_not_draft (no replay of the first user's answer). Over-long and invalid keys answer 422 with Letflow.Idempotency.too_long_error(:header) and invalid_error(:header)."
+      - "7. Cross-tenant (INV-10): a STOREKEEPER of tenant B who sends a document id of tenant A with a key tenant A used gets the not-found 404 of an unknown document; tenant A is unchanged."
+      - "8. Docs in step: the route table of Letflow.Modules.Stock.Router (issue and post rows) and the @doc of Documents.issue/4 and Posting.post/4 name the header and the replay; test/letflow/idempotency_test.exs pins the two new families; mix letflow.check.static passes and the named test files pass when run by path."
+    depends_on: [REQ-846, REQ-713]
+  - id: REQ-848
+    title: "Qoimeks parity G7 part 3: the web stock document screens send a client key on create, issue and post, and show the key-reuse refusal in en, ru and kk"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4558
+    # Source: task T-2029 (Qoimeks parity row G7). Files read on origin/main 2b1fd9b57: web/src/modules/stock/documents/documents.api.ts (documentsApi.create, issue, post), web/src/modules/stock/documents/DocumentForm.tsx (the create/replace mutation), web/src/modules/stock/documents/DocumentActions.tsx (issue and post), web/src/modules/stock/documents/documentsModel.ts (documentErrorMessageId, ALL_REASONS), web/src/api/client.ts (postWithHeaders), web/src/hooks/useRecordCodes.ts (the existing pattern: the key is kept while the request fingerprint is unchanged, otherwise crypto.randomUUID()). Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
+    description: >
+      Part 3 of parity row G7: the web client uses the keys of REQ-846 and REQ-847 (both planned, not yet on
+      main). documentsApi.create, issue and post (web/src/modules/stock/documents/documents.api.ts) send the
+      header idempotency-key through client.postWithHeaders (web/src/api/client.ts). The key follows the
+      pattern of web/src/hooks/useRecordCodes.ts: a new crypto.randomUUID() for a new request, and the same
+      key again when the user retries the same request (same body for create, same document and action for
+      issue and post); a changed body gets a new key, so a user who edits after a failed save is not refused.
+      The reason idempotency_key_reuse gets a message in en, ru and kk (documentsModel.ts, ALL_REASONS) that
+      tells the user the document was already sent with other content and to reload the list. PUT and DELETE
+      are not changed. Size S.
+    acceptance_criteria:
+      - "1. Unit tests with a mocked client: the first create sends an idempotency-key header with a UUID; a second submit of the unchanged form after a network error sends the same key; a submit after a change to any field sends a different key. The same three cases hold for issue and post (same document and action keep the key)."
+      - "2. A 409 with reason idempotency_key_reuse is shown with the new message in en, ru and kk (not the generic or unknown text); the i18n grep test web/src/modules/stock/__tests__/documents-i18n-grep.test.ts and the kk/ru catalogs have the new key."
+      - "3. A request that succeeds clears the kept key, so the next new document gets a new key (test)."
+      - "4. npm run check passes in the engine's checks step; the screenshot matrix (1440 and 390, light and dark, en, ru and kk) covers the form with the key-reuse message, from a harness fixture of its own added to the registry with one line."
+    depends_on: [REQ-847]
+  - id: REQ-849
+    title: "Qoimeks parity G7 part 4: the mobile app and its PWA send a client key on create and issue, and the offline queue resends a draft with the key it was queued with"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 4557
+    # Source: task T-2029 (Qoimeks parity row G7). Files read on origin/main 2b1fd9b57: apps/mobile/lib/features/stock/documents/documents_api.dart (save, createFromBody, issue), apps/mobile/lib/offline/offline_queue.dart (QueuedDraft, local_id is "<milliseconds>-<sequence>", not unique across devices), apps/mobile/lib/offline/offline_sync.dart (drain: a draft stays queued and is resent when the answer is lost), apps/mobile/lib/api/api_client.dart (post(path, {data}) has no header argument), apps/mobile/test/offline/offline_queue_test.dart and offline_sync_test.dart. Written by the business analyst (T-2029) 2026-11-16. Not yet validated.
+    description: >
+      Part 4 of parity row G7, for the Flutter app in apps/mobile/ and its web build used as the iPhone PWA
+      (docs/mobile/pwa-parity.md). The app sends the idempotency-key header of REQ-846 and REQ-847 (both
+      planned, not yet on main) on create (DocumentsApi.save and createFromBody) and on issue. A queued
+      offline draft (apps/mobile/lib/offline/offline_queue.dart) gets a random version-4 UUID at enqueue,
+      stored with the entry (the existing local_id is not unique across devices and is not used as the key),
+      and every resend by OfflineSyncService.drain sends that same key, so a draft whose answer was lost is
+      created once. An online save or issue keeps its key while the user retries the same request and takes a
+      new one when the draft changes. A 409 idempotency_key_reuse on a queued entry marks it rejected with
+      that reason (kept for the user, as other refusals are), with a message in en, ru and kk. The key is made
+      with a secure random source and needs no new package. Size S.
+    acceptance_criteria:
+      - "1. Queue: an entry stored by enqueue has a key that is a version-4 UUID; two entries have different keys; the key survives a reload of the store (apps/mobile/test/offline/offline_queue_test.dart); an entry stored before this change (no key) is given one at its first send and keeps it for later sends."
+      - "2. Sync (apps/mobile/test/offline/offline_sync_test.dart, fake send): when the first send throws a network error after the server would have answered, the next drain sends the same body with the same key; after a 201 the entry is removed; a 409 idempotency_key_reuse marks the entry rejected with that reason and it is not resent."
+      - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
+      - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
+    depends_on: [REQ-847]
   - id: REQ-867
     title: "Qoimeks parity G16 part 1: the PWA entry file names its scripts with ?v=<build sha> next to the no-cache rule, and the hosting runbook gives the install and update steps on iPhone and Android"
     owner: MOBILE-DEV
     status: pending
     stage: S9
     # impl_order: UNREGISTERED -- G16 slice 1 of 3, no pending prerequisite; filed by the engine after the gate
-    # Source: task T-2036 (owner decision via PM 2026-11-16, "support old Qoimeks functionality, not less but possibly more"); docs/status/qoimeks-migration-readiness.md section 1.2 rows G16 and G17; Qoimeks-team/project/client1-inventory.md section 8 items 9 and 11 and the Android and APK lines of sections 0-1, and Qoimeks/README.md "Release build" and "Update check in the app" (outside the worktree; the passages are copied into state/tasks/T-2036/sources.md). Files read on origin/main 6e7c4bbaa: docs/runbooks/mobile-web-pwa-hosting.md ("Headers and why": Cache-Control no-cache on every file, no service worker, names not content-hashed), scripts/pwa_web_package.sh (build-info.json, SHA256SUMS, .gz/.br, tar), scripts/pwa_web_build.sh, scripts/pwa_web_verify.sh, apps/mobile/web/index.html (script src flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js; link manifest.json, favicon.png, icons/apple-touch-icon.png), apps/mobile/web/flutter_bootstrap.js, deploy/nginx/letflow-pwa-web.conf.example, test/letflow/pwa_web_hosting_test.exs (P1-P6, N1, N2), docs/runbooks/pwa-client-test/script.en.md step 1 (Safari, Share, "Add to Home Screen"), docs/mobile/pwa-parity.md. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
+    # Source: task T-2036 (owner decision via PM 2026-11-16, "support old Qoimeks functionality, not less but possibly more"); docs/status/qoimeks-migration-readiness.md section 1.2 rows G16 and G17; Qoimeks-team/project/client1-inventory.md section 8 items 9 and 11 and the Android and APK lines of sections 0-1, and Qoimeks/README.md "Release build" and "Update check in the app" (outside the worktree; the passages are copied into state/tasks/T-2036/sources.md). Files read on origin/main 6e7c4bbaa: docs/runbooks/mobile-web-pwa-hosting.md ("Headers and why": Cache-Control no-cache on every file, no service worker, names not content-hashed), scripts/pwa_web_package.sh (build-info.json, SHA256SUMS, .gz/.br, tar), scripts/pwa_web_build.sh, scripts/pwa_web_verify.sh, apps/mobile/web/index.html (script src flutter_bootstrap.js, zxing/zxing-reader.iife.js, zxing/zxing-config.js; link manifest.json, favicon.png, icons/apple-touch-icon.png), apps/mobile/web/flutter_bootstrap.js, deploy/nginx/letflow-pwa-web.conf.example, test/letflow/pwa_web_hosting_test.exs (P1-P6, N1, N2, N3), docs/runbooks/pwa-client-test/script.en.md step 1 (Safari, Share, "Add to Home Screen"), docs/mobile/pwa-parity.md. Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
     description: >
       Qoimeks serves its web app (the iPhone way, /web/) cached for up to 4 hours with the entry file versioned
       ?v= (inventory section 8 item 9). Letflow's PWA (the web build of apps/mobile) answers Cache-Control
@@ -55989,8 +56113,8 @@ requirements:
       - "2. A new test P8: an absolute reference (https://example.org/a.js) and a fragment reference (#x) in index.html are left unchanged, and the file is still named index.html in the tar (the entry gets no version)."
       - "3. A new test P9: an index.html with a relative reference that already contains ? makes pwa_web_package.sh exit 1, names that reference in its output, and writes no tar."
       - "4. A new test P10: the SHA256SUMS line of index.html verifies against the stamped index.html, and index.html.gz (when written) decompresses to the stamped bytes."
-      - "5. Test N2 (or a new N3) asserts that docs/runbooks/mobile-web-pwa-hosting.md contains the text ?v=, the hosting rule sentence about caches in front of the PWA, and a section titled Install and update naming Add to Home Screen and Install app."
-      - "6. MIX_TEST_PARTITION=<task> mix test test/letflow/pwa_web_hosting_test.exs passes with P1-P6, V1-V10, B1-B4, W1, W2 and N1 unchanged."
+      - "5. A new test N4 in test/letflow/pwa_web_hosting_test.exs asserts that docs/runbooks/mobile-web-pwa-hosting.md contains the text ?v=, the hosting rule sentence about caches in front of the PWA, and a section titled Install and update naming Add to Home Screen and Install app."
+      - "6. MIX_TEST_PARTITION=<task> mix test test/letflow/pwa_web_hosting_test.exs passes with P1-P6, V1-V10, B1-B4, W1, W2, N1, N2 and N3 unchanged."
     depends_on: []
   - id: REQ-868
     title: "Qoimeks parity G16 part 2: signed Android release build (APK and AAB) from a script that never signs with the debug key, release manifest latest.json, and an Android release and distribution runbook"
@@ -56034,7 +56158,7 @@ requirements:
     acceptance_criteria:
       - "1. A new test file test/letflow/android_release_build_test.exs (planned) runs the script with a fake flutter and a fake apksigner first on PATH inside a tmp_dir copy of the inputs it needs: with key.properties missing it exits 2, names key.properties, and the fake flutter was not called."
       - "2. In that file: a version code equal to the versionCode in an existing <out>/latest.json exits 2 without calling flutter; with no latest.json and neither --last-published nor --first-release it exits 2; an http:// --base-url or --api-base-url exits 2."
-      - "3. In that file: a good run calls the fake flutter with build apk --release and build appbundle --release, both carrying --dart-define=LETFLOW_API_BASE_URL and --dart-define=LETFLOW_PLATFORM_HOST with the given values, and writes the .apk, .apk.sha256 (matching sha256sum of the .apk), .aab and a latest.json that parses with the eight fields named in the description, url equal to base URL plus the APK file name."
+      - "3. In that file: a good run calls the fake flutter with build apk --release and build appbundle --release, both carrying --dart-define=LETFLOW_API_BASE_URL and --dart-define=LETFLOW_PLATFORM_HOST with the given values, and writes the .apk, .apk.sha256 (matching sha256sum of the .apk), .aab and a latest.json that parses with exactly the top-level keys versionCode, versionName, url, sha256, minVersionCode, notes (an object with exactly the keys ru, kk and en) and published, url equal to base URL plus the APK file name."
       - "4. In that file: a fake apksigner that prints a certificate subject CN=Android Debug makes the script exit 1 and write no latest.json; the passwords written into the test's key.properties appear nowhere in the script output of any case, including --dry-run, and --dry-run calls no flutter build."
       - "5. A test reads apps/mobile/android/app/build.gradle.kts and asserts it no longer contains getByName(\"debug\") inside the release buildType and that it reads key.properties; flutter build apk --debug in the mobile job of ci.yml still passes."
       - "6. docs/runbooks/mobile-android-release.md exists and a test asserts it names keytool, key.properties, scripts/android_release_build.sh, latest.json, and the sentence that the store account is the owner's decision."
@@ -56045,7 +56169,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S9
-    # impl_order: UNREGISTERED -- blocked-by: REQ-868 -- the manifest and the version define come from the release script of REQ-868
+    # impl_order: UNREGISTERED -- blocked-by: REQ-868 -- the release script and latest.json come from REQ-868; this entry extends that script
     # Source: task T-2036, as REQ-867. Qoimeks behaviour copied from Qoimeks/README.md "Update check in the app" (manifest read on start at most once a day; newer versionCode shows a dismissible banner with notes in the app language; below minVersionCode a banner that cannot be dismissed; tap opens the url in the browser; settings show the installed version and check for updates; a missing network or a broken manifest shows nothing on the automatic check and never blocks work; empty manifest URL turns the check off) and Qoimeks/mobile/lib/update.dart (parseManifest: versionCode int, versionName string, url non-empty string, minVersionCode int, notes map; notesFor lang else ru), both in state/tasks/T-2036/sources.md. Files read on origin/main 6e7c4bbaa: apps/mobile/lib/definitions/tenant_home_screen.dart (AppBar actions LanguageSwitcher), apps/mobile/lib/auth/auth.dart (non-secret pointer store, key letflow.ui_locale), apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/android/app/src/main/kotlin/com/bizdala/letflow/MainActivity.kt, apps/mobile/pubspec.yaml (dependency comment from REQ-419: no runtime package beyond the list; dio present, no url_launcher, no package_info_plus). Written by the business analyst (T-2036) 2026-11-16. Not yet validated.
     description: >
       Qoimeks' Android app checks a release manifest and asks the operator to update (APK self-update banner,
@@ -56053,8 +56177,10 @@ requirements:
       apps/mobile, Android build only (the web build has neither the check nor the button). Two compile-time
       values, both empty by default: LETFLOW_ANDROID_UPDATE_MANIFEST_URL (an empty value turns the check and the
       button off, so a later store build cannot update itself) and LETFLOW_APP_VERSION_CODE (the installed
-      version code). scripts/android_release_build.sh of REQ-868 passes both, the URL as <base-url>latest.json
-      and the code equal to the pubspec versionCode, with --no-update-check building with an empty URL. With a
+      version code). This change extends scripts/android_release_build.sh (planned in REQ-868, not yet on main;
+      REQ-868 passes neither value and has no such option): it adds both defines to its two flutter build calls,
+      the URL as <base-url>latest.json and the code equal to the pubspec versionCode, and a new option
+      --no-update-check that builds with an empty URL. With a
       URL set, the app reads the manifest at start at most once in 24 hours (the time of the last check is kept
       under a new key in the same non-secret store as letflow.ui_locale), through a plain Dio request that
       carries no authorization header. A manifest is valid only with versionCode and minVersionCode as integers,
