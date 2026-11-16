@@ -29,6 +29,21 @@ printf '{"sha":"%s","built_at":"%s","base_href":"%s","api_base_url":"%s"}\n' \
   "$(json_escape "$sha")" "$(json_escape "$built_at")" \
   "$(json_escape "${PWA_BASE_HREF:-/}")" "$(json_escape "${PWA_API_BASE_URL:-}")" >"$dir/build-info.json"
 
+# Stamp the entry file (REQ-867): every relative src/href of a script or link element gets ?v=<sha12>, so a
+# cache in front of the PWA cannot pair a new index.html with an old script. index.html itself stays unversioned.
+# A relative value already holding "?" is refused. Values starting with a scheme, //, / or # are left alone.
+if [ -f "$dir/index.html" ]; then
+  v="$(printf '%s' "$sha" | cut -c1-12)"
+  rel_re='(<(script|link)[^>]*[[:space:]](src|href)=")([^"/#:][^":]*)"'
+  bad="$(tr "\n" " " <"$dir/index.html" | grep -oE '<(script|link)[^>]*[[:space:]](src|href)="[^"/#:][^":]*\?[^":]*"' || true)"
+  if [ -n "$bad" ]; then
+    echo "pwa-package: index.html has a relative reference that already holds '?': $bad" >&2
+    exit 1
+  fi
+  sed -zE "s/$rel_re/\\1\\4?v=$v\"/g" "$dir/index.html" >"$dir/index.html.stamped"
+  mv "$dir/index.html.stamped" "$dir/index.html"
+fi
+
 # Checksums of the uncompressed files (compressed siblings are derived data).
 rm -f "$dir/SHA256SUMS"
 (cd "$dir" && find . -type f ! -name '*.gz' ! -name '*.br' ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort \

@@ -275,6 +275,10 @@ authored scenario's prose fields):
 > `test_auto_grade/1` passed; `score_pct` was read from `exam_sessions.score_pct`
 > via `session_view/1`."
 
+## Industry-practice rule (owner 2026-11-16)
+
+A requirement must name a mainstream product that does the thing it asks for; otherwise it is not built. A habit of a predecessor system (for example Qoimeks) is kept only if industry practice exists for it. Write the named product in the requirement's source comment.
+
 ## Forbidden
 
 - No technical/implementation language in either authored scenarios or sign-off
