@@ -50,10 +50,10 @@ function renderShell(state: AccessState) {
 }
 
 function navLabels(): string[] {
-  // The skip link (REQ-608) and the top-bar My settings icon link (T-1391) are not nav entries.
+  // The skip link (REQ-608) and the top-bar My reports (REQ-872) and My settings (T-1391) icon links are not nav entries.
   return screen
     .queryAllByRole('link')
-    .filter(a => a.getAttribute('href') !== '#main-content' && a.getAttribute('data-testid') !== 'topbar-my-settings')
+    .filter(a => a.getAttribute('href') !== '#main-content' && !['topbar-my-settings', 'topbar-my-reports'].includes(a.getAttribute('data-testid') ?? ''))
     .map(a => a.textContent ?? '')
 }
 

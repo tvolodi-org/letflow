@@ -27,6 +27,7 @@ import TokensPage from '@/pages/admin/TokensPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
 import AppearanceSettingsPage from '@/pages/admin/AppearanceSettingsPage'
 import MySettingsPage from '@/pages/me/MySettingsPage'
+import MyProblemReportsPage from '@/pages/me/MyProblemReportsPage'
 import HealthDashboardPage from '@/pages/admin/HealthDashboardPage'
 import MetricsPage from '@/pages/admin/MetricsPage'
 import DlqPage from '@/pages/dlq/DlqPage'
@@ -146,6 +147,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'admin/audit', element: <RequirePermission permission={P.AuditRead}><AuditLogPage /></RequirePermission> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
       { path: 'me/settings', element: <MySettingsPage /> },
+      { path: 'me/problem-reports', element: <MyProblemReportsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/currencies', element: <RequirePermission permission={P.CurrenciesManage}><CurrenciesPage /></RequirePermission> },
       { path: 'admin/official-forms', element: <RequirePermission permission={P.OfficialFormTemplatesManage}><OfficialFormTemplatesPage /></RequirePermission> },

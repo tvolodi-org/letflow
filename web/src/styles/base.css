@@ -395,3 +395,9 @@ samp {
 .lf-report__panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; padding: var(--space-4) var(--space-4) var(--space-3); }
 .lf-report__panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; gap: var(--space-4); align-content: start; padding: 0 var(--space-4) var(--space-4); }
 .lf-report__panel-foot { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); background: var(--paper); }
+/* REQ-872: My reports (the user's own problem reports) */
+.lf-myreports { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); max-width: 800px; }
+.lf-myreports__row { padding: var(--space-4); display: grid; gap: var(--space-2); }
+.lf-myreports__row p { margin: 0; overflow-wrap: anywhere; }
+.lf-myreports__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.lf-myreports__head code { font: var(--type-mono-s); white-space: nowrap; }
