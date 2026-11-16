@@ -328,6 +328,21 @@ A registration may declare a posting guard, and the platform serialises it again
 - `page_cap` (200) limits entries or balance rows per read page, not legs per entry. The stock manifest, its hash and the
   registration are unchanged. The `count_difference` cause (200 lines) and the assets caps are unchanged.
 
+## Amended by REQ-853 (Qoimeks parity G5, set-to count)
+
+- A posting leg may carry the optional key `expected_on_hand` (a decimal at least 0, at most 9 decimals). Under the
+  `FOR UPDATE` lock of its balance row, in the guard of step 4 of `Letflow.Ledger`, the core compares it with the
+  locked row's `on_hand` before the legs are applied (a row created by this posting counts as 0). A difference refuses
+  the whole posting `balance_changed` (409, aliasable, details `leg_nos` only, never a quantity) and writes nothing.
+- Check order in the guard: `unit_mismatch`, then `balance_changed`, then `insufficient_balance`, then
+  `balance_bound_exceeded`. A negative, malformed or over-scaled value, or two legs of one balance key with different
+  values, is `invalid_posting` (reason `expected_on_hand_invalid`) at validation, before any lock; a reversal never
+  carries the key.
+- The value is part of the command, so of `payload_hash` (a retry with another value is `idempotency_key_reuse`); it
+  reaches the entry digest only through that header column. No leg column stores it and no migration is added.
+- No other ledger rule changes: append-only entries, quantity zero refused, the no-negative guard, bounds, the unit
+  pin, the event-time window, idempotency and lock order stand. The core stays domain-neutral (Rule 7).
+
 ## Amended by REQ-830 (slice L6 part 1, OQ-13)
 
 Slice L6 part 1 puts scope enforcement into the core run-time authority check of a posting
@@ -360,3 +375,7 @@ reading and gives no one more than today plus their own units; the owner may rel
 `scope_slot` (stock and assets both name `org_unit`). The module routes that start postings are unchanged in this part
 (`Letflow.Api.ModuleGuard` still requires tenant-wide); the stock document routes for a scoped storekeeper follow in
 part 2 (REQ-831).
+
+## Amended by 0090 (negative balances per tenant, REQ-833)
+
+D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).

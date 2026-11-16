@@ -27,7 +27,10 @@ defmodule Letflow.Ledger do
      matching key bounds), then each row is locked `FOR UPDATE`, one key at a time, in the same
      order;
   4. the lookup again, then the guard per posting in ledger-id order (unit, then
-     `insufficient_balance`, then `balance_bound_exceeded`), reading the pin from the LOCKED row;
+     `balance_changed`, `insufficient_balance`, then `balance_bound_exceeded`), reading the pin from
+     the LOCKED row; REQ-853: a leg may carry `expected_on_hand` (compare-and-set): when the locked
+     row's `on_hand` (0 for a row this posting creates) differs, the posting is refused
+     `balance_changed` (409, details `leg_nos` only) before any leg is applied;
   5. as the last ledger locks, the counter rows (insert pass, then `FOR UPDATE` pass, ascending);
      the lookup a third time; the event-time check of each posting under the counter locks;
   6. `write_posting/2` per ledger id: sequence, digest and chain hash from the locked values; the
@@ -328,8 +331,12 @@ defmodule Letflow.Ledger do
       # REQ-710: the entry, leg and balance tables are partitioned by ledger id; a ledger id
       # without its partitions is refused before the first write (one catalog read).
       case Storage.missing(prefix, Enum.map(parts, & &1.ledger_id)) do
-        [] -> lock_parts(prefix, parts)
-        _missing -> {:error, {:ledger_contract, :ledger_storage_missing}}
+        [] ->
+          precondition_hook(:validated)
+          lock_parts(prefix, parts)
+
+        _missing ->
+          {:error, {:ledger_contract, :ledger_storage_missing}}
       end
     end
   end
@@ -521,6 +528,24 @@ defmodule Letflow.Ledger do
 
   defp document_ref?(posting) do
     Enum.all?([posting.document_type, posting.document_id], &(is_binary(&1) and &1 != ""))
+  end
+
+  # REQ-853 test seam: `nil` in production. A test sets `{:wait, pid, point}`; the process sends
+  # `{:ledger_precondition_hook, point, self()}` and waits (bounded) for `:go`. Read here only.
+  defp precondition_hook(point) do
+    case Application.get_env(:letflow, :ledger_precondition_test_hook) do
+      {:wait, pid, ^point} when is_pid(pid) ->
+        send(pid, {:ledger_precondition_hook, point, self()})
+
+        receive do
+          :go -> :ok
+        after
+          15_000 -> :ok
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   # The one lock step (decision 0073 A3). `parts` are sorted by ledger id; every loop below runs
@@ -896,7 +921,7 @@ defmodule Letflow.Ledger do
       |> Enum.group_by(& &1.k)
       |> Enum.map(fn {key, key_legs} ->
         pins = for {index, max} <- bounds, Enum.at(key, index) not in [nil, ""], do: max
-        %{key: key, legs: key_legs, pin: min_decimal(pins)}
+        %{key: key, legs: key_legs, pin: min_decimal(pins), expected: expected_of(key_legs)}
       end)
       |> Enum.sort_by(& &1.key)
 
@@ -904,6 +929,10 @@ defmodule Letflow.Ledger do
       nil -> {:ok, groups}
       leg_no -> Validate.refuse(:unit_mismatch, %{leg_no: leg_no})
     end
+  end
+
+  defp expected_of(legs) do
+    Enum.find_value(legs, &Map.get(&1, :expected_on_hand))
   end
 
   defp mixed_unit(%{legs: [first | rest]}) do
@@ -969,12 +998,16 @@ defmodule Letflow.Ledger do
     end)
   end
 
-  defp refusal_for(%{legs: legs}, row, slot_count, reversal?, disclose?) do
+  defp refusal_for(%{legs: legs} = group, row, slot_count, reversal?, disclose?) do
     new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))
 
     cond do
       leg = Enum.find(legs, &(&1.unit_ref != row.unit_ref)) ->
         Validate.refuse(:unit_mismatch, %{leg_no: leg.leg_no})
+
+      changed?(group, row) ->
+        leg_nos = for leg <- legs, Map.has_key?(leg, :expected_on_hand), do: leg.leg_no
+        Validate.refuse(:balance_changed, %{leg_nos: Enum.sort(leg_nos)})
 
       Decimal.lt?(new_on_hand, 0) and reversal? ->
         # nothing of the target's contents: leg numbers and a count only
@@ -1010,6 +1043,9 @@ defmodule Letflow.Ledger do
         nil
     end
   end
+
+  defp changed?(%{expected: nil}, _row), do: false
+  defp changed?(%{expected: expected}, row), do: not Decimal.eq?(expected, row.on_hand)
 
   defp over_bound?(new_on_hand, max_on_hand) do
     Decimal.compare(new_on_hand, @limit) != :lt or
