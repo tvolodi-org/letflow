@@ -8,6 +8,7 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
 import { printReasonMessageId } from '../counts/countsModel'
 import { BASE, LIST, fakeCounts, order, problem, renderCounts } from './countsTestKit'
+import { menuItem } from '@/test-utils/menuItem'
 
 expect.extend(jestDomMatchers)
 
@@ -43,9 +44,8 @@ describe('W1 which form items are offered', () => {
   it('one menu; Inv-10 and Inv-18 disabled with a reason until their paperwork is issued', async () => {
     fakeCounts(clientMock, { orders: [ORDER_ONLY] })
     renderCounts(`${LIST}/c1`)
-    await screen.findByTestId('print-order')
+    await menuItem('print-order')
     expect(screen.getAllByTestId('official-form-menu')).toHaveLength(1)
-    await userEvent.click(screen.getByTestId('official-form-menu'))
     for (const id of ['form-inv10-docx', 'form-inv10-pdf', 'form-inv18-docx', 'form-inv18-pdf']) {
       expect(screen.getByTestId(id)).toHaveAttribute('aria-disabled', 'true')
     }
@@ -58,16 +58,14 @@ describe('W1 which form items are offered', () => {
   it('Inv-10 enabled with an issued sheet, Inv-18 stays disabled; both with both', async () => {
     fakeCounts(clientMock, { orders: [SHEET_ONLY] })
     renderCounts(`${LIST}/c1`)
-    await screen.findByTestId('print-order')
-    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await menuItem('print-order')
     expect(screen.getByTestId('form-inv10-docx')).not.toHaveAttribute('aria-disabled')
     expect(screen.getByTestId('form-inv18-docx')).toHaveAttribute('aria-disabled', 'true')
     cleanup()
 
     fakeCounts(clientMock, { orders: [BOTH] })
     renderCounts(`${LIST}/c1`)
-    await screen.findByTestId('print-order')
-    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await menuItem('print-order')
     for (const id of ['form-inv10-docx', 'form-inv10-pdf', 'form-inv18-docx', 'form-inv18-pdf']) {
       expect(screen.getByTestId(id)).not.toHaveAttribute('aria-disabled')
     }

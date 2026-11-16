@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { documentsEn as docEn, documentsKk as docKk, documentsRu as docRu } from '../documents/documentsMessages'
 import { DOCS, LIST, assetDoc, fakeDocument, fakeMasters, refusal, renderAssets, withAll } from './registerTestKit'
+import { menuItem } from '@/test-utils/menuItem'
 
 expect.extend(jestDomMatchers)
 
@@ -45,7 +46,7 @@ describe('W2 button and labels', () => {
     useUiLocaleStore.getState().setLocaleTransient(loc)
     fakeDocument(clientMock, assetDoc({ state: 'issued', number: 'ACM-1' }))
     renderAssets(VIEW, withAll)
-    expect(await screen.findByTestId('document-print')).toHaveTextContent(label)
+    expect(await menuItem('document-print')).toHaveTextContent(label)
   })
   it.each([
     ['commission', 'draft'], ['opening', 'posted'], ['kind_change', 'issued'], ['writeoff', 'cancelled'],
@@ -68,7 +69,7 @@ describe('W3 download', () => {
     fakeDocument(clientMock, assetDoc({ kind: 'handover', state: 'posted', number: 'AHO-1' }))
     clientMock.getBlob.mockResolvedValue(file('attachment; filename="AHO-1.pdf"'))
     renderAssets(VIEW, withAll)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     await waitFor(() => expect(downloads).toEqual(['AHO-1.pdf']))
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { lang: 'en' })
   })
@@ -77,7 +78,7 @@ describe('W3 download', () => {
     let done: (v: ReturnType<typeof file>) => void = () => {}
     clientMock.getBlob.mockReturnValue(new Promise((res) => { done = res }))
     renderAssets(VIEW, withAll)
-    const btn = await screen.findByTestId('document-print')
+    const btn = await menuItem('document-print')
     await userEvent.click(btn)
     await userEvent.click(btn)
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
@@ -91,13 +92,13 @@ describe('W4 refusals', () => {
   it('a 422 document_not_issued shows the localized banner', async () => {
     clientMock.getBlob.mockRejectedValue(refusal(422, 'document_not_issued'))
     renderAssets(VIEW, withAll)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     expect(await screen.findByText(docEn['assets.doc.print.reason.document_not_issued']!)).toBeInTheDocument()
   })
   it('a 404 shows the not-found text', async () => {
     clientMock.getBlob.mockRejectedValue(refusal(404))
     renderAssets(VIEW, withAll)
-    await userEvent.click(await screen.findByTestId('document-print'))
+    await userEvent.click(await menuItem('document-print'))
     expect(await screen.findByText(docEn['assets.doc.error.notFound']!)).toBeInTheDocument()
   })
 })

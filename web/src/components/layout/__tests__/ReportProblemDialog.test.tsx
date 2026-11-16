@@ -235,3 +235,21 @@ describe('image upload (W9, W10, W11)', () => {
     expect(clickSpy).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('side panel (T-2020)', () => {
+  it('is a non-modal panel in <body>: no scrim, no aria-modal, the screen behind stays interactive; Escape and Close work', async () => {
+    const onClose = mount()
+    const panel = screen.getByTestId('report-dialog')
+    expect(panel.parentElement).toBe(document.body)
+    expect(panel).toHaveAttribute('role', 'dialog')
+    expect(panel).not.toHaveAttribute('aria-modal')
+    expect(screen.queryByTestId('report-dialog-scrim')).toBeNull()
+    expect(panel).toHaveClass('lf-report__panel')
+    // the captured facts stay
+    expect(screen.getByTestId('report-summary')).toBeInTheDocument()
+    await userEvent.type(screen.getByTestId('report-text'), '{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+    await userEvent.click(screen.getByTestId('report-dialog-close'))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
