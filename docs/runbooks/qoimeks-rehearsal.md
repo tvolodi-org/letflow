@@ -56,6 +56,24 @@ Repeating: re-upload the master files (step 3) and the lines files (step 5) with
 Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
 headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
 
+## Synthetic QA dataset (qoimeks-qa rehearsal)
+
+`scripts/pilot/qoimeks_gen.py` generates a fictitious Qoimeks-shaped dataset for the
+`qoimeks-qa` dedicated QA company (D-050: no real client data). Run it with an `--out`
+directory **outside** the repository:
+
+```
+python3 -I scripts/pilot/qoimeks_gen.py --out /tmp/qoimeks-qa-input
+```
+
+This writes `locations.csv` (134 rack locations plus a warehouse and zones, 142 nodes
+total), `items.csv` (666 SKUs, unit `pcs`, quantities up to three decimal places) and
+`balances.csv` (600 valid rows plus 10 deliberately bad rows — zero, negative and
+comma-decimal quantities — to exercise the converter's G4 and G8 drop checks). The seed
+is fixed (`--seed 42`) so each run produces identical files. Pass the directory as
+`--in` to `qoimeks_convert.py convert` with `--allow-drops` to proceed through the
+bad rows and verify the remaining 600 balances are accepted.
+
 ## Deliberately not here
 
 Tenant and realm creation, users, the cut-over and the read-only switch (steps 4-6 of T-1569 section 5), posting of the
