@@ -129,7 +129,16 @@ defmodule Letflow.Api.RouteScope do
     "POST /tasks/:id/complete TasksComplete",
     "POST /tasks/:id/reassign TasksReassign",
     "POST /documents/:document_id/hold DocumentHold",
-    "POST /documents/:document_id/hold/release DocumentHold"
+    "POST /documents/:document_id/hold/release DocumentHold",
+    # REQ-831: the eight stock document write routes (resolver Letflow.Modules.Stock.Access.document_scope/1)
+    "DELETE /modules/stock/documents/:id StockPost",
+    "POST /modules/stock/documents StockPost",
+    "POST /modules/stock/documents/:id/cancel StockReverse",
+    "POST /modules/stock/documents/:id/check StockPost",
+    "POST /modules/stock/documents/:id/issue StockPost",
+    "POST /modules/stock/documents/:id/post StockPost",
+    "POST /modules/stock/documents/:id/reverse StockReverse",
+    "PUT /modules/stock/documents/:id StockPost"
   ]
 
   # AC 19: every route of these routers is CLASSIFIED (declared or admin key table); a default-

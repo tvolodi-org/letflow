@@ -36,6 +36,12 @@ defmodule Letflow.Modules.CatalogItems.Import do
        is checked here, before the database. Scale and precision stay with the strict decimal
        definition.
 
+    6. default location (Qoimeks parity G3, 0.5.0): a `catalog_item` row may carry `default_location_id`, the
+       external id of ONE `location_node` (the item's usual place) under the row's system, resolved as in 1:
+       an unknown or deleted place is `{:reference_not_found, "default_location_id"}`, a retired one
+       `{:reference_inactive, "default_location_id"}`, and the row writes nothing. A blank cell has no key, and a re-import
+       replaces the whole row as for every field, so it clears the place. There is no second place and no list of places.
+
   `ctx.dry_run` is accepted and unused: the core owns the rollback. No effect outside `prefix`.
   """
 
@@ -48,12 +54,20 @@ defmodule Letflow.Modules.CatalogItems.Import do
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.Modules.CatalogItems
+  alias Letflow.Modules.ReadApi
   alias Letflow.Repo
 
   @positive_decimals ~w(density_kg_per_l net_mass_kg net_volume_l)
   @max_decimal_bytes 1100
 
-  @references %{"catalog_item" => [{"base_uom_id", "catalog_uom"}]}
+  # `default_location_id` (Qoimeks parity G3, 0.5.0) names a `location_node` of the locations module by a type-name
+  # string only: no module reference, so no Rule 4 edge and no `depends_on` change. The locations import writes its
+  # external id into the type's own fields (no record-level key), so this one is read through the core
+  # `Letflow.Modules.ReadApi.lookup_by_external_ref/5`, as the stock opening import does. A tenant without that
+  # type answers `{:reference_not_found, "default_location_id"}` like an unknown place.
+  @references %{
+    "catalog_item" => [{"base_uom_id", "catalog_uom"}, {"default_location_id", "location_node"}]
+  }
 
   @spec row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
           {:ok, %{record_id: Ecto.UUID.t(), outcome: :created | :updated | :unchanged}}
@@ -224,6 +238,14 @@ defmodule Letflow.Modules.CatalogItems.Import do
   end
 
   @doc false
+  def resolve(cell, "location_node", field, system, prefix) when is_binary(cell) do
+    case ReadApi.lookup_by_external_ref(prefix, "location_node", system, cell, ["location_node"]) do
+      {:ok, %{"active" => false}} -> {:error, {:reference_inactive, field}}
+      {:ok, %{"record_id" => record_id}} -> {:ok, record_id}
+      _absent_or_deleted -> {:error, {:reference_not_found, field}}
+    end
+  end
+
   def resolve(cell, target, field, system, prefix) when is_binary(cell) do
     case Latest.get_by_external_ref(target, system, cell, prefix) do
       {:ok, %Latest{deleted: false, field_values: %{"active" => false}}} ->

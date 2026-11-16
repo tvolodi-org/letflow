@@ -238,6 +238,28 @@ defmodule Letflow.Routers.MeProblemReportsTest do
     assert length(reports(p)) == 1
   end
 
+  test "REQ-872 a STOREKEEPER-only caller reports and lists its own report; a colleague sees none",
+       %{a: a} do
+    {token, _} = caller!(a, ["STOREKEEPER"])
+    resp = post(a, token, body())
+    assert resp.status == 201
+    number = json(resp)["number"]
+
+    get = :get |> Fixture.api_conn(@path, token, a.tenant.slug, nil) |> Fixture.dispatch_api()
+    assert get.status == 200
+    assert %{"reports" => [mine], "has_more" => false} = json(get)
+    assert mine["number"] == number
+    assert mine["status"] == "received"
+
+    {other, _} = caller!(a, ["STOREKEEPER"])
+
+    other_get =
+      :get |> Fixture.api_conn(@path, other, a.tenant.slug, nil) |> Fixture.dispatch_api()
+
+    assert other_get.status == 200
+    assert json(other_get) == %{"reports" => [], "has_more" => false}
+  end
+
   # ── T-2043 image tests (S1-S9): real router, real tokens, attachment service ──
 
   alias Letflow.Attachments
