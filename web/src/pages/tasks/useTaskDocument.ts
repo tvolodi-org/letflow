@@ -26,6 +26,9 @@ export interface TaskDocLine {
 
 /** The part of a stock document / count order the inbox shows. */
 export interface TaskDoc {
+  /** The record id and the screen route that shows it inside its list (`list | document`), T-2018. */
+  id: string
+  path: string
   type: 'document' | 'count'
   /** `document_type` process variable (`stock_*`, `assets_*`); selects the kind word. */
   typeKey?: string
@@ -60,6 +63,8 @@ function toDoc(type: 'document' | 'count', r: Raw): TaskDoc {
   const lines = Array.isArray(r['lines']) ? (r['lines'] as TaskDocLine[]) : []
   const isCount = type === 'count'
   return {
+    id: s(r['id']),
+    path: '',
     type,
     kind: isCount ? 'count' : s(r['kind']),
     state: s(isCount ? r['status'] : r['state']),
@@ -93,7 +98,7 @@ function toAssetDoc(typeKey: string, r: Raw): TaskDoc {
   })
   const base = toDoc('document', r)
   // the document date: the event time when the document carries one, else the issue time
-  return { ...base, typeKey, lines, eventTime: base.eventTime ?? sn(r['issued_at']) }
+  return { ...base, typeKey, lines, path: `/admin/assets/documents/${encodeURIComponent(base.id)}`, eventTime: base.eventTime ?? sn(r['issued_at']) }
 }
 
 async function issuerOf(instanceId: string): Promise<{ id: string | null; label: string | null }> {
@@ -116,9 +121,17 @@ async function contextOf(instanceId: string): Promise<TaskContext> {
   const orderId = s(vars['count_order_id'])
   let doc: TaskDoc | null = null
   try {
-    if (orderId !== '') doc = toDoc('count', (await client.get<Raw>(`${STOCK_COUNTS}/${encodeURIComponent(orderId)}`)) ?? {})
-    else if (type.startsWith('assets_') && docId !== '') doc = toAssetDoc(type, (await client.get<Raw>(`${ASSET_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
-    else if (type.startsWith('stock_') && docId !== '') doc = toDoc('document', (await client.get<Raw>(`${STOCK_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
+    if (orderId !== '') {
+      const d = toDoc('count', (await client.get<Raw>(`${STOCK_COUNTS}/${encodeURIComponent(orderId)}`)) ?? {})
+      doc = { ...d, id: d.id || orderId, path: `/admin/stock/counts/${encodeURIComponent(d.id || orderId)}` }
+    }
+    else if (type.startsWith('assets_') && docId !== '') {
+      const d = toAssetDoc(type, (await client.get<Raw>(`${ASSET_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
+      doc = { ...d, id: d.id || docId, path: `/admin/assets/documents/${encodeURIComponent(d.id || docId)}` }
+    } else if (type.startsWith('stock_') && docId !== '') {
+      const d = toDoc('document', (await client.get<Raw>(`${STOCK_DOCUMENTS}/${encodeURIComponent(docId)}`)) ?? {})
+      doc = { ...d, id: d.id || docId, path: `/admin/stock/documents/${encodeURIComponent(d.id || docId)}` }
+    }
   } catch {
     doc = null
   }
