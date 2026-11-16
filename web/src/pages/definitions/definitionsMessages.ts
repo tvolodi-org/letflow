@@ -35,6 +35,8 @@ export interface DefinitionsMessages {
   colActions: string
   activate: string
   archive: string
+  copyAsDraft: string
+  copyFailed: string
   rollback: string
   versionHistory: string
   loadingVersions: string
@@ -86,6 +88,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Actions',
     activate: 'Activate',
     archive: 'Archive',
+    copyAsDraft: 'Copy as draft',
+    copyFailed: 'Could not copy the process',
     rollback: 'Rollback…',
     versionHistory: 'Version history: {name}',
     loadingVersions: 'Loading versions...',
@@ -135,6 +139,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Действия',
     activate: 'Активировать',
     archive: 'Архивировать',
+    copyAsDraft: 'Копировать как черновик',
+    copyFailed: 'Не удалось скопировать процесс',
     rollback: 'Откатить…',
     versionHistory: 'История версий: {name}',
     loadingVersions: 'Загрузка версий...',
@@ -184,6 +190,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Әрекеттер',
     activate: 'Белсендіру',
     archive: 'Мұрағаттау',
+    copyAsDraft: 'Жоба ретінде көшіру',
+    copyFailed: 'Процесті көшіру мүмкін болмады',
     rollback: 'Кері қайтару…',
     versionHistory: 'Нұсқалар тарихы: {name}',
     loadingVersions: 'Нұсқалар жүктелуде...',

@@ -81,6 +81,7 @@ import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { processDiscoveryScreens } from './fixtures/processDiscovery'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
+import { definitionListScreens } from './fixtures/definitionList'
 import { instanceReplayScreens } from './fixtures/instanceReplay'
 import { instanceDetailScreens } from './fixtures/instanceDetail'
 import { waitingSinceScreens } from './fixtures/waitingSince'
@@ -329,6 +330,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...processDesignerEditScreens,
     ...processDiscoveryScreens,
     ...processDesignerVersionsScreens,
+    ...definitionListScreens,
     ...instanceReplayScreens,
     ...instanceDetailScreens,
     ...waitingSinceScreens,

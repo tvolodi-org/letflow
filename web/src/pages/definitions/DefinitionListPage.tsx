@@ -44,6 +44,7 @@ export default function DefinitionListPage() {
   const [expandedDefName, setExpandedDefName] = useState<string | null>(null)
   const [pendingNavId, setPendingNavId] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // ISS-0729: tracks the most recently scheduled (not-yet-flushed) deferred
   // `setSearch` timer — see the search input's `onChange` below for why this
@@ -126,6 +127,23 @@ export default function DefinitionListPage() {
       setPendingNavId(result.id)
     } catch (err: unknown) {
       setCreateError(saveErrorText(err, feedback))
+    }
+  }
+
+  // Copy a process as a new DRAFT (own name, version 1.0.0, same steps and declared variables). Nothing is activated.
+  const handleCopy = async (def: ProcessDefinition) => {
+    setCopyError(null)
+    try {
+      const result = await createDef.mutateAsync({
+        name: `${def.name}-copy`,
+        version: '1.0.0',
+        description: def.description ?? '',
+        graph: def.graph,
+        copy_variable_schemas_from: def.id,
+      })
+      setPendingNavId(result.id)
+    } catch (err: unknown) {
+      setCopyError(saveErrorText(err, feedback) || dm.copyFailed)
     }
   }
 
@@ -246,6 +264,11 @@ export default function DefinitionListPage() {
           {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
             <Button variant="secondary" size="sm" onClick={() => archive.mutate(def.id)} loading={archive.isPending}>
               {dm.archive}
+            </Button>
+          )}
+          {hasDesignerRole && (
+            <Button variant="secondary" size="sm" data-testid={`btn-copy-${def.id}`} onClick={() => void handleCopy(def)} disabled={createDef.isPending}>
+              {dm.copyAsDraft}
             </Button>
           )}
           {def.status === 'ACTIVE' && canRollback && (
@@ -378,6 +401,12 @@ export default function DefinitionListPage() {
             <span style={{ display: 'block', marginTop: '.5rem' }}>{dm.emptyHint}</span>
           )}
         </p>
+      )}
+
+      {copyError && (
+        <div role="alert" data-testid="copy-error" className="lf-banner lf-banner--danger" style={{ marginBottom: '.5rem' }}>
+          {copyError}
+        </div>
       )}
 
       {importError && (

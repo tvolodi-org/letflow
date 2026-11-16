@@ -59,7 +59,7 @@ vi.mock('@/api/definitions', () => ({
 }))
 
 import { useAuth } from '@/auth/AuthContext'
-import { useDefinitions } from '@/hooks/useDefinitions'
+import { useDefinitions, useCreateDefinition } from '@/hooks/useDefinitions'
 import DefinitionListPage from '@/pages/definitions/DefinitionListPage'
 import { renderWithAccess } from '@/auth/access/testing'
 
@@ -123,6 +123,32 @@ describe('T-2012 process discovery', () => {
     expect(screen.getByTestId('process-designer-hint')).toHaveTextContent('edit steps')
     fireEvent.click(screen.getByTestId(`open-process-${ACTIVE_DEF.id}`))
     expect(mockNavigate).toHaveBeenCalledWith(`/definitions/${ACTIVE_DEF.id}`)
+  })
+})
+
+describe('T-2013 copy a process as a draft', () => {
+  it('creates a DRAFT copy with the same graph and opens it', async () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    const mutateAsync = vi.fn().mockResolvedValue({ id: 'def-copy-1' })
+    vi.mocked(useCreateDefinition).mockReturnValue({ mutateAsync, isPending: false } as unknown as ReturnType<typeof useCreateDefinition>)
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    fireEvent.click(screen.getByTestId(`btn-copy-${ACTIVE_DEF.id}`))
+    await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/definitions/def-copy-1'))
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'approvals-copy', version: '1.0.0', graph: ACTIVE_DEF.graph, copy_variable_schemas_from: ACTIVE_DEF.id }),
+    )
+  })
+
+  it('shows an error and does not navigate when the copy is refused', async () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    const mutateAsync = vi.fn().mockRejectedValue({ status: 409 })
+    vi.mocked(useCreateDefinition).mockReturnValue({ mutateAsync, isPending: false } as unknown as ReturnType<typeof useCreateDefinition>)
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    fireEvent.click(screen.getByTestId(`btn-copy-${ACTIVE_DEF.id}`))
+    expect(await screen.findByTestId('copy-error')).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })
 
