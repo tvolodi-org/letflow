@@ -1016,7 +1016,11 @@ defmodule Letflow.TenantProvisioning do
     # T-2015: problem_report_images (screenshots on problem reports). Created empty in every schema,
     # written only in the platform company's schema; nothing to backfill.
     {20_261_116_100_001, Letflow.Repo.Migrations.CreateProblemReportImages,
-     "20261116100001_create_problem_report_images.exs"}
+     "20261116100001_create_problem_report_images.exs"},
+    # T-2040: attachment_blobs and attachment_links (photo service core). Created empty in every
+    # schema; nothing to backfill.
+    {20_261_116_200_001, Letflow.Repo.Migrations.CreateAttachments,
+     "20261116200001_create_attachments.exs"}
   ]
 
   @doc """

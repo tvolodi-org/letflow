@@ -80,6 +80,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # REQ-664: the catalog lot writers (create/update/retire) write under the catalog_items Owner.
   @catalog_lots "lib/letflow/modules/catalog_items/lots.ex"
   # REQ-663: the code writers write under the codes Owner.
+  @codes_import "lib/letflow/modules/codes/import.ex"
   @codes_writes "lib/letflow/modules/codes/writes.ex"
   # REQ-700: the count order writers write under the stock Owner.
   @stock_counts "lib/letflow/modules/stock/counts.ex"
@@ -134,6 +135,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                        @assets_currency_migration,
                        @assets_documents,
                        @catalog_lots,
+                       @codes_import,
                        @codes_writes
                      ] ++
                        @exam_writers ++
@@ -746,6 +748,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                  @assets_documents,
                  @catalog_import,
                  @catalog_lots,
+                 @codes_import,
                  @codes_writes
                ] ++
                  @exam_owner_callers ++

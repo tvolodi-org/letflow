@@ -41,11 +41,11 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   # The upgrade pairs with a test behind them: {module, old version, fixture, current version}.
   @pairs [
     {"assets", "0.28.0", "assets_0_28_0.json", "0.29.0"},
-    {"catalog_items", "0.2.0", "catalog_items_0_2_0.json", "0.4.0"},
+    {"catalog_items", "0.2.0", "catalog_items_0_2_0.json", "0.5.0"},
     {"locations", "0.4.0", "locations_0_4_0.json", "0.5.0"},
     {"stock", "0.10.0", "stock_0_10_0.json", "0.17.0"},
     {"stock", "0.14.0", "stock_0_14_0.json", "0.17.0"},
-    {"codes", "0.3.0", "codes_0_3_0.json", "0.4.0"},
+    {"codes", "0.3.0", "codes_0_3_0.json", "0.5.0"},
     {"org", "0.2.0", "org_0_2_0.json", "0.3.0"}
   ]
 
@@ -53,8 +53,8 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   # previous pack and is pinned as such.
   @tested %{
     "assets" => "0.29.0",
-    "catalog_items" => "0.4.0",
-    "codes" => "0.4.0",
+    "catalog_items" => "0.5.0",
+    "codes" => "0.5.0",
     "locations" => "0.5.0",
     "org" => "0.3.0",
     "stock" => "0.17.0",

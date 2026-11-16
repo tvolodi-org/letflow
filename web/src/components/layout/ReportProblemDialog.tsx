@@ -3,8 +3,11 @@
  *  Nothing is sent before the consent tick and Send.
  *  T-2020: a side panel, not a modal: the screen behind stays visible and usable (no scrim, no focus trap) so the user
  *  can look at it while describing the problem; the captured facts stay. Escape closes while focus is in the panel.
+ *  REQ-872: after Send the panel stays open and shows the receipt (number, hint, link to My reports) instead of a toast
+ *  that would cover the panel text.
  *  T-2015: adds screenshot upload (paste, drag-and-drop, file picker; max 3 images; PNG/JPEG/WebP). */
 import { useEffect, useRef, useState } from 'react'
+import { Link, useInRouterContext } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
@@ -15,7 +18,6 @@ import { Button } from '@/components/ui/Button'
 import { useUiMessages } from '@/components/ui/uiMessages'
 import { Field } from '@/components/ui/Field'
 import { Checkbox } from '@/components/ui/Checkbox'
-import { useToast } from '@/hooks/useToast'
 import { useSubmitProblemReport } from '@/hooks/useSubmitProblemReport'
 import { snapshot } from '@/lib/problemReport/capture'
 import { buildReportBody } from '@/lib/problemReport/payload'
@@ -47,12 +49,13 @@ export function ReportProblemDialog({
   const uiLocale = useUiLocale()
   const { session } = useAuth()
   const access = useAccess()
-  const toast = useToast()
   const mutation = useSubmitProblemReport()
   const [snap] = useState(() => snapshot())
   const [text, setText] = useState(crash ? m.crashPrefill : '')
   const [consent, setConsent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [receipt, setReceipt] = useState<string | null>(null)
+  const inRouter = useInRouterContext()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [images, setImages] = useState<ReportImage[]>(() => {
@@ -130,8 +133,7 @@ export function ReportProblemDialog({
     setError(null)
     mutation.mutate(body, {
       onSuccess: (r) => {
-        toast.success(fill(m.received, { number: r.number }), { description: m.receivedHint })
-        onClose()
+        setReceipt(r.number)
       },
       onError: (e) => setError(messageFor(e, m)),
     })
@@ -164,6 +166,23 @@ export function ReportProblemDialog({
           <X className="lf-icon" aria-hidden="true" />
         </button>
       </div>
+      {receipt !== null ? (
+        <>
+          <div className="lf-report__panel-body" data-testid="report-receipt">
+            <p>{fill(m.received, { number: receipt })}</p>
+            <p className="lf-muted">{m.receivedHint}</p>
+            {inRouter ? (
+              <Link to="/me/problem-reports" data-testid="report-receipt-link" onClick={onClose}>{m.myReportsLink}</Link>
+            ) : (
+              <a href="/me/problem-reports" data-testid="report-receipt-link">{m.myReportsLink}</a>
+            )}
+          </div>
+          <div className="lf-report__panel-foot">
+            <Button variant="primary" data-testid="report-receipt-close" onClick={onClose}>{ui.close}</Button>
+          </div>
+        </>
+      ) : (
+      <>
       <div className="lf-report__panel-body">
         {error != null && error !== '' && (
           <div data-testid="report-dialog-error">
@@ -283,6 +302,8 @@ export function ReportProblemDialog({
         <Button variant="ghost" data-testid="report-dialog-cancel" onClick={onClose} disabled={busy}>{m.cancel}</Button>
         <Button variant="primary" data-testid="report-dialog-confirm" onClick={send} disabled={busy || !text.trim() || !consent} loading={busy}>{m.send}</Button>
       </div>
+      </>
+      )}
     </aside>,
     document.body,
   )

@@ -43,7 +43,7 @@ export function ItemDetails(props: { item: ItemRow; initialCodesDialog?: "new" |
   const label = useReferenceLabels([
     {
       catalog_uom: [item.uomId, ...balRows.map((r) => r.unit_ref)].filter(Boolean),
-      location_node: balRows.map((r) => r.location),
+      location_node: [item.defaultLocationId, ...balRows.map((r) => r.location)].filter(Boolean),
       org_unit: balRows.map((r) => r.org_unit),
       catalog_lot: balRows.map((r) => r.lot).filter((l): l is string => !!l),
     },
@@ -55,6 +55,7 @@ export function ItemDetails(props: { item: ItemRow; initialCodesDialog?: "new" |
     { key: 'unit', label: t('field.unit'), value: label('catalog_uom', item.uomId), empty: item.uomId === '' },
     { key: 'kind', label: t('field.kind'), value: item.kind === 'material' || item.kind === 'service' ? t(`kind.${item.kind}`) : item.kind, empty: item.kind === '' },
     { key: 'tracking', label: t('field.tracking'), value: t(`tracking.${item.tracking}`) },
+    { key: 'defaultLocation', label: t('field.defaultLocation'), value: item.defaultLocationId === '' ? '' : label('location_node', item.defaultLocationId), empty: item.defaultLocationId === '' },
     { key: 'status', label: t('field.status'), value: t(item.active ? 'status.active' : 'status.retired') },
   ]
   if (item.externalRef !== '') fields.push({ key: 'external', label: t('field.externalRef'), value: item.externalRef, mono: true, full: true })

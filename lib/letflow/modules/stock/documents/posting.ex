@@ -176,7 +176,16 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       }
 
       with {:ok, instance_id} <-
-             start(prefix, spec.definition, "stock-post", issued.version_id, view.id, vars, actor) do
+             start(
+               prefix,
+               spec.definition,
+               "stock-post",
+               issued.version_id,
+               view.id,
+               vars,
+               actor,
+               view.org_unit_id
+             ) do
         if view.kind == "opening", do: complete_submit(prefix, instance_id, actor)
         {:ok, instance_id}
       end
@@ -241,7 +250,16 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       "posting" => command
     }
 
-    start(prefix, @reversal_definition, "stock-rev", issued.version_id, view.id, vars, actor)
+    start(
+      prefix,
+      @reversal_definition,
+      "stock-rev",
+      issued.version_id,
+      view.id,
+      vars,
+      actor,
+      view.org_unit_id
+    )
   end
 
   # Test seam: forces a start failure after the issue committed. Read here only.
@@ -253,11 +271,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   # Public for `Letflow.Modules.Stock.CountPosting` (REQ-718): the same start for a count.
   @doc false
-  def start(prefix, name, key_prefix, version_id, doc_id, vars, actor) do
-    attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, 2)
+  def start(prefix, name, key_prefix, version_id, doc_id, vars, actor, scope_node_id \\ nil) do
+    attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, scope_node_id, 2)
   end
 
-  defp attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, tries_left) do
+  defp attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, node, tries_left) do
     n = 1 + instance_count(prefix, name, doc_id)
 
     attrs = %{
@@ -267,9 +285,12 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       idempotency_key: "#{key_prefix}:#{version_id}:#{n}"
     }
 
+    # REQ-831: the document's org unit is the instance's scope node (nil: an unscoped start).
+    attrs = if node, do: Map.put(attrs, :scope_node_id, node), else: attrs
+
     case Engine.create(attrs, prefix: prefix) do
       {:ok, %{replayed: true, status: status}} when status != :active and tries_left > 1 ->
-        attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, tries_left - 1)
+        attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, node, tries_left - 1)
 
       {:ok, %{instance_id: instance_id}} ->
         {:ok, instance_id}

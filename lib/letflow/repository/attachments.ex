@@ -664,8 +664,9 @@ defmodule Letflow.Repository.Attachments do
   # ===========================================================================
 
   @doc """
-  Returns the sum of `byte_size` across all `instance_attachments` rows in the
-  tenant's own Postgres schema, computed on read. Returns `{:ok, 0}` when the
+  Returns the sum of `byte_size` across all `instance_attachments` rows and all photo
+  `attachment_blobs` rows (T-2040, `Letflow.Attachments`) in the tenant's own Postgres schema,
+  computed on read. Returns `{:ok, 0}` when the
   tenant has no attachments (COALESCE semantics). Called by REQ-392's quota
   display route and internally by `check_storage_quota/3`.
   """
@@ -673,7 +674,7 @@ defmodule Letflow.Repository.Attachments do
   def get_storage_usage(opts) when is_list(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
-    raw =
+    instance_bytes =
       Repo.one(
         from(a in "instance_attachments",
           select: coalesce(sum(a.byte_size), 0)
@@ -681,16 +682,22 @@ defmodule Letflow.Repository.Attachments do
         prefix: prefix
       )
 
-    # SUM on a raw string table returns Decimal (type unknown at compile time); normalize.
-    usage =
-      case raw do
-        nil -> 0
-        %Decimal{} = d -> Decimal.to_integer(d)
-        n when is_integer(n) -> n
-      end
+    # T-2040: photo blobs (`Letflow.Attachments`) count against the same allowance.
+    photo_bytes =
+      Repo.one(
+        from(b in "attachment_blobs",
+          select: coalesce(sum(b.byte_size), 0)
+        ),
+        prefix: prefix
+      )
 
-    {:ok, usage}
+    {:ok, normalize_sum(instance_bytes) + normalize_sum(photo_bytes)}
   end
+
+  # SUM on a raw string table returns Decimal (type unknown at compile time); normalize.
+  defp normalize_sum(nil), do: 0
+  defp normalize_sum(%Decimal{} = d), do: Decimal.to_integer(d)
+  defp normalize_sum(n) when is_integer(n), do: n
 
   # REQ-390 design §5 -- runs after tenant_id_for_schema_name, before Repo.transaction.
   @spec check_storage_quota(String.t(), Ecto.UUID.t(), non_neg_integer()) ::
