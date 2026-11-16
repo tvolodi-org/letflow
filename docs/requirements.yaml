@@ -55526,9 +55526,11 @@ requirements:
       (the assets ledger, every test registration) refuses as today; no stored setting means refuse; (2) the
       exact refusal rule under refuse, chosen so that today's answers do not change: a posting is refused
       insufficient_balance only when a balance key it lowers ends below zero, so a receipt into a key that
-      is already negative (left by an earlier allow period) is accepted; (3) the database bound that replaces
-      CHECK on_hand >= 0: a lower bound mirroring the upper @limit (on_hand > -1.0E+21), kept under the same
-      constraint name, with the guard refusing balance_bound_exceeded at that bound; (4) what each other
+      is already negative (left by an earlier allow period) is accepted; (3) the database bound: CHECK
+      ledger_balance_on_hand_check (on_hand >= 0) is dropped and the column type numeric(30,9) is the
+      database lower bound (Postgres refuses an absolute value of 10^21 or more as numeric_value_out_of_range,
+      so no CHECK at -1.0E+21 could ever fire), with the guard refusing balance_bound_exceeded at -1.0E+21 or
+      below, mirroring the upper @limit; (4) what each other
       ledger rule does with a negative balance: max_on_hand and key_bounds (an upper bound only, untouched;
       the stock registration has no key_bounds), the unit pin, append-only storage, zero-sum per cause, the
       gap-free counter, idempotency, reconcile (re-derives a negative on-hand like any other), the read
@@ -55558,7 +55560,7 @@ requirements:
       docs/status/qoimeks-migration-readiness.md to point at the record. No code, no migration, no route in
       this part. Size S.
     acceptance_criteria:
-      - "1. The decision record docs/migration/decisions/0090-negative-balances-per-tenant.md (or the next free number) exists with the eight numbered sections listed in the description; each section states one rule, and every rule that is not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'assumption, owner may change' and listed in the owner table (section 8)."
+      - "1. The decision record docs/migration/decisions/0090-negative-balances-per-tenant.md (or the next free number) exists with the eight numbered sections listed in the description; each section states its rules, and every rule that is not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'assumption, owner may change' and listed in the owner table (section 8)."
       - "2. Section 2 states the refuse-mode rule as 'refused only when a key the posting lowers ends below zero' and gives the three worked cases: on-hand 5, issue 7 under refuse is insufficient_balance; on-hand -2 (left by an allow period), receipt 3 under refuse is accepted and reads 1; on-hand 5, issue 7 under allow is accepted and reads -2."
       - "3. Section 4 has one row per rule named in the description (max_on_hand and key_bounds, unit pin, append-only, zero-sum, counter, idempotency, reconcile, read, reversal, count, freeze guard, opening balance, switching back) and for each says either 'unchanged' with the reason or the exact change; the opening-balance row names exactly one mechanism (sign rule any on opening, or a new cause with sign rule negative) and says whether one opening document may mix positive and negative lines."
       - "4. Section 5 names the new permission atom, the table name and its columns, the two routes (GET list and PUT per registration) with their 422 reason codes, and the audit entry kind, so that REQ-834 and REQ-835 use these names unchanged; the PLATFORM_ADMIN rule is written as 'held by TENANT_ADMIN only; an explicit false clause keeps PLATFORM_ADMIN out', as for :ApprovalRulesManage in lib/letflow/api/authorization.ex."
@@ -55566,7 +55568,7 @@ requirements:
       - "6. Decisions 0073 and 0057 each end with one added 'Amended by 0090' paragraph and no other line of them changes (git diff shows additions at the end only); row G4 of docs/status/qoimeks-migration-readiness.md names the record; mix letflow.check.static passes."
     depends_on: [REQ-621, REQ-637, REQ-718, REQ-727, REQ-765]
   - id: REQ-834
-    title: "Qoimeks parity G4 part 2: the ledger core honours a per-tenant negative balance setting for a registration that declares it, with the database bound changed from on_hand >= 0 to the mirrored lower limit"
+    title: "Qoimeks parity G4 part 2: the ledger core honours a per-tenant negative balance setting for a registration that declares it, with the database check on_hand >= 0 dropped"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
@@ -55580,9 +55582,9 @@ requirements:
       refused with its own closed reason, appended to the reason order in the moduledoc. (b) One tenant
       migration (registered in Letflow.TenantProvisioning's manifest, the if prefix() guard, no
       interpolation but the schema name) creates the settings table named by the record (one row per
-      registration name; no row means refuse; no tenant_id, 0006 D2) and replaces CHECK on_hand >= 0 of
-      ledger_balance by the lower bound of the record under the same constraint name; existing rows (QA has
-      stock postings) all satisfy the new bound, so the migration needs no data step. (c) Letflow.Ledger:
+      registration name; no row means refuse; no tenant_id, 0006 D2) and drops CHECK ledger_balance_on_hand_check
+      (on_hand >= 0) of ledger_balance, leaving the column type numeric(30,9) as the database lower bound;
+      dropping a check needs no data step. (c) Letflow.Ledger:
       inside lock_postings/1, before the guard, the tenant's setting for the capability's registration is
       read with the capability's prefix (only when the registration declares :tenant_setting); the guard
       then applies rule 2 of the record (under refuse: insufficient_balance only when a key the posting
@@ -55600,7 +55602,7 @@ requirements:
       - "3. Refuse after allow: with the key at -5 and the row switched back to refuse, a receipt of 3 is accepted (reads -2) and an issue of 1 is refused insufficient_balance (rule 2 of the record)."
       - "4. Reversal: under allow, reversing a receipt of 10 whose key now holds 4 is accepted and reads -6; under refuse it is refused insufficient_balance with only leg_nos and count in the details; a second reversal of the same entry is still posting_already_reversed and a reversal of a reversal is still posting_is_reversal."
       - "5. A registration WITHOUT the key (and the assets registration in lib/letflow/modules/assets/assets.ex) refuses a posting below zero even when a settings row with allow exists under its name; a registration with an unknown value for the key fails validation with the new closed reason (test in test/letflow/modules/ledger_registration_test.exs)."
-      - "6. Lower bound: under allow, a posting that would take a key to -1.0E+21 or below is refused balance_bound_exceeded; a direct SQL insert into ledger_balance with on_hand -1 now succeeds and one at -1.0E+21 is refused as a check_violation of ledger_balance_on_hand_check (test/letflow/migrations/ledger_tables_migration_test.exs); max_on_hand behaviour is unchanged (the existing key_bounds tests pass without edits)."
+      - "6. Lower bound: under allow, a posting that would take a key to -1.0E+21 or below is refused balance_bound_exceeded; a direct SQL insert into ledger_balance with on_hand -1 now succeeds; one with on_hand -1000000000000000000000 fails with SQLSTATE 22003 numeric_value_out_of_range; no constraint named ledger_balance_on_hand_check remains (test/letflow/migrations/ledger_tables_migration_test.exs); max_on_hand behaviour is unchanged (the existing key_bounds tests pass without edits)."
       - "7. Tenant isolation (INV-1, INV-10): with tenant A's row set to allow and tenant B without a row, a posting below zero in B is refused; the setting read uses only the capability's prefix (a test runs both tenants in one test)."
       - "8. The migration up and down run in a test schema; the tenant table list and migration position pins are updated with a comment naming REQ-834; mix letflow.check.static passes and the changed test files pass when run by path."
     depends_on: [REQ-833, REQ-621, REQ-637]
