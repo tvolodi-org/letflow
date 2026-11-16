@@ -57255,7 +57255,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of Qoimeks parity G8; it depends on nothing undelivered (REQ-650's xlsx import is on main)
+    gh: 4609
     # Source: task T-2030 (Qoimeks parity row G8, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 row G8), docs/runbooks/qoimeks-rehearsal.md (steps 3 and 5, dry_run=true then atomic=true), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, import_records_with_access/5, import_body/4, xlsx_bytes/1, csv_text/1, check_dry_run/3, check_atomic/2, import_results_ok/5; no 409 on this route today), lib/letflow/plugs/xlsx_body_parser.ex and lib/letflow/plugs/csv_body_parser.ex (raw bytes kept under "_xlsx" and "_csv"), lib/letflow/api/response.ex (conflict/2, unprocessable/2), docs/migration/decisions/0077-xlsx-import-export.md. Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2030/sources/qoimeks-import-extract.md: client1-inventory.md section 8 item 7 and server/internal/api/import.go importWorkbook.
     description: >
       Why. In Qoimeks the Excel load is "check, then load": the check answers the SHA-256 of the file it read,
@@ -57298,7 +57298,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-882 -- the screen sends the sha256 key that REQ-882 adds to the record import route
+    gh: 4608
     # Source: task T-2030 (row G8). Read on origin/main b074d5c71: web/src/pages/admin/import/importApi.ts (runImport/3: dry_run=true for the check, atomic=true for the load), web/src/pages/admin/import/MasterDataImportPage.tsx (onRun/1, phases checked/done/notApplied, button data-testid import-confirm enabled only when checkedClean), web/src/pages/admin/import/importModel.ts (ImportAnswer), web/src/i18n/importMessages.ts, web/src/modules/stock/documents/LinesEditor.tsx (calls runImport with dryRun false and no check).
     description: >
       Why. The Letflow import screen (route admin/import, MasterDataImportPage) already checks a file (dry run)
@@ -57329,7 +57329,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-865 -- the check takes the Qoimeks-layout workbook that REQ-865 writes and is tested by reading it back
+    gh: 4607
     # Source: task T-2030 (row G8). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 rows G8, G9, G11), REQ-865 (pending, gh 4579: the Qoimeks layout, columns A to J, the place pattern, H when D to F are empty, the 10,000-row cap, "For the G8 import (task T-2030)"), lib/letflow/plugs/xlsx_body_parser.ex (parse/5 clauses per path, 2 MiB pipeline length), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers length 2_097_152), lib/letflow/entities/xlsx_import.ex (first worksheet only, 25 MiB inflate limit, no DOCTYPE, numbers as plain decimal text), lib/letflow/ledger.ex (defdelegate balances/4 to Letflow.Ledger.Read), lib/letflow/modules/stock/router.ex (authz_get "/balances", :StockRead), lib/letflow/modules/catalog_items/catalog_items.ex (catalog_item unique code, base_uom_id, tracking_policy none, lot, serial, expiry). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (importer.go: lookalikes, letter, quantity, parse and its warn texts; store/import.go: PostBalances).
     description: >
       Why. Qoimeks parity row G8 (readiness note section 1.2; Qoimeks inventory section 8 item 7). The
@@ -57438,7 +57438,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-854 -- the load writes a quick count document (kind quick_count, cause count_set) that REQ-854 adds
+    gh: 4606
     # Source: task T-2030 (row G8: "optional 'Записать остатки из файла' turns differences into count adjustments (uses G5)"). Read on origin/main b074d5c71: REQ-853 (pending, gh 4565: expected_on_hand, balance_changed), REQ-854 (pending, gh 4564: kind quick_count, document type stock_quick_count, POST /quick-counts, StockQuickCount, process stock_quick_count, cause count_set, quick_count_stale, count_in_progress, "Not in this part ... several lines per quick count and the 'balances from the file as adjustments' import (row G8, sibling task T-2030)"), lib/letflow/modules/stock/documents/shape.ex (@max_lines 1000), lib/letflow/ledger/validate.ex (@max_legs 2000), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER, version "0.17.0"). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go: apply needs sha256, 409; store/import.go: PostBalances, ImportRecord; migrations 003 and 004).
     description: >
       Why. In Qoimeks the load of a checked workbook with «Записать остатки из файла» sets every differing
@@ -57497,7 +57497,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-885 -- it lists and cancels the workbook quick count documents that REQ-885 writes
+    gh: 4605
     # Source: task T-2030 (row G8: "an import can be cancelled and reverses its balance changes (by reversals)"). Read on origin/main b074d5c71: lib/letflow/modules/stock/router.ex (authz_post "/documents/:id/reverse" and "/documents/:id/cancel", both :StockReverse), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER holds StockReverse), REQ-854 (pending: reversal of a posted quick count, guard location_frozen), REQ-833 (pending, gh 4554: negative balances). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go importHistory and cancelImport; store/import.go Imports(ctx, 50) and CancelImport: reverses every movement of the import not yet reversed, newest first, "this import has no balance changes left to cancel").
     description: >
       Why. Qoimeks lists the last 50 imports (who, file, sheet, SHA-256, counts) and cancels one: every
@@ -57556,7 +57556,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-886 -- the screen calls the check, load, list and cancel routes of REQ-884 to REQ-886
+    gh: 4604
     # Source: task T-2030 (row G8). Read on origin/main b074d5c71: web/src/modules/stock/stockRoutes.tsx (admin/stock/balances and the other stock routes), web/src/modules/stock/register/BalancesPage.tsx, web/src/modules/stock/register/stockPickers.ts (usePickerOptions), web/src/modules/stock/stockPermissions.ts, web/src/modules/stock/stockMessages.ts, web/src/pages/admin/import/MasterDataImportPage.tsx (check then load phases, the pattern to follow).
     description: >
       Why. Qoimeks parity row G8 for the people who use it: the bookkeepers pick the workbook, see what it
