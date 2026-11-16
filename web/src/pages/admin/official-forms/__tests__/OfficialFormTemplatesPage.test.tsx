@@ -36,6 +36,7 @@ import { renderWithAccess } from '@/auth/access/testing'
 import type { OfficialFormTemplateMeta } from '@/api/officialFormTemplates'
 import { dismissToast, getToastSnapshot } from '@/hooks/useToast'
 import { officialFormsMessages } from '../officialFormsMessages'
+import { OFFICIAL_TEMPLATE_FORMS } from '../officialFormsModel'
 
 const ID = (n: number) => `00000000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
@@ -123,15 +124,15 @@ const tableOf = (name: RegExp) => screen.getAllByRole('table').find((t) => name.
 const btn = (name: string | RegExp, within_?: HTMLElement) => (within_ ? within(within_) : screen).getByRole('button', { name })
 
 describe('W1 list and state pills', () => {
-  it('shows the 12 forms in order, the notice, and a pill per state', async () => {
+  it('shows every shipped form in order, the notice, and a pill per state', async () => {
     rows = [V3, V4, KK_ACTIVE, NEVER]
     render()
     const list = (await screen.findAllByRole('table'))[0]
     await waitFor(() => expect(within(list).getByText('Own template ru v3')).toBeInTheDocument())
-    expect(within(list).getAllByRole('row')).toHaveLength(13)
+    expect(within(list).getAllByRole('row')).toHaveLength(OFFICIAL_TEMPLATE_FORMS.length + 1)
     expect(within(list).getByText('Draft v4')).toBeInTheDocument()
     expect(within(list).getByText('Own template kk v2')).toBeInTheDocument()
-    expect(within(list).getAllByText('Standard')).toHaveLength(10)
+    expect(within(list).getAllByText('Standard')).toHaveLength(OFFICIAL_TEMPLATE_FORMS.length - 2)
     expect(screen.getByTestId('official-forms-notice')).toHaveTextContent(/Word prints use the active template of your company/)
     expect(screen.getByTestId('detail-header')).toHaveTextContent('DA-1')
   })
