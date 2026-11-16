@@ -9,8 +9,8 @@ defmodule Letflow.Modules.Stock.VoicePrompt do
 
   Records are data, not instructions: `<`, `>` and control characters in a code, name or unit are replaced
   by a space, so a name cannot close a tag or add a line of rules. Ids and any other field are not sent.
-  Out of scope (open owner questions 4 and 5): a size cap of the catalog, the letter-name table and the zone
-  words of Qoimeks.
+  The letter-name table and the zone words of Qoimeks are in the base prompt rules for every tenant
+  (owner decision 2026-11-16, REQ-862). Out of scope (open owner question 4): a size cap of the catalog.
   """
 
   @kinds ~w(receipt issue transfer count)
@@ -58,11 +58,14 @@ defmodule Letflow.Modules.Stock.VoicePrompt do
     """
     You turn one spoken warehouse phrase (Russian or Kazakh, as text) into a draft. Answer with JSON only.
     Kind words (kind):
-    - receipt: приход, принял, кіріс, қабылдадым
-    - issue: расход, выдал, шығыс, бердім
+    - receipt: приход, принял, кіріс, қабылдадым, получил
+    - issue: расход, выдал, шығыс, бердім, отпустил, списал
     - transfer: переместил, перенёс, ауыстырдым
-    - count: инвентаризация, пересчитал, түгендеу, санадым
+    - count: инвентаризация, пересчитал, түгендеу, санадым, по факту
     - anything else: unknown
+    Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, икс X, зэт Z.
+    Operators often say the article instead of the name, letter by letter and with digits as words ("эс тэ е эл триста пятьдесят" for ST-EL350, "а один" for A-01); a location they name can help choose between similar articles.
+    Location codes are often a zone letter (L left/слева/сол жақ, R right/справа/оң жақ, D straight ahead/прямо/тура), a rack letter and a shelf number, said in any form: "слева а три" and "эл а три" are both LA3, "сол жақ эн екі" is LN2.
     Rules:
     - Use only codes from <skus> and <locations> below. Never invent a code.
     - If a general name fits several items, return the best three codes in item_codes.
