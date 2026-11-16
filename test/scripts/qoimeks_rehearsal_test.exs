@@ -4,7 +4,7 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
   `headers` sub-command) and `scripts/pilot/qoimeks_compare.sh` (expected counts vs a `demo_counts.sh snapshot`).
   No database and no network; the converter output is read back with the production reader `XlsxImport`.
 
-  CV-1..CV-9 converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
+  CV-1..CV-9 and CV-G3 (usual place, G3) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
   The files go through the real stock import routes in `Letflow.Modules.Stock.QoimeksFilesTest` (ST-1..ST-3).
   """
 
@@ -216,11 +216,63 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
 
       assert counts(out) == %{
                "documents" => "1",
+               "items_with_default_location" => "0",
                "records.catalog_item" => "6",
                "records.catalog_uom" => "3",
                "records.location_node" => "5",
                "records.stock_opening_line" => "6"
              }
+    end
+
+    test "CV-G3 the usual place is carried, the second place is counted and not imported", %{
+      dir: dir
+    } do
+      indir =
+        write_csvs(
+          Path.join(dir, "g3"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\nL2,Sample L2,\n",
+          "sku,sku_name,unit,home_loc,alt_loc\nA,Sample A,pcs,L1,L2\nB,Sample B,pcs,L2,\n" <>
+            "C,Sample C,pcs,,\nD,Sample D,pcs,NOPE,L1\nE,Sample E,pcs,,L1\n",
+          "sku,loc,qty\nA,L1,1\n"
+        )
+
+      out = Path.join(dir, "o")
+      assert {text, 3} = convert(indir, out)
+      # D has an unknown usual place: dropped with a constant reason, no cell text
+      assert text =~ "dropped items row 4: unknown_default_location"
+      refute text =~ "NOPE"
+      # second places of the kept items (A and E); D is dropped and not counted
+      assert text =~ "items with a second place, not imported (G3) 2"
+      assert counts(out)["items_with_default_location"] == "2"
+      assert counts(out)["records.catalog_item"] == "4"
+
+      cols =
+        ~w(code name base_uom_id kind active external_ref_system external_ref_id default_location_id)
+
+      rows = read!(Path.join(out, "03-items-01.xlsx"), cols)
+      by_code = Map.new(rows, fn {_, fv} -> {fv["code"], fv} end)
+      assert by_code["A"]["default_location_id"] == "L1"
+      assert by_code["B"]["default_location_id"] == "L2"
+      refute Map.has_key?(by_code["C"], "default_location_id")
+      # the second place is in no file
+      refute Map.has_key?(by_code["A"], "alt_loc")
+      assert Enum.sort(Map.keys(by_code["A"])) == Enum.sort(cols)
+    end
+
+    test "CV-G3b without the place columns the items file has the old header", %{dir: dir} do
+      out = Path.join(dir, "o")
+      convert(@fixture, out)
+
+      rows =
+        read!(
+          Path.join(out, "03-items-01.xlsx"),
+          ~w(code name base_uom_id kind active external_ref_system external_ref_id)
+        )
+
+      refute Enum.any?(rows, fn {_, fv} -> Map.has_key?(fv, "default_location_id") end)
+
+      assert File.read!(Path.join(out, "report.txt")) =~
+               "items with a second place, not imported (G3) 0"
     end
 
     test "CV-7 --out inside the repository is refused and nothing is written; no cell text in the report",
@@ -412,6 +464,13 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert {text, 2} = compare(dir, @expected, @snapshot, "other")
       assert text =~ "modules_active"
       assert {_, 2} = compare(dir, @expected, @snapshot, "bad slug;")
+    end
+
+    test "CP-G3 the usual-place count is compared like a record count", %{dir: dir} do
+      expected = "items_with_default_location 2\n"
+      snap = @snapshot <> "tenant.demo.items_with_default_location 2\n"
+      assert {"OK counts equal\n", 0} = compare(dir, expected, snap)
+      assert {"DIFF items_with_default_location 2 0\n", 1} = compare(dir, expected, @snapshot)
     end
 
     test "CP-4 zero counts with the real snapshot shape", %{dir: dir} do
