@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/useToast'
 import { useSubmitProblemReport } from '@/hooks/useSubmitProblemReport'
 import { snapshot } from '@/lib/problemReport/capture'
 import { buildReportBody } from '@/lib/problemReport/payload'
-import { processImageFile, extractPastedImages, extractDroppedImages, MAX_IMAGES, type ReportImage } from '@/lib/problemReport/images'
+import { processImageFile, extractPastedImages, extractDroppedImages, MAX_IMAGES, MAX_TOTAL_BYTES, ACCEPTED_TYPES, type ReportImage } from '@/lib/problemReport/images'
 import { fill, useReportProblemMessages, type ReportProblemMessages } from './reportProblemMessages'
 
 const MAX_TEXT = 4000
@@ -55,8 +55,8 @@ export function ReportProblemDialog({
     const bluePng =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMwSrkDAAI+AXNw2boZAAAAAElFTkSuQmCC'
     return [
-      { dataBase64: redPng, contentType: 'image/png', preview: `data:image/png;base64,${redPng}`, name: 'placeholder1.png' },
-      { dataBase64: bluePng, contentType: 'image/png', preview: `data:image/png;base64,${bluePng}`, name: 'placeholder2.png' },
+      { dataBase64: redPng, contentType: 'image/png', preview: `data:image/png;base64,${redPng}`, name: 'placeholder1.png', size: atob(redPng).length },
+      { dataBase64: bluePng, contentType: 'image/png', preview: `data:image/png;base64,${bluePng}`, name: 'placeholder2.png', size: atob(bluePng).length },
     ]
   })
   const [imageError, setImageError] = useState<string | null>(null)
@@ -78,17 +78,19 @@ export function ReportProblemDialog({
 
   async function processImages(files: File[]): Promise<void> {
     setImageError(null)
+    // Track running total for this call (using the stale closure value as the starting point
+    // is intentional: concurrent calls would each check against the same baseline, which is
+    // safe — the setState callback below is the final arbiter).
+    let runningTotal = images.reduce((sum, img) => sum + img.size, 0)
     for (const file of files) {
-      setImages((current) => {
-        if (current.length >= MAX_IMAGES) return current
-        return current
-      })
-      // Check capacity first (read-only)
       if (images.length >= MAX_IMAGES) break
       const result = await processImageFile(file)
       if (result === null) {
-        setImageError(file.type && ['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ? m.imageTooLarge : m.imageInvalidType)
+        setImageError(ACCEPTED_TYPES.includes(file.type) ? m.imageTooLarge : m.imageInvalidType)
+      } else if (runningTotal + result.size > MAX_TOTAL_BYTES) {
+        setImageError(m.imagesTooLargeTotal)
       } else {
+        runningTotal += result.size
         setImages((current) => (current.length < MAX_IMAGES ? [...current, result] : current))
       }
     }

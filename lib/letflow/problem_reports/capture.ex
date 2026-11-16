@@ -26,6 +26,15 @@ defmodule Letflow.ProblemReports.Capture do
   a space is not masked; IIN/BIN (12 digits) are not masked (a BIN is needed in asset reports and the
   user sees the text before sending). The regexes take no `u` flag and use explicit ASCII classes, so
   they behave like a JS regex without `u`.
+
+  ## Images (T-2015)
+
+  `parse_images/1` accepts a list of base64-encoded PNG or JPEG images (up to 3, up to 5 MiB each).
+  Magic-byte sniffing ensures the declared type matches the actual format. EXIF stripping is done
+  client-side by canvas re-encoding before base64 encoding. The server does not strip EXIF again:
+  the bytes are stored only in the platform schema and are accessible only to holders of
+  `:ProblemReportsManage`. Full server-side stripping would add an image-processing library dependency;
+  that trade-off has been deferred (noted in the security review for T-2015).
   """
 
   alias Letflow.Secrets.Redaction

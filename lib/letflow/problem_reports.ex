@@ -16,6 +16,11 @@ defmodule Letflow.ProblemReports do
       holding the number and the sent field names, never the text. The customer's auditor can see that
       data left the company.
     * D8: at most 10 reports per user per rolling hour (counted in the platform table).
+    * D9 (T-2015): up to 3 PNG/JPEG images stored in `problem_report_images` in the platform schema,
+      deleted with their report (cascade FK) or at 30 days via `purge_old_report_images/1`, whichever
+      comes first. The existing attachment service (T-2014) was not reused because report images belong
+      to the platform company only, not to any tenant, and their retention (30 days for screenshots vs.
+      90 days for reports) is different. Pre-existing reports have no images; the new table starts empty.
 
   T-1963: every reader here (export, `list_mine/2`, the throttle) sees only `class = 'problem'` rows; the
   owner list is `class = 'review'` and is read through `Letflow.ProblemReports.Review`.
@@ -42,6 +47,9 @@ defmodule Letflow.ProblemReports do
   @throttle_per_hour 10
   @default_settle_seconds 30
   @max_trace_id 64
+  # T-2015 (owner table line 8): screenshots are sensitive personal data; purge after 30 days even
+  # if the report itself is kept longer (90 days after close, owner table line 9).
+  @image_retention_days 30
 
   @type submit_result ::
           {:ok, %{id: String.t(), number: String.t(), received_at: DateTime.t()}}
@@ -290,5 +298,33 @@ defmodule Letflow.ProblemReports do
       "server_version" => report.server_version,
       "trace_id" => report.trace_id
     }
+  end
+
+  @doc """
+  Removes problem report images older than 30 days (T-2015, owner table line 8: "we keep them 30 days").
+  Screenshots are personal data. The report row itself is kept for 90 days after close (owner table line 9);
+  images are purged earlier by this function, independent of the report's lifecycle. The cascade FK
+  (`problem_report_images.report_id REFERENCES problem_reports ON DELETE CASCADE`) ensures images are
+  also removed if the report is deleted first.
+
+  Called by the maintenance scheduler (slice-2 retention job, once it is built); can also be called
+  directly for a manual sweep. Option `now:` lets tests inject a fixed timestamp.
+
+  Returns `{:ok, count}` with the number of rows deleted, or `{:error, :unavailable}`.
+  """
+  @spec purge_old_report_images(keyword()) :: {:ok, non_neg_integer()} | {:error, :unavailable}
+  def purge_old_report_images(opts \\ []) do
+    with {:ok, prefix} <- platform_prefix() do
+      now = Keyword.get(opts, :now, DateTime.utc_now())
+      cutoff = DateTime.add(now, -@image_retention_days * 24 * 3600, :second)
+
+      {count, _} =
+        Repo.delete_all(
+          from(i in ReportImage, where: i.inserted_at < ^cutoff),
+          prefix: prefix
+        )
+
+      {:ok, count}
+    end
   end
 end

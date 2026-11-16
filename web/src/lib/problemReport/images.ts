@@ -5,12 +5,18 @@
 export const MAX_IMAGES = 3
 export const MAX_IMAGE_BYTES = 5_242_880
 export const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+/** Maximum total raw bytes across all images in one report. The server's JSON body cap is 2 MiB;
+ *  base64 adds ~33% overhead plus the JSON structure (~10 KB), so total raw image bytes must
+ *  stay under ~1.3 MiB to fit comfortably within the 2 MiB body limit. */
+export const MAX_TOTAL_BYTES = 1_300_000
 
 export interface ReportImage {
   dataBase64: string
   contentType: 'image/png' | 'image/jpeg'
   preview: string
   name: string
+  /** Raw byte count of the decoded image (used to enforce MAX_TOTAL_BYTES). */
+  size: number
 }
 
 /** Processes one image file: validates MIME type, re-encodes through canvas (strips EXIF metadata),
@@ -36,10 +42,10 @@ export async function processImageFile(file: File): Promise<ReportImage | null> 
       if (comma === -1) return null
       const dataBase64 = dataUrl.slice(comma + 1)
 
-      const bytes = atob(dataBase64).length
-      if (bytes > MAX_IMAGE_BYTES) return null
+      const size = atob(dataBase64).length
+      if (size > MAX_IMAGE_BYTES) return null
 
-      return { dataBase64, contentType: outputMime, preview: dataUrl, name: file.name }
+      return { dataBase64, contentType: outputMime, preview: dataUrl, name: file.name, size }
     } finally {
       URL.revokeObjectURL(blobUrl)
     }

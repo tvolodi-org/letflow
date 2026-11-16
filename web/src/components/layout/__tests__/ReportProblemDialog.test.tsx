@@ -42,6 +42,7 @@ const FAKE_IMAGE = {
   contentType: 'image/png' as const,
   preview: 'data:image/png;base64,iVBORw0KGgo=',
   name: 'test.png',
+  size: atob('iVBORw0KGgo=').length,
 }
 
 function mount(crash: Error | null = null, onClose = vi.fn()) {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Tests for processImageFile, extractPastedImages, extractDroppedImages (T-2015). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_IMAGE_BYTES, processImageFile, extractPastedImages, extractDroppedImages } from '../images'
+import { MAX_IMAGE_BYTES, MAX_TOTAL_BYTES, processImageFile, extractPastedImages, extractDroppedImages } from '../images'
 
 // Minimal 1×1 PNG (magic bytes \x89PNG)
 const PNG_MAGIC = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -57,6 +57,7 @@ describe('processImageFile', () => {
     expect(result?.name).toBe('test.png')
     expect(result?.dataBase64).toBeTruthy()
     expect(result?.preview).toMatch(/^data:image\/png/)
+    expect(result?.size).toBeGreaterThan(0)
   })
 
   it('returns null for a non-image file (text/plain)', async () => {
@@ -72,6 +73,20 @@ describe('processImageFile', () => {
     const file = makePngFile()
     const result = await processImageFile(file)
     expect(result).toBeNull()
+  })
+
+  it('populates the size field with the decoded byte count', async () => {
+    // The mocked toDataURL returns 'iVBORw0KGgo=' (10 base64 chars → 7 bytes)
+    const file = makePngFile()
+    const result = await processImageFile(file)
+    expect(result?.size).toBe(atob('iVBORw0KGgo=').length)
+  })
+})
+
+describe('MAX_TOTAL_BYTES', () => {
+  it('is defined and smaller than 2 MiB (the JSON body cap)', () => {
+    // base64 overhead is ~33%; MAX_TOTAL_BYTES * 1.34 + 10 KB JSON must fit under 2 MiB
+    expect(MAX_TOTAL_BYTES).toBeLessThan(2 * 1024 * 1024)
   })
 })
 
