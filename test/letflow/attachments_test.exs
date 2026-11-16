@@ -77,7 +77,7 @@ defmodule Letflow.AttachmentsTest do
     Attachments.add(c.prefix, owner || c.owner, attrs, c.ctx)
   end
 
-  defp add!(c, n \\ 0, extra \\ %{}, owner \\ nil) do
+  defp add!(c, n, extra \\ %{}, owner \\ nil) do
     {:ok, link, :created} = add(c, n, extra, owner)
     link
   end
