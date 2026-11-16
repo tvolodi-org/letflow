@@ -56066,25 +56066,28 @@ requirements:
       code_object_type_unknown, code_unknown_item (the SKU is not among the converted items), code_unknown_location
       (the place is not among the converted locations), code_taken (the code was already given to another object:
       the first in the order items.csv rows, then codes.csv rows keeps it, as the Qoimeks importer keeps the first
-      article). Outputs, only when at least one code survives: 05-codes-NN.xlsx (entity type code_tag, columns
+      article). Outputs, only when at least one code survives: 06-codes-NN.xlsx (entity type code_tag, columns
       value, kind, external_ref_system, external_ref_id, where external_ref_id is the code value) and
-      06-code-assignments-NN.xlsx (entity type code_assignment, columns code_id, target_type, target_id,
+      07-code-assignments-NN.xlsx (entity type code_assignment, columns code_id, target_type, target_id,
       external_ref_system, external_ref_id, where code_id is the code value, target_type catalog_item for a SKU and
       location_node for a place, target_id the SKU code or the place code, which are the external ids the converter
-      already gives items and locations, and external_ref_id the code value), 200 rows per file, listed in
-      manifest.json upload_order after 03-items and before 04-opening-lines; expected_counts.txt always gains
-      records.code_tag and records.code_assignment (both equal to the number of surviving codes, 0 when none). Runbook
-      docs/runbooks/qoimeks-rehearsal.md: the table gains rows 5 and 6 (code_tag and code_assignment with their
-      importers and columns), step 1 names the optional barcode column and codes.csv, step 3 uploads the two code
-      files after the items, "Repeating" says they come back unchanged. Converter stays file-only: no network, no
+      already gives items and locations, and external_ref_id the code value), 200 rows per file. manifest.json upload_order keeps REQ-842's rule for
+      05-item-places (right after the last 03-items file) and lists the 06-codes files right after the last
+      05-item-places file (right after the last 03-items file when no 05 file is written), then the 07-code-assignments
+      files, all before the first 04-opening-lines file. expected_counts.txt and report.txt always gain the two lines
+      records.code_assignment N and records.code_tag N (N the number of surviving codes, 0 when none), in the sorted
+      order of the existing count lines; report.txt gains no other line when no code survives. Runbook
+      docs/runbooks/qoimeks-rehearsal.md: the table gains the rows for code_tag and code_assignment (with their
+      importers and columns), step 1 names the optional barcode column and codes.csv, step 3 uploads the 06 and 07
+      code files after the 05 item-places files (after the items when there are none), "Repeating" says they come back unchanged. Converter stays file-only: no network, no
       database, --out inside the checkout refused. QA only, no real client data in tests or git (D-050). Note:
-      task T-2026 also extends items.csv (places, REQ-842, pending in that task, not yet on main); whichever lands
-      second keeps both columns. Size S to M.
+      REQ-842 (on main, gh: 4553) also extends items.csv (home_loc, alt_loc) and writes 05-item-places-NN.xlsx;
+      this part keeps those columns and that file as they are and takes the file numbers 06 and 07. Size S to M.
     acceptance_criteria:
-      - "1. Barcode column (a test in test/scripts/qoimeks_rehearsal_test.exs in the form of CV-1): items.csv with three converted SKUs A, B, C where A has barcode 4870001112223, B has a blank barcode and C has barcode QR-7 writes 05-codes-01.xlsx with exactly the header value, kind, external_ref_system, external_ref_id and two rows (4870001112223 barcode; QR-7 barcode) and 06-code-assignments-01.xlsx with exactly the header code_id, target_type, target_id, external_ref_system, external_ref_id and two rows (4870001112223 catalog_item A; QR-7 catalog_item C); expected_counts.txt has records.code_tag 2 and records.code_assignment 2; manifest.json upload_order lists the two files after the items files and before the opening-lines files. An items.csv without a barcode column and no codes.csv writes neither file, expected_counts.txt has records.code_tag 0 and records.code_assignment 0, and every other output file is byte-identical to the output of the converter on origin/main for the same input."
+      - "1. Barcode column (a test in test/scripts/qoimeks_rehearsal_test.exs in the form of CV-1): items.csv with three converted SKUs A, B, C where A has barcode 4870001112223, B has a blank barcode and C has barcode QR-7 writes 06-codes-01.xlsx with exactly the header value, kind, external_ref_system, external_ref_id and two rows (4870001112223 barcode; QR-7 barcode) and 07-code-assignments-01.xlsx with exactly the header code_id, target_type, target_id, external_ref_system, external_ref_id and two rows (4870001112223 catalog_item A; QR-7 catalog_item C); expected_counts.txt has records.code_tag 2 and records.code_assignment 2; manifest.json upload_order lists 06-codes-01.xlsx right after the last 05-item-places file (or right after the last 03-items file when the input has no places columns), 07-code-assignments-01.xlsx right after it, and both before the first 04-opening-lines file. An items.csv without a barcode column and no codes.csv writes neither file; expected_counts.txt and report.txt each differ from the output of the converter on origin/main for the same input only by the two added lines 'records.code_assignment 0' and 'records.code_tag 0'; every xlsx file and manifest.json are byte-identical to that output."
       - "2. codes.csv: rows sku A ean13 4870001112223 (the same code as A's barcode), sku B qr QR-B, location L1 code128 LOC-L1 give one code for A (not a drop), a qr code for B and a barcode for place L1 assigned with target_type location_node and target_id L1."
       - "3. Drops, each with its constant reason and the input row number in report.txt and no cell text (the test asserts the code text does not occur in report.txt): a code with an inner space (code_invalid); code_type ean14 (code_type_unknown); object_type pallet (code_object_type_unknown); a SKU not among the converted items (code_unknown_item); a place not among the converted locations (code_unknown_location); a code given to SKU B after SKU A holds it (code_taken, A keeps it). The exit code is 3 without --allow-drops and 0 with it; the codes file holds only the surviving codes."
-      - "4. Splitting: 201 surviving codes write 05-codes-01.xlsx with 200 rows and 05-codes-02.xlsx with 1 row, and the same split for the assignments files."
+      - "4. Splitting: 201 surviving codes write 06-codes-01.xlsx with 200 rows and 06-codes-02.xlsx with 1 row, and the same split for the 07-code-assignments files."
       - "5. Real routes: test/letflow/modules/stock/qoimeks_files_test.exs pushes the converted code files of a fixture with item and place codes through the real import routes after the masters: every row is created, a second upload of the same files reports every row unchanged, and Letflow.Modules.Codes.resolve/2 of each code returns status assigned and the record id of its SKU's catalog_item or its place's location_node."
       - "6. Docs in step: docs/runbooks/qoimeks-rehearsal.md has the two new table rows, the optional barcode column and codes.csv in step 1, the upload of the code files in step 3 and the unchanged re-upload in Repeating; the module docstring of scripts/pilot/qoimeks_convert.py lists the new inputs and outputs; the tests named here pass when run by path and mix letflow.check.static passes."
     depends_on: [REQ-850, REQ-851]
