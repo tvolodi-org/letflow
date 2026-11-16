@@ -40,6 +40,10 @@ export interface TaskDoc {
   locationId: string | null
   fromLocationId: string | null
   toOrgUnitId: string | null
+  /** Asset documents: the material responsible person (employee id); transfer/handover carry a from and a to. */
+  responsibleId: string | null
+  fromResponsibleId: string | null
+  toResponsibleId: string | null
   toLocationId: string | null
   eventTime: string | null
   plannedStart: string | null
@@ -74,6 +78,9 @@ function toDoc(type: 'document' | 'count', r: Raw): TaskDoc {
     locationId: sn(r['location_id']),
     fromLocationId: sn(r['from_location_id']),
     toOrgUnitId: sn(r['to_org_unit_id']),
+    responsibleId: sn(r['material_responsible_id']),
+    fromResponsibleId: sn(r['from_material_responsible_id']),
+    toResponsibleId: sn(r['to_material_responsible_id']),
     toLocationId: sn(r['to_location_id']),
     eventTime: sn(r['event_time']),
     plannedStart: sn(r['planned_start']),
