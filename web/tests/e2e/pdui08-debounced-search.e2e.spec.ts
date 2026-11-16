@@ -40,7 +40,7 @@ async function shot(page: import('@playwright/test').Page, name: string): Promis
 
 /** Navigate to /definitions via the sidebar link (SPA navigation). */
 async function navigateToDefinitions(page: import('@playwright/test').Page): Promise<void> {
-  const defLink = page.getByRole('link', { name: 'Definitions' })
+  const defLink = page.getByRole('link', { name: 'Business processes' })
   if (await defLink.isVisible({ timeout: 2000 }).catch(() => false)) {
     await defLink.click()
   } else {

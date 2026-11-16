@@ -36,6 +36,8 @@ import type { ApiError } from '@/types/api'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JsonEditor } from '@/components/ui/JsonEditor'
+import { Banner } from '@/components/ui/Banner'
+import { definitionsMessages } from './definitionsMessages'
 
 import ProcessCanvas from '@/components/canvas/ProcessCanvas'
 import NodePalette from '@/components/canvas/NodePalette'
@@ -85,6 +87,7 @@ function collectSubProcessInterfaceErrors(nodes: Node<CanvasNodeData>[]): Map<st
 export default function DefinitionEditorPage() {
   const { id } = useParams<{ id?: string }>()
   const uiLocale = useUiLocale()
+  const dm = definitionsMessages[uiLocale]
   const isNew = !id
   const { data: def, isLoading, isError, error: defError, refetch } = useDefinition(id!)
   const create = useCreateDefinition()
@@ -182,6 +185,15 @@ export default function DefinitionEditorPage() {
   const [editRefused, setEditRefused] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [goTo, setGoTo] = useState<string | null>(null)
+  // A successful version-copy save may render Navigate before useBlocker's
+  // effect has installed the clean predicate. Permit only that acknowledged destination.
+  const savedCopyDestination = useRef<string | null>(null)
+  useEffect(() => {
+    if (goTo && goTo === `/definitions/${id}`) {
+      savedCopyDestination.current = null
+      setGoTo(null)
+    }
+  }, [goTo, id])
   const handleViewChange = useCallback(
     (next: DefinitionView) => {
       if (next === 'edit' && dirty) {
@@ -212,6 +224,7 @@ export default function DefinitionEditorPage() {
     (saved: ProcessDefinition, copied: boolean) => {
       useCanvasHistoryStore.getState().clear()
       setDiagramDirty(false)
+      setDirty(false)
       // Put the saved definition into the detail cache BEFORE the Editor remounts, so it initializes from the saved
       // graph and not from the stale one while the refetch is still in flight.
       qc.setQueryData(tenantKeys.definitions.detail(saved.id), saved)
@@ -220,6 +233,7 @@ export default function DefinitionEditorPage() {
       // REQ-431 §5.1: the stored graph is validated after every save, as the Editor does.
       void validateDefinition.mutateAsync(saved.id).catch(() => undefined)
       if (copied) {
+        savedCopyDestination.current = `/definitions/${saved.id}`
         setViewChoice('edit')
         setGoTo(`/definitions/${saved.id}`)
       } else {
@@ -436,6 +450,8 @@ export default function DefinitionEditorPage() {
       // Clear undo history on successful save
       useCanvasHistoryStore.getState().clear()
       setDirty(false)
+      // Keep updated_at and the stored graph current before switching editors.
+      if (!isNew) void refetch()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
 
@@ -613,7 +629,8 @@ export default function DefinitionEditorPage() {
 
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      (dirty || diagramDirty) && currentLocation.pathname !== nextLocation.pathname,
+      (dirty || diagramDirty) && currentLocation.pathname !== nextLocation.pathname &&
+      nextLocation.pathname !== savedCopyDestination.current,
   )
 
   const handleDiscardAndProceed = useCallback(() => {
@@ -700,11 +717,12 @@ export default function DefinitionEditorPage() {
   // point is that this is a FRESH re-check run at submission time, never
   // reusing a stale save-time result even when that result was clean.
   async function handleSubmitForRelease() {
-    if (!id) return
+    if (!id || diagramDirty || (view === 'edit' && dirty)) return
     setReleaseCheck({ phase: 'checking' })
     try {
       await activateMutation.mutateAsync(id)
       setReleaseCheck({ phase: 'clean', checkedAt: new Date().toISOString() })
+      void refetch()
     } catch (e: unknown) {
       const err = e as { status?: number; details?: unknown; message?: string }
       if (err.status === 422 && Array.isArray(err.details)) {
@@ -790,7 +808,7 @@ export default function DefinitionEditorPage() {
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)' }}>
             {isNew ? 'New Definition' : def ? <DefinitionName name={def.name} /> : 'Process Designer'}
           </h2>
@@ -802,7 +820,20 @@ export default function DefinitionEditorPage() {
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', minWidth: 0 }}>
+          {hasDesignerRole && !isNew && view === 'edit' && def?.status === 'DRAFT' && (
+            <Button
+              variant="primary"
+              size="sm"
+              data-testid="btn-publish-diagram"
+              onClick={() => { void handleSubmitForRelease() }}
+              loading={releaseCheck.phase === 'checking'}
+              disabled={diagramDirty || dirty || releaseCheck.phase === 'checking'}
+              title={diagramDirty || dirty ? dm.saveBeforePublish : undefined}
+            >
+              {releaseCheck.phase === 'checking' ? dm.publishing : dm.publish}
+            </Button>
+          )}
           {hasDesignerRole && !isNew && (
             <Button
               variant="secondary"
@@ -811,7 +842,7 @@ export default function DefinitionEditorPage() {
               onClick={handleExport}
               disabled={exporting}
             >
-              {exporting ? 'Exporting…' : 'Export'}
+              {exporting ? dm.exporting : dm.exportButton}
             </Button>
           )}
           {canPromote && !isNew && tenantType === 'test' && def?.status === 'ACTIVE' && (
@@ -913,11 +944,21 @@ export default function DefinitionEditorPage() {
                 borderRadius: 4,
               }}
             >
-              {hasDesignerRole ? `Read-only — ${def?.status ?? 'UNKNOWN'} status` : 'Read-only — no edit permission'}
+              {hasDesignerRole ? dm.readOnly : dm.noEditPermission}
             </span>
           )}
         </div>
       </div>
+
+      {view === 'edit' && (diagramDirty || dirty) && <p className="lf-hint">{dm.saveBeforePublish}</p>}
+      {view === 'edit' && releaseCheck.phase === 'clean' && <Banner tone="success">{dm.published}</Banner>}
+      {view === 'edit' && releaseCheck.phase === 'error' && <Banner tone="danger">{dm.publishFailed} {releaseCheck.message}</Banner>}
+      {view === 'edit' && releaseCheck.phase === 'blocked' && (
+        <Banner tone="danger">
+          {dm.publishFailed}
+          <ul>{releaseCheck.violations.map((v, i) => <li key={i}>{v.message}</li>)}</ul>
+        </Banner>
+      )}
 
       {/* ── Error/success banners ──────────────────────────────── */}
       {currentDraft && !saveConflict && (
@@ -1107,7 +1148,7 @@ export default function DefinitionEditorPage() {
       {/* ── Main layout: Palette | Canvas | Property Panel ─────── */}
       {(editorMounted || view === 'editor') && (
       <div
-        key={editorKey}
+        key={`${id ?? 'new'}:${editorKey}`}
         data-testid="definition-editor-view"
         hidden={view !== 'editor'}
         style={{ display: view === 'editor' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}

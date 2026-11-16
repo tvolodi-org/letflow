@@ -59,6 +59,23 @@ Items 1 to 16 keep that text and its numbers. Items 17 to 20 and 23 come from th
 
 
 
+### Menu discovery (lab checklist item 22; product item 25)
+
+Every built feature must be reachable from the UI menu under a plain name. The
+product checklist already uses number 22 for task subjects, so this rule is item
+25 here. Owner finding T-2012: “Definitions” hid the process designer, and the
+list had no action opening a process. The menu now says Business processes in
+en/ru/kk with a branch icon, and every row has Open process.
+
+Lesson added: a working API and an existing route do not prove that a user can
+find or use a feature. `web/src/components/layout/__tests__/navGuardParity.test.tsx`
+checks every core and module page against the menu or the explicit list in
+`navigation-exceptions.md`. The Stock e2e process test in
+`web/tests/e2e/gate-b-stock.e2e.spec.ts` opens the menu, edits and saves a node,
+publishes a disposable process and its next draft version, then checks Versions.
+Review at 1440 and 390: the label and icon are visible, the row's Open process
+action is reachable, and no URL typing is needed.
+
 ## Guard tests missing
 
 The operator queues the guards from this table. Size: S = one test file next to an existing guard, under one sitting.

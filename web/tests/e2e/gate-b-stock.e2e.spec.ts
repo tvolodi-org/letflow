@@ -40,6 +40,71 @@ test.afterAll(async () => {
   await ctx?.close()
 })
 
+test('T2012 business processes: edit, save, publish and copy', async () => {
+  test.setTimeout(120_000)
+  await setPrefs(page, { lang: 'en' })
+  const menu = page.getByRole('link', { name: 'Business processes', exact: true })
+  await menu.click()
+  await page.getByTestId('btn-new-definition').click()
+  await page.getByTestId('create-name-input').fill(`browser-process-${ENV.runTag}`)
+  await page.getByTestId('create-version-input').fill('1.0.0')
+  await page.getByTestId('create-submit').click()
+  await expect(page.getByTestId('definition-view-edit')).toBeVisible()
+  const originalId = new URL(page.url()).pathname.split('/').pop()!
+  await menu.click()
+  await page.getByTestId(`open-process-${originalId}`).click()
+  // No preliminary Save: opening a pristine draft must not make it dirty.
+  await page.getByTestId('definition-view-edit').click()
+  await page.getByTestId('diagram-node-START').click()
+  await page.getByTestId('edit-field-label').fill('Reviewed start')
+  await expect(page.getByTestId('btn-publish-diagram')).toBeDisabled()
+  const [saved] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'PATCH' && r.url().endsWith(`/definitions/${originalId}`)),
+    page.getByTestId('edit-save').click(),
+  ])
+  expect(saved.status()).toBe(200)
+  expect((await saved.json()).graph.nodes.find((n: { id: string }) => n.id === 'start').label).toBe('Reviewed start')
+  const [active] = await Promise.all([
+    page.waitForResponse(r => r.url().endsWith(`/definitions/${originalId}/activate`)),
+    page.getByTestId('btn-publish-diagram').click(),
+  ])
+  expect(active.status()).toBe(200)
+  expect((await active.json()).status).toBe('ACTIVE')
+  // Editing an ACTIVE version creates a copy; it must not mutate that version.
+  await expect(page.getByTestId('edit-save')).toHaveText('Save as draft 1.0.1')
+  await page.getByTestId('diagram-node-START').click()
+  await page.getByTestId('edit-field-label').fill('Copied start')
+  const [copy] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/definitions')),
+    page.getByTestId('edit-save').click(),
+  ])
+  expect(copy.status()).toBe(201)
+  const copied = await copy.json()
+  expect(copied.id).not.toBe(originalId)
+  expect(copied.version).toBe('1.0.1')
+  expect(copied.graph.nodes.find((n: { id: string }) => n.id === 'start').label).toBe('Copied start')
+  await expect(page).toHaveURL(new RegExp(`/definitions/${copied.id}$`))
+  await expect(page.getByTestId('unsaved-changes-dialog')).toHaveCount(0)
+  const [published] = await Promise.all([
+    page.waitForResponse(r => r.url().endsWith(`/definitions/${copied.id}/activate`)),
+    page.getByTestId('btn-publish-diagram').click(),
+  ])
+  expect(published.status()).toBe(200)
+  expect((await published.json()).status).toBe('ACTIVE')
+  await page.getByTestId('definition-view-versions').click()
+  await expect(page.getByTestId('versions-row')).toHaveCount(2)
+  await expect(page.getByTestId('versions-row').filter({ hasText: '1.0.1' })).toContainText('ACTIVE')
+  await expect(page.getByTestId('versions-row').filter({ hasText: '1.0.0' })).toContainText('DEPRECATED')
+  await page.setViewportSize({ width: 390, height: 1100 })
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    await setPrefs(page, { lang })
+    await page.getByTestId('definition-view-edit').click()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  }
+  await setPrefs(page, { lang: 'en' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+})
+
 test('G1 S1 count order', async () => {
   await openRoute(page, '/admin/stock/counts')
   await page.getByTestId('count-new').first().click()

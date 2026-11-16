@@ -4,7 +4,7 @@
 .lf-pd { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .lf-pd__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .lf-pd__toolbar-spacer { flex: 1 1 auto; }
-.lf-pd__seg { display: inline-flex; gap: var(--space-1); }
+.lf-pd__seg { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
 .lf-pd__body { display: flex; gap: var(--space-4); min-width: 0; }
 .lf-pd__body.is-stacked { flex-direction: column; }
 .lf-pd__canvas {

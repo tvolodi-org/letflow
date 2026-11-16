@@ -2,7 +2,7 @@
  *  a lucide icon for the fixed routes, the first letter of the label (an svg glyph) for module entries with no mapping.
  *  Both are decorative (`aria-hidden`); the label text stays in the DOM and in `title`. */
 import {
-  Activity, BarChart3, Boxes, ClipboardList, FileCheck, FileText, FileUp, Globe, HeartPulse, Inbox,
+  Activity, BarChart3, Boxes, ClipboardList, FileCheck, FileUp, GitBranch, Globe, HeartPulse, Inbox,
   KeyRound, Layers, ListTodo, Package, Puzzle, ScrollText, Server, ShieldCheck, Users, UsersRound, Webhook, Workflow,
   Building2, History, Hourglass, MessageSquareWarning, PackageCheck, type LucideIcon,
 } from 'lucide-react'
@@ -10,7 +10,7 @@ import {
 const ICONS: Record<string, LucideIcon> = {
   '/instances': Workflow,
   '/tasks': ListTodo,
-  '/definitions': FileText,
+  '/definitions': GitBranch,
   '/reports': BarChart3,
   '/promotions': FileCheck,
   '/dlq': Inbox,

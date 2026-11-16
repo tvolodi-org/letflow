@@ -39,7 +39,7 @@ async function shot(page: import('@playwright/test').Page, name: string): Promis
   await page.screenshot({ path: path.join(dir, `PDUI-${name}.png`) })
 }/** Navigate to /definitions via the sidebar link (SPA navigation — preserves session). */
 async function navigateToDefinitions(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByRole('link', { name: 'Definitions' }).click()
+  await page.getByRole('link', { name: 'Business processes' }).click()
   await page.waitForURL(/\/definitions/, { timeout: 10_000 })
 }
 
@@ -366,7 +366,7 @@ test.describe('F2 — Definition List View (PD-UI-01 through PD-UI-04)', () => {
       await expect(dialog).toBeVisible({ timeout: 5_000 })
 
       // Dialog title is "Create New Definition"
-      await expect(dialog).toContainText('Create New Definition')
+      await expect(dialog).toContainText('Create process')
 
       // Form fields present
       await expect(page.getByTestId('create-name-input')).toBeVisible()

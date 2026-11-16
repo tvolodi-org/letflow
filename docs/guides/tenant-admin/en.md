@@ -95,6 +95,14 @@ Recovery of an administrator who cannot sign in at all (lost e-mail, no other ad
 * You cannot start a backup or a restore yourself. Ask the platform operator, and say which company, what was lost and when it was last correct.
 * Technical text for the operator: `docs/runbooks/backup-restore.md`.
 
+## 10. How to edit a process
+
+1. Open **Work → Business processes**, then **Open process** beside the process you need. The branch icon marks this menu entry. Reading needs `DefinitionsRead`; editing and publishing need `DefinitionsWrite` (company administrators and process designers have it).
+2. Choose **Edit diagram**, click a step and change its label or properties. On a phone, select the step in the list. **Versions** shows saved versions and lets you compare two diagrams.
+3. Choose **Save draft**. For an active process, saving creates a new draft version: the active version stays unchanged. Check the proposed version number before saving. Fix validation problems before trying again.
+4. Choose **Publish saved version**. Save all changes first; publishing validates the stored version again. A successful publication makes it active for new instances; running instances keep their original version.
+5. Practise in a test company on a separate process. Export a process and import the JSON under a different name to make an independent copy. Do not experiment on a live process or a module-owned definition; module rules may refuse those changes.
+
 ## Where else to read
 
 * Help links on the asset and stock screens (in the product).

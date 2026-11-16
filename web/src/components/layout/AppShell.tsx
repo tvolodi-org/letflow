@@ -53,7 +53,7 @@ export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
 export const NAV_ITEMS: NavItem[] = [
   { to: '/instances', group: 'work', label: 'Instances', permission: P.InstancesRead },
   { to: '/tasks', group: 'work', label: 'My Tasks', permission: P.TasksRead },
-  { to: '/definitions', group: 'work', label: 'Definitions', permission: P.DefinitionsRead },
+  { to: '/definitions', group: 'work', label: 'Business processes', permission: P.DefinitionsRead },
   // T-1874: saved reports of every module; EntitiesQuery is the read permission of the report routes.
   { to: '/reports', group: 'work', label: 'Reports', permission: P.EntitiesQuery },
   // REQ-398: promotion-review list/queue page. Supersedes ISS-0730 §1's
