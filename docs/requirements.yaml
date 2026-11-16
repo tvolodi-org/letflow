@@ -55957,3 +55957,83 @@ requirements:
       - "4. The three texts are in the app localization; ru and kk are the Qoimeks texts byte for byte."
       - "5. flutter analyze is clean and flutter test passes for apps/mobile; only changed files are formatted with dart format."
     depends_on: [REQ-836, REQ-747]
+  - id: REQ-862
+    title: "Qoimeks parity G15 part 1: the voice draft prompt gets the Qoimeks letter-name table (а A, бэ B ... зэт Z), the zone words слева/сол жақ, справа/оң жақ, прямо/тура and the Qoimeks kind words, for every tenant"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-739 -- prompt builder of REQ-739 (D2a) is extended, not replaced
+    # Source: task T-2035 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md section 1.2 row G15. Qoimeks sources read only, outside this repository, copied with paths into state/tasks/T-2035/sources/qoimeks-voice-extract.md (Qoimeks server/internal/parse/parse.go const instructions; Qoimeks-team/project/client1-inventory.md section 8.2). Letflow files read on origin/main 6e7c4bbaa: lib/letflow/modules/stock/voice_prompt.ex (moduledoc "Out of scope (open owner questions 4 and 5) ... the letter-name table and the zone words of Qoimeks"; rules/0; kinds/0), lib/letflow/modules/stock/voice_draft.ex (check/3, said?/2), lib/letflow/modules/stock/voice_service.ex (moduledoc "Read only: nothing is stored"), test/letflow/modules/stock/voice_prompt_test.exs (VP-1..VP-5), test/letflow/modules/stock/voice_regression_test.exs (R-1..R-9), test/fixtures/voice/phrases.yaml, docs/assets/voice-port-design.md (section 3, section 10 question 5), docs/runbooks/stock-voice.md. Written by the business analyst (T-2035) 2026-11-16. Not yet validated.
+    description: >
+      Parity row G15 (inventory section 8.2): Qoimeks operators say an article letter by letter with the Russian
+      names of Latin letters, and say a place with a zone word. The Letflow prompt of the voice draft
+      (lib/letflow/modules/stock/voice_prompt.ex, rules/0) has neither: its moduledoc keeps "the letter-name
+      table and the zone words of Qoimeks" out of scope as open owner question 5 of
+      docs/assets/voice-port-design.md (section 10: base prompt or tenant setting). The owner's parity decision
+      of 2026-11-16 brings them in. Decided here (UAT assumption, to be confirmed by the process owner): they go
+      into the fixed rules text of the prompt for every tenant, as in Qoimeks, not into a tenant setting; a
+      tenant whose location codes do not start with L, R or D is not harmed, because the existing rule "Use only
+      codes from <skus> and <locations> below" and VoiceDraft.check/3 still drop any code the tenant does not
+      have. The text added to rules/0, copied from Qoimeks server/internal/parse/parse.go (extract in the task
+      folder): (a) the letter-name table, one line, exactly "Latin letters are spoken with their Russian names:
+      а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R,
+      эс S, тэ T, у U, вэ V, икс X, зэт Z." (23 letters; Qoimeks has no name for J, W and Y and none is added
+      here); (b) the spelled-article hint "Operators often say the article instead of the name, letter by
+      letter and with digits as words ("эс тэ е эл триста пятьдесят" for ST-EL350, "а один" for A-01); a
+      location they name can help choose between similar articles."; (c) the zone rule "Location codes are often
+      a zone letter (L left/слева/сол жақ, R right/справа/оң жақ, D straight ahead/прямо/тура), a rack letter
+      and a shelf number, said in any form: "слева а три" and "эл а три" are both LA3, "сол жақ эн екі" is
+      LN2."; (d) the Qoimeks kind words Letflow lacks: получил (receipt), отпустил and списал (issue), по факту
+      (count). The kind names stay receipt, issue, transfer, count (Qoimeks says adjustment for count); the answer
+      JSON and its seven keys do not change, so voice_draft.ex, voice_service.ex, the routes and the model client
+      do not change. Already built and kept: the draft is never posted by voice (nothing is stored, the person
+      confirms the draft in the form), the answer is checked against the tenant's own catalog, and a general name
+      that fits several items gives the best three codes for the operator to choose. The voice_prompt.ex moduledoc
+      out-of-scope line keeps only the catalog size cap; docs/runbooks/stock-voice.md gets a short "Prompt words"
+      section naming the four additions and this decision. Size S (one module, one test file, two doc edits).
+    acceptance_criteria:
+      - "1. A new test in test/letflow/modules/stock/voice_prompt_test.exs asserts that VoicePrompt.build/2, for the existing fixture catalog and for an empty catalog, contains the letter-name line of the description exactly, and asserts each of the 23 pairs on its own (from а A to зэт Z, including цэ/си C and гэ/жэ G)."
+      - "2. The same test file asserts that the prompt contains the zone rule with the six zone words слева, сол жақ, справа, оң жақ, прямо, тура next to their letters L, R and D, the two examples (слева а три and эл а три give LA3, сол жақ эн екі gives LN2), and the spelled-article hint (ST-EL350, A-01)."
+      - "3. VP-1 is extended to assert the kind words получил, отпустил, списал and по факту in the prompt, and still asserts VoicePrompt.kinds() == ~w(receipt issue transfer count)."
+      - "4. The added text sits in the rules before the <locations> tag: a test asserts that the index of the letter-name line in the prompt is lower than the index of <locations>, so catalog data cannot precede or rewrite it; VP-3 (a hostile name cannot add a tag or a line) and VP-4 (same catalog gives the same prompt, sorted, no ids) pass unchanged."
+      - "5. Nothing else changes: git diff of the change touches no file under lib/ other than lib/letflow/modules/stock/voice_prompt.ex, and test/letflow/modules/stock/voice_draft_test.exs, voice_router_test.exs and voice_regression_test.exs (R-1..R-9, stored model answers) pass unchanged."
+      - "6. The voice_prompt.ex moduledoc no longer names the letter-name table or the zone words as out of scope (grep for 'letter-name table' in that file finds only the sentence that says it is in the prompt), and docs/runbooks/stock-voice.md has a section 'Prompt words' that lists the four additions and says they apply to every tenant (UAT assumption, to be confirmed by the process owner)."
+      - "7. mix format --check-formatted and mix compile --warnings-as-errors pass; mix test test/letflow/modules/stock/voice_prompt_test.exs passes."
+    depends_on: [REQ-739, REQ-741]
+  - id: REQ-863
+    title: "Qoimeks parity G15 part 2: an ElevenLabs speech-to-text provider kind for the voice draft, so the Qoimeks ElevenLabs key works with the existing LETFLOW_VOICE_STT_* settings"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-740 -- speech settings and client of REQ-740 (D2b) get a second provider kind
+    # Source: task T-2035 (operator note 2026-11-16: the owner reuses the Qoimeks provider keys as they are, D-152; Letflow knows only openai_transcriptions and openai_chat; ElevenLabs speech is a different API, so the requirement must add an ElevenLabs speech client kind; keys never printed; env variables stay LETFLOW_VOICE_*). Qoimeks sources read only, copied with paths into state/tasks/T-2035/sources/qoimeks-voice-extract.md (Qoimeks server/internal/stt/stt.go type ElevenLabs and Transcribe; server/internal/providers/providers_test.go default model scribe_v2; server/internal/parse/provider.go xAI preset base URL https://api.x.ai/v1, JSON mode schema; Qoimeks-team/project/client1-inventory.md section 5). Letflow files read on origin/main 6e7c4bbaa: lib/letflow/voice/settings.ex (speech/0 accepts only "openai_transcriptions"; Speech struct; inspect hides :api_key), lib/letflow/voice/speech_client.ex (transcribe/4, POST <base>/audio/transcriptions, bearer header, multipart model/language/file, parse of "text"), lib/letflow/voice/http.ex (post/5, INV-9 URL check, no redirect, bare error atoms), lib/letflow/voice/model_client.ex (POST <base>/chat/completions; json_mode schema), lib/letflow/modules/stock/voice_service.ex (speech_settings/0, transcribe/4 through speech_client/0), config/runtime.exs (nine LETFLOW_VOICE_* variables), test/letflow/voice/settings_test.exs (S6 uses "elevenlabs" as the unknown provider), test/letflow/voice/speech_client_test.exs (SP1..SP13), test/letflow/voice/voice_runtime_config_test.exs, docs/runbooks/stock-voice.md (Settings, Rules, Failures). Written by the business analyst (T-2035) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks transcribes with ElevenLabs (inventory section 5) and the owner reuses that key as it is. Letflow's
+      speech step knows one provider kind: Letflow.Voice.Settings.speech/0 (lib/letflow/voice/settings.ex) answers
+      a settings struct only for LETFLOW_VOICE_STT_PROVIDER=openai_transcriptions, and
+      Letflow.Voice.SpeechClient (lib/letflow/voice/speech_client.ex) speaks only the OpenAI-style
+      /audio/transcriptions API with a bearer key. ElevenLabs is a different API (Qoimeks
+      server/internal/stt/stt.go): POST <base>/speech-to-text with the key in header xi-api-key, multipart parts
+      file, model_id, language_code and tag_audio_events=false, answer JSON with "text". This change adds the
+      provider kind "elevenlabs": Settings.speech/0 accepts it with the same three other required values (model,
+      base URL, key; no default URL, so the INV-9 check of the operator-set URL stays as it is), and the Speech
+      struct gets a provider field (:openai_transcriptions or :elevenlabs); SpeechClient.transcribe/4 keeps its
+      arity and branches on that field, building the ElevenLabs request through the same Letflow.Voice.Http.post/5
+      (URL check, no redirect, one request, no retry, timeout_ms, bare error atoms) and the same safe_token? check
+      of the content type and language. The language sent is the route's lang value (ru or kk), as Qoimeks sends
+      its own lang value. No new env variable: the nine LETFLOW_VOICE_* variables stay; for ElevenLabs the operator
+      sets STT_PROVIDER=elevenlabs, STT_BASE_URL=https://api.elevenlabs.io/v1 (Qoimeks's endpoint host and path
+      prefix), STT_MODEL (Qoimeks's default is scribe_v2) and STT_API_KEY. The model side needs no code: xAI Grok is
+      OpenAI-compatible chat, so LLM_PROVIDER=openai_chat with LLM_BASE_URL=https://api.x.ai/v1 and LLM_JSON_MODE=schema
+      (Qoimeks's xAI preset) is a runbook line only. Keys stay unset by default and are set by the owner; QA only.
+      Size S (two modules, two test files, one runbook).
+    acceptance_criteria:
+      - "1. test/letflow/voice/settings_test.exs: with stt_provider \"elevenlabs\" and model, base URL and key set, Settings.speech/0 answers {:ok, %Settings.Speech{provider: :elevenlabs}} with those values; with \"openai_transcriptions\" it answers provider :openai_transcriptions; S6 keeps its meaning with an unknown value that is not a known kind (\"whisper_local\") and still answers :off; each of model, base URL and key missing or blank answers :off for \"elevenlabs\" too; inspect/1 of the elevenlabs struct does not contain the key or its first four characters."
+      - "2. test/letflow/voice/speech_client_test.exs, new tests against the local test server already used by SP1 (validation off as in SP1): with provider :elevenlabs, one POST to path <base path>/speech-to-text whose header xi-api-key equals the key, with no authorization header, and whose multipart body has the parts model_id (the model), language_code (ru), tag_audio_events (false) and file (filename audio.m4a, the audio bytes); a 200 answer {\"text\":\"hello\"} gives {:ok, \"hello\"}."
+      - "3. The same file: for provider :elevenlabs a non-2xx answer, a non-JSON answer and JSON without text each give {:error, :provider_error}, no answer within timeout_ms gives {:error, :provider_timeout}, a 3xx is not followed, exactly one request is made, an http URL with validation on is refused with no connection, and the key does not appear in any result or in the captured log."
+      - "4. SP1..SP13 pass unchanged for provider :openai_transcriptions (the request to /audio/transcriptions with the bearer header is the same as today)."
+      - "5. test/letflow/voice/voice_runtime_config_test.exs: LETFLOW_VOICE_STT_PROVIDER=elevenlabs is read into config :letflow, :voice as stt_provider \"elevenlabs\"; config/runtime.exs still reads exactly the nine LETFLOW_VOICE_* variables (no new variable)."
+      - "6. lib/letflow/modules/stock/voice_service.ex is not changed, and test/letflow/modules/stock/voice_router_test.exs passes unchanged."
+      - "7. docs/runbooks/stock-voice.md: the LETFLOW_VOICE_STT_PROVIDER row names both kinds openai_transcriptions and elevenlabs; a new subsection 'Providers used by Qoimeks' gives the ElevenLabs values (base URL https://api.elevenlabs.io/v1, path /speech-to-text, header xi-api-key, model example scribe_v2) and the xAI values for openai_chat (base URL https://api.x.ai/v1, json mode schema) with no key value, and says the keys are the owner's, unset by default, QA only; the Failures table names ElevenLabs under SpeechClient."
+      - "8. mix format --check-formatted and mix compile --warnings-as-errors pass; mix test test/letflow/voice/ passes."
+    depends_on: [REQ-740]
