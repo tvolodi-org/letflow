@@ -56081,3 +56081,182 @@ requirements:
       - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
       - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
     depends_on: [REQ-847]
+  - id: REQ-875
+    title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-727 -- registration placeholder, the engine files the issue; REQ-727 (stock opening line import, the import pattern this record extends) is merged but its status is not flipped by this team
+    # Source: task T-2037 (owner decision via PM 2026-11-16, parity required; row G18 of docs/status/qoimeks-migration-readiness.md section 1.2 and the Movement history row of section 2.1). Files read on origin/main 1520cf186: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (section 0, D1, D7, D9 "Out of scope ... import of historical movements into the ledger"), docs/migration/decisions/0076-master-data-layer.md (R7), docs/runbooks/qoimeks-rehearsal.md ("Deliberately not here ... movement history"), lib/letflow/modules/stock/stock.ex (manifest import_functions, scope_declarations), lib/letflow/entities/managed_import.ex, lib/letflow/routers/entities/record_import.ex. Qoimeks schema and History listing copied to state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Qoimeks keeps 600 movements of Client 1 (docs/status/qoimeks-migration-readiness.md section 1.1) and
+      shows them on its History screen; the Letflow rehearsal moves opening balances only
+      (docs/runbooks/qoimeks-rehearsal.md, "Deliberately not here"). The owner requires parity: the user sees
+      that history in Letflow. Two ways were weighed. (a) Import the movements into the stock ledger flagged
+      historical: this needs an event_time months back, which 0079 D1 and 0073 D-T refuse (lateness cap 96 hours,
+      720 at most by rule 12, no override), a new ledger flag that balances, reconcile, the gap-free counter, counts
+      and the stock card must all skip, and it reopens 0079 D9, which puts "import of historical movements into the
+      ledger" out of scope. (b) A read-only archive beside the ledger, with its own read route and screen, linked
+      from the item and the place. This part decides (b): no ledger rule changes, so it goes first, as the task
+      asks. Deliverable: one section appended at the end of decision 0079, headed "Amended by REQ-875 (movement
+      history archive, Qoimeks parity G18)", that states, each as a numbered rule: (1) the choice of (b) and the
+      reasons above, with (a) recorded as rejected for this parity and what (a) would have to change; (2) the
+      archive is the module-managed record type stock_archive_movement of module stock, scoped by the column
+      org_unit_id (0076 R7), with the fields org_unit_id, source_seq (the Qoimeks seq), kind (receipt, issue,
+      transfer, adjustment: the Qoimeks list), occurred_at (the Qoimeks created_at, a stored field, never a ledger
+      event_time), catalog_item_id, location_id, to_location_id (transfer only), quantity (moved, or counted for an
+      adjustment), change and balance_after (at location_id, from the Qoimeks balances row of that movement),
+      to_balance_after (transfer only), operator_label (the Qoimeks free-text operator), entry_source (keyboard,
+      voice, import), transcript (optional), reverses_ref (the Qoimeks id of the reversed movement), import_ref
+      (optional) and the external ref pair (system and the Qoimeks movement id); (3) it is written only by its
+      import function (manifest import_functions, called through Letflow.Entities.ManagedImport), never by a
+      generic record write, a process step or a stock document; a row once stored is never changed or deleted: the
+      same row again is unchanged, a changed row is refused archive_row_changed; (4) it is not a balance source:
+      no ledger function reads or writes it, balances, movements, reconcile, counts, the stock card print and the
+      exports of 0079 D8 are unchanged and never include an archive row, and an archive row cannot be reversed
+      (a pre-move mistake is corrected by a new stock document after the move); (5) the read: one route of module
+      stock under StockRead and Letflow.Modules.Stock.Access, filters item, place, kind, date range and operator
+      text, newest first, json and xlsx; (6) the web screen and the links from the item details and the place
+      details; (7) an owner table of every choice the owner may change, each marked "UAT assumption, to be
+      confirmed by the process owner", including keeping transcript and the operator label. Row G18 of
+      docs/status/qoimeks-migration-readiness.md and the Movement history row of its section 2.1 then point at the
+      amendment and the parts REQ-876 to REQ-879 (written with this one, planned, not yet on main). No code, no
+      route, no migration in this part. Size S.
+    acceptance_criteria:
+      - "1. docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md ends with the section 'Amended by REQ-875 (movement history archive, Qoimeks parity G18)' holding the seven numbered rules of the description; git diff of that file shows added lines at the end only."
+      - "2. Rule 1 names the three sources that refuse option (a) (0079 D1, 0073 D-T with the 96 and 720 hour figures, 0079 D9 out of scope) and lists what (a) would change; rule 2 lists every field of the description with its type and required flag, and the kind and entry_source lists exactly as the Qoimeks schema copied in state/tasks/T-2037/sources/qoimeks-movements-extract.md."
+      - "3. Rule 4 names each read path that must not include an archive row (balances, movements, reconcile, counts, stock card print, the D8 exports) and states that no file of the archive calls a function of Letflow.Ledger."
+      - "4. Every Letflow file the section names exists on origin/main at implement time, checked with git ls-tree and the command quoted in the section; every rule not taken from the owner decision, a Qoimeks source or an existing decision record is marked 'UAT assumption, to be confirmed by the process owner' and listed in the owner table."
+      - "5. Row G18 in section 1.2 and the Movement history row in section 2.1 of docs/status/qoimeks-migration-readiness.md name the amendment; mix letflow.check.static passes."
+    depends_on: [REQ-687, REQ-727]
+  - id: REQ-876
+    title: "Qoimeks parity G18 part 2: module stock stores the Qoimeks movement history as the read-only archive type stock_archive_movement, loaded by its own xlsx import function, never touching the stock ledger"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-875 -- the archive shape is decided there
+    # Source: task T-2037 and REQ-875 (written with this one). Files read on origin/main 1520cf186: lib/letflow/modules/stock/stock.ex (version "0.17.0", entity_types, scope_declarations, import_functions), priv/modules/stock/generate_pack.exs and priv/modules/stock/entity_definitions/, lib/letflow/modules/stock/documents/opening_import.ex (reference resolution by external id), lib/letflow/entities/managed_import.ex (call/5: outcomes created, updated, unchanged), lib/letflow/routers/entities/record_import.ex (@import_record_cap 200, base_reason_json/1 constant refusals), lib/letflow/ledger/validate.ex (quantity_scale), test/letflow/modules/stock/opening_import_test.exs. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      Rules 2 to 4 of the REQ-875 amendment of decision 0079 (planned, not yet on main) in module stock. The pack
+      (priv/modules/stock/generate_pack.exs, entity_definitions/stock_archive_movement.json, pack.json) gains the
+      managed type stock_archive_movement with the fields of rule 2, scope_declarations gains
+      "stock_archive_movement" => {:column, "org_unit_id"}, and the manifest import_functions gains its import
+      function next to import_opening_line, in a new file lib/letflow/modules/stock/archive_import.ex (planned, not
+      yet on main) that calls no function of Letflow.Ledger. Per row of an xlsx upload through the existing record
+      import route (at most @import_record_cap rows per file, dry run as for every managed import), the first
+      refusal wins and writes nothing: the reference cells org_unit_id, catalog_item_id, location_id and
+      to_location_id hold external ids under the row's own external-ref system and are resolved through the owning
+      module's lookup_by_external_ref/4 as in lib/letflow/modules/stock/documents/opening_import.ex, giving
+      reference_not_found with the cell name; unlike an opening line, an inactive item or place is accepted (the
+      history of a retired item); a cell that breaks a Qoimeks rule gives {:archive_field_invalid, header}: kind
+      or entry_source outside its list, occurred_at not an ISO 8601 time with offset, quantity not a decimal with at
+      most 9 decimals (the ledger's quantity_scale) or below zero, quantity zero on a kind other than adjustment,
+      to_location_id present unless the kind is transfer, absent on a transfer, or equal to location_id, a
+      to_balance_after present unless the kind is transfer (change, balance_after and to_balance_after may be
+      negative: Qoimeks allowed negative balances); then the row is matched by its external ref pair: none
+      stored creates it (outcome created), the same values stored is unchanged, any different value is refused
+      archive_row_changed (outcome updated is never returned). Both new reasons render through
+      base_reason_json/1 of lib/letflow/routers/entities/record_import.ex as constant types with no cell text. A
+      generic record create, update or delete of the type is refused as for every managed type. The module version
+      in stock.ex is raised by one minor step from origin/main at implement time, and the pins the new type and
+      version move (pack, registration and permission matrix tests) are re-derived. Size M.
+    acceptance_criteria:
+      - "1. A new test file test/letflow/modules/stock/archive_import_test.exs uploads through the real record import route an xlsx (a STOREKEEPER upload is refused 403, managed_import_allowed in lib/letflow/routers/entities/record_import.ex; the test uploads as TENANT_ADMIN) of four rows (a receipt, an issue, a transfer and an adjustment of quantity 0) with masters created by external ref: all four are created; a second upload of the same file reports all four unchanged; a third upload with one changed quantity reports that row archive_row_changed and the stored value is the first one."
+      - "2. One test per refusal of the description (each reference cell unknown, each archive_field_invalid rule including a transfer without to_location_id, an issue with to_location_id, from equal to to, quantity 0 on an issue, quantity with 10 decimals, a bad occurred_at, an unknown kind and entry_source) asserts the reason JSON of the row and that nothing was written; a row naming a retired item is created."
+      - "3. A test reads Letflow.Ledger.balances/4 and Letflow.Ledger.entries/3 of the stock ledger before and after a 4-row archive import and asserts both answers are equal; a source scan asserts lib/letflow/modules/stock/archive_import.ex contains no 'Ledger.' call."
+      - "4. A generic create, update and delete of a stock_archive_movement record through the entity record routes is refused 403 with entity_type_managed (the :managed branch of handle_create_record, handle_update_record and handle_delete_record in lib/letflow/routers/entities/record_writes.ex), as test/letflow/modules/stock/counts_registration_test.exs asserts for the count types."
+      - "5. The stock module version in lib/letflow/modules/stock/stock.ex is above the one on origin/main at implement time; mix letflow.permission_matrix --write was run after the last merge; mix letflow.check.static passes and the new and changed test files pass when run by path."
+    depends_on: [REQ-875, REQ-727, REQ-651]
+  - id: REQ-877
+    title: "Qoimeks parity G18 part 3: read route GET /archive-movements of module stock: search the archived Qoimeks movements by item, place, kind, date and operator, newest first, as json or xlsx"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-876 -- the archive type is built there
+    # Source: task T-2037, rule 5 of the REQ-875 amendment. Files read on origin/main 1520cf186: lib/letflow/modules/stock/router.ex (moduledoc route tables, slot_filters/1, 422 invalid_filter, format=json|xlsx), lib/letflow/modules/stock/access.ex, lib/letflow/modules/stock/documents.ex (@default_limit 50, @max_limit 100, @cursor), lib/letflow/modules/stock/xlsx_export.ex, test/letflow/modules/asset_stock_isolation_test.exs. Qoimeks History listing (newest first by seq) in state/tasks/T-2037/sources/qoimeks-movements-extract.md. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      One read route of module stock, GET /api/v1/modules/stock/archive-movements, in
+      lib/letflow/modules/stock/router.ex, permission StockRead, behind Letflow.Modules.Stock.Access like every
+      stock route (an API token or a scoped principal gets the same 404 as a tenant without the module). It reads
+      the archive type of REQ-876 (planned, not yet on main) through module code, not SQL in the router (boundary
+      Rule 8), and never calls Letflow.Ledger. Query keys, each optional: sku (catalog item id), location (matches
+      location_id or to_location_id), kind (one of the four kinds), from and to (calendar days YYYY-MM-DD in
+      Asia/Almaty, the stock module's constant zone, inclusive, on occurred_at), operator (a case-insensitive part of
+      operator_label, with % and _ matched literally and the value bound as a query parameter, INV-7), limit (1..100, default 50, as the stock documents list) and cursor;
+      a malformed value, an unknown key or a tenant key is 422 invalid_filter before anything is read. Order:
+      occurred_at descending, then source_seq descending (Qoimeks lists newest first). Each row carries every field
+      of the type plus the item code and name, the unit, and the place and to-place codes and names, which are
+      tenant-wide (0076 R7). Body rows and next_cursor. format=xlsx renders the same page through a sibling of
+      Letflow.Modules.Stock.XlsxExport with a report sheet (filters, timezone), EXTRA beyond Qoimeks, which had no
+      history export. The module moduledoc route table, the route-count and route-scope pins and the
+      tenant-isolation list of test/letflow/modules/asset_stock_isolation_test.exs are updated. Size M.
+    acceptance_criteria:
+      - "1. Router tests with a real token through the real router: TENANT_ADMIN and STOREKEEPER get 200 with rows newest first; a user without StockRead, an API token and a scoped principal get the same 404 body as a tenant without the module."
+      - "2. Each filter narrows the answer, shown by one test each on a fixture of six rows over two items, three places, all four kinds and three days, including a transfer found by its to-place, a from/to range whose bounds are Asia/Almaty days that differ from the UTC day, and an operator part in other letter case; limit 2 with cursor walks all six rows once."
+      - "3. A bad uuid, an unknown kind, a date not YYYY-MM-DD, from after to, limit 0 or 101, an unknown key and a tenant key are each 422 invalid_filter."
+      - "4. INV-10: a second tenant's archive rows never appear, and a cross-tenant sku or location id answers an empty list, in test/letflow/modules/asset_stock_isolation_test.exs or a new test next to it."
+      - "5. format=xlsx answers an xlsx whose first sheet has one row per json row in the same order and whose report sheet names the filters and the time zone; Letflow.Ledger is not called (source scan of the new module file); the route-count pins are re-derived after the last merge and mix letflow.check.static passes."
+    depends_on: [REQ-876, REQ-728]
+  - id: REQ-878
+    title: "Qoimeks parity G18 part 4: web screen 'History before Letflow' of the stock module with search, and links to it from the item details and the place details"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-877 -- the read route is built there
+    # Source: task T-2037, rule 6 of the REQ-875 amendment. Files read on origin/main 1520cf186: web/src/modules/stock/index.ts (nav entries), web/src/modules/stock/stockRoutes.tsx, web/src/modules/stock/register/MovementsPage.tsx, web/src/components/layout/navMessages.ts, web/src/components/layout/AppShell.tsx, web/src/modules/catalog_items/items/ItemDetails.tsx (History section), web/src/modules/catalog_items/catalogItemsStock.api.ts, web/src/modules/locations/LocationTreePage.tsx (details tab), web/src/dev/harness/registry.tsx. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The screen of rule 6 of the REQ-875 amendment over the route of REQ-877 (both planned, not yet on main). A new
+      page at admin/stock/archive in web/src/modules/stock/stockRoutes.tsx under RequirePermission StockRead, with a
+      nav entry in web/src/modules/stock/index.ts after Movements and its texts in navMessages.ts and the AppShell
+      route list, built on the pattern of web/src/modules/stock/register/MovementsPage.tsx. It shows a banner that
+      these are the movements kept from the previous system, read-only, not part of the balances; filters item,
+      place, kind, date range and operator text, read from and written to the URL query so a link opens the screen
+      filtered; a table newest first with time, kind, item, place, to-place, quantity, change, balance after,
+      operator and source; a row marked as reversed or as a reversal shows the paired row's number (source_seq);
+      the row details show the transcript when present; paging by the route's cursor; an xlsx download of the
+      current filter. The item details History section (web/src/modules/catalog_items/items/ItemDetails.tsx) and
+      the place details tab (web/src/modules/locations/LocationTreePage.tsx) each show a link 'History before
+      Letflow' that opens the screen filtered by that item or place, shown only to a StockRead holder and only when
+      a limit=1 read for that item or place returns a row (the links are URL strings, no import of the stock
+      module, as catalogItemsStock.api.ts does). Texts in en, ru and kk. Own harness fixture file, one line in the
+      harness registry. Size M.
+    acceptance_criteria:
+      - "1. Component tests with a mocked API: the screen lists rows in the order the API returns, shows the banner, and each filter change sends the matching query key; opening the URL with sku and location sends both on the first request; next page sends the cursor."
+      - "2. A reversal row shows the paired number, and the details of a voice row show its transcript; empty, loading, error and no-permission states each render their own message."
+      - "3. ItemDetails and LocationTreePage show the link with the right URL when the limit=1 read returns a row, and no link (and for a user without StockRead no request at all, asserted on the mocked client) otherwise; their existing tests pass without edits to their assertions."
+      - "4. The nav entry is shown to a StockRead holder only; the EXPECTED_COUNT pin of web/src/components/layout/__tests__/navRoleWalk.test.tsx is updated if it moves; texts exist in en, ru and kk."
+      - "5. npm run check passes in the engine's checks step; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) covers the list, a filtered list, the row details, the empty state and the item and place links, from the screen's own harness fixture."
+    depends_on: [REQ-877]
+  - id: REQ-879
+    title: "Qoimeks parity G18 part 5: the Qoimeks converter writes the movement history into archive import files, and the rehearsal loads and counts them"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-876 -- the archive columns and import function are built there
+    # Source: task T-2037. Files read on origin/main 1520cf186: scripts/pilot/qoimeks_convert.py (MAX_ROWS 200, NEEDED, manifest.json upload_order, expected_counts.txt, report.txt rules, exit codes), docs/runbooks/qoimeks-rehearsal.md, test/scripts/qoimeks_rehearsal_test.exs, test/fixtures/qoimeks_rehearsal/, test/letflow/modules/stock/qoimeks_files_test.exs. Qoimeks columns in state/tasks/T-2037/sources/qoimeks-movements-extract.md. REQ-837 and REQ-842 (pending) edit the same converter. Written by the business analyst (T-2037) 2026-11-16. Not yet validated.
+    description: >
+      The migration path of the archive (REQ-876, planned, not yet on main). scripts/pilot/qoimeks_convert.py
+      convert reads an optional movements.csv from --in with the neutral columns mv_id, mv_seq, kind, sku, loc,
+      to_loc, qty, operator, source, transcript, reverses, import_id, created_at, change, balance_after,
+      to_balance_after (nameable through --mapping like every other column; change and balance_after are the
+      Qoimeks balances row of the movement at loc, to_balance_after the row at to_loc). When the file is present it
+      writes archive-movements-NN.xlsx files (at most MAX_ROWS rows each, so 600 movements give three files) with
+      the columns of stock_archive_movement, every reference cell an external id under the --system value
+      (org_unit_id from --org-unit-ext, sku, loc and to_loc codes) and the external ref pair (--system, mv_id),
+      lists them in manifest.json upload_order after every other file the converter writes on origin/main at
+      implement time, and adds records.stock_archive_movement with the row count to expected_counts.txt. A row whose
+      sku or loc is not in the converted masters is dropped with unknown_item or unknown_location, and a row that
+      breaks a rule of REQ-876 with archive_row_invalid; report.txt names row numbers and constant reasons only,
+      exit codes as today (3 on a drop, 0 with --allow-drops). Without movements.csv the output is byte for byte as
+      today. docs/runbooks/qoimeks-rehearsal.md: the file table, the extract step (which columns movements.csv
+      needs and that it is joined with the balances rows), an upload step after the opening lines, the count check
+      (the archive row count read back equals expected_counts) and "movement history" removed from "Deliberately
+      not here". No real client data (D-050): a new fixture test/fixtures/qoimeks_rehearsal/movements.csv of made-up
+      rows. Size S.
+    acceptance_criteria:
+      - "1. test/scripts/qoimeks_rehearsal_test.exs: with the new movements.csv fixture (one row of each kind, a reversal pair, a voice row with a transcript, a negative balance_after) convert writes one archive-movements-01.xlsx whose rows and column order match the fixture, manifest.json lists it last, and expected_counts.txt has the records.stock_archive_movement line with the right count."
+      - "2. A row with an unknown sku, one with an unknown loc and one transfer without to_loc are dropped with unknown_item, unknown_location and archive_row_invalid, named by row number in report.txt, and the exit code is 3 (0 with --allow-drops)."
+      - "3. A fixture of 201 rows gives two files of 200 and 1 rows; without movements.csv the existing test inputs give the same files and bytes as before this change."
+      - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted archive file through the real import route after the masters: every row is created, a second upload reports every row unchanged, and the stock ledger balances are equal before and after."
+      - "5. docs/runbooks/qoimeks-rehearsal.md has the file row, the extract columns, the upload step and the count check, and no longer lists movement history under 'Deliberately not here'; the test files named here and any runbook test that pins lines of qoimeks-rehearsal.md pass when run by path."
+    depends_on: [REQ-876]
