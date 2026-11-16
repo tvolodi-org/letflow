@@ -71,3 +71,7 @@ Items 5 and 8 below are defaults the supervisor stated and explained to the user
 - **D22 Pipeline proposal #2422:** decided by the supervisor under the user's delegation: not now; revisit with data (not a WMS item; recorded for completeness).
 
 The user confirmed the defaults of D15-D22 on 2026-10-16 (retention, acknowledgment, counterparty signers, offboarding, handhelds and Wi-Fi), with the D16 and D17 adjustments above. The upstream Lua report is not needed: no upstream report, closed.
+
+## Amended by 0090 (negative balances per tenant, REQ-833)
+
+D5 does not stop a tenant from holding a negative stock balance when its administrator has switched the stock ledger to allow; the default stays refuse; see [0090](0090-negative-balances-per-tenant.md).

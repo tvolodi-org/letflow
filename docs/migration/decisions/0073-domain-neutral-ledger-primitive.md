@@ -327,3 +327,7 @@ A registration may declare a posting guard, and the platform serialises it again
   has run for an installed tenant, a posting above 200 legs rolls back on the check, with no data damage.
 - `page_cap` (200) limits entries or balance rows per read page, not legs per entry. The stock manifest, its hash and the
   registration are unchanged. The `count_difference` cause (200 lines) and the assets caps are unchanged.
+
+## Amended by 0090 (negative balances per tenant, REQ-833)
+
+D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).
