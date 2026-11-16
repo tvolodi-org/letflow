@@ -57250,3 +57250,320 @@ requirements:
       - "4. test/letflow/modules/stock/qoimeks_files_test.exs uploads the converted archive file through the real import route after the masters: every row is created, a second upload reports every row unchanged, and the stock ledger balances are equal before and after."
       - "5. docs/runbooks/qoimeks-rehearsal.md has the file row, the extract columns, the upload step and the count check, and no longer lists movement history under 'Deliberately not here'; the test files named here and any runbook test that pins lines of qoimeks-rehearsal.md pass when run by path."
     depends_on: [REQ-876]
+  - id: REQ-882
+    title: "Qoimeks parity G8 part 1: the record import answers the SHA-256 of an uploaded xlsx or csv file, and a load sent with the sha256 of another file is refused 409 with nothing written"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- first slice of Qoimeks parity G8; it depends on nothing that is still pending
+    # Source: task T-2030 (Qoimeks parity row G8, owner decision 2026-11-16 relayed by the PM: "Do whatever needed to support old Qoimeks functionality (not less but possible more)"). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 row G8), docs/runbooks/qoimeks-rehearsal.md (steps 3 and 5, dry_run=true then atomic=true), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, import_records_with_access/5, import_body/4, xlsx_bytes/1, csv_text/1, check_dry_run/3, check_atomic/2, import_results_ok/5; no 409 on this route today), lib/letflow/plugs/xlsx_body_parser.ex and lib/letflow/plugs/csv_body_parser.ex (raw bytes kept under "_xlsx" and "_csv"), lib/letflow/api/response.ex (conflict/2, unprocessable/2), docs/migration/decisions/0077-xlsx-import-export.md. Qoimeks source (read only, outside this repository) copied to the task folder state/tasks/T-2030/sources/qoimeks-import-extract.md: client1-inventory.md section 8 item 7 and server/internal/api/import.go importWorkbook.
+    description: >
+      Why. In Qoimeks the Excel load is "check, then load": the check answers the SHA-256 of the file it read,
+      and the load must send that SHA-256 back; when the bytes differ the load is refused 409 with the text
+      "this is not the file that was checked; check it again" and nothing is written (Qoimeks
+      server/internal/api/import.go, importWorkbook, copied to the task folder). Letflow's record import
+      (POST /api/v1/entities/records/:entity_type/import, lib/letflow/routers/entities/record_import.ex) has
+      the check (dry_run=true) and the whole-file load (atomic=true), used by the Qoimeks rehearsal
+      (docs/runbooks/qoimeks-rehearsal.md steps 3 and 5) and by the web import screen, but nothing binds the
+      load to the file that was checked. This part adds that binding to the existing route.
+      What. (1) For an xlsx or csv upload (the bytes the body parsers keep under "_xlsx" or "_csv"), every 200
+      answer of the route (dry run, atomic and the plain import) carries the new key file_sha256: the SHA-256
+      of exactly those request body bytes, as 64 lower-case hexadecimal characters. A JSON body answer has no
+      such key. (2) A new optional query key sha256. When present it must be 64 hexadecimal characters (upper
+      or lower case), otherwise 422 with detail "sha256 must be 64 hexadecimal characters"; on a JSON body it
+      is 422 with detail "sha256 is offered only for xlsx and csv uploads". When it differs from the hash of
+      the uploaded bytes the request is refused 409 (Response.conflict/2) with detail "this is not the file
+      that was checked; check it again" and nothing is written, whatever the other keys (dry_run, atomic or
+      neither). (3) Order: the route's existing access checks (write access, managed import, the STOREKEEPER
+      restriction of decision 0081 D4) come first and answer as today; the hash comparison follows, right
+      after the raw body is read and before it is converted, so a changed file that is also unreadable is
+      answered 409, not xlsx_unreadable. (4) The key stays optional on this route: the one-step import of the
+      stock opening lines editor (web/src/modules/stock/documents/LinesEditor.tsx, atomic=true without a
+      check) and the asset opening form keep working unchanged. Requiring the key on the Qoimeks-style stock
+      workbook load is decided in REQ-885 (planned, not yet on main), where Qoimeks parity is the rule. EXTRA
+      over Qoimeks: the binding works for csv as well as xlsx and for every importable type. Not in this
+      part: the web import screen sending the key (REQ-883, planned, not yet on main). No migration, no new
+      permission, no stored hash (Qoimeks stores it only on a real import; that record is REQ-885). Size S.
+    acceptance_criteria:
+      - "1. Router tests (the form of test/letflow/routers/entities_import_atomic_test.exs): a dry_run=true xlsx import answers 200 with file_sha256 equal to the lower-case hexadecimal SHA-256 of the exact bytes sent (the test computes it with :crypto.hash(:sha256, bytes)); a csv import of a type that is not module-managed and an atomic=true xlsx import of a managed type with an import function answer the same key; a JSON-body import answer has no file_sha256 key."
+      - "2. atomic=true with sha256 equal to the file_sha256 of the preceding dry run (sent once in lower case and once in upper case) writes the same records and answers the same results as the same request without sha256."
+      - "3. atomic=true with the sha256 of the checked file and a body with one changed cell is answered 409 with detail 'this is not the file that was checked; check it again'; the record count of the type and the audit entry count are unchanged; the same 409 is answered for dry_run=true and for a plain import with a mismatching sha256, and for a mismatching body that is not a readable workbook (not xlsx_unreadable)."
+      - "4. sha256 of 63 characters, of 64 characters with a non-hexadecimal one, and empty, are each answered 422 with detail 'sha256 must be 64 hexadecimal characters'; sha256 on a JSON body is 422 with detail 'sha256 is offered only for xlsx and csv uploads'; nothing is written in any case."
+      - "5. Access first: a caller without write access to the type who sends a mismatching sha256 gets the 403 'insufficient permissions' it gets today, and a STOREKEEPER sending a mismatching sha256 for a type other than stock_opening_line gets that 403 too; no 4xx answer of the route carries file_sha256."
+      - "6. Unchanged callers: every existing test of the route passes, with exact-body assertions changed only by the added file_sha256 key (the implement summary lists each test file it touched and why)."
+      - "7. Docs in step: decision 0077 ends with 'Amended by REQ-882' naming file_sha256, the sha256 key, the 409 and the check order; the RecordImport moduledoc check-order comment names the hash step; docs/runbooks/qoimeks-rehearsal.md steps 3 and 5 say to pass the dry run's file_sha256 as sha256 on the atomic upload; any runbook test that pins lines of that file passes when run by path."
+    depends_on: [REQ-320, REQ-650]
+  - id: REQ-883
+    title: "Qoimeks parity G8 part 2: the web import screen loads only the file it checked, sending its SHA-256, and says in English, Russian and Kazakh when the file changed after the check"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-882 -- the screen sends the sha256 key that REQ-882 adds to the record import route
+    # Source: task T-2030 (row G8). Read on origin/main b074d5c71: web/src/pages/admin/import/importApi.ts (runImport/3: dry_run=true for the check, atomic=true for the load), web/src/pages/admin/import/MasterDataImportPage.tsx (onRun/1, phases checked/done/notApplied, button data-testid import-confirm enabled only when checkedClean), web/src/pages/admin/import/importModel.ts (ImportAnswer), web/src/i18n/importMessages.ts, web/src/modules/stock/documents/LinesEditor.tsx (calls runImport with dryRun false and no check).
+    description: >
+      Why. The Letflow import screen (route admin/import, MasterDataImportPage) already checks a file (dry run)
+      before the Load button (data-testid import-confirm) is enabled, but the load does not prove it is the
+      checked file. Qoimeks parity G8: the load carries the SHA-256 of the checked file and is refused when the
+      file changed (REQ-882, planned, not yet on main, adds the server side).
+      What. (1) importApi.runImport gets an optional fourth argument sha256; when given, the load request adds
+      the query key sha256 with that value. MasterDataImportPage sends the file_sha256 of its checked answer
+      on Load. (2) Choosing another file, or another type, after a check returns the screen to the not-checked
+      state (Load disabled), so a load is never sent for a file that has no check of its own. (3) A 409 answer
+      to the load shows a warning banner with the new message id import.fileChanged, en "The file changed after
+      the check. Check it again.", ru "Файл изменился после проверки. Проверьте его ещё раз.", kk "Файл
+      тексерілгеннен кейін өзгерді. Оны қайта тексеріңіз." (the kk text is a UAT assumption, to be confirmed
+      by a Kazakh reader), and the screen returns to the not-checked state with the file still chosen. (4)
+      The one-step import of the stock opening lines editor (LinesEditor.tsx) is unchanged and sends no
+      sha256. No new route, no new screen, no new permission. Size S.
+    acceptance_criteria:
+      - "1. Unit test of importApi: runImport(type, file, false, 'abc...') posts to the import route with query keys upsert_by=external_ref, atomic=true and sha256 with the given value; runImport(type, file, true) and runImport(type, file, false) without the fourth argument send no sha256 key."
+      - "2. Screen test (the form of web/src/pages/admin/import/__tests__/importDryRun.test.tsx): after a clean check whose answer has file_sha256 'f00...', clicking import-confirm sends that value as sha256."
+      - "3. Screen test: after a clean check, choosing another file disables import-confirm until that file is checked; the same after choosing another type."
+      - "4. Screen test: a 409 answer to the load shows the import.fileChanged banner text in en, ru and kk (one case per locale, the exact texts of the description), import-confirm is disabled and the chosen file name is still shown."
+      - "5. LinesEditor test: the one-step opening lines import sends no sha256 key (existing tests of web/src/modules/stock/__tests__/linesEditor.import.test.tsx pass unchanged)."
+      - "6. The message id import.fileChanged exists in en, ru and kk in web/src/i18n/importMessages.ts and the i18n parity checks of npm run check pass."
+      - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for the states checked-clean and file-changed of the import screen, with STATE-TABLE.md in the task folder."
+    depends_on: [REQ-882, REQ-675]
+  - id: REQ-884
+    title: "Qoimeks parity G8 part 3: module stock checks a Qoimeks-layout balances workbook against the stock of one org unit, normalising look-alike letters and decimal commas, with Russian per-row warnings and the file SHA-256, and writes nothing"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-865 -- the check takes the Qoimeks-layout workbook that REQ-865 writes and is tested by reading it back
+    # Source: task T-2030 (row G8). Read on origin/main b074d5c71: docs/status/qoimeks-migration-readiness.md (section 1.2 rows G8, G9, G11), REQ-865 (pending, gh 4579: the Qoimeks layout, columns A to J, the place pattern, H when D to F are empty, the 10,000-row cap, "For the G8 import (task T-2030)"), lib/letflow/plugs/xlsx_body_parser.ex (parse/5 clauses per path, 2 MiB pipeline length), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers length 2_097_152), lib/letflow/entities/xlsx_import.ex (first worksheet only, 25 MiB inflate limit, no DOCTYPE, numbers as plain decimal text), lib/letflow/ledger.ex (defdelegate balances/4 to Letflow.Ledger.Read), lib/letflow/modules/stock/router.ex (authz_get "/balances", :StockRead), lib/letflow/modules/catalog_items/catalog_items.ex (catalog_item unique code, base_uom_id, tracking_policy none, lot, serial, expiry). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (importer.go: lookalikes, letter, quantity, parse and its warn texts; store/import.go: PostBalances).
+    description: >
+      Why. Qoimeks parity row G8 (readiness note section 1.2; Qoimeks inventory section 8 item 7). The
+      bookkeepers keep the balances in an Excel workbook in the Qoimeks layout and load it with "check, then
+      load": the check changes nothing, reads the file forgivingly (Cyrillic letters that look like Latin ones
+      in place codes, decimal commas, spaces and apostrophes in numbers) and answers per-row remarks in
+      Russian, because the people who fix the file read Russian (Qoimeks importer.go, copied to the task
+      folder). Letflow has no reader of this layout; the converter normalises once, at the move. REQ-865
+      (pending) writes the whole stock in this layout and says the G8 import should read it back. This part is
+      the check only: it reads the workbook, compares it with the book and answers what a load would change.
+      The load is REQ-885 (planned, not yet on main).
+      Route. POST /api/v1/modules/stock/stock-workbook/check?org_unit_id=<id>, body of media type
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, permission StockRead, in the stock
+      router. Letflow.Plugs.XlsxBodyParser gets one more path clause for it (the 2 MiB body limit of the API
+      pipeline stays, an over-limit body is 413 as on the record import). The caller must be a tenant-wide
+      stock reader (Ledger authorize result with scope :all, as REQ-865's workbook); a scoped reader gets the
+      same 404 as an unknown stock path, because the check reads every balance of the items in the file. The
+      only query key is org_unit_id: missing is 422 org_unit_required; an id that is not an active org_unit of
+      this tenant (another tenant's id included) is 422 org_unit_not_found, the same answer for both; any
+      other key is 422 invalid_filter.
+      Reading (planned pure module Letflow.Modules.Stock.StockWorkbookImport in
+      lib/letflow/modules/stock/stock_workbook_import.ex, planned, not yet on main). The bytes are read by the
+      bounded reader of Letflow.Entities.XlsxImport (one parse: a new public function of that module answers
+      the first worksheet's name and its rows as text cells, with the same 25 MiB inflate limit and refusals,
+      so no second unzip exists). Only the first worksheet is read (Qoimeks reads the first sheet when none is
+      named; choosing a sheet of the weekly workbook is row G9, task T-2031). An unreadable workbook is 422
+      xlsx_unreadable. Rows before the first row whose cell A is "Артикул" are skipped; no such row is 422
+      header_missing. After it, a row with A or B empty is skipped without a remark (blank line or a group
+      heading). More than 10,000 data rows is 422 workbook_too_large: the cap of the workbook REQ-865 writes,
+      so every workbook Letflow writes reads back. Columns: A article (the catalog_item code, matched exactly
+      after trimming and collapsing inner spaces), B name, C quantity, D zone, E rack, F shelf; G, I and J are
+      not read in this part (the second place, unit and codes are master data, row G9); H is read only when D,
+      E and F are all empty (EXTRA over Qoimeks, as REQ-865 asks: a place code that does not fit the pattern
+      is named in H).
+      Normalising (the Qoimeks rules, copied): text is trimmed and runs of white space become one space. Zone
+      and rack go to upper case and the Cyrillic letters А В С Е Н К М О Р Т Х become the Latin A B C E H K M O
+      P T X; a zone or rack "0" becomes the letter O. The place code is zone + rack + shelf. A quantity cell:
+      white space, ' and ’ are removed; when both , and . occur, the one written last is the decimal sign and
+      the other is removed; a single , or a single . is the decimal sign; several of one sign with none of the
+      other are thousands signs and are removed. The result must be a decimal number of 0 or more with at most
+      9 decimals (the quantity limit of Letflow.Ledger.Validate), otherwise it is not a quantity. A number cell
+      is its plain decimal text (XlsxImport), so it reads as written.
+      Book and changes. The book is read through Letflow.Ledger.balances/4 at one cutoff (the first page at
+      :latest fixes the posting counter, later pages at that counter, as CountSheet.read_book/4). A "plain
+      key" of an item at a place is the balance key with the chosen org unit, no responsible, no lot and the
+      item's base unit (base_uom_id). Per article, in file order, the first rule that applies wins:
+      (a) no catalog_item with that code: remark R8, the article is left out; (b) the item's tracking_policy is
+      lot, serial or expiry: remark R9, left out; (c) a quantity cell of the article is not a quantity: remark
+      R1, the item's balances are not changed; (d) a row of the article has a quantity above 0 and no place
+      (zone, rack, shelf and H empty): if a location_node with code "?" exists (the converter's place) the
+      quantity goes there with remark R4, otherwise remark R5 and the item's balances are not changed; (e) a
+      row has rack or shelf but no zone letter A to Z: remark R3 and the item's balances are not changed; (f) a
+      place code that is not the code of a location_node of this tenant: remark R6 and the item's balances are
+      not changed; (g) the item has a non-zero balance row anywhere that is not a plain key (another org unit,
+      a responsible, a lot or another unit): remark R7 and the item's balances are not changed, because the
+      file has one number per item and place (the sum, as REQ-865 writes it). Otherwise the file's quantities
+      of the article are added up by place (remark R2 when a place repeats; remark R10 when a later row names
+      the article with another name) and the target of each place is that sum; every plain key of the item at
+      a place the file does not name for it that holds a non-zero balance has target 0 (Qoimeks PostBalances:
+      "a SKU of the file is emptied at places the file does not list for it"); items that are not in the file
+      are left alone. A change is a key whose target differs from its book quantity; difference = target minus
+      book. A zone or rack that normalising changed adds remark R11 to the row (not a refusal).
+      Remarks (Russian, the Qoimeks texts where Qoimeks has one; the others decided here). Each remark is
+      "строка N: " + the text, N the sheet row number; <a> is the article, <q> a quantity as in the file:
+      R1 "<a>: остаток "<raw>" не является количеством. Остатки этого товара в системе не изменяются";
+      R2 "<a>: место <code> указано повторно, остатки сложены: <sum>";
+      R3 "<a>: в месте "<zone>" "<rack>" "<shelf>" не указана зона. Остатки этого товара в системе не изменяются";
+      R4 "<a>: остаток <q> без места, записан в место "?"";
+      R5 "<a>: остаток <q> без места. Остатки этого товара в системе не изменяются";
+      R6 "<a>: место <code> не найдено. Остатки этого товара в системе не изменяются";
+      R7 "<a>: остаток ведётся отдельно по подразделениям, ответственным, партиям или единицам. Остатки этого товара в системе не изменяются";
+      R8 "<a>: артикул не найден, строка пропущена";
+      R9 "<a>: товар учитывается по партиям или серийным номерам. Остатки этого товара в системе не изменяются";
+      R10 "<a>: артикул повторяется с другим названием "<name>". Остатки сложены";
+      R11 "<a>: место "<zone>" "<rack>" <shelf> прочитано как <code>".
+      R2, R4, R10 and R11 are the Qoimeks texts (R1 and R3 with the Qoimeks wording, R3 ending as R1 because
+      Letflow does not guess the place; R10 without the Qoimeks rename clause, renaming being master data). The
+      remark texts are UAT decisions of this requirement, to be confirmed by the process owner.
+      Answer 200: file_sha256 (as REQ-882: the SHA-256 of the body bytes, 64 lower-case hexadecimal
+      characters), sheet, rows_read (data rows after the header), remarks (list of {row, text}, sheet order),
+      changes (list of {row, item_code, item_name, place_code, book_quantity, file_quantity, difference},
+      quantities as decimal strings, row null for a place emptied because the file does not name it; items in
+      file order, places by code), unchanged_count (plain keys of the file's items whose target equals the
+      book) and too_many_changes (true when changes has more than 1000 entries, the line cap of
+      Letflow.Modules.Stock.Documents.Shape, which REQ-885 refuses). The check writes nothing: no record, no
+      ledger entry, no audit entry, no document number. Docs: a new runbook
+      docs/runbooks/stock-workbook-import.md (planned, not yet on main) with the layout, the normalising rules
+      and the remark list. No migration, no new permission, no manifest change (routes are not covered by
+      Letflow.Modules.ManifestHash), so no version bump. Size M.
+    acceptance_criteria:
+      - "1. Access (router tests in test/letflow/modules/stock/, the form of router_test.exs): a TENANT_ADMIN and a STOREKEEPER with a tenant-wide stock read get 200; a TASK_WORKER (no StockRead) gets 403 'insufficient permissions'; a STOREKEEPER whose stock read is scoped to one org unit gets the same 404 body as an unknown stock path; no org_unit_id is 422 org_unit_required; an unknown org unit id and an org unit id of another tenant both give 422 org_unit_not_found with byte-identical bodies after dropping trace_id; a query key other than org_unit_id is 422 invalid_filter."
+      - "2. Round trip: the workbook GET /stock-workbook (REQ-865) answers for the fixture of its criterion 3, uploaded to the check of the same tenant and org unit, gives changes [] and remarks [] and unchanged_count equal to the number of plain keys of the fixture's items."
+      - "3. Normalising (pure tests of StockWorkbookImport): zone 'р' rack 'К' shelf 2 reads as place RK2 with remark R11 'строка N: <a>: место \"р\" \"К\" 2 прочитано как RK2'; zone 'L' rack '0' shelf 1 reads as LO1; the quantity cells '1 234,5', '1.234,5', '1,234.5', '1’234', '12,0' and the number cell 7.25 read as 1234.5, 1234.5, 1234.5, 1234, 12 and 7.25; the cells '-3', 'abc' and '1,2,3.4.5' are not a quantity and give remark R1 with the raw text."
+      - "4. Changes: in a tenant where item Z-1 has 10 at RI2 and 3 at LA1 (plain keys of the org unit), a file with Z-1 rows (RI2, 7) and (RI2, 1) gives the changes RI2 book 10 file 8 difference -2 (with remark R2) and LA1 book 3 file 0 difference -3 with row null; an item of the tenant that is not in the file has no change; a row whose quantity equals the book adds to unchanged_count only."
+      - "5. Remarks, one test case each, with the exact text of the description and the item's balances absent from changes: R1, R3, R5 (no '?' place), R6, R7 (a second balance row of the item in another org unit), R8, R9 (lot-tracked item); R4: with a location '?' in the tenant, a row of quantity 2 with no place gives a change to place ? with file_quantity 2; R10 keeps the sum."
+      - "6. Header and caps: a sheet with two title rows above the 'Артикул' row reads the rows after it; a sheet without an 'Артикул' cell in column A is 422 header_missing; a non-workbook body is 422 xlsx_unreadable; with the cap lowered by a test seam (app env :stock_workbook_import_max_rows, which can only lower it) to 3, four data rows are 422 workbook_too_large; with the change cap lowered by a test seam (app env :stock_workbook_import_max_changes, which can only lower it) to 2, three changes give too_many_changes true and two give false."
+      - "7. Read only and tenancy (INV-1): a check writes no record, ledger entry, audit entry or document number (counts before and after equal); with two tenants A and B holding the same item and place codes and different quantities, B's check reads only B's book; file_sha256 equals the SHA-256 of the body bytes."
+      - "8. One parse: StockWorkbookImport reads the workbook only through the new public function of Letflow.Entities.XlsxImport (a source check in the test: the module calls no :zip function); an xlsx with a <!DOCTYPE in a sheet part is refused as the record import refuses it."
+      - "9. Docs in step: docs/runbooks/stock-workbook-import.md exists with the route, the layout, the normalising rules and the remark list R1 to R11; the Letflow.Modules.Stock moduledoc names the route; route_policies of module stock lists the new route with StockRead, and the stock route-count pins are updated and pass."
+    depends_on: [REQ-865, REQ-882, REQ-650]
+  - id: REQ-885
+    title: "Qoimeks parity G8 part 4: 'Записать остатки из файла', module stock loads a checked balances workbook only with its SHA-256 and turns its differences into one quick count document whose posting sets each balance to the file"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-854 -- the load writes a quick count document (kind quick_count, cause count_set) that REQ-854 adds
+    # Source: task T-2030 (row G8: "optional 'Записать остатки из файла' turns differences into count adjustments (uses G5)"). Read on origin/main b074d5c71: REQ-853 (pending, gh 4565: expected_on_hand, balance_changed), REQ-854 (pending, gh 4564: kind quick_count, document type stock_quick_count, POST /quick-counts, StockQuickCount, process stock_quick_count, cause count_set, quick_count_stale, count_in_progress, "Not in this part ... several lines per quick count and the 'balances from the file as adjustments' import (row G8, sibling task T-2030)"), lib/letflow/modules/stock/documents/shape.ex (@max_lines 1000), lib/letflow/ledger/validate.ex (@max_legs 2000), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER, version "0.17.0"). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go: apply needs sha256, 409; store/import.go: PostBalances, ImportRecord; migrations 003 and 004).
+    description: >
+      Why. In Qoimeks the load of a checked workbook with «Записать остатки из файла» sets every differing
+      balance to the file's number as stock-count movements, records the import (who, file name, sheet,
+      SHA-256, counts) and can be cancelled later (Qoimeks store/import.go, copied to the task folder). The
+      load needs the SHA-256 of the checked file. Letflow's set-to count is the quick count of REQ-854
+      (pending), one line per document; REQ-854 leaves "several lines per quick count and the balances from the
+      file import" to this task.
+      Route. POST /api/v1/modules/stock/stock-workbook/apply?org_unit_id=<id>&sha256=<hex>&file_name=<text>,
+      the same body and body parser clause as the check of REQ-884 (planned, not yet on main), permission
+      StockQuickCount (REQ-854) and a tenant-wide stock read (a scoped reader gets the unknown-path 404 as in
+      REQ-884). sha256 is required here (Qoimeks parity): missing is 422 sha256_required, not 64 hexadecimal
+      characters is 422 sha256_invalid, a value that differs from the SHA-256 of the body bytes is 409 with
+      detail "this is not the file that was checked; check it again" (the text of REQ-882). file_name is
+      optional, 1 to 255 characters, default "workbook.xlsx"; org_unit_id as in REQ-884; any other key is 422
+      invalid_filter. The check rules of REQ-884 run again inside the load's transaction (the book read at one
+      cutoff there), so the load writes what a check of the same bytes at that moment answers.
+      What the load writes. No change: 200 with applied false and changes 0, nothing written. More than 1000
+      changes (Letflow.Modules.Stock.Documents.Shape max_lines): 422 too_many_changes, nothing written. A key
+      of a change inside the scope of an opened, unposted, uncancelled count order of the org unit (the rule
+      of REQ-854 point 5): 422 count_in_progress with held_by the order number, nothing written and no number
+      taken. Otherwise one stock_quick_count document of the org unit is created and issued, with one line per
+      change in the order of the check's changes: catalog item, location, unit (base unit), book_quantity,
+      counted_quantity = the file's target, difference, reason_code other and reason_text "Записать остатки
+      из файла"; the header carries source workbook, file_sha256, file_name, sheet, rows_read and
+      remarks_count. This part lets a stock_quick_count document hold 1 to 1000 lines when its source is
+      workbook; POST /quick-counts keeps exactly one line and POST /documents keeps refusing kind quick_count
+      (REQ-854). Answer 201: document_id, number, lines (the count), remarks (as the check) and the approve task
+      id. Posting. The document runs the stock_quick_count process of REQ-854 unchanged: four eyes ON by
+      default, switched per tenant (with it OFF the person who loaded completes approve alone; the load does
+      not complete it, so the tenant's four-eyes rule is never bypassed). Approve posts ONE ledger entry of
+      cause count_set with one leg per line, quantity = difference and expected_on_hand = book_quantity
+      (REQ-853), so a balance that moved after the load refuses the whole entry quick_count_stale (the task
+      stays pending; the user cancels the import, REQ-886 planned, not yet on main, and checks again). After
+      the posting each loaded balance equals the file. The posting, its reversal and the freeze and count-order
+      guards are those of REQ-854. Docs: the runbook docs/runbooks/stock-workbook-import.md (REQ-884, planned)
+      gets the load section; decision 0079 gets "Amended by REQ-885" (a quick count with many lines from a
+      workbook, and why). Version bump of module stock to the next free version. The record of "who loaded
+      which file" is the document (created_by, created_at and the header fields); Qoimeks' separate imports
+      table is not copied. Size M.
+    acceptance_criteria:
+      - "1. sha256: a load without sha256 is 422 sha256_required, with 'abc' 422 sha256_invalid, with the sha256 of the checked file and one changed cell 409 'this is not the file that was checked; check it again'; nothing is written in each case (document, record, ledger entry and audit counts unchanged)."
+      - "2. Load: a STOREKEEPER (holding StockQuickCount and a tenant-wide stock read) loads the workbook of REQ-884 criterion 4 with its sha256: 201 with lines 2; GET /documents/:id answers a stock_quick_count document with source workbook, the sha256, file_name, sheet, two lines (RI2 book 10 counted 8 difference -2; LA1 book 3 counted 0 difference -3) and reason_text 'Записать остатки из файла'."
+      - "3. Four eyes ON: the loader's own completion of approve is refused separation_of_duties; a second user completes it; GET /balances then shows Z-1 8 at RI2 and 0 at LA1 and GET /movements shows one entry of cause count_set with two legs, -2 and -3."
+      - "4. Four eyes OFF for stock_quick_count / approve: the loader completes approve alone and the balances equal the file; a check of the same file afterwards gives changes []."
+      - "5. Stale: a receipt of +1 on Z-1 at RI2 posted after the load and before approve makes approve refused 409 quick_count_stale with no ledger entry; the task stays pending; balances are 11 and 3."
+      - "6. No change and caps: a file equal to the book answers 200 applied false, changes 0, and writes no document; with the change cap lowered by the :stock_workbook_import_max_changes seam of REQ-884 to 1, two changes are 422 too_many_changes with nothing written."
+      - "7. Count order: with a count order of the same org unit opened whose scope covers RI2, the load is 422 count_in_progress with held_by the order number and nothing stored."
+      - "8. Same file twice: two loads of the same file before either is approved give two documents; after the first is approved, approving the second is refused quick_count_stale; a load after the first approval answers applied false."
+      - "9. Access and tenancy: a caller without StockQuickCount gets 403; a scoped stock reader with StockQuickCount gets the unknown-path 404; an org_unit_id of another tenant is 422 org_unit_not_found with nothing written in either schema (INV-10 negative)."
+      - "10. Unchanged one-line rules: POST /quick-counts with two lines is refused as REQ-854 refuses it and POST /documents with kind quick_count is still unknown_kind (the REQ-854 tests pass unchanged)."
+      - "11. Docs in step: docs/runbooks/stock-workbook-import.md has the load section (sha256, the 201 answer, four eyes, quick_count_stale); decision 0079 ends with 'Amended by REQ-885'; module stock's version moved and its pins are updated; the permission matrix golden is regenerated with mix letflow.permission_matrix --write and passes."
+    depends_on: [REQ-884, REQ-854, REQ-853]
+  - id: REQ-886
+    title: "Qoimeks parity G8 part 5: module stock lists the balances workbook loads newest first and cancels one, which cancels the document before approval or reverses its posting after it"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-885 -- it lists and cancels the workbook quick count documents that REQ-885 writes
+    # Source: task T-2030 (row G8: "an import can be cancelled and reverses its balance changes (by reversals)"). Read on origin/main b074d5c71: lib/letflow/modules/stock/router.ex (authz_post "/documents/:id/reverse" and "/documents/:id/cancel", both :StockReverse), lib/letflow/modules/stock/stock.ex (role_grants STOREKEEPER holds StockReverse), REQ-854 (pending: reversal of a posted quick count, guard location_frozen), REQ-833 (pending, gh 4554: negative balances). Qoimeks source copied to state/tasks/T-2030/sources/qoimeks-import-extract.md (api/import.go importHistory and cancelImport; store/import.go Imports(ctx, 50) and CancelImport: reverses every movement of the import not yet reversed, newest first, "this import has no balance changes left to cancel").
+    description: >
+      Why. Qoimeks lists the last 50 imports (who, file, sheet, SHA-256, counts) and cancels one: every
+      balance change of that import that is not yet reversed is reversed, in the name of who asked (Qoimeks
+      store/import.go CancelImport, copied to the task folder). In Letflow a workbook load is one quick count
+      document (REQ-885, planned, not yet on main), so its balance changes are one ledger entry and its cancel
+      is one reversal.
+      Routes (stock router). GET /api/v1/modules/stock/stock-workbook/imports, permission StockRead with a
+      tenant-wide stock read (scoped reader: the unknown-path 404), no query key (any key 422 invalid_filter):
+      the stock_quick_count documents with source workbook, newest first by created_at, at most 50 (the
+      Qoimeks limit), each with document_id, number, created_at, created_by, file_name, file_sha256, sheet,
+      lines (count), remarks_count and state (as GET /documents/:id answers it). POST
+      /api/v1/modules/stock/stock-workbook/imports/:id/cancel, permission StockReverse: a document awaiting
+      approval is cancelled as POST /documents/:id/cancel cancels it (answer action cancelled); a posted one is
+      reversed as POST /documents/:id/reverse reverses it, one reversal entry that negates every leg (answer
+      action reversed); the answer is 200 {action, cancelled: <lines>}. A document already cancelled or
+      reversed is 422 import_already_cancelled (the Qoimeks "no balance changes left to cancel"). An unknown
+      id, a document that is not a workbook load and a document of another tenant are the same 404. The
+      reversal's refusals are those of POST /documents/:id/reverse, unchanged (for example location_frozen
+      under an opened count order, REQ-854; and, while negative balances are not allowed, the refusal of a
+      reversal that would take a balance below zero, which Qoimeks allows: that gap is row G4, REQ-833,
+      pending). No new permission, no migration, no manifest change (routes only), so no version bump. Size S.
+    acceptance_criteria:
+      - "1. List: after three loads by two users, GET /stock-workbook/imports answers three items newest first with each field of the description; with 51 loads it answers 50; a scoped stock reader gets the unknown-path 404; a query key is 422 invalid_filter; a TASK_WORKER gets 403."
+      - "2. Cancel before approval: POST /stock-workbook/imports/:id/cancel of a load awaiting approval answers 200 {action: 'cancelled', cancelled: 2}; GET /documents/:id reads cancelled, the approve task is no longer open and the balances are unchanged."
+      - "3. Cancel after posting: for the load of REQ-885 criterion 3 (balances 8 and 0 after approve), cancel answers 200 {action: 'reversed', cancelled: 2}; GET /balances shows 10 at RI2 and 3 at LA1; GET /movements shows one reversal entry with legs +2 and +3."
+      - "4. Twice: a second cancel of the same load is 422 import_already_cancelled with nothing written; a load already reversed through POST /documents/:id/reverse is 422 import_already_cancelled too."
+      - "5. Not a load: cancel of a one-line quick count from POST /quick-counts, of a receipt document, of an unknown id and of tenant A's load from tenant B (INV-10) each give the same 404 body after dropping trace_id, with nothing written in either schema."
+      - "6. Guards unchanged: with a count order opened whose scope covers RI2, cancel of a posted load is refused as POST /documents/:id/reverse refuses it (location_frozen with held_by) and the balances are unchanged; a caller without StockReverse gets 403."
+      - "7. Docs in step: docs/runbooks/stock-workbook-import.md has the list and cancel section, including the negative-balance gap and row G4; route_policies of module stock lists both routes and the stock route-count pins are updated and pass."
+    depends_on: [REQ-885]
+  - id: REQ-887
+    title: "Qoimeks parity G8 part 6: web screen 'Загрузка остатков из Excel' of the stock module, check a workbook, show the Russian remarks and the differences, write the balances from the file, list the loads and cancel one, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-886 -- the screen calls the check, load, list and cancel routes of REQ-884 to REQ-886
+    # Source: task T-2030 (row G8). Read on origin/main b074d5c71: web/src/modules/stock/stockRoutes.tsx (admin/stock/balances and the other stock routes), web/src/modules/stock/register/BalancesPage.tsx, web/src/modules/stock/register/stockPickers.ts (usePickerOptions), web/src/modules/stock/stockPermissions.ts, web/src/modules/stock/stockMessages.ts, web/src/pages/admin/import/MasterDataImportPage.tsx (check then load phases, the pattern to follow).
+    description: >
+      Why. Qoimeks parity row G8 for the people who use it: the bookkeepers pick the workbook, see what it
+      would change with the remarks in Russian, press «Записать остатки из файла», and can cancel a load.
+      The server side is REQ-884, REQ-885 and REQ-886 (planned, not yet on main).
+      What. A new stock screen at route admin/stock/workbook-import (planned folder
+      web/src/modules/stock/workbook/, not yet on main), opened from a button on the Balances screen
+      (BalancesPage), shown only to a user holding StockQuickCount; no new navigation item. (1) Check: an org
+      unit select filled by usePickerOptions (the picker the count order form uses) and a file input for .xlsx;
+      button Check sends the file to the check route; the answer shows rows_read, the remarks list (the
+      Russian texts exactly as the server answers them, in every language: they are about the file and its
+      readers read Russian, the Qoimeks habit), the changes table (article, name, place, book, file,
+      difference; a place emptied because the file does not name it is marked) and unchanged_count. (2) Load:
+      the button «Записать остатки из файла» (en "Write balances from the file", kk "Файлдағы қалдықтарды
+      жазу"; kk a UAT assumption, to be confirmed by a Kazakh reader) is enabled only after a check of the
+      chosen file and org unit with at least one change and too_many_changes false; it sends that check's
+      file_sha256 and the file name. A 409 shows "The file changed after the check. Check it again." (the
+      texts of REQ-883 in en, ru and kk) and returns to the not-checked state. Choosing another file or org
+      unit returns to the not-checked state. A 201 shows the document number with a link to the document
+      (admin/stock/documents/:id, where the approve task is done) and says that the balances change after the
+      approval. applied false shows "No balance differs from the file." in the three languages. (3) Loads: a
+      list of the last loads (the list route) with date, user, file name, lines, remarks count and state, and a
+      Cancel button for a user holding StockReverse on a load not cancelled or reversed, behind a confirmation
+      dialog; the answer refreshes the list; a refusal shows the server's reason. States: loading, empty (no
+      loads), error, checked with remarks, checked without changes, too many changes, loaded, file changed,
+      cancel confirmation. Size M.
+    acceptance_criteria:
+      - "1. Access: the Balances screen shows the button to the new screen for a user holding StockQuickCount and not for a STOREKEEPER role without it (component test with the permission set); the route is wrapped in RequirePermission for StockQuickCount."
+      - "2. Check (component test with a fake API): choosing an org unit and a file and pressing Check posts the file to the check route with org_unit_id; the remarks are shown with the exact server texts in en, ru and kk locales; the changes table shows each change and marks a row-null change as emptied."
+      - "3. Load: the load button is disabled before a check, after a check with no change, and with too_many_changes true; after a check it posts with that check's sha256 and the file name; choosing another file or org unit disables it again."
+      - "4. Answers: 201 shows the number and a link to admin/stock/documents/<id>; applied false shows the no-difference text; 409 shows the file-changed text of REQ-883 and disables the load button; each in en, ru and kk."
+      - "5. Loads and cancel: the list shows the fields of the description; Cancel is shown only with StockReverse and only for a load not cancelled or reversed; it opens a confirmation dialog and, confirmed, posts the cancel route and refreshes the list; a 422 import_already_cancelled shows its message."
+      - "6. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
+      - "7. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for every state of the description, with STATE-TABLE.md in the task folder and a harness fixture per state."
+    depends_on: [REQ-884, REQ-885, REQ-886, REQ-883]
