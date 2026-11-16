@@ -373,3 +373,7 @@ part 2 (REQ-831).
   and may be stale at commit (note 14.6).
 - Still owed to slice L7 (no consumer exists yet): the master checks (item, location, unit active), `expected_document_version`
   and the retired-master checks. Until L7 lands, the ledger still accepts any well-formed slot values.
+
+## Amended by 0090 (negative balances per tenant, REQ-833)
+
+D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).
