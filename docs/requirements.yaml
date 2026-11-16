@@ -56086,7 +56086,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of parity row G19 (task T-2038); its routes are on main, no pending dependency
+    gh: 4586
     # Source: task T-2038 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md row G19, design docs/design/platform-maintenance.md sections 1.2, 8 and 10 (slice 4 "the reporter's own report screen remains part B").
     description: >
       Qoimeks (inventory row "Feedback «Сообщить о проблеме» / web «Отзывы», Markdown export", 0 rows used at
@@ -56119,7 +56119,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-872 -- the download button sits on the My reports screen of REQ-872
+    gh: 4585
     # Source: task T-2038, as REQ-872; Qoimeks layout copied below from Qoimeks server/internal/api/feedback.go (read only, outside this repository).
     description: >
       Qoimeks exports feedback as a Markdown file for handing to the developer (route GET /api/feedback/export.md,
@@ -56156,7 +56156,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-873 -- the file layout and its labels are the ones REQ-873 fixes
+    gh: 4584
     # Source: task T-2038, as REQ-872 and REQ-873.
     description: >
       Qoimeks hands the whole feedback list to the developer as one Markdown file (GET /api/feedback/export.md; its
