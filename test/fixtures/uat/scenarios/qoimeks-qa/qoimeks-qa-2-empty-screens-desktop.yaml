@@ -1,0 +1,103 @@
+# T-2129 (BA): first acceptance run on the Qoimeks QA tenant. QA only, no real data.
+# Sources: the task text (installed modules org, locations, catalog_items, codes, stock, assets; "the tenant has no data yet: each screen must show an honest empty state, not an error"),
+# web/src/modules/locations/locationsRoutes.tsx (path admin/locations) and locationsMessages.ts (empty title "No locations yet", text "Create the first location, then add its children."),
+# web/src/modules/catalog_items/catalogItemsRoutes.tsx (admin/catalog/items) and catalogItemsItemsMessages.ts ("No items yet", "Items are loaded through Import data."),
+# web/src/modules/stock/stockRoutes.tsx (admin/stock/documents, admin/stock/balances) with documentsMessages.ts ("No stock documents found.") and stockMessages.ts ("No balances found.", "Balances appear after the first stock document is posted. ...").
+# Preconditions are in the scenario text. If any of the screens already holds data, the empty-state outcome of that screen is BLOCKED (not failed): the tenant was meant to be empty.
+---
+id: qoimeks-qa-2-empty-screens-desktop
+scope: qoimeks-qa
+title: On a desktop width the locations, catalog items and stock screens of the empty Qoimeks QA tenant each show a plain empty state and no error
+version: "1.0"
+tags: [smoke, qoimeks, empty_state, locations, catalog_items, stock, desktop]
+
+description: >
+  The tenant has just been created and holds no locations, no catalog items and no stock documents. The administrator,
+  on a desktop-width window (1440 px), opens the locations screen, the catalog items screen, the stock documents screen
+  and the stock balances screen in turn. Each one opens, shows its title and its own plain "nothing here yet" message
+  (not a red error, not an endless loading mark, not a blank page), and offers no row.
+  Not exercised, with reasons: (a) the screens of the org, codes and assets modules: the task lists them as installed but names no screen for them
+  in this smoke; they are left to a later group; (b) creating the first location or item: this group reads only and creates nothing, so the tenant stays empty for the next runs.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant has the modules locations, catalog_items and stock installed and active, and holds no location, no catalog item, no stock document and no stock balance.
+    check: system_seeded
+    detail: If a module is not active, report BLOCKED for the steps of that module. If a screen already holds rows, report BLOCKED for the empty-state outcome of that screen only.
+  - description: The administrator is able to sign in (see the first scenario of this group).
+    check: system_seeded
+    detail: If sign-in fails, report BLOCKED for the whole scenario.
+  - description: The run can drive a real browser at a window width of 1440 px, English language.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 1440 px wide, in English.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the locations screen from the side navigation and reads it.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator opens the catalog items screen from the side navigation and reads it.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the stock documents screen from the side navigation and reads it.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the stock balances screen from the side navigation and reads it.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The locations screen shows its empty state, not an error.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the title of the locations screen and the message "No locations yet" with the hint "Create the first location, then add its children."; no tree row, no error banner, no permanent "Loading" mark.
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator thinks the locations module is broken and cannot start setting up places.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The catalog items screen shows its empty state, not an error.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows the title of the catalog items screen and the message "No items yet" with the hint "Items are loaded through Import data."; no table row, no error banner.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator thinks the item catalog is broken and cannot start loading items.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The stock documents screen shows its empty state, not an error.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows the title of the stock documents screen and the message "No stock documents found." with the hint "Create the first document or change the filters."; no row, no error banner.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The storekeeper thinks stock documents cannot be opened.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The stock balances screen shows its empty state, not an error.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows the message "No balances found." with the hint that balances appear after the first stock document is posted; no row, no error banner.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The storekeeper cannot tell an empty warehouse from a broken screen.
+      suggested_action: route_to_frontend_dev
