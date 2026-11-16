@@ -639,8 +639,8 @@ defmodule Letflow.Ledger do
   zero in the tenant schema `prefix`. True only when the registration declares
   `negative_balance: :tenant_setting` AND the tenant's `ledger_balance_settings` row for the name has
   `allow_negative` true; no row, any other value of the key or an absent key is false (refuse). One
-  bound-parameter read, scoped by `prefix` (INV-1, INV-7). The settings routes of
-  REQ-835/836 are meant to read it too; no route calls it yet.
+  bound-parameter read, scoped by `prefix` (INV-1, INV-7). `Letflow.LedgerSettings` (REQ-835) writes the
+  row and lists the switchable registrations; REQ-836 reads it for the stock posting-rules route.
   """
   @spec negative_balances_allowed?(String.t(), String.t(), map()) :: boolean()
   def negative_balances_allowed?(prefix, registration_name, registration)

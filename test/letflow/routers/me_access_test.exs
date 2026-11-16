@@ -158,7 +158,8 @@ defmodule Letflow.Routers.MeAccessTest do
                     :TasksWorkInScope,
                     :TenantSecurityManage,
                     :TasksReassignRouted,
-                    :ApprovalRulesManage
+                    :ApprovalRulesManage,
+                    :LedgerSettingsManage
                   ])
                |> Enum.map(&Atom.to_string/1)
                |> Enum.sort()

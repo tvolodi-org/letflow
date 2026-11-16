@@ -342,6 +342,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # T-1986: the ApprovalRules router (four-eyes switch): list and switch, both declared tenant-wide
                  {"GET", "/", :tenant_wide},
                  {"PUT", "/:definition_name/:node_id", :tenant_wide},
+                 # REQ-835: the LedgerSettings router (negative balance switch): list and switch, both declared tenant-wide
+                 {"GET", "/", :tenant_wide},
+                 {"PUT", "/:registration", :tenant_wide},
                  # T-1955: Data export discovery and download, both explicitly tenant-wide.
                  {"GET", "/datasets", :tenant_wide},
                  {"POST", "/", :tenant_wide},
@@ -440,6 +443,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.DataExport,
                  Letflow.Routers.Definitions,
                  Letflow.Routers.Documents,
+                 Letflow.Routers.LedgerSettings,
                  Letflow.Routers.Entities,
                  Letflow.Routers.EntityViews,
                  Letflow.Routers.Help,

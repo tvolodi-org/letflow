@@ -156,6 +156,11 @@ defmodule Letflow.Api.Authorization do
     under `/documents/official-form-templates`; TENANT_ADMIN by the derived tenant-scope rule,
     PLATFORM_ADMIN by the catch-all (no false clause, unlike `:ApprovalRulesManage`); not in
     `grantable/0` (the tenant-defined roles of 0088 are not built).
+  * `:LedgerSettingsManage` (REQ-835, decision 0090) — route-level on `GET /ledger-settings` and
+    `PUT /ledger-settings/:registration`, and also read in-handler with
+    `Letflow.Api.Scope.require_tenant_wide/2` (as `:ApprovalRulesManage`). Held by TENANT_ADMIN only
+    (derived tenant-scope rule); an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
+    out; non-assignable: not in `grantable/0`, modules cannot grant core permissions.
   * `:TasksReassignRouted` (roles stage 0 S0-4) — **not** route-level. Read in-handler by
     `Letflow.Tasks.authorize_reassign/3` (`POST /tasks/:id/reassign` of a ROLE- or GROUP-routed task).
     Held by TENANT_ADMIN only; an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
@@ -421,6 +426,7 @@ defmodule Letflow.Api.Authorization do
           | :DataExport
           | :ApprovalRulesManage
           | :OfficialFormTemplatesManage
+          | :LedgerSettingsManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -501,6 +507,7 @@ defmodule Letflow.Api.Authorization do
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
           | :OfficialFormTemplatesManage
+          | :LedgerSettingsManage
           | :SolutionOverridesManage
           | :EntitiesExtensionsManage
           | :IntegrationMappingsManage
@@ -625,7 +632,9 @@ defmodule Letflow.Api.Authorization do
     # T-1986 four-eyes switch (docs/design/four-eyes-switch.md, D-144): switch the four-eyes rule of a process step on or off. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2); non-assignable.
     :ApprovalRulesManage,
     # T-2003 official-form templates S4b (decision 0089 D5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN through the derived rule and the catch-all; non-assignable.
-    :OfficialFormTemplatesManage
+    :OfficialFormTemplatesManage,
+    # REQ-835 (decision 0090 section 5.3): switch negative balances per registration. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN); non-assignable.
+    :LedgerSettingsManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -653,7 +662,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-eight core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -701,7 +710,8 @@ defmodule Letflow.Api.Authorization do
   Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`, plus T-1986's
   `:ApprovalRulesManage` (the four-eyes switch under `/approval-rules`, TENANT_ADMIN only),
   plus T-2003's `:OfficialFormTemplatesManage` (company templates of the official forms under
-  `/documents/official-form-templates`).
+  `/documents/official-form-templates`), plus REQ-835's `:LedgerSettingsManage` (the negative balance
+  switch under `/ledger-settings`, TENANT_ADMIN only).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1488,6 +1498,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PUT", "/approval-rules/:definition_name/:node_id"),
     do: :ApprovalRulesManage
 
+  # REQ-835 (decision 0090): the negative balance switch.
+  def endpoint_policy_key("GET", "/ledger-settings"), do: :LedgerSettingsManage
+  def endpoint_policy_key("PUT", "/ledger-settings/:registration"), do: :LedgerSettingsManage
+
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
 
@@ -1858,6 +1872,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DataExport), do: :DataExport
   def required_permission(:CurrenciesManage), do: :CurrenciesManage
   def required_permission(:ApprovalRulesManage), do: :ApprovalRulesManage
+  def required_permission(:LedgerSettingsManage), do: :LedgerSettingsManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage
@@ -2075,6 +2090,9 @@ defmodule Letflow.Api.Authorization do
 
   # T-1986, ruling 2: the four-eyes switch is a tenant administrator's control, not the platform's.
   defp core_role_allows?(:PLATFORM_ADMIN, :ApprovalRulesManage), do: false
+
+  # REQ-835 (decision 0090 section 5.3): the negative balance switch is a tenant administrator's control.
+  defp core_role_allows?(:PLATFORM_ADMIN, :LedgerSettingsManage), do: false
 
   # Roles stage 0 S0-4, ruling 2 (docs/design/roles-stage0-security-rulings.md): taking a routed task
   # away stays refused to a platform-tenant PLATFORM_ADMIN outside the routing role or group.
