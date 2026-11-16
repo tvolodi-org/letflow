@@ -29,9 +29,12 @@ defmodule Letflow.Ledger do
   4. the lookup again, the reversal re-read, then (REQ-834, decision 0090) the tenant's negative
      balance setting of each registration that declares `negative_balance: :tenant_setting`
      (`negative_balances_allowed?/3`, the capability's prefix only), then the guard per posting in
-     ledger-id order (unit, then `insufficient_balance`: a key the posting lowers ends below zero,
-     skipped under allow; then `balance_bound_exceeded`: at or above 1.0E+21, or at or below
-     -1.0E+21, or over `max_on_hand`), reading the pin from the LOCKED row;
+     ledger-id order (unit, then `balance_changed`, then `insufficient_balance`: a key the posting
+     lowers ends below zero, skipped under allow; then `balance_bound_exceeded`: at or above
+     1.0E+21, or at or below -1.0E+21, or over `max_on_hand`), reading the pin from the LOCKED row;
+     REQ-853: a leg may carry `expected_on_hand` (compare-and-set): when the locked row's
+     `on_hand` (0 for a row this posting creates) differs, the posting is refused
+     `balance_changed` (409, details `leg_nos` only) before any leg is applied;
   5. as the last ledger locks, the counter rows (insert pass, then `FOR UPDATE` pass, ascending);
      the lookup a third time; the event-time check of each posting under the counter locks;
   6. `write_posting/2` per ledger id: sequence, digest and chain hash from the locked values; the
@@ -332,8 +335,12 @@ defmodule Letflow.Ledger do
       # REQ-710: the entry, leg and balance tables are partitioned by ledger id; a ledger id
       # without its partitions is refused before the first write (one catalog read).
       case Storage.missing(prefix, Enum.map(parts, & &1.ledger_id)) do
-        [] -> lock_parts(prefix, parts)
-        _missing -> {:error, {:ledger_contract, :ledger_storage_missing}}
+        [] ->
+          precondition_hook(:validated)
+          lock_parts(prefix, parts)
+
+        _missing ->
+          {:error, {:ledger_contract, :ledger_storage_missing}}
       end
     end
   end
@@ -527,6 +534,24 @@ defmodule Letflow.Ledger do
     Enum.all?([posting.document_type, posting.document_id], &(is_binary(&1) and &1 != ""))
   end
 
+  # REQ-853 test seam: `nil` in production. A test sets `{:wait, pid, point}`; the process sends
+  # `{:ledger_precondition_hook, point, self()}` and waits (bounded) for `:go`. Read here only.
+  defp precondition_hook(point) do
+    case Application.get_env(:letflow, :ledger_precondition_test_hook) do
+      {:wait, pid, ^point} when is_pid(pid) ->
+        send(pid, {:ledger_precondition_hook, point, self()})
+
+        receive do
+          :go -> :ok
+        after
+          15_000 -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   # The one lock step (decision 0073 A3). `parts` are sorted by ledger id; every loop below runs
   # over that order, and inside one posting over the sorted keys, so the union is taken in
   # ascending (ledger_id, k1..k8) order. Nothing is written here.
@@ -614,7 +639,8 @@ defmodule Letflow.Ledger do
   zero in the tenant schema `prefix`. True only when the registration declares
   `negative_balance: :tenant_setting` AND the tenant's `ledger_balance_settings` row for the name has
   `allow_negative` true; no row, any other value of the key or an absent key is false (refuse). One
-  bound-parameter read, scoped by `prefix` (INV-1, INV-7). Also the read the module routes use.
+  bound-parameter read, scoped by `prefix` (INV-1, INV-7). The settings routes of
+  REQ-835/836 are meant to read it too; no route calls it yet.
   """
   @spec negative_balances_allowed?(String.t(), String.t(), map()) :: boolean()
   def negative_balances_allowed?(prefix, registration_name, registration)
@@ -939,7 +965,7 @@ defmodule Letflow.Ledger do
       |> Enum.group_by(& &1.k)
       |> Enum.map(fn {key, key_legs} ->
         pins = for {index, max} <- bounds, Enum.at(key, index) not in [nil, ""], do: max
-        %{key: key, legs: key_legs, pin: min_decimal(pins)}
+        %{key: key, legs: key_legs, pin: min_decimal(pins), expected: expected_of(key_legs)}
       end)
       |> Enum.sort_by(& &1.key)
 
@@ -947,6 +973,10 @@ defmodule Letflow.Ledger do
       nil -> {:ok, groups}
       leg_no -> Validate.refuse(:unit_mismatch, %{leg_no: leg_no})
     end
+  end
+
+  defp expected_of(legs) do
+    Enum.find_value(legs, &Map.get(&1, :expected_on_hand))
   end
 
   defp mixed_unit(%{legs: [first | rest]}) do
@@ -1015,7 +1045,7 @@ defmodule Letflow.Ledger do
   # Decision 0090 section 2: under refuse a key is refused only when the posting LOWERS it (the sum
   # of its legs on the key is below zero) and it ends below zero; a key the posting raises or leaves
   # alone is not judged. Under allow no key is refused at zero; only the lower bound applies.
-  defp refusal_for(%{legs: legs}, row, slot_count, reversal?, disclose?, allow?) do
+  defp refusal_for(%{legs: legs} = group, row, slot_count, reversal?, disclose?, allow?) do
     delta = Enum.reduce(legs, Decimal.new(0), &Decimal.add(&2, &1.quantity))
     new_on_hand = Decimal.add(row.on_hand, delta)
     insufficient? = not allow? and Decimal.lt?(delta, 0) and Decimal.lt?(new_on_hand, 0)
@@ -1023,6 +1053,10 @@ defmodule Letflow.Ledger do
     cond do
       leg = Enum.find(legs, &(&1.unit_ref != row.unit_ref)) ->
         Validate.refuse(:unit_mismatch, %{leg_no: leg.leg_no})
+
+      changed?(group, row) ->
+        leg_nos = for leg <- legs, Map.has_key?(leg, :expected_on_hand), do: leg.leg_no
+        Validate.refuse(:balance_changed, %{leg_nos: Enum.sort(leg_nos)})
 
       insufficient? and reversal? ->
         # nothing of the target's contents: leg numbers and a count only
@@ -1058,6 +1092,9 @@ defmodule Letflow.Ledger do
         nil
     end
   end
+
+  defp changed?(%{expected: nil}, _row), do: false
+  defp changed?(%{expected: expected}, row), do: not Decimal.eq?(expected, row.on_hand)
 
   defp over_bound?(new_on_hand, max_on_hand) do
     Decimal.compare(new_on_hand, @limit) != :lt or

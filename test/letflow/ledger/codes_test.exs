@@ -11,6 +11,7 @@ defmodule Letflow.Ledger.CodesTest do
              {"insufficient_balance", 409},
              {"balance_bound_exceeded", 409},
              {"unit_mismatch", 409},
+             {"balance_changed", 409},
              {"posting_not_balanced", 409},
              {"posting_already_reversed", 409},
              {"posting_is_reversal", 409},
@@ -33,6 +34,7 @@ defmodule Letflow.Ledger.CodesTest do
              "insufficient_balance",
              "balance_bound_exceeded",
              "unit_mismatch",
+             "balance_changed",
              "posting_not_balanced",
              "posting_already_reversed",
              "posting_is_reversal",
@@ -44,6 +46,7 @@ defmodule Letflow.Ledger.CodesTest do
 
     assert Codes.reserved() == [
              "balance_bound_exceeded",
+             "balance_changed",
              "client_seq_conflict",
              "definition_needs_reactivation",
              "endpoint_url_reserved_variable",
