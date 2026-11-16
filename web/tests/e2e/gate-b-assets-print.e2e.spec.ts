@@ -16,6 +16,13 @@ let changeNumber = ''
 let writeoffNumber = ''
 // One number per ATTEMPT: a retry of E1 in the same run would otherwise meet `asset_already_in_register` (T-1964).
 let inventoryNumber = `E2E-${ENV.runTag}`
+// T-2017 slice 1: screens for these optional attributes ship in slice 2. Enrich the real card
+// POST (no response mock); commission and print still run through the real screens and backend.
+const technical = {
+  manufacturer: 'DA2 Works', asset_type: 'Lathe', model: 'M16', type: 'Bench',
+  brand: 'AM', category: 'Tool', sort: 'First', serial_number: 'SN-2017',
+  passport_number: 'PASS-17', useful_life_months: 120, commissioning_date: '2026-03-02',
+}
 
 type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string; name?: RegExp }
 const PLAIN: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print(?!.*form=)/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
@@ -89,7 +96,15 @@ test('E1 a card, a commission started from it, issued', async ({}, testInfo) => 
   await page.getByTestId('asset-create').first().click()
   await page.getByLabel('Inventory number').fill(inventoryNumber)
   await page.getByLabel('Name', { exact: true }).fill(`Print test ${ENV.runTag}`)
+  const createPath = /\/api\/v1\/modules\/assets\/cards$/
+  await page.route(createPath, async route => {
+    if (route.request().method() !== 'POST') return route.continue()
+    return route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), ...technical }) })
+  })
+  const created = page.waitForResponse(r => createPath.test(r.url()) && r.request().method() === 'POST')
   await page.getByTestId('asset-save').click()
+  expect((await created).status()).toBe(201)
+  await page.unroute(createPath)
   await page.locator('[data-testid^="card-actions-panel-"]').first().click()
   await page.getByTestId('card-action-commission').click()
   const form = page.getByTestId('document-form')
@@ -256,6 +271,9 @@ test('E12 the card prints ДА-2 through the menu: PDF with the title, the card 
   expect(text).toContain('ИНВЕНТАРНАЯ КАРТОЧКА')
   expect(text).toContain(inventoryNumber)
   expect(text).toContain('Saule Zhumabek')
+  for (const value of ['DA2 Works', 'Lathe, M16, Bench, AM, Tool, First', 'SN-2017', 'PASS-17', '120', '02.03.2026']) {
+    expect(text).toContain(value)
+  }
   await pickForm('form-da2-docx', DA2_DOCX)
 })
 
@@ -264,5 +282,8 @@ test('E13 in the Kazakh UI the ҰМА-2 card is printed in Kazakh', async () => 
   await openCard()
   const text = await pickForm('form-da2-pdf', DA2_PDF)
   expect(text).toContain('ТҮГЕНДЕУ КАРТОЧКАСЫ')
+  for (const value of ['DA2 Works', 'Lathe, M16, Bench, AM, Tool, First', 'SN-2017', 'PASS-17', '120', '02.03.2026']) {
+    expect(text).toContain(value)
+  }
   await setPrefs(page, { lang: 'en' })
 })

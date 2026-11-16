@@ -195,10 +195,12 @@ Quarterly (manual):
 
 ## 11. Open owner questions
 
-**Off-site copy. Decided by the owner, 2026-11-10 (D-115):** production gets an off-site backup copy, on another server
-or the owner's PC; details with infra (ai-dala-infra-18). Production runs on a new small Hetzner server
-(ceiling about EUR 40 per month until the first paying customer), data in Germany, and the on-call is an
-AI agent (no human pager). Not yet built: the push/pull step and its status file.
+**Off-site copy. Decided by the owner, 2026-11-10 (D-115):** production gets an off-site backup copy.
+Updated 2026-11-16 (D-152, `docs/uat/ba-decisions/T-1600.md`, sections 2 and 3): production runs on the existing
+bizdala.com host next to QA (no new server, no new money), data in Germany. The copy on the QA host is the same
+machine and is **not** off-site. Off-site copies are the agent host (pull, twice a day) and the owner's PC (weekly
+push over the tunnel, best effort). Not yet built: the pull/push step and its status file; every build step is
+announced before it runs.
 
 Rules for the off-site copy (proposal in `docs/uat/ba-decisions/T-1600.md`, section 3; owner and infra confirm):
 
@@ -206,9 +208,9 @@ Rules for the off-site copy (proposal in `docs/uat/ba-decisions/T-1600.md`, sect
   server nor on the off-site target. `LETFLOW_SECRETS_MASTER_KEY` is never in the off-site copy of the database.
 * **A broken-into production server must not be able to delete the off-site copy:** the target pulls, or the key
   on the server can only append.
-* **Recommended target:** a second small server or storage box in another location (about EUR 4–6 per month,
-  an estimate). The owner's PC over a tunnel is allowed only as an extra copy: it is off part of the time, has
-  a limited home link for a restore, and needs a human at restore time.
+* **Targets (D-152):** the agent host is the primary off-site copy; the owner's PC over the tunnel is a second
+  copy, weekly and best effort (it is off part of the time and has a limited home link for a restore). No second
+  server or storage box is bought.
 * **Retention** at the target is not shorter than `DUMP_KEEP_DAYS` and is the longest a purged tenant's data
   survives there too (see section 1); the privacy notice names it.
 * **Infra polls** one more status file for the off-site job like the four in section 4: alert on `"ok":false`
@@ -219,8 +221,9 @@ Rules for the off-site copy (proposal in `docs/uat/ba-decisions/T-1600.md`, sect
 Update 2026-11-10 (plan v2.1, `docs/uat/ba-decisions/T-1605.md`; infra facts, prices are third-party estimates):
 
 * **Off-site is allowed for Letflow production only, and only pull-based** (the Hetzner hosts cannot dial the
-  agent host behind the PC NAT). Two copies recommended: the agent host pulls twice a day, and the QA host
-  (113 GB free) or a later second VPS. The owner's PC and hetzner-prod are poor targets. Bandwidth is about
+  agent host behind the PC NAT). Superseded 2026-11-16 (D-152): the agent host pulls twice a day and the owner's PC
+  gets a weekly push; a copy on the QA host is the same machine as production and is not counted; hetzner-prod
+  is a poor target. Bandwidth is about
   76/27 Mbit/s (one sample). Alert on a newest copy older than about 30 hours.
 * **Encryption:** production gets only the public gpg key; the private key lives on the agent host plus one
   offline owner copy; restore tests run on the agent host. **Gap:** `scripts/backup/wal_archive.sh` has no
@@ -234,7 +237,7 @@ Update 2026-11-10 (plan v2.1, `docs/uat/ba-decisions/T-1605.md`; infra facts, pr
 Open owner questions:
 
 1. Accept the RPO/RTO numbers of section 3 (production: 15 min / 1–2 h on the same host; host loss: up to 24 h / half a day).
-2. Which off-site target (second server or storage box, or the owner's PC as an extra), and where it lives (the owner accepted data in Germany; a target outside it needs a new answer).
+2. Off-site target: decided by D-152 (agent host plus the owner's PC); nothing is asked.
 3. Retention vs. purge: 14 days is the longest a purged tenant's data survives in backups — acceptable? Off-site copies follow the same number.
 4. Who holds the gpg private key and the second copy of `LETFLOW_SECRETS_MASTER_KEY`, and how the agent on call gets them when needed.
 5. The Keycloak realm JSON export: infra owns it; confirm the weekly schedule.
