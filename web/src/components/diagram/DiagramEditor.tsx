@@ -209,7 +209,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
     [graph, announce, refusalText],
   )
 
-  const flowRef = useRef<ReactFlowInstance | null>(null)
+  const flowRef = useRef<ReactFlowInstance<DiagramFlowNode, DiagramFlowEdge> | null>(null)
   const addStep = () => {
     // Left to right like the layout: a new step goes to the right of the drawing, level with the start.
     const xs = graph.nodes.map((n) => positionOf(n)?.x ?? 0)
