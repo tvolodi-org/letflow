@@ -47,6 +47,7 @@ defmodule Letflow.Voice.SettingsTest do
 
     assert {:ok,
             %Settings.Speech{
+              provider: :openai_transcriptions,
               model: "whisper-1",
               base_url: "https://stt.example/v1",
               api_key: @key
@@ -64,8 +65,41 @@ defmodule Letflow.Voice.SettingsTest do
   end
 
   test "S6 speech unknown provider" do
-    put(stt(stt_provider: "elevenlabs"))
+    put(stt(stt_provider: "whisper_local"))
     assert Settings.speech() == :off
+  end
+
+  # REQ-863: ElevenLabs speech-to-text provider kind
+  test "S17 elevenlabs provider ok" do
+    put(stt(stt_provider: "elevenlabs", stt_model: "scribe_v2"))
+
+    assert {:ok,
+            %Settings.Speech{
+              provider: :elevenlabs,
+              model: "scribe_v2",
+              base_url: "https://stt.example/v1",
+              api_key: @key
+            }} =
+             Settings.speech()
+  end
+
+  for field <- [:stt_model, :stt_base_url, :stt_api_key] do
+    test "S18 elevenlabs off when #{field} is missing" do
+      cfg_nil = Keyword.put(stt(stt_provider: "elevenlabs"), unquote(field), nil)
+      put(cfg_nil)
+      assert Settings.speech() == :off
+      cfg_blank = Keyword.put(stt(stt_provider: "elevenlabs"), unquote(field), "")
+      put(cfg_blank)
+      assert Settings.speech() == :off
+    end
+  end
+
+  test "S19 inspect hides elevenlabs key" do
+    put(stt(stt_provider: "elevenlabs"))
+    {:ok, sp} = Settings.speech()
+    out = inspect(sp)
+    refute out =~ @key
+    refute out =~ String.slice(@key, 0, 4)
   end
 
   test "S7 model ok, json mode unset gives prompt" do
