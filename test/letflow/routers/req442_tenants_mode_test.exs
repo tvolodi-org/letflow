@@ -41,6 +41,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
                 "slug",
                 "display_name",
                 "status",
+                "idp_realm_id",
                 "login_disclosure_mode",
                 "tenant_type",
                 "inserted_at",
@@ -702,9 +703,9 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
     end
   end
 
-  # ── Seven-key shape on every tenant_map/1 route ─────────────────────────
+  # ── Nine-key shape on every tenant_map/1 route ──────────────────────────
 
-  describe "AC3 (platform-admin half): the tenant shape has exactly eight keys on every route" do
+  describe "AC3 (platform-admin half): the tenant shape has exactly nine keys on every route" do
     test "get, list, patch, deactivate and reactivate carry the key (value or null) alongside the six existing keys" do
       t = TenantFixture.provisioned_tenant!(slug_prefix: "req442-shape")
       set_mode!(t.tenant_id, "uniform_plus_email")

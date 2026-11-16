@@ -149,13 +149,12 @@ defmodule Letflow.Routers.Tenants do
 
   ## Response allowlist (design §8)
 
-  `tenant_map/1` is a hand-built map with exactly the eight keys (six plus REQ-442's
-  PLATFORM_ADMIN-only `login_disclosure_mode` and REQ-469's `tenant_type`) named in its
-  own @doc — never a `Jason.Encoder` derivation over `%Letflow.Identity.Tenant{}`.
-  `idp_realm_id` is deliberately excluded (design's own OQ-6, ELIXIR-DEV's
-  call, confirmed here: no confirmed precedent from R-Co's `serializeTenant`
-  was available to check against, so the allowlist-not-denylist default
-  wins — add it explicitly later if a requirement needs it).
+  `tenant_map/1` is a hand-built map with exactly nine keys (six core fields plus
+  REQ-442's PLATFORM_ADMIN-only `login_disclosure_mode`, REQ-469's `tenant_type`, and
+  `idp_realm_id`) named in its own @doc — never a `Jason.Encoder` derivation over
+  `%Letflow.Identity.Tenant{}`. `idp_realm_id` was deliberately excluded originally
+  (design's own OQ-6), but infra found it null in the POST response while the row had
+  it set (T-2048); it is now included so callers can confirm the value that was stored.
 
   ## Judgment calls confirmed here (design §9)
 
@@ -757,11 +756,12 @@ defmodule Letflow.Routers.Tenants do
   # ── Response allowlist (design §8) ──────────────────────────────────────
 
   @doc false
-  # Exactly 8 keys, hand-built -- never a Jason.Encoder derivation over the
-  # full %Tenant{} struct. `idp_realm_id` is deliberately excluded (OQ-6,
-  # see moduledoc). `login_disclosure_mode` (REQ-442) is PLATFORM_ADMIN-only
-  # here; this is the one shaper allowed to carry it (INV-2). `tenant_type` (REQ-469) is
-  # a closed two-value enumeration.
+  # Exactly 9 keys, hand-built -- never a Jason.Encoder derivation over the
+  # full %Tenant{} struct. `idp_realm_id` is included (T-2048: infra found it
+  # null in the POST response while the row had it set; see moduledoc for history).
+  # `login_disclosure_mode` (REQ-442) is PLATFORM_ADMIN-only here; this is the one
+  # shaper allowed to carry it (INV-2). `tenant_type` (REQ-469) is a closed
+  # two-value enumeration.
   @spec tenant_map(Tenant.t()) :: map()
   defp tenant_map(%Tenant{} = tenant) do
     %{
@@ -769,6 +769,7 @@ defmodule Letflow.Routers.Tenants do
       "slug" => tenant.slug,
       "display_name" => tenant.display_name,
       "status" => Atom.to_string(tenant.status),
+      "idp_realm_id" => tenant.idp_realm_id,
       "login_disclosure_mode" => tenant.login_disclosure_mode,
       "tenant_type" => tenant.tenant_type,
       "inserted_at" => iso8601(tenant.inserted_at),

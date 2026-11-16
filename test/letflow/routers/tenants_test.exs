@@ -218,7 +218,7 @@ defmodule Letflow.Routers.TenantsTest do
   # ── GET /tenants/:slug, PATCH /tenants/:slug — PLATFORM_ADMIN happy paths ──
 
   describe "GET /tenants/:slug as PLATFORM_ADMIN" do
-    test "returns the allowlisted 8-key shape" do
+    test "returns the allowlisted 9-key shape" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req075-get")
 
       resp =
@@ -234,6 +234,7 @@ defmodule Letflow.Routers.TenantsTest do
                  "slug",
                  "display_name",
                  "status",
+                 "idp_realm_id",
                  "login_disclosure_mode",
                  "tenant_type",
                  "inserted_at",
@@ -513,6 +514,42 @@ defmodule Letflow.Routers.TenantsTest do
           )
 
         assert rows != []
+      end)
+    end
+
+    # GH #<issue> / T-2048: idp_realm_id passed at creation must appear in the 201 response.
+    test "idp_realm_id passed in the body is returned in the 201 response" do
+      SandboxAutoMode.provision!(Letflow.Repo, fn ->
+        slug = "req075-realm-resp-#{Ecto.UUID.generate()}"
+        realm = "req075-realm-#{System.unique_integer([:positive])}"
+
+        resp =
+          build_conn(:post, "/", nil,
+            roles: ["PLATFORM_ADMIN"],
+            body: %{"slug" => slug, "display_name" => "Realm Resp", "idp_realm_id" => realm}
+          )
+          |> dispatch()
+
+        assert resp.status == 201
+        body = Jason.decode!(resp.resp_body)
+        tenant_id = body["id"]
+
+        on_exit(fn ->
+          SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+
+          case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+            {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
+            {:error, :invalid_tenant_id} -> :ok
+          end
+
+          Repo.delete_all(
+            from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
+          )
+
+          Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+        end)
+
+        assert body["idp_realm_id"] == realm
       end)
     end
 
