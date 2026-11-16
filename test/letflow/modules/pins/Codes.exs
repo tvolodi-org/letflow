@@ -1,6 +1,6 @@
-# re-pinned by GH #3797 (0.2.0 -> 0.3.0) and GH #4017 (0.3.0 -> 0.4.0)
+# re-pinned by GH #3797 (0.2.0 -> 0.3.0) and GH #4017 (0.3.0 -> 0.4.0) and GH #4569 (0.4.0 -> 0.5.0, import function)
 %{
   module: "Codes",
-  hash: "d3661b5ff799f4325df455cd8e59212fcfeafff0af6a8d6d140a481e75d68b93",
+  hash: "f6d921ea3be571a0fdc6b976422e190bb33c47927dd1ad9911e43340656946f9",
   shapes: true
 }

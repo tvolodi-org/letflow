@@ -5,7 +5,6 @@ DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
 DELETE /modules/assets/documents/:id AssetsPost
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
-DELETE /modules/stock/documents/:id StockPost
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
@@ -76,6 +75,7 @@ GET /modules/stock/frozen-locations StockRead
 GET /modules/stock/movements StockRead
 GET /modules/stock/reconcile StockReconcile
 GET /modules/stock/stock-card/print StockRead
+GET /modules/stock/stock-sheet/print StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
@@ -213,12 +213,6 @@ POST /modules/stock/counts/:id/reverse StockReverse
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
-POST /modules/stock/documents StockPost
-POST /modules/stock/documents/:id/cancel StockReverse
-POST /modules/stock/documents/:id/check StockPost
-POST /modules/stock/documents/:id/issue StockPost
-POST /modules/stock/documents/:id/post StockPost
-POST /modules/stock/documents/:id/reverse StockReverse
 POST /modules/stock/voice/draft StockPost
 POST /modules/stock/voice/draft-text StockPost
 POST /onboarding TenantsManage
@@ -281,7 +275,6 @@ PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /modules/stock/counts/:id StockCountOrder
 PUT /modules/stock/counts/:id/lines/:line_no/count StockCountRecord
-PUT /modules/stock/documents/:id StockPost
 PUT /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage

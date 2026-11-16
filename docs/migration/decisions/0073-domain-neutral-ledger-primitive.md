@@ -342,3 +342,36 @@ A registration may declare a posting guard, and the platform serialises it again
   reaches the entry digest only through that header column. No leg column stores it and no migration is added.
 - No other ledger rule changes: append-only entries, quantity zero refused, the no-negative guard, bounds, the unit
   pin, the event-time window, idempotency and lock order stand. The core stays domain-neutral (Rule 7).
+
+## Amended by REQ-830 (slice L6 part 1, OQ-13)
+
+Slice L6 part 1 puts scope enforcement into the core run-time authority check of a posting
+(`Letflow.Ledger.Authority`, same place and order as before: inside the completion transaction, after the
+credential and role checks, before the deferred build-time refusal is released by `HandlerPost`).
+
+**Rule.** When `Scope.allowed_set/2` for the post (or reverse) permission answers `{:ok, {:nodes, ids}}` and the
+registration names a `scope_slot`, the check passes only if the scope slot value of EVERY leg of the posting is a
+member of `ids` (byte equality on the text value, section S2 of the B6 amendment). For a reversal the legs checked
+are those of the reversed entry, read prefix- and ledger-scoped through `Letflow.Ledger.guard_reversal/3`.
+`{:ok, :all}` passes as before.
+
+**Denials.** The `Authority` denial type gains one atom, `:scope_denied`, for: a leg whose scope slot value is not in
+`ids`, an empty scope slot value, `{:ok, :none}`, a `Scope.ScopeSetError` (fail closed), a posting that
+`Letflow.Ledger.Validate.posting/3` does not accept, and a reversal whose target is not found. A registration
+WITHOUT a `scope_slot` keeps answering `:scoped_principal_unsupported` for every result except `{:ok, :all}`. Both
+surface as `{:ledger_denied, detail}` and become the one `write_not_permitted` refusal. The scope check runs before
+the deferred refusal is released, so an out-of-scope principal gets the same reason for a valid and an invalid command.
+
+**OQ-13, decided in plain words.** A user who may post only for some units may post a movement only when every unit
+it touches is one of theirs. A transfer, hand over or return between one of their units and a unit they cannot see is
+refused, in both directions; the user asks someone with access to both units (or to the whole tenant) to post it.
+Reversing an entry follows the same rule over the units of the entry being reversed. Reasons: decision 0051 M9 and
+T12 require a scoped write to be checked on the old and the new value, on every row, all or nothing, with one generic
+refusal; a posting moves quantity out of one unit and into another, so both sides are written. This is the strictest
+reading and gives no one more than today plus their own units; the owner may relax it later by a new amendment
+(for example "the sending side is enough").
+
+**Scope.** The rule is core and domain-neutral (Rule 7): it applies to every registration that names a
+`scope_slot` (stock and assets both name `org_unit`). The module routes that start postings are unchanged in this part
+(`Letflow.Api.ModuleGuard` still requires tenant-wide); the stock document routes for a scoped storekeeper follow in
+part 2 (REQ-831).

@@ -21,6 +21,7 @@ export const OFFICIAL_TEMPLATE_FORMS: readonly OfficialTemplateForm[] = [
   { id: 'z3', module: 'stock' },
   { id: 'z5', module: 'stock' },
   { id: 'z6', module: 'stock' },
+  { id: 'z7', module: 'stock' },
 ]
 
 /** `FormTemplate.refusal_codes/0`; test M3 pins the list to the Elixir source. */

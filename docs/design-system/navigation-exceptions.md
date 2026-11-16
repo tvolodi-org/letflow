@@ -46,6 +46,7 @@ entry; they do not each need their own menu item.
 | `/instances/:id` | Selected instance. |
 | `/instances/:id/attachments/:attachmentId` | Attachment link within an instance. |
 | `/login` | Public sign-in entry. |
+| `/me/problem-reports` | My reports link in the shell top bar and the receipt of Report a problem. |
 | `/me/settings` | My settings link in the shell. |
 | `/platform-dashboard` | Platform home selected for platform users. |
 | `/solution-packs/:packId/overrides` | Overrides action within a solution pack. |

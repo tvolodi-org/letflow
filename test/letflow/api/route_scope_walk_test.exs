@@ -313,6 +313,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       resolver = {:resolver, {Letflow.Entities.ScopeResolver, :record_scope}}
       task_resolver = {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
       document_resolver = {:resolver, {Letflow.Documents.ScopeResolver, :document_scope}}
+      stock_resolver = {:resolver, {Letflow.Modules.Stock.Access, :document_scope}}
 
       assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) ==
                Enum.sort([
@@ -399,6 +400,15 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"PUT", "/types/:key/retention", :tenant_wide},
                  {"POST", "/:document_id/hold", document_resolver},
                  {"POST", "/:document_id/hold/release", document_resolver},
+                 # REQ-831: the eight stock document write routes (router-local paths) are resolvers
+                 {"POST", "/documents", stock_resolver},
+                 {"PUT", "/documents/:id", stock_resolver},
+                 {"DELETE", "/documents/:id", stock_resolver},
+                 {"POST", "/documents/:id/issue", stock_resolver},
+                 {"POST", "/documents/:id/check", stock_resolver},
+                 {"POST", "/documents/:id/post", stock_resolver},
+                 {"POST", "/documents/:id/reverse", stock_resolver},
+                 {"POST", "/documents/:id/cancel", stock_resolver},
                  # REQ-579: the five print-override routes are all tenant-wide
                  {"GET", "/print-overrides", :tenant_wide},
                  {"GET", "/print-overrides/:id", :tenant_wide},
@@ -444,6 +454,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-635
                  Letflow.Routers.EntityScopeDeclarations,
                  Letflow.Routers.Me,
+                 # REQ-831
+                 Letflow.Modules.Stock.Router,
                  Letflow.Routers.Tasks
                ])
     end

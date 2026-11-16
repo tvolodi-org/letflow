@@ -33,9 +33,11 @@ defmodule Letflow.LedgerPostFixture do
 
   @alpha "fixture_ledger_post"
   @beta "fixture_ledger_post:beta"
+  @gamma "fixture_ledger_post:gamma"
 
   def alpha, do: @alpha
   def beta, do: @beta
+  def gamma, do: @gamma
 
   @doc "A `module_writes` line calling `handler` (`post_alpha`, `post_beta`, `plain`) with `args`."
   @spec line(String.t(), map()) :: map()
@@ -97,7 +99,7 @@ defmodule Letflow.LedgerPostFixture do
       )
 
     # REQ-710: the posting path never makes partitions.
-    for ledger_id <- ["fixture_ledger_post", "fixture_ledger_post:beta"] do
+    for ledger_id <- [@alpha, @beta, @gamma] do
       Letflow.LedgerFixture.ensure_storage!(schema, ledger_id)
     end
 
