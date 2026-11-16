@@ -1,7 +1,7 @@
 import { ToastContainer } from '@/components/ui/Toast'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, NavLink, useLocation } from 'react-router-dom'
-import { ChevronsLeft, LogOut, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { ChevronsLeft, LogOut, ListChecks, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -16,6 +16,7 @@ import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher'
 import { UI_LOCALES, UI_LOCALE_LABELS, useUiLocale, useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navLabel, navMessages } from './navMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
+import { myProblemReportsMessages } from '@/pages/me/myProblemReportsMessages'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -280,6 +281,15 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
             <>
               <ReportProblemButton />
               <NotificationBell />
+              <Link
+                to="/me/problem-reports"
+                className="lf-btn lf-btn--ghost lf-btn--icon"
+                aria-label={myProblemReportsMessages[uiLocale].link}
+                title={myProblemReportsMessages[uiLocale].link}
+                data-testid="topbar-my-reports"
+              >
+                <ListChecks className="lf-icon" aria-hidden="true" />
+              </Link>
               <Link
                 to="/me/settings"
                 className="lf-btn lf-btn--ghost lf-btn--icon"

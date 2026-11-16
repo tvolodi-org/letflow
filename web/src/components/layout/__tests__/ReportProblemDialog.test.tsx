@@ -6,6 +6,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { rolesOf } from '@/auth/access/access'
 import { accessState } from '@/auth/access/fixtures'
@@ -50,7 +51,9 @@ function mount(crash: Error | null = null, onClose = vi.fn()) {
   render(
     <QueryClientProvider client={qc}>
       <AccessStateProvider state={accessState('platformAdmin')}>
-        <ReportProblemDialog crash={crash} onClose={onClose} />
+        <MemoryRouter>
+          <ReportProblemDialog crash={crash} onClose={onClose} />
+        </MemoryRouter>
       </AccessStateProvider>
     </QueryClientProvider>,
   )
@@ -92,17 +95,18 @@ describe('what is sent (W7)', () => {
     const preview = screen.getByTestId('report-preview').textContent ?? ''
     expect(preview).toContain('[email]')
     expect(preview).not.toContain('ivan.petrov@')
+    // The panel shows the receipt after Send (REQ-872), so the facts are read before it.
+    const adds = screen.getByTestId('report-server-adds')
+    const summary = screen.getByTestId('report-summary')
     await userEvent.click(confirm())
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     expect(submit.mock.calls[0][0]).toEqual(JSON.parse(preview))
     expect(submit.mock.calls[0][0].consent).toBe(true)
-    const adds = screen.getByTestId('report-server-adds')
     expect(adds).toHaveTextContent('Aigerim Sarsenova')
     expect(adds).toHaveTextContent('Demo Holding')
     const fixtureRoles = rolesOf(accessState('platformAdmin'))
     expect(fixtureRoles.length).toBeGreaterThan(0)
     expect(adds).toHaveTextContent(fixtureRoles.join(', '))
-    const summary = screen.getByTestId('report-summary')
     expect(summary).toHaveTextContent('2 recent actions')
     expect(summary).toHaveTextContent('1 recent requests, 1 with errors')
   })
@@ -138,16 +142,31 @@ describe('write errors and success (W8)', () => {
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(2))
   })
 
-  it('W8b: success closes the dialog and shows a toast with the number', async () => {
+  it('W8b: success shows a toast with the number and a receipt with a link to My reports (REQ-872)', async () => {
     submit.mockResolvedValue({ id: '1', number: 'SR-7', received_at: 'x' })
     const onClose = mount()
     await userEvent.type(screen.getByTestId('report-text'), 'It fails')
     await userEvent.click(screen.getByTestId('report-consent'))
     await userEvent.click(confirm())
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const receipt = await screen.findByTestId('report-receipt')
+    expect(receipt).toHaveTextContent('SR-7')
+    expect(screen.getByTestId('report-receipt-link')).toHaveAttribute('href', '/me/problem-reports')
     const toast = getToastSnapshot()[0]
     expect(toast.variant).toBe('success')
     expect(toast.message).toContain('SR-7')
+    expect(onClose).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByTestId('report-receipt-close'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('W8c: following the receipt link closes the panel', async () => {
+    submit.mockResolvedValue({ id: '1', number: 'SR-8', received_at: 'x' })
+    const onClose = mount()
+    await userEvent.type(screen.getByTestId('report-text'), 'It fails')
+    await userEvent.click(screen.getByTestId('report-consent'))
+    await userEvent.click(confirm())
+    await userEvent.click(await screen.findByTestId('report-receipt-link'))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

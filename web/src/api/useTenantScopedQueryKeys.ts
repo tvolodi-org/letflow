@@ -180,6 +180,7 @@ export function useTenantScopedQueryKeys() {
       modules: () => queryKeys.me.modules(tenantId),
       preferences: () => queryKeys.me.preferences(tenantId),
       notifications: () => queryKeys.me.notifications(tenantId),
+      problemReports: () => queryKeys.me.problemReports(tenantId),
     },
   }
 }
