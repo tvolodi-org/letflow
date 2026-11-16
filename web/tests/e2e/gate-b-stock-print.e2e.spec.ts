@@ -34,6 +34,11 @@ async function expectDownload(click: () => Promise<void>, ext: keyof typeof MIME
   if (title) expect(pdfTextItems(bytes).join('\n')).toContain(title)
   return bytes
 }
+/** The single Print menu (T-2020): open it, then click one of its items. */
+async function printItem(testId: string) {
+  await page.getByTestId('official-form-menu').click()
+  await page.getByTestId(testId).click()
+}
 async function formDownloads(form: string, title?: string) {
   for (const ext of ['pdf', 'docx'] as const) {
     await expectDownload(async () => {
@@ -124,7 +129,7 @@ test.afterAll(async () => {
 test('P1 receipt act and Z-1, then posted act', async () => {
   test.setTimeout(120_000)
   receiptNumber = await createDocument('Receipt')
-  await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print', 'Act of receipt')
+  await expectDownload(() => printItem('document-print'), 'pdf', '/print', 'Act of receipt')
   await formDownloads('z1')
   await claimAndComplete(page, receiptNumber)
   receiptPosted = true
@@ -132,7 +137,7 @@ test('P1 receipt act and Z-1, then posted act', async () => {
     await reopen(receiptNumber)
     await expect(page.locator('.lf-doc__id')).toContainText('Posted')
   }).toPass({ timeout: 60_000 })
-  await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print')
+  await expectDownload(() => printItem('document-print'), 'pdf', '/print')
 })
 for (const [step, kind, title, official] of [
   ['P2', 'Issue', 'Act of issue', 'z2'],
@@ -144,15 +149,19 @@ for (const [step, kind, title, official] of [
   test(`${step} ${kind} print buttons`, async () => {
     test.setTimeout(120_000)
     const number = await createDocument(kind)
-    await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print', title)
+    await expectDownload(() => printItem('document-print'), 'pdf', '/print', title)
     if (official) await formDownloads(official, official === 'z6' ? 'АКТ списания запасов' : official === 'z5' ? 'Накладная на внутреннее перемещение запасов' : undefined)
-    else await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
+    else {
+      await page.getByTestId('official-form-menu').click()
+      await expect(page.locator('[data-testid^="form-"]')).toHaveCount(0)
+      await page.keyboard.press('Escape')
+    }
     await cancelDocument(number)
   })
 }
 async function countDownloads(kind: string) {
-  await expectDownload(() => page.getByTestId(`paperwork-${kind}`).click(), 'xlsx', `/paperwork/${kind}`)
-  await expectDownload(() => page.getByTestId(`print-${kind}`).click(), 'pdf', `/print/${kind}`)
+  await expectDownload(() => printItem(`paperwork-${kind}`), 'xlsx', `/paperwork/${kind}`)
+  await expectDownload(() => printItem(`print-${kind}`), 'pdf', `/print/${kind}`)
 }
 test('P7 count order xlsx and pdf', async () => {
   await openRoute(page, '/admin/stock/counts')

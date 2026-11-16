@@ -1,11 +1,8 @@
 /** PaperworkButtons — GH 3761 / REQ-720 criterion 4. One download button per issued paperwork document (order, sheet,
  *  differences). The xlsx comes through client.getBlob (bearer header) and is saved under the file name of the
  *  Content-Disposition header, else count-<kind>.xlsx. */
-import { Fragment } from 'react'
 import { useIntl } from 'react-intl'
-import { Download, Printer } from 'lucide-react'
 import { Banner } from '@/components/ui/Banner'
-import { Button } from '@/components/ui/Button'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { usePdfDownload } from '@/hooks/usePdfDownload'
 import { parseFilename } from '@/lib/parseFilename'
@@ -43,33 +40,13 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
     <div className="lf-form" data-testid="paperwork">
       {error !== null && <Banner tone="danger">{t(error)}</Banner>}
       <div className="lf-form__actions">
-        {shown.map((k) => (
-          <Fragment key={k}>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Download className="lf-icon" aria-hidden="true" />}
-              loading={busyKey === k}
-              onClick={() => void download(k)}
-              data-testid={`paperwork-${k}`}
-            >
-              {t(`counts.paperwork.${k}`)}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Printer className="lf-icon" aria-hidden="true" />}
-              loading={busyKey === `print-${k}`}
-              onClick={() => void print(k)}
-              data-testid={`print-${k}`}
-            >
-              {t(`counts.print.${k}`)}
-            </Button>
-          </Fragment>
-        ))}
         <OfficialFormMenu
           forms={formsForOrder()}
           busyKey={busyKey}
+          plain={shown.flatMap((k) => [
+            { key: k, label: t(`counts.paperwork.${k}`), testId: `paperwork-${k}`, onPick: () => void download(k) },
+            { key: `print-${k}`, label: t(`counts.print.${k}`), testId: `print-${k}`, onPick: () => void print(k) },
+          ])}
           disabledForms={{
             ...(paperworkAvailable(order, 'sheet') ? {} : { inv10: 'counts.form.needSheet' }),
             ...(paperworkAvailable(order, 'differences') ? {} : { inv18: 'counts.form.needDifferences' }),

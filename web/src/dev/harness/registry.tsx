@@ -35,6 +35,8 @@ import { docLayoutScreens } from './fixtures/docLayouts'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
+import { printMenuT2020Screens } from './fixtures/printMenuT2020'
+import { docsShellT2020Screens } from './fixtures/docsShellT2020'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { envBannerScreens } from './fixtures/envBanner'
@@ -78,6 +80,7 @@ import { taskUpgradeScreens } from './fixtures/taskUpgrade'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
+import { diagramEditorFixScreens } from './fixtures/diagramEditorFix'
 import { processDiscoveryScreens } from './fixtures/processDiscovery'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { definitionListScreens } from './fixtures/definitionList'
@@ -327,6 +330,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,
+    ...diagramEditorFixScreens,
     ...processDiscoveryScreens,
     ...processDesignerVersionsScreens,
     ...definitionListScreens,
@@ -341,6 +345,8 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...layoutBaseScreens,
     ...officialFormsScreens,
     ...stockSheetZ7Screens,
+    ...printMenuT2020Screens,
+    ...docsShellT2020Screens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
     ...assetsIssueRefusedScreens,

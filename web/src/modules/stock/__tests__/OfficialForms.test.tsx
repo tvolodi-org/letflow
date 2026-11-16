@@ -2,7 +2,7 @@
 /** F1–F8 — T-1434: the "Official form" menu on issue documents (Z-2) and its catalogs. Network mocked. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { printErrorMessageId } from '../documents/documentsModel'
@@ -259,24 +259,39 @@ describe('F8 catalogs', () => {
   })
 })
 
-describe('T1/T2 menu stays inside the viewport (T-1441)', () => {
-  const rectLeft = (left: number) =>
+describe('T1/T2 menu is portaled and stays inside the viewport (T-1441, T-2020)', () => {
+  // The menu is rendered into <body>, fixed under its trigger: no panel or divider can clip it.
+  const rects = (anchorLeft: number, anchorRight: number) =>
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return (this.getAttribute('role') === 'menu' ? { left, right: left + 200, top: 0, bottom: 0, width: 200, height: 0, x: left, y: 0 } : {}) as DOMRect
+      if (this.getAttribute('role') === 'menu') return { left: 0, right: 200, top: 0, bottom: 0, width: 200, height: 0, x: 0, y: 0 } as DOMRect
+      if (this.getAttribute('data-testid') === 'official-form-menu') return { left: anchorLeft, right: anchorRight, top: 10, bottom: 40, width: anchorRight - anchorLeft, height: 30, x: anchorLeft, y: 10 } as DOMRect
+      return {} as DOMRect
     })
-  it('right-anchored by default, start-aligned when it would clip on the left, reset on close', async () => {
+  it('renders outside the action row, right-aligned to the trigger, start-aligned when that would clip on the left', async () => {
     await open('issued')
     const root = screen.getByTestId('official-form-menu').parentElement as HTMLElement
-    const spy = rectLeft(300)
+    const spy = rects(400, 500)
     await userEvent.click(screen.getByTestId('official-form-menu'))
-    expect(root).not.toHaveClass('lf-formmenu--start')
+    const pop = screen.getByTestId('portal-menu')
+    expect(pop.parentElement).toBe(document.body)
+    expect(root.contains(pop)).toBe(false)
+    expect(pop.style.left).toBe('300px')
+    expect(pop.style.top).toBe('46px')
     await userEvent.keyboard('{Escape}')
+    expect(screen.queryByTestId('portal-menu')).toBeNull()
     spy.mockRestore()
-    rectLeft(-40)
+    rects(40, 100)
     await userEvent.click(screen.getByTestId('official-form-menu'))
-    expect(root).toHaveClass('lf-formmenu--start')
+    expect(screen.getByTestId('portal-menu').style.left).toBe('40px')
     await userEvent.keyboard('{Escape}')
-    expect(root).not.toHaveClass('lf-formmenu--start')
+  })
+  it('an outside mousedown closes it, a mousedown inside the portaled menu does not', async () => {
+    await open('issued')
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    fireEvent.mouseDown(screen.getByTestId('form-z2-pdf'))
+    expect(screen.getByTestId('portal-menu')).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByTestId('portal-menu')).toBeNull()
   })
 })
 

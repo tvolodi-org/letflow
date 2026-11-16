@@ -129,7 +129,7 @@ section 2 default).
 | 6 | **ДА-4 / ҰМА-4** for change of responsible and internal hand over (annex 19) | `form=da4` | menu entry | router test; e2e | slice 4; Q22 (which cost) |
 | 7 | **ДА-3 / ҰМА-3** asset write-off act (annex 18) | `form=da3`; commission blank until REQ-777 | menu entry | router test; e2e | slice 4 |
 | 8 | **ДА-2 / ҰМА-2** asset card (annex 17) | card print route | button on the asset card screen | router test; e2e | none |
-| 9 | **З-7 / Қ-7** stock balances sheet (annex 31) | from the balances read | menu entry on the balances screen | router test; e2e | none Built in T-1925 (mapping 7.7); **to be confirmed by accountant**. |
+| 9 | **З-7 / Қ-7** stock balances sheet (annex 31) | from the balances read | menu entry on the balances screen | router test; e2e | none. Built in T-1925 (mapping 7.7); **to be confirmed by accountant**. |
 | 10 | **Print templates screen**: translate the title (ru/kk/en) and say on the screen which documents it affects | none | `PrintTemplatesPage.tsx` | unit test | none; whether tenants may adjust official forms is an owner question (section 5) |
 | 11 | **Hand over and return on З-5** | add the kinds to the `z5` entry | menu entry | router test; e2e | owner answer to Q19 |
 | 12 | Бухгалтерская справка (annex 51) for openings, count posting and change of kind | one generic form | menu entry | router test; e2e | an accountant confirms the form is the right one |

@@ -56653,6 +56653,109 @@ requirements:
       - "3. Online: a widget or controller test shows that a retried save of an unchanged draft and a retried issue of the same document send the same key, and a changed draft sends a new one."
       - "4. The rejection message for idempotency_key_reuse exists in en, ru and kk; flutter analyze is clean and flutter test passes for the changed tests."
     depends_on: [REQ-847]
+  - id: REQ-872
+    title: "Qoimeks parity G19 part 1: a My reports screen where every signed-in user, a storekeeper without admin rights included, sees the status of each problem report it sent"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4586
+    # Source: task T-2038 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"), readiness note docs/status/qoimeks-migration-readiness.md row G19, design docs/design/platform-maintenance.md sections 1.2, 8 and 10 (slice 4 "the reporter's own report screen remains part B").
+    description: >
+      Qoimeks (inventory row "Feedback «Сообщить о проблеме» / web «Отзывы», Markdown export", 0 rows used at
+      2026-10-29) lets any user send feedback and see the feedback list in the web page «Отзывы». Letflow already
+      has the sending half: the top-bar button "Report a problem" (web/src/components/layout/ReportProblemButton.tsx,
+      not permission-gated, rendered by web/src/components/layout/AppShell.tsx, which wraps every signed-in screen)
+      posts to POST /api/v1/me/problem-reports (lib/letflow/routers/me.ex, permission MyPreferencesSet), and the
+      reporter's own list exists on the server as GET /api/v1/me/problem-reports (lib/letflow/routers/me.ex,
+      permission MyAccessRead, Letflow.ProblemReports.list_mine/2 in lib/letflow/problem_reports.ex: newest 50 of
+      the caller's own reports, fields id, number, status, question, reply_text, text, received_at, decided_at,
+      plus has_more). docs/roles.md grants MyAccessRead and MyPreferencesSet to every role, STOREKEEPER included.
+      What is missing is the screen: web/src/api/problemReports.ts has only submit, and no route of
+      web/src/router.tsx shows the list (docs/design/platform-maintenance.md section 8 "A My reports page lists
+      them"; section 10 slice 4 "the reporter's own report screen remains part B"). This slice adds that screen at
+      the web path /me/problem-reports (planned, not yet on main), not wrapped in RequirePermission or
+      platformPage, reached from a link in the "Report a problem" dialog's receipt and from a top-bar link placed
+      next to the existing /me/settings link (data-testid topbar-my-settings) in AppShell.tsx. Status labels reuse the existing texts
+      problemReports.status.* of web/src/pages/admin/problem-reports/problemReportsMessages.ts (en, ru, kk). No
+      backend change apart from the one router test of criterion 1; no new permission, route or table. Size S.
+    acceptance_criteria:
+      - "1. A new test in test/letflow/routers/me_problem_reports_test.exs: a caller holding only STOREKEEPER (the existing caller! helper with [\"STOREKEEPER\"]) gets 201 on POST /me/problem-reports with consent true, and its GET /me/problem-reports then answers 200 with that report's number and status received; a second STOREKEEPER user of the same company gets an empty list."
+      - "2. A component test of the new screen with a fake API: given a list holding one report in each status (received, in_work with question true, answered, fixed, not_done) it shows one row per report with its number, received date, the status label from problemReports.status.* in the session language, the text, and the reply text only for the rows where the server sent reply_text; the in_work row with question true shows the owner's question."
+      - "3. The same test: an empty list shows an empty state that names the Report a problem button; a 503 answer shows an unavailable message and no rows; has_more true shows a line saying only the newest 50 are listed."
+      - "4. A routing test renders /me/problem-reports for a session whose only role is STOREKEEPER and for one whose only role is CANDIDATE: the screen is shown (not the no-permission page) and the list request goes to /api/v1/me/problem-reports."
+      - "5. A test of ReportProblemDialog: after a 201 the receipt shows a link to /me/problem-reports; a test of AppShell shows the My reports top-bar link to /me/problem-reports next to the topbar-my-settings link for a STOREKEEPER-only and a TENANT_ADMIN session."
+      - "6. Labels exist in en, ru and kk; npm run check passes in web/; the shot matrix of the design-system skill (1440 and 390, light and dark, en, ru, kk) covers the list, the empty state and the unavailable state."
+    depends_on: []
+  - id: REQ-873
+    title: "Qoimeks parity G19 part 2: Markdown download of the user's own problem reports on My reports and of one report in the owner inbox"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4585
+    # Source: task T-2038, as REQ-872; Qoimeks layout copied below from Qoimeks server/internal/api/feedback.go (read only, outside this repository).
+    description: >
+      Qoimeks exports feedback as a Markdown file for handing to the developer (route GET /api/feedback/export.md,
+      quoted in docs/design/platform-maintenance.md section 1.2). Its renderer feedbackMarkdown (Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository) writes a title line "# Отзывы", a line
+      "Записей: N", then per row a heading "## #id · kind · created_at UTC", a list of facts, the text, and the
+      errors; the file is sent as "text/markdown; charset=utf-8" with the name feedback-YYYY-MM-DD.md. This slice
+      gives Letflow the same file in the browser, built on the client from data the screens already load, with no
+      new route: (a) on My reports (REQ-872, path /me/problem-reports, planned, not yet on main) a "Download as
+      Markdown" button saves the listed reports (at most the 50 the list route returns) as
+      problem-reports-YYYY-MM-DD.md; (b) in the owner inbox web/src/pages/admin/problem-reports/ProblemReportsPage.tsx
+      the detail of one report (GET /api/v1/platform-problem-reports/:id, lib/letflow/routers/platform_problem_reports.ex,
+      fields of the detail map in Letflow.ProblemReports.Inbox in lib/letflow/problem_reports/inbox.ex) gets the same
+      button and saves <number>.md. One formatter module, web/src/lib/problemReport/markdown.ts (planned, not yet on
+      main), renders both. Layout, in the session language (en, ru, kk): a title line, a line with the report
+      count, then per report a heading "## <number> · <status label> · <received_at in UTC, YYYY-MM-DD HH:MM:SS UTC>",
+      a list of facts, the report text, and the reply. Own export facts: status, received, decided. Owner export
+      facts: status, received, decided, company name, reporter name, roles, server version, trace id, image count;
+      the captured context as a fenced json block; never the reporter's permission list, tenant id, user id,
+      decided_by_user_id or the image bytes. Free text (report text, reply, context) is put inside a fenced code block whose backtick fence is
+      longer than the longest run of backticks in that text, so a report cannot add headings or links to the file
+      (Qoimeks replaced backticks inside error lines for the same reason). EXTRA over Qoimeks: the reporter can
+      export its own reports, and the export is in three languages. Size S.
+    acceptance_criteria:
+      - "1. Unit tests of markdown.ts: two reports give a file that starts with the title line and a count line of 2, then two headings in the given order with the number, the status label and the UTC time in the format YYYY-MM-DD HH:MM:SS UTC; an empty list gives the title and a count of 0 only."
+      - "2. Unit test: a report text holding a line \"## forged\" and a run of three backticks is rendered inside a fence of four backticks, and the file has exactly one level-2 heading per report."
+      - "3. Unit test of the owner form: the output holds company name, reporter name, roles, server version, trace id and image count, and does not hold the reporter's tenant id, user id or any permission name from the detail fixture."
+      - "4. Labels in en, ru and kk: a test renders the same two reports with each language and finds that language's title and status labels (the status labels are the problemReports.status.* texts)."
+      - "5. Component tests: on My reports the button saves one Blob of type text/markdown;charset=utf-8 named problem-reports-YYYY-MM-DD.md from the loaded list (no extra request is sent, asserted on the fake API); in the owner inbox the detail's button saves <number>.md; the button is disabled while the list or the detail is loading."
+      - "6. npm run check passes in web/; shots (design-system matrix) of My reports and the owner detail with the button."
+    depends_on: [REQ-872]
+  - id: REQ-874
+    title: "Qoimeks parity G19 part 3: Markdown export of the owner inbox list of problem reports, one file for the chosen status filter"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4584
+    # Source: task T-2038, as REQ-872 and REQ-873.
+    description: >
+      Qoimeks hands the whole feedback list to the developer as one Markdown file (GET /api/feedback/export.md; its
+      handler feedbackExport reads at most maxFeedbackLimit = 1000 newest rows, Qoimeks
+      server/internal/api/feedback.go, read only, outside this repository; headers Content-Type
+      "text/markdown; charset=utf-8", Content-Disposition attachment, Cache-Control no-store). In Letflow the owner
+      of that handoff is the platform company's owner inbox (lib/letflow/routers/platform_problem_reports.ex,
+      permission ProblemReportsManage, platform scope, granted to PLATFORM_ADMIN only per docs/roles.md). Its list
+      route GET /api/v1/platform-problem-reports (Letflow.ProblemReports.Inbox.list/1 in
+      lib/letflow/problem_reports/inbox.ex) pages at most 100 summaries with a 140-character text preview, so the
+      client cannot build a full-list file from it. This slice adds GET /api/v1/platform-problem-reports/export.md
+      in the same router, declared before the /:id route, permission ProblemReportsManage, query status
+      (open, closed or all, the same filter as the list route, default open) and lang (en, ru or kk, default ru,
+      as Qoimeks). It reads only class problem rows of the platform schema, newest first, at most 1000 (the Qoimeks
+      cap), and renders them with an Elixir renderer whose layout is the owner form of REQ-873 (planned, not yet on
+      main), with the same fencing rule for free text and the same excluded fields. The owner inbox screen
+      web/src/pages/admin/problem-reports/ProblemReportsPage.tsx gets a "Download list as Markdown" button that
+      calls the route with the current filter and the session language. Route-count and scope-inventory pins move
+      (grep __authz_routes__ and the platform route lists in test/). Size S to M.
+    acceptance_criteria:
+      - "1. Router tests in test/letflow/routers/platform_problem_reports_test.exs: a platform administrator of the platform tenant gets 200 with content-type text/markdown; charset=utf-8, content-disposition attachment with filename problem-reports-YYYY-MM-DD.md, and cache-control no-store; the body has one level-2 heading per class problem report of the chosen filter, newest first, and none for a class review row."
+      - "2. Refusals as the existing P1 P2 P3 test does: a TENANT_ADMIN of a customer company and a PLATFORM_ADMIN outside the platform tenant get the same refusal as on GET /platform-problem-reports, and the body names no report number."
+      - "3. status=closed lists only answered, fixed and not_done reports; status=bogus and lang=xx answer 400 as the list route answers an invalid filter (Response.bad_request in respond/3); with 1001 reports only the newest 1000 are in the file (the count line says 1000)."
+      - "4. A unit test of the renderer: a text holding \"## forged\" and three backticks is inside a four-backtick fence; the file holds no reporter tenant id, user id or permission name; lang=en, ru and kk each give that language's title line."
+      - "5. GET /platform-problem-reports/export.md is not answered by the /:id route (a test asserts 200 and a Markdown body, not the 404 of an unknown id); with the platform pin unset it answers 503 as the list route does."
+      - "6. A web component test: the button sends the current status filter and the session language to the route and saves the answer; npm run check passes in web/; mix letflow.check.static passes."
+    depends_on: [REQ-873]
   - id: REQ-867
     title: "Qoimeks parity G16 part 1: the PWA entry file names its scripts with ?v=<build sha> next to the no-cache rule, and the hosting runbook gives the install and update steps on iPhone and Android"
     owner: MOBILE-DEV
@@ -56884,6 +56987,90 @@ requirements:
       - "3. The labels, the caption and the two new banners exist in the en, ru and kk catalogs of module stock (ru button 'Остатки для Excel (как в Qoimeks)', kk button 'Excel үшін қалдықтар (Qoimeks сияқты)'; UAT assumption, wording to be confirmed by the process owner), checked by the module's catalog completeness test."
       - "4. The screenshot matrix of the design-system rules (1440 and 390, light and dark, en, ru and kk) for the Balances screen with the new button, during the download and with each of the two new banners is in the task folder with its STATE-TABLE.md; npm run check passes in the engine's checks."
     depends_on: [REQ-865, REQ-724]
+  - id: REQ-880
+    title: "Qoimeks parity §8.10 part 1: the rehearsal runbook carries the Qoimeks move rules as a check list (copy, one transaction per file, check-only first, write freeze, ANALYZE, counts and hashes, rollback) and the minimum master data calls of a fresh company"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4594
+    # Source: task T-2039 (operator; Qoimeks Client 1 migration, owner decision 2026-11-16 relayed by the PM, "Do whatever needed to support old Qoimeks functionality, not less but possible more"). Read: Qoimeks-team/project/client1-inventory.md section 8 items 9 and 10 (read only; copy in state/tasks/T-2039/sources/client1-inventory-s8.md), ai-dala-portfolio/proposals/qoimeks-migration-plan.md phase P7 (copy in state/tasks/T-2039/sources/), Qoimeks features-to-port.md line on MAINTENANCE_MODE (copy in state/tasks/T-2039/sources/features-to-port-s9.md), the C17 rehearsal record state/rehearsals/c17-four-eyes.md (copy in state/tasks/T-2039/sources/c17-four-eyes.md). On origin/main 1520cf186: docs/status/qoimeks-migration-readiness.md sections 2.3 to 2.6, docs/runbooks/qoimeks-rehearsal.md, scripts/pilot/qoimeks_compare.sh, scripts/pilot/qoimeks_balances_compare.py, lib/letflow/routers/entities/record_import.ex (check_atomic, "the whole file in one transaction"), lib/letflow/modules/router_kit.ex (with_request, required idempotency_key), lib/letflow/modules/org/masters.ex (@company_create_keys, @site_create_keys), lib/letflow/modules/org/import.ex (org_employee full_name), lib/letflow/entities/managed_types.ex (check_tenant_write), lib/letflow/modules/stock/documents/shape.ex (quantity_text accepts only a text), lib/letflow/modules/stock/documents/opening_checks.ex (not_linked), test/letflow/pilot_rollout_runbook_test.exs (precedent of a runbook text test). Written by the business analyst (T-2039) 2026-11-16. Not yet validated.
+    description: >
+      The Qoimeks inventory (section 8 item 10) states the move rules of Client 1: the move is a copy (the
+      source untouched), one transaction, counts and md5 per table plus current balances equal, a check-only run
+      on production first, a short write freeze (about 40 s was enough), ANALYZE after the copy, rollback by
+      switching the mapping back, no real data leaves production (D-050), outside Client 1's working hours, the
+      old copy kept 30 days. Item 9 adds that scripted clients behind Cloudflare need their own User-Agent.
+      docs/status/qoimeks-migration-readiness.md sections 2.3 to 2.6 keep these rules, but
+      docs/runbooks/qoimeks-rehearsal.md, the only procedure an operator follows, does not: it has no write
+      freeze step, no ANALYZE step, no rollback step and no statement of how "one transaction" and "md5 per
+      table" translate to Letflow. Already built and to be cited, not rebuilt: the copy rule (the runbook works
+      on a copy), the check-only run (dry_run=true before atomic=true, steps 3 and 5), record counts
+      (scripts/pilot/qoimeks_compare.sh, step 6) and quantities with one sha256 hash per side
+      (scripts/pilot/qoimeks_balances_compare.py, step 7). This slice adds to docs/runbooks/qoimeks-rehearsal.md
+      a section "Move rules (Qoimeks inventory §8.10)" with one table row per rule, naming the Letflow step or
+      tool that meets it, and the missing steps as runbook text. The translations are fixed here: "one
+      transaction" becomes one transaction per file (atomic=true, lib/letflow/routers/entities/record_import.ex
+      check_atomic) on a company that is empty before the load (step 6 already requires it), because a Letflow
+      load is several files and posting tasks, never one database transaction; "md5 per table" becomes the
+      record counts of step 6, the hash of step 7 and the per-table hash of the master data that REQ-881 adds
+      (planned, not yet on main); "ANALYZE after the copy" becomes one ANALYZE statement on the Letflow database
+      run by infra through the same PSQL command line that scripts/demo/demo_counts.sh uses, after the opening
+      documents are posted (it refreshes planner statistics only and changes no row); the write freeze is the
+      Qoimeks MAINTENANCE_MODE (writes answer 503), switched on and off by the Qoimeks team, with the time it
+      was on written down; rollback is lifting that freeze (readiness note section 2.6: the Qoimeks data was
+      never changed, the phones still hold the Qoimeks address and token), the Letflow company is kept, not
+      deleted. The same slice adds a short section "Minimum master data by API" with the calls the C17
+      rehearsal had to find by trial on a fresh QA company: every module write body carries an idempotency_key
+      (a uuid) or is refused with field_invalid (router_kit.ex with_request); a legal entity needs code, name and
+      bin; a site needs code, name and legal_entity_id; an employee's name field is full_name; a location must be
+      linked to the org unit (POST /api/v1/modules/locations/links) or the opening line is refused not_linked;
+      units of measure and items are module-managed, so a plain record create answers 403 entity_type_managed
+      and they come in through the record import with upsert_by=external_ref; an opening line quantity is sent
+      as a text ("10"), a JSON number is refused quantity_invalid. Runbook text and one test file only; no
+      script, route or product change. Size S.
+    acceptance_criteria:
+      - "1. docs/runbooks/qoimeks-rehearsal.md has a section headed \"Move rules (Qoimeks inventory §8.10)\" with a table of exactly these rule rows, in this order: copy, one transaction, counts and hashes per table, current balances equal, check-only run first, short write freeze, ANALYZE after the load, rollback, outside working hours, no real data leaves production, old copy kept 30 days, own User-Agent (item 9). Each row names the runbook step number or the script that meets it and its state (built, this section, or planned with the requirement id)."
+      - "2. The runbook steps include, as numbered steps: switching the Qoimeks write freeze on before the extract and writing down the time; one ANALYZE statement run through PSQL after the opening documents are posted, with the sentence that it changes no row; and a Rollback step that lifts the Qoimeks freeze, keeps the Letflow company and names the stock movements xlsx export (stock-movements.xlsx) for anything entered in Letflow after the switch. The row \"one transaction\" states that each file is one transaction with atomic=true and that the whole load is not one transaction."
+      - "3. The runbook has a section headed \"Minimum master data by API\" that lists, in order, the legal entity, site, org unit, employee (field full_name), location, location link, unit and item (record import with upsert_by=external_ref, not a record create) and opening document calls, and states the idempotency_key body member (uuid), the 403 entity_type_managed answer to a record create of a unit or item, and that quantity is sent as a text (a JSON number is refused quantity_invalid)."
+      - "4. A new test file test/letflow/qoimeks_rehearsal_runbook_test.exs (planned, not yet on main; no database, async, the same shape as test/letflow/pilot_rollout_runbook_test.exs) reads the runbook and asserts the two section headings, the twelve rule names of criterion 1 in order, and that every script path the move rules table marks as built exists in the repository; it is shown to fail on an in-memory copy with one rule row removed."
+      - "5. Every field and refusal reason the Minimum master data section names is checked by the test of criterion 4 against its source: full_name in the org_employee columns of lib/letflow/modules/org/import.ex, bin and legal_entity_id in lib/letflow/modules/org/masters.ex, and the texts idempotency_key, entity_type_managed, quantity_invalid and not_linked each found in at least one file under lib/letflow/; a renamed reason makes the test fail."
+    depends_on: []
+  - id: REQ-881
+    title: "Qoimeks parity §8.10 part 2: a master data compare tool that prints one hash per table (places, units, items) for the Qoimeks extract and for the Letflow records export, with the differences by code"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4593
+    # Source: task T-2039, as REQ-880. Read on origin/main 1520cf186: scripts/pilot/qoimeks_balances_compare.py (offline, stdlib only, sha256 HASH per side over sorted lines, exit 0/1/2), test/scripts/qoimeks_balances_compare_test.exs (BC-1 to BC-7), scripts/pilot/qoimeks_convert.py (read_csv: utf-8-sig, comma or semicolon, --mapping, cells stripped; NEEDED columns; uom code and name are the unit text, emit of 02-uoms.xlsx), lib/letflow/routers/entities.ex (run_export and export_record_map: the JSON export body is records with record_id, field_values and deleted, plus next_cursor), lib/letflow/api/pagination.ex (@max_page_size 200), lib/letflow/modules/locations/import.ex (@required code name node_kind), scripts/ci_changed_paths.sh (BACKEND_PATHS_RE lists scripts/pilot/qoimeks_balances_compare.py by name), test/letflow/ci_backend_path_filter_test.exs. Written by the business analyst (T-2039) 2026-11-16. Not yet validated.
+    description: >
+      The Qoimeks move rule "counts and md5 per table" (inventory section 8 item 10) compares each table of the
+      copy with the source. Letflow already compares record counts (scripts/pilot/qoimeks_compare.sh) and the
+      balances with one hash per side (scripts/pilot/qoimeks_balances_compare.py), but nothing compares the
+      content of the master tables: a place or item whose name was changed or cut on the way passes both checks.
+      This slice adds scripts/pilot/qoimeks_masters_compare.py (planned, not yet on main), built like
+      qoimeks_balances_compare.py: Python 3 standard library only, offline, read-only, writes nothing, reads no
+      secret. Input: the Qoimeks extract files locations.csv (loc_code, loc_name) and items.csv (sku, sku_name,
+      unit), read with the same rules as the converter (UTF-8 with or without BOM, comma or semicolon, optional
+      --mapping, cells stripped), and a directory of saved JSON pages of the Letflow records export
+      (POST /api/v1/entities/records/<type>/export, format json) for location_node, catalog_uom and catalog_item,
+      file names <type>-<anything>.json, several pages per type allowed. Per table it compares (code, name):
+      places loc_code/loc_name against location_node code/name; units the distinct unit texts against
+      catalog_uom code/name (the converter writes the unit text as both); items sku/sku_name against
+      catalog_item code/name. Export records with deleted true are left out. For each table it prints ROWS per
+      side, one HASH line per side (sha256 over the sorted lines code TAB name, UTF-8 byte order, newline after
+      each line, the form qoimeks_balances_compare.py uses; the inventory says md5, sha256 is kept for one hash
+      kind across the rehearsal tools, UAT assumption), and one DIFF line per code that is only on one side or
+      whose name differs, then RESULT. Exit 0 when all three tables are equal, 1 on any difference, 2 on bad
+      input (a missing file, a page that is not the export shape, a table with no page). No cell text appears
+      in an error message for bad input. The runbook (REQ-880, planned, not yet on main) gets a step that runs
+      it after the record count step. Size S.
+    acceptance_criteria:
+      - "1. A new test file test/scripts/qoimeks_masters_compare_test.exs (planned, not yet on main; no database, no network, same-shape fixtures only per D-050) runs the script on equal sides (two places, one unit, three items, Cyrillic names, the export split over two pages of one type) and gets exit 0, no DIFF line and, for each of the three tables, two equal HASH values of 64 hex digits."
+      - "2. A name changed on one item, a place only in the extract and a unit only in the export each give one DIFF line naming the table, the code and the kind (name, only_csv, only_export), the HASH values of those tables differ, the unchanged table's hashes stay equal, and the exit code is 1."
+      - "3. The hash does not depend on row order or page split (the same records in another order and over another number of pages give the same HASH), an export record with deleted true is left out, and the extract is read with a BOM, semicolons and a --mapping file as qoimeks_convert.py reads it."
+      - "4. Bad input exits 2 with no Python traceback and no cell text in the output: a missing extract file, a JSON page without a records list, and a table with no export page."
+      - "5. scripts/ci_changed_paths.sh BACKEND_PATHS_RE names scripts/pilot/qoimeks_masters_compare.py as it names qoimeks_balances_compare.py, test/letflow/ci_backend_path_filter_test.exs asserts it, and docs/runbooks/qoimeks-rehearsal.md has a numbered step that runs the tool after the record count step and the move rules row \"counts and hashes per table\" names it as built."
+    depends_on: [REQ-880]
   - id: REQ-875
     title: "Qoimeks parity G18 part 1: decision for the movement history: a read-only archive of the Qoimeks movements beside the stock ledger, not backdated ledger postings (what stays unchanged in decisions 0079 and 0073, and why)"
     owner: CODE-DESIGNER

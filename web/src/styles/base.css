@@ -151,6 +151,13 @@ samp {
 /* T-1434/T-1441: the "Official form" menu opens from the trigger's right edge (the trigger ends the action row) and
    stays inside the screen; OfficialFormMenu adds --start when the right-anchored menu would clip on the left. */
 .lf-formmenu .lf-lang__menu { right: 0; left: auto; text-align: start; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+/* T-2020: the menu popup is portaled to <body> (PortalMenu), fixed under its trigger, above every panel and divider. */
+.lf-formmenu--pop { position: fixed; z-index: var(--z-popover); }
+.lf-formmenu--pop .lf-lang__menu { position: static; width: max-content; max-width: min(360px, calc(100vw - var(--space-4))); text-align: start; }
+.lf-formmenu--pop .lf-lang__item { grid-template-columns: 1fr auto; }
+.lf-formmenu--pop .lf-lang__item[aria-disabled="true"] { height: auto; padding-block: var(--space-2); color: var(--ink-muted); cursor: not-allowed; }
+.lf-formmenu--pop .lf-lang__item[aria-disabled="true"]:hover { background: transparent; color: var(--ink-muted); }
+.lf-formmenu--pop .lf-lang__sep { height: 1px; margin: var(--space-1) 0; background: var(--line); }
 .lf-formmenu--start .lf-lang__menu { left: 0; right: auto; text-align: start; }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
 .lf-formmenu .lf-lang__item[aria-disabled="true"] { height: auto; padding-block: var(--space-2); color: var(--ink-muted); cursor: not-allowed; }
@@ -381,3 +388,10 @@ samp {
 .lf-table .lf-of-actions { flex-wrap: wrap; min-width: 0; justify-content: flex-start; }
 .lf-table .lf-of-actions .lf-btn { white-space: normal; text-align: start; min-width: 0; max-width: 100%; height: auto; }
 .lf-of-refusals { list-style: disc; margin: 0; padding-inline-start: var(--space-4); display: grid; gap: var(--space-1); }
+
+/* T-2020: "Report a problem" is a side panel, not a modal: the screen behind stays visible and usable while the user
+   describes the problem. Full width on a phone (nothing else fits); the captured facts scroll inside the panel. */
+.lf-report__panel { position: fixed; inset-block: 0; inset-inline-end: 0; z-index: var(--z-dialog); width: min(440px, 100vw); display: flex; flex-direction: column; background: var(--paper-raised); color: var(--ink); border-inline-start: 1px solid var(--line); box-shadow: var(--shadow-float); }
+.lf-report__panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; padding: var(--space-4) var(--space-4) var(--space-3); }
+.lf-report__panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; gap: var(--space-4); align-content: start; padding: 0 var(--space-4) var(--space-4); }
+.lf-report__panel-foot { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); background: var(--paper); }
