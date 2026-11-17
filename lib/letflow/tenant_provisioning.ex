@@ -1024,7 +1024,16 @@ defmodule Letflow.TenantProvisioning do
     # REQ-834 (0090): the per-tenant negative balance setting table, created empty (no row =
     # refuse), and the database check on_hand >= 0 dropped; no existing row is altered.
     {20_261_117_100_001, Letflow.Repo.Migrations.CreateNegativeBalanceSettings,
-     "20261117100001_create_negative_balance_settings.exs"}
+     "20261117100001_create_negative_balance_settings.exs"},
+    # REQ-846 / GH #4560: per-tenant idempotency table for POST /modules/stock/documents.
+    # Existing documents have no row here; existing tenants get it from the boot replay (MigrationReplayBoot, ISS-0771).
+    {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
+     "20261117200001_create_stock_create_idempotency.exs"},
+    # T-2133: upload_events, one row per successful upload, retained after link deletion.
+    # Provides a deletion-proof count for the 60-uploads-per-hour rate limit in
+    # `Letflow.Attachments.check_rate/2`.
+    {20_261_117_300_001, Letflow.Repo.Migrations.CreateUploadEvents,
+     "20261117300001_create_upload_events.exs"}
   ]
 
   @doc """
