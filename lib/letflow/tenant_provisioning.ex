@@ -1037,7 +1037,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-858 / GH #4573 (decision 0091): the per-tenant shared stock access credential table
     # (hash only), created empty; existing tenants get it from the boot replay (ISS-0771).
     {20_261_117_400_001, Letflow.Repo.Migrations.CreateSharedStockAccess,
-     "20261117400001_create_shared_stock_access.exs"}
+     "20261117400001_create_shared_stock_access.exs"},
+    # REQ-859 / GH #4572 (decision 0091 section 7): the three uuid-to-integer mapping tables of
+    # the old-app address, created empty; existing tenants get them from the boot replay.
+    {20_261_118_100_001, Letflow.Repo.Migrations.CreateQoimeksIntIds,
+     "20261118100001_create_qoimeks_int_ids.exs"}
   ]
 
   @doc """

@@ -4,7 +4,7 @@ defmodule Letflow.SharedStockAccess do
   the tenant's shared stock access, a stock-only token for the old Qoimeks app. The context
   behind `GET`, `POST` and `DELETE /shared-stock-access` (`Letflow.Routers.Identity`).
 
-  This part only stores and manages the credential; nothing accepts the value yet (REQ-859).
+  The value is accepted only by `verify/2`, called by `Letflow.Routers.SharedStockAccess` (REQ-859).
   Owner decision 2026-11-16: no time limit (it is revoked by an administrator), no screen.
 
   * `status/2`: `enabled` (the tenant slug is listed in the deployment setting
@@ -123,6 +123,33 @@ defmodule Letflow.SharedStockAccess do
     _ -> {:error, :failed}
   end
 
+  @doc """
+  REQ-859: the active credential of the tenant schema `prefix` whose value hashes to `value`, or
+  `:error` (no active row, a revoked or rotated-away value, a wrong value, a value over 512 bytes).
+  The lookup is by the SHA-256 hex of the presented value in that tenant's own table (INV-1), then
+  confirmed with a constant-time compare. Never logs or returns the value.
+  """
+  @spec verify(String.t(), term()) :: {:ok, Credential.t()} | :error
+  def verify(prefix, value)
+      when is_binary(prefix) and is_binary(value) and byte_size(value) <= 512 do
+    hash = hash_value(value)
+
+    case Repo.one(
+           from(c in Credential, where: is_nil(c.revoked_at) and c.token_hash == ^hash),
+           prefix: prefix
+         ) do
+      %Credential{token_hash: stored} = row ->
+        if Plug.Crypto.secure_compare(stored, hash), do: {:ok, row}, else: :error
+
+      nil ->
+        :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  def verify(_prefix, _value), do: :error
+
   # An empty body generates the value; a body with "value" must hold a valid string.
   defp value_from(body) when body in [nil, %{}], do: {:ok, generate()}
 
@@ -132,11 +159,13 @@ defmodule Letflow.SharedStockAccess do
 
   defp value_from(_other), do: {:error, :invalid_value}
 
+  defp hash_value(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
   defp generate, do: :crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)
 
   defp do_put(prefix, value, actor) do
     # Same digest as `Letflow.Identity`'s token hash: lowercase hex SHA-256 of the value.
-    hash = :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+    hash = hash_value(value)
 
     multi =
       Multi.new()

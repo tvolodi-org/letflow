@@ -178,6 +178,10 @@ defmodule Letflow.Router do
   # forward before /api/v1, never under AuthPipeline. See Letflow.Routers.Signup's moduledoc.
   forward("/api/signup", to: Letflow.Routers.Signup)
 
+  # REQ-859 (decision 0091 section 6): the per-tenant address of the old Qoimeks app, outside /api/v1
+  # (the shared stock access value is never an API token). Authenticates itself; see its moduledoc.
+  forward("/qoimeks/:tenant_slug", to: Letflow.Routers.SharedStockAccess)
+
   forward("/api/v1", to: Letflow.Plugs.ApiPipeline)
 
   # Credential-authenticated by mount (REQ-572, decision 0072 D6; QA only) -- the tenant provisioner,
