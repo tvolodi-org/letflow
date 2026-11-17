@@ -95,6 +95,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-sheet/print?location&from&to&format=pdf\|docx&lang=ru\|kk` (T-1925; official form Z-7 / Q-7, the stock balances sheet of one location for one period: opening, income, expense, closing per item, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_period`, `period_in_future`, `invalid_format`, `invalid_lang`, `sheet_too_long` (more than 5000 entries or 1000 rows), `print_unsupported_character` |
+  | `POST /stock-workbook/check?org_unit_id=` (REQ-884; an `.xlsx` body in the Qoimeks layout checked against the stock of one org unit, `StockWorkbookImport.check/3`, writes nothing; `docs/runbooks/stock-workbook-import.md`) | `StockRead` | 200 `sheet, rows_read, remarks, changes, unchanged_count, too_many_changes`, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, 413 over the 2 MiB body |
   | `GET /stock-workbook` (REQ-865; the whole current stock in the Qoimeks import layout, `Letflow.Modules.Stock.StockWorkbook.build/1`; no query key accepted) | `StockRead` | 200 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` `stock-YYYY-MM-DD.xlsx`, 404 when the caller is a scoped reader (a full tenant-wide reader is required; a hidden unit's stock would otherwise appear as zero), 422 `invalid_filter` (any query key), `workbook_too_large` (more than 10 000 data rows) |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`); T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
@@ -187,6 +188,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.StockCardSource
   alias Letflow.Modules.Stock.StockSheetSource
   alias Letflow.Modules.Stock.StockWorkbook
+  alias Letflow.Modules.Stock.StockWorkbookImport
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
@@ -363,6 +365,39 @@ defmodule Letflow.Modules.Stock.Router do
         {:error, :not_found} -> Response.not_found(conn)
         {:error, :workbook_too_large} -> unprocessable(conn, "workbook_too_large")
         {:error, _} -> Response.internal_error(conn)
+      end
+    end)
+  end
+
+  @workbook_check_reasons [
+    :org_unit_required,
+    :org_unit_not_found,
+    :xlsx_unreadable,
+    :header_missing,
+    :workbook_too_large
+  ]
+
+  # REQ-884 / GH #4607: the check of a Qoimeks-layout balances workbook; writes nothing.
+  authz_post "/stock-workbook/check", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      with :ok <- full_reader(authorized),
+           {:ok, params} <- params(conn, ["org_unit_id"]),
+           {:ok, unit} <- check_org_unit(authorized, params),
+           {:ok, bytes} <- check_body(conn),
+           {:ok, answer} <- StockWorkbookImport.check(authorized, unit, bytes) do
+        Response.ok(conn, answer)
+      else
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :invalid_filter} ->
+          refuse(conn, :invalid_filter)
+
+        {:error, reason} when reason in @workbook_check_reasons ->
+          unprocessable(conn, Atom.to_string(reason))
+
+        {:error, _} ->
+          Response.internal_error(conn)
       end
     end)
   end
@@ -1391,6 +1426,34 @@ defmodule Letflow.Modules.Stock.Router do
       {:error, :xlsx_write_failed} ->
         Logger.error("stock xlsx write failed")
         Response.internal_error(conn)
+    end
+  end
+
+  defp full_reader(%{scope: :all}), do: :ok
+  defp full_reader(_other), do: {:error, :not_found}
+
+  defp check_org_unit(authorized, params) do
+    case Map.get(params, "org_unit_id") do
+      nil ->
+        {:error, :org_unit_required}
+
+      raw ->
+        with true <- String.trim(raw) != "" or {:error, :org_unit_required},
+             {:ok, unit} <- Ecto.UUID.cast(raw),
+             {:ok, resolver} <- Letflow.Modules.Catalog.document_org_resolver(),
+             true <- resolver.unit_exists?(authorized.prefix, unit) do
+          {:ok, unit}
+        else
+          {:error, :org_unit_required} = e -> e
+          _ -> {:error, :org_unit_not_found}
+        end
+    end
+  end
+
+  defp check_body(conn) do
+    case conn.body_params do
+      %{"_xlsx" => bytes} when is_binary(bytes) -> {:ok, bytes}
+      _ -> {:error, :xlsx_unreadable}
     end
   end
 

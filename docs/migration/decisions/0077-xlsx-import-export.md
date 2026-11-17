@@ -189,3 +189,21 @@ cap (plus one inflate chunk) is allocated. XlsxReader is then given a fresh arch
 and a hidden second directory (a fake EOCD in the comment, a ZIP64 locator) cannot show it
 something else. Covered by tests C3m and C3n. What remains: up to
 25 MiB per concurrent import request, bounded by the cap and the 2 MiB body limit.
+
+Amendment (REQ-884, T-2083): the inflate cap does not bound what XlsxReader builds. It fills in
+the rows and cells a sheet omits from the `r` references of `<row>` and `<c>`, so a 6 KB upload
+could name 16 million cells. Before XlsxReader runs, every verified part is scanned with the same
+XML parser and the same fill-in rules (`Letflow.Entities.XlsxImport.ReferenceScan`), and a sheet
+that would fill in more than 100 000 rows or 500 000 cells is `xlsx_too_large` (the stock
+workbook check passes 20 000 rows). This covers the record import, the users import and the
+stock workbook check. The scan reads each part as XlsxReader will (its `Utils.ensure_utf8/1`
+strips a UTF-8 BOM and decodes UTF-16/32 by BOM), and the rebuilt archive holds those decoded
+bytes, so scan and reader parse the same bytes; a part that still starts with a BOM after that is
+refused. The scan fails closed: an XML part with `<row>` or `<c>` tags that it cannot parse to the
+end is `xlsx_unreadable`. The cell budget bounds the reader's work, not only its result: the count
+only grows, so cells XlsxReader builds and then drops (a `<c>` outside any `<row>`, the cells of an
+outer row that a nested `<row>` resets) count too. Every text XlsxReader turns into an integer is
+capped at 10 bytes before any conversion (row and cell `r`, the style index `s`, a shared-string
+index, a shared formula's `si`, whose value must also stay below the cell budget), so no bignum
+or sparse array is built from a few bytes. Covered by tests C3o, C3p, C3q, C3r..C3v and
+T-WI-15..20.
