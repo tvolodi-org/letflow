@@ -25,6 +25,7 @@ const List<String> kRefusalReasons = [
   'reason_required',
   'reason_too_long',
   'location_frozen',
+  'idempotency_key_reuse',
 ];
 
 const List<String> kFieldKeys = [

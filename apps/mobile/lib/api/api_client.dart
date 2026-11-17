@@ -135,6 +135,14 @@ abstract class PutCapableHttpGateway implements PostCapableHttpGateway {
 /// neither is retried on a 5xx.
 abstract class WriteCapableHttpGateway implements PutCapableHttpGateway {
   Future<Response<dynamic>> delete(String path);
+
+  /// Single attempt, like [post]; sends [key] as the `idempotency-key` request
+  /// header when [key] is non-null.
+  Future<Response<dynamic>> postWithKey(
+    String path, {
+    Object? data,
+    String? key,
+  });
 }
 
 /// Holds the `realm_url` of whichever tenant's bootstrap most recently
@@ -517,6 +525,23 @@ class ApiClient implements WriteCapableHttpGateway {
   Future<Response<dynamic>> delete(String path) {
     return _sendWithBackoff(
       () => _dio.delete<dynamic>(path),
+      allowServerRetry: false,
+    );
+  }
+
+  /// Single attempt; sends [key] as `idempotency-key` when non-null.
+  @override
+  Future<Response<dynamic>> postWithKey(
+    String path, {
+    Object? data,
+    String? key,
+  }) {
+    return _sendWithBackoff(
+      () => _dio.post<dynamic>(
+        path,
+        data: data,
+        options: key == null ? null : Options(headers: {'idempotency-key': key}),
+      ),
       allowServerRetry: false,
     );
   }

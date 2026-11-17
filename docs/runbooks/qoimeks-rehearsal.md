@@ -22,9 +22,10 @@ modules and has one import of its own (all through
 
 The converted files are pushed through these real routes by `test/letflow/modules/stock/qoimeks_files_test.exs`.
 Facts that shape the procedure: every reference cell is an **external id** under the row's own system; `parent_id`
-must name a location earlier in the file; quantity must be above 0; the converter writes at most 100 lines per opening document (its own conservative chunk size, below the platform limit), so
-each lines file has its own header (`QOI-HDR-NN`); an opening header cannot be created empty, so it is created
-together with its first real balance (below).
+must name a location earlier in the file; quantity must be non-zero; positive and negative lines never share one
+opening document. The converter writes at most 100 lines per opening document (its own conservative chunk size,
+below the platform limit), so each lines file has its own header (`QOI-HDR-NN`); an opening header cannot be created
+empty, so it is created together with its first real balance (below).
 
 ## Steps
 
@@ -40,11 +41,13 @@ together with its first real balance (below).
    `python3 -I scripts/pilot/qoimeks_convert.py convert --in IN --out OUT --system qoimeks-rehearsal --org-unit-ext U --responsible-ext E --received-on YYYY-MM-DD`.
    `U` and `E` are the external ids of the org unit and the responsible employee created in the QA tenant (Qoimeks has no
    such notion). Read `OUT/report.txt` (row numbers and constant reasons, no cell text): exit 3 means rows were dropped;
-   decide with the customer's contact, then fix the extract or pass `--allow-drops`.
+   decide with the customer's contact, then fix the extract or pass `--allow-drops`. Zero balances are listed separately
+   under `skipped:` as `quantity_zero`; they are not drops and do not cause exit 3. Negative balances are kept with their
+   exact sign: positive opening files come first, followed by files containing only negative lines (REQ-837).
    The usual place goes into `03-items-NN.xlsx` as the column `default_location_id` (G3, one place per item; an item
    whose place names no location is dropped as `unknown_default_location`). The second place is not imported:
    `report.txt` says how many kept items had one ("items with a second place, not imported (G3)"), and the snapshot
-   key `items_with_default_location` is compared in step 4.
+   key `items_with_default_location` is compared in step 7.
    Outputs: `01-locations-NN.xlsx`, `02-uoms.xlsx`, `03-items-NN.xlsx`, `06-codes-NN.xlsx`,
    `07-code-assignments-NN.xlsx`, `04-opening-lines-NN.xlsx`, `manifest.json`, `report.txt`, `expected_counts.txt`.
    The two code file types are written only when at least one code survives; every barcode and `codes.csv` row that
@@ -56,34 +59,43 @@ together with its first real balance (below).
    Save each response JSON as `RDIR/<file name without .xlsx>.json`.
 4. **Headers**: `python3 -I scripts/pilot/qoimeks_convert.py headers --out OUT --responses RDIR --org-unit-id UUID --responsible-id UUID`
    writes `OUT/headers/QOI-HDR-NN.json`; `POST /api/v1/documents` each body (one draft opening per header, created with its first balance).
-5. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
-6. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` and run
+5. **Allow negative opening balances** before loading any lines. A tenant administrator with the
+   `:LedgerSettingsManage` permission calls `PUT /api/v1/ledger-settings/stock` on the rehearsal tenant with exactly
+   `{"allow_negative": true, "reason": "Qoimeks rehearsal: load negative opening balances"}`. Keep the reason in the
+   request; the route requires it and audits the change. This switch is QA-only and does not change another tenant.
+6. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
+   After the last file, a user with `StockRead` calls `GET /api/v1/modules/stock/balances` and checks every negative
+   `(sku, loc)` key from `IN/balances.csv`: its quantity equals the extract exactly, including `-7` in the synthetic
+   fixture. A skipped zero row has no opening line; its absent balance key reads as zero.
+7. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` and run
    `scripts/pilot/qoimeks_compare.sh OUT/expected_counts.txt after.txt TENANT_SLUG`. Exit 0 means equal, 1 prints
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
 
-7. **Compare quantities (RH-7)**: export the stock balances (`stock-balances.xlsx`, sheet `balances`) and run
+8. **Compare quantities (RH-7)**: export the stock balances (`stock-balances.xlsx`, sheet `balances`) and run
    `python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
    It prints one `DIFF` line per item and place that differs (with names), `ROWS` and one sha256 `HASH` per side over the sorted
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
    Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
+   The negative-key read-back in step 6 is required even when this comparison leaves those rows out.
 
-8. **Compare masters (REQ-881)**: save the Letflow records export (POST `/api/v1/entities/records/<type>/export`, format `json`) for each of `location_node`, `catalog_uom` and `catalog_item` as one or more JSON files in a directory `EXPDIR` (file names `<type>-<anything>.json`). Then run
+9. **Compare masters (REQ-881)**: save the Letflow records export (POST `/api/v1/entities/records/<type>/export`, format `json`) for each of `location_node`, `catalog_uom` and `catalog_item` as one or more JSON files in a directory `EXPDIR` (file names `<type>-<anything>.json`). Then run
    `python3 -I scripts/pilot/qoimeks_masters_compare.py --locations IN/locations.csv --items IN/items.csv --export-dir EXPDIR`.
    It prints one `DIFF` line per code that differs or is on one side only, `ROWS` and one sha256 `HASH` per side over the sorted (code, name) list for each of the three tables, and `RESULT` per table then overall. Exit 0 means all three tables are equal, 1 differences, 2 bad input. Export records with `deleted: true` are excluded.
 
-9. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
-   before the extract and switches it off after the last check; write down the time it was on (about 40 s was enough
-   for Client 1). Letflow does not switch it.
-10. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
+10. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
+    before the extract and switches it off after the last check; write down the time it was on (about 40 s was enough
+    for Client 1). Letflow does not switch it.
+11. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
     the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
-11. **Rollback**: lift the Qoimeks write freeze (step 9). The Qoimeks data was never changed, and the phones still hold the
+12. **Rollback**: lift the Qoimeks write freeze (step 10). The Qoimeks data was never changed, and the phones still hold the
     Qoimeks address and token. The Letflow company is kept, not deleted. For anything entered in Letflow after the switch, take
     the stock movements export (`stock-movements.xlsx`) and enter it in Qoimeks by hand.
 
-Repeating: re-upload the master files, the code files and the lines files (steps 3 and 5) with the same files; every
+Repeating: re-upload the master files, the code files and the lines files (steps 3 and 6) with the same files; every
 row, including every `code_tag` and `code_assignment` row, is `unchanged`.
-Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
-headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
+Do NOT repeat steps 4 or 5: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409), and the
+negative-balance setting is already on. Reuse the existing headers and skip their creation. Balance references are
+`BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
 
 ## Move rules (Qoimeks inventory §8.10)
 
@@ -92,13 +104,13 @@ The move rules of Qoimeks Client 1 and where Letflow meets them. State: built, t
 | Rule | How Letflow meets it | State |
 |---|---|---|
 | Copy | The runbook works on a copy; the source is untouched (intro, step 1) | built |
-| One transaction | One transaction per file (`atomic=true`, `check_atomic` in `lib/letflow/routers/entities/record_import.ex`, steps 3 and 5) on a company that is empty before the load (step 6). The whole load is not one transaction: it is several files and posting tasks | built |
-| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (step 8, `scripts/pilot/qoimeks_masters_compare.py`) | built |
-| Current balances equal | Step 7, `scripts/pilot/qoimeks_balances_compare.py` | built |
-| Check-only run first | `dry_run=true` before `atomic=true` (steps 3 and 5) | built |
-| Short write freeze | Step 9, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
-| ANALYZE after the load | Step 10, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
-| Rollback | Step 11, lift the Qoimeks freeze; the Letflow company is kept | this section |
+| One transaction | One transaction per file (`atomic=true`, `check_atomic` in `lib/letflow/routers/entities/record_import.ex`, steps 3 and 6) on a company that is empty before the load (step 7). The whole load is not one transaction: it is several files and posting tasks | built |
+| Counts and hashes per table | Record counts (step 7, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 8, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (step 9, `scripts/pilot/qoimeks_masters_compare.py`) | built |
+| Current balances equal | Negative-key read-back (step 6) and `scripts/pilot/qoimeks_balances_compare.py` (step 8) | built |
+| Check-only run first | `dry_run=true` before `atomic=true` (steps 3 and 6) | built |
+| Short write freeze | Step 10, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
+| ANALYZE after the load | Step 11, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
+| Rollback | Step 12, lift the Qoimeks freeze; the Letflow company is kept | this section |
 | Outside working hours | The operator schedules the move outside Client 1's working hours | this section |
 | No real data leaves production | Work on a copy and a QA company only (D-050); output files stay outside the repository | this section |
 | Old copy kept 30 days | The Qoimeks copy and its extract are kept 30 days after the move | this section |
@@ -132,11 +144,11 @@ python3 -I scripts/pilot/qoimeks_gen.py --out /tmp/qoimeks-qa-input
 
 This writes `locations.csv` (134 rack locations plus a warehouse and zones, 142 nodes
 total), `items.csv` (666 SKUs, unit `pcs`, quantities up to three decimal places) and
-`balances.csv` (600 valid rows plus 10 deliberately bad rows — zero, negative and
-comma-decimal quantities — to exercise the converter's G4 and G8 drop checks). The seed
+`balances.csv` (600 positive rows, 3 negative opening rows, 3 zero rows the converter
+skips and 4 comma-decimal rows it drops — to exercise the converter's G4 and G8 rules). The seed
 is fixed (`--seed 42`) so each run produces identical files. Pass the directory as
 `--in` to `qoimeks_convert.py convert` with `--allow-drops` to proceed through the
-bad rows and verify the remaining 600 balances are accepted.
+bad rows and verify all 603 non-zero, valid balances are accepted.
 
 ## Deliberately not here
 

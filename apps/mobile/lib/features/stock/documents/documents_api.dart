@@ -73,13 +73,13 @@ class StockDocumentsApi {
   Future<DocDraft> fetch(String id) async =>
       DocDraft.fromServer((await _client.get(_path(id))).data);
 
-  Future<DocDraft> save(DocDraft draft) async => DocDraft.fromServer(
-    (await _client.post(kStockDocumentsApi, data: draft.toBody())).data,
+  Future<DocDraft> save(DocDraft draft, {String? key}) async => DocDraft.fromServer(
+    (await _client.postWithKey(kStockDocumentsApi, data: draft.toBody(), key: key)).data,
   );
 
   /// Creates a draft from a queued body (offline queue replay).
-  Future<void> createFromBody(Map<String, dynamic> body) async {
-    await _client.post(kStockDocumentsApi, data: body);
+  Future<void> createFromBody(Map<String, dynamic> body, String key) async {
+    await _client.postWithKey(kStockDocumentsApi, data: body, key: key);
   }
 
   Future<DocDraft> replace(String id, DocDraft draft) async =>
@@ -91,8 +91,10 @@ class StockDocumentsApi {
     await _client.delete(_path(id));
   }
 
-  Future<DocDraft> issue(String id) async =>
-      DocDraft.fromServer((await _client.post('${_path(id)}/issue')).data);
+  Future<DocDraft> issue(String id, {String? key}) async =>
+      DocDraft.fromServer(
+        (await _client.postWithKey('${_path(id)}/issue', key: key)).data,
+      );
 
   String _path(String id) => '$kStockDocumentsApi/${Uri.encodeComponent(id)}';
 }

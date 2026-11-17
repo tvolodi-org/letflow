@@ -135,10 +135,10 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
 
   test "QR-5 freeze, ANALYZE and rollback are numbered steps; one transaction is per file" do
     steps = section(md(), "Steps")
-    assert steps =~ ~r/^9\. \*\*Write freeze/m
-    assert steps =~ ~r/^10\. \*\*ANALYZE/m
+    assert steps =~ ~r/^10\. \*\*Write freeze/m
+    assert steps =~ ~r/^11\. \*\*ANALYZE/m
     assert steps =~ "changes no row"
-    assert steps =~ ~r/^11\. \*\*Rollback/m
+    assert steps =~ ~r/^12\. \*\*Rollback/m
     assert steps =~ "stock-movements.xlsx"
     [_, tx] = Regex.run(~r/\| One transaction \|([^\n]*)/, md())
     assert tx =~ "atomic=true"
@@ -190,6 +190,30 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
     assert script =~ "optional codes.csv"
     assert script =~ "06-codes-NN.xlsx"
     assert script =~ "07-code-assignments-NN.xlsx"
+  end
+
+  test "QR-G4 the tenant switch precedes line loading and the negative read-back follows it" do
+    steps = section(md(), "Steps")
+    switch = "5. **Allow negative opening balances**"
+    upload = "6. **Upload the lines files**"
+    read_back = "After the last file, a user with `StockRead`"
+    switch_at = :binary.match(steps, switch)
+    upload_at = :binary.match(steps, upload)
+    read_back_at = :binary.match(steps, read_back)
+    assert switch_at != :nomatch
+    assert upload_at != :nomatch
+    assert read_back_at != :nomatch
+    assert switch_at < upload_at
+    assert upload_at < read_back_at
+    assert steps =~ "PUT /api/v1/ledger-settings/stock"
+    assert steps =~ ":LedgerSettingsManage"
+
+    assert steps =~
+             ~s({"allow_negative": true, "reason": "Qoimeks rehearsal: load negative opening balances"})
+
+    assert steps =~ "GET /api/v1/modules/stock/balances"
+    assert steps =~ "quantity equals the extract exactly"
+    assert steps =~ "skipped zero row has no opening line"
   end
 
   test "QR-8 a renamed reason is caught" do

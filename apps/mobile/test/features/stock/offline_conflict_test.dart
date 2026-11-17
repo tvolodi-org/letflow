@@ -75,6 +75,21 @@ class _Q implements OfflineDraftQueue {
 
   @override
   Future<void> closeAndClear() async => items.clear();
+  @override
+  Future<void> setClientKey(String localId, String key) async {
+    final i = items.indexWhere((e) => e.localId == localId);
+    final e = items[i];
+    items[i] = QueuedDraft(
+      localId: e.localId,
+      body: e.body,
+      label: e.label,
+      summary: e.summary,
+      createdAtMs: e.createdAtMs,
+      clientKey: key,
+      rejection: e.rejection,
+      rejectionDetail: e.rejectionDetail,
+    );
+  }
 }
 
 final _body = DocDraft(
