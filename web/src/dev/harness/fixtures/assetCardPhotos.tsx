@@ -3,7 +3,7 @@
  *  small drawn images answered as real bytes. States that need a user action (stage files, press Upload, type a caption,
  *  press Delete, pick another card) are driven by `Drive` through the real inputs, as a shot cannot click. Own file,
  *  one registry line. */
-import { useEffect, type ReactElement } from 'react'
+import { useEffect, useRef, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import AssetCardsPage from '@/modules/assets/AssetCardsPage'
@@ -120,7 +120,7 @@ const withAuth = (page: ReactElement): ReactElement => (
   <AuthContext.Provider value={AUTH}>
     <AccessStateProvider state={ACCESS}>
       <div className="lf-main">
-        <main className="lf-content">{page}</main>
+        <main className="lf-content lf-content--fluid">{page}</main>
       </div>
     </AccessStateProvider>
   </AuthContext.Provider>
@@ -165,11 +165,14 @@ async function stage(names: [string, string][]) {
 
 type Script = () => Promise<void>
 
-/** Harness only: runs `script` once after mount, holding the ready signal until it has finished. */
+/** Harness only: runs `script` once per mount (also under StrictMode), holding the ready signal until it has finished. */
 function Drive({ script, children }: { script: Script; children: ReactElement }): ReactElement {
+  // StrictMode runs every effect twice on mount; a ref survives that, so the script (which stages files) runs once.
+  const running = useRef<Promise<void> | null>(null)
   useEffect(() => {
     const release = holdHarnessReady()
-    void script().finally(() => window.setTimeout(release, 250))
+    running.current ??= script()
+    void running.current.finally(() => window.setTimeout(release, 250))
     return release
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

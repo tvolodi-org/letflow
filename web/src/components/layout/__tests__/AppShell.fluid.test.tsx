@@ -85,6 +85,11 @@ describe('J3-8 AppShell fluid content for the data screens that opt in', () => {
     expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
   })
 
+  it('T-2042 the asset cards list and its Photos tab fill wide windows (2560 px)', async () => {
+    await renderAt('/admin/assets/cards')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
+  })
+
   it.each([
     '/admin/stock/documents/d1',
     '/admin/stock/counts/c1',

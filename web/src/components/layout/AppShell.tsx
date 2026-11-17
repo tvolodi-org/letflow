@@ -114,6 +114,7 @@ const FLUID_PATHS = [
   '/admin/assets/documents',
   '/admin/assets/counts',
   '/admin/problem-reports',
+  '/admin/assets/cards',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {
