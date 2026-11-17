@@ -13,6 +13,7 @@ import 'package:sembast/sembast.dart';
 
 import '../definitions/pinned_form_cache.dart' show pinnedFormCacheFileNameFor;
 import '../definitions/sembast_platform.dart';
+import '../api/client_key.dart';
 
 const int kMaxQueuedDrafts = 20;
 const int kMaxQueuedBytes = 256 * 1024;
@@ -26,6 +27,7 @@ class QueuedDraft {
     required this.body,
     required this.label,
     required this.createdAtMs,
+    this.clientKey,
     this.rejection,
     this.rejectionDetail,
     this.summary = '',
@@ -37,6 +39,9 @@ class QueuedDraft {
   final Map<String, dynamic> body;
   final String label;
   final int createdAtMs;
+
+  /// Version-4 UUID sent as `idempotency-key`; null for pre-REQ-849 entries.
+  final String? clientKey;
 
   /// Set when the server refused the entry; it is then kept for the user.
   final String? rejection;
@@ -52,6 +57,7 @@ class QueuedDraft {
     'body': body,
     'label': label,
     'created_at_ms': createdAtMs,
+    'client_key': ?clientKey,
     'rejection': ?rejection,
     'rejection_detail': ?rejectionDetail,
     if (summary.isNotEmpty) 'summary': summary,
@@ -62,6 +68,7 @@ class QueuedDraft {
     body: Map<String, dynamic>.from(json['body'] as Map),
     label: json['label'] as String? ?? '',
     createdAtMs: json['created_at_ms'] as int? ?? 0,
+    clientKey: json['client_key'] as String?,
     rejection: json['rejection'] as String?,
     rejectionDetail: json['rejection_detail'] is Map
         ? Map<String, dynamic>.from(json['rejection_detail'] as Map)
@@ -89,6 +96,10 @@ abstract class OfflineDraftQueue {
 
   /// Makes a refused entry sendable again (the person chose "Send again").
   Future<void> clearRejection(String localId);
+
+  /// Stores [key] with the entry [localId]; used to give pre-REQ-849 entries
+  /// a key on their first send.
+  Future<void> setClientKey(String localId, String key);
 
   /// Deletes every entry and releases the handle (logout, tenant switch).
   Future<void> closeAndClear();
@@ -130,6 +141,7 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
       if (total + size > kMaxQueuedBytes) return EnqueueResult.full;
       final now = DateTime.now().millisecondsSinceEpoch;
       final id = '$now-${_seq++}';
+      final key = newClientKey();
       await _store
           .record(id)
           .put(
@@ -140,6 +152,7 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
               label: label,
               summary: summary,
               createdAtMs: now,
+              clientKey: key,
             ).toJson(),
           );
       return EnqueueResult.stored;
@@ -186,6 +199,17 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
       'rejection': null,
       'rejection_detail': null,
     });
+  }
+
+  @override
+  Future<void> setClientKey(String localId, String key) async {
+    await _store.record(localId).update(_db, {'client_key': key});
+  }
+
+  /// Stores [draft] as-is (bypasses key generation). For testing legacy entries.
+  @visibleForTesting
+  Future<void> enqueueRaw(QueuedDraft draft) async {
+    await _store.record(draft.localId).put(_db, draft.toJson());
   }
 
   /// Closes the handle and keeps the data (a reload, in tests).
@@ -262,6 +286,10 @@ class ActiveOfflineQueue implements OfflineDraftQueue {
   @override
   Future<void> clearRejection(String localId) async =>
       (await _queue())?.clearRejection(localId);
+
+  @override
+  Future<void> setClientKey(String localId, String key) async =>
+      (await _queue())?.setClientKey(localId, key);
 
   @override
   Future<void> closeAndClear() async {

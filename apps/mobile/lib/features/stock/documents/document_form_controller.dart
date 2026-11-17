@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_error.dart';
+import '../../../api/client_key.dart';
 import '../../../i18n/i18n.dart';
 import '../../../offline/install_state.dart' show requestPersistentStorage;
 import '../../../offline/offline_queue.dart';
@@ -78,6 +79,12 @@ class DocFormController extends ChangeNotifier {
   final Map<String, String> labels = {};
   bool _dirty = false;
   bool _disposed = false;
+
+  /// Idempotency key for the current save-new request; cleared on draft change or success.
+  String? _saveKey;
+
+  /// Idempotency key for the current issue request; cleared on draft change or success.
+  String? _issueKey;
 
   void showMessage(String text) {
     message = text;
@@ -304,9 +311,11 @@ class DocFormController extends ChangeNotifier {
     if (_dirty || draft.id == null) {
       if (!await _save()) return;
     }
-    final saved = await api.issue(draft.id!);
+    _issueKey ??= newClientKey();
+    final saved = await api.issue(draft.id!, key: _issueKey);
     draft = saved;
     _dirty = false;
+    _issueKey = null;
   });
 
   Future<void> discard() => _run(() async {
@@ -319,8 +328,10 @@ class DocFormController extends ChangeNotifier {
     if (!draft.isSaveable) return false;
     final id = draft.id;
     if (id == null) {
+      _saveKey ??= newClientKey();
       try {
-        draft = await api.save(draft);
+        draft = await api.save(draft, key: _saveKey);
+        _saveKey = null;
         await _dropReplaced(queue);
       } on NetworkUnavailableError {
         final q = queue;
@@ -408,6 +419,8 @@ class DocFormController extends ChangeNotifier {
 
   void _changed() {
     _dirty = true;
+    _saveKey = null;
+    _issueKey = null;
     _notify();
     unawaited(refreshNegative());
   }

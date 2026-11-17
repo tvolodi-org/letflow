@@ -29,6 +29,7 @@ import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
+import { ledgerSettingsMessages } from '@/pages/admin/ledger-settings/ledgerSettingsMessages'
 import { officialFormsMessages } from '@/pages/admin/official-forms/officialFormsMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import {
@@ -233,6 +234,9 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
     'accounting term, used unchanged in Kazakh books and forms',
   'assets:assets.reg.col.asset': 'loanword, same spelling in Kazakh',
   'assets:assets.reg.filter.asset': 'loanword, same spelling in Kazakh',
+  'assets:assets.tabs.photos': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.title': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.unnamed': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
   'catalog_items:catalog_items.col.item':
     'item: Kazakh screens already write позиция in running text',
   'catalog_items:catalog_items.create.item':
@@ -375,6 +379,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('approvalRulesMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('approvalRules', approvalRulesMessages)
+  })
+
+  it('ledgerSettingsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('ledgerSettings', ledgerSettingsMessages)
   })
 
   it('officialFormsMessages: all en keys in ru/kk, no empty values', () => {
@@ -543,6 +551,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
       ['approvalRules', approvalRulesMessages],
+      ['ledgerSettings', ledgerSettingsMessages],
       ['officialForms', officialFormsMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],

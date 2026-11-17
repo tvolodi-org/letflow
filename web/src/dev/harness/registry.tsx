@@ -110,6 +110,8 @@ import { problemReportsScreens } from './fixtures/problemReports'
 import { printTemplatesScreens } from './fixtures/printTemplates'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 import { myProblemReportsScreens } from './fixtures/myProblemReports'
+import { assetCardPhotosScreens } from './fixtures/assetCardPhotos'
+import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -415,7 +417,9 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...pageHeaderNewMenuScreens,
     ...myProblemReportsScreens,
     ...printTemplatesScreens,
+    ...ledgerSettingsScreens,
     ...stockWorkbookScreens,
+    ...assetCardPhotosScreens,
     ...stockNegativeBalanceScreens,
   ].map(s => [s.name, s]),
 )

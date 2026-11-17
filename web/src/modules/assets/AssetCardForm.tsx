@@ -44,7 +44,8 @@ export type Write = ReturnType<typeof useAssetsWrite<Cmd>>
 
 export const unitName = (unit: EntityRecord) => textOf(unit, 'name') || textOf(unit, 'code')
 
-/** T-1954: the form spans two tabs, Main (identity) and Accounting (acquisition, depreciation). One form, one Save. */
+/** T-1954: the form spans two tabs, Main (identity) and Accounting (acquisition, depreciation). One form, one Save.
+ *  T-2042 adds a third, Photos, which has its own immediate saves and hides the form's Save while it is shown. */
 export interface CardFormTabs {
   selected: string
   onChange: (id: string) => void
@@ -52,6 +53,8 @@ export interface CardFormTabs {
   label: string
   mainExtra?: ReactNode
   accountingExtra?: ReactNode
+  /** T-2042: the Photos tab (an existing card only). Photo calls save at once; the form's Save does not cover them. */
+  photos?: ReactNode
 }
 
 const MAIN_FIELDS = ['inventory_number', 'name', 'kind']
@@ -272,6 +275,9 @@ export function AssetCardForm(props: {
           tabs={[
             { id: 'main', label: t('assets.tabs.main'), panel: <>{identitySection}{props.tabs.mainExtra}</> },
             { id: 'accounting', label: t('assets.tabs.accounting'), panel: <>{acquisitionSection}{depreciationSection}{props.tabs.accountingExtra}</> },
+            ...(props.tabs.photos !== undefined && !isNew
+              ? [{ id: 'photos', label: t('assets.tabs.photos'), panel: <>{props.tabs.photos}</> }]
+              : []),
           ]}
         />
       ) : (
@@ -281,6 +287,11 @@ export function AssetCardForm(props: {
           {depreciationSection}
         </>
       )}
+      {props.tabs?.selected === 'photos' ? (
+        <p className="caption lf-faint" data-testid="photos-form-note">
+          {t('assets.photos.formNote')}
+        </p>
+      ) : (
       <FormActions
         dirty={dirty}
         saving={write.isPending}
@@ -295,6 +306,7 @@ export function AssetCardForm(props: {
           </Button>
         }
       />
+      )}
     </form>
   )
 }

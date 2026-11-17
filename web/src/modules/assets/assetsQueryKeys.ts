@@ -14,5 +14,8 @@ export const assetsQueryKeys = {
   counts: (tenantId: string) => ['assets', tenantId, 'counts'] as const,
   countList: (tenantId: string, params: string) => ['assets', tenantId, 'counts', 'list', params] as const,
   count: (tenantId: string, id: string) => ['assets', tenantId, 'counts', 'detail', id] as const,
+  cardPhotos: (tenantId: string, cardId: string) => ['assets', tenantId, 'card-photos', cardId] as const,
+  cardPhotoContent: (tenantId: string, cardId: string, photoId: string, kind: 'original' | 'thumbnail') =>
+    ['assets', tenantId, 'card-photo-content', cardId, photoId, kind] as const,
   options: (tenantId: string, type: string, scope: string) => ['assets', tenantId, 'options', type, scope] as const,
 }
