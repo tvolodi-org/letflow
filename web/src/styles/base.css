@@ -401,3 +401,34 @@ samp {
 .lf-myreports__row p { margin: 0; overflow-wrap: anywhere; }
 .lf-myreports__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .lf-myreports__head code { font: var(--type-mono-s); white-space: nowrap; }
+
+/* T-2042 (photos P3): asset card gallery, staged uploads, list thumbnail. Tokens only. */
+.lf-photoup { display: grid; gap: var(--space-3); }
+.lf-photoup__drop { padding: var(--space-4); border: 1px dashed var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink-muted); font: var(--type-body); text-align: center; overflow-wrap: anywhere; }
+.lf-photoup__drop.is-over { border-color: var(--current); background: var(--paper-sunken); }
+.lf-photoup__drop.is-disabled { opacity: 0.6; }
+.lf-photoup__drop:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lf-photos { display: grid; gap: var(--space-3); min-width: 0; }
+.lf-staged-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.lf-staged { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-raised); }
+.lf-staged__img { width: var(--space-12); height: var(--space-12); border-radius: var(--radius-sm); object-fit: cover; display: block; }
+.lf-staged__body { display: grid; min-width: 0; }
+.lf-staged__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-staged[data-state="failed"] { border-color: var(--danger); }
+@media (max-width: 600px) { .lf-staged { grid-template-columns: auto minmax(0, 1fr); } .lf-staged .lf-btn-row { grid-column: 1 / -1; } }
+.lf-photo__ph { display: inline-flex; align-items: center; justify-content: center; background: var(--paper-sunken); color: var(--ink-muted); border-radius: var(--radius-sm); }
+.lf-photo__ph--failed { border: 1px dashed var(--danger); }
+.lf-photo-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(6em, 1fr)); }
+.lf-photo-tile { position: relative; display: block; width: 100%; padding: 0; border: 2px solid var(--line); border-radius: var(--radius-md); background: var(--paper-raised); cursor: pointer; overflow: hidden; }
+.lf-photo-tile[aria-pressed="true"] { border-color: var(--current); }
+.lf-photo-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lf-photo-tile__img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.lf-photo-tile__main { position: absolute; top: var(--space-1); inset-inline-end: var(--space-1); display: inline-flex; padding: var(--space-1); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
+.lf-photo-view { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 14em), 1fr)); align-items: start; }
+.lf-photo-view__img { display: block; width: 100%; max-height: 20em; object-fit: contain; background: var(--paper-sunken); border-radius: var(--radius-md); min-height: 8em; }
+.lf-photo-view__side { display: grid; gap: var(--space-3); min-width: 0; }
+.lf-photo-view__caption { margin: 0; overflow-wrap: anywhere; }
+.lf-card-name { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.lf-card-name > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.lf-photo-thumb { flex: none; display: inline-flex; }
+.lf-photo-thumb__img { display: inline-flex; align-items: center; justify-content: center; width: var(--space-8); height: var(--space-8); border-radius: var(--radius-sm); object-fit: cover; }
