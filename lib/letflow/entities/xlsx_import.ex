@@ -122,7 +122,7 @@ defmodule Letflow.Entities.XlsxImport do
     rows
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {cells, line}, {:ok, acc} ->
-      case texts(cells) do
+      case texts(cells, :bounded) do
         {:ok, texts} -> {:cont, {:ok, [{line, texts} | acc]}}
         :error -> {:halt, {:error, :xlsx_unreadable}}
       end
@@ -372,9 +372,9 @@ defmodule Letflow.Entities.XlsxImport do
     end
   end
 
-  defp texts(cells) do
+  defp texts(cells, mode \\ :exact) do
     Enum.reduce_while(cells, {:ok, []}, fn cell, {:ok, acc} ->
-      case cell_text(cell) do
+      case cell_text(cell, mode) do
         {:ok, text} -> {:cont, {:ok, [text | acc]}}
         :error -> {:halt, :error}
       end
@@ -384,6 +384,20 @@ defmodule Letflow.Entities.XlsxImport do
       :error -> :error
     end
   end
+
+  # `:bounded` (read_text_rows/1, which has no row or column cap of its own): a numeric cell too
+  # large to render cheaply (a Decimal like 1E6144 would build a 6 KB string per cell) becomes a
+  # fixed over-cap placeholder instead of being expanded; the caller's byte bounds refuse it.
+  # Checks are O(1) on the exponent and coefficient, before any rendering (INV-8, T-2041).
+  @oversize_text String.duplicate("#", 1024)
+  @max_decimal_exp 64
+  @max_decimal_coef Integer.pow(10, 64)
+
+  defp cell_text(%Decimal{exp: exp, coef: coef}, :bounded)
+       when is_integer(coef) and (abs(exp) > @max_decimal_exp or coef >= @max_decimal_coef),
+       do: {:ok, @oversize_text}
+
+  defp cell_text(cell, _mode), do: cell_text(cell)
 
   # Cell value -> the text the CSV coercion reads (decision 0077 D3).
   defp cell_text(nil), do: {:ok, ""}

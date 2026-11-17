@@ -513,6 +513,35 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
       assert {:ok, %{rows_read: 1, rows: [%{article: "Z-1"}]}} = WI.parse(bytes)
     end
 
+    @tag timeout: 60_000
+    test "T-WI-14 many huge-exponent numeric cells are not expanded to text" do
+      # 31337 is a marker the patch below swaps for 1E6144 (a 27-byte cell that would render as a
+      # 6 KB string); Decimal parses it, so the cost is in rendering, not in reading.
+      rows = for _ <- 1..400, do: ["A-1", "n", 31_337, 31_337, 31_337]
+      {:ok, files} = :zip.unzip(book(rows), [:memory])
+
+      patched =
+        for {name, data} <- files do
+          if to_string(name) =~ "sheet1.xml",
+            do: {name, String.replace(data, "<v>31337</v>", "<v>1E6144</v>")},
+            else: {name, data}
+        end
+
+      {:ok, {_n, bomb}} = :zip.create(~c"x.xlsx", patched, [:memory])
+      assert {:ok, files2} = :zip.unzip(bomb, [:memory])
+      assert Enum.any?(files2, fn {_n, d} -> d =~ "1E6144" end)
+
+      {micros, result} = :timer.tc(fn -> WI.parse(bomb) end)
+      assert result == {:error, :workbook_too_large}
+      assert micros < 500_000
+
+      # read_text_rows alone returns a short placeholder, never the 6 KB digits
+      assert {:ok, _name, [_header, {_line, cells} | _]} =
+               Letflow.Entities.XlsxImport.read_text_rows(bomb)
+
+      assert Enum.all?(cells, &(byte_size(&1) <= 1024))
+    end
+
     test "T-WI-13 the row cap is checked on cheap counts before any row is read" do
       Application.put_env(:letflow, :stock_workbook_import_max_rows, 2)
 
