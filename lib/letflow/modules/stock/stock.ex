@@ -493,7 +493,14 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock",
-        reads: ["catalog_item", "catalog_uom", "catalog_lot", "location_node", "org_unit", "org_employee"]
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "reverse_document",
@@ -523,7 +530,14 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock",
-        reads: ["catalog_item", "catalog_uom", "catalog_lot", "location_node", "org_unit", "org_employee"]
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_kind_change_out",
@@ -538,7 +552,14 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock",
-        reads: ["catalog_item", "catalog_uom", "catalog_lot", "location_node", "org_unit", "org_employee"]
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       }
     ],
     import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],

@@ -274,15 +274,21 @@ defmodule Letflow.Modules.Stock.Handlers do
     end
   end
 
+  # A line with no usable side (not a map on either side) names no master the posting could add or remove:
+  # refuse it here, as the ledger would at the build.
+  defp check_line(_ctx, _line, _cache), do: {:error, :invalid_arguments}
+
   defp check_from_live(_ctx, nil, cache), do: {:ok, cache}
 
-  defp check_from_live(ctx, from, cache) do
+  defp check_from_live(ctx, from, cache) when is_map(from) do
     with {:ok, _loc, cache} <- check_live(ctx, "location_node", from.location, cache),
          {:ok, _ou, cache} <- check_live(ctx, "org_unit", from.org_unit, cache),
          {:ok, cache} <- check_optional_live(ctx, "org_employee", from.responsible, cache) do
       {:ok, cache}
     end
   end
+
+  defp check_from_live(_ctx, _not_a_side, _cache), do: {:error, :invalid_arguments}
 
   defp check_lot_active(_ctx, nil, _sku, cache), do: {:ok, cache}
 
