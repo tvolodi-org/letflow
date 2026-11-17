@@ -4,14 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { AccessState } from '@/auth/access/types'
-import { DOCS, LIST, MASTERS, fakeMasters, rec, renderStock } from './stockTestKit'
+import { DOCS, LIST, MASTERS, fakeMasters, rec, renderStock, stockDoc } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const NEW = `${LIST}/new`
@@ -23,12 +23,14 @@ const DATA = {
   ...MASTERS,
   org_employee: [rec('e1', { full_name: 'Aigul B.' }), rec('e2', { full_name: 'Marat K.', user_id: 'user-9' })],
 }
-const created = () => clientMock.post.mock.calls.filter(([p]) => p === DOCS)
+/** REQ-848: create now calls postWithHeaders. */
+const created = () => clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock, DATA)
   clientMock.get.mockResolvedValue({ rows: [], next_cursor: null })
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
 })
 afterEach(() => cleanup())
 
