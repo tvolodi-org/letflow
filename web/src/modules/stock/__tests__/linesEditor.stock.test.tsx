@@ -13,19 +13,21 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
   clientMock.get.mockResolvedValue({ rows: [], next_cursor: null })
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
   localStorage.clear()
 })
 afterEach(() => cleanup())
 
 const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
-const created = () => clientMock.post.mock.calls.filter(([p]) => p === DOCS) as [string, Record<string, unknown>][]
+/** REQ-848: create now calls postWithHeaders (body is at index 1). */
+const created = () => clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS) as [string, Record<string, unknown>][]
 
 describe('S1 columns per document kind', () => {
   const COMMON = ['Line', 'Item', 'Lot', 'Quantity, unit']
@@ -57,9 +59,7 @@ describe('S1 columns per document kind', () => {
 describe('S2 line by line sends the same body as the grid', () => {
   it('an issue saved in the one-line form posts the line exactly like a grid row', async () => {
     localStorage.setItem('lf.linesMode.stock-documents.lines', 'form')
-    fakeMasters(clientMock)
-    const masters = clientMock.post.getMockImplementation()!
-    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => (p === DOCS ? stockDoc({ id: 'dn' }) : masters(p, b)))
+    clientMock.postWithHeaders.mockResolvedValue(stockDoc({ id: 'dn' }))
     renderStock(`${LIST}/new?kind=issue`, withPost)
     await screen.findByTestId('document-form')
     fireEvent.click(await screen.findByRole('button', { name: 'Add line' }))

@@ -29,10 +29,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 /** Calls to postWithHeaders that targeted the DOCS create URL. */
 const createCalls = () =>
-  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS) as [string, unknown, Record<string, string>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS) as [string, unknown, Record<string, string>][]
 /** Calls to postWithHeaders that targeted the given document action. */
 const actionCalls = (docId: string, action: 'issue' | 'post') =>
-  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === `${DOCS}/${docId}/${action}`) as [string, unknown, Record<string, string>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === `${DOCS}/${docId}/${action}`) as [string, unknown, Record<string, string>][]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()

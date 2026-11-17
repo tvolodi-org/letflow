@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { DOCS, LIST, MASTERS, addFirstLine, fakeDocument, pickItem, fakeMasters, queryBodies, refusal, renderStock, stockDoc, withAtom, withPost } from './stockTestKit'
+import { DOCS, LIST, addFirstLine, fakeDocument, pickItem, fakeMasters, queryBodies, refusal, renderStock, stockDoc, withAtom, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -17,7 +17,7 @@ vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<ob
 const NEW = `${LIST}/new`
 /** REQ-848: create now calls postWithHeaders (body is at index 1). */
 const created = (): [string, Record<string, unknown>][] =>
-  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS) as [string, Record<string, unknown>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS) as [string, Record<string, unknown>][]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()

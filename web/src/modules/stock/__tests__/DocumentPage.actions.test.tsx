@@ -20,7 +20,7 @@ const BUTTONS = ['Edit', 'Discard', 'Issue', 'Retry posting', 'Reverse', 'Cancel
 const present = () => BUTTONS.filter((b) => screen.queryByRole('button', { name: b }) !== null)
 /** REQ-848: issue and post now call postWithHeaders with the idempotency-key header. */
 const postWithHeadersTo = (suffix: string) =>
-  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === `${DOCS}/${suffix}`)
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === `${DOCS}/${suffix}`)
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()

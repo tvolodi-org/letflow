@@ -25,7 +25,7 @@ const TWO: Record<string, ReturnType<typeof rec>[]> = {
 }
 /** REQ-848: create now calls postWithHeaders (body is at index 1). */
 const created = (): [string, Record<string, unknown>][] =>
-  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS) as [string, Record<string, unknown>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS) as [string, Record<string, unknown>][]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()

@@ -76,8 +76,8 @@ describe('O1 create', () => {
     pick('Responsible', 'e1', row)
     pick('Real receipt date', '2026-09-15', row)
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    await waitFor(() => expect(clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS)).toHaveLength(1))
-    expect(clientMock.postWithHeaders.mock.calls.find(([p]: [string]) => p === DOCS)?.[1]).toEqual({
+    await waitFor(() => expect(clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)).toHaveLength(1))
+    expect(clientMock.postWithHeaders.mock.calls.find(([p]: string[]) => p === DOCS)?.[1]).toEqual({
       kind: 'opening', org_unit_id: 'u1',
       lines: [{ catalog_item_id: 'i1', catalog_uom_id: 'm1', quantity: '3', location_id: 'l1', responsible_id: 'e1', received_on: '2026-09-15' }],
     })
@@ -99,11 +99,11 @@ describe('O1 create', () => {
     pick('Real receipt date', '2026-09-15', row)
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     expect(await screen.findByText('Give both the external system and the external id, or neither.')).toBeInTheDocument()
-    expect(clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS)).toHaveLength(0)
+    expect(clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)).toHaveLength(0)
     pick(/External id/, 'OB-7')
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    await waitFor(() => expect(clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS)).toHaveLength(1))
-    expect(clientMock.postWithHeaders.mock.calls.find(([p]: [string]) => p === DOCS)?.[1]).toMatchObject({ external_ref_system: 'erp', external_ref_id: 'OB-7' })
+    await waitFor(() => expect(clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)).toHaveLength(1))
+    expect(clientMock.postWithHeaders.mock.calls.find(([p]: string[]) => p === DOCS)?.[1]).toMatchObject({ external_ref_system: 'erp', external_ref_id: 'OB-7' })
     expect(await screen.findByText('This external reference is already used.')).toBeInTheDocument()
   })
   it('W6b a receipt form has no external id fields', async () => {
@@ -118,7 +118,7 @@ describe('O1 create', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     // The lines editor lists the failing lines in its badge; the row's messages show in the status line when it is focused.
     expect(await screen.findByText('1 line has errors', { exact: false })).toBeInTheDocument()
-    expect(clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS)).toHaveLength(0)
+    expect(clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)).toHaveLength(0)
   })
 })
 

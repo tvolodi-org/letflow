@@ -24,7 +24,7 @@ const DATA = {
   org_employee: [rec('e1', { full_name: 'Aigul B.' }), rec('e2', { full_name: 'Marat K.', user_id: 'user-9' })],
 }
 /** REQ-848: create now calls postWithHeaders. */
-const created = () => clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS)
+const created = () => clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === DOCS)
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
