@@ -93,6 +93,12 @@ defmodule Letflow.Modules.Assets do
   or backfill: these are optional fields in the managed record. Card writes and ДА-2 print accept
   them. Required-at-issue checks and screens ship together in a later slice.
 
+  **Card photos** (T-2041, version 0.30.0, photos P2): eight gallery routes under
+  `/cards/:id/photos` list, upload, serve, caption, order, choose the main photo and delete the
+  photos of one `assets_card`. Reads need `AssetsRead`; writes are gated in the handler by the core
+  atoms `PhotosAdd` / `PhotosDelete`. No new module permission, setting, definition or migration
+  (class A). See `Letflow.Modules.Assets.CardPhotos`.
+
   **Asset count K1** (T-1927, version 0.22.0, REQ-816 / GH #4375, owner decision D-128, spec
   `docs/assets/asset-count.md`): the count ORDER of fixed assets. Record types `assets_count_order`,
   `assets_count_scope` and `assets_count_member`, document types `assets_count.order` (ACO),
@@ -285,7 +291,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.29.0",
+    version: "0.30.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "codes", "locations", "org", "stock"],
@@ -323,6 +329,15 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/cards/:id/retire", :AssetsCardWrite},
       {"GET", "/cards/:id/lock", :AssetsRead},
       {"GET", "/cards/:id/print", :AssetsRead},
+      # T-2041 (photos P2): the card photo gallery; writes need PhotosAdd / PhotosDelete in the handler.
+      {"GET", "/cards/:id/photos", :AssetsRead},
+      {"POST", "/cards/:id/photos", :AssetsRead},
+      {"GET", "/cards/:id/photos/:photo_id/original", :AssetsRead},
+      {"GET", "/cards/:id/photos/:photo_id/thumbnail", :AssetsRead},
+      {"PATCH", "/cards/:id/photos/:photo_id", :AssetsRead},
+      {"POST", "/cards/:id/photos/:photo_id/main", :AssetsRead},
+      {"PUT", "/cards/:id/photos/order", :AssetsRead},
+      {"DELETE", "/cards/:id/photos/:photo_id", :AssetsRead},
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
       {"GET", "/reconcile", :AssetsReconcile},

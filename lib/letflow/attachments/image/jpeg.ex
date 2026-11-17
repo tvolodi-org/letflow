@@ -21,9 +21,10 @@ defmodule Letflow.Attachments.Image.JPEG do
 
   def walk(_), do: {:error, :photo_malformed}
 
-  # Fill bytes before a marker.
-  defp segments(<<0xFF, 0xFF, rest::binary>>, acc, st),
-    do: segments(<<0xFF, rest::binary>>, acc, st)
+  # Fill bytes before a marker. Re-slice the same binary (a sub-binary, no copy): rebuilding it with
+  # `<<0xFF, rest::binary>>` copies the rest of the input per fill byte, which is quadratic (INV-8).
+  defp segments(<<0xFF, 0xFF, _::binary>> = bin, acc, st),
+    do: segments(binary_part(bin, 1, byte_size(bin) - 1), acc, st)
 
   defp segments(<<0xFF, 0xD9, _after_eoi::binary>>, acc, %{dims: {w, h}, sos?: true}) do
     {:ok,

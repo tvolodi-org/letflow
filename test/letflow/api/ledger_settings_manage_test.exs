@@ -2,7 +2,7 @@ defmodule Letflow.Api.LedgerSettingsManageTest do
   @moduledoc """
   REQ-835 (negative balance switch, decision 0090): the permission `:LedgerSettingsManage`.
 
-    * P1 the atom: last core permission, tenant scope, resolves to itself, both routes carry its key;
+    * P1 the atom: third to last core permission (PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, both routes carry its key;
     * P2 holders are exactly TENANT_ADMIN; PLATFORM_ADMIN is refused by the explicit false clause;
     * P3 non-assignable: not in `grantable/0`, a forged overlay grants it to no role, Catalog cannot grant it;
     * P4 the golden carries exactly nine rows, only TENANT_ADMIN true;
@@ -21,8 +21,8 @@ defmodule Letflow.Api.LedgerSettingsManageTest do
   @perm :LedgerSettingsManage
   @golden "priv/permission_matrix/effective.golden"
 
-  test "P1 last core permission, tenant scope, resolves to itself, both routes carry the key" do
-    assert List.last(Authorization.core_permissions()) == @perm
+  test "P1 third to last core permission (PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, both routes carry the key" do
+    assert Enum.at(Authorization.core_permissions(), -3) == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
     assert Authorization.endpoint_policy_key("GET", "/ledger-settings") == @perm

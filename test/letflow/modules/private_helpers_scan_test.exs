@@ -18,6 +18,7 @@ defmodule Letflow.Modules.PrivateHelpersScanTest do
   @call_exceptions ~w(
     modules/asset_stock_isolation_test.exs
     modules/assets/card_import_test.exs
+    modules/assets/card_photos_test.exs
     modules/assets/storekeeper_assets_test.exs
     modules/catalog_items/router_test.exs
     modules/codes/resolve_router_test.exs
