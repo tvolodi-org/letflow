@@ -13,8 +13,9 @@ defmodule Letflow.Modules.Stock.Documents.ActionIdempotency do
   `run/5` serialises requests with the same key on a session advisory lock held on one checked-out
   connection (the action itself runs several transactions of its own, so a transaction-scoped lock
   cannot span it): lookup, then either the replay (the document as it is now, nothing written),
-  the refusal `{:error, :idempotency_key_reuse}` (the key is bound to another document), or the
-  action followed by the binding. A replay starts no posting instance and posts nothing.
+  the refusal `{:error, :idempotency_key_reuse}` (the key is bound to another document that the
+  caller can read; for a document the caller cannot read the refusal of its own fetch, the
+  unknown-document answer, so the key reveals nothing), or the action followed by the binding. A replay starts no posting instance and posts nothing.
   """
 
   alias Letflow.Modules.Stock.Documents.CreateIdempotency
@@ -44,13 +45,24 @@ defmodule Letflow.Modules.Stock.Documents.ActionIdempotency do
       try do
         case Repo.get(CreateIdempotency, key, prefix: prefix) do
           %CreateIdempotency{document_id: ^doc_id} -> replay.()
-          %CreateIdempotency{} -> {:error, :idempotency_key_reuse}
+          %CreateIdempotency{} -> reuse(replay)
           nil -> bind(prefix, key, doc_id, action.())
         end
       after
         Repo.query!("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lock_key(prefix, key)])
       end
     end)
+  end
+
+  # The key is bound to another document. The caller's own fetch of the REQUESTED document goes
+  # first: an id that does not exist for the caller (unknown, or outside its scope, which
+  # `Access.units_allowed?(:stored)` lets through when the document is missing) gets that fetch's
+  # refusal (the unknown-document 404), so a bound key is no oracle for document ids (INV-5).
+  defp reuse(replay) do
+    case replay.() do
+      {:ok, _view} -> {:error, :idempotency_key_reuse}
+      {:error, _reason} = refusal -> refusal
+    end
   end
 
   # 64-bit key (hashtextextended) namespaced by the tenant schema and a fixed tag, so two tenants
