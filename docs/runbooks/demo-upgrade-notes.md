@@ -245,7 +245,7 @@ what needs no administrator (class A, no data steps) and leaves the rest as `lef
    | catalog_items | 0.3.0 -> 0.4.0 | `catalog_items/upgrade_from_030_test.exs` U1 (items, units) | upgrades (was refused) |
    | catalog_items | 0.2.0 -> 0.4.0 | `module_upgrade/previous_pack_test.exs` P1 (no records) | upgrades; window `0.1.0` holds |
    | locations | 0.4.0 -> 0.5.0 | P2 (no records) | upgrades |
-   | stock | 0.10.0 -> 0.17.0, 0.14.0 -> 0.17.0 | P3, P4 (no records) | upgrades; window `0.10.0` holds |
+   | stock | 0.10.0 -> 0.19.0, 0.14.0 -> 0.19.0 | P3, P4 (no records) | upgrades; window `0.10.0` holds |
    | codes | 0.3.0 -> 0.4.0 | P5 | upgrades |
    | org | 0.2.0 -> 0.3.0 | P6 | upgrades |
    | assets | 0.9.0 -> 0.19.0 | `assets/upgrade_from_090_test.exs` A1..A3 (cards; a commission and its balances after the upgrade) | upgrades in place (was `step_required`) |
