@@ -115,6 +115,14 @@ defmodule Letflow.Modules.Stock do
   place first, `catalog_item.default_location_id`). Read only: no record, posting or audit entry, no migration,
   record type or permission.
 
+  ## Balances workbook check (REQ-884 / GH #4607; no version bump)
+
+  `POST /stock-workbook/check?org_unit_id=<id>` (`StockRead`, tenant-wide readers only; body: an `.xlsx` in the layout
+  above, 2 MiB at most): reads the first worksheet forgivingly (look-alike Cyrillic letters, decimal commas) and answers
+  per-row Russian remarks and the changes a load would make against the stock of that org unit
+  (`Letflow.Modules.Stock.StockWorkbookImport`; runbook `docs/runbooks/stock-workbook-import.md`). Writes nothing: no
+  record, ledger entry, audit entry or document number; no migration, record type or permission.
+
   ## Count worksheet (T-1905; no version bump)
 
   `GET /counts/:id/print/worksheet` (PDF) and `GET /counts/:id/paperwork/worksheet` (xlsx), `?lang`, `?expected=0|1`
@@ -411,6 +419,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-card/print", :StockRead},
       {"GET", "/stock-sheet/print", :StockRead},
       {"GET", "/stock-workbook", :StockRead},
+      {"POST", "/stock-workbook/check", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},
