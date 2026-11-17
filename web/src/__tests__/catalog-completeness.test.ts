@@ -29,6 +29,7 @@ import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
+import { ledgerSettingsMessages } from '@/pages/admin/ledger-settings/ledgerSettingsMessages'
 import { officialFormsMessages } from '@/pages/admin/official-forms/officialFormsMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import {
@@ -377,6 +378,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('approvalRules', approvalRulesMessages)
   })
 
+  it('ledgerSettingsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('ledgerSettings', ledgerSettingsMessages)
+  })
+
   it('officialFormsMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('officialForms', officialFormsMessages)
   })
@@ -543,6 +548,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
       ['approvalRules', approvalRulesMessages],
+      ['ledgerSettings', ledgerSettingsMessages],
       ['officialForms', officialFormsMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
