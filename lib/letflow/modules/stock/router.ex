@@ -25,9 +25,9 @@ defmodule Letflow.Modules.Stock.Router do
   | `POST /documents` | `StockPost` | 201 document (header `idempotency-key`: same key + same body replays the existing document, same key + different body is 409 `idempotency_key_reuse`, REQ-846) |
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
-  | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/issue` | `StockPost` | 200 document (header `idempotency-key`: a retry of the same issue replays the document, a key used on another document is 409 `idempotency_key_reuse`, REQ-847) |
   | `POST /documents/:id/check` | `StockPost` | 200 `ok, lines` (opening only, writes nothing) |
-  | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
+  | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance; header `idempotency-key` as on issue: a retry replays the document, REQ-847) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
   | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
@@ -399,13 +399,22 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/issue", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_issue, access.actor_id, nil) do
+        opts = [
+          activator: Letflow.Api.Context.activator(conn),
+          authorized: read_authorized(conn),
+          idempotency_key: idem_key
+        ]
 
-      render_document(
-        conn,
-        Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
-        200
-      )
+        render_document(
+          conn,
+          Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
+          200
+        )
+      else
+        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
+        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+      end
     end)
   end
 
@@ -422,10 +431,20 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/post", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
-      authorized = read_authorized(conn)
-      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
-      render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
+      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_post, access.actor_id, nil) do
+        who = %{
+          actor_id: access.actor_id,
+          activator: Letflow.Api.Context.activator(conn),
+          idempotency_key: idem_key
+        }
+
+        authorized = read_authorized(conn)
+        fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+        render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
+      else
+        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
+        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+      end
     end)
   end
 

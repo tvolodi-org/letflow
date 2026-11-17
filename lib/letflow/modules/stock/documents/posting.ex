@@ -59,6 +59,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Ledger
   alias Letflow.Modules.KeyHelpers
   alias Letflow.Modules.Stock.ActorLabel
+  alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Repo
@@ -414,9 +415,25 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   post task. Returns `{:ok, view}` or `{:error, reason}`, `reason` one of `:not_found`,
   `:document_not_issued`, `:document_cancelled`, `:document_posted`, `:posting_pending`,
   `:definition_not_active`, `:internal`.
+
+  `who[:idempotency_key]` (REQ-847, stored `client:stock_post:<actor>:<K>`, see
+  `Letflow.Modules.Stock.Documents.ActionIdempotency`) makes a retry return the document as
+  `fetch` shows it now, also after the post task completed: no second instance, nothing posted.
+  The same key on another document is `{:error, :idempotency_key_reuse}`; a refused post binds
+  nothing.
   """
   @spec post(String.t(), term(), map(), term()) :: {:ok, map()} | {:error, atom()}
-  def post(prefix, id, %{actor_id: actor, activator: activator}, fetch) do
+  def post(prefix, id, %{actor_id: actor, activator: activator} = who, fetch) do
+    ActionIdempotency.run(
+      prefix,
+      Map.get(who, :idempotency_key),
+      id,
+      fn -> fetch.(prefix, id) end,
+      fn -> post_new(prefix, id, actor, activator, fetch) end
+    )
+  end
+
+  defp post_new(prefix, id, actor, activator, fetch) do
     with {:ok, view} <- fetch.(prefix, id),
          :ok <- postable(prefix, view),
          :ok <- active(prefix, Kinds.get(view.kind).definition, activator),
