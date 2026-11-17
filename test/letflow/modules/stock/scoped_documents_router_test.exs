@@ -226,6 +226,54 @@ defmodule Letflow.Modules.Stock.ScopedDocumentsRouterTest do
     end
   end
 
+  describe "REQ-846 replay of a keyed create (mode on)" do
+    setup ctx do
+      :ok = SO.store_mode!(ctx.a, :on)
+      :ok
+    end
+
+    defp keyed_create(token, body, key) do
+      Plug.Test.conn(:post, "/api/v1/modules/stock/documents", Jason.encode!(body))
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Plug.Conn.put_req_header("idempotency-key", key)
+      |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+    end
+
+    test "RP-1 a replay whose stored units stay in the grant is 201 with the document", ctx do
+      key = "rp1-#{System.unique_integer([:positive])}"
+      body = T.body("transfer", ctx.ma, ctx.ma, ctx.m2, %{})
+
+      first = keyed_create(ctx.sk, body, key) |> P.status!(201)
+      before = D.counts(ctx.schema)
+      replay = keyed_create(ctx.sk, body, key) |> P.status!(201)
+
+      assert replay["id"] == first["id"]
+      assert D.counts(ctx.schema) == before
+    end
+
+    test "RP-2 a replay after a tenant-wide replace moved the transfer out of the grant is the 404",
+         ctx do
+      reference = unknown(ctx)
+      key = "rp2-#{System.unique_integer([:positive])}"
+      body = T.body("transfer", ctx.ma, ctx.ma, ctx.m2, %{})
+
+      first = keyed_create(ctx.sk, body, key) |> P.status!(201)
+
+      # the tenant-wide admin moves the destination to the unit H (outside the grant)
+      moved = T.body("transfer", ctx.ma, ctx.ma, ctx.mh, %{})
+      D.request(:put, "/documents/#{first["id"]}", ctx.tok_a, moved) |> P.status!(200)
+
+      before = D.counts(ctx.schema)
+      not_found!(keyed_create(ctx.sk, body, key), reference)
+      assert D.counts(ctx.schema) == before
+
+      # the document itself is untouched (read here with the tenant-wide admin token)
+      stored = D.request(:get, "/documents/#{first["id"]}", ctx.tok_a) |> P.status!(200)
+      assert stored["to_org_unit_id"] == ctx.mh.unit
+    end
+  end
+
   describe "other routes and tenants" do
     test "UN-2 a scoped caller on the read routes: 403 under on, the 404 under off", ctx do
       id = P.issue!(ctx)["id"]
