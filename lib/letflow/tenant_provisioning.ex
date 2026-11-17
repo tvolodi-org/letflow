@@ -1028,7 +1028,12 @@ defmodule Letflow.TenantProvisioning do
     # REQ-846 / GH #4560: per-tenant idempotency table for POST /modules/stock/documents.
     # Existing documents have no row here; existing tenants get it from the boot replay (MigrationReplayBoot, ISS-0771).
     {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
-     "20261117200001_create_stock_create_idempotency.exs"}
+     "20261117200001_create_stock_create_idempotency.exs"},
+    # T-2133: upload_events, one row per successful upload, retained after link deletion.
+    # Provides a deletion-proof count for the 60-uploads-per-hour rate limit in
+    # `Letflow.Attachments.check_rate/2`.
+    {20_261_117_300_001, Letflow.Repo.Migrations.CreateUploadEvents,
+     "20261117300001_create_upload_events.exs"}
   ]
 
   @doc """
