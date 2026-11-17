@@ -19,7 +19,6 @@ defmodule Letflow.Api.ApprovalRulesManageTest do
   alias Letflow.Api.Scope.{Grants, Principal}
 
   @perm :ApprovalRulesManage
-  @golden "priv/permission_matrix/effective.golden"
 
   test "P1 fifth to last core permission (OfficialFormTemplatesManage, LedgerSettingsManage, PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, both routes carry the key" do
     assert Enum.at(Authorization.core_permissions(), -5) == @perm
@@ -58,15 +57,9 @@ defmodule Letflow.Api.ApprovalRulesManageTest do
   end
 
   test "P4 the golden carries exactly nine rows, only TENANT_ADMIN true" do
-    rows =
-      @golden
-      |> File.read!()
-      |> String.split(~r/\r?\n/, trim: true)
-      |> Enum.reject(&String.starts_with?(&1, "#"))
-      |> Enum.map(&String.split(&1, " "))
-      |> Enum.filter(fn [_role, permission | _] -> permission == "ApprovalRulesManage" end)
+    rows = Letflow.GoldenRows.rows_for("ApprovalRulesManage")
 
-    assert length(rows) == 9
+    assert length(rows) == length(Letflow.GoldenRows.roles())
 
     assert Enum.filter(rows, &(Enum.at(&1, 2) == "true")) == [
              ["TENANT_ADMIN", "ApprovalRulesManage", "true", "core", "core"]

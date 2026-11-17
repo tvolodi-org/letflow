@@ -21,7 +21,6 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   alias Letflow.Identity.ScopedApprovers
 
   @perm :TasksWorkInScope
-  @golden "priv/permission_matrix/effective.golden"
 
   test "W1 fourth-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
     assert Authorization.core_permissions() |> Enum.take(-11) |> hd() == @perm
@@ -76,22 +75,16 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   end
 
   test "W4 the golden holds exactly the nine TasksWorkInScope rows" do
-    rows =
-      @golden
-      |> File.read!()
-      |> String.split(~r/\r?\n/, trim: true)
-      |> Enum.reject(&String.starts_with?(&1, "#"))
-      |> Enum.map(&String.split(&1, " "))
-      |> Enum.filter(fn [_role, permission | _] -> permission == "TasksWorkInScope" end)
+    rows = Letflow.GoldenRows.rows_for("TasksWorkInScope")
 
-    assert length(rows) == 9
+    assert length(rows) == length(Letflow.GoldenRows.roles())
 
     assert Enum.filter(rows, &(Enum.at(&1, 2) == "true")) == [
              ["TASK_WORKER", "TasksWorkInScope", "true", "core", "core"]
            ]
 
     refused = Enum.filter(rows, &(Enum.at(&1, 2) == "false"))
-    assert length(refused) == 8
+    assert length(refused) == length(Letflow.GoldenRows.roles()) - 1
     assert Enum.all?(refused, &(Enum.drop(&1, 3) == ["core", "-"]))
   end
 
