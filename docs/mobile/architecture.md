@@ -100,6 +100,13 @@ Voice on the stock count and document screens (`REQ-747`) is **online only** too
 to `POST /api/v1/modules/stock/voice/draft` (a typed phrase to `.../draft-text`), is never stored on the device, and only
 fills a draft for the user to check.
 
+The stock document form of an issue, write off, transfer, hand over or return (`REQ-840`, decision 0090 rule 6) shows an
+advisory warning "The balance will become negative" on a line, online only, when the caller holds `StockRead`
+(`GET /api/v1/me/access`), `GET /api/v1/modules/stock/posting-rules` answers `allowed`, and the sum of the document's
+quantities on a balance key exceeds the on-hand of `GET /api/v1/modules/stock/balances`. It never blocks Save or Issue and
+is evaluated again after every edit and after a voice draft fills lines; any failed read means no warning
+(`features/stock/documents/negative_balance.dart`).
+
 ### Scope table (added 2026-10-01, `REQ-430`)
 
 | Requirement | Scope | Delivered by |

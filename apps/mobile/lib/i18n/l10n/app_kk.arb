@@ -110,6 +110,7 @@
   "stock.doc.quantity": "Саны",
   "stock.doc.addLine": "Жол қосу",
   "stock.doc.removeLine": "Жолды жою",
+  "stock.doc.negativeBalance": "Қалдық теріс болады",
   "stock.doc.save": "Сақтау",
   "stock.doc.issue": "Орындауға беру",
   "stock.doc.discard": "Жобаны жою",
