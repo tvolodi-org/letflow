@@ -57,12 +57,21 @@ defmodule Letflow.IdempotencyTest do
       # REQ-846: stock document create
       assert Idempotency.client_key(:stock_create, @actor, nil, "K") ==
                "client:stock_create:#{@actor}:K"
+
+      # REQ-847: stock document issue and post retry
+      assert Idempotency.client_key(:stock_issue, @actor, nil, "K") ==
+               "client:stock_issue:#{@actor}:K"
+
+      assert Idempotency.client_key(:stock_post, @actor, nil, "K") ==
+               "client:stock_post:#{@actor}:K"
     end
 
     test "raw_max is 199 for rec/inst_start/stock_create/script and 162 for cancel/rebind" do
       assert Idempotency.raw_max(:rec) == 199
       assert Idempotency.raw_max(:inst_start) == 199
       assert Idempotency.raw_max(:stock_create) == 199
+      assert Idempotency.raw_max(:stock_issue) == 199
+      assert Idempotency.raw_max(:stock_post) == 199
       assert Idempotency.raw_max(:script) == 199
       assert Idempotency.raw_max(:inst_cancel) == 162
       assert Idempotency.raw_max(:inst_rebind) == 162

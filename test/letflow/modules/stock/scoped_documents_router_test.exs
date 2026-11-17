@@ -182,6 +182,90 @@ defmodule Letflow.Modules.Stock.ScopedDocumentsRouterTest do
     end
   end
 
+  # REQ-847, INV-5: a client key bound to an in-scope document must not tell an unknown document
+  # id from an existing one outside the grant (both are the unknown-document 404 without a key).
+  describe "REQ-847 a bound issue/post key is no existence oracle" do
+    setup ctx do
+      :ok = SO.store_mode!(ctx.a, :on)
+      :ok
+    end
+
+    defp keyed(ctx, id, action, key) do
+      Plug.Test.conn(:post, "/api/v1/modules/stock/documents/#{id}/#{action}")
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> ctx.sk)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Plug.Conn.put_req_header("idempotency-key", key)
+      |> Letflow.Router.call(Letflow.Router.init([]))
+    end
+
+    defp fresh_key, do: "k-#{System.unique_integer([:positive])}"
+
+    # an issued document whose posting instance was not started (the case the post route is for)
+    defp issued_unstarted!(ctx, masters) do
+      Application.put_env(:letflow, :stock_post_start_fail?, true)
+      doc = admin_doc!(ctx, masters)
+      D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a) |> P.status!(200)
+      Application.delete_env(:letflow, :stock_post_start_fail?)
+      doc
+    end
+
+    test "OR-1 issue: key bound on an in-scope document; unknown id and out-of-scope id alike",
+         ctx do
+      reference = unknown(ctx)
+      k = fresh_key()
+      mine = D.request(:post, "/documents", ctx.sk, D.body(ctx.ma)) |> P.status!(201)
+      assert keyed(ctx, mine["id"], "issue", k).status == 200
+
+      outside = admin_doc!(ctx, ctx.mh)
+      not_found!(keyed(ctx, Ecto.UUID.generate(), "issue", k), reference)
+      not_found!(keyed(ctx, outside["id"], "issue", k), reference)
+
+      # the refusal for a document the caller can read is unchanged
+      other = D.request(:post, "/documents", ctx.sk, D.body(ctx.ma)) |> P.status!(201)
+      conn = keyed(ctx, other["id"], "issue", k)
+      assert conn.status == 409
+      assert S.json(conn)["reason"] == "idempotency_key_reuse"
+    end
+
+    test "OR-2 post: key bound on an in-scope document; unknown id and out-of-scope id alike",
+         ctx do
+      reference = unknown(ctx)
+      k = fresh_key()
+      mine = issued_unstarted!(ctx, ctx.ma)
+      assert keyed(ctx, mine["id"], "post", k).status == 200
+
+      outside = issued_unstarted!(ctx, ctx.mh)
+      not_found!(keyed(ctx, Ecto.UUID.generate(), "post", k), reference)
+      not_found!(keyed(ctx, outside["id"], "post", k), reference)
+
+      other = issued_unstarted!(ctx, ctx.ma)
+      conn = keyed(ctx, other["id"], "post", k)
+      assert conn.status == 409
+      assert S.json(conn)["reason"] == "idempotency_key_reuse"
+    end
+
+    # D7 of decision 0051: no 422 that reveals existence. A malformed key is a 422 only for a
+    # document the caller can read; an unknown id and an out-of-scope one both stay the 404.
+    test "OR-3 issue and post: a malformed key is no existence oracle", ctx do
+      reference = unknown(ctx)
+      outside_draft = admin_doc!(ctx, ctx.mh)
+      outside_issued = issued_unstarted!(ctx, ctx.mh)
+      mine_draft = D.request(:post, "/documents", ctx.sk, D.body(ctx.ma)) |> P.status!(201)
+      mine_issued = issued_unstarted!(ctx, ctx.ma)
+
+      for bad <- [String.duplicate("k", 200), "k\0nul"] do
+        not_found!(keyed(ctx, Ecto.UUID.generate(), "issue", bad), reference)
+        not_found!(keyed(ctx, outside_draft["id"], "issue", bad), reference)
+        not_found!(keyed(ctx, Ecto.UUID.generate(), "post", bad), reference)
+        not_found!(keyed(ctx, outside_issued["id"], "post", bad), reference)
+
+        # a document the caller can read still gets the 422
+        assert keyed(ctx, mine_draft["id"], "issue", bad).status == 422
+        assert keyed(ctx, mine_issued["id"], "post", bad).status == 422
+      end
+    end
+  end
+
   describe "two-sided kinds (mode on)" do
     setup ctx do
       :ok = SO.store_mode!(ctx.a, :on)

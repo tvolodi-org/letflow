@@ -19,6 +19,7 @@ import { catalogItemsScreens } from './fixtures/catalogItems'
 import { recordCodesScreens } from './fixtures/recordCodes'
 import { truncatedListScreens } from './fixtures/truncatedLists'
 import { stockWorkbookScreens } from './fixtures/stockWorkbook'
+import { stockNegativeBalanceScreens } from './fixtures/stockNegativeBalance'
 import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
 import { listDetailSaveScreens } from './fixtures/listDetailSave'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
@@ -109,6 +110,7 @@ import { problemReportsScreens } from './fixtures/problemReports'
 import { printTemplatesScreens } from './fixtures/printTemplates'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 import { myProblemReportsScreens } from './fixtures/myProblemReports'
+import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -414,6 +416,8 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...pageHeaderNewMenuScreens,
     ...myProblemReportsScreens,
     ...printTemplatesScreens,
+    ...ledgerSettingsScreens,
     ...stockWorkbookScreens,
+    ...stockNegativeBalanceScreens,
   ].map(s => [s.name, s]),
 )
