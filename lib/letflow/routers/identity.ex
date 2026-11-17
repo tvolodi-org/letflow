@@ -289,15 +289,15 @@ defmodule Letflow.Routers.Identity do
 
   # REQ-858 (decision 0091): the tenant's shared stock access, a stock-only token for the old
   # Qoimeks app. Same permission as the token routes (no new atom), interactive caller only.
-  authz_get "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+  authz_get "/shared-stock-access", :TokensManage do
     shared_access_guarded(conn, &handle_shared_access_status/1)
   end
 
-  authz_post "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+  authz_post "/shared-stock-access", :TokensManage do
     shared_access_guarded(conn, &handle_shared_access_put/1)
   end
 
-  authz_delete "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+  authz_delete "/shared-stock-access", :TokensManage do
     shared_access_guarded(conn, &handle_shared_access_revoke/1)
   end
 
