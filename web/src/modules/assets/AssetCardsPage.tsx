@@ -26,6 +26,8 @@ import { assetsApi } from './assets.api'
 import { AssetCardFacts } from './AssetCardFacts'
 import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
+import { CardMainPhoto } from './CardMainPhoto'
+import { CardPhotoGallery } from './CardPhotoGallery'
 import { AssetCardActionsMenu } from './AssetCardActionsMenu'
 import { AssetCardSelectionBar } from './AssetCardSelectionBar'
 import { usePdfDownload } from '@/hooks/usePdfDownload'
@@ -73,6 +75,10 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
   // T-1954: the card tab survives row clicks, Save and Retire; it resets to Main when the panel closes
   const [cardTab, setCardTab] = useState(initialCardTab ?? 'main')
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
+  // T-2042: staged photos of the open card, the gallery's own dialog, and a leave that waits for the user's answer
+  const [pendingPhotos, setPendingPhotos] = useState(0)
+  const [photoDialog, setPhotoDialog] = useState(false)
+  const [leaving, setLeaving] = useState<(() => void) | null>(null)
   const [chosen, setChosen] = useState<EntityRecord[]>([])
   const chosenFacts = useCardsFacts(chosen, chosen.length > 0 && can(ASSETS_POST))
   const chosenWithFacts = chosen.map((c, i) => ({
@@ -93,26 +99,46 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
     (picked?.record_id === selectedId ? picked : null) ??
     (byId.data?.record_id === selectedId ? byId.data : null)
   const panelOpen = creating || selected !== null
-  const dialogOpen = retiring !== null
+  const dialogOpen = retiring !== null || photoDialog || leaving !== null
   const unitLabel = (id: string) => {
     const unit = units.find((u) => u.record_id === id)
     return unit ? unitName(unit) : ''
   }
   const filtersActive = kind !== '' || orgUnitId !== '' || search.trim() !== ''
 
+  /** Runs `action`; when the open card still has photos that are not uploaded, asks first (T-2042). */
+  function guarded(action: () => void) {
+    if (pendingPhotos > 0) setLeaving(() => action)
+    else action()
+  }
+  function leaveConfirmed() {
+    const action = leaving
+    setLeaving(null)
+    setPendingPhotos(0)
+    setPhotoDialog(false)
+    action?.()
+  }
   function closePanel() {
-    write.clearError()
-    setCardTab('main')
-    sel.close()
+    guarded(() => {
+      write.clearError()
+      setCardTab('main')
+      sel.close()
+    })
   }
   function select(card: EntityRecord) {
-    write.clearError()
-    sel.select(card.record_id)
-    setPicked(card)
+    const go = () => {
+      write.clearError()
+      sel.select(card.record_id)
+      setPicked(card)
+    }
+    if (card.record_id === selectedId) go()
+    else guarded(go)
   }
   function startCreate() {
-    write.clearError()
-    sel.startCreate()
+    guarded(() => {
+      write.clearError()
+      sel.startCreate()
+    })
   }
   function clearFilters() {
     setKind('')
@@ -184,7 +210,10 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
       // kind and org unit sit under the name: five columns do not fit the list column
       render: (c) => (
         <>
-          <div>{textOf(c, 'name')}</div>
+          <div className="lf-card-name">
+            <CardMainPhoto cardId={c.record_id} />
+            <span>{textOf(c, 'name')}</span>
+          </div>
           <div className="caption lf-faint">
             <span>{textOf(c, 'kind') === '' ? t('assets.common.dash') : t(`assets.kind.${textOf(c, 'kind')}`)}</span>
             {' · '}
@@ -207,6 +236,10 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
 
   const closeButton = (
     <Button variant="ghost" size="sm" iconOnly label={t('assets.common.close')} icon={<X className="lf-icon" aria-hidden="true" />} onClick={closePanel} />
+  )
+
+  const photosPanel = (cardId: string) => (
+    <CardPhotoGallery key={cardId} cardId={cardId} onPendingChange={setPendingPhotos} onModalChange={setPhotoDialog} />
   )
 
   let detail
@@ -277,6 +310,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
                 label: t('assets.tabs.label'),
                 mainExtra: <AssetCardHolder cardId={selected.record_id} />,
                 accountingExtra: <AssetCardDepreciation record={selected} />,
+                photos: photosPanel(selected.record_id),
               }}
             />
           ) : (
@@ -287,6 +321,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
               tabs={[
                 { id: 'main', label: t('assets.tabs.main'), panel: <><AssetCardFacts record={selected} part="main" /><AssetCardHolder cardId={selected.record_id} /></> },
                 { id: 'accounting', label: t('assets.tabs.accounting'), panel: <><AssetCardFacts record={selected} part="accounting" /><AssetCardDepreciation record={selected} /></> },
+                { id: 'photos', label: t('assets.tabs.photos'), panel: photosPanel(selected.record_id) },
               ]}
             />
           )}
@@ -437,13 +472,23 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating, initialCar
         onConfirm={() => void confirmRetire()}
         onCancel={() => setRetiring(null)}
       />
+      <ConfirmDialog
+        open={leaving !== null}
+        title={t('assets.photos.pendingTitle')}
+        body={intl.formatMessage({ id: 'assets.photos.pendingBody' }, { count: pendingPhotos })}
+        confirmText={t('assets.photos.pendingLeave')}
+        cancelText={t('assets.photos.pendingStay')}
+        confirmVariant="danger"
+        onConfirm={leaveConfirmed}
+        onCancel={() => setLeaving(null)}
+      />
     </AssetsShell>
   )
 }
 
 /** `initialSelectedId` opens the detail panel on a card, `initialCreating` on the empty create form, at first render
  *  (the screen harness uses them); `initialCardTab` opens the card on a tab.
- *  T-1954: the card body is tabbed (Main, Accounting); the actions stay in the header, there is no Operations row. */
+ *  T-1954: the card body is tabbed (Main, Accounting; T-2042 adds Photos); the actions stay in the header, there is no Operations row. */
 export default function AssetCardsPage({ initialSelectedId, initialCreating, initialCardTab }: { initialSelectedId?: string; initialCreating?: boolean; initialCardTab?: string } = {}) {
   return (
     <AssetsIntlProvider>
