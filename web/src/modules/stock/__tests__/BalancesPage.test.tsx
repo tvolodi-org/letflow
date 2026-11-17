@@ -191,6 +191,51 @@ describe('T3 export', () => {
   })
 })
 
+describe('REQ-866 stock workbook', () => {
+  const download = () => {
+    const create = vi.fn(() => 'blob:x')
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    return { create, click }
+  }
+  const open = async () => {
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+  }
+  it('W1 requests the route once with no query key whatever the filters, saves under the header name; Export is unchanged', async () => {
+    const { click } = download()
+    let name = ''
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation((v) => { name = v })
+    clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x', contentDisposition: 'attachment; filename="stock-2026-11-16.xlsx"' })
+    await open()
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export to Excel' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Stock workbook (Qoimeks layout)' }))
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1))
+    expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
+    expect(clientMock.getBlob.mock.calls[0]).toEqual(['/api/v1/modules/stock/stock-workbook'])
+    expect(name).toBe('stock-2026-11-16.xlsx')
+    expect(screen.getByTestId('workbook-hint')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(2))
+    expect(name).toBe('stock-balances.xlsx')
+    expect(clientMock.getBlob).toHaveBeenLastCalledWith('/api/v1/modules/stock/balances', { as_of_date: '2026-11-03', format: 'xlsx' })
+  })
+  it.each([
+    ['422 too large', { status: 422, details: { reason: 'workbook_too_large' } }, 'The stock has too many rows for one workbook (more than 10,000).'],
+    ['404', { status: 404 }, 'The stock workbook needs a reader of the whole company. Ask an administrator for that access.'],
+    ['500', { status: 500 }, 'The file could not be exported. Try again.'],
+  ])('W2 %s shows its banner, saves nothing, rows stay', async (_n, err, text) => {
+    const { click } = download()
+    clientMock.getBlob.mockRejectedValue(err)
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: 'Stock workbook (Qoimeks layout)' }))
+    expect(await screen.findByText(text)).toBeInTheDocument()
+    expect(click).not.toHaveBeenCalled()
+    expect(within(screen.getByRole('table')).getByText('Bolt M8')).toBeInTheDocument()
+  })
+})
+
 describe('R1 as-of date per language (T-1381, real body shape)', () => {
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
   for (const lang of ['ru', 'kk'] as const) {
