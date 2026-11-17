@@ -21,7 +21,12 @@ defmodule Letflow.Entities.XlsxImport do
   Limits: the workbook's parts may inflate to 25 MiB at most (checked on the declared sizes
   first, then on the real inflated bytes part by part), an XML part with a `<!DOCTYPE` or in a
   non-UTF-8 encoding is refused, and more than the caller's `max_rows` data rows is
-  `{:error, :too_many_records, count}`. Whole-file refusals are constant atoms; none carries
+  `{:error, :too_many_records, count}`. The reader fills in the rows and cells a sheet omits from
+  the row and cell references (`r="XFD1000"`), so a few bytes of XML can name millions of cells:
+  before the reader runs, every verified part is scanned for those references with the reader's
+  own XML parser and the same fill-in rules, and a part whose filled-in sheet would pass
+  `max_sheet_rows` rows (default 100 000) or `max_sheet_cells` cells (default 500 000) is
+  `{:error, :xlsx_too_large}` (INV-8, T-2041). Whole-file refusals are constant atoms; none carries
   file text.
   """
 
@@ -30,6 +35,8 @@ defmodule Letflow.Entities.XlsxImport do
   alias Letflow.Entities.CsvImport
 
   @max_inflated 26_214_400
+  @max_sheet_rows 100_000
+  @max_sheet_cells 500_000
 
   @refusals [
     :xlsx_unreadable,
@@ -77,7 +84,7 @@ defmodule Letflow.Entities.XlsxImport do
 
     try do
       with :ok <- check_declared_size(binary),
-           {:ok, verified} <- check_parts(binary),
+           {:ok, verified} <- check_parts(binary, sheet_budget(opts)),
            {:ok, rows} <- read_first_sheet(verified),
            {:ok, header, data} <- split_header(rows),
            field_types = CsvImport.field_types(fields),
@@ -100,16 +107,22 @@ defmodule Letflow.Entities.XlsxImport do
   REQ-884: the first worksheet's name and its rows as text cells, `{:ok, name, [{line, [text]}]}`
   with `line` the sheet row number (1 = first row, blank rows kept so the number is the sheet's).
   Same bounded reader as `convert/3` (declared-size check, bounded inflate, no DOCTYPE, rebuilt
-  archive): one parse, no second unzip. Whole-file refusals are `{:error, :xlsx_unreadable}` or
-  `{:error, :xlsx_too_large}`; never raises.
+  archive, reference scan): one parse, no second unzip. Whole-file refusals are
+  `{:error, :xlsx_unreadable}` or `{:error, :xlsx_too_large}`; never raises.
+
+  Options: `max_sheet_rows` (also the reference-scan row budget; more sheet rows is
+  `:xlsx_too_large`), `max_sheet_cells` (reference-scan cell budget) and `max_columns` (only the
+  first N cells of a row are converted; the rest are dropped unread).
   """
-  @spec read_text_rows(binary()) ::
+  @spec read_text_rows(binary(), keyword()) ::
           {:ok, String.t(), [{pos_integer(), [String.t()]}]} | {:error, atom()}
-  def read_text_rows(binary) when is_binary(binary) do
+  def read_text_rows(binary, opts \\ []) when is_binary(binary) do
+    budget = sheet_budget(opts)
+
     with :ok <- check_declared_size(binary),
-         {:ok, verified} <- check_parts(binary),
+         {:ok, verified} <- check_parts(binary, budget),
          {:ok, name, rows} <- read_first_sheet_named(verified),
-         {:ok, text_rows} <- text_rows(rows) do
+         {:ok, text_rows} <- text_rows(rows, budget.rows, Keyword.get(opts, :max_columns)) do
       {:ok, name, text_rows}
     end
   rescue
@@ -118,10 +131,17 @@ defmodule Letflow.Entities.XlsxImport do
     _, _ -> {:error, :xlsx_unreadable}
   end
 
-  defp text_rows(rows) do
+  # The reference scan already bounds the rows and cells; the row cap and the column cut here keep
+  # this function bounded on its own (a shape the scan would miss still cannot fan out).
+  defp text_rows(rows, max_rows, _max_columns) when length(rows) > max_rows,
+    do: {:error, :xlsx_too_large}
+
+  defp text_rows(rows, _max_rows, max_columns) do
     rows
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {cells, line}, {:ok, acc} ->
+      cells = if is_integer(max_columns), do: Enum.take(cells, max_columns), else: cells
+
       case texts(cells, :bounded) do
         {:ok, texts} -> {:cont, {:ok, [{line, texts} | acc]}}
         :error -> {:halt, {:error, :xlsx_unreadable}}
@@ -159,16 +179,25 @@ defmodule Letflow.Entities.XlsxImport do
   # allocated. Every XML part is also checked for a DOCTYPE and its encoding. XlsxReader then gets
   # a fresh archive rebuilt from only the verified parts, so it can never inflate bytes that were
   # not counted here, whatever the original archive's directory says.
-  defp check_parts(binary) do
+  # Stage 3 (in the same pass): every verified part is scanned for row and cell references
+  # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget.
+  defp check_parts(binary, budget) do
     with {:ok, entries} <- :zip.list_dir(binary) |> list_entries() do
       Enum.reduce_while(entries, {:ok, 0, []}, fn entry, {:ok, total, parts} ->
         case inflate_entry(binary, entry, @max_inflated - total) do
           {:ok, name, part} ->
             total = total + byte_size(part)
 
-            if xml_part?(name) and not safe_xml?(part),
-              do: {:halt, {:error, :xlsx_unreadable}},
-              else: {:cont, {:ok, total, [{String.to_charlist(name), part} | parts]}}
+            cond do
+              xml_part?(name) and not safe_xml?(part) ->
+                {:halt, {:error, :xlsx_unreadable}}
+
+              __MODULE__.ReferenceScan.check(part, budget) != :ok ->
+                {:halt, {:error, :xlsx_too_large}}
+
+              true ->
+                {:cont, {:ok, total, [{String.to_charlist(name), part} | parts]}}
+            end
 
           {:error, _} = error ->
             {:halt, error}
@@ -185,6 +214,13 @@ defmodule Letflow.Entities.XlsxImport do
           error
       end
     end
+  end
+
+  defp sheet_budget(opts) do
+    %{
+      rows: Keyword.get(opts, :max_sheet_rows, @max_sheet_rows),
+      cells: Keyword.get(opts, :max_sheet_cells, @max_sheet_cells)
+    }
   end
 
   defp list_entries({:ok, entries}) do
@@ -428,4 +464,113 @@ defmodule Letflow.Entities.XlsxImport do
   defp cell_text(%DateTime{} = datetime), do: {:ok, DateTime.to_iso8601(datetime)}
   defp cell_text(%Time{} = time), do: {:ok, Time.to_iso8601(time)}
   defp cell_text(_other), do: :error
+end
+
+defmodule Letflow.Entities.XlsxImport.ReferenceScan do
+  @moduledoc """
+  Counts, before XlsxReader runs, how many rows and cells XlsxReader's worksheet parser would
+  build from one XML part, and stops as soon as a budget is passed (INV-8, T-2041). XlsxReader
+  fills in omitted rows and cells from the `r` references of `<row>` and `<c>`
+  (`handle_omitted_rows`, `handle_omitted_cells` in its worksheet parser), so the size of its
+  result is set by those numbers, not by the bytes of the XML.
+
+  The scan is the same parse: the same parser (`Saxy.parse_string/3`, default options) over the
+  same verified bytes the rebuilt archive hands the reader, the same element names (`row`, `c`,
+  unprefixed), and the same rules: a row's number is its first `r` or the expected row; the rows
+  between the expected row and that number are filled in, each as wide as the row that follows
+  them (a lower number fills nothing, and the next row counts its own gap from it); a cell's
+  column is its last `r` (parsed by XlsxReader's own `CellReference.parse/1`), and the cells
+  between the expected column and that column are filled in. Constant memory; the part that
+  XlsxReader reads is one of the parts scanned, whichever its relationship names.
+
+  A part the parser cannot read stops the scan as `:ok`: the reader's own parse of those bytes
+  stops at the same event, having built no more than the scan counted.
+  """
+
+  @behaviour Saxy.Handler
+
+  @doc "`:ok` when the filled-in rows and cells of `xml` stay within `budget`, else `:too_large`."
+  @spec check(binary(), %{rows: pos_integer(), cells: pos_integer()}) :: :ok | :too_large
+  def check(xml, %{rows: _, cells: _} = budget) when is_binary(xml) do
+    state = %{
+      budget: budget,
+      rows: 0,
+      cells: 0,
+      expected_row: 1,
+      current_row: 1,
+      row_len: 0,
+      expected_column: 1,
+      cell_ref: nil
+    }
+
+    case Saxy.parse_string(xml, __MODULE__, state) do
+      {:ok, :too_large} -> :too_large
+      _ -> :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  @impl Saxy.Handler
+  def handle_event(:start_element, {"row", attributes}, state) do
+    current_row =
+      case first_r(attributes) do
+        nil -> state.expected_row
+        value -> String.to_integer(value)
+      end
+
+    {:ok, %{state | current_row: current_row, row_len: 0, expected_column: 1}}
+  rescue
+    ArgumentError -> {:stop, :ok}
+  end
+
+  def handle_event(:start_element, {"c", attributes}, state) do
+    ref = last_r(attributes, state.cell_ref)
+
+    state =
+      case ref && XlsxReader.CellReference.parse(ref) do
+        {column, _row} ->
+          %{
+            state
+            | row_len: state.row_len + max(column - state.expected_column, 0),
+              expected_column: column + 1
+          }
+
+        _ ->
+          state
+      end
+
+    if state.row_len > state.budget.cells,
+      do: {:stop, :too_large},
+      else: {:ok, %{state | cell_ref: ref}}
+  end
+
+  def handle_event(:end_element, "c", state),
+    do: {:ok, %{state | row_len: state.row_len + 1, cell_ref: nil}}
+
+  def handle_event(:end_element, "row", state) do
+    built = max(state.current_row - state.expected_row, 0) + 1
+    rows = state.rows + built
+    cells = state.cells + built * state.row_len
+
+    if rows > state.budget.rows or cells > state.budget.cells,
+      do: {:stop, :too_large},
+      else: {:ok, %{state | rows: rows, cells: cells, expected_row: state.current_row + 1}}
+  end
+
+  def handle_event(_event, _data, state), do: {:ok, state}
+
+  defp first_r(attributes) do
+    Enum.find_value(attributes, fn
+      {"r", value} -> value
+      _ -> nil
+    end)
+  end
+
+  defp last_r(attributes, default) do
+    Enum.reduce(attributes, default, fn
+      {"r", value}, _acc -> value
+      _, acc -> acc
+    end)
+  end
 end

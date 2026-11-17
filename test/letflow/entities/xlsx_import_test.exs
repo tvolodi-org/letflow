@@ -212,6 +212,51 @@ defmodule Letflow.Entities.XlsxImportTest do
                convert([[["title"], ["first"]], [["nope"], ["second"]]])
     end
 
+    test "C3o: far cell references are refused before the reader fills them in" do
+      rows = Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>))
+      bytes = padded(rows)
+
+      # the reader alone would build 16 M cells (over 64 MiB); the scan refuses it first
+      parent = self()
+      words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
+
+      {pid, ref} =
+        spawn_monitor(fn ->
+          Process.flag(:max_heap_size, %{size: words, kill: true, error_logger: false})
+          send(parent, {:done, self(), XlsxImport.convert(bytes, @fields)})
+        end)
+
+      assert_receive {:done, ^pid, {:error, :xlsx_too_large}}, 5_000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+
+      # the same shape at a real width is read as before
+      assert {:ok, []} = XlsxImport.convert(padded(~s(<row r="3"><c r="B3"/></row>)), @fields)
+    end
+
+    test "C3o: the scan counts the rows and cells the reader fills in, gaps after a lower row too" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      # rows 1 and 3: the reader builds 3 rows (row 2 filled in)
+      two = sheet_xml(~s(<row r="1"><c r="A1"/></row><row r="3"><c r="A3"/></row>))
+      assert scan.(two, %{rows: 3, cells: 100}) == :ok
+      assert scan.(two, %{rows: 2, cells: 100}) == :too_large
+
+      # a cell at J is 10 cells wide (A..I filled in), also on the filled-in rows before it
+      wide = sheet_xml(~s(<row r="2"><c r="J2"/></row>))
+      assert scan.(wide, %{rows: 10, cells: 20}) == :ok
+      assert scan.(wide, %{rows: 10, cells: 19}) == :too_large
+
+      # 1, 5, 2, 5: 1 + 4 + 1 + 3 rows; a high-water mark would count 5
+      back =
+        sheet_xml(~s(<row r="1"/><row r="5"/><row r="2"/><row r="5"/>))
+
+      assert scan.(back, %{rows: 9, cells: 100}) == :ok
+      assert scan.(back, %{rows: 8, cells: 100}) == :too_large
+
+      # not XML (a binary part) and a malformed part are left to the reader
+      assert scan.(<<0, 1, 2>>, %{rows: 1, cells: 1}) == :ok
+      assert scan.(~s(<row r="x">), %{rows: 1, cells: 1}) == :ok
+    end
+
     test "C3l: garbage never raises" do
       truncated = binary_part(XlsxFixture.build([[["title"], ["A"]]]), 0, 120)
 
@@ -219,5 +264,20 @@ defmodule Letflow.Entities.XlsxImportTest do
         assert {:error, :xlsx_unreadable} = XlsxImport.convert(bytes, @fields)
       end
     end
+  end
+
+  defp sheet_xml(rows_xml) do
+    ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
+      ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
+      rows_xml <> "</sheetData></worksheet>"
+  end
+
+  defp padded(rows_xml) do
+    xml =
+      sheet_xml(
+        ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <> rows_xml
+      )
+
+    XlsxFixture.build([[["title"]]], replace: %{"xl/worksheets/sheet1.xml" => xml})
   end
 end

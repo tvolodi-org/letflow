@@ -7,6 +7,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
   REQ-884 / GH #4607: the check of a Qoimeks-layout balances workbook. Criteria 1 to 9 as named in
   the requirement: access (T-WI-1), round trip (T-WI-2), normalising (T-WI-3), changes (T-WI-4),
   remarks (T-WI-5), header and caps (T-WI-6), read only and tenancy (T-WI-7), one parse (T-WI-8).
+  Byte bounds T-WI-10..14; reference padding (forged `r` references) T-WI-15..17.
   Committed tenants in Sandbox `:auto` mode; `async: false` (app env seams, DDL).
   """
 
@@ -554,6 +555,48 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
     end
   end
 
+  describe "reference padding (INV-8)" do
+    # The reader fills in the rows and cells a sheet omits from the `r` references, so a few bytes
+    # of XML can name millions of cells. Each forged book is parsed in a process capped at 64 MiB
+    # of heap (killed past it); the answer must be a bounded refusal from a live process.
+    test "T-WI-15 a far row after a wide row is refused within 64 MiB" do
+      bytes = padded!(~s(<row r="1001"><c r="XFD1001"/></row>))
+      assert {:ok, {micros, {:error, :workbook_too_large}}} = capped(fn -> WI.parse(bytes) end)
+      assert micros < 500_000
+    end
+
+    test "T-WI-16 many far-column cells are refused within 64 MiB; the route says 422", ctx do
+      bytes = padded!(Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>)))
+      assert {:ok, {micros, {:error, :workbook_too_large}}} = capped(fn -> WI.parse(bytes) end)
+      assert micros < 500_000
+
+      unit = Docs.unit!(ctx.a.schema_name)
+      path = "/stock-workbook/check?org_unit_id=#{unit}"
+      assert reason!(post_check(path, ctx.tok_a, bytes), 422) == "workbook_too_large"
+    end
+
+    test "T-WI-17 a lower row number starts a new gap; columns past H are not read" do
+      far = ~s(<row r="15000"><c r="A15000" t="inlineStr"><is><t>a</t></is></c></row>)
+      back = ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>a</t></is></c></row>)
+      # one gap of 15 000 rows is under the 20 000-row sheet budget; two such gaps are not
+      assert {:ok, %{rows_read: 0}} = WI.parse(padded!(far))
+      assert WI.parse(padded!(far <> back <> far)) == {:error, :workbook_too_large}
+
+      # a real row with a cell far to the right is read, and only A..H become text
+      wide =
+        ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>Z-1</t></is></c>) <>
+          ~s(<c r="B2" t="inlineStr"><is><t>n</t></is></c><c r="C2"><v>1</v></c>) <>
+          ~s(<c r="XFD2" t="inlineStr"><is><t>far</t></is></c></row>)
+
+      assert {:ok, %{rows_read: 1, rows: [%{article: "Z-1"}]}} = WI.parse(padded!(wide))
+
+      assert {:ok, _sheet, [_header, {2, cells}]} =
+               Letflow.Entities.XlsxImport.read_text_rows(padded!(wide), max_columns: 8)
+
+      assert length(cells) == 8
+    end
+  end
+
   describe "docs" do
     test "T-WI-9 runbook and moduledoc name the route and the remarks" do
       runbook = File.read!("docs/runbooks/stock-workbook-import.md")
@@ -561,6 +604,38 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
       for id <- ~w(R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11), do: assert(runbook =~ "| #{id} |")
       assert Letflow.Modules.Stock.__info__(:attributes) |> is_list()
       assert File.read!("lib/letflow/modules/stock/stock.ex") =~ "POST /stock-workbook/check"
+    end
+  end
+
+  # A book whose first sheet is the header row (A1 = Артикул) followed by `rows_xml`, verbatim.
+  defp padded!(rows_xml) do
+    xml =
+      ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
+        ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
+        ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>Артикул</t></is></c></row>) <>
+        rows_xml <> "</sheetData></worksheet>"
+
+    Letflow.XlsxFixture.build([[["x"]]], replace: %{"xl/worksheets/sheet1.xml" => xml})
+  end
+
+  # Runs `fun` in a process killed past 64 MiB of heap: `{:ok, {micros, result}}` or `{:died, why}`.
+  defp capped(fun) do
+    parent = self()
+    words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Process.flag(:max_heap_size, %{size: words, kill: true, error_logger: false})
+        send(parent, {:capped, self(), :timer.tc(fun)})
+      end)
+
+    receive do
+      {:capped, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        {:ok, result}
+
+      {:DOWN, ^ref, :process, ^pid, why} ->
+        {:died, why}
     end
   end
 

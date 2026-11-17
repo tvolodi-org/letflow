@@ -189,3 +189,11 @@ cap (plus one inflate chunk) is allocated. XlsxReader is then given a fresh arch
 and a hidden second directory (a fake EOCD in the comment, a ZIP64 locator) cannot show it
 something else. Covered by tests C3m and C3n. What remains: up to
 25 MiB per concurrent import request, bounded by the cap and the 2 MiB body limit.
+
+Amendment (REQ-884, T-2083): the inflate cap does not bound what XlsxReader builds. It fills in
+the rows and cells a sheet omits from the `r` references of `<row>` and `<c>`, so a 6 KB upload
+could name 16 million cells. Before XlsxReader runs, every verified part is scanned with the same
+XML parser and the same fill-in rules (`Letflow.Entities.XlsxImport.ReferenceScan`), and a sheet
+that would fill in more than 100 000 rows or 500 000 cells is `xlsx_too_large` (the stock
+workbook check passes 20 000 rows). This covers the record import, the users import and the
+stock workbook check. Covered by tests C3o and T-WI-15..17.

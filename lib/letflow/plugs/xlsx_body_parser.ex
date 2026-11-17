@@ -6,14 +6,16 @@ defmodule Letflow.Plugs.XlsxBodyParser do
 
   Same shape as `Letflow.Plugs.CsvBodyParser`: it claims
   `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` only for a POST whose
-  path is the record import route and hands every other request on (`{:next, conn}`), so the
+  path is one of those three routes and hands every other request on (`{:next, conn}`), so the
   415 of every other route is unchanged. `Plug.Parsers` splits the content type at the first
   `/`, so the subtype is the whole `vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
 
   The raw bytes are kept under `"_xlsx"` of the body params, nothing is read here: the body is
   read bounded by the pipeline's `length:` (2 MiB), and an over-limit body raises
   `Plug.Parsers.RequestTooLargeError` as an oversized JSON body does (413). The conversion runs
-  in `Letflow.Routers.Entities.RecordImport`, after authentication and authorisation.
+  in the route's own module (`Letflow.Routers.Entities.RecordImport`,
+  `Letflow.Routers.Identity.UsersImport`, `Letflow.Modules.Stock.StockWorkbookImport`), after
+  authentication and authorisation.
   """
 
   @behaviour Plug.Parsers

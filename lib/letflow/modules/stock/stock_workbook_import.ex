@@ -30,6 +30,9 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   Byte bounds (INV-8): before any normalising, a read cell over its byte cap (256; 512 for B; 64
   for C), a total of the read cells over 2 MiB, or more filled rows than the row cap refuses the
   whole file as `:workbook_too_large`. Shared strings make the file smaller than its text.
+  Before that, the reader itself is bounded: a sheet whose row and cell references would fill in
+  more than 20 000 rows or 500 000 cells is refused before it is read, and only columns A..H of
+  a row are turned into text (`XlsxImport.read_text_rows/2`); both are `:workbook_too_large`.
 
   Test seams (each can only lower its cap): `:stock_workbook_import_max_rows` (10 000 data rows)
   and `:stock_workbook_import_max_changes` (1000, the line cap of `Documents.Shape`);
@@ -43,6 +46,11 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   alias Letflow.Modules.Stock.Views
 
   @max_rows 10_000
+  # The reader's own bounds (XlsxImport reference scan): sheet rows (the data-row cap plus a title
+  # block and blank rows) and filled-in cells; only the read columns A..H are converted.
+  @max_sheet_rows 20_000
+  @max_sheet_cells 500_000
+  @read_columns 8
   # Byte bounds on the cell text, checked before any per-character work (T-2041, INV-8). A shared
   # string is passed by reference, so the inflate cap of the reader does not bound the text.
   @max_cell_bytes 256
@@ -106,8 +114,13 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   def parse(_other), do: {:error, :xlsx_unreadable}
 
   defp read(bytes) do
-    case XlsxImport.read_text_rows(bytes) do
+    case XlsxImport.read_text_rows(bytes,
+           max_sheet_rows: @max_sheet_rows,
+           max_sheet_cells: @max_sheet_cells,
+           max_columns: @read_columns
+         ) do
       {:ok, sheet, lines} -> {:ok, sheet, lines}
+      {:error, :xlsx_too_large} -> {:error, :workbook_too_large}
       {:error, _} -> {:error, :xlsx_unreadable}
     end
   end
@@ -395,6 +408,8 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
       unit: org_unit_id,
       prefix: prefix,
       locs: locations,
+      # Built once per check, not per article: (articles x tenant locations) otherwise.
+      loc_codes: Map.new(locations, fn {code, id} -> {id, code} end),
       book: book,
       uoms: uom_codes(parsed.rows, items, prefix)
     }
@@ -553,8 +568,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
         {row.location, Decimal.new(row.quantity)}
       end
 
-    id_code = Map.new(ctx.locs, fn {code, id} -> {id, code} end)
-    book_places = by_loc |> Map.keys() |> Enum.map(&Map.get(id_code, &1, &1))
+    book_places = by_loc |> Map.keys() |> Enum.map(&Map.get(ctx.loc_codes, &1, &1))
 
     {changes, unchanged} =
       (Map.keys(targets) ++ book_places)
