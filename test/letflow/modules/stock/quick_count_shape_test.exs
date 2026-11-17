@@ -74,6 +74,18 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     assert {:ok, _} = QuickCountShape.parse(body(%{"reason_text" => String.duplicate("x", 500)}))
   end
 
+  test "QS-3b reason text is bounded in bytes before any per-character work" do
+    # one grapheme (a base letter and repeated combining marks) passes the 500-character rule
+    pair = <<0x301::utf8, 0x316::utf8>>
+    one_grapheme = "a" <> String.duplicate(pair, 1_000)
+    assert String.length(one_grapheme) == 1
+    refused(body(%{"reason_text" => one_grapheme}), "reason_invalid")
+    refused(body(%{"reason_text" => String.duplicate("x", 2_001)}), "reason_invalid")
+    # a multibyte text at the character limit (4 bytes each) is still accepted
+    assert {:ok, _} =
+             QuickCountShape.parse(body(%{"reason_text" => String.duplicate("\u{1F600}", 500)}))
+  end
+
   test "QS-4 required, not allowed and invalid ids are refused with the field name" do
     assert {:error, {"field_required", %{"field" => "location_id"}}} =
              QuickCountShape.parse(Map.delete(body(), "location_id"))

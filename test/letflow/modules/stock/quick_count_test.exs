@@ -538,6 +538,42 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert doc["number"] =~ "000002"
   end
 
+  test "QC-9d a multipart one-grapheme reason_text over the byte cap is refused, nothing stored",
+       ctx do
+    before = {stored(ctx), D.counts(ctx.schema)}
+    m = ctx.ma
+    text = "a" <> String.duplicate(<<0x301::utf8, 0x316::utf8>>, 100_000)
+
+    fields =
+      qc_body(m, %{"reason_code" => "other", "reason_text" => text}) |> Enum.to_list()
+
+    boundary = "qc9dboundary7f3a"
+
+    parts =
+      for {k, v} <- fields do
+        [
+          "--",
+          boundary,
+          "\r\nContent-Disposition: form-data; name=\"",
+          k,
+          "\"\r\n\r\n",
+          v,
+          "\r\n"
+        ]
+      end
+
+    body = IO.iodata_to_binary([parts, "--", boundary, "--\r\n"])
+
+    conn =
+      Plug.Test.conn(:post, S.base() <> "/quick-counts", body)
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> ctx.tok_k)
+      |> Plug.Conn.put_req_header("content-type", "multipart/form-data; boundary=" <> boundary)
+      |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+
+    assert conn.status == 422 and reason(conn) == "reason_invalid"
+    assert {stored(ctx), D.counts(ctx.schema)} == before
+  end
+
   test "QC-9b a lot-tracked item counts with its lot; the balance key includes the lot", ctx do
     m = ctx.ma
     body = qc_body(m, %{"catalog_item_id" => m.lot_item, "catalog_lot_id" => m.lot})

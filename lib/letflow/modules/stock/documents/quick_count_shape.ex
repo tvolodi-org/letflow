@@ -28,6 +28,9 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountShape do
   @ids ~w(org_unit_id location_id catalog_item_id catalog_uom_id catalog_lot_id responsible_id)
   @reasons ~w(recount found missing damaged other)
   @reason_text_max 500
+  # byte bound first (INV-8): 500 characters of up to 4 bytes each; checked before any per-character work,
+  # since a multipart text part reaches here up to 25 MiB and one grapheme can be megabytes of marks
+  @reason_text_max_bytes @reason_text_max * 4
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
   @doc "The closed list of quick count reason codes."
@@ -128,7 +131,8 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountShape do
 
   defp reason_text(:error), do: {:ok, nil}
 
-  defp reason_text({:ok, value}) when is_binary(value) do
+  defp reason_text({:ok, value})
+       when is_binary(value) and byte_size(value) <= @reason_text_max_bytes do
     text = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
 
     if is_binary(text) and String.trim(text) != "" and String.length(text) <= @reason_text_max,
