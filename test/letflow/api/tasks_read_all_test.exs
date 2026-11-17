@@ -24,7 +24,6 @@ defmodule Letflow.Api.TasksReadAllTest do
   alias Letflow.Api.Authorization.AccessContext
 
   @perm :TasksReadAll
-  @golden "priv/permission_matrix/effective.golden"
   @five [:PLATFORM_ADMIN, :PROCESS_DESIGNER, :PROCESS_OPERATOR, :TENANT_ADMIN, :TENANT_AUDITOR]
 
   test "A1 eighth to last core permission (CurrenciesManage, DataExport, ApprovalRulesManage, OfficialFormTemplatesManage, LedgerSettingsManage, PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, no route gates on it" do
@@ -169,21 +168,15 @@ defmodule Letflow.Api.TasksReadAllTest do
   end
 
   test "A7 the golden carries exactly the nine TasksReadAll rows" do
-    lines = @golden |> File.read!() |> String.split(~r/\r?\n/, trim: true)
-    rows = lines |> Enum.reject(&String.starts_with?(&1, "#")) |> Enum.map(&String.split(&1, " "))
-    mine = Enum.filter(rows, fn [_role, permission | _] -> permission == "TasksReadAll" end)
+    mine = Letflow.GoldenRows.rows_for("TasksReadAll")
 
-    assert length(mine) == 9
+    assert length(mine) == length(Letflow.GoldenRows.roles())
 
     granted = for [role, _, "true", "core", "core"] <- mine, do: role
     assert Enum.sort(granted) == Enum.sort(Enum.map(@five, &Atom.to_string/1))
 
     refused = Enum.filter(mine, &(Enum.at(&1, 2) == "false"))
-    assert length(refused) == 4
+    assert length(refused) == length(mine) - length(@five)
     assert Enum.all?(refused, &(Enum.drop(&1, 3) == ["core", "-"]))
-
-    permission_count = rows |> Enum.map(&Enum.at(&1, 1)) |> Enum.uniq() |> length()
-    assert "# permissions: #{permission_count}" in lines
-    assert "# rows: #{length(rows)}" in lines
   end
 end

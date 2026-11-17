@@ -40,6 +40,7 @@ export const P = {
   SolutionOverridesManage: 'SolutionOverridesManage',
   CurrenciesManage: 'CurrenciesManage',
   ApprovalRulesManage: 'ApprovalRulesManage',
+  LedgerSettingsManage: 'LedgerSettingsManage',
   OfficialFormTemplatesManage: 'OfficialFormTemplatesManage',
 } as const
 

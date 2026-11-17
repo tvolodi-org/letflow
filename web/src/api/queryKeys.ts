@@ -319,6 +319,12 @@ export const queryKeys = {
     list: (tenantId: string) => [...queryKeys.approvalRules.all(tenantId), 'list'] as const,
   },
 
+  /** REQ-839 — negative balance switch (ledger settings) admin screen. */
+  ledgerSettings: {
+    all: (tenantId: string) => ['tenant', tenantId, 'ledger-settings'] as const,
+    list: (tenantId: string) => [...queryKeys.ledgerSettings.all(tenantId), 'list'] as const,
+  },
+
   /** T-1983 — official-form templates admin screen. */
   officialFormTemplates: {
     all: (tenantId: string) => ['tenant', tenantId, 'official-form-templates'] as const,

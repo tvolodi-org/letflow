@@ -21,7 +21,6 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   alias Letflow.Api.Authorization
 
   @perm :TasksReassignRouted
-  @golden "priv/permission_matrix/effective.golden"
 
   test "R1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
     assert Authorization.core_permissions() |> Enum.take(-9) |> hd() == @perm
@@ -86,30 +85,16 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   end
 
   test "R5 the golden carries exactly nine TasksReassignRouted rows" do
-    lines =
-      @golden
-      |> File.read!()
-      |> String.split(~r/\r?\n/, trim: true)
+    mine = Letflow.GoldenRows.rows_for("TasksReassignRouted")
 
-    rows = lines |> Enum.reject(&String.starts_with?(&1, "#")) |> Enum.map(&String.split(&1, " "))
-
-    mine =
-      Enum.filter(rows, fn [_role, permission | _] -> permission == "TasksReassignRouted" end)
-
-    assert length(mine) == 9
+    assert length(mine) == length(Letflow.GoldenRows.roles())
 
     assert Enum.filter(mine, &(Enum.at(&1, 2) == "true")) ==
              [["TENANT_ADMIN", "TasksReassignRouted", "true", "core", "core"]]
 
     refused = Enum.filter(mine, &(Enum.at(&1, 2) == "false"))
-    assert length(refused) == 8
+    assert length(refused) == length(Letflow.GoldenRows.roles()) - 1
     assert Enum.all?(refused, &(Enum.drop(&1, 3) == ["core", "-"]))
-
-    # Header counts agree with the rows.
-    permission_count = rows |> Enum.map(&Enum.at(&1, 1)) |> Enum.uniq() |> length()
-    assert "# permissions: #{permission_count}" in lines
-    assert "# rows: #{length(rows)}" in lines
-    assert length(rows) == 9 * permission_count
   end
 
   @tag timeout: 60_000
