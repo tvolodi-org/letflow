@@ -18,7 +18,9 @@ defmodule Letflow.Modules.Stock.Documents do
   record-level deduplication, and the default scope `:all` (only tenant-wide principals reach the
   routes, see `Letflow.Modules.Stock.Access`).  When the caller supplies an idempotency-key header
   on the create route (REQ-846), `save/4` uses a client key instead and tracks the binding in the
-  per-tenant `stock_create_idempotency` table.
+  per-tenant `stock_create_idempotency` table. The issue route (`issue/4`, `opts[:idempotency_key]`) and
+  the post retry route (`Posting.post/4`) take the same header (REQ-847): a retry of the same request
+  replays the document, see `Letflow.Modules.Stock.Documents.ActionIdempotency`.
   `document_id` on the header is the id of the versioned document, which never changes and carries the
   state: `draft`, `issued` or `cancelled` (the status of its live version), the gap-free number and the
   issued time. Nothing of that is stored on the header. The id on the routes is this document id.
@@ -66,6 +68,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Checks
   alias Letflow.Modules.Stock.Documents.CreateIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
@@ -369,9 +372,24 @@ defmodule Letflow.Modules.Stock.Documents do
   instance. A refused check or a definition that cannot be activated issues nothing and takes no
   number. Returns the issued document (`opts[:authorized]` is the ledger read authorization for
   `posting_check`).
+
+  `opts[:idempotency_key]` (REQ-847, the stored `client:stock_issue:<actor>:<K>` key, see
+  `Letflow.Modules.Stock.Documents.ActionIdempotency`) makes a retry of the same issue return the
+  document as it is now: no second number, no second posting instance. The same key on another
+  document is `{:error, :idempotency_key_reuse}`; a refused issue binds nothing.
   """
   @spec issue(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def issue(prefix, id, actor, opts \\ []) when is_binary(prefix) do
+    ActionIdempotency.run(
+      prefix,
+      Keyword.get(opts, :idempotency_key),
+      id,
+      fn -> fetch(prefix, id, Keyword.get(opts, :authorized)) end,
+      fn -> issue_new(prefix, id, actor, opts) end
+    )
+  end
+
+  defp issue_new(prefix, id, actor, opts) do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),

@@ -68,8 +68,9 @@ defmodule Letflow.Plugs.Cors do
   # echo of the request's `access-control-request-headers` value:
   #   * authorization    -- bearer token, every authenticated request (client.ts)
   #   * content-type     -- JSON body (client.ts)
-  #   * idempotency-key  -- the stock document create route (POST /api/v1/modules/stock/documents)
-  #                         sends it since REQ-846; also kept for browser-based operator tools
+  #   * idempotency-key  -- the stock document create, issue and post routes (POST
+  #                         /api/v1/modules/stock/documents[/:id/issue|/:id/post]); the web client
+  #                         sends it from REQ-848 on (REQ-846, REQ-847 accept it); also kept for browser-based operator tools
   #                         that use it on the instances routes (ISS-0780 regression)
   #   * if-match         -- optimistic-concurrency PUT (web/src/api/entities.ts,
   #                         REQ-336, via client.putWithHeaders)
