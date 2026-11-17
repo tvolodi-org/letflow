@@ -254,6 +254,21 @@ defmodule Letflow.Modules.Stock do
   check route does). See `Letflow.Modules.Stock.Documents.OpeningImport`. No route, permission or
   migration. Assumptions, owner may change at GATE B: reference cells use the row's external-ref system.
 
+  ## Quick count (REQ-854 / GH #4564, Qoimeks parity G5 part 2; version 0.20.0)
+
+  The kind `quick_count` (`Letflow.Modules.Stock.Documents.Kinds`; record types `stock_quick_count` and
+  `stock_quick_count_line`, document type `stock_quick_count`, prefix `QCT`): ONE line that sets the
+  balance of one item at one place to the counted quantity (0 allowed, here only). `POST /quick-counts`
+  (permission `StockQuickCount`) reads the book quantity under the caller's stock read authority, stores
+  `book_quantity` and `difference = counted - book`, and issues the document in one transaction; the
+  process `stock_quick_count` (`submit` completed by the counter, `approve` with `distinct_from ["submit"]`)
+  posts the cause `count_set` (ONE leg, quantity = the difference, `expected_on_hand` = the book quantity:
+  a key that moved since is refused `balance_changed`, stock alias `quick_count_stale`). A count equal to
+  the book posts nothing; the document reads `confirmed`. A key inside an opened, unposted, uncancelled
+  count order of the same org unit is refused `count_in_progress` at the route and `location_frozen` at
+  approval (`Letflow.Modules.Stock.FreezeGuard`). A tenant installed before 0.20.0 needs a reinstall for
+  the new document type and process (QA only, as for the opening of 0.9.0).
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -265,14 +280,18 @@ defmodule Letflow.Modules.Stock do
 
   `receipt` and `opening` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
   `hand_over` and `return` (zero sum per sku), `count_difference` (REQ-718, sign rule `any`, a reason
-  required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
+  required) and `count_set` (REQ-854, sign rule `any`, a reason required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
 
   ## Permissions
 
   `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
-  `StockCountRecord` (REQ-701: open, count, add surplus lines, close). TENANT_ADMIN, PLATFORM_ADMIN and
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close) and `StockQuickCount` (REQ-854: the
+  quick count). TENANT_ADMIN, PLATFORM_ADMIN and
   STOREKEEPER (D-093, decision 0081) hold them; STOREKEEPER holds all but `StockReconcile` (an administrative
-  reconciliation view; one line in `role_grants` if the owner wants it). OQ-11 of decision 0073 stays open.
+  reconciliation view; one line in `role_grants` if the owner wants it) and `StockQuickCount` (REQ-854: a
+  `role_grants` widening of a role already in the baseline is refused by `mix letflow.permission_matrix` until
+  per-tenant grant snapshots exist, decision 0081 D2, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; adding
+  it to STOREKEEPER is one line in `role_grants` once the tool allows it). OQ-11 of decision 0073 stays open.
   """
 
   @behaviour Letflow.Modules.Module
@@ -306,7 +325,9 @@ defmodule Letflow.Modules.Stock do
     "count_freeze_location",
     "stock_posting_mark",
     "stock_opening",
-    "stock_opening_line"
+    "stock_opening_line",
+    "stock_quick_count",
+    "stock_quick_count_line"
   ]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
@@ -370,16 +391,20 @@ defmodule Letflow.Modules.Stock do
                                  declared_fields: %{}
                                }
 
+  # REQ-854: the quick count (prefix QCT, year numbering, pad 6; assumption, owner may change).
+  @quick_count_type %{@opening_type | key: "stock_quick_count", number_prefix: "QCT"}
+
   @document_types [
                     @receipt_type,
-                    @opening_type | @one_side_document_types ++ @two_side_document_types
+                    @opening_type,
+                    @quick_count_type | @one_side_document_types ++ @two_side_document_types
                   ] ++
                     @count_document_types
 
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.19.0",
+    version: "0.20.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -390,10 +415,17 @@ defmodule Letflow.Modules.Stock do
       :StockRead,
       :StockReconcile,
       :StockCountOrder,
-      :StockCountRecord
+      :StockCountRecord,
+      :StockQuickCount
     ],
     role_grants: %{
-      STOREKEEPER: [:StockRead, :StockPost, :StockReverse, :StockCountOrder, :StockCountRecord]
+      STOREKEEPER: [
+        :StockRead,
+        :StockPost,
+        :StockReverse,
+        :StockCountOrder,
+        :StockCountRecord
+      ]
     },
     required_roles: [],
     settings_schema: %{
@@ -423,6 +455,7 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},
+      {"POST", "/quick-counts", :StockQuickCount},
       {"POST", "/counts", :StockCountOrder},
       {"PUT", "/counts/:id", :StockCountOrder},
       {"POST", "/counts/:id/issue", :StockCountOrder},
@@ -475,7 +508,9 @@ defmodule Letflow.Modules.Stock do
       "count_freeze_location",
       "stock_posting_mark",
       "stock_opening",
-      "stock_opening_line"
+      "stock_opening_line",
+      "stock_quick_count",
+      "stock_quick_count_line"
     ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
@@ -499,7 +534,9 @@ defmodule Letflow.Modules.Stock do
       "count_freeze_location" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"},
       "stock_opening" => {:column, "org_unit_id"},
-      "stock_opening_line" => {:column, "org_unit_id"}
+      "stock_opening_line" => {:column, "org_unit_id"},
+      "stock_quick_count" => {:column, "org_unit_id"},
+      "stock_quick_count_line" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{
@@ -605,6 +642,7 @@ defmodule Letflow.Modules.Stock do
           "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "count_difference" => %{sign_rule: :any, reason_required: true},
+          "count_set" => %{sign_rule: :any, reason_required: true},
           "kind_change_out" => %{sign_rule: :negative, reason_required: false}
         },
         key_bounds: [],
@@ -620,7 +658,8 @@ defmodule Letflow.Modules.Stock do
         posting_guard: {Letflow.Modules.Stock.FreezeGuard, :check},
         error_aliases: %{
           "insufficient_balance" => "insufficient_stock",
-          "posting_held" => "location_frozen"
+          "posting_held" => "location_frozen",
+          "balance_changed" => "quick_count_stale"
         },
         policy: {Letflow.Modules.Stock.LedgerPolicy, :declare}
       }

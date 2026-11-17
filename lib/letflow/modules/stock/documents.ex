@@ -51,6 +51,10 @@ defmodule Letflow.Modules.Stock.Documents do
   * The clock of the event-time window is the app env `:stock_documents_clock` (a zero-arity function,
     default `DateTime.utc_now/0`); it exists only so a test can fix the time.
 
+  REQ-854: `quick_count/4` creates AND issues a `quick_count` document (one line that sets the balance of one
+  item at one place to the counted quantity) in one call; see its doc. `save/3` and `replace/4` refuse that kind
+  `unknown_kind` (`Kinds.parse/2`).
+
   Errors: `{:error, :not_found}`, `{:error, :document_not_draft}`, `{:error, :busy}`,
   `{:error, :internal}` or `{:error, {reason, extras}}` (a 422, `reason` a string, `extras` a map with
   the fixed keys `"field"` and `"line_no"`).
@@ -67,13 +71,16 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Ledger
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.CountHold
   alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Checks
   alias Letflow.Modules.Stock.Documents.CreateIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningChecks
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.Documents.QuickCountShape
   alias Letflow.Modules.Stock.Documents.Shape
   alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Repo
@@ -226,6 +233,117 @@ defmodule Letflow.Modules.Stock.Documents do
       end)
     end
   end
+
+  @doc """
+  REQ-854 / GH #4564: the quick count. `body` is the flat map `QuickCountShape` parses. Order of refusals:
+  the shape (422), the read authority (`opts[:authorized]` nil: `{:error, :not_found}`, the unknown-document
+  answer, before any master is looked at), the master checks (`Checks.quick_count/3`, 422), the kind's
+  process definition made active with `opts[:activator]` (`{:error, :definition_not_active}`), then in ONE
+  transaction: the formal
+  count rule (`CountHold`, 422 `count_in_progress` with `held_by` the order number), the book quantity of
+  the key read through `Ledger.balances/4` with `opts[:authorized]` (nil: `{:error, :not_found}`, the
+  unknown-document answer; a balance of another unit is `unit_not_valid`, a negative balance
+  `book_quantity_negative`: the core's `expected_on_hand` is at least 0), the draft, the header and the
+  line (`book_quantity`, `difference` = counted minus book) and the issue. Nothing is stored and no number is
+  taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
+  is zero (then the document reads `confirmed`: no instance, no ledger entry). Returns the issued document
+  as `fetch/3` renders it.
+  """
+  @spec quick_count(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def quick_count(prefix, body, actor, opts \\ []) when is_binary(prefix) do
+    spec = Kinds.get("quick_count")
+    authorized = Keyword.get(opts, :authorized)
+
+    with {:ok, doc} <- QuickCountShape.parse(body),
+         :ok <- authorized_read(authorized),
+         :ok <- Checks.quick_count(prefix, doc.header, hd(doc.lines)),
+         :ok <- activate(prefix, spec, Keyword.get(opts, :activator)),
+         {:ok, id} <- quick_count_tx(prefix, spec, doc, actor, authorized) do
+      view = fetch!(prefix, id)
+      unless view.state == "confirmed", do: start_posting(prefix, id, actor)
+      fetch(prefix, id, authorized)
+    end
+  end
+
+  defp authorized_read(nil), do: {:error, :not_found}
+  defp authorized_read(_authorized), do: :ok
+
+  defp quick_count_tx(prefix, spec, doc, actor, authorized) do
+    unit = doc.header["org_unit_id"]
+    [line] = doc.lines
+
+    tx(prefix, fn ->
+      case CountHold.check(prefix, unit, line["location_id"]) do
+        :ok -> :ok
+        {:held, number} -> Repo.rollback({"count_in_progress", %{"held_by" => number}})
+      end
+
+      doc = with_book!(doc, book_quantity(authorized, unit, line))
+
+      draft_attrs = %{
+        type_key: spec.type_key,
+        issuing_org_unit_id: unit,
+        content: content(doc)
+      }
+
+      document_id =
+        case Documents.create_draft(prefix, draft_attrs, actor) do
+          {:ok, %{document: document}} -> document.id
+          {:error, reason} -> Repo.rollback(draft_error(reason))
+        end
+
+      write_new(prefix, spec, document_id, doc, actor)
+
+      case issue_once(prefix, document_id, actor) do
+        {:ok, _issued} -> document_id
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # The balance of the exact key (an absent responsible or lot is the empty slot). No row is 0.
+  defp book_quantity(authorized, unit, line) do
+    filters = %{
+      "sku" => line["catalog_item_id"],
+      "location" => line["location_id"],
+      "org_unit" => unit,
+      "responsible" => line["responsible_id"] || "",
+      "lot" => line["catalog_lot_id"] || ""
+    }
+
+    case Ledger.balances(authorized, {:posting_seq, :latest}, filters, %{limit: 10}) do
+      {:ok, %{rows: [], next_cursor: nil}} ->
+        Decimal.new(0)
+
+      {:ok, %{rows: [row], next_cursor: nil}} ->
+        if row.unit_ref == line["catalog_uom_id"],
+          do: row.quantity,
+          else: {:refuse, "unit_not_valid"}
+
+      _unreadable ->
+        {:refuse, "ledger_read_failed"}
+    end
+  end
+
+  defp with_book!(_doc, {:refuse, reason}), do: Repo.rollback({reason, %{}})
+
+  defp with_book!(doc, book) do
+    book = to_decimal(book)
+    if Decimal.lt?(book, 0), do: Repo.rollback({"book_quantity_negative", %{}})
+
+    [line] = doc.lines
+    difference = Decimal.sub(Decimal.new(line["counted_quantity"]), book)
+
+    line =
+      line
+      |> Map.put("book_quantity", QuickCountShape.decimal_text(book))
+      |> Map.put("difference", QuickCountShape.decimal_text(difference))
+
+    %{doc | lines: [line]}
+  end
+
+  defp to_decimal(%Decimal{} = d), do: d
+  defp to_decimal(text) when is_binary(text), do: Decimal.new(text)
 
   @opening_line_fields [
     {"location_id", :location_id},
@@ -752,6 +870,21 @@ defmodule Letflow.Modules.Stock.Documents do
     |> then(&Repo.all(query, prefix: &1))
     |> Enum.map(&line_view(spec.kind, &1))
     |> Enum.sort_by(& &1.line_no)
+  end
+
+  defp line_view("quick_count", {record_id, fv}) do
+    %{
+      line_id: record_id,
+      line_no: fv["line_no"],
+      location_id: fv["location_id"],
+      responsible_id: fv["responsible_id"],
+      catalog_item_id: fv["catalog_item_id"],
+      catalog_uom_id: fv["catalog_uom_id"],
+      catalog_lot_id: fv["catalog_lot_id"],
+      counted_quantity: fv["counted_quantity"],
+      book_quantity: fv["book_quantity"],
+      difference: fv["difference"]
+    }
   end
 
   defp line_view("opening", {record_id, fv}) do

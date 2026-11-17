@@ -17,6 +17,8 @@ entity_types = ~w(
   stock_receipt_line
   stock_opening
   stock_opening_line
+  stock_quick_count
+  stock_quick_count_line
   stock_issue
   stock_issue_line
   stock_writeoff
@@ -239,7 +241,7 @@ end
 # REQ-726: the opening balance process. A `submit` task (no module_writes, completed by the issuing
 # user at issue; its role is a label that differs from approve's, so REQ-464 sees no single-member pair) and an
 # `approve` task kept apart by distinct_from; completing `approve` posts.
-two_step_definition = fn id, key, handler, names ->
+two_step_definition = fn id, key, handler, names, submit_role ->
   %{
     "definition_id" => id,
     "process_key" => key,
@@ -250,7 +252,7 @@ two_step_definition = fn id, key, handler, names ->
         %{
           "id" => "submit",
           "node_type" => "HUMAN_TASK",
-          "attributes" => %{"role" => "STOCK_OPENING_SUBMIT"}
+          "attributes" => %{"role" => submit_role}
         },
         %{
           "id" => "approve",
@@ -331,7 +333,17 @@ process_definitions = [
     "00501000-0000-0040-0080-000000003774",
     "stock_opening",
     "post_document",
-    base_args
+    base_args,
+    "STOCK_OPENING_SUBMIT"
+  ),
+  # REQ-854: the quick count, the shape of the opening (`submit` completed by the counter at issue,
+  # `approve` kept apart by distinct_from; completing it posts the cause count_set).
+  two_step_definition.(
+    "00501000-0000-0040-0080-000000004564",
+    "stock_quick_count",
+    "post_document",
+    base_args,
+    "STOCK_QUICK_COUNT_SUBMIT"
   ),
   # REQ-718: the posting of a signed count (cause count_difference), one HUMAN_TASK `post`.
   process_definition.(

@@ -222,6 +222,7 @@ POST /modules/stock/counts/:id/reverse StockReverse
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
+POST /modules/stock/quick-counts StockQuickCount
 POST /modules/stock/stock-workbook/check StockRead
 POST /modules/stock/voice/draft StockPost
 POST /modules/stock/voice/draft-text StockPost

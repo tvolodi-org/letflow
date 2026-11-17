@@ -6,8 +6,8 @@ import { DOC_KINDS, buildBody, emptyForm, type DocKind, type FormState } from '.
 
 const KINDS_EX = path.resolve(__dirname, '../../../../../lib/letflow/modules/stock/documents/kinds.ex')
 
-// Server kinds with no web form yet. Empty today: every server kind (opening included) has a web form.
-const WEB_PENDING_KINDS: readonly string[] = []
+// Server kinds with no web form yet. quick_count (REQ-854) is created only through its own route; its web screen is a later part (REQ-855).
+const WEB_PENDING_KINDS: readonly string[] = ['quick_count']
 
 /** Resolve a `~w(...)` word list, or a module attribute naming one, the way kinds.ex builds them. */
 function serverKinds(): Map<string, string[]> {

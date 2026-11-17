@@ -22,6 +22,9 @@ defmodule Letflow.Modules.Stock.Handlers do
   A second mark of the same kind for one document violates the unique constraint of the mark type,
   so the completion rolls back before any ledger write (criterion 5 of REQ-713).
 
+  The cause `count_set` (REQ-854, process definition `stock_quick_count`, node `approve`) is built without
+  the offline keys, with its `reason_code`, and its line carries `expected_on_hand`.
+
   ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
 
   `post_document`, `post_count` and `post_kind_change_out` check every master named by a posting line
@@ -170,6 +173,23 @@ defmodule Letflow.Modules.Stock.Handlers do
     end
   end
 
+  # REQ-854: a quick count (`count_set`) is online too (no offline keys) and carries its reason code;
+  # each line keeps the `expected_on_hand` (the book quantity) for the core's compare-and-set.
+  defp command(%{"cause" => "count_set", "lines" => lines} = posting) when is_list(lines) do
+    with {:ok, lines} <- lines(lines) do
+      {:ok,
+       %{
+         ledger_id: "stock",
+         cause: "count_set",
+         document_type: Map.get(posting, "document_type"),
+         document_id: Map.get(posting, "document_id"),
+         client_op_id: Map.get(posting, "client_op_id"),
+         reason_code: Map.get(posting, "reason_code"),
+         lines: lines
+       }}
+    end
+  end
+
   defp command(%{"cause" => cause, "lines" => lines} = posting)
        when is_binary(cause) and is_list(lines) do
     with {:ok, lines} <- lines(lines) do
@@ -207,16 +227,22 @@ defmodule Letflow.Modules.Stock.Handlers do
   end
 
   defp line(%{} = line) do
-    {:ok,
-     %{
-       line_id: Map.get(line, "line_id"),
-       sku: Map.get(line, "sku"),
-       lot: Map.get(line, "lot"),
-       unit: Map.get(line, "unit"),
-       quantity: Map.get(line, "quantity"),
-       from: side(Map.get(line, "from")),
-       to: side(Map.get(line, "to"))
-     }}
+    built = %{
+      line_id: Map.get(line, "line_id"),
+      sku: Map.get(line, "sku"),
+      lot: Map.get(line, "lot"),
+      unit: Map.get(line, "unit"),
+      quantity: Map.get(line, "quantity"),
+      from: side(Map.get(line, "from")),
+      to: side(Map.get(line, "to"))
+    }
+
+    # REQ-854: the key is copied only when the line carries it, so the command of every other
+    # cause (and its payload hash) is unchanged.
+    case Map.fetch(line, "expected_on_hand") do
+      {:ok, expected} -> {:ok, Map.put(built, :expected_on_hand, expected)}
+      :error -> {:ok, built}
+    end
   end
 
   defp line(_other), do: :error

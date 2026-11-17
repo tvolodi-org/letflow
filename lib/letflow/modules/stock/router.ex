@@ -31,6 +31,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance; header `idempotency-key` as on issue: a retry replays the document, REQ-847) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
+  | `POST /quick-counts` (REQ-854; flat body: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (0 allowed), `reason_code`, optional `catalog_lot_id`, `responsible_id`, `reason_text`) | `StockQuickCount` | 201 issued `quick_count` document (`book_quantity`, `counted_quantity`, `difference` on its line); 422 `count_in_progress` with `held_by`, 409 `definition_not_active` |
   | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `StockRead` | 200 document |
 
@@ -511,6 +512,20 @@ defmodule Letflow.Modules.Stock.Router do
         Posting.reverse(access.prefix, conn.params["id"], body(conn), who, authorized, fetch)
 
       render_document(conn, result, 200)
+    end)
+  end
+
+  # REQ-854: the quick count. Tenant-wide callers only (`Access.check/2` with `:quick_count`); the ledger
+  # read authorization is the book-quantity read, a refusal of it is the unknown-document 404.
+  authz_post "/quick-counts", :StockQuickCount do
+    with_access(conn, :quick_count, fn conn, access ->
+      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+
+      render_document(
+        conn,
+        Documents.quick_count(access.prefix, body(conn), access.actor_id, opts),
+        201
+      )
     end)
   end
 

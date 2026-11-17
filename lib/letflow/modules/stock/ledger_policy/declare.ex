@@ -7,8 +7,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   Command keys (atom keys): `cause`, `lines`, `document_type`, `document_id`, `related_document_id`,
   `correlation_id`, `reason_code`. Every other key is ignored, `event_time` included: the event time of an entry is the
   core's `client_event_time` rule (the posting time when online), not a policy field. The exception is
-  cause `opening` (REQ-726): it has NO event time from the client, so a non-nil `event_time`,
-  `client_event_time`, `device_id` or `client_seq` on an opening command is refused (leg 1). A line has
+  causes `opening` (REQ-726) and `count_set` (REQ-854): they have NO event time from the client, so a non-nil `event_time`,
+  `client_event_time`, `device_id` or `client_seq` on such a command is refused (leg 1). A line has
   `line_id`, `sku`, `lot`, `unit`, `quantity`, `from` and `to`; `from` and `to` are maps of
   `org_unit`, `location` and `responsible`.
 
@@ -19,6 +19,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | issue, write_off, kind_change_out | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
   | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
+  | count_set (REQ-854) | exactly one of the two | exactly one of the two | ONE line, `+q` at `to` or `-q` at `from`; the line carries `expected_on_hand` (text, at least 0, 9 decimals), which the leg keeps (REQ-853) |
 
   The two legs of a line come from one `sku`, `lot`, `unit` and `quantity`: that keeps the lot and unit
   conservation that the sign rule `zero_sum_by_slot_1` (per sku) does not check. The key is
@@ -47,7 +48,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     "issue" => :from,
     "write_off" => :from,
     "kind_change_out" => :from,
-    "count_difference" => :either
+    "count_difference" => :either,
+    "count_set" => :either
   }
   @client_time_keys [:event_time, :client_event_time, :device_id, :client_seq]
   @two_leg ~w(transfer hand_over return)
@@ -102,8 +104,10 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     end
   end
 
-  # REQ-726: an opening carries no event time from the client (decision 0079 D1).
-  defp no_client_time(cause, command) when cause in ["opening", "opening_negative"] do
+  # REQ-726: an opening carries no event time from the client (decision 0079 D1); REQ-854: nor does a
+  # quick count (`count_set`).
+  defp no_client_time(cause, command)
+       when cause in ["opening", "opening_negative", "count_set"] do
     if Enum.all?(@client_time_keys, &is_nil(Map.get(command, &1))), do: :ok, else: invalid(1)
   end
 
@@ -120,7 +124,13 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   defp cause(_other), do: invalid(1)
 
   defp lines(cause, [_ | _] = lines, width) do
-    max = if cause == "count_difference", do: @max_count_lines, else: @max_lines
+    max =
+      case cause do
+        "count_difference" -> @max_count_lines
+        "count_set" -> 1
+        _other -> @max_lines
+      end
+
     if length(lines) > max, do: invalid(max * width + 1), else: {:ok, lines}
   end
 
@@ -147,8 +157,17 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
          {:ok, lot} <- optional_uuid(Map.get(line, :lot)),
          {:ok, unit} <- ok(Policy.token(Map.get(line, :unit), 64)),
          {:ok, quantity} <- quantity(Map.get(line, :quantity)),
+         {:ok, expected} <- expected_on_hand(cause, Map.get(line, :expected_on_hand)),
          {:ok, from, to} <- sides(cause, Map.get(line, :from), Map.get(line, :to)) do
-      base = %{sku: sku, lot: lot, unit: unit, quantity: quantity, line_id: line_id}
+      base = %{
+        sku: sku,
+        lot: lot,
+        unit: unit,
+        quantity: quantity,
+        line_id: line_id,
+        expected: expected
+      }
+
       {:ok, legs(cause, base, from, to)}
     end
   end
@@ -165,21 +184,40 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     do: [leg(base, from, true)]
 
   # REQ-718: a surplus line has a `to` side (+q), a shortage line a `from` side (-q).
-  defp legs("count_difference", base, nil, to), do: [leg(base, to, false)]
-  defp legs("count_difference", base, from, nil), do: [leg(base, from, true)]
+  defp legs(cause, base, nil, to) when cause in ["count_difference", "count_set"],
+    do: [leg(base, to, false)]
+
+  defp legs(cause, base, from, nil) when cause in ["count_difference", "count_set"],
+    do: [leg(base, from, true)]
 
   defp legs(_cause, base, from, to), do: [leg(base, from, true), leg(base, to, false)]
 
   defp leg(base, side, negate?) do
     quantity = if negate?, do: Decimal.negate(base.quantity), else: base.quantity
 
-    Policy.leg(%{
+    leg = %{
       k: [base.sku, side.location, side.org_unit, side.responsible || "", base.lot || ""],
       quantity: quantity,
       unit_ref: base.unit,
       document_line_id: base.line_id
-    })
+    }
+
+    Policy.leg(if base.expected, do: Map.put(leg, :expected_on_hand, base.expected), else: leg)
   end
+
+  # REQ-854: a `count_set` line carries the book quantity it was counted against (REQ-853 compare
+  # and set); every other cause carries none (a key there is a malformed line).
+  defp expected_on_hand("count_set", text) do
+    with {:ok, value} <- ok(Policy.decimal(text, 9)),
+         true <- not Decimal.lt?(value, 0) do
+      {:ok, value}
+    else
+      _ -> :error
+    end
+  end
+
+  defp expected_on_hand(_cause, nil), do: {:ok, nil}
+  defp expected_on_hand(_cause, _other), do: :error
 
   defp quantity(text) do
     with {:ok, value} <- ok(Policy.decimal(text, 9)),
@@ -202,7 +240,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   end
 
   # REQ-718: exactly one of the two sides (both or neither is the leg-number refusal).
-  defp sides("count_difference", from, to) when is_nil(from) != is_nil(to) do
+  defp sides(cause, from, to)
+       when cause in ["count_difference", "count_set"] and is_nil(from) != is_nil(to) do
     if is_nil(from) do
       with {:ok, to} <- side(to), do: {:ok, nil, to}
     else
