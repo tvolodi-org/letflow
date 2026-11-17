@@ -23,7 +23,6 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   alias Letflow.Api.Scope.{Grants, Principal}
 
   @perm :TenantSecurityManage
-  @golden "priv/permission_matrix/effective.golden"
 
   test "S1 third-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
     assert Authorization.core_permissions() |> Enum.take(-10) |> hd() == @perm
@@ -118,22 +117,16 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   end
 
   test "S5 the golden carries exactly nine TenantSecurityManage rows" do
-    rows =
-      @golden
-      |> File.read!()
-      |> String.split(~r/\r?\n/, trim: true)
-      |> Enum.reject(&String.starts_with?(&1, "#"))
-      |> Enum.map(&String.split(&1, " "))
-      |> Enum.filter(fn [_role, permission | _] -> permission == "TenantSecurityManage" end)
+    rows = Letflow.GoldenRows.rows_for("TenantSecurityManage")
 
-    assert length(rows) == 9
+    assert length(rows) == length(Letflow.GoldenRows.roles())
 
     assert Enum.filter(rows, &(Enum.at(&1, 2) == "true")) == [
              ["TENANT_ADMIN", "TenantSecurityManage", "true", "core", "core"]
            ]
 
     refused = Enum.filter(rows, &(Enum.at(&1, 2) == "false"))
-    assert length(refused) == 8
+    assert length(refused) == length(Letflow.GoldenRows.roles()) - 1
     assert Enum.all?(refused, &(Enum.drop(&1, 3) == ["core", "-"]))
   end
 
