@@ -53,11 +53,16 @@ defmodule Letflow.IdempotencyTest do
 
       assert Idempotency.client_key(:inst_rebind, @actor, @instance, "K") ==
                "client:inst_rebind:#{@actor}:#{@instance}:K"
+
+      # REQ-846: stock document create
+      assert Idempotency.client_key(:stock_create, @actor, nil, "K") ==
+               "client:stock_create:#{@actor}:K"
     end
 
-    test "raw_max is 199 for rec/inst_start/script and 162 for cancel/rebind" do
+    test "raw_max is 199 for rec/inst_start/stock_create/script and 162 for cancel/rebind" do
       assert Idempotency.raw_max(:rec) == 199
       assert Idempotency.raw_max(:inst_start) == 199
+      assert Idempotency.raw_max(:stock_create) == 199
       assert Idempotency.raw_max(:script) == 199
       assert Idempotency.raw_max(:inst_cancel) == 162
       assert Idempotency.raw_max(:inst_rebind) == 162
@@ -73,6 +78,13 @@ defmodule Letflow.IdempotencyTest do
         key = Idempotency.client_key(route, @actor, @instance, String.duplicate("k", 162))
         assert byte_size(key) == 255
       end
+    end
+
+    # REQ-846: :stock_create prefix is 20 bytes ("client:stock_create:"), so the max key is 256.
+    # It is stored in a dedicated stock_create_idempotency(key varchar(256)) column.
+    test "the longest :stock_create key fits varchar(256)" do
+      key = Idempotency.client_key(:stock_create, @actor, nil, String.duplicate("k", 199))
+      assert byte_size(key) == 256
     end
 
     test "raises FunctionClauseError on wrong instance arity, bad uuid size, empty or over-long raw" do
@@ -94,7 +106,7 @@ defmodule Letflow.IdempotencyTest do
 
     test "a client key never starts with a server or script family" do
       check all(
-              route <- member_of([:rec, :inst_start, :inst_cancel, :inst_rebind]),
+              route <- member_of([:rec, :inst_start, :inst_cancel, :inst_rebind, :stock_create]),
               # 40 codepoints <= 160 bytes, inside every route's raw_max/1.
               raw <- string(:printable, min_length: 1, max_length: 40)
             ) do
@@ -162,9 +174,10 @@ defmodule Letflow.IdempotencyTest do
     end
 
     test "from_header/4 refuses them on every route" do
-      for raw <- @invalid_raws, route <- [:inst_start, :inst_cancel, :inst_rebind] do
+      for raw <- @invalid_raws,
+          route <- [:inst_start, :inst_cancel, :inst_rebind, :stock_create] do
         c = conn(:post, "/") |> put_req_header("idempotency-key", raw)
-        instance = if route == :inst_start, do: nil, else: @instance
+        instance = if route in [:inst_cancel, :inst_rebind], do: @instance, else: nil
 
         assert {:error, :idempotency_key_invalid} =
                  Idempotency.from_header(c, route, @actor, instance)
@@ -218,6 +231,10 @@ defmodule Letflow.IdempotencyTest do
 
       assert {:ok, "client:inst_cancel:#{@actor}:#{@instance}:K"} ==
                Idempotency.from_header(c, :inst_cancel, @actor, @instance)
+
+      # REQ-846
+      assert {:ok, "client:stock_create:#{@actor}:K"} ==
+               Idempotency.from_header(c, :stock_create, @actor, nil)
     end
 
     test "over the route's limit is refused, never truncated" do

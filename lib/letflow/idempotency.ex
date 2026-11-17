@@ -14,6 +14,7 @@ defmodule Letflow.Idempotency do
     * `client:inst_start:<actor>:<K>` -- instance start (header)
     * `client:inst_cancel:<actor>:<instance_id>:<K>` -- cancel (header)
     * `client:inst_rebind:<actor>:<instance_id>:<K>` -- pin rebind (header)
+    * `client:stock_create:<actor>:<K>` -- stock document create (header, REQ-846)
     * `script:<actor>:<K>` -- Lua `platform.emit_event/3`
 
   A raw key over `raw_max/1` bytes is refused (a stable 422 `max_length`, or
@@ -44,7 +45,7 @@ defmodule Letflow.Idempotency do
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
 
-  @type route :: :rec | :inst_start | :inst_cancel | :inst_rebind
+  @type route :: :rec | :inst_start | :inst_cancel | :inst_rebind | :stock_create
 
   @type resolved :: %{key: String.t(), legacy_raw: String.t() | nil}
 
@@ -95,7 +96,7 @@ defmodule Letflow.Idempotency do
 
   @doc "The largest accepted raw caller key, in bytes, for `route`."
   @spec raw_max(route() | :script) :: 199 | 162
-  def raw_max(route) when route in [:rec, :inst_start, :script], do: @raw_max_long
+  def raw_max(route) when route in [:rec, :inst_start, :stock_create, :script], do: @raw_max_long
   def raw_max(route) when route in [:inst_cancel, :inst_rebind], do: @raw_max_instance
 
   @doc """
@@ -106,7 +107,8 @@ defmodule Letflow.Idempotency do
   """
   @spec client_key(route(), Ecto.UUID.t(), Ecto.UUID.t() | nil, String.t()) :: String.t()
   def client_key(route, actor_id, nil, raw)
-      when route in [:rec, :inst_start] and is_binary(actor_id) and byte_size(actor_id) == 36 and
+      when route in [:rec, :inst_start, :stock_create] and is_binary(actor_id) and
+             byte_size(actor_id) == 36 and
              is_binary(raw) and byte_size(raw) > 0 and byte_size(raw) <= @raw_max_long do
     "client:" <> route_token(route) <> ":" <> actor_id <> ":" <> raw
   end
@@ -248,6 +250,7 @@ defmodule Letflow.Idempotency do
   defp route_token(:inst_start), do: "inst_start"
   defp route_token(:inst_cancel), do: "inst_cancel"
   defp route_token(:inst_rebind), do: "inst_rebind"
+  defp route_token(:stock_create), do: "stock_create"
 
   # Checked before any length check or DB access: an invalid key never reaches
   # the legacy SELECT or an append.

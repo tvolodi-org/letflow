@@ -1024,7 +1024,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-834 (0090): the per-tenant negative balance setting table, created empty (no row =
     # refuse), and the database check on_hand >= 0 dropped; no existing row is altered.
     {20_261_117_100_001, Letflow.Repo.Migrations.CreateNegativeBalanceSettings,
-     "20261117100001_create_negative_balance_settings.exs"}
+     "20261117100001_create_negative_balance_settings.exs"},
+    # REQ-846 / GH #4560: per-tenant idempotency table for POST /modules/stock/documents.
+    # Existing documents have no row here; existing QA tenants need replay_migrations/1.
+    {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
+     "20261117200001_create_stock_create_idempotency.exs"}
   ]
 
   @doc """
