@@ -6,14 +6,14 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   from the `stock` ledger registration, not a second literal) before the clock nor more than 5 minutes
   after it; the boundaries are accepted, one second beyond is refused (`event_time_too_old`,
   `event_time_in_future`). `masters/2` runs the master checks of decision 0073 D-P (`declare/2` reads no
-  master data; the ledger's own master validation is slice L7), in the order of the entry, and stops at
+  master data; the master checks at posting are in the stock handlers, REQ-832), in the order of the entry, and stops at
   the first failure: the org unit and the location are linked (`not_linked`), the responsible employee is
   active (`employee_not_active`), a given counterparty is a live active `catalog_counterparty`
   (`counterparty_not_active`), then per line in `line_no` order the unit is valid for the item
   (`unit_not_valid`) and a given lot belongs to the item (`lot_not_valid`). A failure carries the
   reason and, for a line check, its `line_no`; for a two-sided kind (REQ-721) the from side is checked
-  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is not
-  caught until L7 (runbook).
+  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is caught
+  at posting by the stock handlers (REQ-832, runbook).
 
   REQ-714 / GH #3747: `received_on/2` refuses a real receipt date after the event day (local date in the
   constant zone `Asia/Almaty`, read from PostgreSQL because the project has no Elixir tz database;
