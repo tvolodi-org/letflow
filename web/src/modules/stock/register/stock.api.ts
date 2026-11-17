@@ -56,6 +56,8 @@ export const stockApi = {
   balances: (params: Record<string, string>) => client.get<BalancesPageBody>(`${BASE}/balances`, params),
   /** The xlsx file of the first page of the balances (one page per file); same filters and day as the screen. */
   balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),
+  /** REQ-866: the whole current stock as one xlsx in the Qoimeks import layout; no query key (the route refuses any). */
+  stockWorkbook: () => client.getBlob(`${BASE}/stock-workbook`),
   /** T-1417: the stock card (official form Z-3) of one item at one place; `lot` optional. */
   stockCard: (params: Record<string, string>) => client.getBlob(`${BASE}/stock-card/print`, params),
   stockSheet: (params: Record<string, string>) => client.getBlob(`${BASE}/stock-sheet/print`, params),
