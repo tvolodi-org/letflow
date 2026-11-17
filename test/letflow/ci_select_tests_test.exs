@@ -17,7 +17,7 @@ defmodule Letflow.CiSelectTestsTest do
   defp select(files, extra \\ []) do
     plan = Path.join(System.tmp_dir!(), "sel_plan_#{System.unique_integer([:positive])}.txt")
     input = Enum.join(files, "\n") <> "\n"
-    base = ["--event", "merge_group", "--commits-since-full", "2", "--plan-out", plan]
+    base = ["--event", "merge_group", "--plan-out", plan]
 
     {out, 0} =
       System.cmd(
@@ -69,8 +69,7 @@ defmodule Letflow.CiSelectTestsTest do
           ".github/workflows/ci.yml",
           "scripts/ci_select_tests.py",
           "test/shard_manifest.txt",
-          "lib/letflow/ledger/entry.ex",
-          "lib/letflow/authorization.ex"
+          "lib/letflow/ledger/entry.ex"
         ] do
       {kv, _} = select([@leaf, p])
       assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
@@ -81,7 +80,6 @@ defmodule Letflow.CiSelectTestsTest do
   test "S3b: module-write authorization and module installs run the full suite (T-1403)" do
     for p <- [
           "lib/letflow/modules/installs.ex",
-          "lib/letflow/modules/ledger_registration.ex",
           "lib/letflow/modules/tenant_module.ex",
           "lib/letflow/entities/handler_writes.ex",
           "lib/letflow/engine.ex",
@@ -148,23 +146,6 @@ defmodule Letflow.CiSelectTestsTest do
     end
 
     assert {%{"mode" => "full"}, _} = select([])
-  end
-
-  test "S6: the 10th merge since the last green full run is full; unknown counter is full" do
-    {kv, _} = select([@leaf], ["--commits-since-full", "10"])
-    assert kv["mode"] == "full"
-    assert kv["reason"] =~ "10 merges since"
-
-    {kv, _} = select([@leaf], ["--commits-since-full", "9"])
-    assert kv["mode"] == "selective"
-
-    {out, 0} =
-      System.cmd("bash", ["-c", "echo #{@leaf} | python3 -I #{@script} --event merge_group"],
-        cd: @root
-      )
-
-    assert out =~ "mode=full"
-    assert out =~ "counter unknown"
   end
 
   test "S7: a forced full run (red main fix group) and a selection error are full" do
@@ -283,7 +264,6 @@ defmodule Letflow.CiSelectTestsTest do
     } do
       assert yml =~ "scripts/ci_select_tests.py"
       assert yml =~ "vars.CI_SELECTIVE"
-      assert yml =~ "ci-full-green"
       assert yml =~ "ci-main-red"
       assert yml =~ "main full CI red"
       assert yml =~ "TEST_PARALLEL_PLAN"
@@ -293,7 +273,6 @@ defmodule Letflow.CiSelectTestsTest do
 
     test "docs describe the scheme" do
       doc = File.read!(Path.join([@root, "docs", "merge" <> "-queue.md"]))
-      assert doc =~ "ci-full-green"
       assert doc =~ "ci-main-red"
       assert doc =~ "CI_SELECTIVE"
     end
@@ -390,5 +369,25 @@ defmodule Letflow.CiSelectTestsTest do
       # Two-module diff: not single-module mode; normal closure applies (still selective for small diffs).
       refute kv["reason"] =~ "single module", inspect(kv)
     end
+  end
+
+  # T-2141: files with names matching the old SENSITIVE_LIB_NAME_RE patterns now run selective
+  # with global pins instead of full suite.
+  test "S3f: ledger_registration.ex uses selective mode with global pins (T-2141)" do
+    p = "lib/letflow/modules/ledger_registration.ex"
+    {kv, plan} = select([p])
+    assert kv["mode"] == "selective", "expected selective, got #{inspect(kv)}"
+
+    assert Enum.any?(
+             plan,
+             &String.ends_with?(&1, " test/letflow/modules/ledger_registration_test.exs")
+           ),
+           "ledger_registration_test not in plan"
+
+    assert Enum.any?(
+             plan,
+             &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
+           ),
+           "permission_matrix_test not in plan"
   end
 end

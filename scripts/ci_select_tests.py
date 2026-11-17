@@ -22,7 +22,7 @@ Why not `mix xref`: xref only sees compiled project sources (lib/), not test/*.e
 side of the map would need text matching anyway; and it needs a compile (about 1.5 min cold) in a
 job every other job waits for. The map here is a textual module-reference graph, deliberately
 OVER-approximate (a false dependency only runs one test more; a missed one is the risk the owner
-accepted, bounded by the full run every 10th merge):
+accepted, bounded by the nightly run):
   * a file F depends on module M (`Letflow.A.B`) when F contains the dotted token `Letflow.A.B`, or
     contains the last segment `B` as a capitalised word AND a dotted prefix of M with >= 2
     segments (`alias Letflow.A`, `alias Letflow.A.{B, C}`, `use Letflow.A.B`);
@@ -48,18 +48,23 @@ record_triggers floor). Other modules' tests are excluded. Reason line: "single 
 priv/modules/<m>/ files do not go through the lib closure (not Elixir modules) but do go through
 source-scanning. A diff spanning two modules falls back to the normal closure and does NOT apply the
 single-module exclusion; priv/modules/ spanning two modules raises Full (no closure path for them).
-Module-subdir lib files skip ROLE_GRANTS_RE and SENSITIVE_LIB_NAME_RE checks (after T-2136,
-each module's permission_matrix_test reads only that module's rows, so a role_grants change in a
-module only requires that module's tests plus the global pin set, not the full suite).
+Module-subdir lib files skip ROLE_GRANTS_RE checks (after T-2136, each module's
+permission_matrix_test reads only that module's rows, so a role_grants change in a module only
+requires that module's tests plus the global pin set, not the full suite).
+
+Global pins on any lib change (T-2141): SINGLE_MODULE_PIN_TESTS and SINGLE_MODULE_PIN_PREFIXES are
+added to every selective run that touches lib/ or priv/modules/, not just single-module mode. This
+replaces the SENSITIVE_LIB_NAME_RE full-suite rule; files with names like permission, authorization,
+scope_enforcement, ledger_registration now run selective with global pins.
 
 Full suite when: event is not pull_request/merge_group/push (nightly, workflow_dispatch), kill
-switch `off`, the counter is unknown or >= --every, no changed files, more than --max-files files,
+switch `off`, no changed files, more than --max-files files,
 a sensitive path (including, T-1403, the module-write authorization and module-install files: lib/letflow/engine.ex
-(Engine.authorize_module_writes), engine/entity_port*, modules/{install*,ledger_registration,tenant_module*},
+(Engine.authorize_module_writes), engine/entity_port*, modules/{install*,tenant_module*},
 entities/{handler_writes,entity_port*}, definitions/{module_writes,solution_pack_install}, routers/tenant_modules;
 other files under engine/ are floor-only: they do not hold the authorization), a deleted lib file, an unclassifiable file, a module named in config/, a lib
 file without a module, priv/modules/ spanning two modules, or the selection covers more than
---max-share of all tests.
+--max-share of all tests. The nightly run (schedule/workflow_dispatch) covers the full suite.
 """
 import argparse
 import math
@@ -75,16 +80,11 @@ SENSITIVE_RE = re.compile(
     r"test/shard_manifest\.txt$|lib/mix/|lib/letflow/(application|repo|repository|ledger|event_store|"
     r"release)(\.ex$|/))"
 )
-# Pins, permission atoms and matrices, tenant tables: anywhere under lib/ by name.
-SENSITIVE_LIB_NAME_RE = re.compile(
-    r"permission|authoriz|scope_enforc|route_polic|tenant_schema|tenant_template|"
-    r"migration|schema_registry|storage"
-)
 # T-1403: module-write authorization and module installs reach record triggers / handlers through the
 # engine at runtime, a path the textual module graph does not see (T-1371 broke
 # record_triggers/apply_test.exs in the merge queue after a green selective PR run).
 SENSITIVE_LIB_PATH_RE = re.compile(
-    r"^lib/letflow/(engine\.ex$|engine/entity_port|modules/(install|ledger_registration|tenant_module)|"
+    r"^lib/letflow/(engine\.ex$|engine/entity_port|modules/(install|tenant_module)|"
     r"entities/(handler_writes|entity_port)|definitions/(module_writes|solution_pack_install)|"
     r"routers/tenant_modules)"
 )
@@ -192,19 +192,13 @@ def module_of(path):
 
 
 def decide(changed, root, args, manifest_weights):
-    event, every = args.event, args.every
+    event = args.event
     if event not in ("pull_request", "merge_group", "push"):
         raise Full("event %s: nightly / manual runs always run the full suite" % event)
     if args.force_full:
         raise Full(args.force_full)
     if args.kill_switch.strip().lower() == "off":
         raise Full("kill switch CI_SELECTIVE=off")
-    if args.commits_since_full is None:
-        raise Full("no green full run marker reachable (counter unknown)")
-    if args.commits_since_full >= every:
-        raise Full(
-            "%d merges since the last green full run (limit %d)" % (args.commits_since_full, every)
-        )
     if not changed:
         raise Full("empty change list")
     if len(changed) > args.max_files:
@@ -228,16 +222,19 @@ def decide(changed, root, args, manifest_weights):
                 raise Full("sensitive lib path %s (module-write authorization / module installs)" % p)
             if SENSITIVE_IDENTITY_RE.search(p):
                 raise Full("sensitive lib path %s (identity role / permission seeding)" % p)
-            # T-2137: files under lib/letflow/modules/<m>/ skip ROLE_GRANTS_RE and
-            # SENSITIVE_LIB_NAME_RE; the global pin tests cover their cross-module effects.
+            # T-2137: files under lib/letflow/modules/<m>/ skip ROLE_GRANTS_RE;
+            # T-2141: top-level lib/letflow/modules/*.ex files also skip it (global pins cover their
+            # cross-module effects, e.g. ledger_registration.ex defines role_grants but its
+            # effects are covered by SINGLE_MODULE_PIN_TESTS).
             is_module_subdir = bool(MODULE_PATH_RE.match(p))
-            if not is_module_subdir:
+            is_modules_toplevel = (
+                p.startswith("lib/letflow/modules/") and "/" not in p[len("lib/letflow/modules/"):]
+            )
+            if not is_module_subdir and not is_modules_toplevel:
                 if not p.startswith("lib/letflow/design/") and ROLE_GRANTS_RE.search(
                     read(os.path.join(root, p)) or ""
                 ):
                     raise Full("sensitive lib path %s (defines role_grants)" % p)
-                if SENSITIVE_LIB_NAME_RE.search(p):
-                    raise Full("sensitive lib path %s (permission / pins / tenant tables)" % p)
             lib_changed.append(p)
         elif p.startswith("test/"):
             if p.endswith("_test.exs"):
@@ -379,15 +376,11 @@ def decide(changed, root, args, manifest_weights):
     if any(FLOOR_LIB_RE.search(p) for p in lib_changed):
         selected.update(t for t in all_tests if t.startswith(FLOOR_TEST_PREFIXES))
 
-    # T-2137: single-module additions — (b) all module tests, (c) global pins, exclusions.
+    # T-2137: single-module additions — (b) all module tests, exclusions.
     if sole_module:
         this_module_test_dir = "test/letflow/modules/%s/" % sole_module
         # (b) Every test file under this module's test directory.
         selected.update(t for t in all_tests if t.startswith(this_module_test_dir))
-        # (c) Global pin tests (cross-module constraints).
-        for pin in SINGLE_MODULE_PIN_TESTS:
-            selected.add(pin)
-        selected.update(t for t in all_tests if t.startswith(SINGLE_MODULE_PIN_PREFIXES))
         # Exclude tests in OTHER modules' subdirectories that the closure may have pulled via scanners.
         module_test_root = "test/letflow/modules/"
         selected = {
@@ -398,6 +391,16 @@ def decide(changed, root, args, manifest_weights):
         }
 
     selected &= test_set
+
+    # T-2141: global pin tests are added to any selective run with a lib change.
+    # They cover cross-module constraints (permission matrix, route scope, ledger registration)
+    # for changes to core or cross-cutting lib files, replacing the SENSITIVE_LIB_NAME_RE
+    # full-suite rule.
+    if lib_changed or priv_module_changed:
+        for pin in SINGLE_MODULE_PIN_TESTS:
+            if pin in test_set:
+                selected.add(pin)
+        selected.update(t for t in all_tests if t.startswith(SINGLE_MODULE_PIN_PREFIXES))
     if not selected:
         # a pure web/ or docs change: nothing for the backend shards; one cheap test keeps a shard honest
         return [], "no backend test is related to this change (web/apps/docs only)"
@@ -465,8 +468,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--event", default="")
     ap.add_argument("--kill-switch", default="")
-    ap.add_argument("--commits-since-full", type=int, default=None)
-    ap.add_argument("--every", type=int, default=10)
     ap.add_argument("--force-full", default="", help="reason string: run the full suite")
     ap.add_argument("--max-files", type=int, default=40)
     ap.add_argument("--max-closure", type=int, default=300)

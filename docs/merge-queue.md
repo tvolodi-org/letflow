@@ -25,10 +25,10 @@ temporarily. See the infrastructure runbook for the procedure.
 ## Selective backend tests (T-1297, item L-24)
 
 A pull-request, merge-group or push run executes only the backend test files related to the
-change; the whole suite runs on sensitive changes, every 10th merge and nightly. The required
-check names (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`), the 8-shard
-matrix and the docs-only rule are unchanged; the run summary prints `Backend tests: selective|full`
-and the reason.
+change; the whole suite runs on sensitive changes and nightly (schedule or workflow_dispatch).
+The required check names (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`),
+the 8-shard matrix and the docs-only rule are unchanged; the run summary prints
+`Backend tests: selective|full` and the reason.
 
 - **Selection**: `scripts/ci_select_tests.py` (job `changes`, step "Select backend tests"). It maps
   changed lib files to tests through a textual module-reference graph (dependents of the file and
@@ -37,28 +37,29 @@ and the reason.
   with nothing to do report success without work. `scripts/test_parallel.sh` reads the plan from
   `TEST_PARALLEL_PLAN`. Floor (T-1403): a change under `lib/letflow/engine*`, `record_triggers*` or
   `entities/` also selects all tests under `test/letflow/engine/` and `test/letflow/record_triggers/`.
+- **Global pins on any lib change** (T-2141): `SINGLE_MODULE_PIN_TESTS` (permission matrix, route
+  scope, ledger registration, engine floor) are added to every selective run that touches `lib/` or
+  `priv/modules/`. Files with names like `permission`, `authorization`, `scope_enforcement`,
+  `ledger_registration`, `migration`, or `storage` now run selective with global pins instead of
+  the full suite.
 - **Full suite** when: a sensitive path changes (migrations, `priv/`, `config/`, `mix.exs`,
-  `mix.lock`, `test/support`, `.github/`, `scripts/`, the shard manifest, permission, ledger,
-  event-store and storage code, and, T-1403, module-write authorization and module installs:
-  `lib/letflow/engine.ex`, `engine/entity_port*`, `modules/{install*,ledger_registration,tenant_module*}`,
+  `mix.lock`, `test/support`, `.github/`, `scripts/`, the shard manifest,
+  event-store and app-infrastructure code, and, T-1403, module-write authorization and module installs:
+  `lib/letflow/engine.ex`, `engine/entity_port*`, `modules/{install*,tenant_module*}`,
   `entities/{handler_writes,entity_port*}`, `definitions/{module_writes,solution_pack_install}`,
   `routers/tenant_modules`; other files under `engine/` get only the floor above), more than 40 files change, the lib closure is over 300 files or
   the selection covers over 55% of the tests, a lib file is removed, the selection errors, the
-  repository variable `CI_SELECTIVE` is `off` (kill switch), the event is the nightly schedule or
-  `workflow_dispatch`, or 10 or more commits came in since the last green full run.
+  repository variable `CI_SELECTIVE` is `off` (kill switch), or the event is the nightly schedule or
+  `workflow_dispatch`.
 - **Probe PR** (T-1311): a pull request whose head branch starts with `selective-probe/` ignores
   the kill switch, so selective mode is allowed for it while `CI_SELECTIVE` is `off`. Open one with
   a one-line `lib/` change to see a real selective run pass before turning the variable back on.
   The step writes its outputs with `scripts/ci_emit_outputs.sh` (the multi-line `plan` value ends
   with a newline before its delimiter, which the runner requires).
-- **Counter** (no database): the tag `ci-full-green` points at the last main commit whose full
-  backend run was green; job `full_run_marker` moves it forward after a green full run on main
-  (push, nightly, dispatch). The runs count `git rev-list --count ci-full-green..HEAD`; a missing
-  or non-ancestor tag counts as unknown and runs everything.
 - **Red main**: a failing backend run on main sets the tag `ci-main-red`. Merge-group runs then
   fail fast with "main full CI red" until a fix lands. A queue entry whose commit subject starts
   with `fix` (or carries `[main-fix]`) runs the full suite and may land; the next green run of a
   descendant commit deletes the tag. Operator escape: `git push origin :refs/tags/ci-main-red`.
-- **Accepted risk**: two modules can break each other and stay hidden until the next full run
-  (at most 10 merges). Not visible to the map: Postgres triggers, migrations, pins, config-selected
-  modules, docs checks, hence the sensitive list and the periodic full run.
+- **Accepted risk**: two modules can break each other and stay hidden until the next nightly run.
+  Not visible to the map: Postgres triggers, migrations, pins, config-selected modules, docs checks,
+  hence the sensitive list and the nightly full run.
