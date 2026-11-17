@@ -474,6 +474,57 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
     end
   end
 
+  describe "byte bounds (INV-8)" do
+    @tag timeout: 60_000
+    test "T-WI-10 one huge shared string in many cells is refused fast, not normalised" do
+      big = String.duplicate("ab ", 350_000)
+      rows = for _ <- 1..20, do: [big, big, 1]
+      bytes = book(rows)
+      assert byte_size(bytes) < 100_000
+
+      {micros, result} = :timer.tc(fn -> WI.parse(bytes) end)
+      assert result == {:error, :workbook_too_large}
+      assert micros < 2_000_000
+    end
+
+    test "T-WI-11 a cell over its byte cap refuses the file, one at the cap does not" do
+      ok = String.duplicate("a", 256)
+      assert {:ok, %{rows_read: 1}} = WI.parse(book([[ok, "n", 1]]))
+      assert WI.parse(book([[ok <> "a", "n", 1]])) == {:error, :workbook_too_large}
+      assert {:ok, %{rows_read: 1}} = WI.parse(book([["A-1", String.duplicate("n", 512), 1]]))
+
+      assert WI.parse(book([["A-1", String.duplicate("n", 513), 1]])) ==
+               {:error, :workbook_too_large}
+
+      assert WI.parse(book([["A-1", "n", String.duplicate("1", 65)]])) ==
+               {:error, :workbook_too_large}
+
+      assert WI.parse(book([["A-1", "n", 1, String.duplicate("z", 257)]])) ==
+               {:error, :workbook_too_large}
+
+      # column G is not read, so its length is not a reason
+      assert {:ok, %{rows_read: 1}} =
+               WI.parse(book([["A-1", "n", 1, nil, nil, nil, String.duplicate("g", 5000)]]))
+    end
+
+    test "T-WI-12 a long cell above the header is skipped, never normalised" do
+      big = String.duplicate("x y ", 100_000)
+      bytes = xlsx!([[big], [big, big], @header, ["Z-1", "Один", 7]])
+      assert {:ok, %{rows_read: 1, rows: [%{article: "Z-1"}]}} = WI.parse(bytes)
+    end
+
+    test "T-WI-13 the row cap is checked on cheap counts before any row is read" do
+      Application.put_env(:letflow, :stock_workbook_import_max_rows, 2)
+
+      try do
+        rows = for i <- 1..3, do: ["Z-#{i}", "n", 1]
+        assert WI.parse(book(rows)) == {:error, :workbook_too_large}
+      after
+        Application.delete_env(:letflow, :stock_workbook_import_max_rows)
+      end
+    end
+  end
+
   describe "docs" do
     test "T-WI-9 runbook and moduledoc name the route and the remarks" do
       runbook = File.read!("docs/runbooks/stock-workbook-import.md")

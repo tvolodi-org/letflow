@@ -27,6 +27,10 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
 
   Remarks R1 to R11 are Russian texts, see `docs/runbooks/stock-workbook-import.md`.
 
+  Byte bounds (INV-8): before any normalising, a read cell over its byte cap (256; 512 for B; 64
+  for C), a total of the read cells over 2 MiB, or more filled rows than the row cap refuses the
+  whole file as `:workbook_too_large`. Shared strings make the file smaller than its text.
+
   Test seams (each can only lower its cap): `:stock_workbook_import_max_rows` (10 000 data rows)
   and `:stock_workbook_import_max_changes` (1000, the line cap of `Documents.Shape`);
   `:stock_workbook_balance_page` (the REQ-865 page seam) is shared.
@@ -39,6 +43,13 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   alias Letflow.Modules.Stock.Views
 
   @max_rows 10_000
+  # Byte bounds on the cell text, checked before any per-character work (T-2041, INV-8). A shared
+  # string is passed by reference, so the inflate cap of the reader does not bound the text.
+  @max_cell_bytes 256
+  @max_name_bytes 512
+  @max_quantity_bytes 64
+  @max_header_bytes 64
+  @max_total_bytes 2_097_152
   @max_changes 1000
   @balance_page 200
   @header "Артикул"
@@ -85,6 +96,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   def parse(bytes) when is_binary(bytes) do
     with {:ok, sheet, lines} <- read(bytes),
          {:ok, after_header} <- after_header(lines),
+         :ok <- bound(after_header),
          data = Enum.filter(after_header, &data_row?/1),
          :ok <- cap(data) do
       {:ok, %{sheet: sheet, rows_read: length(data), rows: Enum.map(data, &to_row/1)}}
@@ -101,11 +113,56 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   end
 
   defp after_header(lines) do
-    case Enum.drop_while(lines, fn {_line, cells} -> collapse(cell(cells, 0)) != @header end) do
+    case Enum.drop_while(lines, fn {_line, cells} -> not header?(cell(cells, 0)) end) do
       [] -> {:error, :header_missing}
       [_header | rest] -> {:ok, rest}
     end
   end
+
+  # A header cell is short: anything longer than the bound is not the header and is never normalised.
+  defp header?(text), do: byte_size(text) <= @max_header_bytes and collapse(text) == @header
+
+  # Cheap checks only (byte_size, == ""), before collapse/1: the read cells of the rows after the
+  # header are each under their byte cap and under a total cap, and the rows that carry an A and a
+  # B cell are counted against the row cap. Otherwise the whole file is refused.
+  defp bound(lines) do
+    result =
+      Enum.reduce_while(lines, {0, 0}, fn {_line, cells}, {total, rows} ->
+        read = Enum.take(cells, 8)
+
+        with true <- within_caps?(read),
+             sum = total + read_bytes(read),
+             true <- sum <= @max_total_bytes do
+          {:cont, {sum, rows + if(filled?(read), do: 1, else: 0)}}
+        else
+          _ -> {:halt, :too_large}
+        end
+      end)
+
+    case result do
+      {_total, rows} -> if rows > max_rows(), do: {:error, :workbook_too_large}, else: :ok
+      :too_large -> {:error, :workbook_too_large}
+    end
+  end
+
+  # Columns A B C D E F (G is not read) H.
+  defp within_caps?(cells) do
+    cells
+    |> Enum.with_index()
+    |> Enum.all?(fn {text, index} -> index == 6 or byte_size(text) <= cell_cap(index) end)
+  end
+
+  defp cell_cap(1), do: @max_name_bytes
+  defp cell_cap(2), do: @max_quantity_bytes
+  defp cell_cap(_), do: @max_cell_bytes
+
+  defp read_bytes(cells) do
+    cells
+    |> Enum.with_index()
+    |> Enum.reduce(0, fn {t, i}, acc -> if i == 6, do: acc, else: acc + byte_size(t) end)
+  end
+
+  defp filled?(cells), do: byte_size(cell(cells, 0)) > 0 and byte_size(cell(cells, 1)) > 0
 
   defp data_row?({_line, cells}),
     do: collapse(cell(cells, 0)) != "" and collapse(cell(cells, 1)) != ""
@@ -334,7 +391,13 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   end
 
   defp build(parsed, org_unit_id, prefix, items, locations, book) do
-    ctx = %{unit: org_unit_id, prefix: prefix, locs: locations, book: book}
+    ctx = %{
+      unit: org_unit_id,
+      prefix: prefix,
+      locs: locations,
+      book: book,
+      uoms: uom_codes(parsed.rows, items, prefix)
+    }
 
     results =
       parsed.rows
@@ -355,6 +418,20 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
       "unchanged_count" => results |> Enum.map(& &1.unchanged) |> Enum.sum(),
       "too_many_changes" => length(changes) > max_changes()
     }
+  end
+
+  # The code of each base unit of the articles in the file, one read per unit (not per balance row).
+  defp uom_codes(rows, items, prefix) do
+    rows
+    |> Enum.map(&get_in(items, [&1.article, "base_uom_id"]))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Map.new(fn id ->
+      case CatalogItems.lookup(prefix, id) do
+        {:ok, uom} -> {id, uom["code"]}
+        _ -> {id, nil}
+      end
+    end)
   end
 
   defp group_by_article(rows) do
@@ -431,11 +508,8 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
 
   # The ledger's unit_ref is the unit's id or its code.
   defp base_unit?(row, item, ctx) do
-    row.unit_ref == item["base_uom_id"] or
-      case CatalogItems.lookup(ctx.prefix, item["base_uom_id"]) do
-        {:ok, uom} -> uom["code"] == row.unit_ref
-        _ -> false
-      end
+    code = Map.get(ctx.uoms, item["base_uom_id"])
+    row.unit_ref == item["base_uom_id"] or (code != nil and code == row.unit_ref)
   end
 
   defp plain?(row, item, ctx) do
