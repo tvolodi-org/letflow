@@ -11,7 +11,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningChecks do
   the receipt), `lot_not_valid`, `received_on_in_future` (the real receipt date is after `today`).
   `today` is the local date of the clock in the module zone, taken once by the caller from
   `Checks.event_day/1`; this module holds no zone constant and no clock. A master retired between
-  this check and the posting is not caught until slice L7 (runbook).
+  this check and the posting is caught at posting by the stock handlers (REQ-832, runbook).
   """
 
   alias Letflow.Modules.CatalogItems

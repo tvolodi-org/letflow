@@ -261,8 +261,8 @@ defmodule Letflow.Modules.Stock.NegativeBalanceTest do
     assert reg.causes["opening"].sign_rule == :positive
   end
 
-  test "NB-7c the module version is above the one of origin/main (0.17.0)", _ctx do
+  test "NB-7c the module version is above the one of origin/main (0.18.0)", _ctx do
     {:ok, version} = Version.parse(Letflow.Modules.Stock.manifest().version)
-    assert Version.compare(version, Version.parse!("0.17.0")) == :gt
+    assert Version.compare(version, Version.parse!("0.18.0")) == :gt
   end
 end
