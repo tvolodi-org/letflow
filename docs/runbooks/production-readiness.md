@@ -97,6 +97,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_REALM_USERS_PROVISIONER_URL` | only when realm users are enabled | nothing written; set together with the flag and the token or not at all, otherwise raises | `config/runtime.exs` (REQ-807) |
 | `LETFLOW_RUNTIME_DEMO_RELEASE` | no | default value 0.1.0 (no effect unless the build included the QA-only demo module) | `config/runtime.exs`, `Letflow.Modules.RuntimeDemo` |
 | `LETFLOW_SECRETS_MASTER_KEY` | yes (every environment) | raises at boot; must be a secret of 64 lowercase hex characters, not all zeros or all ones; no default exists | `config/runtime.exs`, `docs/migration/decisions/0016-secrets-storage-backend.md` |
+| `LETFLOW_SHARED_STOCK_ACCESS_TENANTS` | no | default value: empty list, so no tenant may hold a shared stock access; a comma-separated list of tenant slugs, read at every call (QA only) | `config/runtime.exs`, `Letflow.SharedStockAccess` (REQ-858) |
 | `LETFLOW_SIGNUP_ABANDON_DAYS` | no | default value 7 | `config/runtime.exs` (decision 0084) |
 | `LETFLOW_SIGNUP_ALLOW_DOMAINS` | no | default value: empty list | `config/runtime.exs` (decision 0084) |
 | `LETFLOW_SIGNUP_BASE_URL` | only when sign-up is enabled | nil; with sign-up enabled outside dev and test a value that is not an https URL raises | `config/runtime.exs` (decision 0084) |
