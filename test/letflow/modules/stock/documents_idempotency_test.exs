@@ -48,10 +48,13 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
     })
   end
 
-  # Sends POST /documents with an optional idempotency-key header.
+  # Sends POST /documents with an optional idempotency-key header. `body` is a map (encoded
+  # here) or an already-encoded JSON string (sent as given, byte for byte).
   defp create(token, body, key \\ nil) do
+    raw = if is_binary(body), do: body, else: Jason.encode!(body)
+
     conn =
-      Plug.Test.conn(:post, "/api/v1/modules/stock/documents", Jason.encode!(body))
+      Plug.Test.conn(:post, "/api/v1/modules/stock/documents", raw)
       |> put_req_header("authorization", "Bearer " <> token)
       |> put_req_header("content-type", "application/json")
 
@@ -119,23 +122,25 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
         ]
       }
 
-      # Same map, different insertion order on the wire.
-      body2 = %{
-        "note" => "d",
-        "kind" => "receipt",
-        "lines" => [
-          %{"quantity" => "1", "catalog_uom_id" => ma.uom, "catalog_item_id" => ma.item}
-        ],
-        "counterparty_id" => ma.supplier,
-        "event_time" => body1["event_time"],
-        "location_id" => ma.location,
-        "org_unit_id" => ma.unit,
-        "responsible_id" => ma.employee
-      }
+      raw1 = Jason.encode!(body1)
+
+      # The same document as a hand-built JSON string: top-level keys and the line's keys in
+      # another order, extra whitespace. An Elixir map has no key order, so only a raw string
+      # puts different bytes on the wire.
+      raw2 =
+        ~s({ "note": "d",\n  "kind": "receipt",\n  "lines": [ {"quantity": "1", ) <>
+          ~s("catalog_uom_id": "#{ma.uom}", "catalog_item_id": "#{ma.item}"} ],\n  ) <>
+          ~s("counterparty_id": "#{ma.supplier}", "event_time": "#{body1["event_time"]}", ) <>
+          ~s("location_id": "#{ma.location}", "org_unit_id": "#{ma.unit}", ) <>
+          ~s("responsible_id": "#{ma.employee}" })
+
+      # the bytes really differ, the documents do not
+      refute raw2 == raw1
+      assert Jason.decode!(raw2) == body1
 
       {r0, d0} = counts(ctx.a.schema_name)
-      first = create(ctx.tok_a, body1, k) |> status!(201) |> body!()
-      second = create(ctx.tok_a, body2, k) |> status!(201) |> body!()
+      first = create(ctx.tok_a, raw1, k) |> status!(201) |> body!()
+      second = create(ctx.tok_a, raw2, k) |> status!(201) |> body!()
       {r1, d1} = counts(ctx.a.schema_name)
 
       assert strip(second) == strip(first)

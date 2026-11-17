@@ -1026,7 +1026,7 @@ defmodule Letflow.TenantProvisioning do
     {20_261_117_100_001, Letflow.Repo.Migrations.CreateNegativeBalanceSettings,
      "20261117100001_create_negative_balance_settings.exs"},
     # REQ-846 / GH #4560: per-tenant idempotency table for POST /modules/stock/documents.
-    # Existing documents have no row here; existing QA tenants need replay_migrations/1.
+    # Existing documents have no row here; existing tenants get it from the boot replay (MigrationReplayBoot, ISS-0771).
     {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
      "20261117200001_create_stock_create_idempotency.exs"}
   ]

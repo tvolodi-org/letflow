@@ -18,8 +18,11 @@ defmodule Letflow.Idempotency do
     * `script:<actor>:<K>` -- Lua `platform.emit_event/3`
 
   A raw key over `raw_max/1` bytes is refused (a stable 422 `max_length`, or
-  `invalid_arguments` for a script), never truncated, so a stored key always
-  fits `varchar(255)`. A raw key that is not valid UTF-8 or contains a NUL
+  `invalid_arguments` for a script), never truncated, so a stored key fits
+  `varchar(255)` -- with one exception: a `:stock_create` key reaches 256 bytes
+  and fits only the dedicated `stock_create_idempotency.key` `varchar(256)`
+  column, so it must never be passed to the event store
+  (`event_idempotency.key` is `varchar(255)`). A raw key that is not valid UTF-8 or contains a NUL
   byte is refused first, before any database access (a stable 422 `format`,
   or `invalid_arguments` for a script); both refusals are
   `{:error, :idempotency_key_invalid}` / `{:error, :idempotency_key_too_long}`

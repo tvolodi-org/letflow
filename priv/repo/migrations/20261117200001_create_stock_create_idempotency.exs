@@ -22,8 +22,9 @@
 #
 # Existing documents and already-deployed QA tenants: the new table is empty
 # on creation; documents created before this migration have no row here and
-# keep today's server-minted key behaviour.  An operator runs
-# `TenantProvisioning.replay_migrations/1` per tenant to apply the migration.
+# keep today's server-minted key behaviour.  The migration is applied to existing
+# tenants by the boot replay (`MigrationReplayBoot`, ISS-0771); a tenant whose
+# replay failed is listed by `TenantProvisioning.list_replay_failures/0`.
 defmodule Letflow.Repo.Migrations.CreateStockCreateIdempotency do
   use Ecto.Migration
 
