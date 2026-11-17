@@ -8,6 +8,7 @@ import { useIntl } from 'react-intl'
 import { formatMoney } from '@/lib/formatDecimal'
 import { formatQuantity } from '@/lib/formatQuantity'
 import { DocCard } from '@/components/ui/doc/DocLayout'
+import { Banner } from '@/components/ui/Banner'
 import { LFLinesEditor } from '@/components/ui/lines/LFLinesEditor'
 import { ItemPicker } from '@/components/ui/lines/ItemPicker'
 import { normalizeDecimal } from '@/components/ui/lines/pasteRows'
@@ -81,6 +82,8 @@ export function LinesEditor(props: {
   showErrors?: boolean
   readOnly?: boolean
   noPermission?: boolean
+  /** REQ-838: zero-based line indexes whose lowering total exceeds the exact on-hand key. Never a validation error. */
+  negativeBalanceLines?: ReadonlySet<number>
   /** Rendered inside the card, under the editor. */
   footer?: ReactNode
   /** Import from Excel (opening documents): the route writes the lines of the saved draft, so the screen reloads them. */
@@ -229,6 +232,13 @@ export function LinesEditor(props: {
   return (
     <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-card">
       {anyPickerTruncated(itemOpts, uoms, locations, employees) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
+      {[...(props.negativeBalanceLines ?? [])].map((index) => (
+        <div key={index} data-testid="negative-balance-warning" data-line={index + 1}>
+          <Banner tone="warning" title={t('stock.doc.error.line', { line: index + 1 })}>
+            {t('stock.doc.negativeBalance')}
+          </Banner>
+        </div>
+      ))}
       <LFLinesEditor<LineForm>
         screenId="lf-stock-lines"
         resize={{ id: props.readOnly ? 'lines' : 'lines-edit', screen: DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs(kind) }}

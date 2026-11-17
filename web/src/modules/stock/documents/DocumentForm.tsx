@@ -24,8 +24,9 @@ import { usePickerOptions, anyPickerTruncated } from '../register/stockPickers'
 import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
 import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { stockQueryKeys } from '../register/stockQueryKeys'
-import { STOCK_POST } from '../stockPermissions'
+import { STOCK_POST, STOCK_READ } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
+import { useStockNegativeBalance } from './useStockNegativeBalance'
 import { LinesEditor } from './LinesEditor'
 import { sameLines } from './openingImport'
 import { SideGroup } from './SideGroup'
@@ -68,6 +69,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const tenantId = session?.tenant_id ?? ''
   const qc = useQueryClient()
   const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : emptyForm(kind)))
+  const negativeBalanceLines = useStockNegativeBalance(form, tenantId, can(STOCK_POST) && can(STOCK_READ))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [attempted, setAttempted] = useState(false)
@@ -326,7 +328,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
           )}
         </DocFields>
       </DocCard>
-      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} importer={importer} />
+      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} importer={importer} negativeBalanceLines={negativeBalanceLines} />
     </>
   )
 }
