@@ -1,13 +1,16 @@
 defmodule Letflow.Modules.Stock.Documents.CreateIdempotency do
   @moduledoc """
-  The per-tenant idempotency record for `POST /modules/stock/documents` (REQ-846).
+  The per-tenant idempotency record for the stock document routes: `POST /modules/stock/documents`
+  (REQ-846) and `POST /modules/stock/documents/:id/issue` and `/post` (REQ-847).
 
   One row per namespaced client key: `key` (the stored form, e.g.
-  `"client:stock_create:<actor_id>:<raw>"`), `document_id` (the document that
-  request created), and `body_hash` (SHA-256 hex of the canonical body). The
-  row is created inside the same transaction that creates the document and is
-  never updated or deleted: a replay either matches the hash and replays the
-  original result, or mismatches and answers 409 `idempotency_key_reuse`.
+  `"client:stock_create:<actor_id>:<raw>"`, family `stock_issue` or `stock_post` for the actions),
+  `document_id` (the document that request created, or acted on), and `body_hash` (SHA-256 hex of
+  the canonical body; for an action row the hash of the document id). A create row is written inside
+  the same transaction that creates the document; an issue or post row is written by
+  `ActionIdempotency` after the action succeeded, outside its transactions, under a per-key advisory
+  lock. A row is never updated or deleted: a replay either matches and replays the original result,
+  or mismatches and answers 409 `idempotency_key_reuse`.
   """
 
   use Ecto.Schema

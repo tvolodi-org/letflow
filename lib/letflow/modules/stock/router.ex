@@ -418,7 +418,7 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/issue", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_issue, access.actor_id, nil) do
+      with {:ok, idem_key} <- action_key(conn, :stock_issue, access) do
         opts = [
           activator: Letflow.Api.Context.activator(conn),
           authorized: read_authorized(conn),
@@ -431,8 +431,7 @@ defmodule Letflow.Modules.Stock.Router do
           200
         )
       else
-        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
-        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+        {:error, reason} -> refuse_action_key(conn, reason)
       end
     end)
   end
@@ -450,7 +449,7 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/post", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_post, access.actor_id, nil) do
+      with {:ok, idem_key} <- action_key(conn, :stock_post, access) do
         who = %{
           actor_id: access.actor_id,
           activator: Letflow.Api.Context.activator(conn),
@@ -461,8 +460,7 @@ defmodule Letflow.Modules.Stock.Router do
         fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
         render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
       else
-        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
-        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+        {:error, reason} -> refuse_action_key(conn, reason)
       end
     end)
   end
@@ -806,6 +804,30 @@ defmodule Letflow.Modules.Stock.Router do
         else: Response.not_found(conn)
     end)
   end
+
+  # REQ-847: the idempotency key of the issue and post routes. A malformed key (over-long, invalid)
+  # is a 422 only for a document the caller can read: `doc_write/4` lets an unknown id through to the
+  # handler (INV-5), so the caller's own fetch of the requested id runs FIRST and its refusal (the
+  # unknown-document 404) wins. The answer then does not depend on whether a document outside the
+  # caller's scope exists (decision 0051 D7: no 422 that reveals existence).
+  defp action_key(conn, family, access) do
+    case Idempotency.from_header(conn, family, access.actor_id, nil) do
+      {:ok, key} ->
+        {:ok, key}
+
+      {:error, reason} ->
+        authorized = read_authorized(conn)
+
+        case Documents.fetch(access.prefix, conn.params["id"], authorized) do
+          {:ok, _document} -> {:error, reason}
+          {:error, not_readable} -> {:error, {:fetch, not_readable}}
+        end
+    end
+  end
+
+  defp refuse_action_key(conn, {:fetch, reason}), do: refuse_document(conn, reason)
+  defp refuse_action_key(conn, :idempotency_key_too_long), do: idempotency_key_too_long(conn)
+  defp refuse_action_key(conn, :idempotency_key_invalid), do: idempotency_key_invalid(conn)
 
   # REQ-846 / REQ-831 (decision 0051 M9): a replayed create returns the STORED document, whose units
   # a tenant-wide replace may have moved out of a scoped creator's set after the first create. The

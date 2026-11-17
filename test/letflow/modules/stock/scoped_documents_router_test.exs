@@ -243,6 +243,27 @@ defmodule Letflow.Modules.Stock.ScopedDocumentsRouterTest do
       assert conn.status == 409
       assert S.json(conn)["reason"] == "idempotency_key_reuse"
     end
+
+    # D7 of decision 0051: no 422 that reveals existence. A malformed key is a 422 only for a
+    # document the caller can read; an unknown id and an out-of-scope one both stay the 404.
+    test "OR-3 issue and post: a malformed key is no existence oracle", ctx do
+      reference = unknown(ctx)
+      outside_draft = admin_doc!(ctx, ctx.mh)
+      outside_issued = issued_unstarted!(ctx, ctx.mh)
+      mine_draft = D.request(:post, "/documents", ctx.sk, D.body(ctx.ma)) |> P.status!(201)
+      mine_issued = issued_unstarted!(ctx, ctx.ma)
+
+      for bad <- [String.duplicate("k", 200), "k\0nul"] do
+        not_found!(keyed(ctx, Ecto.UUID.generate(), "issue", bad), reference)
+        not_found!(keyed(ctx, outside_draft["id"], "issue", bad), reference)
+        not_found!(keyed(ctx, Ecto.UUID.generate(), "post", bad), reference)
+        not_found!(keyed(ctx, outside_issued["id"], "post", bad), reference)
+
+        # a document the caller can read still gets the 422
+        assert keyed(ctx, mine_draft["id"], "issue", bad).status == 422
+        assert keyed(ctx, mine_issued["id"], "post", bad).status == 422
+      end
+    end
   end
 
   describe "two-sided kinds (mode on)" do
