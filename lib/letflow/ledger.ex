@@ -1276,7 +1276,8 @@ defmodule Letflow.Ledger do
   def registration_for(_ledger_id), do: :error
 
   @doc """
-  The only way to get a `Letflow.Ledger.Authorized` value. The principal is built here from the
+  The way to get a `Letflow.Ledger.Authorized` value for a principal (the other, credential-proved
+  path is `authorize_shared_access/3`, pinned to one caller by a scan test). The principal is built here from the
   conn (never supplied by the caller); the answer is the bare atom `:error` for every failure
   (INV-5): unknown ledger id, no principal, any credential other than an interactive one, a role
   without the registration's permission for `purpose`, a scoped (not tenant-wide) grant for
@@ -1316,6 +1317,41 @@ defmodule Letflow.Ledger do
   end
 
   def authorize(_conn, _ledger_id, _purpose), do: :error
+
+  @doc """
+  REQ-859 (decision 0091): the tenant-wide READ authorization of the shared stock access, which has
+  no `conn` principal. The ONLY caller is `Letflow.Routers.SharedStockAccess` (pinned by the source
+  scan test in `authorize_test.exs`, REQ-859 describe block), after it has proved
+  the credential of the tenant named in the path (hash match in that tenant's own schema, tenant
+  active, module installed, listed in the deployment setting); `prefix` and `tenant_id` come from
+  that proved tenant row, never from a request value. Always `scope: :all`, purpose `:read`; the
+  permission the registration names is the `StockRead` the credential holds (decision 0091
+  section 2). `:error` for an unknown ledger id.
+  """
+  @spec authorize_shared_access(String.t(), String.t(), String.t()) ::
+          {:ok, Authorized.t()} | :error
+  def authorize_shared_access(prefix, tenant_id, ledger_id)
+      when is_binary(prefix) and is_binary(tenant_id) and is_binary(ledger_id) do
+    with {:ok, entry} <- registration_for(ledger_id),
+         {:ok, _permission} <- permission_for(entry, :read),
+         {:ok, names} <- slot_names(entry) do
+      {:ok,
+       %Authorized{
+         prefix: prefix,
+         tenant_id: tenant_id,
+         ledger_id: ledger_id,
+         registration_name: entry.name,
+         purpose: :read,
+         slot_names: names,
+         scope: :all,
+         scope_col: scope_col(entry, names)
+       }}
+    else
+      _refused -> :error
+    end
+  end
+
+  def authorize_shared_access(_prefix, _tenant_id, _ledger_id), do: :error
 
   # The same value `Scope.principal_from_conn/1` verified the prefix against (REQ-704).
   defp auth_tenant_id(conn) do
