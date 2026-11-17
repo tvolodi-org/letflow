@@ -1,6 +1,7 @@
 // T-1499 (PWA M3): draining the queue.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:letflow/api/api_error.dart';
+import 'package:letflow/api/client_key.dart';
 import 'package:letflow/offline/offline_queue.dart';
 import 'package:letflow/offline/offline_sync.dart';
 import 'package:sembast/sembast_memory.dart';
@@ -21,7 +22,7 @@ void main() {
   });
 
   OfflineSyncService service(Object? Function(int n) behaviour) =>
-      OfflineSyncService(queue, (body) async {
+      OfflineSyncService(queue, (body, key) async {
         final n = body['n'] as int;
         sent.add(n);
         final r = behaviour(n);
@@ -81,6 +82,86 @@ void main() {
     await Future.wait([a, b]);
     expect(sent, [1, 2, 3]);
   });
+
+  test('S9: same key is used on retry after a network error', () async {
+    String? firstKey;
+    String? secondKey;
+    var calls = 0;
+    final q = await SembastOfflineDraftQueue.open(
+      'retry.db',
+      factory: newDatabaseFactoryMemory(),
+    );
+    await q.enqueue({'n': 1});
+
+    await OfflineSyncService(q, (body, key) async {
+      calls++;
+      firstKey = key;
+      throw const NetworkUnavailableError();
+    }).drain();
+    expect(calls, 1);
+    expect(firstKey, isNotNull);
+    expect(isClientKey(firstKey!), isTrue);
+
+    // Second drain: entry still in queue, same key must be used.
+    calls = 0;
+    await OfflineSyncService(q, (body, key) async {
+      calls++;
+      secondKey = key;
+    }).drain();
+    expect(calls, 1);
+    expect(secondKey, firstKey);
+  });
+
+  test('S10: 409 idempotency_key_reuse marks the entry rejected', () async {
+    final q = await SembastOfflineDraftQueue.open(
+      'idr.db',
+      factory: newDatabaseFactoryMemory(),
+    );
+    await q.enqueue({'n': 1});
+    await OfflineSyncService(q, (body, key) async {
+      throw const ConflictError(reason: 'idempotency_key_reuse');
+    }).drain();
+    final entry = (await q.all()).single;
+    expect(entry.rejection, 'idempotency_key_reuse');
+
+    // Not re-sent on a later pass.
+    var calls = 0;
+    await OfflineSyncService(q, (body, key) async => calls++).drain();
+    expect(calls, 0);
+  });
+
+  test('S11: pre-REQ-849 entry without key gets one on first send, same on second', () async {
+    final q = await SembastOfflineDraftQueue.open(
+      'legacy.db',
+      factory: newDatabaseFactoryMemory(),
+    );
+    // Insert a legacy entry with no clientKey.
+    await q.enqueueRaw(const QueuedDraft(
+      localId: 'legacy-1',
+      body: {'n': 99},
+      label: '',
+      createdAtMs: 1,
+    ));
+    expect((await q.all()).single.clientKey, isNull);
+
+    String? firstKey;
+    // First drain: network error — key should have been assigned.
+    await OfflineSyncService(q, (body, key) async {
+      firstKey = key;
+      throw const NetworkUnavailableError();
+    }).drain();
+    expect(firstKey, isNotNull);
+    expect(isClientKey(firstKey!), isTrue);
+    // The key is now persisted.
+    expect((await q.all()).single.clientKey, firstKey);
+
+    // Second drain: same key.
+    String? secondKey;
+    await OfflineSyncService(q, (body, key) async {
+      secondKey = key;
+    }).drain();
+    expect(secondKey, firstKey);
+  });
 }
 
 void conflictTests() {
@@ -94,7 +175,7 @@ void conflictTests() {
   });
 
   Future<QueuedDraft> drainWith(ApiError e) async {
-    await OfflineSyncService(queue, (_) async => throw e).drain();
+    await OfflineSyncService(queue, (_, _) async => throw e).drain();
     return (await queue.all()).single;
   }
 
@@ -120,7 +201,7 @@ void conflictTests() {
   test('S7: a refused entry is not touched by a later pass', () async {
     await drainWith(const ConflictError(reason: 'document_not_draft'));
     var calls = 0;
-    await OfflineSyncService(queue, (_) async => calls++).drain();
+    await OfflineSyncService(queue, (_, _) async => calls++).drain();
     expect(calls, 0);
     expect(await queue.count(), 1);
   });
@@ -146,7 +227,7 @@ void conflictTests() {
     await drainWith(const ConflictError());
     await queue.clearRejection((await queue.all()).single.localId);
     var calls = 0;
-    await OfflineSyncService(queue, (_) async => calls++).drain();
+  await OfflineSyncService(queue, (_, _) async => calls++).drain();
     expect(calls, 1);
   });
 }

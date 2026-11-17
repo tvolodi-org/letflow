@@ -8,12 +8,13 @@ import 'package:dio/dio.dart';
 import 'package:letflow/api/api_client.dart';
 
 class RecordedCall {
-  RecordedCall(this.method, this.path, this.query, this.data);
+  RecordedCall(this.method, this.path, this.query, this.data, {this.idempotencyKey});
 
   final String method;
   final String path;
   final Map<String, dynamic>? query;
   final Object? data;
+  final String? idempotencyKey;
 
   String get key => '$method $path';
 }
@@ -35,9 +36,10 @@ class FakeWriteGateway implements WriteCapableHttpGateway {
     String method,
     String path,
     Map<String, dynamic>? query,
-    Object? data,
-  ) async {
-    calls.add(RecordedCall(method, path, query, data));
+    Object? data, {
+    String? idempotencyKey,
+  }) async {
+    calls.add(RecordedCall(method, path, query, data, idempotencyKey: idempotencyKey));
     final list = script['$method $path'];
     if (list == null || list.isEmpty) {
       throw StateError('FakeWriteGateway: nothing scripted for $method $path');
@@ -81,4 +83,11 @@ class FakeWriteGateway implements WriteCapableHttpGateway {
   @override
   Future<Response<dynamic>> delete(String path) =>
       _answer('DELETE', path, null, null);
+
+  @override
+  Future<Response<dynamic>> postWithKey(
+    String path, {
+    Object? data,
+    String? key,
+  }) => _answer('POST', path, null, data, idempotencyKey: key);
 }
