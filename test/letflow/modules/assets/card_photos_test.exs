@@ -313,9 +313,10 @@ defmodule Letflow.Modules.Assets.CardPhotosTest do
     assert attachment_audits.() == audits
   end
 
-  test "R6 the hourly upload rate is enforced after replay checks", %{tmp_dir: tmp} do
+  test "R6 the hourly upload rate is enforced before image parse and scan", %{tmp_dir: tmp} do
     ctx = setup!()
     card = ctx.ma.fixed
+    # one real upload → one upload_events row; seed 59 more for the same actor
     first = upload!(ctx, card, tmp, 1)
     link = Repo.get_by!(Link, [id: first["id"]], prefix: ctx.schema)
     now = DateTime.utc_now()
@@ -324,20 +325,12 @@ defmodule Letflow.Modules.Assets.CardPhotosTest do
       for _ <- 1..59 do
         %{
           id: Ecto.UUID.bingenerate(),
-          tenant_id: Ecto.UUID.dump!(ctx.a.tenant_id),
-          owner_kind: "other_owner",
-          owner_id: Ecto.UUID.bingenerate(),
-          purpose: "photo",
-          position: 1,
-          is_main: false,
-          blob_id: Ecto.UUID.dump!(link.blob_id),
-          uploaded_by: Ecto.UUID.dump!(link.uploaded_by),
-          inserted_at: DateTime.add(now, -60, :second),
-          updated_at: now
+          actor_id: Ecto.UUID.dump!(link.uploaded_by),
+          inserted_at: DateTime.add(now, -60, :second)
         }
       end
 
-    Repo.insert_all("attachment_links", rows, prefix: ctx.schema)
+    Repo.insert_all("upload_events", rows, prefix: ctx.schema)
     assert reason(upload(ctx, card, tmp, 999), 429) == "upload_rate_exceeded"
   end
 
