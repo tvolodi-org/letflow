@@ -1,4 +1,4 @@
-/** REQ-855 harness screens: five states of the Quick count screen. */
+/** REQ-855 harness screens: quick count screen states for screenshots. */
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { QuickCountPageHarness } from '@/modules/stock/quickCount/QuickCountPage'
@@ -18,10 +18,14 @@ const rec = (id: string, type: string, fields: Record<string, unknown>): EntityR
 const MASTERS: Record<string, EntityRecord[]> = {
   catalog_item: [
     rec('i1', 'catalog_item', { name: 'Safety gloves (L)', base_uom_id: 'm1', lot_tracking_policy: 'none' }),
+    rec('i2', 'catalog_item', { name: 'Cardboard box A4', base_uom_id: 'm1', lot_tracking_policy: 'lot_tracked' }),
   ],
   location_node: [rec('l1', 'location_node', { name: 'Warehouse A' })],
   org_unit: [rec('u1', 'org_unit', { name: 'Procurement' })],
-  catalog_lot: [],
+  catalog_lot: [
+    rec('lot1', 'catalog_lot', { name: 'LOT-2026-001', item_id: 'i2' }),
+    rec('lot2', 'catalog_lot', { name: 'LOT-2026-002', item_id: 'i2' }),
+  ],
   catalog_uom: [rec('m1', 'catalog_uom', { name: 'pcs' })],
 }
 
@@ -47,8 +51,10 @@ function entitiesRoute(): FixtureRoute {
     reply: (_s, _p, body) => {
       const b = (body ?? {}) as { entity_type?: string; filters?: { field: string; op: string; value?: unknown }[] }
       const ids = b.filters?.find((f) => f.field === 'record_id')?.value
+      const itemId = b.filters?.find((f) => f.field === 'item_id')?.value
       let items = MASTERS[b.entity_type ?? ''] ?? []
       if (Array.isArray(ids)) items = items.filter((r) => ids.includes(r.record_id))
+      if (itemId) items = items.filter((r) => r.field_values['item_id'] === itemId)
       return { status: 200, body: { items, next_cursor: null } }
     },
   }
@@ -61,6 +67,21 @@ function balanceRoute(quantity: string): FixtureRoute {
       status: 200,
       body: { rows: [{ sku: 'i1', location: 'l1', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity }], next_cursor: null },
     }),
+  }
+}
+
+function balanceLoadingRoute(): FixtureRoute {
+  return {
+    match: (p, m) => p === '/api/v1/modules/stock/balances' && m === 'GET',
+    pending: true,
+    reply: () => ({ status: 200, body: { rows: [], next_cursor: null } }),
+  }
+}
+
+function balanceErrorRoute(): FixtureRoute {
+  return {
+    match: (p, m) => p === '/api/v1/modules/stock/balances' && m === 'GET',
+    reply: () => ({ status: 500, body: { type: 'about:blank', title: 'Internal error', status: 500 } }),
   }
 }
 
@@ -114,6 +135,17 @@ const FILLED_FORM = {
   reasonText: '',
 }
 
+// Form with lot-tracked item selected
+const LOT_FORM = {
+  itemId: 'i2',
+  locationId: 'l1',
+  orgUnitId: 'u1',
+  lotId: 'lot1',
+  countedQuantity: '5',
+  reasonCode: 'recount',
+  reasonText: '',
+}
+
 export const quickCountScreens: HarnessScreen[] = [
   // 1. Empty form (default state, no selections)
   {
@@ -131,7 +163,50 @@ export const quickCountScreens: HarnessScreen[] = [
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialForm={FILLED_FORM} />),
   },
-  // 3. Result after successful submit (four-eyes on = Approve button shown)
+  // 3. Filled form with balance loading (QueryStateBoundary loading skeleton)
+  {
+    name: 'stock-quick-count-balance-loading',
+    routes: [entitiesRoute(), balanceLoadingRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={FILLED_FORM} />),
+  },
+  // 4. Filled form with balance load error (QueryStateBoundary error state)
+  {
+    name: 'stock-quick-count-balance-error',
+    routes: [entitiesRoute(), balanceErrorRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={FILLED_FORM} />),
+  },
+  // 5. Lot-tracked item: Lot select visible
+  {
+    name: 'stock-quick-count-lot',
+    routes: [entitiesRoute(), balanceRoute('5')],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={LOT_FORM} />),
+  },
+  // 6. Reason 'other' with the reason text area visible
+  {
+    name: 'stock-quick-count-other',
+    routes: [entitiesRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={{ ...FILLED_FORM, reasonCode: 'other', reasonText: 'Found during annual audit.' }} />),
+  },
+  // 7. Validation errors: required fields empty + invalid quantity
+  {
+    name: 'stock-quick-count-validation',
+    routes: [entitiesRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness
+      initialForm={{ ...FILLED_FORM, itemId: '', countedQuantity: '-1' }}
+      initialFieldErrors={{ itemId: 'Fill in all required fields.', countedQuantity: 'The quantity cannot be negative.' }}
+    />),
+  },
+  // 8. Result after successful submit (four-eyes on = Approve button shown)
   {
     name: 'stock-quick-count-result',
     routes: [entitiesRoute(), tasksListRoute(), taskDetailRoute(true)],
@@ -139,7 +214,26 @@ export const quickCountScreens: HarnessScreen[] = [
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialResult={quickCountDoc} />),
   },
-  // 4. Refusal: count_in_progress error shown as banner
+  // 9. Approve error: result shown with approve-error banner
+  {
+    name: 'stock-quick-count-approve-error',
+    routes: [entitiesRoute(), tasksListRoute(), taskDetailRoute(true)],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness
+      initialResult={quickCountDoc}
+      initialApproveError="The count could not be submitted. Try again."
+    />),
+  },
+  // 10. Post-approval: "New count" button shown (approve already done, toast fired)
+  {
+    name: 'stock-quick-count-approved',
+    routes: [entitiesRoute(), tasksListRoute(), taskDetailRoute(true)],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialResult={quickCountDoc} initialApproved={true} />),
+  },
+  // 11. Refusal: count_in_progress error shown as banner
   {
     name: 'stock-quick-count-refusal',
     routes: [entitiesRoute()],
@@ -147,7 +241,7 @@ export const quickCountScreens: HarnessScreen[] = [
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialSubmitError={{ reason: 'count_in_progress', heldBy: 'QCT-2026-000001' }} />),
   },
-  // 5. Four-eyes hint: result shown but self_approval_allowed = false
+  // 12. Four-eyes hint: result shown but self_approval_allowed = false
   {
     name: 'stock-quick-count-four-eyes',
     routes: [entitiesRoute(), tasksListRoute(), taskDetailRoute(false)],

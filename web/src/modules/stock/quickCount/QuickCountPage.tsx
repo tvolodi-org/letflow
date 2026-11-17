@@ -2,6 +2,7 @@
  *  submit the count, and optionally approve it in-place (four-eyes rule). */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
@@ -11,6 +12,9 @@ import { Field } from '@/components/ui/Field'
 import { FormSection } from '@/components/ui/FormSection'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { useToast } from '@/hooks/useToast'
+import { documentStateTone } from '@/lib/documentStateTone'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockApi } from '../register/stock.api'
@@ -30,19 +34,26 @@ export interface QuickCountHarnessProps {
   initialForm?: Partial<QuickCountForm>
   initialResult?: QuickCountDocument
   initialSubmitError?: { reason?: string; heldBy?: string }
+  /** Show the post-approval state directly (toast already fired, New count button visible). */
+  initialApproved?: boolean
+  /** Pre-set field-level validation errors (for the validation-errors harness state). */
+  initialFieldErrors?: Partial<Record<keyof QuickCountForm, string>>
+  /** Pre-set approve-error message (for the approve-error harness state). */
+  initialApproveError?: string
 }
 
-function QuickCountInner({ initialForm, initialResult, initialSubmitError }: QuickCountHarnessProps = {}) {
+function QuickCountInner({ initialForm, initialResult, initialSubmitError, initialApproved, initialFieldErrors, initialApproveError }: QuickCountHarnessProps = {}) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id }, values)
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
+  const toast = useToast()
 
   const [form, setForm] = useState<QuickCountForm>(() => ({ ...EMPTY_FORM, ...initialForm }))
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>({})
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>(initialFieldErrors ?? {})
   const [result, setResult] = useState<QuickCountDocument | null>(initialResult ?? null)
-  const [approveTaskId, setApproveTaskId] = useState<string | null>(null)
-  const [approveError, setApproveError] = useState<string | null>(null)
+  const [approvedSuccessfully, setApprovedSuccessfully] = useState<boolean>(initialApproved ?? false)
+  const [approveError, setApproveError] = useState<string | null>(initialApproveError ?? null)
   const [submitError, setSubmitError] = useState<{ reason?: string; heldBy?: string } | null>(initialSubmitError ?? null)
 
   const items = usePickerOptions('catalog_item', NONE)
@@ -132,7 +143,8 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
   const approveMutation = useMutation({
     mutationFn: (id: string) => tasksApi.complete(id, {}),
     onSuccess: () => {
-      setApproveTaskId('done')
+      toast.success(t('stock.qc.result.approved'))
+      setApprovedSuccessfully(true)
       setApproveError(null)
     },
     onError: () => {
@@ -175,11 +187,21 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
     approveMutation.mutate(fullTask.id)
   }
 
+  function handleNewCount() {
+    // Keep location and org unit; reset everything else
+    setForm((f) => ({ ...EMPTY_FORM, locationId: f.locationId, orgUnitId: f.orgUnitId }))
+    setResult(null)
+    setApprovedSuccessfully(false)
+    setApproveError(null)
+    setSubmitError(null)
+    setFieldErrors({})
+  }
+
   const reasonOptions = REASON_CODES.map((r) => ({ value: r, label: t(`stock.qc.reason.${r}`) }))
 
   return (
     <div>
-      <PageHeader title={t('stock.qc.title')} lede={t('stock.qc.lede')} />
+      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.qc.title')} lede={t('stock.qc.lede')} />
 
       {!result && (
         <div className="lf-card__body lf-form" data-testid="quick-count-form">
@@ -193,7 +215,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
             </div>
           )}
 
-          <FormSection title={t('stock.qc.title')}>
+          <FormSection title={t('stock.qc.form.section')}>
             <Select
               name="catalog_item_id"
               label={t('stock.qc.item')}
@@ -297,39 +319,76 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
 
       {result && (
         <div className="lf-card__body" data-testid="quick-count-result">
-          <h2>{t('stock.qc.result.title')}</h2>
-          <dl>
-            <dt>{t('stock.qc.result.number')}</dt>
-            <dd data-testid="result-number">{result.number ?? '—'}</dd>
-            <dt>{t('stock.qc.result.book')}</dt>
-            <dd data-testid="result-book">{result.lines[0]?.book_quantity ?? '—'}</dd>
-            <dt>{t('stock.qc.result.counted')}</dt>
-            <dd data-testid="result-counted">{result.lines[0]?.counted_quantity ?? '—'}</dd>
-            <dt>{t('stock.qc.result.difference')}</dt>
-            <dd data-testid="result-difference">{result.lines[0]?.difference ?? '—'}</dd>
-            <dt>{t('stock.qc.result.state')}</dt>
-            <dd data-testid="result-state">{result.state}</dd>
-          </dl>
+          <FormSection title={t('stock.qc.result.title')}>
+            <dl className="lf-dl" data-testid="result-facts">
+              <dt>{t('stock.qc.result.number')}</dt>
+              <dd data-testid="result-number"><span className="mono">{result.number ?? '—'}</span></dd>
+              <dt>{t('stock.qc.result.book')}</dt>
+              <dd data-testid="result-book"><span className="mono">{result.lines[0]?.book_quantity ?? '—'}</span></dd>
+              <dt>{t('stock.qc.result.counted')}</dt>
+              <dd data-testid="result-counted"><span className="mono">{result.lines[0]?.counted_quantity ?? '—'}</span></dd>
+              <dt>{t('stock.qc.result.difference')}</dt>
+              <dd data-testid="result-difference"><span className="mono">{result.lines[0]?.difference ?? '—'}</span></dd>
+              <dt>{t('stock.qc.result.state')}</dt>
+              <dd data-testid="result-state">
+                {(() => {
+                  const tone = documentStateTone(result.state)
+                  return (
+                    <StatusPill tone={tone.tone} glyph={tone.glyph}>
+                      {t(`stock.doc.state.${result.state}`)}
+                    </StatusPill>
+                  )
+                })()}
+              </dd>
+            </dl>
+          </FormSection>
 
-          {approveTaskId === 'done' ? (
-            <Banner tone="success">{t('stock.qc.result.title')}</Banner>
+          {approvedSuccessfully ? (
+            <div className="lf-form__actions" data-testid="approved-actions">
+              <Button
+                variant="secondary"
+                onClick={handleNewCount}
+                data-testid="new-count-button"
+              >
+                {t('stock.qc.new_count')}
+              </Button>
+            </div>
           ) : fullTask?.self_approval_allowed === true ? (
             <div data-testid="approve-section">
-              {approveError && <Banner tone="danger">{approveError}</Banner>}
-              <Button
-                variant="primary"
-                onClick={handleApprove}
-                disabled={approveMutation.isPending}
-                data-testid="approve-button"
-              >
-                {t('stock.qc.approve')}
-              </Button>
+              {approveError && <Banner tone="danger" data-testid="approve-error-banner">{approveError}</Banner>}
+              <div className="lf-form__actions">
+                <Button
+                  variant="primary"
+                  onClick={handleApprove}
+                  disabled={approveMutation.isPending}
+                  data-testid="approve-button"
+                >
+                  {t('stock.qc.approve')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleNewCount}
+                  data-testid="new-count-button"
+                >
+                  {t('stock.qc.new_count')}
+                </Button>
+              </div>
             </div>
           ) : fullTask !== undefined ? (
             <div data-testid="four-eyes-hint">
               <Banner tone="info">
                 {t('stock.qc.four_eyes_hint')}
               </Banner>
+              <div className="lf-form__actions">
+                <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
+                <Button
+                  variant="secondary"
+                  onClick={handleNewCount}
+                  data-testid="new-count-button"
+                >
+                  {t('stock.qc.new_count')}
+                </Button>
+              </div>
             </div>
           ) : null}
         </div>

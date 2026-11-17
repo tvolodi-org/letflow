@@ -7,6 +7,7 @@ import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
+import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
 import { MASTERS } from './stockTestKit'
 import { qcEn } from '../quickCount/quickCountMessages'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
@@ -130,6 +131,7 @@ beforeEach(() => {
   clientMock.get.mockReset()
   setupMastersMock()
   setupGetMock()
+  clearAllToasts()
 })
 afterEach(() => cleanup())
 
@@ -177,6 +179,8 @@ describe('C2 core flow', () => {
     expect(screen.getByTestId('result-book')).toHaveTextContent('10')
     expect(screen.getByTestId('result-counted')).toHaveTextContent('7')
     expect(screen.getByTestId('result-difference')).toHaveTextContent('-3')
+    // State is a StatusPill (not raw code)
+    expect(screen.getByTestId('result-state').querySelector('[class*="status-pill"], [class*="StatusPill"], [data-testid]') ?? screen.getByTestId('result-state')).not.toHaveTextContent('issued')
 
     // Verify post body
     const postCall = clientMock.post.mock.calls.find(([p]: string[]) => p === '/api/v1/modules/stock/quick-counts')
@@ -295,7 +299,54 @@ describe('C5 four eyes', () => {
     })
   })
 
-  it('shows four-eyes hint when self_approval_allowed is false', async () => {
+  it('fires toast and shows New count button after approval', async () => {
+    setupGetMock({ balance: '10', selfApprovalAllowed: true })
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    await waitFor(() => expect(screen.getByTestId('approve-button')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('approve-button'))
+    await waitFor(() => expect(screen.getByTestId('approved-actions')).toBeInTheDocument())
+
+    // Toast was fired with the approved message
+    const toasts = getToastSnapshot()
+    expect(toasts.some((t) => t.message === qcEn['stock.qc.result.approved'])).toBe(true)
+
+    // New count button is visible; Approve button is gone
+    expect(screen.getByTestId('new-count-button')).toBeInTheDocument()
+    expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
+  })
+
+  it('New count resets form but keeps location and org unit', async () => {
+    setupGetMock({ balance: '10', selfApprovalAllowed: false })
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    await waitFor(() => expect(screen.getByTestId('four-eyes-hint')).toBeInTheDocument())
+
+    // Click new-count
+    fireEvent.click(screen.getByTestId('new-count-button'))
+
+    // Form is shown again
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+
+    // Location and org unit selects still have values
+    expect(screen.getByRole('combobox', { name: /location/i })).toHaveValue('l1')
+    expect(screen.getByRole('combobox', { name: /org unit/i })).toHaveValue('u1')
+    // Item is reset
+    expect(screen.getByRole('combobox', { name: /item/i })).toHaveValue('')
+  })
+
+  it('shows four-eyes hint with My Tasks link when self_approval_allowed is false', async () => {
     setupGetMock({ balance: '10', selfApprovalAllowed: false })
     setupCombinedPostMock()
     renderQC()
@@ -308,6 +359,9 @@ describe('C5 four eyes', () => {
 
     await waitFor(() => expect(screen.getByTestId('four-eyes-hint')).toBeInTheDocument())
     expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
+    // My Tasks link is present
+    expect(screen.getByTestId('my-tasks-link')).toBeInTheDocument()
+    expect(screen.getByTestId('my-tasks-link')).toHaveAttribute('href', '/tasks')
   })
 })
 
