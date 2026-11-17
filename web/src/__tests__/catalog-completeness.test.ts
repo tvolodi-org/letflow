@@ -303,8 +303,12 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'stock:stock.col.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'stock:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'stock:stock.qc.item': 'item: Kazakh screens already write позиция in running text',
+  'stock:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
   'stock.qc:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
-  'stock.qc:stock.qc.item': 'item: Kazakh screens already write позиция in running text',
+  'stock.qc:stock.qc.item': 'item: Казах screens already write позиция in running text',
+  'stock.qc:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock.qc:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
   'stock:stock.doc.field.counterparty': 'loanword, same spelling in Kazakh',
   'stock:stock.filter.lot':
     'lot: Kazakh screens already write Партия/Партиялар',

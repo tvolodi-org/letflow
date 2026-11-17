@@ -108,6 +108,8 @@ function quickCountDoc() {
     id: DOC_ID, kind: 'quick_count', state: 'issued', number: 'QCT-2026-000001',
     org_unit_id: 'u1', location_id: 'l1', responsible_id: null, counterparty_id: null,
     event_time: '2026-11-18T02:00:00Z',
+    reason_code: 'recount',
+    reason_text: null,
     lines: [{ line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: null, quantity: '7', book_quantity: '10', counted_quantity: '7', difference: '-3' }],
     posted_at: null, posted_by: null, reversed_at: null, reversed_by: null, posting_check: null,
   }
@@ -320,6 +322,31 @@ describe('C5 four eyes', () => {
     // New count button is visible; Approve button is gone
     expect(screen.getByTestId('new-count-button')).toBeInTheDocument()
     expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
+  })
+
+  it('shows approve-failed banner when approval API call fails', async () => {
+    setupGetMock({ balance: '10', selfApprovalAllowed: true })
+    setupCombinedPostMock()
+    // Override task complete to fail
+    const mastersImpl = clientMock.post.getMockImplementation()!
+    clientMock.post.mockImplementation(async (path: string, body?: Record<string, unknown>) => {
+      if (path === '/api/v1/entities/query') return mastersImpl(path, body)
+      if (path === '/api/v1/modules/stock/quick-counts') return quickCountDoc()
+      if (path.startsWith('/api/v1/tasks/') && path.endsWith('/complete'))
+        throw { status: 500, message: 'Internal error', code: '500', details: {} }
+      return {}
+    })
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    await waitFor(() => expect(screen.getByTestId('approve-button')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('approve-button'))
+    await waitFor(() => expect(screen.getByTestId('approve-error-banner')).toBeInTheDocument())
+    expect(screen.getByTestId('approve-error-banner').textContent).toContain(qcEn['stock.qc.error.approve_failed'])
   })
 
   it('New count resets form but keeps location and org unit', async () => {

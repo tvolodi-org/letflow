@@ -21,6 +21,7 @@ import { stockApi } from '../register/stock.api'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { tasksApi } from '@/api/tasks'
 import { classifyError } from '@/utils/classifyError'
+import type { RendererState } from '@/utils/classifyError'
 import { quickCountApi, type QuickCountBody, type QuickCountDocument } from './quickCount.api'
 import {
   EMPTY_FORM, REASON_CODES, errorReasonToField, errorReasonToMessageId, isBannerError, validateQuantity,
@@ -50,10 +51,16 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
   const toast = useToast()
 
   const [form, setForm] = useState<QuickCountForm>(() => ({ ...EMPTY_FORM, ...initialForm }))
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>(initialFieldErrors ?? {})
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>(
+    Object.fromEntries(
+      Object.entries(initialFieldErrors ?? {}).filter(([, v]) => v !== undefined).map(([k, v]) => [k, t(v!)])
+    ) as Partial<Record<keyof QuickCountForm, string>>
+  )
   const [result, setResult] = useState<QuickCountDocument | null>(initialResult ?? null)
   const [approvedSuccessfully, setApprovedSuccessfully] = useState<boolean>(initialApproved ?? false)
-  const [approveError, setApproveError] = useState<string | null>(initialApproveError ?? null)
+  const [approveError, setApproveError] = useState<string | null>(
+    initialApproveError ? t(initialApproveError) : null
+  )
   const [submitError, setSubmitError] = useState<{ reason?: string; heldBy?: string } | null>(initialSubmitError ?? null)
 
   const items = usePickerOptions('catalog_item', NONE)
@@ -108,6 +115,18 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
 
   const fullTask = fullTaskQuery.data
 
+  const taskQueryState: RendererState = !result
+    ? 'success'
+    : tasksQuery.isPending
+    ? 'loading'
+    : tasksQuery.isError
+    ? classifyError(tasksQuery.error)
+    : Boolean(approveTask?.id) && fullTaskQuery.isPending
+    ? 'loading'
+    : Boolean(approveTask?.id) && fullTaskQuery.isError
+    ? classifyError(fullTaskQuery.error)
+    : 'success'
+
   const set = <K extends keyof QuickCountForm>(key: K) => (value: QuickCountForm[K]) => {
     if (key === 'itemId') {
       setForm((f) => ({ ...f, itemId: value as string, lotId: '' }))
@@ -148,7 +167,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
       setApproveError(null)
     },
     onError: () => {
-      setApproveError(t('stock.qc.error.generic'))
+      setApproveError(t('stock.qc.error.approve_failed'))
     },
   })
 
@@ -260,12 +279,12 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                 {bookQuantity !== null && (
                   <div data-testid="balance-display">
                     <span>{t('stock.qc.balance')}: </span>
-                    <span data-testid="book-quantity">{bookQuantity}</span>
+                    <span data-testid="book-quantity" className="mono">{bookQuantity}</span>
                     {difference !== null && (
                       <>
                         <span>{' · '}</span>
                         <span>{t('stock.qc.difference')}: </span>
-                        <span data-testid="difference-display">{difference}</span>
+                        <span data-testid="difference-display" className="mono">{difference}</span>
                       </>
                     )}
                   </div>
@@ -318,9 +337,38 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
       )}
 
       {result && (
-        <div className="lf-card__body" data-testid="quick-count-result">
+        <div className="lf-card__body lf-form" data-testid="quick-count-result">
           <FormSection title={t('stock.qc.result.title')}>
             <dl className="lf-dl" data-testid="result-facts">
+              <dt>{t('stock.qc.result.item')}</dt>
+              <dd data-testid="result-item">
+                {items.find(i => i.value === result.lines[0]?.catalog_item_id)?.label ?? result.lines[0]?.catalog_item_id ?? '—'}
+              </dd>
+              <dt>{t('stock.qc.result.location')}</dt>
+              <dd data-testid="result-location">
+                {locations.find(l => l.value === (result.location_id ?? ''))?.label ?? result.location_id ?? '—'}
+              </dd>
+              <dt>{t('stock.qc.result.org_unit')}</dt>
+              <dd data-testid="result-org-unit">
+                {orgUnits.find(u => u.value === (result.org_unit_id ?? ''))?.label ?? result.org_unit_id ?? '—'}
+              </dd>
+              {result.lines[0]?.catalog_lot_id && (
+                <>
+                  <dt>{t('stock.qc.result.lot')}</dt>
+                  <dd data-testid="result-lot">
+                    <span className="mono">{lots.find(l => l.value === result.lines[0].catalog_lot_id)?.label ?? result.lines[0].catalog_lot_id}</span>
+                  </dd>
+                </>
+              )}
+              {result.reason_code && (
+                <>
+                  <dt>{t('stock.qc.result.reason')}</dt>
+                  <dd data-testid="result-reason">
+                    {t(`stock.qc.reason.${result.reason_code}`)}
+                    {result.reason_text && ` — ${result.reason_text}`}
+                  </dd>
+                </>
+              )}
               <dt>{t('stock.qc.result.number')}</dt>
               <dd data-testid="result-number"><span className="mono">{result.number ?? '—'}</span></dd>
               <dt>{t('stock.qc.result.book')}</dt>
@@ -331,7 +379,9 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
               <dd data-testid="result-difference"><span className="mono">{result.lines[0]?.difference ?? '—'}</span></dd>
               <dt>{t('stock.qc.result.state')}</dt>
               <dd data-testid="result-state">
-                {(() => {
+                {approvedSuccessfully ? (
+                  <StatusPill tone="success" glyph="dot">{t('stock.qc.result.state.approved')}</StatusPill>
+                ) : (() => {
                   const tone = documentStateTone(result.state)
                   return (
                     <StatusPill tone={tone.tone} glyph={tone.glyph}>
@@ -353,18 +403,9 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                 {t('stock.qc.new_count')}
               </Button>
             </div>
-          ) : fullTask?.self_approval_allowed === true ? (
-            <div data-testid="approve-section">
-              {approveError && <Banner tone="danger" data-testid="approve-error-banner">{approveError}</Banner>}
-              <div className="lf-form__actions">
-                <Button
-                  variant="primary"
-                  onClick={handleApprove}
-                  disabled={approveMutation.isPending}
-                  data-testid="approve-button"
-                >
-                  {t('stock.qc.approve')}
-                </Button>
+          ) : (
+            <>
+              <div className="lf-form__actions" data-testid="result-actions">
                 <Button
                   variant="secondary"
                   onClick={handleNewCount}
@@ -373,24 +414,39 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                   {t('stock.qc.new_count')}
                 </Button>
               </div>
-            </div>
-          ) : fullTask !== undefined ? (
-            <div data-testid="four-eyes-hint">
-              <Banner tone="info">
-                {t('stock.qc.four_eyes_hint')}
-              </Banner>
-              <div className="lf-form__actions">
-                <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
-                <Button
-                  variant="secondary"
-                  onClick={handleNewCount}
-                  data-testid="new-count-button"
-                >
-                  {t('stock.qc.new_count')}
-                </Button>
-              </div>
-            </div>
-          ) : null}
+              <QueryStateBoundary
+                state={taskQueryState}
+                onRetry={() => { void tasksQuery.refetch(); if (approveTask?.id) void fullTaskQuery.refetch() }}
+              >
+                {fullTask?.self_approval_allowed === true ? (
+                  <>
+                    {approveError && (
+                      <div data-testid="approve-error-banner">
+                        <Banner tone="danger">{approveError}</Banner>
+                      </div>
+                    )}
+                    <div className="lf-form__actions" data-testid="approve-section">
+                      <Button
+                        variant="primary"
+                        onClick={handleApprove}
+                        disabled={approveMutation.isPending}
+                        data-testid="approve-button"
+                      >
+                        {t('stock.qc.approve')}
+                      </Button>
+                    </div>
+                  </>
+                ) : fullTask !== undefined ? (
+                  <>
+                    <Banner tone="info">{t('stock.qc.four_eyes_hint')}</Banner>
+                    <div data-testid="four-eyes-hint">
+                      <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
+                    </div>
+                  </>
+                ) : null}
+              </QueryStateBoundary>
+            </>
+          )}
         </div>
       )}
     </div>
