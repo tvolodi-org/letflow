@@ -1,8 +1,8 @@
 defmodule Letflow.Plugs.XlsxBodyParser do
   @moduledoc """
-  `Plug.Parsers` parser for the `.xlsx` media type on two import routes: `POST
-  /entities/records/:entity_type/import` (GH #3603, REQ-650) and `POST /identity/users/import`
-  (T-1609, REQ-791).
+  `Plug.Parsers` parser for the `.xlsx` media type on three routes: `POST
+  /entities/records/:entity_type/import` (GH #3603, REQ-650), `POST /identity/users/import`
+  (T-1609, REQ-791) and `POST /modules/stock/stock-workbook/check` (REQ-884).
 
   Same shape as `Letflow.Plugs.CsvBodyParser`: it claims
   `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` only for a POST whose
@@ -33,6 +33,17 @@ defmodule Letflow.Plugs.XlsxBodyParser do
 
   def parse(
         %Plug.Conn{method: "POST", path_info: ["identity", "users", "import"]} = conn,
+        "application",
+        "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _headers,
+        opts
+      ),
+      do: read_xlsx(conn, opts)
+
+  # REQ-884: the check of a Qoimeks-layout balances workbook (module stock).
+  def parse(
+        %Plug.Conn{method: "POST", path_info: ["modules", "stock", "stock-workbook", "check"]} =
+          conn,
         "application",
         "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         _headers,

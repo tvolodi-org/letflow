@@ -96,6 +96,43 @@ defmodule Letflow.Entities.XlsxImport do
     end
   end
 
+  @doc """
+  REQ-884: the first worksheet's name and its rows as text cells, `{:ok, name, [{line, [text]}]}`
+  with `line` the sheet row number (1 = first row, blank rows kept so the number is the sheet's).
+  Same bounded reader as `convert/3` (declared-size check, bounded inflate, no DOCTYPE, rebuilt
+  archive): one parse, no second unzip. Whole-file refusals are `{:error, :xlsx_unreadable}` or
+  `{:error, :xlsx_too_large}`; never raises.
+  """
+  @spec read_text_rows(binary()) ::
+          {:ok, String.t(), [{pos_integer(), [String.t()]}]} | {:error, atom()}
+  def read_text_rows(binary) when is_binary(binary) do
+    with :ok <- check_declared_size(binary),
+         {:ok, verified} <- check_parts(binary),
+         {:ok, name, rows} <- read_first_sheet_named(verified),
+         {:ok, text_rows} <- text_rows(rows) do
+      {:ok, name, text_rows}
+    end
+  rescue
+    _ -> {:error, :xlsx_unreadable}
+  catch
+    _, _ -> {:error, :xlsx_unreadable}
+  end
+
+  defp text_rows(rows) do
+    rows
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {cells, line}, {:ok, acc} ->
+      case texts(cells) do
+        {:ok, texts} -> {:cont, {:ok, [{line, texts} | acc]}}
+        :error -> {:halt, {:error, :xlsx_unreadable}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      error -> error
+    end
+  end
+
   # ── zip guards ────────────────────────────────────────────────────────
 
   # Stage 1: the sizes the archive declares; nothing is inflated.
@@ -232,6 +269,10 @@ defmodule Letflow.Entities.XlsxImport do
   # ── reading ───────────────────────────────────────────────────────────
 
   defp read_first_sheet(binary) do
+    with {:ok, _name, rows} <- read_first_sheet_named(binary), do: {:ok, rows}
+  end
+
+  defp read_first_sheet_named(binary) do
     with {:ok, package} <- XlsxReader.open(binary, source: :binary),
          [first | _] <- XlsxReader.sheet_names(package),
          {:ok, rows} <-
@@ -240,7 +281,7 @@ defmodule Letflow.Entities.XlsxImport do
              empty_rows: true,
              number_type: Decimal
            ) do
-      {:ok, rows}
+      {:ok, first, rows}
     else
       _ -> {:error, :xlsx_unreadable}
     end

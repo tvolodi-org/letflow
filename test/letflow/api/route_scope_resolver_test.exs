@@ -333,7 +333,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # T-1963 added the three owner review route lines (289 -> 292).
       # REQ-831 (GH #4532): the eight stock document write routes got a declared resolver class (294 -> 286).
       # Photos P2 (T-2041): the eight assets_card photo gallery routes (287 -> 295).
-      assert length(snapshot) == 295
+      # REQ-884 (GH #4607) added the stock workbook check route line (295 -> 296).
+      assert length(snapshot) == 296
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
