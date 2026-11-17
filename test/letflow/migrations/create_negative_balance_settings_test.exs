@@ -32,12 +32,12 @@ defmodule Letflow.CreateNegativeBalanceSettingsTest do
     )
   end
 
-  test "MG-1 registered second to last; down restores the check and drops the table; up drops it again" do
+  test "MG-1 registered last; down restores the check and drops the table; up drops it again" do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "r834-mig")
     schema = fx.schema_name
 
     assert {@version, CreateNegativeBalanceSettings} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -3)
 
     refute check_exists?(schema)
 
