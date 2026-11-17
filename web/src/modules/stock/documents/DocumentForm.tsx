@@ -82,6 +82,8 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   // T-1528: the signed-in user's linked employee is proposed as the responsible (the From side of two-side kinds, never
   // the To side), once, until the user touches the field. Opening kinds have no responsible field.
   const respTouched = useRef(doc !== undefined)
+  /** REQ-848: idempotency key for create. Same body after a network error reuses the key; a changed body gets a new one. */
+  const createAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const linked = linkedEmployeeId(userId, employees)
   const twoKind = isTwoSide(form.kind)
   const respValue = twoKind ? form.from.responsibleId : form.responsibleId
@@ -111,8 +113,15 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const edit = doc !== undefined
 
   const save = useMutation({
-    mutationFn: (body: Record<string, unknown>) => (doc ? documentsApi.replace(doc.id, body) : documentsApi.create(body)),
+    mutationFn: (body: Record<string, unknown>) => {
+      if (doc) return documentsApi.replace(doc.id, body)
+      const fingerprint = JSON.stringify(body)
+      const key = createAttempt.current?.fingerprint === fingerprint ? createAttempt.current.key : crypto.randomUUID()
+      createAttempt.current = { fingerprint, key }
+      return documentsApi.create(body, key)
+    },
     onSuccess: async (saved) => {
+      createAttempt.current = null
       await qc.invalidateQueries({ queryKey: stockQueryKeys.documentsAll(tenantId) })
       if (doc) await qc.invalidateQueries({ queryKey: stockQueryKeys.document(tenantId, doc.id) })
       onDone(saved)

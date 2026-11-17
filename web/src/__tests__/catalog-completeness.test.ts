@@ -234,6 +234,9 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
     'accounting term, used unchanged in Kazakh books and forms',
   'assets:assets.reg.col.asset': 'loanword, same spelling in Kazakh',
   'assets:assets.reg.filter.asset': 'loanword, same spelling in Kazakh',
+  'assets:assets.tabs.photos': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.title': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.unnamed': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
   'catalog_items:catalog_items.col.item':
     'item: Kazakh screens already write позиция in running text',
   'catalog_items:catalog_items.create.item':

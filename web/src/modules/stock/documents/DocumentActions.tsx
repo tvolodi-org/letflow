@@ -2,7 +2,7 @@
  *  posting and Cancel (issued), Reverse (posted), Cancel (reversed). A button shows only when the user's access lists
  *  the atom of its route and the state allows it; the server stays the authority. Confirm dialogs for discard and
  *  issue, a reason dialog for reverse and cancel. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -33,6 +33,8 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
   const [text, setText] = useState('')
   const [touched, setTouched] = useState(false)
   const [checkMsgs, setCheckMsgs] = useState<string[] | null>(null)
+  /** REQ-848: idempotency key for issue and post. Same document and action after a failure reuse the key; a different action gets a new one. */
+  const actionAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const acts = actionsFor(doc.state, can, doc.kind)
 
   const close = () => {
@@ -50,13 +52,24 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
     mutationFn: async (what: 'discard' | 'issue' | 'post' | 'reverse' | 'cancel') => {
       switch (what) {
         case 'discard': return documentsApi.discard(doc.id)
-        case 'issue': return documentsApi.issue(doc.id)
-        case 'post': return documentsApi.post(doc.id)
+        case 'issue': {
+          const fingerprint = `${doc.id}:issue`
+          const key = actionAttempt.current?.fingerprint === fingerprint ? actionAttempt.current.key : crypto.randomUUID()
+          actionAttempt.current = { fingerprint, key }
+          return documentsApi.issue(doc.id, key)
+        }
+        case 'post': {
+          const fingerprint = `${doc.id}:post`
+          const key = actionAttempt.current?.fingerprint === fingerprint ? actionAttempt.current.key : crypto.randomUUID()
+          actionAttempt.current = { fingerprint, key }
+          return documentsApi.post(doc.id, key)
+        }
         case 'reverse': return documentsApi.reverse(doc.id, { reason_code: code, ...(text.trim() !== '' ? { reason_text: text } : {}) })
         case 'cancel': return documentsApi.cancel(doc.id, { reason: text.trim() })
       }
     },
     onSuccess: async (_d, what) => {
+      if (what === 'issue' || what === 'post') actionAttempt.current = null
       close()
       if (what === 'discard') {
         await qc.invalidateQueries({ queryKey: stockQueryKeys.documentsAll(tenantId) })

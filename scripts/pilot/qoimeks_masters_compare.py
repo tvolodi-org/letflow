@@ -2,7 +2,7 @@
 """qoimeks_masters_compare.py -- P8.10 REQ-881: compare master data (places, units, items) between the Qoimeks CSV extract and the Letflow records export.
 
 Read-only and offline: opens files, prints a report, writes nothing, opens no network connection and reads no secret.
-Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 8).
+Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 9).
 
   python3 -I scripts/pilot/qoimeks_masters_compare.py \\
       --locations locations.csv --items items.csv \\

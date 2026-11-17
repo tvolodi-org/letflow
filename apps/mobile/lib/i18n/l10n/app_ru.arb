@@ -146,6 +146,7 @@
   "stock.doc.error.event_time_invalid": "Время указано неверно.",
   "stock.doc.error.lines_count": "Недопустимое число строк.",
   "stock.doc.error.quantity_invalid": "Количество указано неверно.",
+  "stock.doc.error.idempotency_key_reuse": "Документ был отправлен с другим содержимым. Обновите список.",
   "stock.counts.title": "Инвентаризации",
   "stock.counts.tab.counting": "Идёт подсчёт",
   "stock.counts.tab.ordered": "Назначены",

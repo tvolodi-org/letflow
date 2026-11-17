@@ -81,11 +81,17 @@ export type DocumentBody = Record<string, unknown>
 export const documentsApi = {
   list: (params: Record<string, string>) => client.get<DocumentsPageBody>(BASE, params),
   get: (id: string) => client.get<StockDocument>(`${BASE}/${encodeURIComponent(id)}`),
-  create: (body: DocumentBody) => client.post<StockDocument>(BASE, body),
+  /** REQ-848: idempotency-key header sent on create; same body after a network error reuses the key. */
+  create: (body: DocumentBody, key: string) =>
+    client.postWithHeaders<StockDocument>(BASE, body, { 'idempotency-key': key }),
   replace: (id: string, body: DocumentBody) => client.put<StockDocument>(`${BASE}/${encodeURIComponent(id)}`, body),
   discard: (id: string) => client.delete<void>(`${BASE}/${encodeURIComponent(id)}`),
-  issue: (id: string) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/issue`),
-  post: (id: string) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/post`),
+  /** REQ-848: idempotency-key header sent on issue; same document and action after a failure reuse the key. */
+  issue: (id: string, key: string) =>
+    client.postWithHeaders<StockDocument>(`${BASE}/${encodeURIComponent(id)}/issue`, undefined, { 'idempotency-key': key }),
+  /** REQ-848: idempotency-key header sent on post; same document and action after a failure reuse the key. */
+  post: (id: string, key: string) =>
+    client.postWithHeaders<StockDocument>(`${BASE}/${encodeURIComponent(id)}/post`, undefined, { 'idempotency-key': key }),
   reverse: (id: string, body: { reason_code: string; reason_text?: string }) =>
     client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
   /** REQ-726: dry check of a draft opening balance, nothing is written. */

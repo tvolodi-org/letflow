@@ -4,6 +4,7 @@
 library;
 
 import '../api/api_error.dart';
+import '../api/client_key.dart';
 import 'offline_queue.dart';
 
 class SyncReport {
@@ -19,8 +20,8 @@ class OfflineSyncService {
 
   final OfflineDraftQueue queue;
 
-  /// Creates one draft on the server from a queued body.
-  final Future<void> Function(Map<String, dynamic> body) send;
+  /// Creates one draft on the server from a queued body and idempotency key.
+  final Future<void> Function(Map<String, dynamic> body, String key) send;
   Future<SyncReport>? _running;
 
   /// A second call while a pass runs returns that pass (nothing is sent twice).
@@ -33,8 +34,14 @@ class OfflineSyncService {
     try {
       for (final entry in await queue.all()) {
         if (entry.rejection != null) continue;
+        var key = entry.clientKey;
+        if (key == null) {
+          // Pre-REQ-849 entry: assign a key now and persist it.
+          key = newClientKey();
+          await queue.setClientKey(entry.localId, key);
+        }
         try {
-          await send(entry.body);
+          await send(entry.body, key);
           await queue.remove(entry.localId);
           sent++;
         } on NetworkUnavailableError {
@@ -69,6 +76,7 @@ class OfflineSyncService {
 
 /// Stable short word for a refusal (never `runtimeType`: minified on web).
 String _codeOf(ApiError error) => switch (error) {
+  ConflictError(reason: 'idempotency_key_reuse') => 'idempotency_key_reuse',
   ValidationError() => 'validation',
   ConflictError() => 'conflict',
   ForbiddenError() => 'forbidden',

@@ -7,9 +7,9 @@ All data is entirely fictitious; no real Qoimeks client information is included 
   python3 -I scripts/pilot/qoimeks_gen.py --out DIR [--seed N]
 
 Sizes (default): 666 SKUs (unit pcs, quantities up to 3 decimal places), 134 rack locations
-plus 8 hierarchy nodes (1 warehouse, 7 zones), 600 valid balance rows plus 10 intentionally
-bad rows (3 zero-quantity, 3 negative, 4 comma-decimal) to exercise the converter's G4 and G8
-drop checks. A few item names embed Cyrillic look-alike letters to test Unicode handling.
+plus 8 hierarchy nodes (1 warehouse, 7 zones), 600 positive balance rows, 3 negative opening rows,
+3 zero rows skipped by the converter and 4 comma-decimal rows it drops, to exercise the G4 and G8
+rules. A few item names embed Cyrillic look-alike letters to test Unicode handling.
 """
 
 import argparse
@@ -30,8 +30,8 @@ N_DOUBLE_PLACE = 60  # items with 2 balance rows (at 2 different locations)
 # single-place items = N_VALID_BALANCES - 2*N_DOUBLE_PLACE = 480
 # items with no balance = N_SKUS - 480 - 60 = 126; first 10 provide bad balance rows
 
-N_ZERO_ROWS = 3     # G4: quantity_not_positive (qty == 0)
-N_NEG_ROWS = 3      # G4: quantity_not_positive (qty < 0)
+N_ZERO_ROWS = 3     # G4: quantity_zero, skipped (qty == 0)
+N_NEG_ROWS = 3      # G4: negative opening lines (qty < 0)
 N_COMMA_ROWS = 4    # G8: quantity_comma_decimal
 
 ZONE_LETTERS = list("ABCDEFG")
@@ -116,7 +116,7 @@ def gen_qty(rng, decimals):
 
 
 def gen_balances(item_codes, leaf_codes, rng):
-    """Return rows for balances.csv: 600 valid rows plus 10 intentionally bad rows."""
+    """Return rows for balances.csv: positive, negative, zero and comma-decimal cases."""
     n_single = N_VALID_BALANCES - 2 * N_DOUBLE_PLACE  # 480
 
     items_pool = list(item_codes)
