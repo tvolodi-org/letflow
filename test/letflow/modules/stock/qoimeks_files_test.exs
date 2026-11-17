@@ -19,6 +19,7 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   import Plug.Conn
 
   alias Letflow.Entities.Record.Latest
+  alias Letflow.LedgerFixture, as: Fx
   alias Letflow.Modules.Codes
   alias Letflow.Modules.Installs
   alias Letflow.Modules.Org
@@ -247,10 +248,12 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   test "ST-1 the converted files are accepted; headers bootstrap with the first real balance",
        ctx do
     out = convert!(ctx, @fixture, "o1")
-    assert [[first | rest]] = rehearse!(ctx, out)
+    Fx.set_negative_balance!(ctx.schema, "stock", true)
+    assert [[first | rest], [negative]] = rehearse!(ctx, out)
     assert first in ["unchanged", "updated"]
     assert length(rest) == 5
     assert Enum.all?(rest, &(&1 == "created"))
+    assert negative in ["unchanged", "updated"]
     assert_counts(ctx, out)
   end
 
@@ -274,12 +277,13 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   test "ST-2 repeat: masters and lines unchanged, headers reused (a second header POST is 409)",
        ctx do
     out = convert!(ctx, @fixture, "o2")
+    Fx.set_negative_balance!(ctx.schema, "stock", true)
     rehearse!(ctx, out)
     resp = Path.join(ctx.dir, "again")
     File.mkdir_p!(resp)
     m = manifest(out)
 
-    # the documented repeat: steps 3 and 5 only, step 4 (header creation) is skipped
+    # the documented repeat: steps 3 and 6 only; steps 4 and 5 (headers and switch) are skipped
     for %{"file" => f, "entity_type" => t} <- m["files"] do
       outcomes = upload_ok!(ctx, t, Path.join(out, f), resp) |> Enum.map(& &1["outcome"])
       assert Enum.all?(outcomes, &(&1 == "unchanged")), "#{f}: #{inspect(outcomes)}"
@@ -461,6 +465,7 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
 
   test "ST-4 another tenant's token writes nothing from the lines file", ctx do
     out = convert!(ctx, @fixture, "o4")
+    Fx.set_negative_balance!(ctx.schema, "stock", true)
     rehearse!(ctx, out)
     %{b: b, tok_b: tok_b} = P.tenant_b!(ctx)
     before = {O.counts(ctx.schema), O.counts(b.schema_name)}

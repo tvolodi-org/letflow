@@ -84,7 +84,7 @@ defmodule Letflow.Scripts.QoimeksGenTest do
     # 1 warehouse + 7 zones + (20 + 6*19) racks = 142 total location nodes
     assert csv_data_rows(Path.join(out, "locations.csv")) == 142
     assert csv_data_rows(Path.join(out, "items.csv")) == 666
-    # 600 valid + 10 intentionally bad (3 zero, 3 negative, 4 comma-decimal)
+    # 600 positive + 3 negative + 3 zero + 4 comma-decimal quantities
     assert csv_data_rows(Path.join(out, "balances.csv")) == 610
   end
 
@@ -99,21 +99,23 @@ defmodule Letflow.Scripts.QoimeksGenTest do
     end
   end
 
-  test "GN-4 converter accepts generator output; expected counts are correct; G4/G8 drops appear",
+  test "GN-4 converter accepts generator output; expected counts are correct; G4 skips and G8 drops appear",
        %{dir: dir} do
     in_dir = Path.join(dir, "in")
     out_dir = Path.join(dir, "out")
     gen(in_dir)
     assert {text, 0} = convert(in_dir, out_dir)
-    # bad rows: G4 = quantity_not_positive (zero or negative), G8 = quantity_comma_decimal
-    assert text =~ "quantity_not_positive"
+    # G4: zero rows are skipped and negative rows are loaded; G8 comma decimals remain drops.
+    assert text =~ "skipped total 3"
+    assert text =~ "quantity_zero"
+    refute text =~ "quantity_not_positive"
     assert text =~ "quantity_comma_decimal"
-    assert text =~ "dropped total 10"
+    assert text =~ "dropped total 4"
     c = counts(out_dir)
     assert c["records.location_node"] == "142"
     assert c["records.catalog_item"] == "666"
     assert c["records.catalog_uom"] == "1"
-    assert c["records.stock_opening_line"] == "600"
-    assert c["documents"] == "6"
+    assert c["records.stock_opening_line"] == "603"
+    assert c["documents"] == "7"
   end
 end
