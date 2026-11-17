@@ -200,4 +200,6 @@ stock workbook check. The scan reads each part as XlsxReader will (its `Utils.en
 strips a UTF-8 BOM and decodes UTF-16/32 by BOM), and the rebuilt archive holds those decoded
 bytes, so scan and reader parse the same bytes; a part that still starts with a BOM after that is
 refused. The scan fails closed: an XML part with `<row>` or `<c>` tags that it cannot parse to the
-end is `xlsx_unreadable`. Covered by tests C3o, C3p and T-WI-15..18.
+end is `xlsx_unreadable`. The cell budget bounds the reader's work, not only its result: the count
+only grows, so cells XlsxReader builds and then drops (a `<c>` outside any `<row>`, the cells of an
+outer row that a nested `<row>` resets) count too. Covered by tests C3o, C3p, C3q and T-WI-15..19.

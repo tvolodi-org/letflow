@@ -16,7 +16,7 @@ entry or document number. The load is REQ-885. QA only; no flag, no migration, n
 - Query: only `org_unit_id`. Missing: 422 `org_unit_required`. Not an active org unit of this tenant (another tenant's
   id included): 422 `org_unit_not_found`. Any other key: 422 `invalid_filter`.
 - 422 `xlsx_unreadable` (not a readable workbook, a `<!DOCTYPE`, a missing body), `header_missing` (no cell "Артикул"
-  in column A), `workbook_too_large` (more than 10 000 data rows, or a read cell over its byte cap: 256 bytes, 512 for the name, 64 for the quantity, or the read cells over 2 MiB together; checked before any text is normalised; also a sheet whose row and cell references would make the reader fill in more than 20 000 rows or 500 000 cells, refused before the sheet is read; only columns A..H are turned into text).
+  in column A), `workbook_too_large` (more than 10 000 data rows, or a read cell over its byte cap: 256 bytes, 512 for the name, 64 for the quantity, or the read cells over 2 MiB together; checked before any text is normalised; also a sheet whose row and cell references would make the reader fill in more than 20 000 rows or 500 000 cells, counting cells it builds and drops (outside a row, under a nested row), refused before the sheet is read; only columns A..H are turned into text).
 
 Answer 200: `sheet`, `rows_read`, `remarks` (`{row, text}`, sheet order), `changes` (`{row, item_code, item_name,
 place_code, book_quantity, file_quantity, difference}`, quantities as decimal strings, `row` null for a place emptied

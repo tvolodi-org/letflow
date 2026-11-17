@@ -303,6 +303,35 @@ defmodule Letflow.Entities.XlsxImportTest do
       assert {:ok, [%{line: 2, result: {:ok, _}}]} = convert_bytes(utf16_book(row))
     end
 
+    test "C3q: cells the reader builds and then drops count against the budget too" do
+      # outside any row, and inside an outer row that a nested row resets: the reader still
+      # fills these cells in, so the scan counts them; each shape took seconds before
+      shapes = [
+        String.duplicate(~s(<row></row><c r="XFD1"/>), 19_000),
+        String.duplicate(~s(<row></row><c r="ABJDH1"/>), 100),
+        ~s(<row r="2">) <> String.duplicate(~s(<c r="XFD2"/><row></row>), 19_000) <> "</row>"
+      ]
+
+      for rows <- shapes do
+        timed = fn -> :timer.tc(fn -> convert_bytes(padded(rows)) end) end
+        assert {:ok, {micros, {:error, :xlsx_too_large}}} = capped(timed)
+        assert micros < 500_000
+      end
+
+      scan = &XlsxImport.ReferenceScan.check/2
+      # J outside a row is 9 cells filled in plus the cell: twice is 20, three times is 30
+      twice = sheet_xml(String.duplicate(~s(<row/><c r="J1"/>), 2))
+      assert scan.(twice, %{rows: 10, cells: 20}) == :ok
+
+      assert scan.(sheet_xml(String.duplicate(~s(<row/><c r="J1"/>), 3)), %{rows: 10, cells: 20}) ==
+               :too_large
+
+      # a real sheet counts as before: rows 1 and 3, a cell at J on row 3, 3 rows of 10
+      real = sheet_xml(~s(<row r="1"><c r="A1"/></row><row r="3"><c r="J3"/></row>))
+      assert scan.(real, %{rows: 3, cells: 21}) == :ok
+      assert scan.(real, %{rows: 3, cells: 20}) == :too_large
+    end
+
     test "C3l: garbage never raises" do
       truncated = binary_part(XlsxFixture.build([[["title"], ["A"]]]), 0, 120)
 

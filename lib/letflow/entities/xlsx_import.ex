@@ -180,7 +180,8 @@ defmodule Letflow.Entities.XlsxImport do
   # a fresh archive rebuilt from only the verified parts, so it can never inflate bytes that were
   # not counted here, whatever the original archive's directory says.
   # Stage 3 (in the same pass): every verified part is scanned for row and cell references
-  # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget. The scan
+  # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget, counting
+  # the cells it builds and then drops (outside a row, under a nested row) as well. The scan
   # reads the part as the reader will (`reader_text/1`), and the rebuilt archive holds those very
   # bytes, so the reader's own decoding step leaves them as they are: scan and reader parse the
   # same bytes (T-1122).
@@ -511,12 +512,18 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   between the expected column and that column are filled in. Constant memory; the part that
   XlsxReader reads is one of the parts scanned, whichever its relationship names.
 
+  The cell budget bounds the reader's work, not only its result: `cells` only grows, by every
+  cell filled in at a `<c>`, every `</c>` and every filled-in row's copy of the row. Cells the
+  reader builds and then drops count as well: a `<c>` outside any `<row>` (the reader prepends
+  its fill-in to the closed row's `nil`) and the cells of an outer row that a nested `<row>`
+  resets (the reader's `<row>` start sets `row: []`). Neither resets the count.
+
   The scan fails closed: an XML part the parser cannot read to the end is `:unreadable` when it
   holds a `<row>` or `<c>` tag (the reader may have started building rows from it), and so is a
   row `r` that is not an integer (the reader's `String.to_integer/1` raises on it). A part that
   does not start with `<` (a picture, a binary part) fails on its first byte, before any event,
-  and is `:ok`: the reader builds no row from it. Real cells are counted at every `</c>` as well
-  as at `</row>`, so a row that never closes is bounded too.
+  and is `:ok`: the reader builds no row from it. Real cells are counted at every `</c>`, so a
+  row that never closes is bounded too.
   """
 
   @behaviour Saxy.Handler
@@ -568,9 +575,12 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
     state =
       case ref && XlsxReader.CellReference.parse(ref) do
         {column, _row} ->
+          omitted = max(column - state.expected_column, 0)
+
           %{
             state
-            | row_len: state.row_len + max(column - state.expected_column, 0),
+            | row_len: state.row_len + omitted,
+              cells: state.cells + omitted,
               expected_column: column + 1
           }
 
@@ -578,23 +588,24 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
           state
       end
 
-    if state.cells + state.row_len > state.budget.cells,
+    if state.cells > state.budget.cells,
       do: {:stop, :too_large},
       else: {:ok, %{state | cell_ref: ref}}
   end
 
   def handle_event(:end_element, "c", state) do
-    state = %{state | row_len: state.row_len + 1, cell_ref: nil}
+    state = %{state | row_len: state.row_len + 1, cells: state.cells + 1, cell_ref: nil}
 
-    if state.cells + state.row_len > state.budget.cells,
+    if state.cells > state.budget.cells,
       do: {:stop, :too_large},
       else: {:ok, state}
   end
 
+  # The row's own cells are already in `cells`; the rows filled in before it add one copy each.
   def handle_event(:end_element, "row", state) do
     built = max(state.current_row - state.expected_row, 0) + 1
     rows = state.rows + built
-    cells = state.cells + built * state.row_len
+    cells = state.cells + (built - 1) * state.row_len
 
     if rows > state.budget.rows or cells > state.budget.cells,
       do: {:stop, :too_large},
