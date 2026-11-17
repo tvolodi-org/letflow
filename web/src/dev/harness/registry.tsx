@@ -19,6 +19,7 @@ import { catalogItemsScreens } from './fixtures/catalogItems'
 import { recordCodesScreens } from './fixtures/recordCodes'
 import { truncatedListScreens } from './fixtures/truncatedLists'
 import { stockWorkbookScreens } from './fixtures/stockWorkbook'
+import { stockNegativeBalanceScreens } from './fixtures/stockNegativeBalance'
 import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
 import { listDetailSaveScreens } from './fixtures/listDetailSave'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
@@ -415,5 +416,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...myProblemReportsScreens,
     ...printTemplatesScreens,
     ...stockWorkbookScreens,
+    ...stockNegativeBalanceScreens,
   ].map(s => [s.name, s]),
 )
