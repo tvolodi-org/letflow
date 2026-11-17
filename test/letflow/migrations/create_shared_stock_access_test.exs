@@ -5,7 +5,7 @@ defmodule Letflow.CreateSharedStockAccessTest do
   alias Letflow.{Repo, TenantFixture, TenantProvisioning}
   alias Letflow.Repo.Migrations.CreateSharedStockAccess
 
-  @version 20_261_117_300_001
+  @version 20_261_117_400_001
 
   defp q(schema, sql, params \\ []),
     do: Repo.query(String.replace(sql, "S.", ~s("#{schema}".)), params)

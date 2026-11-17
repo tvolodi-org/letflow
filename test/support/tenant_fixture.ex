@@ -220,6 +220,7 @@ defmodule Letflow.TenantFixture do
     "service_task_dispatches",
     "shared_stock_access",
     "solution_pack_overrides",
+    # REQ-846: stock document create idempotency table.
     "stock_create_idempotency",
     "tasks",
     "tenant_currencies",
@@ -229,6 +230,8 @@ defmodule Letflow.TenantFixture do
     "tenant_role",
     "timers",
     "tokens",
+    # T-2133: upload events for the deletion-proof rolling-hour rate limit.
+    "upload_events",
     "user_entity_grants",
     "user_entity_type_grants",
     "user_entity_type_write_grants",

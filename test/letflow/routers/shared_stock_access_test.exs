@@ -337,7 +337,7 @@ defmodule Letflow.Routers.SharedStockAccessTest do
       assert Enum.any?(
                Letflow.TenantProvisioning.tenant_scoped_migrations(),
                &match?(
-                 {20_261_117_300_001, Letflow.Repo.Migrations.CreateSharedStockAccess},
+                 {20_261_117_400_001, Letflow.Repo.Migrations.CreateSharedStockAccess},
                  &1
                )
              )

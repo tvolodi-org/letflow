@@ -1029,10 +1029,15 @@ defmodule Letflow.TenantProvisioning do
     # Existing documents have no row here; existing tenants get it from the boot replay (MigrationReplayBoot, ISS-0771).
     {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
      "20261117200001_create_stock_create_idempotency.exs"},
+    # T-2133: upload_events, one row per successful upload, retained after link deletion.
+    # Provides a deletion-proof count for the 60-uploads-per-hour rate limit in
+    # `Letflow.Attachments.check_rate/2`.
+    {20_261_117_300_001, Letflow.Repo.Migrations.CreateUploadEvents,
+     "20261117300001_create_upload_events.exs"},
     # REQ-858 / GH #4573 (decision 0091): the per-tenant shared stock access credential table
     # (hash only), created empty; existing tenants get it from the boot replay (ISS-0771).
-    {20_261_117_300_001, Letflow.Repo.Migrations.CreateSharedStockAccess,
-     "20261117300001_create_shared_stock_access.exs"}
+    {20_261_117_400_001, Letflow.Repo.Migrations.CreateSharedStockAccess,
+     "20261117400001_create_shared_stock_access.exs"}
   ]
 
   @doc """

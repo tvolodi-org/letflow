@@ -92,7 +92,7 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
   } do
     # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys, REQ-710
     # CreateLedgerPartitionedTables, REQ-711 MoveLedgerFksToPartitions, REQ-626 CreateProcurementAttachments,
-    # REQ-577 CreateEntityTypeWriteAccessTables, REQ-635 CreateEntityScopeDeclarations, REQ-623, REQ-624, REQ-603, T-1389, T-2040 attachments after)
+    # REQ-577 CreateEntityTypeWriteAccessTables, REQ-635 CreateEntityScopeDeclarations, REQ-623, REQ-624, REQ-603, T-1389, T-2040 attachments, T-2133 upload_events after)
     manifest = TenantProvisioning.tenant_scoped_migrations()
     assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -26)
 

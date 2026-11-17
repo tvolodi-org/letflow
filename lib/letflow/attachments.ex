@@ -85,6 +85,9 @@ defmodule Letflow.Attachments do
     with {:ok, kind, entry} <- registered(owner),
          {:ok, owner_id} <- cast_owner_id(owner),
          {:ok, actor} <- cast_actor(ctx),
+         # Rate check runs before the expensive Image.check and virus scan so a throttled
+         # uploader does not pay the parse and scan cost (T-2133).
+         :ok <- check_rate(prefix, actor),
          {:ok, rules} <- purpose_rules(entry, purpose),
          {:ok, caption} <- normalize_caption(attr(attrs, :caption)),
          {:ok, original} <- Image.check(attr(attrs, :original), :original),
@@ -125,12 +128,12 @@ defmodule Letflow.Attachments do
         lock_owner!(ref)
 
         with :ok <- no_replay(ref, sha),
-             :ok <- check_rate(ref.prefix, actor),
              :ok <- check_cap(ref, rules),
              :ok <- check_quota(ref.prefix, original, thumb) do
           blob_id = put_blob!(ref, original, sha)
           thumb_blob_id = thumb && put_blob!(ref, thumb, sha256(thumb.bytes))
           link = insert_link!(ref, rules, blob_id, thumb_blob_id, caption, actor)
+          record_upload_event!(ref.prefix, actor)
 
           state =
             state_of(link, %{
@@ -177,15 +180,29 @@ defmodule Letflow.Attachments do
 
   defp check_rate(prefix, actor) do
     cutoff = DateTime.add(DateTime.utc_now(), -3600, :second)
+    {:ok, actor_bin} = Ecto.UUID.dump(actor)
 
     count =
       Repo.aggregate(
-        from(l in Link, where: l.uploaded_by == ^actor and l.inserted_at > ^cutoff),
+        from(e in "upload_events", where: e.actor_id == ^actor_bin and e.inserted_at > ^cutoff),
         :count,
         prefix: prefix
       )
 
     if count >= @uploads_per_hour, do: {:error, :upload_rate_exceeded}, else: :ok
+  end
+
+  # Records one upload event per successful link creation. The event survives link deletion,
+  # so the rolling-hour count is deletion-proof (T-2133).
+  defp record_upload_event!(prefix, actor) do
+    {:ok, actor_bin} = Ecto.UUID.dump(actor)
+    {:ok, id_bin} = Ecto.UUID.dump(Ecto.UUID.generate())
+
+    Repo.insert_all(
+      "upload_events",
+      [%{id: id_bin, actor_id: actor_bin, inserted_at: DateTime.utc_now()}],
+      prefix: prefix
+    )
   end
 
   defp check_cap(ref, rules) do

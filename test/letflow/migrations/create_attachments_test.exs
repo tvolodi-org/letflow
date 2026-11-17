@@ -28,7 +28,7 @@ defmodule Letflow.CreateAttachmentsTest do
     "INSERT INTO S.attachment_links (id, tenant_id, owner_kind, owner_id, purpose, position, blob_id, uploaded_by, inserted_at, updated_at#{extra_cols}) VALUES (gen_random_uuid(), gen_random_uuid(), 'assets_card', $1, 'photo', $2, $3, gen_random_uuid(), now(), now()#{extra_vals})"
   end
 
-  test "MG-1 registered third to last, down and up on a fresh tenant, both tables exist" do
+  test "MG-1 registered last, down and up on a fresh tenant, both tables exist" do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "t2040-mig")
     schema = fx.schema_name
 
