@@ -34,6 +34,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningImport do
   alias Letflow.Modules.Org
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.OpeningShape
+  alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Repo
 
   # {cell, owning module, entity type, required}
@@ -65,7 +66,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningImport do
          {:ok, document} <- fetch_document(prefix, header),
          :ok <- draft(document),
          :ok <- same_unit(document, resolved),
-         {:ok, line} <- line(cells, resolved, ref),
+         {:ok, line} <- line(prefix, cells, resolved, ref),
          {:ok, {line_id, outcome}} <-
            Documents.upsert_opening_line(prefix, header["document_id"], line, ctx.actor_id) do
       {:ok, %{record_id: line_id, outcome: outcome}}
@@ -136,7 +137,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningImport do
 
   # The cells that reach the shape check: the plain value cells, the resolved ids (not the header and
   # org unit, which the module sets) and the row's own ref pair (it wins over any cell).
-  defp line(cells, resolved, %ExternalRef{system: system, id: id}) do
+  defp line(prefix, cells, resolved, %ExternalRef{system: system, id: id}) do
     raw =
       cells
       |> Map.take(@plain)
@@ -145,7 +146,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningImport do
 
     body = %{"kind" => "opening", "org_unit_id" => resolved["org_unit_id"], "lines" => [raw]}
 
-    case OpeningShape.parse(body, :create) do
+    case OpeningShape.parse(body, :create, PostingRules.negative_allowed?(prefix)) do
       {:ok, %{lines: [line]}} ->
         {:ok, line}
 

@@ -11,6 +11,7 @@ defmodule Letflow.Modules.Stock.Router do
   | Route | Permission | Ledger call | 200 body |
   |---|---|---|---|
   | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, coverage, rows` (+ `as_of_date` when asked) |
+  | `GET /posting-rules` (REQ-836, decision 0090; no query key accepted) | `StockRead` | 200 `{"negative_balance": "allowed" \| "refused"}` for the caller's tenant (`PostingRules.negative_allowed?/1`, no SQL here); 404 as the other reads |
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
@@ -183,6 +184,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.FormZ5
   alias Letflow.Modules.Stock.FormZ6
   alias Letflow.Modules.Stock.FormZ7
+  alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Modules.Stock.StockCardSource
   alias Letflow.Modules.Stock.StockSheetSource
   alias Letflow.Modules.Stock.StockWorkbook
@@ -230,6 +232,23 @@ defmodule Letflow.Modules.Stock.Router do
         end
       else
         {:error, reason} -> refuse(conn, reason)
+      end
+    end)
+  end
+
+  # REQ-836: the stock forms learn here whether the tenant allows a balance below zero (the core
+  # settings route needs the admin permission). The answer is one word per tenant, never a balance.
+  authz_get "/posting-rules", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      case params(conn, []) do
+        {:ok, _params} ->
+          answer =
+            if PostingRules.negative_allowed?(authorized.prefix), do: "allowed", else: "refused"
+
+          Response.ok(conn, %{negative_balance: answer})
+
+        {:error, reason} ->
+          refuse(conn, reason)
       end
     end)
   end

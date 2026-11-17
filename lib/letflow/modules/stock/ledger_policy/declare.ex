@@ -15,6 +15,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | cause | `from` | `to` | legs per line |
   |---|---|---|---|
   | receipt, opening | absent | required | `+q` at `to` |
+  | opening_negative (REQ-836) | absent | required | `-q` at `to` (the line carries the magnitude) |
   | issue, write_off, kind_change_out | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
   | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
@@ -42,6 +43,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   @one_leg %{
     "receipt" => :to,
     "opening" => :to,
+    "opening_negative" => :to,
     "issue" => :from,
     "write_off" => :from,
     "kind_change_out" => :from,
@@ -101,7 +103,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   end
 
   # REQ-726: an opening carries no event time from the client (decision 0079 D1).
-  defp no_client_time("opening", command) do
+  defp no_client_time(cause, command) when cause in ["opening", "opening_negative"] do
     if Enum.all?(@client_time_keys, &is_nil(Map.get(command, &1))), do: :ok, else: invalid(1)
   end
 
@@ -156,6 +158,9 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   defp legs(cause, base, _from, to) when cause in ["receipt", "opening"],
     do: [leg(base, to, false)]
 
+  # REQ-836: a negative opening line carries its magnitude; the leg is negated (sign rule negative).
+  defp legs("opening_negative", base, _from, to), do: [leg(base, to, true)]
+
   defp legs(cause, base, from, _to) when cause in ["issue", "write_off", "kind_change_out"],
     do: [leg(base, from, true)]
 
@@ -186,7 +191,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   end
 
   # receipt, opening: no from, to required. issue/write_off: from required, no to. Two-leg: both, equal.
-  defp sides(cause, from, to) when cause in ["receipt", "opening"] and is_nil(from) do
+  defp sides(cause, from, to)
+       when cause in ["receipt", "opening", "opening_negative"] and is_nil(from) do
     with {:ok, to} <- side(to), do: {:ok, nil, to}
   end
 

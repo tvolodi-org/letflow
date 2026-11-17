@@ -213,6 +213,7 @@ defmodule Letflow.LedgerBoundariesTest do
             "balances(a, b, c, d)",
             "entries(a, b, c, d)",
             "hold_exclusive!(a, b)",
+            "negative_balances_allowed?(a, b, c)",
             "reconcile(a, b, c)"
           ] do
         assert r8("def f(a, b, c, d), do: Letflow.Ledger.#{read}") == [], read

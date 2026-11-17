@@ -187,11 +187,25 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   `Letflow.Modules.Stock.Documents.OpeningShape` (REQ-725), every other kind to
   `Letflow.Modules.Stock.Documents.Shape` (which answers `unknown_kind` for a kind it does not know).
   """
-  @spec parse(term(), :create | {:replace, String.t()}) ::
+  @spec parse(term(), :create | {:replace, String.t()}, boolean()) ::
           {:ok, map()} | {:error, {String.t(), map()}}
-  def parse(%{"kind" => "opening"} = body, :create), do: OpeningShape.parse(body, :create)
-  def parse(body, {:replace, "opening"}), do: OpeningShape.parse(body, {:replace, "opening"})
-  def parse(body, mode), do: Shape.parse(body, mode)
+  def parse(body, mode, allow_negative? \\ false)
+
+  def parse(%{"kind" => "opening"} = body, :create, allow_negative?),
+    do: OpeningShape.parse(body, :create, allow_negative?)
+
+  def parse(body, {:replace, "opening"}, allow_negative?),
+    do: OpeningShape.parse(body, {:replace, "opening"}, allow_negative?)
+
+  def parse(body, mode, _allow_negative?), do: Shape.parse(body, mode)
+
+  @doc """
+  The ledger causes a document of `spec` can be posted under (REQ-836): an opening is `opening` or,
+  when all its lines are negative, `opening_negative`; every other kind has its one cause.
+  """
+  @spec causes(spec()) :: [String.t()]
+  def causes(%{kind: "opening"}), do: ["opening", "opening_negative"]
+  def causes(%{cause: cause}), do: [cause]
 
   @doc "The spec whose header record type / document type is `type_key`, or `nil`."
   @spec by_type_key(term()) :: spec() | nil

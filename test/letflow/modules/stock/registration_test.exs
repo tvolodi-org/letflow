@@ -23,6 +23,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     causes: %{
       "receipt" => %{sign_rule: :positive, reason_required: false},
       "opening" => %{sign_rule: :positive, reason_required: false},
+      "opening_negative" => %{sign_rule: :negative, reason_required: false},
       "issue" => %{sign_rule: :negative, reason_required: false},
       "write_off" => %{sign_rule: :negative, reason_required: true},
       "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
@@ -32,6 +33,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
       "kind_change_out" => %{sign_rule: :negative, reason_required: false}
     },
     key_bounds: [],
+    # REQ-836 (decision 0090): the tenant's negative balance setting applies to stock.
+    negative_balance: :tenant_setting,
     permissions: %{
       post: :StockPost,
       reverse: :StockReverse,
@@ -52,7 +55,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.18.0"
+    assert m.version == "0.19.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -134,6 +137,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
     assert m.route_policies == [
              {"GET", "/balances", :StockRead},
+             {"GET", "/posting-rules", :StockRead},
              {"GET", "/movements", :StockRead},
              {"GET", "/reconcile", :StockReconcile},
              {"POST", "/documents", :StockPost},
@@ -204,7 +208,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(count_difference hand_over issue kind_change_out opening receipt return transfer write_off)
+             ~w(count_difference hand_over issue kind_change_out opening opening_negative receipt return transfer write_off)
 
     # REQ-718: one cause, sign rule any, a reason required
     assert r.causes["count_difference"] == %{sign_rule: :any, reason_required: true}
@@ -267,8 +271,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-1925: form_z7.ex (pure Z-7 data map, no Repo) and stock_sheet_source.ex (reads through Ledger) make 45.
     # T-2082 (REQ-865): stock_workbook.ex (pure data builder, reads through Ledger) makes 46.
     # T-2076 (REQ-846): create_idempotency.ex (pure Ecto schema, no Repo writes inside; Repo.insert! is in documents.ex) makes 47.
-    # T-2083 (REQ-884): stock_workbook_import.ex (reads through Ledger and the master read APIs, no Repo) makes 48.
-    assert length(files) == 48
+    # REQ-836: posting_rules.ex (reads the setting through Ledger, no Repo) makes 48.
+    # T-2083 (REQ-884): stock_workbook_import.ex (reads through Ledger and the master read APIs, no Repo) makes 49.
+    assert length(files) == 49
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

@@ -77,6 +77,7 @@ GET /modules/stock/documents/:id StockRead
 GET /modules/stock/documents/:id/print StockRead
 GET /modules/stock/frozen-locations StockRead
 GET /modules/stock/movements StockRead
+GET /modules/stock/posting-rules StockRead
 GET /modules/stock/reconcile StockReconcile
 GET /modules/stock/stock-card/print StockRead
 GET /modules/stock/stock-sheet/print StockRead
