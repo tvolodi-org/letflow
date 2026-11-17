@@ -134,9 +134,13 @@ defmodule Letflow.Modules.Stock.TwoSidePostingTest do
     instance =
       Repo.get!(Letflow.EventStore.InstanceProjection, task.instance_id, prefix: ctx.schema)
 
+    # REQ-832: an unknown location is refused at posting now (master_posting_test); a changed but LIVE
+    # location still posts, and the posting check on read is what detects it.
+    other = T.b2!(ctx)
+
     lines =
       List.update_at(instance.variables["posting"]["lines"], 0, fn line ->
-        put_in(line, ["to", "location"], Ecto.UUID.generate())
+        put_in(line, ["to", "location"], other.location)
       end)
 
     output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}

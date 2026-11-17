@@ -209,6 +209,23 @@ defmodule Letflow.Modules.Stock do
   /frozen-locations` (`StockRead`). No migration, no new permission. The no-freeze count of REQ-718 is
   unchanged. Assumptions, owner may change at GATE B: the pair rule, the refused task stays pending.
 
+  ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
+
+  `post_document`, `post_count` and `post_kind_change_out` now declare `reads` for `catalog_item`,
+  `catalog_uom`, `catalog_lot`, `location_node`, `org_unit` and `org_employee`, and
+  `Letflow.Modules.Stock.Handlers` checks every master named by a posting line before it builds any
+  write step. For a line with a `to` side (the side that adds stock): `sku` must be a live active
+  `catalog_item`, `unit` a live active `catalog_uom` equal to the item's `base_uom_id`, a given `lot` a
+  live active `catalog_lot` whose `item_id` equals `sku`, and the to-side `location`, `org_unit` and
+  (if given) `responsible` live active `location_node`, `org_unit` and `org_employee`; the from side of
+  the same line (transfer / hand over / return) is checked for liveness only. For a line with only a
+  `from` side: each of the same ids is a live record of its type (active false is accepted on a removing
+  side). The first failed check returns `{:error, :invalid_arguments}`, which the engine maps to
+  `validation_failed` with audit detail `handler_invalid_arguments`; nothing of the completion commits
+  and the post task stays pending. Each distinct (type, id) pair is read at most once per handler call.
+  A dry build (`read/3` answers `{:error, :dry_build}`) skips all checks. Reversals read nothing
+  (decision 0073 note 9.5): `reverse_document` declares no reads and is not changed.
+
   ## Opening line import (REQ-727 / GH #3773; version 0.10.0)
 
   The manifest registers `import_opening_line/3` for `stock_opening_line` (`:import_functions`): an xlsx
@@ -342,7 +359,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.17.0",
+    version: "0.18.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -475,7 +492,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "reverse_document",
@@ -504,7 +529,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_kind_change_out",
@@ -518,7 +551,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       }
     ],
     import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],
