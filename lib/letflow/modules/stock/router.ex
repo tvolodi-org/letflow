@@ -429,7 +429,7 @@ defmodule Letflow.Modules.Stock.Router do
           file_name_result =
             cond do
               file_name == "" -> {:error, :invalid_filter}
-              byte_size(file_name) > 255 -> {:error, :invalid_filter}
+              String.length(file_name) > 255 -> {:error, :invalid_filter}
               true -> {:ok, file_name}
             end
 

@@ -310,12 +310,16 @@ defmodule Letflow.Modules.Stock.StockWorkbookApplyTest do
           ["Z-2", "Два", 5, "R", "K", 2]
         ])
 
+      warm!(ctx)
+      before = written(ctx.schema)
+
       conn = apply_request(apply_path(m.unit), ctx.tok_k, bytes)
       assert conn.status == 200
       answer = S.json(conn)
       assert answer["applied"] == false
       assert answer["changes"] == 0
       assert is_list(answer["remarks"])
+      assert written(ctx.schema) == before
     end
   end
 
@@ -531,6 +535,18 @@ defmodule Letflow.Modules.Stock.StockWorkbookApplyTest do
         )
 
       assert reason!(conn_long, 422) == "invalid_filter"
+
+      # the limit counts characters, not bytes: 200 Cyrillic letters are 400 bytes and fine
+      name_cyr = String.duplicate("ф", 200)
+
+      conn_cyr =
+        apply_request(
+          apply_path(m.unit) <> "&file_name=#{URI.encode(name_cyr)}",
+          ctx.tok_k,
+          bytes
+        )
+
+      assert conn_cyr.status == 201
     end
   end
 

@@ -115,8 +115,14 @@ run again inside the transaction before anything is written.
 ### After load
 
 The document is an issued `stock_quick_count` (kind `quick_count`, prefix `QCT`). Its header
-carries `source: "workbook"`, `file_name`, `sheet`, `rows_read` and `remarks_count`. Each line
-carries `reason_code: "other"` and `reason_text: "Записать остатки из файла"`.
+keeps the quick count schema (`org_unit_id`, `reason_code: "other"`, `reason_text: "Записать
+остатки из файла"`). The version content carries `workbook_ext` with `source: "workbook"`,
+`file_name`, `sheet`, `rows_read` and `remarks_count`; read it with `GET /documents/:id`.
+
+**Difference from `POST /quick-counts`.** The load does not run the REQ-854 location-link check
+(`not_linked`): a changed key at a place that is not linked to the org unit is not refused, and
+posting does not re-check the link. The load writes only what the REQ-884 check finds, and that
+check does not test the link either.
 
 **Four eyes ON (default).** The loader's own completion of the approve task is refused
 `separation_of_duties`; a second user completes it. After approval the ledger receives one entry

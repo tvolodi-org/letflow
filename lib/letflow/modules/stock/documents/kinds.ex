@@ -32,8 +32,10 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   difference, `Letflow.Modules.Stock.Documents.QuickCountPosting`).
 
   REQ-885: when created by `POST /stock-workbook/apply` (`Letflow.Modules.Stock.Documents.workbook_apply/6`)
-  the `quick_count` document may have MORE THAN ONE line. The header also accepts the workbook-load keys
-  `source`, `file_name`, `sheet`, `rows_read` and `remarks_count` (stored freely in JSONB; no schema change).
+  the `quick_count` document may have MORE THAN ONE line. The header schema is unchanged (`org_unit_id`,
+  `reason_code`, `reason_text`); the workbook-load keys `source`, `file_name`, `sheet`, `rows_read`,
+  `remarks_count` and the per-line reason are stored in the version content under `workbook_ext`
+  (`Letflow.Modules.Stock.Documents.workbook_apply/6`).
   """
 
   alias Letflow.Modules.Stock.Documents.OpeningShape
