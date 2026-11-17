@@ -181,7 +181,9 @@ defmodule Letflow.Entities.XlsxImport do
   # not counted here, whatever the original archive's directory says.
   # Stage 3 (in the same pass): every verified part is scanned for row and cell references
   # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget, counting
-  # the cells it builds and then drops (outside a row, under a nested row) as well. The scan
+  # the cells it builds and then drops (outside a row, under a nested row) as well, and every
+  # text the reader turns into an integer (row and cell `r`, style `s`, a shared-string index, a
+  # shared formula's `si`) is capped at 10 bytes before any conversion. The scan
   # reads the part as the reader will (`reader_text/1`), and the rebuilt archive holds those very
   # bytes, so the reader's own decoding step leaves them as they are: scan and reader parse the
   # same bytes (T-1122).
@@ -518,6 +520,18 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   its fill-in to the closed row's `nil`) and the cells of an outer row that a nested `<row>`
   resets (the reader's `<row>` start sets `row: []`). Neither resets the count.
 
+  Every text the reader turns into an integer is capped at 10 bytes before any
+  conversion (`XFD1048576`, Excel's largest cell reference, is 10 bytes): a row's `r` and a cell's
+  `r` (which the scan itself parses), a cell's style index `s` (its last one, kept until `</c>`, as
+  the reader keeps it) and the value of a shared-string cell (`t="s"`: the first characters after
+  a `<v>` or `<t>` start, which the reader stores, kept until `</c>`). A longer one is
+  `:too_large`. A shared formula (`<f t="shared" ref=..>`, its first `t`, `ref` and `si`, as the
+  reader reads them) needs an `si` of at most 10 bytes whose value is at least 0 and
+  below the cell budget (`:too_large` otherwise, `:unreadable` when it is missing or not an
+  integer): the reader keeps one array slot per index up to it, so the budget bounds that array.
+  The text of other cells is not capped here: the reader's `Decimal`/number parsing of it is
+  bounded by the inflate cap.
+
   The scan fails closed: an XML part the parser cannot read to the end is `:unreadable` when it
   holds a `<row>` or `<c>` tag (the reader may have started building rows from it), and so is a
   row `r` that is not an integer (the reader's `String.to_integer/1` raises on it). A part that
@@ -527,6 +541,8 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   """
 
   @behaviour Saxy.Handler
+
+  @max_index_bytes 10
 
   @doc """
   `:ok` when the filled-in rows and cells of `xml` stay within `budget`, `:too_large` when they
@@ -543,7 +559,11 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
       current_row: 1,
       row_len: 0,
       expected_column: 1,
-      cell_ref: nil
+      cell_ref: nil,
+      cell_style: nil,
+      cell_type: nil,
+      value_pending: false,
+      value_bytes: 0
     }
 
     case Saxy.parse_string(xml, __MODULE__, state) do
@@ -558,20 +578,87 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
 
   @impl Saxy.Handler
   def handle_event(:start_element, {"row", attributes}, state) do
-    current_row =
-      case first_r(attributes) do
-        nil -> state.expected_row
-        value -> String.to_integer(value)
-      end
+    case first_attr(attributes, "r") do
+      value when is_binary(value) and byte_size(value) > @max_index_bytes ->
+        {:stop, :too_large}
 
-    {:ok, %{state | current_row: current_row, row_len: 0, expected_column: 1}}
+      value ->
+        current_row = if value, do: String.to_integer(value), else: state.expected_row
+        {:ok, %{state | current_row: current_row, row_len: 0, expected_column: 1}}
+    end
   rescue
     ArgumentError -> {:stop, :unreadable}
   end
 
   def handle_event(:start_element, {"c", attributes}, state) do
-    ref = last_r(attributes, state.cell_ref)
+    ref = last_attr(attributes, "r", state.cell_ref)
+    style = last_attr(attributes, "s", state.cell_style)
 
+    if oversize?(ref) or oversize?(style),
+      do: {:stop, :too_large},
+      else: count_cell(%{state | cell_style: style}, ref, attributes)
+  end
+
+  def handle_event(:end_element, "c", state) do
+    state = %{state | row_len: state.row_len + 1, cells: state.cells + 1}
+
+    cond do
+      state.cell_type == "s" and state.value_bytes > @max_index_bytes ->
+        {:stop, :too_large}
+
+      state.cells > state.budget.cells ->
+        {:stop, :too_large}
+
+      true ->
+        {:ok,
+         %{
+           state
+           | cell_ref: nil,
+             cell_style: nil,
+             cell_type: nil,
+             value_pending: false,
+             value_bytes: 0
+         }}
+    end
+  end
+
+  # The reader stores the first characters after a `<v>` or `<t>` start as the cell's value, and
+  # a `<f>` start or a `</v>` ends the wait.
+  def handle_event(:start_element, {name, _attributes}, state) when name in ["v", "t"],
+    do: {:ok, %{state | value_pending: true}}
+
+  def handle_event(:end_element, "v", state), do: {:ok, %{state | value_pending: false}}
+
+  def handle_event(:characters, chars, %{value_pending: true} = state),
+    do:
+      {:ok,
+       %{state | value_pending: false, value_bytes: max(state.value_bytes, byte_size(chars))}}
+
+  def handle_event(:start_element, {"f", attributes}, state) do
+    state = %{state | value_pending: false}
+
+    case {first_attr(attributes, "t"), first_attr(attributes, "ref")} do
+      {"shared", ref} when is_binary(ref) -> shared_index(first_attr(attributes, "si"), state)
+      _ -> {:ok, state}
+    end
+  end
+
+  # The row's own cells are already in `cells`; the rows filled in before it add one copy each.
+  def handle_event(:end_element, "row", state) do
+    built = max(state.current_row - state.expected_row, 0) + 1
+    rows = state.rows + built
+    cells = state.cells + (built - 1) * state.row_len
+
+    if rows > state.budget.rows or cells > state.budget.cells,
+      do: {:stop, :too_large},
+      else: {:ok, %{state | rows: rows, cells: cells, expected_row: state.current_row + 1}}
+  end
+
+  def handle_event(_event, _data, state), do: {:ok, state}
+
+  # The cells between the expected column and the cell's column are filled in (ref at most
+  # 10 bytes here, so `CellReference.parse/1` is cheap).
+  defp count_cell(state, ref, attributes) do
     state =
       case ref && XlsxReader.CellReference.parse(ref) do
         {column, _row} ->
@@ -590,29 +677,25 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
 
     if state.cells > state.budget.cells,
       do: {:stop, :too_large},
-      else: {:ok, %{state | cell_ref: ref}}
+      else:
+        {:ok, %{state | cell_ref: ref, cell_type: last_attr(attributes, "t", state.cell_type)}}
   end
 
-  def handle_event(:end_element, "c", state) do
-    state = %{state | row_len: state.row_len + 1, cells: state.cells + 1, cell_ref: nil}
+  # The reader's `String.to_integer/1` and `:array.set/3` on a shared formula's index.
+  defp shared_index(si, state) when is_binary(si) and byte_size(si) <= @max_index_bytes do
+    index = String.to_integer(si)
 
-    if state.cells > state.budget.cells,
-      do: {:stop, :too_large},
-      else: {:ok, state}
+    if index >= 0 and index < state.budget.cells,
+      do: {:ok, state},
+      else: {:stop, :too_large}
+  rescue
+    ArgumentError -> {:stop, :unreadable}
   end
 
-  # The row's own cells are already in `cells`; the rows filled in before it add one copy each.
-  def handle_event(:end_element, "row", state) do
-    built = max(state.current_row - state.expected_row, 0) + 1
-    rows = state.rows + built
-    cells = state.cells + (built - 1) * state.row_len
+  defp shared_index(si, _state) when is_binary(si), do: {:stop, :too_large}
+  defp shared_index(_si, _state), do: {:stop, :unreadable}
 
-    if rows > state.budget.rows or cells > state.budget.cells,
-      do: {:stop, :too_large},
-      else: {:ok, %{state | rows: rows, cells: cells, expected_row: state.current_row + 1}}
-  end
-
-  def handle_event(_event, _data, state), do: {:ok, state}
+  defp oversize?(value), do: is_binary(value) and byte_size(value) > @max_index_bytes
 
   # A parse error leaves no state behind, so whether a row or cell came before it is read from the
   # bytes. A part that does not start with `<` (after a BOM and white space) fails on its first
@@ -621,16 +704,16 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   defp contains_sheet_element?(xml),
     do: Regex.match?(~r/\A(\xEF\xBB\xBF)?\s*</, xml) and Regex.match?(~r/<(row|c)[\s\/>]/, xml)
 
-  defp first_r(attributes) do
+  defp first_attr(attributes, name) do
     Enum.find_value(attributes, fn
-      {"r", value} -> value
+      {^name, value} -> value
       _ -> nil
     end)
   end
 
-  defp last_r(attributes, default) do
+  defp last_attr(attributes, name, default) do
     Enum.reduce(attributes, default, fn
-      {"r", value}, _acc -> value
+      {^name, value}, _acc -> value
       _, acc -> acc
     end)
   end

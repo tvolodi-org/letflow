@@ -7,7 +7,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
   REQ-884 / GH #4607: the check of a Qoimeks-layout balances workbook. Criteria 1 to 9 as named in
   the requirement: access (T-WI-1), round trip (T-WI-2), normalising (T-WI-3), changes (T-WI-4),
   remarks (T-WI-5), header and caps (T-WI-6), read only and tenancy (T-WI-7), one parse (T-WI-8).
-  Byte bounds T-WI-10..14; reference padding (forged `r` references) T-WI-15..19.
+  Byte bounds T-WI-10..14; reference padding (forged `r` references) T-WI-15..19; huge index texts T-WI-20.
   Committed tenants in Sandbox `:auto` mode; `async: false` (app env seams, DDL).
   """
 
@@ -642,6 +642,45 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
       unit = Docs.unit!(ctx.a.schema_name)
       path = "/stock-workbook/check?org_unit_id=#{unit}"
       assert reason!(post_check(path, ctx.tok_a, outside), 422) == "workbook_too_large"
+    end
+
+    test "T-WI-20 huge index texts are refused before they become integers; the route says 422",
+         ctx do
+      # before the 10-byte caps these took seconds and hundreds of MiB, or were killed past 4 GiB
+      si = "1" <> String.duplicate("0", 300_000)
+      digits = String.duplicate("9", 1_200_000)
+
+      formula = padded!(~s(<f t="shared" ref="A1" si="#{si}">x</f>))
+      formulas = padded!(Enum.map_join(1..3, &~s(<f t="shared" ref="A1" si="#{&1}#{si}">x</f>)))
+      letters = padded!(~s(<row r="2"><c r="#{String.duplicate("Z", 60_000)}2"/></row>))
+      row_digits = padded!(~s(<row r="2"><c r="A1#{String.duplicate("0", 60_000)}"/></row>))
+
+      index =
+        padded!(
+          ~s(<row r="2">) <> String.duplicate(~s(<c t="s"><v>#{digits}</v></c>), 20) <> "</row>"
+        )
+
+      style =
+        padded!(
+          ~s(<row r="2">) <> String.duplicate(~s(<c s="#{digits}"><v>1</v></c>), 20) <> "</row>"
+        )
+
+      for bytes <- [formula, formulas, letters, row_digits, index, style] do
+        assert {:ok, {micros, {:error, :workbook_too_large}}} = capped(fn -> WI.parse(bytes) end)
+        assert micros < 500_000
+      end
+
+      unit = Docs.unit!(ctx.a.schema_name)
+      path = "/stock-workbook/check?org_unit_id=#{unit}"
+      assert reason!(post_check(path, ctx.tok_a, formula), 422) == "workbook_too_large"
+
+      # a real shared formula with a shared-string index and a style is still read
+      row =
+        ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>Z-1</t></is></c>) <>
+          ~s(<c r="B2" t="inlineStr"><is><t>n</t></is></c>) <>
+          ~s(<c r="C2" s="0"><f t="shared" ref="C2:C3" si="0">1</f><v>1</v></c></row>)
+
+      assert {:ok, %{rows_read: 1, rows: [%{article: "Z-1"}]}} = WI.parse(padded!(row))
     end
   end
 

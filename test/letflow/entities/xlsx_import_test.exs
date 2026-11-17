@@ -332,6 +332,118 @@ defmodule Letflow.Entities.XlsxImportTest do
       assert scan.(real, %{rows: 3, cells: 20}) == :too_large
     end
 
+    test "C3r: a shared formula's index is capped by length and by the cell budget" do
+      scan = &XlsxImport.ReferenceScan.check/2
+
+      formula =
+        &sheet_xml(~s(<row r="1"><c r="A1"><f t="shared" ref="A1:A2"#{&1}>B1</f></c></row>))
+
+      assert scan.(formula.(~s( si="0")), @budget) == :ok
+      assert scan.(formula.(~s( si="99")), @budget) == :ok
+      # the cell budget (100 here) bounds the reader's formula array; 11 digits never parse
+      assert scan.(formula.(~s( si="100")), @budget) == :too_large
+      assert scan.(formula.(~s( si="-1")), @budget) == :too_large
+      assert scan.(formula.(~s( si="12345678901")), @budget) == :too_large
+      assert scan.(formula.(~s( si="x")), @budget) == :unreadable
+      assert scan.(formula.(""), @budget) == :unreadable
+      # the reader takes the first si; a formula that is not shared, or has no ref, is not indexed
+      assert scan.(formula.(~s( si="1" si="12345678901")), @budget) == :ok
+      no_ref = sheet_xml(~s(<row r="1"><c r="A1"><f t="shared" si="12345678901"/></c></row>))
+      assert scan.(no_ref, @budget) == :ok
+
+      # outside any cell or row too, as the reader handles it anywhere
+      assert scan.(sheet_xml(~s(<f t="shared" ref="A1" si="100"/>)), @budget) == :too_large
+
+      big = ~s(<f t="shared" ref="A1:A2" si="12345678901">A1</f>)
+      assert {:error, :xlsx_too_large} = convert_bytes(padded(big))
+      assert {:error, :xlsx_unreadable} = convert_bytes(padded(~s(<f t="shared" ref="A1"/>)))
+    end
+
+    test "C3s: row and cell references longer than 10 bytes are refused before they parse" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      assert scan.(sheet_xml(~s(<row r="12345678901"/>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row><c r="AB123456789"/></row>)), @budget) == :too_large
+      # the reader takes the last r of a cell and the first r of a row
+      assert scan.(sheet_xml(~s(<row><c r="A1" r="AB123456789"/></row>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row r="1" r="12345678901"/>)), @budget) == :ok
+      # XFD1048576, Excel's largest reference, is 10 bytes: it parses (and is too wide here)
+      assert scan.(sheet_xml(~s(<row><c r="XFD1048576"/></row>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row><c r="B1048576"/></row>)), @budget) == :ok
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A12345678901"/></row>)))
+
+      assert {:error, :xlsx_too_large} = convert_bytes(padded(~s(<row r="12345678901"></row>)))
+    end
+
+    test "C3t: a shared-string index and a style index longer than 10 bytes are refused" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      eleven = "12345678901"
+      cell = &sheet_xml(~s(<row r="1"><c r="A1"#{&1}</c></row>))
+
+      assert scan.(cell.(~s( t="s"><v>#{eleven}</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( t="s"><is><t>#{eleven}</t></is>)), @budget) == :too_large
+      assert scan.(cell.(~s( t="s"><v>1234567890</v>)), @budget) == :ok
+      # the same text in a number cell, or in a cell with no type, is not an index
+      assert scan.(cell.(~s( t="n"><v>#{eleven}</v>)), @budget) == :ok
+      assert scan.(cell.(~s(><v>#{eleven}</v>)), @budget) == :ok
+      # the last t and the last s of a cell count, as the reader reads them
+      assert scan.(cell.(~s( t="n" t="s"><v>#{eleven}</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( s="#{eleven}"><v>1</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( s="#{eleven}" s="1"><v>1</v>)), @budget) == :ok
+      assert scan.(cell.(~s( s="1234567890"><v>1</v>)), @budget) == :ok
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A2" t="s"><v>#{eleven}</v></c></row>)))
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A2" s="#{eleven}"><v>1</v></c></row>)))
+
+      # an 11-digit number in a number cell is still read
+      number = ~s(<row r="2"><c r="A2" t="n"><v>#{eleven}</v></c></row>)
+
+      assert {:ok, [%{line: 2, result: {:ok, %{"field_values" => %{"title" => _}}}}]} =
+               convert_bytes(padded(number))
+    end
+
+    test "C3u: the reported huge-index shapes return a refusal from a 64 MiB process" do
+      # before the caps each of these took seconds and hundreds of MiB, or was killed past 4 GiB
+      si = "1" <> String.duplicate("0", 300_000)
+      letters = String.duplicate("Z", 240_000)
+      digits = String.duplicate("9", 1_200_000)
+
+      shapes = [
+        ~s(<f t="shared" ref="A1" si="#{si}">x</f>),
+        Enum.map_join(1..3, &~s(<f t="shared" ref="A1" si="#{&1}#{si}">x</f>)),
+        ~s(<row r="2"><c r="#{letters}2"/></row>),
+        ~s(<row r="2"><c r="A1#{String.duplicate("0", 60_000)}"/></row>),
+        ~s(<row r="2">) <> String.duplicate(~s(<c t="s"><v>#{digits}</v></c>), 20) <> "</row>",
+        ~s(<row r="2">) <> String.duplicate(~s(<c s="#{digits}"><v>1</v></c>), 20) <> "</row>"
+      ]
+
+      for rows <- shapes do
+        bytes = padded(rows)
+
+        assert {:ok, {:error, reason}} =
+                 capped(fn -> XlsxImport.read_text_rows(bytes) end)
+
+        assert reason in [:xlsx_too_large, :xlsx_unreadable]
+        assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(bytes) end)
+      end
+    end
+
+    test "C3v: a real shared formula, shared-string index and style still read" do
+      rows =
+        ~s(<row r="2"><c r="A2" t="s" s="1"><f t="shared" ref="A2:A3" si="0">A1</f>) <>
+          ~s(<v>0</v></c></row><row r="3"><c r="A3" t="s"><f t="shared" si="0"/><v>0</v></c></row>)
+
+      assert {:ok,
+              [
+                %{line: 2, result: {:ok, %{"field_values" => %{"title" => "title"}}}},
+                %{line: 3, result: {:ok, %{"field_values" => %{"title" => "title"}}}}
+              ]} = convert_bytes(padded(rows))
+    end
+
     test "C3l: garbage never raises" do
       truncated = binary_part(XlsxFixture.build([[["title"], ["A"]]]), 0, 120)
 

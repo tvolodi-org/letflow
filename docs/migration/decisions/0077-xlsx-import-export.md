@@ -202,4 +202,8 @@ bytes, so scan and reader parse the same bytes; a part that still starts with a 
 refused. The scan fails closed: an XML part with `<row>` or `<c>` tags that it cannot parse to the
 end is `xlsx_unreadable`. The cell budget bounds the reader's work, not only its result: the count
 only grows, so cells XlsxReader builds and then drops (a `<c>` outside any `<row>`, the cells of an
-outer row that a nested `<row>` resets) count too. Covered by tests C3o, C3p, C3q and T-WI-15..19.
+outer row that a nested `<row>` resets) count too. Every text XlsxReader turns into an integer is
+capped at 10 bytes before any conversion (row and cell `r`, the style index `s`, a shared-string
+index, a shared formula's `si`, whose value must also stay below the cell budget), so no bignum
+or sparse array is built from a few bytes. Covered by tests C3o, C3p, C3q, C3r..C3v and
+T-WI-15..20.
