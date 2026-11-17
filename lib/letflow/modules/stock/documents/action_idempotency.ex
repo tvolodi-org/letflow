@@ -39,7 +39,7 @@ defmodule Letflow.Modules.Stock.Documents.ActionIdempotency do
 
   defp serialised(prefix, key, doc_id, replay, action) do
     Repo.checkout(fn ->
-      Repo.query!("SELECT pg_advisory_lock(hashtext($1))", [key])
+      Repo.query!("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lock_key(prefix, key)])
 
       try do
         case Repo.get(CreateIdempotency, key, prefix: prefix) do
@@ -48,10 +48,14 @@ defmodule Letflow.Modules.Stock.Documents.ActionIdempotency do
           nil -> bind(prefix, key, doc_id, action.())
         end
       after
-        Repo.query!("SELECT pg_advisory_unlock(hashtext($1))", [key])
+        Repo.query!("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lock_key(prefix, key)])
       end
     end)
   end
+
+  # 64-bit key (hashtextextended) namespaced by the tenant schema and a fixed tag, so two tenants
+  # never share a lock for equal keys and the int4 advisory-key space of other paths is not used.
+  defp lock_key(prefix, key), do: "stock_action_idempotency:" <> prefix <> ":" <> key
 
   defp bind(prefix, key, doc_id, {:ok, _view} = ok) do
     %CreateIdempotency{}

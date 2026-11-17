@@ -551,16 +551,26 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
   end
 
   describe "IS-6: per user and per action; key checks" do
-    test "a create key may be used on issue; a second user gets today's 409", ctx do
+    test "a create key may be used on issue by the same user; a second user gets 409", ctx do
+      # activates the stock_receipt definition (needs an admin), so a storekeeper can issue
+      act(ctx.tok_admin, draft!(ctx)["id"], "issue") |> status!(200)
+
       k = key()
       doc = create(ctx.tok_a, D.body(ctx.ma), k) |> status!(201) |> body!()
-      act(ctx.tok_admin, doc["id"], "issue", k) |> status!(200)
 
-      # same user, same document, same key again: replay (not a conflict)
-      act(ctx.tok_admin, doc["id"], "issue", k) |> status!(200)
+      # the SAME user (keeper-a) issues with the key K it used on create: no conflict, really issued
+      issued = act(ctx.tok_a, doc["id"], "issue", k) |> status!(200) |> body!()
+      assert issued["state"] == "issued"
+      assert is_binary(issued["number"]) or is_integer(issued["number"])
+      assert instances(ctx, doc["id"]) == 1
 
-      # a second user with the same key: no replay of the first user's answer
-      assert reason(act(ctx.tok_admin2, doc["id"], "issue", k), 409) == "document_not_draft"
+      # same user, same document, same key again: replay (not a conflict), no second instance
+      replay = act(ctx.tok_a, doc["id"], "issue", k) |> status!(200) |> body!()
+      assert replay["number"] == issued["number"]
+      assert instances(ctx, doc["id"]) == 1
+
+      # a second storekeeper with the same key: no replay of the first user's answer
+      assert reason(act(ctx.tok_a2, doc["id"], "issue", k), 409) == "document_not_draft"
     end
 
     test "over-long and invalid keys are 422 and write nothing", ctx do
