@@ -22,6 +22,9 @@ defmodule Letflow.Entities.XlsxImportTest do
     %{"name" => "at", "type" => "datetime"}
   ]
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+  @budget %{rows: 100, cells: 100}
+
   defp convert(sheets, opts \\ []),
     do: sheets |> XlsxFixture.build() |> XlsxImport.convert(@fields, opts)
 
@@ -212,6 +215,235 @@ defmodule Letflow.Entities.XlsxImportTest do
                convert([[["title"], ["first"]], [["nope"], ["second"]]])
     end
 
+    test "C3o: far cell references are refused before the reader fills them in" do
+      rows = Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>))
+      bytes = padded(rows)
+
+      # the reader alone would build 16 M cells (over 64 MiB); the scan refuses it first
+      parent = self()
+      words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
+
+      {pid, ref} =
+        spawn_monitor(fn ->
+          Process.flag(:max_heap_size, %{size: words, kill: true, error_logger: false})
+          send(parent, {:done, self(), XlsxImport.convert(bytes, @fields)})
+        end)
+
+      assert_receive {:done, ^pid, {:error, :xlsx_too_large}}, 5_000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+
+      # the same shape at a real width is read as before
+      assert {:ok, []} = XlsxImport.convert(padded(~s(<row r="3"><c r="B3"/></row>)), @fields)
+    end
+
+    test "C3o: the scan counts the rows and cells the reader fills in, gaps after a lower row too" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      # rows 1 and 3: the reader builds 3 rows (row 2 filled in)
+      two = sheet_xml(~s(<row r="1"><c r="A1"/></row><row r="3"><c r="A3"/></row>))
+      assert scan.(two, %{rows: 3, cells: 100}) == :ok
+      assert scan.(two, %{rows: 2, cells: 100}) == :too_large
+
+      # a cell at J is 10 cells wide (A..I filled in), also on the filled-in rows before it
+      wide = sheet_xml(~s(<row r="2"><c r="J2"/></row>))
+      assert scan.(wide, %{rows: 10, cells: 20}) == :ok
+      assert scan.(wide, %{rows: 10, cells: 19}) == :too_large
+
+      # 1, 5, 2, 5: 1 + 4 + 1 + 3 rows; a high-water mark would count 5
+      back =
+        sheet_xml(~s(<row r="1"/><row r="5"/><row r="2"/><row r="5"/>))
+
+      assert scan.(back, %{rows: 9, cells: 100}) == :ok
+      assert scan.(back, %{rows: 8, cells: 100}) == :too_large
+
+      # not XML (a binary part, fails on its first byte) and a malformed part with no row are ok
+      assert scan.(<<0, 1, 2>>, %{rows: 1, cells: 1}) == :ok
+      assert scan.(<<0x89, "PNG", 0, "<c r=\"A1\">">>, %{rows: 1, cells: 1}) == :ok
+      assert scan.(~s(<a><b></a>), %{rows: 1, cells: 1}) == :ok
+    end
+
+    test "C3o: the scan fails closed on a part with rows it cannot read to the end" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      # a row number the reader's String.to_integer/1 raises on
+      assert scan.(~s(<row r="x">), %{rows: 1, cells: 1}) == :unreadable
+      # a sheet that breaks off after a row, and one with a UTF-8 BOM the parser refuses (in
+      # check_parts the scan gets the part with its BOM stripped, this is the scan alone)
+      assert scan.(sheet_xml(~s(<row r="1"><c r="A1"/></row><row>)) <> "<", @budget) ==
+               :unreadable
+
+      assert scan.(@bom <> sheet_xml(~s(<row r="2"><c r="B2"/></row>)), @budget) == :unreadable
+
+      # real cells are counted at every </c>, so a row that never closes is bounded too
+      open_row = ~s(<worksheet><sheetData><row r="1">) <> String.duplicate("<c/>", 30)
+      assert scan.(open_row, %{rows: 10, cells: 20}) == :too_large
+    end
+
+    test "C3p: a BOM in front of the sheet does not hide far references from the scan" do
+      far = Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>))
+
+      # the reader strips a UTF-8 BOM before it parses; the scan reads the same stripped bytes
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(padded(far, @bom)) end)
+
+      one = ~s(<row r="2"><c r="ZZZZZ2"/></row>)
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(padded(one, @bom)) end)
+
+      # a second BOM would be stripped by the reader again after the archive is rebuilt: refused
+      assert {:error, :xlsx_unreadable} = convert_bytes(padded(one, @bom <> @bom))
+
+      # a UTF-16 sheet under a name that is not .xml is decoded as the reader decodes it
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(utf16_book(far)) end)
+
+      # declared encoding="UTF-16": the parser refuses the declaration (the reader's too), so a
+      # sheet with rows the scan cannot read to the end is refused, not passed on unscanned
+      declared = utf16_book(far, ~s(<?xml version="1.0" encoding="UTF-16"?>))
+      assert {:ok, {:error, :xlsx_unreadable}} = capped(fn -> convert_bytes(declared) end)
+
+      # a legitimate sheet with a BOM, UTF-8 or UTF-16, is still read
+      row = ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>A</t></is></c></row>)
+      assert {:ok, [%{line: 2, result: {:ok, _}}]} = convert_bytes(padded(row, @bom))
+      assert {:ok, [%{line: 2, result: {:ok, _}}]} = convert_bytes(utf16_book(row))
+    end
+
+    test "C3q: cells the reader builds and then drops count against the budget too" do
+      # outside any row, and inside an outer row that a nested row resets: the reader still
+      # fills these cells in, so the scan counts them; each shape took seconds before
+      shapes = [
+        String.duplicate(~s(<row></row><c r="XFD1"/>), 19_000),
+        String.duplicate(~s(<row></row><c r="ABJDH1"/>), 100),
+        ~s(<row r="2">) <> String.duplicate(~s(<c r="XFD2"/><row></row>), 19_000) <> "</row>"
+      ]
+
+      for rows <- shapes do
+        timed = fn -> :timer.tc(fn -> convert_bytes(padded(rows)) end) end
+        assert {:ok, {micros, {:error, :xlsx_too_large}}} = capped(timed)
+        assert micros < 500_000
+      end
+
+      scan = &XlsxImport.ReferenceScan.check/2
+      # J outside a row is 9 cells filled in plus the cell: twice is 20, three times is 30
+      twice = sheet_xml(String.duplicate(~s(<row/><c r="J1"/>), 2))
+      assert scan.(twice, %{rows: 10, cells: 20}) == :ok
+
+      assert scan.(sheet_xml(String.duplicate(~s(<row/><c r="J1"/>), 3)), %{rows: 10, cells: 20}) ==
+               :too_large
+
+      # a real sheet counts as before: rows 1 and 3, a cell at J on row 3, 3 rows of 10
+      real = sheet_xml(~s(<row r="1"><c r="A1"/></row><row r="3"><c r="J3"/></row>))
+      assert scan.(real, %{rows: 3, cells: 21}) == :ok
+      assert scan.(real, %{rows: 3, cells: 20}) == :too_large
+    end
+
+    test "C3r: a shared formula's index is capped by length and by the cell budget" do
+      scan = &XlsxImport.ReferenceScan.check/2
+
+      formula =
+        &sheet_xml(~s(<row r="1"><c r="A1"><f t="shared" ref="A1:A2"#{&1}>B1</f></c></row>))
+
+      assert scan.(formula.(~s( si="0")), @budget) == :ok
+      assert scan.(formula.(~s( si="99")), @budget) == :ok
+      # the cell budget (100 here) bounds the reader's formula array; 11 digits never parse
+      assert scan.(formula.(~s( si="100")), @budget) == :too_large
+      assert scan.(formula.(~s( si="-1")), @budget) == :too_large
+      assert scan.(formula.(~s( si="12345678901")), @budget) == :too_large
+      assert scan.(formula.(~s( si="x")), @budget) == :unreadable
+      assert scan.(formula.(""), @budget) == :unreadable
+      # the reader takes the first si; a formula that is not shared, or has no ref, is not indexed
+      assert scan.(formula.(~s( si="1" si="12345678901")), @budget) == :ok
+      no_ref = sheet_xml(~s(<row r="1"><c r="A1"><f t="shared" si="12345678901"/></c></row>))
+      assert scan.(no_ref, @budget) == :ok
+
+      # outside any cell or row too, as the reader handles it anywhere
+      assert scan.(sheet_xml(~s(<f t="shared" ref="A1" si="100"/>)), @budget) == :too_large
+
+      big = ~s(<f t="shared" ref="A1:A2" si="12345678901">A1</f>)
+      assert {:error, :xlsx_too_large} = convert_bytes(padded(big))
+      assert {:error, :xlsx_unreadable} = convert_bytes(padded(~s(<f t="shared" ref="A1"/>)))
+    end
+
+    test "C3s: row and cell references longer than 10 bytes are refused before they parse" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      assert scan.(sheet_xml(~s(<row r="12345678901"/>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row><c r="AB123456789"/></row>)), @budget) == :too_large
+      # the reader takes the last r of a cell and the first r of a row
+      assert scan.(sheet_xml(~s(<row><c r="A1" r="AB123456789"/></row>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row r="1" r="12345678901"/>)), @budget) == :ok
+      # XFD1048576, Excel's largest reference, is 10 bytes: it parses (and is too wide here)
+      assert scan.(sheet_xml(~s(<row><c r="XFD1048576"/></row>)), @budget) == :too_large
+      assert scan.(sheet_xml(~s(<row><c r="B1048576"/></row>)), @budget) == :ok
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A12345678901"/></row>)))
+
+      assert {:error, :xlsx_too_large} = convert_bytes(padded(~s(<row r="12345678901"></row>)))
+    end
+
+    test "C3t: a shared-string index and a style index longer than 10 bytes are refused" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      eleven = "12345678901"
+      cell = &sheet_xml(~s(<row r="1"><c r="A1"#{&1}</c></row>))
+
+      assert scan.(cell.(~s( t="s"><v>#{eleven}</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( t="s"><is><t>#{eleven}</t></is>)), @budget) == :too_large
+      assert scan.(cell.(~s( t="s"><v>1234567890</v>)), @budget) == :ok
+      # the same text in a number cell, or in a cell with no type, is not an index
+      assert scan.(cell.(~s( t="n"><v>#{eleven}</v>)), @budget) == :ok
+      assert scan.(cell.(~s(><v>#{eleven}</v>)), @budget) == :ok
+      # the last t and the last s of a cell count, as the reader reads them
+      assert scan.(cell.(~s( t="n" t="s"><v>#{eleven}</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( s="#{eleven}"><v>1</v>)), @budget) == :too_large
+      assert scan.(cell.(~s( s="#{eleven}" s="1"><v>1</v>)), @budget) == :ok
+      assert scan.(cell.(~s( s="1234567890"><v>1</v>)), @budget) == :ok
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A2" t="s"><v>#{eleven}</v></c></row>)))
+
+      assert {:error, :xlsx_too_large} =
+               convert_bytes(padded(~s(<row r="2"><c r="A2" s="#{eleven}"><v>1</v></c></row>)))
+
+      # an 11-digit number in a number cell is still read
+      number = ~s(<row r="2"><c r="A2" t="n"><v>#{eleven}</v></c></row>)
+
+      assert {:ok, [%{line: 2, result: {:ok, %{"field_values" => %{"title" => _}}}}]} =
+               convert_bytes(padded(number))
+    end
+
+    test "C3u: the reported huge-index shapes return a refusal from a 64 MiB process" do
+      # before the caps each of these took seconds and hundreds of MiB, or was killed past 4 GiB
+      si = "1" <> String.duplicate("0", 300_000)
+      letters = String.duplicate("Z", 240_000)
+      digits = String.duplicate("9", 1_200_000)
+
+      shapes = [
+        ~s(<f t="shared" ref="A1" si="#{si}">x</f>),
+        Enum.map_join(1..3, &~s(<f t="shared" ref="A1" si="#{&1}#{si}">x</f>)),
+        ~s(<row r="2"><c r="#{letters}2"/></row>),
+        ~s(<row r="2"><c r="A1#{String.duplicate("0", 60_000)}"/></row>),
+        ~s(<row r="2">) <> String.duplicate(~s(<c t="s"><v>#{digits}</v></c>), 20) <> "</row>",
+        ~s(<row r="2">) <> String.duplicate(~s(<c s="#{digits}"><v>1</v></c>), 20) <> "</row>"
+      ]
+
+      for rows <- shapes do
+        bytes = padded(rows)
+
+        assert {:ok, {:error, reason}} =
+                 capped(fn -> XlsxImport.read_text_rows(bytes) end)
+
+        assert reason in [:xlsx_too_large, :xlsx_unreadable]
+        assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(bytes) end)
+      end
+    end
+
+    test "C3v: a real shared formula, shared-string index and style still read" do
+      rows =
+        ~s(<row r="2"><c r="A2" t="s" s="1"><f t="shared" ref="A2:A3" si="0">A1</f>) <>
+          ~s(<v>0</v></c></row><row r="3"><c r="A3" t="s"><f t="shared" si="0"/><v>0</v></c></row>)
+
+      assert {:ok,
+              [
+                %{line: 2, result: {:ok, %{"field_values" => %{"title" => "title"}}}},
+                %{line: 3, result: {:ok, %{"field_values" => %{"title" => "title"}}}}
+              ]} = convert_bytes(padded(rows))
+    end
+
     test "C3l: garbage never raises" do
       truncated = binary_part(XlsxFixture.build([[["title"], ["A"]]]), 0, 120)
 
@@ -219,5 +451,70 @@ defmodule Letflow.Entities.XlsxImportTest do
         assert {:error, :xlsx_unreadable} = XlsxImport.convert(bytes, @fields)
       end
     end
+  end
+
+  defp convert_bytes(bytes), do: XlsxImport.convert(bytes, @fields)
+
+  # Runs `fun` in a process killed past 64 MiB of heap: `{:ok, result}` or `{:died, why}`.
+  defp capped(fun) do
+    parent = self()
+    words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Process.flag(:max_heap_size, %{size: words, kill: true, error_logger: false})
+        send(parent, {:capped, self(), fun.()})
+      end)
+
+    receive do
+      {:capped, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        {:ok, result}
+
+      {:DOWN, ^ref, :process, ^pid, why} ->
+        {:died, why}
+    end
+  end
+
+  # The title header, then `rows_xml`, as a UTF-16LE sheet with a BOM named `sheet1.bin`.
+  defp utf16_book(rows_xml, decl \\ ~s(<?xml version="1.0"?>)) do
+    xml =
+      decl <>
+        ~s(<worksheet xmlns=) <>
+        ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
+        ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <>
+        rows_xml <> "</sheetData></worksheet>"
+
+    u16 = <<0xFF, 0xFE>> <> :unicode.characters_to_binary(xml, :utf8, {:utf16, :little})
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    rels =
+      ~s(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns=) <>
+        ~s("http://schemas.openxmlformats.org/package/2006/relationships">) <>
+        ~s(<Relationship Id="rId1" Type="#{rel}/worksheet" Target="worksheets/sheet1.bin"/>) <>
+        ~s(<Relationship Id="rId2" Type="#{rel}/styles" Target="styles.xml"/>) <>
+        ~s(<Relationship Id="rId3" Type="#{rel}/sharedStrings" Target="sharedStrings.xml"/>) <>
+        "</Relationships>"
+
+    XlsxFixture.build([[["title"]]],
+      replace: %{"xl/_rels/workbook.xml.rels" => rels},
+      extra: [{"xl/worksheets/sheet1.bin", u16}]
+    )
+  end
+
+  defp sheet_xml(rows_xml) do
+    ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
+      ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
+      rows_xml <> "</sheetData></worksheet>"
+  end
+
+  defp padded(rows_xml, prefix \\ "") do
+    xml =
+      prefix <>
+        sheet_xml(
+          ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <> rows_xml
+        )
+
+    XlsxFixture.build([[["title"]]], replace: %{"xl/worksheets/sheet1.xml" => xml})
   end
 end

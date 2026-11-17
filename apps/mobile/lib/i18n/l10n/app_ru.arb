@@ -110,6 +110,7 @@
   "stock.doc.quantity": "Количество",
   "stock.doc.addLine": "Добавить строку",
   "stock.doc.removeLine": "Удалить строку",
+  "stock.doc.negativeBalance": "Остаток станет отрицательным",
   "stock.doc.save": "Сохранить",
   "stock.doc.issue": "Выдать в работу",
   "stock.doc.discard": "Удалить черновик",

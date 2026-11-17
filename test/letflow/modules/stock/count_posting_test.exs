@@ -18,6 +18,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
   import Ecto.Query, only: [from: 2]
   import Plug.Conn
 
+  alias Letflow.CatalogItemsFixture, as: Cat
   alias Letflow.CountsFixture, as: F
   alias Letflow.Engine.Task
   alias Letflow.EventStore.InstanceProjection
@@ -98,17 +99,19 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
   end
 
   defp book!(x) do
-    sku1 = S.uuid()
-    sku2 = S.uuid()
-    S.post!(x.s, "receipt", %{lines: [S.line(sku1, "10", %{to: S.side(x.w.unit, x.w.a)})]})
-    S.post!(x.s, "receipt", %{lines: [S.line(sku2, "4", %{to: S.side(x.w.unit, x.w.a1)})]})
+    # REQ-832: the posting checks its masters, so the books are real catalog items in the item's base unit.
+    sku1 = x.m.item
+    sku2 = Cat.item!(x.s, "CPI#{System.unique_integer([:positive])}", x.m.uom).record_id
+    unit = %{unit: x.m.uom}
+    S.post!(x.s, "receipt", %{lines: [S.line(sku1, "10", %{to: S.side(x.w.unit, x.w.a)}, unit)]})
+    S.post!(x.s, "receipt", %{lines: [S.line(sku2, "4", %{to: S.side(x.w.unit, x.w.a1)}, unit)]})
     {sku1, sku2}
   end
 
   # Counted lines: line 1 (book 10) counted 3 = shortage 7; line 2 (book 4) counted 3 = shortage 1;
   # `surplus?` adds a surplus line of 2. `exact?` counts the books exactly (no difference).
   defp counted!(x, opts \\ []) do
-    {_sku1, _sku2} = book!(x)
+    unless Keyword.get(opts, :no_book, false), do: book!(x)
     created = status!(call(:post, "/counts", x.chair_tok, F.input(x.w, window())), 201)
     id = created["id"]
     status!(call(:post, "/counts/#{id}/issue", x.chair_tok, %{}), 200)
@@ -117,7 +120,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     lines = status!(call(:get, "/counts/#{id}/lines", x.chair_tok), 200)["rows"]
 
     for l <- lines do
-      qty = if exact?, do: l["book_quantity"], else: "3"
+      qty = if exact?, do: l["book_quantity"], else: Keyword.get(opts, :counted, "3")
 
       status!(
         call(:put, "/counts/#{id}/lines/#{l["line_no"]}/count", x.member_tok, %{
@@ -131,7 +134,9 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       status!(
         call(:post, "/counts/#{id}/surplus-lines", x.member_tok, %{
           "location_id" => x.w.a1,
-          "catalog_item_id" => x.m.item,
+          "catalog_item_id" =>
+            Keyword.get(opts, :surplus_item) ||
+              Cat.item!(x.s, "CPS#{System.unique_integer([:positive])}", x.m.uom).record_id,
           "unit_ref" => x.m.uom,
           "counted_quantity" => "2"
         }),
@@ -409,11 +414,116 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       assert Decimal.equal?(balance(x, sku), Decimal.new(10))
 
       # goods arrive after the cut-off and before the posting
-      S.post!(x.s, "receipt", %{lines: [S.line(sku, "5", %{to: S.side(x.w.unit, x.w.a)})]})
+      S.post!(x.s, "receipt", %{
+        lines: [S.line(sku, "5", %{to: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
       post!(x, id)
       complete!(x, id)
       # balance now + delta (-7), not "counted = balance"
       assert Decimal.equal?(balance(x, sku), Decimal.new(8))
+    end
+  end
+
+  describe "M6 master checks at posting (REQ-832, criterion 6)" do
+    defp retire_item!(x, item_id) do
+      r =
+        Repo.get_by!(
+          Letflow.Entities.Record.Latest,
+          [record_id: item_id, entity_type: "catalog_item"],
+          prefix: x.s
+        )
+
+      Cat.update!(x.s, r, Map.put(r.field_values, "active", false))
+    end
+
+    test "M6-1 a surplus line (to side) whose item was retired after signing is refused", ctx do
+      x = world!(ctx, :a)
+      item = Cat.item!(x.s, "CPR#{System.unique_integer([:positive])}", x.m.uom).record_id
+      id = signed!(x, surplus_item: item)
+      retire_item!(x, item)
+      post!(x, id)
+      task = task!(x, id, "post")
+      assert {:error, _} = P.complete(x, task)
+      assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
+      assert marks(x, id) == 0
+      assert movements(x, id) == []
+    end
+
+    test "M6-2 a shortage line (from side only) whose item was retired after signing posts",
+         ctx do
+      x = world!(ctx, :a)
+      id = signed!(x, surplus: false)
+      retire_item!(x, x.m.item)
+      post!(x, id)
+      complete!(x, id)
+      assert marks(x, id) == 1
+      assert [%{"cause" => "count_difference"}] = movements(x, id)
+    end
+  end
+
+  describe "REQ-836 negative balances (decision 0090)" do
+    test "NB-C1 allow: a shortage above the balance is not named and the posting is written",
+         ctx do
+      x = world!(ctx, :a)
+      Letflow.LedgerFixture.set_negative_balance!(x.s, "stock", true)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
+      # the same request that is refused shortage_exceeds_balance (T2) is accepted
+      post!(x, id)
+      complete!(x, id)
+      assert marks(x, id) == 1
+      assert [%{"cause" => "count_difference"}] = movements(x, id)
+    end
+
+    test "NB-C2 allow: book -3 counted 5 posts +8 and the key reads 5", ctx do
+      x = world!(ctx, :a)
+      sku1 = x.m.item
+      sku2 = Cat.item!(x.s, "CPN#{System.unique_integer([:positive])}", x.m.uom).record_id
+      unit = %{unit: x.m.uom}
+      S.post!(x.s, "receipt", %{lines: [S.line(sku1, "2", %{to: S.side(x.w.unit, x.w.a)}, unit)]})
+
+      S.post!(x.s, "receipt", %{lines: [S.line(sku2, "4", %{to: S.side(x.w.unit, x.w.a1)}, unit)]})
+
+      Letflow.LedgerFixture.set_negative_balance!(x.s, "stock", true)
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku1, "5", %{from: S.side(x.w.unit, x.w.a)}, unit)]
+      })
+
+      assert Decimal.equal?(balance(x, sku1), -3)
+
+      id = signed!(x, no_book: true, counted: "5", surplus: false)
+      post!(x, id)
+      complete!(x, id)
+      assert Decimal.equal?(balance(x, sku1), 5)
+
+      quantities =
+        for e <- movements(x, id),
+            leg <- e["legs"],
+            leg["sku"] == sku1,
+            do: Decimal.new(leg["quantity"])
+
+      assert [q] = quantities
+      assert Decimal.equal?(q, 8)
+    end
+
+    test "NB-C3 refuse (no row): the shortage check still names the line", ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
+      assert status!(call(:post, "/counts/#{id}/post", x.chair_tok, %{}), 422)["reason"] ==
+               "shortage_exceeds_balance"
     end
   end
 
@@ -425,7 +535,11 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       # the post starts while the balance is enough; then goods leave: 9 of 10, the shortage of 7
       # now exceeds the balance (the race the early check cannot see)
       post!(x, id)
-      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
       task = task!(x, id, "post")
       assert {:error, _} = P.complete(x, task)
       assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
@@ -438,7 +552,11 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       x = world!(ctx, :a)
       id = signed!(x)
       sku = shortage_sku!(x)
-      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
       body = status!(call(:post, "/counts/#{id}/post", x.chair_tok, %{}), 422)
       assert body["reason"] == "shortage_exceeds_balance"
       ext = body["extensions"] || body
@@ -455,7 +573,11 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       x = world!(ctx, :a)
       id = signed!(x)
       sku = shortage_sku!(x)
-      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+
+      S.post!(x.s, "issue", %{
+        lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)}, %{unit: x.m.uom})]
+      })
+
       opts = %{actor_id: x.chair_user.id, scope: :all}
 
       # no activator here, so the call stops at the definition step, i.e. after the early check

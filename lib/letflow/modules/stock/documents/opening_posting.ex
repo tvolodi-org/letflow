@@ -14,12 +14,13 @@ defmodule Letflow.Modules.Stock.Documents.OpeningPosting do
           {:ok, map()} | {:error, :line_record_missing}
   def command(view, %{content: content} = issued, line_ids) do
     header = Map.get(content, "header", %{})
+    lines = Map.get(content, "lines", [])
+    negative? = negative_document?(lines)
 
-    content
-    |> Map.get("lines", [])
+    lines
     |> Enum.reduce_while({:ok, []}, fn line, {:ok, acc} ->
       case Map.fetch(line_ids, Map.get(line, "line_no")) do
-        {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, header) | acc]}}
+        {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, header, negative?) | acc]}}
         :error -> {:halt, {:error, :line_record_missing}}
       end
     end)
@@ -27,7 +28,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningPosting do
       {:ok, acc} ->
         {:ok,
          %{
-           "cause" => "opening",
+           "cause" => if(negative?, do: "opening_negative", else: "opening"),
            "document_type" => "stock_opening",
            "document_id" => view.id,
            "client_op_id" => issued.version_id,
@@ -39,13 +40,32 @@ defmodule Letflow.Modules.Stock.Documents.OpeningPosting do
     end
   end
 
-  defp leg_line(line, line_id, header) do
+  @doc """
+  REQ-836 (decision 0090 section 4): an opening document never mixes signs, so its first line says
+  which cause posts it: a negative first quantity is `opening_negative`, anything else `opening`.
+  """
+  @spec negative_document?([map()]) :: boolean()
+  def negative_document?([line | _]), do: negative_text?(Map.get(line, "quantity"))
+  def negative_document?(_lines), do: false
+
+  @doc false
+  @spec negative_text?(term()) :: boolean()
+  def negative_text?("-" <> _rest), do: true
+  def negative_text?(_other), do: false
+
+  # The ledger cause `opening_negative` carries the magnitude; its sign rule negates the leg.
+  defp magnitude("-" <> rest), do: rest
+  defp magnitude(quantity), do: quantity
+
+  defp leg_line(line, line_id, header, negative?) do
+    quantity = Map.get(line, "quantity")
+
     %{
       "line_id" => line_id,
       "sku" => Map.get(line, "catalog_item_id"),
       "lot" => Map.get(line, "catalog_lot_id"),
       "unit" => Map.get(line, "catalog_uom_id"),
-      "quantity" => Map.get(line, "quantity"),
+      "quantity" => if(negative?, do: magnitude(quantity), else: quantity),
       "to" => %{
         "org_unit" => Map.get(header, "org_unit_id"),
         "location" => Map.get(line, "location_id"),

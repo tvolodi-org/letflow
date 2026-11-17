@@ -32,21 +32,30 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
   @note_max 500
   @ref_max 128
 
-  @spec parse(term(), :create | {:replace, String.t()}) ::
+  @doc """
+  `allow_negative?` (REQ-836, decision 0090 section 4): true only on a tenant that allows negative
+  balances; a line quantity may then be negative, but one document never mixes signs (the first line
+  whose sign differs from the first line's is `quantity_invalid`). False: a negative or zero quantity
+  is `quantity_invalid`, as before.
+  """
+  @spec parse(term(), :create | {:replace, String.t()}, boolean()) ::
           {:ok, map()} | {:error, {String.t(), map()}}
-  def parse(body, mode) when is_map(body) and not is_struct(body) do
+  def parse(body, mode, allow_negative? \\ false)
+
+  def parse(body, mode, allow_negative?) when is_map(body) and not is_struct(body) do
     with :ok <- kind(body, mode),
          :ok <- allowed(body, ["kind", "lines" | @header_keys], %{}),
          :ok <- required(body, @header_required ++ ["lines"], %{}),
          {:ok, header} <- header(body),
          :ok <- ref_pair(header, %{}),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
-         {:ok, lines} <- lines(raw_lines) do
+         {:ok, lines} <- lines(raw_lines, allow_negative?),
+         :ok <- one_sign(lines) do
       {:ok, %{kind: "opening", header: header, lines: lines}}
     end
   end
 
-  def parse(_body, _mode), do: refuse("field_invalid", %{"field" => "body"})
+  def parse(_body, _mode, _allow_negative?), do: refuse("field_invalid", %{"field" => "body"})
 
   defp kind(body, :create) do
     case Map.fetch(body, "kind") do
@@ -134,11 +143,11 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
 
   defp raw_lines(_other), do: refuse("field_invalid", %{"field" => "lines"})
 
-  defp lines(raw) do
+  defp lines(raw, allow_negative?) do
     raw
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {line, no}, {:ok, acc} ->
-      case line(line, no) do
+      case line(line, no, allow_negative?) do
         {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -149,7 +158,19 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
     end
   end
 
-  defp line(line, no) when is_map(line) and not is_struct(line) do
+  # One document does not mix signs: the first line that differs from the first line's sign is refused.
+  defp one_sign([first | rest]) do
+    negative? = String.starts_with?(first["quantity"], "-")
+
+    case Enum.find(rest, &(String.starts_with?(&1["quantity"], "-") != negative?)) do
+      nil -> :ok
+      line -> refuse("quantity_invalid", %{"line_no" => line["line_no"]})
+    end
+  end
+
+  defp one_sign([]), do: :ok
+
+  defp line(line, no, allow_negative?) when is_map(line) and not is_struct(line) do
     extras = %{"line_no" => no}
 
     with :ok <- allowed(line, @line_keys, extras),
@@ -157,7 +178,7 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
          {:ok, ids} <- line_ids(line, no),
          {:ok, refs} <- line_refs(line, no),
          :ok <- ref_pair(refs, extras),
-         {:ok, quantity} <- quantity(line["quantity"], no),
+         {:ok, quantity} <- quantity(line["quantity"], no, allow_negative?),
          {:ok, prices} <- prices(line, no),
          {:ok, received_on} <- received_on(line["received_on"], no) do
       {:ok,
@@ -170,7 +191,8 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
     end
   end
 
-  defp line(_line, no), do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
+  defp line(_line, no, _allow_negative?),
+    do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
 
   defp line_ids(line, no) do
     Enum.reduce_while(@line_ids, {:ok, %{}}, fn key, {:ok, acc} ->
@@ -202,8 +224,11 @@ defmodule Letflow.Modules.Stock.Documents.OpeningShape do
     end)
   end
 
-  defp quantity(text, no) do
-    case Shape.quantity_text(text) do
+  defp quantity(text, no, allow_negative?) do
+    parsed =
+      if allow_negative?, do: Shape.signed_quantity_text(text), else: Shape.quantity_text(text)
+
+    case parsed do
       {:ok, value} -> {:ok, value}
       :error -> refuse("quantity_invalid", %{"line_no" => no})
     end
