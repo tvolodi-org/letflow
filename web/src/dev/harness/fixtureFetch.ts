@@ -6,6 +6,8 @@ import type { FixtureRoute, HarnessState } from './types'
 const PROBLEM_500 = { type: 'about:blank', title: 'Fixture error', status: 500 }
 
 function jsonResponse(status: number, body: unknown): Response {
+  // T-2042: a fixture may answer real bytes (a photo) with a Blob; its own type is the Content-Type
+  if (body instanceof Blob) return new Response(body, { status, headers: { 'Content-Type': body.type || 'application/octet-stream' } })
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
