@@ -23,7 +23,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   | Route | Permission | Ok |
   |---|---|---|
-  | `POST /documents` | `StockPost` | 201 document |
+  | `POST /documents` | `StockPost` | 201 document (header `idempotency-key`: same key + same body replays the existing document, same key + different body is 409 `idempotency_key_reuse`, REQ-846) |
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
   | `POST /documents/:id/issue` | `StockPost` | 200 document |
@@ -160,7 +160,9 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
+  alias Letflow.Api.Validation
   alias Letflow.Documents.FormPrint
+  alias Letflow.Idempotency
   alias Letflow.Ledger
   alias Letflow.Modules.RouterKit
   alias Letflow.Modules.Stock.Access
@@ -383,7 +385,15 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :create, fn conn, access ->
-      render_document(conn, Documents.save(access.prefix, body(conn), access.actor_id), 201)
+      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_create, access.actor_id, nil) do
+        access.prefix
+        |> Documents.save(body(conn), access.actor_id, idem_key)
+        |> replay_in_scope(access)
+        |> then(&render_document(conn, &1, 201))
+      else
+        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
+        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+      end
     end)
   end
 
@@ -778,6 +788,17 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # REQ-846 / REQ-831 (decision 0051 M9): a replayed create returns the STORED document, whose units
+  # a tenant-wide replace may have moved out of a scoped creator's set after the first create. The
+  # body check of `doc_write/4` saw only the request body, so the stored units are checked here:
+  # outside the set the answer is the not-found one of an unknown document (INV-5), nothing
+  # written. A first create always passes (its stored units are the body's, already checked).
+  defp replay_in_scope({:ok, %{id: id}} = saved, access) do
+    if Access.units_allowed?(access, :stored, id, nil), do: saved, else: {:error, :not_found}
+  end
+
+  defp replay_in_scope(other, _access), do: other
+
   # Tenant-wide callers only: a scoped answer of `Access.check/2` (REQ-831, :post and :reverse) is
   # refused with the same 404 as before, so a route with no unit check (the voice drafts read the
   # whole tenant's catalog) never serves a scoped principal.
@@ -856,6 +877,12 @@ defmodule Letflow.Modules.Stock.Router do
   defp render_document(conn, {:error, reason}, _status), do: refuse_document(conn, reason)
 
   defp refuse_document(conn, :not_found), do: Response.not_found(conn)
+
+  # REQ-846: same key with a different body is 409 with reason idempotency_key_reuse.
+  # 409 is intentional (deviates from the 422 of generic record routes, design D6):
+  # the Qoimeks rule says 409, and the stock routes already use 409 for state conflicts.
+  defp refuse_document(conn, :idempotency_key_reuse),
+    do: problem(conn, Error.conflict("request refused"), "idempotency_key_reuse")
 
   defp refuse_document(conn, :document_not_draft),
     do: problem(conn, Error.conflict("request refused"), "document_not_draft")
@@ -1571,6 +1598,13 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp unprocessable(conn, reason),
     do: problem(conn, Error.unprocessable("request refused"), reason)
+
+  # REQ-846: stable 422 for an over-long or invalid idempotency-key header on the create route.
+  defp idempotency_key_too_long(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:header)]))
+
+  defp idempotency_key_invalid(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:header)]))
 
   defp problem(conn, problem, reason, extra \\ %{}),
     do: Response.send_problem(conn, %{problem | extensions: Map.put(extra, "reason", reason)})

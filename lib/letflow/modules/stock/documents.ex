@@ -14,8 +14,11 @@ defmodule Letflow.Modules.Stock.Documents do
 
   Each save, replace, discard and issue is one `Repo.transaction`; a failed step calls `Repo.rollback/1`
   so nothing partial stays. Record writes use the stock module authority
-  (`Letflow.Entities.ManagedTypes.owner_for!/1`), a fresh idempotency key per write and the default
-  scope `:all` (only tenant-wide principals reach the routes, see `Letflow.Modules.Stock.Access`).
+  (`Letflow.Entities.ManagedTypes.owner_for!/1`), a fresh server idempotency key per write for
+  record-level deduplication, and the default scope `:all` (only tenant-wide principals reach the
+  routes, see `Letflow.Modules.Stock.Access`).  When the caller supplies an idempotency-key header
+  on the create route (REQ-846), `save/4` uses a client key instead and tracks the binding in the
+  per-tenant `stock_create_idempotency` table.
   `document_id` on the header is the id of the versioned document, which never changes and carries the
   state: `draft`, `issued` or `cancelled` (the status of its live version), the gap-free number and the
   issued time. Nothing of that is stored on the header. The id on the routes is this document id.
@@ -64,6 +67,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Entities.Records
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.Documents.Checks
+  alias Letflow.Modules.Stock.Documents.CreateIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningChecks
   alias Letflow.Modules.Stock.Documents.Posting
@@ -98,9 +102,26 @@ defmodule Letflow.Modules.Stock.Documents do
   @doc """
   Creates the versioned draft, the header and the lines from `body` (string keys). Returns the new
   document as `fetch/2` renders it.
+
+  When `idempotency_key` is a namespaced client key (starts with `"client:"`), the create is
+  idempotent: a second call with the same key and an equal body (key-order-insensitive) returns the
+  current state of the existing document without writing; a second call with the same key and a
+  different body returns `{:error, :idempotency_key_reuse}`. Two concurrent creates with the same
+  key are serialised on a transaction-scoped advisory lock and produce exactly one document.
+
+  A `nil` or server-minted `idempotency_key` (not starting with `"client:"`) keeps the original
+  behaviour: every call creates a new draft.
   """
-  @spec save(String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def save(prefix, body, actor) when is_binary(prefix) do
+  @spec save(String.t(), map(), String.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def save(prefix, body, actor, idempotency_key \\ nil) when is_binary(prefix) do
+    if is_binary(idempotency_key) and String.starts_with?(idempotency_key, "client:") do
+      save_idempotent(prefix, body, actor, idempotency_key)
+    else
+      save_new(prefix, body, actor)
+    end
+  end
+
+  defp save_new(prefix, body, actor) do
     with {:ok, doc} <- parse(prefix, body, :create) do
       spec = Kinds.get(doc.kind)
 
@@ -116,6 +137,60 @@ defmodule Letflow.Modules.Stock.Documents do
         case Documents.create_draft(prefix, draft_attrs, actor) do
           {:ok, %{document: document}} -> write_new(prefix, spec, document.id, doc, actor)
           {:error, reason} -> Repo.rollback(draft_error(reason))
+        end
+      end)
+    end
+  end
+
+  # Idempotent create: advisory lock → lookup → same body replay or key-reuse refusal → create.
+  defp save_idempotent(prefix, body, actor, key) do
+    with {:ok, doc} <- parse(prefix, body, :create) do
+      hash = body_hash(body)
+      spec = Kinds.get(doc.kind)
+
+      tx(prefix, fn ->
+        # Serialise concurrent creates on the same key within this tenant.
+        case Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [key]) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(log_internal(reason))
+        end
+
+        case Repo.get(CreateIdempotency, key, prefix: prefix) do
+          %CreateIdempotency{body_hash: ^hash, document_id: doc_id} ->
+            # Same body: return current state without writing (deleted = 404 propagated).
+            fetch!(prefix, doc_id)
+
+          %CreateIdempotency{} ->
+            # Different body for the same key: refuse.
+            Repo.rollback(:idempotency_key_reuse)
+
+          nil ->
+            # First use of this key: create the document and record the binding.
+            unit = doc.header["org_unit_id"]
+
+            draft_attrs = %{
+              type_key: spec.type_key,
+              issuing_org_unit_id: unit,
+              content: content(doc)
+            }
+
+            document_id =
+              case Documents.create_draft(prefix, draft_attrs, actor) do
+                {:ok, %{document: document}} -> document.id
+                {:error, reason} -> Repo.rollback(draft_error(reason))
+              end
+
+            result = write_new(prefix, spec, document_id, doc, actor)
+
+            %CreateIdempotency{}
+            |> CreateIdempotency.changeset(%{
+              key: key,
+              document_id: result.id,
+              body_hash: hash
+            })
+            |> Repo.insert!(prefix: prefix)
+
+            result
         end
       end)
     end
@@ -937,4 +1012,35 @@ defmodule Letflow.Modules.Stock.Documents do
       _default -> DateTime.utc_now()
     end
   end
+
+  # Canonical body hash for idempotency comparison (REQ-846).  Produces the
+  # same digest for maps with identical content regardless of key order or
+  # surrounding whitespace, by recursively sorting map keys before JSON encoding.
+  defp body_hash(body) do
+    body
+    |> canonical_json()
+    |> :erlang.iolist_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(m) when is_map(m) do
+    pairs =
+      m
+      |> Enum.sort_by(fn {k, _} -> k end)
+      |> Enum.map(fn {k, v} -> [Jason.encode!(k), ":", canonical_json(v)] end)
+
+    ["{", Enum.intersperse(pairs, ","), "}"]
+  end
+
+  defp canonical_json(list) when is_list(list) do
+    ["[", list |> Enum.map(&canonical_json/1) |> Enum.intersperse(","), "]"]
+  end
+
+  defp canonical_json(nil), do: "null"
+  defp canonical_json(true), do: "true"
+  defp canonical_json(false), do: "false"
+  defp canonical_json(n) when is_integer(n), do: Integer.to_string(n)
+  defp canonical_json(n) when is_float(n), do: Jason.encode!(n)
+  defp canonical_json(s) when is_binary(s), do: Jason.encode!(s)
 end
