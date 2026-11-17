@@ -74,7 +74,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     `lib/letflow/modules/<id>/**`, `lib/letflow/scripts/**`, `lib/letflow/engine/wasm/**`; the
     registration module and `lib/letflow/ledger/**` are exempt by construction). Clause `:a`: a call
     of `Letflow.Ledger.post` or `Letflow.Ledger.Capability.mint`. `:b`: any other `Letflow.Ledger`
-    function than the reads `authorize`, `balances`, `balances_on_date`, `entries`, `hold_exclusive!`, `reconcile`, any call on another
+    function than the reads `authorize`, `balances`, `balances_on_date`, `entries`, `hold_exclusive!`, `negative_balances_allowed?` (REQ-836: one read of the tenant's setting), `reconcile`, any call on another
     `Letflow.Ledger.*` module except `Letflow.Ledger.Policy`, and an `import`/`use`/`require` of
     them. `:c`: an alias, struct literal, struct pattern or `%{__struct__: ...}` map of
     `Letflow.Ledger.Capability`, `Letflow.Ledger.Authorized` or `Letflow.Api.Scope.Principal`.
@@ -482,6 +482,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     :balances_on_date,
     :entries,
     :hold_exclusive!,
+    :negative_balances_allowed?,
     :reconcile
   ]
   @rule_8_forged [

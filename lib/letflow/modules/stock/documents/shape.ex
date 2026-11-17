@@ -339,6 +339,21 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   def quantity_text(_other), do: :error
 
+  @signed_quantity ~r/\A-?(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
+
+  @doc """
+  REQ-836: like `quantity_text/1` but a negative quantity is accepted and zero (also `-0`, `-0.000`) is
+  not. Used by the opening balance only, on a tenant that allows negative balances.
+  """
+  @spec signed_quantity_text(term()) :: {:ok, String.t()} | :error
+  def signed_quantity_text(text) when is_binary(text) do
+    if Regex.match?(@signed_quantity, text) and not Decimal.eq?(Decimal.new(text), 0),
+      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
+      else: :error
+  end
+
+  def signed_quantity_text(_other), do: :error
+
   defp prices(line, no) do
     Enum.reduce_while(~w(unit_price line_value), {:ok, %{}}, fn key, {:ok, acc} ->
       case Map.fetch(line, key) do

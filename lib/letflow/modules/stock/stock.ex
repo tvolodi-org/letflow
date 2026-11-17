@@ -52,6 +52,18 @@ defmodule Letflow.Modules.Stock do
   types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
   migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
 
+  ## Negative balances (REQ-836 / GH #4545, decision 0090; version 0.18.0)
+
+  The `stock` ledger registration declares `negative_balance: :tenant_setting`: every posting and
+  every reversal obeys the tenant's negative balance setting row (no row: refuse, as before). A new
+  cause `opening_negative` (sign rule `negative`) posts an opening document whose lines are all
+  negative; one opening document never mixes signs, and a negative line is accepted only while the
+  tenant allows negative balances (`Letflow.Modules.Stock.PostingRules`). The count posting skips its
+  advisory shortage check on an allow tenant. One read route, `GET /posting-rules` (`StockRead`),
+  answers `{"negative_balance": "allowed" | "refused"}`. No migration, no new permission. The registration is read from
+  the manifest, so an installed tenant follows it at once; no row exists until a tenant administrator
+  switches the setting.
+
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
   The count order: three module-managed record types (`count_order`, `count_order_scope`,
@@ -342,7 +354,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.17.0",
+    version: "0.18.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -368,6 +380,7 @@ defmodule Letflow.Modules.Stock do
     },
     route_policies: [
       {"GET", "/balances", :StockRead},
+      {"GET", "/posting-rules", :StockRead},
       {"GET", "/movements", :StockRead},
       {"GET", "/reconcile", :StockReconcile},
       {"POST", "/documents", :StockPost},
@@ -535,6 +548,7 @@ defmodule Letflow.Modules.Stock do
         causes: %{
           "receipt" => %{sign_rule: :positive, reason_required: false},
           "opening" => %{sign_rule: :positive, reason_required: false},
+          "opening_negative" => %{sign_rule: :negative, reason_required: false},
           "issue" => %{sign_rule: :negative, reason_required: false},
           "write_off" => %{sign_rule: :negative, reason_required: true},
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
@@ -544,6 +558,7 @@ defmodule Letflow.Modules.Stock do
           "kind_change_out" => %{sign_rule: :negative, reason_required: false}
         },
         key_bounds: [],
+        negative_balance: :tenant_setting,
         permissions: %{
           post: :StockPost,
           reverse: :StockReverse,

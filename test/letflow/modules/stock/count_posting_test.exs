@@ -108,7 +108,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
   # Counted lines: line 1 (book 10) counted 3 = shortage 7; line 2 (book 4) counted 3 = shortage 1;
   # `surplus?` adds a surplus line of 2. `exact?` counts the books exactly (no difference).
   defp counted!(x, opts \\ []) do
-    {_sku1, _sku2} = book!(x)
+    unless Keyword.get(opts, :no_book, false), do: book!(x)
     created = status!(call(:post, "/counts", x.chair_tok, F.input(x.w, window())), 201)
     id = created["id"]
     status!(call(:post, "/counts/#{id}/issue", x.chair_tok, %{}), 200)
@@ -117,7 +117,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     lines = status!(call(:get, "/counts/#{id}/lines", x.chair_tok), 200)["rows"]
 
     for l <- lines do
-      qty = if exact?, do: l["book_quantity"], else: "3"
+      qty = if exact?, do: l["book_quantity"], else: Keyword.get(opts, :counted, "3")
 
       status!(
         call(:put, "/counts/#{id}/lines/#{l["line_no"]}/count", x.member_tok, %{
@@ -414,6 +414,57 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       complete!(x, id)
       # balance now + delta (-7), not "counted = balance"
       assert Decimal.equal?(balance(x, sku), Decimal.new(8))
+    end
+  end
+
+  describe "REQ-836 negative balances (decision 0090)" do
+    test "NB-C1 allow: a shortage above the balance is not named and the posting is written",
+         ctx do
+      x = world!(ctx, :a)
+      Letflow.LedgerFixture.set_negative_balance!(x.s, "stock", true)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+      # the same request that is refused shortage_exceeds_balance (T2) is accepted
+      post!(x, id)
+      complete!(x, id)
+      assert marks(x, id) == 1
+      assert [%{"cause" => "count_difference"}] = movements(x, id)
+    end
+
+    test "NB-C2 allow: book -3 counted 5 posts +8 and the key reads 5", ctx do
+      x = world!(ctx, :a)
+      sku1 = S.uuid()
+      sku2 = S.uuid()
+      S.post!(x.s, "receipt", %{lines: [S.line(sku1, "2", %{to: S.side(x.w.unit, x.w.a)})]})
+      S.post!(x.s, "receipt", %{lines: [S.line(sku2, "4", %{to: S.side(x.w.unit, x.w.a1)})]})
+      Letflow.LedgerFixture.set_negative_balance!(x.s, "stock", true)
+      S.post!(x.s, "issue", %{lines: [S.line(sku1, "5", %{from: S.side(x.w.unit, x.w.a)})]})
+      assert Decimal.equal?(balance(x, sku1), -3)
+
+      id = signed!(x, no_book: true, counted: "5", surplus: false)
+      post!(x, id)
+      complete!(x, id)
+      assert Decimal.equal?(balance(x, sku1), 5)
+
+      quantities =
+        for e <- movements(x, id),
+            leg <- e["legs"],
+            leg["sku"] == sku1,
+            do: Decimal.new(leg["quantity"])
+
+      assert [q] = quantities
+      assert Decimal.equal?(q, 8)
+    end
+
+    test "NB-C3 refuse (no row): the shortage check still names the line", ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+
+      assert status!(call(:post, "/counts/#{id}/post", x.chair_tok, %{}), 422)["reason"] ==
+               "shortage_exceeds_balance"
     end
   end
 

@@ -129,12 +129,13 @@ defmodule Letflow.Modules.Stock.Handlers do
 
   # REQ-726: an opening has NO event time from the client. The three offline keys are never copied
   # for it (a changed `posting` variable cannot backdate it); the ledger stamps the posting time.
-  defp command(%{"cause" => "opening", "lines" => lines} = posting) when is_list(lines) do
+  defp command(%{"cause" => cause, "lines" => lines} = posting)
+       when cause in ["opening", "opening_negative"] and is_list(lines) do
     with {:ok, lines} <- lines(lines) do
       {:ok,
        %{
          ledger_id: "stock",
-         cause: "opening",
+         cause: cause,
          document_type: Map.get(posting, "document_type"),
          document_id: Map.get(posting, "document_id"),
          client_op_id: Map.get(posting, "client_op_id"),

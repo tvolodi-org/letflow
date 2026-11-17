@@ -493,7 +493,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
             {@stock, ctx.tok_sb, "/reconcile"},
             {@stock, ctx.tok_sb, "/stock-card/print"},
             {@stock, ctx.tok_sb, "/stock-sheet/print"},
-            {@stock, ctx.tok_sb, "/stock-workbook"}
+            {@stock, ctx.tok_sb, "/stock-workbook"},
+            {@stock, ctx.tok_sb, "/posting-rules"}
           ],
           key <- ["tenant_id", "tenant", "prefix", "schema"] do
         value = if key == "tenant_id", do: ctx.aa.tenant_id, else: ctx.aa.schema_name
