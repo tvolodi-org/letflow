@@ -63,6 +63,7 @@ import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { stockDocumentsKeyReuseScreens } from './fixtures/stockDocumentsKeyReuse'
 import { linesEditorScreens } from './fixtures/linesEditor'
 import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockPrintButtonsScreens } from './fixtures/stockPrintButtons'
@@ -376,6 +377,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
     ...stockDocumentsEditScreens,
+    ...stockDocumentsKeyReuseScreens,
     ...linesEditorScreens,
     ...stockDocumentsLayoutScreens,
     ...stockPrintButtonsScreens,

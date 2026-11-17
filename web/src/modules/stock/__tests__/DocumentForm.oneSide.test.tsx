@@ -11,17 +11,19 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const NEW = `${LIST}/new`
+/** REQ-848: create now calls postWithHeaders (body is at index 1). */
 const created = (): [string, Record<string, unknown>][] =>
-  clientMock.post.mock.calls.filter(([p]) => p === DOCS) as [string, Record<string, unknown>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS) as [string, Record<string, unknown>][]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
   clientMock.get.mockResolvedValue({ rows: [], next_cursor: null })
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
   vi.useRealTimers()
 })
 afterEach(() => cleanup())
@@ -51,8 +53,7 @@ const firstRow = () => screen.getAllByTestId('line-editor-row')[0]
 
 describe('C3-a/b/c create per kind', () => {
   it('receipt: exact header fields and exact body', async () => {
-    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) =>
-      p === DOCS ? stockDoc({ id: 'dn' }) : { items: MASTERS[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null })
+    clientMock.postWithHeaders.mockResolvedValue(stockDoc({ id: 'dn' }))
     renderStock(NEW, withPost)
     await fillHeader()
     for (const l of [/^Counterparty/, /^Supplier document reference/, /^Received on/]) expect(form().getByLabelText(l)).toBeInTheDocument()
@@ -165,10 +166,7 @@ describe('C3-e checks before sending', () => {
   })
 
   it('the server refusal with a line number marks that line, a general one shows a banner', async () => {
-    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
-      if (p === DOCS) throw refusal(422, 'lot_required', { line_no: 1 })
-      return { items: MASTERS[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null }
-    })
+    clientMock.postWithHeaders.mockRejectedValue(refusal(422, 'lot_required', { line_no: 1 }))
     renderStock(`${NEW}?kind=issue`, withPost)
     await fillHeader()
     await fillLine('i1', '1')

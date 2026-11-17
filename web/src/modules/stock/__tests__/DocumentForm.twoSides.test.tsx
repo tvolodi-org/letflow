@@ -13,7 +13,7 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const NEW = `${LIST}/new`
@@ -23,13 +23,15 @@ const TWO: Record<string, ReturnType<typeof rec>[]> = {
   location_node: [rec('l1', { name: 'Shelf A' }), rec('l2', { name: 'Shelf B' })],
   org_employee: [rec('e1', { full_name: 'Aigul B.' }), rec('e2', { full_name: 'Marat K.' })],
 }
+/** REQ-848: create now calls postWithHeaders (body is at index 1). */
 const created = (): [string, Record<string, unknown>][] =>
-  clientMock.post.mock.calls.filter(([p]) => p === DOCS) as [string, Record<string, unknown>][]
+  clientMock.postWithHeaders.mock.calls.filter(([p]: [string]) => p === DOCS) as [string, Record<string, unknown>][]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock, TWO)
   clientMock.get.mockResolvedValue({ rows: [], next_cursor: null })
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
   window.localStorage.clear()
   useUiLocaleStore.getState().setLocaleTransient('en')
 })
@@ -189,10 +191,7 @@ describe('T2 equal sides', () => {
     expect(created()).toHaveLength(0)
   })
   it('T2b the server sides_equal shows the same text', async () => {
-    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
-      if (p === DOCS) throw refusal(422, 'sides_equal')
-      return { items: TWO[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null }
-    })
+    clientMock.postWithHeaders.mockRejectedValue(refusal(422, 'sides_equal'))
     renderStock(`${NEW}?kind=transfer`, withPost)
     await ready()
     await fillSides(['u1', 'l1', 'e1'], ['u2', 'l2', 'e2'])
@@ -221,10 +220,7 @@ describe('T2 equal sides', () => {
 
 describe('T4 side refusals', () => {
   async function refused(reason: string, side: 'from' | 'to') {
-    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
-      if (p === DOCS) throw refusal(422, reason, { side })
-      return { items: TWO[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null }
-    })
+    clientMock.postWithHeaders.mockRejectedValue(refusal(422, reason, { side }))
     renderStock(`${NEW}?kind=hand_over`, withPost)
     await ready()
     await fillSides(['u1', 'l1', 'e1'], ['u1', 'l1', 'e2'])
