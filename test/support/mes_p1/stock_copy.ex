@@ -2,7 +2,7 @@ defmodule Letflow.Proof.MesP1.StockCopy do
   @moduledoc """
   MES PROOF P1 (T-1829), REMOVABLE with `git rm -r test/support/mes_p1 test/letflow/proof/mes_p1`.
 
-  The manifest of the COPY of module `stock`: the real manifest with version "0.18.0", two more causes (`consume`,
+  The manifest of the COPY of module `stock`: the real manifest with version "0.19.0", two more causes (`consume`,
   `produce`), the copied policy and the composed hold guard. It is NOT a registered module: it is in no catalog, no tenant
   installs it, no real code calls it. It only gives the tests a manifest map to hash and a registration to post with.
   The entry-module name is the prefix of the policy and guard modules (rule 18 of `LedgerRegistration`).
@@ -20,7 +20,7 @@ defmodule Letflow.Proof.MesP1.StockCopy do
   alias Letflow.Proof.MesP1.StockCopy.Policy
   alias Letflow.Repo
 
-  @version "0.18.0"
+  @version "0.19.0"
   @new_causes %{
     "consume" => %{sign_rule: :negative, reason_required: false},
     "produce" => %{sign_rule: :positive, reason_required: false}
