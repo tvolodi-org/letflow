@@ -110,6 +110,7 @@
   "stock.doc.quantity": "Quantity",
   "stock.doc.addLine": "Add line",
   "stock.doc.removeLine": "Remove line",
+  "stock.doc.negativeBalance": "The balance will become negative",
   "stock.doc.save": "Save",
   "stock.doc.issue": "Issue",
   "stock.doc.discard": "Discard",

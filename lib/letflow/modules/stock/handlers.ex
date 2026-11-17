@@ -7,12 +7,10 @@ defmodule Letflow.Modules.Stock.Handlers do
   `stock_posting_mark`, and one `Letflow.Entities.HandlerWrites.post/3` of the posting.
 
   Contract: `(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted}`.
-  The handler reads nothing and trusts only its arguments (the binding of the posting to the issued
-  content is by workflow order and detection on read, decision 0078 D5; the gap is stated in the
-  runbook until slice L7). The posting command is rebuilt here from LITERAL keys of the string-keyed
-  `posting` argument (no `String.to_atom`, scans H4); `ledger_id` is always `"stock"`, and a
-  `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills
-  them from the context. The platform scans (`handler_writes_callers_test.exs`, H4) cover this file.
+  The posting command is rebuilt here from LITERAL keys of the string-keyed `posting` argument
+  (no `String.to_atom`, scans H4); `ledger_id` is always `"stock"`, and a `prefix`, `subject_id`
+  or `credential` in the arguments is never copied: the platform fills them from the context.
+  The platform scans (`handler_writes_callers_test.exs`, H4) cover this file.
 
   The cause `count_difference` (REQ-718, process definition `stock_count_posting`) has its own handler
   `post_count`; `post_document` refuses that cause and `post_count` refuses every other. A posting
@@ -23,6 +21,33 @@ defmodule Letflow.Modules.Stock.Handlers do
 
   A second mark of the same kind for one document violates the unique constraint of the mark type,
   so the completion rolls back before any ledger write (criterion 5 of REQ-713).
+
+  ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
+
+  `post_document`, `post_count` and `post_kind_change_out` check every master named by a posting line
+  before building any write step, using the read facade `HandlerWrites.read/3`. The rules follow the
+  cause table of `lib/letflow/modules/stock/ledger_policy/declare.ex` (the `to` side adds stock, the
+  `from` side removes it):
+
+  - **Line with a `to` side (adds stock):** `sku` must be a live active `catalog_item`; `unit` a live
+    active `catalog_uom` whose id equals the item's `base_uom_id`; a given `lot` a live active
+    `catalog_lot` whose `item_id` equals `sku`; the to-side `location` a live active `location_node`;
+    `org_unit` a live active `org_unit`; a given `responsible` a live active `org_employee`. The from
+    side of the same line (transfer / hand over / return) is checked for liveness only (active false
+    accepted; the quantity is leaving that master, not arriving at it).
+  - **Line with only a `from` side (removes stock):** each of `sku`, `unit`, a given `lot`, the from
+    `location`, `org_unit` and a given `responsible` must be a live record of its type (`read/3`
+    answers `{:ok, _}`); active false is accepted (retired masters can still be drawn down).
+  - **First failure:** returns `{:error, :invalid_arguments}`, which the engine maps to
+    `validation_failed` with audit detail `handler_invalid_arguments`; nothing of the completion
+    commits and the post task stays pending.
+  - **Cache:** each distinct `{type, id}` pair is read at most once per handler call; no lock is
+    taken.
+  - **Dry build:** when `read/3` answers `{:error, :dry_build}`, all checks are skipped and the
+    posting is built normally (the real build runs them).
+  - **Reversal:** `reverse_document` reads nothing (decision 0073 note 9.5); reversing a posting
+    whose masters were retired since issue stays accepted. `reverse_document` declares no reads in
+    the manifest and this module does not call the checks for it.
   """
 
   alias Letflow.Entities.HandlerWrites
@@ -67,6 +92,7 @@ defmodule Letflow.Modules.Stock.Handlers do
   defp run(multi, ctx, args, mark, extra_keys) when is_map(args) do
     with true <- valid_args?(args, {mark, extra_keys}),
          {:ok, command} <- command(Map.get(args, "posting")),
+         :ok <- check_masters(ctx, command),
          {:ok, multi} <- create_mark(multi, ctx, args, extra_keys) do
       case HandlerWrites.post(multi, ctx, command) do
         {:ok, multi} -> {:ok, multi}
@@ -129,12 +155,13 @@ defmodule Letflow.Modules.Stock.Handlers do
 
   # REQ-726: an opening has NO event time from the client. The three offline keys are never copied
   # for it (a changed `posting` variable cannot backdate it); the ledger stamps the posting time.
-  defp command(%{"cause" => "opening", "lines" => lines} = posting) when is_list(lines) do
+  defp command(%{"cause" => cause, "lines" => lines} = posting)
+       when cause in ["opening", "opening_negative"] and is_list(lines) do
     with {:ok, lines} <- lines(lines) do
       {:ok,
        %{
          ledger_id: "stock",
-         cause: "opening",
+         cause: cause,
          document_type: Map.get(posting, "document_type"),
          document_id: Map.get(posting, "document_id"),
          client_op_id: Map.get(posting, "client_op_id"),
@@ -203,4 +230,141 @@ defmodule Letflow.Modules.Stock.Handlers do
   end
 
   defp side(other), do: other
+
+  # -- master checks at posting (REQ-832) --------------------------------------------------------
+
+  defp check_masters(_ctx, %{cause: "reversal"}), do: :ok
+
+  defp check_masters(ctx, command) do
+    result =
+      Enum.reduce_while(Map.get(command, :lines, []), {:ok, %{}}, fn line, {:ok, cache} ->
+        case check_line(ctx, line, cache) do
+          {:ok, cache} -> {:cont, {:ok, cache}}
+          err -> {:halt, err}
+        end
+      end)
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, :dry_build} -> :ok
+      {:error, :invalid_arguments} = err -> err
+    end
+  end
+
+  defp check_line(ctx, %{sku: sku, unit: unit, lot: lot, to: to, from: from}, cache)
+       when is_map(to) do
+    with {:ok, item, cache} <- check_active(ctx, "catalog_item", sku, cache),
+         {:ok, _uom, cache} <- check_active(ctx, "catalog_uom", unit, cache),
+         :ok <- check_base_uom(unit, item),
+         {:ok, cache} <- check_lot_active(ctx, lot, sku, cache),
+         {:ok, _loc, cache} <- check_active(ctx, "location_node", to.location, cache),
+         {:ok, _ou, cache} <- check_active(ctx, "org_unit", to.org_unit, cache),
+         {:ok, cache} <- check_optional_active(ctx, "org_employee", to.responsible, cache),
+         {:ok, cache} <- check_from_live(ctx, from, cache) do
+      {:ok, cache}
+    end
+  end
+
+  defp check_line(ctx, %{sku: sku, unit: unit, lot: lot, to: nil, from: from}, cache)
+       when is_map(from) do
+    with {:ok, _item, cache} <- check_live(ctx, "catalog_item", sku, cache),
+         {:ok, _uom, cache} <- check_live(ctx, "catalog_uom", unit, cache),
+         {:ok, cache} <- check_lot_live(ctx, lot, cache),
+         {:ok, cache} <- check_from_live(ctx, from, cache) do
+      {:ok, cache}
+    end
+  end
+
+  # A line with no usable side (not a map on either side) names no master the posting could add or remove:
+  # refuse it here, as the ledger would at the build.
+  defp check_line(_ctx, _line, _cache), do: {:error, :invalid_arguments}
+
+  defp check_from_live(_ctx, nil, cache), do: {:ok, cache}
+
+  defp check_from_live(ctx, from, cache) when is_map(from) do
+    with {:ok, _loc, cache} <- check_live(ctx, "location_node", from.location, cache),
+         {:ok, _ou, cache} <- check_live(ctx, "org_unit", from.org_unit, cache),
+         {:ok, cache} <- check_optional_live(ctx, "org_employee", from.responsible, cache) do
+      {:ok, cache}
+    end
+  end
+
+  defp check_from_live(_ctx, _not_a_side, _cache), do: {:error, :invalid_arguments}
+
+  defp check_lot_active(_ctx, nil, _sku, cache), do: {:ok, cache}
+
+  defp check_lot_active(ctx, lot_id, sku, cache) do
+    with {:ok, lot, cache} <- check_active(ctx, "catalog_lot", lot_id, cache),
+         :ok <- check_lot_item(lot, sku) do
+      {:ok, cache}
+    end
+  end
+
+  defp check_lot_live(_ctx, nil, cache), do: {:ok, cache}
+
+  defp check_lot_live(ctx, lot_id, cache) do
+    with {:ok, _lot, cache} <- check_live(ctx, "catalog_lot", lot_id, cache) do
+      {:ok, cache}
+    end
+  end
+
+  defp check_optional_active(_ctx, _type, nil, cache), do: {:ok, cache}
+
+  defp check_optional_active(ctx, type, id, cache) do
+    with {:ok, _, cache} <- check_active(ctx, type, id, cache), do: {:ok, cache}
+  end
+
+  defp check_optional_live(_ctx, _type, nil, cache), do: {:ok, cache}
+
+  defp check_optional_live(ctx, type, id, cache) do
+    with {:ok, _, cache} <- check_live(ctx, type, id, cache), do: {:ok, cache}
+  end
+
+  defp check_active(ctx, type, id, cache) do
+    case read_cached(ctx, type, id, cache) do
+      {{:ok, %{"active" => true} = map}, cache} -> {:ok, map, cache}
+      {{:ok, _inactive}, _cache} -> {:error, :invalid_arguments}
+      {{:error, :dry_build}, _cache} -> {:error, :dry_build}
+      {{:error, _}, _cache} -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp check_live(ctx, type, id, cache) do
+    case read_cached(ctx, type, id, cache) do
+      {{:ok, map}, cache} -> {:ok, map, cache}
+      {{:error, :dry_build}, _cache} -> {:error, :dry_build}
+      {{:error, _}, _cache} -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp read_cached(ctx, type, id, cache) do
+    key = {type, id}
+
+    case Map.fetch(cache, key) do
+      {:ok, result} ->
+        {result, cache}
+
+      :error ->
+        result = HandlerWrites.read(ctx, type, id)
+        {result, Map.put(cache, key, result)}
+    end
+  end
+
+  defp check_base_uom(unit, %{"base_uom_id" => base_uom_id}) when is_binary(base_uom_id) do
+    case Ecto.UUID.cast(unit) do
+      {:ok, uuid} when uuid == base_uom_id -> :ok
+      _ -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp check_base_uom(_unit, _item), do: {:error, :invalid_arguments}
+
+  defp check_lot_item(%{"item_id" => item_id}, sku) when is_binary(item_id) do
+    case Ecto.UUID.cast(sku) do
+      {:ok, uuid} when uuid == item_id -> :ok
+      _ -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp check_lot_item(_lot, _sku), do: {:error, :invalid_arguments}
 end

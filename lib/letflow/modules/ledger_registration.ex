@@ -122,7 +122,7 @@ defmodule Letflow.Modules.LedgerRegistration do
   `Letflow.Ledger.Digest.registration_hash/1` can hash it: `ledger_ids` a list, `policy` a
   `%{module: mod, function: :declare}` map (JSON cannot encode the declared tuples), and the
   defaults filled in (`key_bounds: []`, `scope_slot: nil`, `max_event_lateness_hours: 96`,
-  `error_aliases: %{}`); `units` and `posting_guard` stay absent when absent (so a registration
+  `error_aliases: %{}`); `units`, `posting_guard` and `negative_balance` (only `:tenant_setting`, REQ-836) stay absent when absent (so a registration
   without a guard keeps its registration hash).
   """
   @spec to_plain(map()) :: map()
@@ -149,12 +149,21 @@ defmodule Letflow.Modules.LedgerRegistration do
         units -> Map.put(base, :units, units)
       end
 
-    case Map.get(registration, :posting_guard) do
-      {guard_module, guard_function} ->
-        Map.put(base, :posting_guard, %{module: guard_module, function: guard_function})
+    base =
+      case Map.get(registration, :posting_guard) do
+        {guard_module, guard_function} ->
+          Map.put(base, :posting_guard, %{module: guard_module, function: guard_function})
 
-      _none ->
-        base
+        _none ->
+          base
+      end
+
+    # REQ-836: the plain registration the core reads carries `negative_balance: :tenant_setting`
+    # (REQ-834 read it from a hand-built map; the catalog dropped it). `:refuse` is the default and
+    # stays absent, so a registration that never declared the key keeps its registration hash.
+    case Map.get(registration, :negative_balance) do
+      :tenant_setting -> Map.put(base, :negative_balance, :tenant_setting)
+      _refuse_or_absent -> base
     end
   end
 

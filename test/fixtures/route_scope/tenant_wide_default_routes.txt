@@ -77,6 +77,7 @@ GET /modules/stock/documents/:id StockRead
 GET /modules/stock/documents/:id/print StockRead
 GET /modules/stock/frozen-locations StockRead
 GET /modules/stock/movements StockRead
+GET /modules/stock/posting-rules StockRead
 GET /modules/stock/reconcile StockReconcile
 GET /modules/stock/stock-card/print StockRead
 GET /modules/stock/stock-sheet/print StockRead
@@ -221,6 +222,7 @@ POST /modules/stock/counts/:id/reverse StockReverse
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
+POST /modules/stock/stock-workbook/check StockRead
 POST /modules/stock/voice/draft StockPost
 POST /modules/stock/voice/draft-text StockPost
 POST /onboarding TenantsManage
