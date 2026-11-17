@@ -156,6 +156,11 @@ defmodule Letflow.Api.Authorization do
     under `/documents/official-form-templates`; TENANT_ADMIN by the derived tenant-scope rule,
     PLATFORM_ADMIN by the catch-all (no false clause, unlike `:ApprovalRulesManage`); not in
     `grantable/0` (the tenant-defined roles of 0088 are not built).
+  * `:LedgerSettingsManage` (REQ-835, decision 0090) — route-level on `GET /ledger-settings` and
+    `PUT /ledger-settings/:registration`, and also read in-handler with
+    `Letflow.Api.Scope.require_tenant_wide/2` (as `:ApprovalRulesManage`). Held by TENANT_ADMIN only
+    (derived tenant-scope rule); an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
+    out; non-assignable: not in `grantable/0`, modules cannot grant core permissions.
   * `:PhotosAdd` and `:PhotosDelete` (T-2041, photos P2) — **not** route-level. Read in-handler by
     `Letflow.Modules.Assets.CardPhotos`; the gallery routes themselves are keyed `AssetsRead`.
     Tenant scope; TENANT_ADMIN by the derived rule and the platform tenant's PLATFORM_ADMIN by the
@@ -425,6 +430,7 @@ defmodule Letflow.Api.Authorization do
           | :DataExport
           | :ApprovalRulesManage
           | :OfficialFormTemplatesManage
+          | :LedgerSettingsManage
           | :PhotosAdd
           | :PhotosDelete
 
@@ -507,6 +513,7 @@ defmodule Letflow.Api.Authorization do
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
           | :OfficialFormTemplatesManage
+          | :LedgerSettingsManage
           | :PhotosAdd
           | :PhotosDelete
           | :SolutionOverridesManage
@@ -634,6 +641,8 @@ defmodule Letflow.Api.Authorization do
     :ApprovalRulesManage,
     # T-2003 official-form templates S4b (decision 0089 D5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN through the derived rule and the catch-all; non-assignable.
     :OfficialFormTemplatesManage,
+    # REQ-835 (decision 0090 section 5.3): switch negative balances per registration. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN); non-assignable.
+    :LedgerSettingsManage,
     # T-2041 photos P2 (docs/design/photos.md 5.5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN by the derived rule and the catch-all; read in-handler by Letflow.Modules.Assets.CardPhotos; non-assignable.
     :PhotosAdd,
     :PhotosDelete
@@ -664,7 +673,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-nine core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All seventy core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -712,8 +721,9 @@ defmodule Letflow.Api.Authorization do
   Plus T-1955's `:DataExport`, gating discovery and download under `/data-export`, plus T-1986's
   `:ApprovalRulesManage` (the four-eyes switch under `/approval-rules`, TENANT_ADMIN only),
   plus T-2003's `:OfficialFormTemplatesManage` (company templates of the official forms under
-  `/documents/official-form-templates`), plus T-2041's `:PhotosAdd` and `:PhotosDelete` (card photo
-  gallery writes, read in-handler by `Letflow.Modules.Assets.CardPhotos`).
+  `/documents/official-form-templates`), plus REQ-835's `:LedgerSettingsManage` (the negative balance
+  switch under `/ledger-settings`, TENANT_ADMIN only), plus T-2041's `:PhotosAdd` and `:PhotosDelete`
+  (card photo gallery writes, read in-handler by `Letflow.Modules.Assets.CardPhotos`).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1500,6 +1510,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PUT", "/approval-rules/:definition_name/:node_id"),
     do: :ApprovalRulesManage
 
+  # REQ-835 (decision 0090): the negative balance switch.
+  def endpoint_policy_key("GET", "/ledger-settings"), do: :LedgerSettingsManage
+  def endpoint_policy_key("PUT", "/ledger-settings/:registration"), do: :LedgerSettingsManage
+
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
 
@@ -1870,6 +1884,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DataExport), do: :DataExport
   def required_permission(:CurrenciesManage), do: :CurrenciesManage
   def required_permission(:ApprovalRulesManage), do: :ApprovalRulesManage
+  def required_permission(:LedgerSettingsManage), do: :LedgerSettingsManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage
@@ -2087,6 +2102,9 @@ defmodule Letflow.Api.Authorization do
 
   # T-1986, ruling 2: the four-eyes switch is a tenant administrator's control, not the platform's.
   defp core_role_allows?(:PLATFORM_ADMIN, :ApprovalRulesManage), do: false
+
+  # REQ-835 (decision 0090 section 5.3): the negative balance switch is a tenant administrator's control.
+  defp core_role_allows?(:PLATFORM_ADMIN, :LedgerSettingsManage), do: false
 
   # Roles stage 0 S0-4, ruling 2 (docs/design/roles-stage0-security-rulings.md): taking a routed task
   # away stays refused to a platform-tenant PLATFORM_ADMIN outside the routing role or group.

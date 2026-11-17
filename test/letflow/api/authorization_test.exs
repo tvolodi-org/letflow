@@ -111,6 +111,7 @@ defmodule Letflow.Api.AuthorizationTest do
       :DataExport,
       :ApprovalRulesManage,
       :OfficialFormTemplatesManage,
+      :LedgerSettingsManage,
       :PhotosAdd,
       :PhotosDelete
     ]
@@ -524,7 +525,8 @@ defmodule Letflow.Api.AuthorizationTest do
           66 => "sixty-six",
           67 => "sixty-seven",
           68 => "sixty-eight",
-          69 => "sixty-nine"
+          69 => "sixty-nine",
+          70 => "seventy"
         }
         |> Map.get(actual_count)
 
@@ -1153,7 +1155,8 @@ defmodule Letflow.Api.AuthorizationTest do
           66 => "sixty-six",
           67 => "sixty-seven",
           68 => "sixty-eight",
-          69 => "sixty-nine"
+          69 => "sixty-nine",
+          70 => "seventy"
         }
         |> Map.get(actual_count)
 
@@ -1672,7 +1675,8 @@ defmodule Letflow.Api.AuthorizationTest do
           66 => "sixty-six",
           67 => "sixty-seven",
           68 => "sixty-eight",
-          69 => "sixty-nine"
+          69 => "sixty-nine",
+          70 => "seventy"
         }
         |> Map.get(actual_count)
 
@@ -2571,6 +2575,7 @@ defmodule Letflow.Api.AuthorizationTest do
                    :DataExport,
                    :ApprovalRulesManage,
                    :OfficialFormTemplatesManage,
+                   :LedgerSettingsManage,
                    :PhotosAdd,
                    :PhotosDelete
                  ]

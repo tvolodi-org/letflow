@@ -76,6 +76,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Currencies, "/currencies", :put, "/:code", :route},
     {Letflow.Routers.ApprovalRules, "/approval-rules", :put, "/:definition_name/:node_id",
      :route},
+    {Letflow.Routers.LedgerSettings, "/ledger-settings", :put, "/:registration", :route},
     {Letflow.Routers.NotificationDeliveries, "/notification-deliveries", :get, "/", :route},
     {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
      :route},
@@ -741,7 +742,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 49 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 50 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
@@ -752,7 +753,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       # T-1949: 48 with Letflow.Routers.PlatformProblemReports.
       # T-1955: 47 with Letflow.Routers.DataExport.
       # T-1986: 49 with Letflow.Routers.ApprovalRules.
-      assert length(named) == 49
+      # REQ-835: 50 with Letflow.Routers.LedgerSettings.
+      assert length(named) == 50
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
