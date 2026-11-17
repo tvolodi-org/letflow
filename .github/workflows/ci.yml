@@ -474,10 +474,9 @@ jobs:
           exit 1
 
       # T-1297 (L-24): selective or full backend run. Rules and the file map: scripts/ci_select_tests.py.
-      # Counter (stateless, no database): commits on the run's head since the tag `ci-full-green`,
-      # which job `full_run_marker` moves to a main commit after a GREEN FULL run. Missing tag, or a
-      # tag that is not an ancestor, means unknown, which means full. Any failure of this step runs
-      # everything (mode full), as does the kill switch (repository variable CI_SELECTIVE = off).
+      # T-2141: counter removed; nightly (schedule/workflow_dispatch) runs the full suite.
+      # Any failure of this step runs everything (mode full), as does the kill switch
+      # (repository variable CI_SELECTIVE = off).
       - name: Select backend tests (selective or full)
         id: select
         if: always()
@@ -524,12 +523,7 @@ jobs:
           fi
           if ! CHANGED=$(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}"); then full "git diff failed"; fi
           nfiles=$(grep -c . <<<"$CHANGED" || true)
-          since=""
-          if git rev-parse -q --verify refs/tags/ci-full-green >/dev/null && git merge-base --is-ancestor refs/tags/ci-full-green HEAD 2>/dev/null; then
-            since=$(git rev-list --count refs/tags/ci-full-green..HEAD) || since=""
-          fi
           args=(--event "$EVENT_NAME" --kill-switch "$(bash scripts/ci_kill_switch.sh "${KILL:-}" "${PROBE:-}")" --plan-out "$RUNNER_TEMP/ci_plan.txt")
-          [ -n "$since" ] && args+=(--commits-since-full "$since")
           [ -n "$FORCE_FULL" ] && args+=(--force-full "$FORCE_FULL")
           if ! OUT=$(python3 -I scripts/ci_select_tests.py "${args[@]}" <<<"$CHANGED") ; then
             full "selection step failed (scripts/ci_select_tests.py)"
@@ -542,7 +536,7 @@ jobs:
             full) full "$reason" ;;
             selective)
               [ -f "$RUNNER_TEMP/ci_plan.txt" ] || full "selection wrote no plan"
-              emit selective "$reason (counter: ${since:-unknown} commit(s) since the last green full run)" "$skip" "$(cat "$RUNNER_TEMP/ci_plan.txt")"
+              emit selective "$reason" "$skip" "$(cat "$RUNNER_TEMP/ci_plan.txt")"
               ;;
             *) full "selection output malformed" ;;
           esac
@@ -953,6 +947,11 @@ jobs:
 
       # T-1297: selective run: the plan (partition and test path lines from scripts/ci_select_tests.py)
       # goes to a file; scripts/test_parallel.sh runs only those files (TEST_PARALLEL_PLAN below).
+      - name: Record shard start time
+        id: shard_start
+        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Write selective test plan
         if: needs.changes.outputs.mode == 'selective' && needs.changes.outputs.docs_only != 'true' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         env:
@@ -1026,6 +1025,13 @@ jobs:
           MIX_ENV: test
           WASMEX_BUILD: true
 
+      - name: Shard wall time
+        if: always() && steps.shard_start.outputs.ts != ''
+        run: |
+          end=$(date +%s)
+          elapsed=$(( end - ${{ steps.shard_start.outputs.ts }} ))
+          echo "### Shard ${{ matrix.shard }}/${{ strategy.job-total }} wall time: ${elapsed}s ($(( elapsed / 60 ))m $(( elapsed % 60 ))s)" >> "$GITHUB_STEP_SUMMARY"
+
   # This job's `name:` string is a required-status-check `context` on main's branch
   # protection (docs/migration/decisions/0018-branch-protection-posture.md). Do not
   # rename it without updating that record's `contexts` list and re-running its
@@ -1081,11 +1087,9 @@ jobs:
           fi
           exit "$fail"
 
-  # T-1297: the two markers of the selective-CI scheme, both tags, written only by runs on main
+  # T-1297: the red-main marker of the selective-CI scheme, written only by runs on main
   # (push, nightly, workflow_dispatch). NOT a required check. Tags are moved with the job's own
   # token (contents: write); a tag push does not start workflows.
-  #   ci-full-green  the last commit whose FULL backend run was green. The counter in job `changes`
-  #                  counts commits since it; >= 10 means the next run is full. Moved only forward.
   #   ci-main-red    a commit of main whose backend run failed. Merge-group runs fail fast while it
   #                  exists (job `changes`, step "Main red guard"). Deleted by the next green run of a
   #                  descendant commit. A failed or timed-out run counts; a cancelled one does not.
@@ -1105,7 +1109,6 @@ jobs:
       - name: Move the markers
         env:
           RESULT: ${{ needs.backend.result }}
-          MODE: ${{ needs.changes.outputs.mode }}
         run: |
           set -uo pipefail
           sha=$(git rev-parse HEAD)
@@ -1116,10 +1119,6 @@ jobs:
             success)
               if git rev-parse -q --verify refs/tags/ci-main-red >/dev/null && git merge-base --is-ancestor refs/tags/ci-main-red HEAD; then
                 git push origin :refs/tags/ci-main-red && echo "cleared ci-main-red" | tee -a "$GITHUB_STEP_SUMMARY"
-              fi
-              if [ "$MODE" = "full" ] && newer ci-full-green; then
-                git tag -f ci-full-green "$sha" && git push -f origin refs/tags/ci-full-green \
-                  && echo "ci-full-green -> $sha (green full run)" | tee -a "$GITHUB_STEP_SUMMARY"
               fi
               ;;
             failure)
