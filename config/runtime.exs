@@ -673,6 +673,15 @@ case Letflow.ProblemReports.ExportConfig.parse_hash(
     raise message
 end
 
+# REQ-858 (decision 0091 section 3): OPTIONAL LETFLOW_SHARED_STOCK_ACCESS_TENANTS, a comma-separated list
+# of tenant slugs that may hold a shared stock access (the old Qoimeks token). Unset or empty: no tenant.
+# QA only until the owner decides otherwise; read at every call, so removing a slug acts at once.
+config :letflow,
+       :shared_stock_access_tenants,
+       Letflow.SharedStockAccess.parse_tenants(
+         System.get_env("LETFLOW_SHARED_STOCK_ACCESS_TENANTS")
+       )
+
 # T-1951 (maintenance slice 3): server error capture. OFF unless LETFLOW_ERROR_CAPTURE_ENABLED is "true".
 # OPTIONAL LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR: a positive integer; anything else keeps the default (20).
 error_capture_cfg = Application.get_env(:letflow, :error_capture, [])

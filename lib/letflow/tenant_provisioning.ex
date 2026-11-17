@@ -1028,7 +1028,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-846 / GH #4560: per-tenant idempotency table for POST /modules/stock/documents.
     # Existing documents have no row here; existing tenants get it from the boot replay (MigrationReplayBoot, ISS-0771).
     {20_261_117_200_001, Letflow.Repo.Migrations.CreateStockCreateIdempotency,
-     "20261117200001_create_stock_create_idempotency.exs"}
+     "20261117200001_create_stock_create_idempotency.exs"},
+    # REQ-858 / GH #4573 (decision 0091): the per-tenant shared stock access credential table
+    # (hash only), created empty; existing tenants get it from the boot replay (ISS-0771).
+    {20_261_117_300_001, Letflow.Repo.Migrations.CreateSharedStockAccess,
+     "20261117300001_create_shared_stock_access.exs"}
   ]
 
   @doc """

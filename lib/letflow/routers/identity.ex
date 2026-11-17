@@ -35,6 +35,7 @@ defmodule Letflow.Routers.Identity do
   * POST   /tokens                       -> Identity.mint_token/4 (REQ-076, GH 2552)
   * GET    /tokens                       -> Identity.list_tokens/1 (REQ-076)
   * DELETE /tokens/:id                   -> Identity.revoke_token/2 (REQ-076)
+  * GET/POST/DELETE /shared-stock-access -> Letflow.SharedStockAccess (REQ-858, decision 0091): the tenant's stock-only token for the old Qoimeks app; `TokensManage` tenant-wide, interactive caller only; POST answers 201 with the value once, 409 `shared_access_not_enabled`, 422 `shared_access_value_invalid`
   * GET    /roles                        -> Letflow.Identity.RoleRegistry.list_roles/1 (REQ-076, ISS-0768)
   * POST   /roles                        -> Letflow.Identity.RoleRegistry.upsert_role/4 (REQ-076, ISS-0768, ISS-0774;
                                             GH 2524: a name bound to another group answers 409 role_already_bound)
@@ -191,6 +192,7 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Identity.ServicePrincipal
   alias Letflow.Notifications
   alias Letflow.PlatformTenant
+  alias Letflow.SharedStockAccess
 
   @users_cursor_prefix "U:"
 
@@ -283,6 +285,20 @@ defmodule Letflow.Routers.Identity do
 
   authz_delete "/tokens/:id", :TokensManage do
     handle_revoke_token(conn, conn.params["id"], conn.assigns.scoped_opts)
+  end
+
+  # REQ-858 (decision 0091): the tenant's shared stock access, a stock-only token for the old
+  # Qoimeks app. Same permission as the token routes (no new atom), interactive caller only.
+  authz_get "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+    shared_access_guarded(conn, &handle_shared_access_status/1)
+  end
+
+  authz_post "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+    shared_access_guarded(conn, &handle_shared_access_put/1)
+  end
+
+  authz_delete "/shared-stock-access", :TokensManage, scope: :tenant_wide do
+    shared_access_guarded(conn, &handle_shared_access_revoke/1)
   end
 
   authz_get "/roles", :RolesManage do
@@ -1062,6 +1078,71 @@ defmodule Letflow.Routers.Identity do
       end)
     end)
   end
+
+  # ── /shared-stock-access (REQ-858) ──────────────────────────────────────
+
+  # An API token (even a TENANT_ADMIN's) is refused: interactive sign-in only. `TokensManage`
+  # must be held tenant-wide in every scope mode. One uniform 403 (INV-5).
+  defp shared_access_guarded(conn, fun) do
+    with :oidc <- Map.get(conn.assigns.auth_context, :credential),
+         {:ok, conn} <- Scope.require_tenant_wide(conn, :TokensManage),
+         {:ok, tenant} <- Identity.get_tenant(conn.assigns.auth_context.tenant_id) do
+      fun.({conn, tenant.slug})
+    else
+      _ -> Response.forbidden(conn, "insufficient permissions")
+    end
+  end
+
+  defp handle_shared_access_status({conn, slug}) do
+    status = SharedStockAccess.status(shared_access_prefix(conn), slug)
+
+    Response.ok(conn, %{
+      "enabled" => status.enabled,
+      "exists" => status.exists,
+      "created_at" => iso8601_or_nil(status.created_at),
+      "created_by" => status.created_by,
+      "rotated_at" => iso8601_or_nil(status.rotated_at)
+    })
+  end
+
+  defp handle_shared_access_put({conn, slug}) do
+    body =
+      case conn.body_params do
+        %{} = params -> Map.delete(params, "_json")
+        _ -> %{}
+      end
+
+    case SharedStockAccess.put(shared_access_prefix(conn), slug, body, shared_access_actor(conn)) do
+      # The ONLY response that carries the value: shown once, never re-derivable (INV-4).
+      {:ok, _kind, value} ->
+        Response.created(conn, %{"value" => value})
+
+      {:error, :not_enabled} ->
+        Response.conflict(conn, "shared_access_not_enabled")
+
+      {:error, :invalid_value} ->
+        Response.unprocessable(conn, "shared_access_value_invalid")
+
+      {:error, :conflict} ->
+        Response.conflict(conn, "concurrent_change")
+
+      {:error, _failed} ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp handle_shared_access_revoke({conn, _slug}) do
+    case SharedStockAccess.revoke(shared_access_prefix(conn), shared_access_actor(conn)) do
+      :ok -> Response.no_content(conn)
+      {:error, :not_found} -> Response.not_found(conn)
+      {:error, _failed} -> Response.internal_error(conn)
+    end
+  end
+
+  defp shared_access_prefix(conn), do: Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+  defp shared_access_actor(conn),
+    do: %{user_id: conn.assigns.auth_context.user_id, trace_id: conn.assigns[:trace_id]}
 
   # ── POST /tokens (design §6.1, AC1/AC2/AC3, INV-4) ──────────────────────
 
