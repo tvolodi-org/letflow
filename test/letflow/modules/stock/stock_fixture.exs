@@ -129,6 +129,7 @@ defmodule Letflow.StockFixture do
         posting.legs,
         [
           ledger_id: "stock",
+          registration_name: "stock",
           registration: registration,
           ensure_storage: false,
           posting: posting

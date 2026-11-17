@@ -19,6 +19,7 @@ import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'document_refusals.dart';
 import 'documents_api.dart';
+import 'negative_balance.dart';
 
 class DocFormController extends ChangeNotifier {
   DocFormController({
@@ -27,6 +28,7 @@ class DocFormController extends ChangeNotifier {
     required this.draft,
     this.queue,
     this.replacesQueuedId,
+    this.negativeCheck,
   });
 
   /// Edit and resend: the refused queue entry this draft replaces. It is
@@ -40,6 +42,14 @@ class DocFormController extends ChangeNotifier {
 
   /// True after a Save was stored in the offline queue instead of sent.
   bool queuedLocally = false;
+
+  /// REQ-840: the advisory negative-balance warning; null switches it off.
+  final NegativeBalanceCheck? negativeCheck;
+
+  /// Indexes of the lines that would take a balance below zero (a warning,
+  /// never a block).
+  Set<int> negativeLines = const {};
+  int _negativeSeq = 0;
 
   final StockDocumentsApi api;
   final PickerLoader pickers;
@@ -210,6 +220,7 @@ class DocFormController extends ChangeNotifier {
     }
     voiceEpoch++;
     _dirty = true;
+    unawaited(refreshNegative());
     if (d.items.length > 1) {
       voiceChoices = d.items;
       _voiceQuantity = d.quantity;
@@ -249,6 +260,7 @@ class DocFormController extends ChangeNotifier {
     await _fillItem(index, item.id, quantity: quantity ?? '');
     voiceEpoch++;
     _notify();
+    unawaited(refreshNegative());
   }
 
   /// A scanned lot fills the lot and, from the lot record, its item and the
@@ -396,6 +408,20 @@ class DocFormController extends ChangeNotifier {
 
   void _changed() {
     _dirty = true;
+    _notify();
+    unawaited(refreshNegative());
+  }
+
+  /// Evaluates the warning again for the current draft; a slower earlier
+  /// answer never overwrites a later one.
+  Future<void> refreshNegative() async {
+    final check = negativeCheck;
+    if (check == null || !editable) return;
+    final seq = ++_negativeSeq;
+    final result = await check.evaluate(draft);
+    if (seq != _negativeSeq || _disposed) return;
+    if (setEquals(result, negativeLines)) return;
+    negativeLines = result;
     _notify();
   }
 

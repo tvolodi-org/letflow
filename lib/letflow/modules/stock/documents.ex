@@ -75,6 +75,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Modules.Stock.Documents.OpeningChecks
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Documents.Shape
+  alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Repo
 
   @states ~w(draft issued posted reversed cancelled)
@@ -88,6 +89,16 @@ defmodule Letflow.Modules.Stock.Documents do
   @doc "The state names a list filter accepts."
   @spec states() :: [String.t()]
   def states, do: @states
+
+  # REQ-836: only an opening balance can carry a negative quantity, and only on a tenant that allows
+  # negative balances; the setting is read (tenant prefix only) just for that kind.
+  defp parse(prefix, %{"kind" => "opening"} = body, :create),
+    do: Kinds.parse(body, :create, PostingRules.negative_allowed?(prefix))
+
+  defp parse(prefix, body, {:replace, "opening"} = mode),
+    do: Kinds.parse(body, mode, PostingRules.negative_allowed?(prefix))
+
+  defp parse(_prefix, body, mode), do: Kinds.parse(body, mode)
 
   # -- writes -------------------------------------------------------------------------------------
 
@@ -114,7 +125,7 @@ defmodule Letflow.Modules.Stock.Documents do
   end
 
   defp save_new(prefix, body, actor) do
-    with {:ok, doc} <- Kinds.parse(body, :create) do
+    with {:ok, doc} <- parse(prefix, body, :create) do
       spec = Kinds.get(doc.kind)
 
       tx(prefix, fn ->
@@ -136,7 +147,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # Idempotent create: advisory lock → lookup → same body replay or key-reuse refusal → create.
   defp save_idempotent(prefix, body, actor, key) do
-    with {:ok, doc} <- Kinds.parse(body, :create) do
+    with {:ok, doc} <- parse(prefix, body, :create) do
       hash = body_hash(body)
       spec = Kinds.get(doc.kind)
 
@@ -194,7 +205,7 @@ defmodule Letflow.Modules.Stock.Documents do
     with {:ok, id} <- cast(id),
          {:ok, current} <- fetch(prefix, id),
          :ok <- draft?(current),
-         {:ok, doc} <- Kinds.parse(body, {:replace, current.kind}),
+         {:ok, doc} <- parse(prefix, body, {:replace, current.kind}),
          :ok <- same_unit(current, doc) do
       tx(prefix, fn ->
         lock!(prefix, id)
@@ -312,12 +323,16 @@ defmodule Letflow.Modules.Stock.Documents do
       }
       |> Map.reject(fn {_k, v} -> is_nil(v) end)
 
-    case Kinds.parse(header, {:replace, "opening"}) do
+    case parse(prefix, header, {:replace, "opening"}) do
       {:ok, doc} ->
         case Documents.edit_draft(prefix, locked.id, content(doc), actor) do
           {:ok, _version} -> :ok
           {:error, reason} -> Repo.rollback(draft_error(reason))
         end
+
+      # REQ-836: the new line mixes signs with the document (decision 0090 section 4).
+      {:error, {"quantity_invalid", _extras}} ->
+        Repo.rollback(:quantity_invalid)
 
       {:error, reason} ->
         Repo.rollback(log_internal(reason))

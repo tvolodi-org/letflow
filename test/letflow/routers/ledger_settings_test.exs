@@ -7,7 +7,8 @@ defmodule Letflow.Routers.LedgerSettingsTest do
   `Letflow.Router` with real OIDC bearer tokens, on committed tenants (Sandbox `:auto`,
   `async: false`). The registry holds the boot registrations plus ONE test registration named
   "test" that declares `negative_balance: :tenant_setting` and belongs to module `stock`
-  (installed on the tenants); no compiled module declares the key before REQ-836.
+  (installed on the tenants); since REQ-836 the compiled stock registration declares the key
+  too, so the list carries both and the helpers here look at "test" only.
 
   IDs: LS-1 read and switch with audit, LS-2 repeated PUT writes nothing, LS-3 body, reason and
   registration refusals, LS-4 refused callers (uniform 403), LS-5 scoped grant and non-interactive
@@ -67,11 +68,15 @@ defmodule Letflow.Routers.LedgerSettingsTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp items(token) do
+  defp all_items(token) do
     conn = request(:get, "", token)
     assert conn.status == 200, conn.resp_body
     S.json(conn)["items"]
   end
+
+  # the settable "test" registration only: module stock itself opts in since REQ-836, so the
+  # list also carries the real "stock" row (asserted separately in LS-1)
+  defp items(token), do: Enum.filter(all_items(token), &(&1["registration"] == "test"))
 
   defp settings_rows(schema),
     do: Repo.aggregate("ledger_balance_settings", :count, prefix: schema)
@@ -89,6 +94,10 @@ defmodule Letflow.Routers.LedgerSettingsTest do
 
   test "LS-1 GET lists the one switchable registration as refuse; PUT allow shows the caller and the reason; one audit entry",
        ctx do
+    # REQ-836: the real stock registration is switchable too and lists as refuse
+    assert %{"allow_negative" => false, "reason" => nil} =
+             Enum.find(all_items(ctx.adm_a), &(&1["registration"] == "stock"))
+
     assert [item] = items(ctx.adm_a)
 
     assert item == %{
@@ -154,8 +163,6 @@ defmodule Letflow.Routers.LedgerSettingsTest do
       {"/test", %{"allow_negative" => true, "reason" => secret <> <<0x202E::utf8>>},
        "invalid_reason"},
       {"/nope", @on, "not_switchable"},
-      # installed module, registration does not declare the key
-      {"/stock", @on, "not_switchable"},
       # the assets registration declares no key (and its module is not installed here)
       {"/assets", @on, "not_switchable"}
     ]
