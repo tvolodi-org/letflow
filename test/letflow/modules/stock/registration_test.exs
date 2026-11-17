@@ -151,6 +151,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/stock-card/print", :StockRead},
              {"GET", "/stock-sheet/print", :StockRead},
              {"GET", "/stock-workbook", :StockRead},
+             {"POST", "/stock-workbook/check", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
@@ -271,8 +272,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-2082 (REQ-865): stock_workbook.ex (pure data builder, reads through Ledger) makes 46.
     # T-2076 (REQ-846): create_idempotency.ex (pure Ecto schema, no Repo writes inside; Repo.insert! is in documents.ex) makes 47.
     # REQ-836: posting_rules.ex (reads the setting through Ledger, no Repo) makes 48.
-    # T-2077 (REQ-847): action_idempotency.ex (Repo.get/insert! on the CreateIdempotency binding, no ledger name) makes 49.
-    assert length(files) == 49
+    # T-2083 (REQ-884): stock_workbook_import.ex (reads through Ledger and the master read APIs, no Repo) makes 49.
+    # T-2077 (REQ-847): action_idempotency.ex (Repo.get/insert! on the CreateIdempotency binding, no ledger name) makes 50.
+    assert length(files) == 50
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
