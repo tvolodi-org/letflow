@@ -21,6 +21,9 @@ export interface BalancesPageBody {
   next_cursor: string | null
   rows: BalanceRow[]
 }
+export interface PostingRulesBody {
+  negative_balance: 'allowed' | 'refused'
+}
 export interface MovementLeg {
   leg_no: number
   quantity: string
@@ -53,6 +56,8 @@ export interface MovementsPageBody {
 }
 
 export const stockApi = {
+  /** REQ-836: the current tenant's negative-balance rule; read only for a lowering document with complete balance keys. */
+  postingRules: () => client.get<PostingRulesBody>(`${BASE}/posting-rules`),
   balances: (params: Record<string, string>) => client.get<BalancesPageBody>(`${BASE}/balances`, params),
   /** The xlsx file of the first page of the balances (one page per file); same filters and day as the screen. */
   balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),

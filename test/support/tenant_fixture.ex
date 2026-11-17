@@ -219,6 +219,7 @@ defmodule Letflow.TenantFixture do
     "script_task_dispatches",
     "service_task_dispatches",
     "solution_pack_overrides",
+    "stock_create_idempotency",
     "tasks",
     "tenant_currencies",
     "tenant_logos",

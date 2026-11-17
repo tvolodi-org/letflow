@@ -407,6 +407,20 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
       end
     end
 
+    test "I4-6 REQ-836 allow: -1 mixed with a positive line is refused, -1 on the only line updates",
+         ctx do
+      Letflow.LedgerFixture.set_negative_balance!(ctx.schema, "stock", true)
+      id = ctx.im.doc["id"]
+
+      conn = import_file(ctx, [row(ctx.im, "NEG", %{"quantity" => "-1"})])
+      assert reasons(conn) == [%{"type" => "quantity_invalid", "header" => "quantity"}]
+      assert length(lines(ctx, id)) == 1
+
+      conn = import_file(ctx, [row(ctx.im, "BASE", %{"quantity" => "-1"})])
+      assert outcomes(conn) == ["updated"]
+      assert [%{"quantity" => "-1.000000000"}] = lines(ctx, id)
+    end
+
     test "I4-5 a negative unit_price or line_value is price_invalid", ctx do
       conn =
         import_file(ctx, [

@@ -116,6 +116,12 @@ export const queryKeys = {
     storageUsage: (tenantId: string) => ['tenant', tenantId, 'attachments', 'storage-usage'] as const,
   },
 
+  stock: {
+    all: (tenantId: string) => [...tenantRoot(tenantId), 'stock'] as const,
+    postingRules: (tenantId: string) => [...queryKeys.stock.all(tenantId), 'posting-rules'] as const,
+    balance: (tenantId: string, key: string) => [...queryKeys.stock.all(tenantId), 'negative-balance', key] as const,
+  },
+
   definitions: {
     all: (tenantId: string) => ['tenant', tenantId, 'definitions'] as const,
     list: (tenantId: string, filters: DefinitionListFilters) =>
@@ -311,6 +317,12 @@ export const queryKeys = {
   approvalRules: {
     all: (tenantId: string) => ['tenant', tenantId, 'approval-rules'] as const,
     list: (tenantId: string) => [...queryKeys.approvalRules.all(tenantId), 'list'] as const,
+  },
+
+  /** REQ-839 — negative balance switch (ledger settings) admin screen. */
+  ledgerSettings: {
+    all: (tenantId: string) => ['tenant', tenantId, 'ledger-settings'] as const,
+    list: (tenantId: string) => [...queryKeys.ledgerSettings.all(tenantId), 'list'] as const,
   },
 
   /** T-1983 — official-form templates admin screen. */

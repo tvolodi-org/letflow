@@ -389,6 +389,18 @@ part 2 (REQ-831).
 - Still owed to slice L7 (no consumer exists yet): the master checks (item, location, unit active), `expected_document_version`
   and the retired-master checks. Until L7 lands, the ledger still accepts any well-formed slot values.
 
+## Amended by REQ-832 (slice L7 part 1, master checks at posting)
+
+- REQ-832 (GH #4535) is L7 part 1: the stock write handlers `post_document`, `post_count` and `post_kind_change_out` declare
+  reads of `catalog_item`, `catalog_uom`, `catalog_lot`, `location_node`, `org_unit` and `org_employee` and, before any step is
+  added, require every master named by a line to be a live record. A side that adds stock (`to`) needs an active master (unit
+  equal to the item's base unit, lot of the item); a side that only removes stock (`from`) needs a live record, active false
+  accepted. A refusal is the handler's `{:error, :invalid_arguments}` (`validation_failed`, audit detail
+  `handler_invalid_arguments`). A reversal reads nothing (note 9.5). A dry build skips the checks.
+- Still owed to slice L7 (part 2 and later): `expected_document_version` and the binding of a posting to the issued document
+  version, a typed wire code such as `master_inactive`, the org unit to location link at posting, the assets module handlers and
+  per-instance ledger ids.
+
 ## Amended by 0090 (negative balances per tenant, REQ-833)
 
 D5 "non-negative balance" is now the registration's negative balance mode: a registration that declares `negative_balance: :tenant_setting` follows a per-tenant setting (default refuse), every other registration refuses below zero as before; see [0090](0090-negative-balances-per-tenant.md).

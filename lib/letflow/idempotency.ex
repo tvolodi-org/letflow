@@ -14,11 +14,17 @@ defmodule Letflow.Idempotency do
     * `client:inst_start:<actor>:<K>` -- instance start (header)
     * `client:inst_cancel:<actor>:<instance_id>:<K>` -- cancel (header)
     * `client:inst_rebind:<actor>:<instance_id>:<K>` -- pin rebind (header)
+    * `client:stock_create:<actor>:<K>` -- stock document create (header, REQ-846)
+    * `client:stock_issue:<actor>:<K>` -- stock document issue (header, REQ-847)
+    * `client:stock_post:<actor>:<K>` -- stock document post retry (header, REQ-847)
     * `script:<actor>:<K>` -- Lua `platform.emit_event/3`
 
   A raw key over `raw_max/1` bytes is refused (a stable 422 `max_length`, or
-  `invalid_arguments` for a script), never truncated, so a stored key always
-  fits `varchar(255)`. A raw key that is not valid UTF-8 or contains a NUL
+  `invalid_arguments` for a script), never truncated, so a stored key fits
+  `varchar(255)` -- with one exception: a `:stock_create` key reaches 256 bytes
+  (`:stock_issue` 255, `:stock_post` 254) and fits only the dedicated `stock_create_idempotency.key` `varchar(256)`
+  column, so it must never be passed to the event store
+  (`event_idempotency.key` is `varchar(255)`). A raw key that is not valid UTF-8 or contains a NUL
   byte is refused first, before any database access (a stable 422 `format`,
   or `invalid_arguments` for a script); both refusals are
   `{:error, :idempotency_key_invalid}` / `{:error, :idempotency_key_too_long}`
@@ -44,7 +50,14 @@ defmodule Letflow.Idempotency do
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
 
-  @type route :: :rec | :inst_start | :inst_cancel | :inst_rebind
+  @type route ::
+          :rec
+          | :inst_start
+          | :inst_cancel
+          | :inst_rebind
+          | :stock_create
+          | :stock_issue
+          | :stock_post
 
   @type resolved :: %{key: String.t(), legacy_raw: String.t() | nil}
 
@@ -95,7 +108,10 @@ defmodule Letflow.Idempotency do
 
   @doc "The largest accepted raw caller key, in bytes, for `route`."
   @spec raw_max(route() | :script) :: 199 | 162
-  def raw_max(route) when route in [:rec, :inst_start, :script], do: @raw_max_long
+  def raw_max(route)
+      when route in [:rec, :inst_start, :stock_create, :stock_issue, :stock_post, :script],
+      do: @raw_max_long
+
   def raw_max(route) when route in [:inst_cancel, :inst_rebind], do: @raw_max_instance
 
   @doc """
@@ -106,7 +122,9 @@ defmodule Letflow.Idempotency do
   """
   @spec client_key(route(), Ecto.UUID.t(), Ecto.UUID.t() | nil, String.t()) :: String.t()
   def client_key(route, actor_id, nil, raw)
-      when route in [:rec, :inst_start] and is_binary(actor_id) and byte_size(actor_id) == 36 and
+      when route in [:rec, :inst_start, :stock_create, :stock_issue, :stock_post] and
+             is_binary(actor_id) and
+             byte_size(actor_id) == 36 and
              is_binary(raw) and byte_size(raw) > 0 and byte_size(raw) <= @raw_max_long do
     "client:" <> route_token(route) <> ":" <> actor_id <> ":" <> raw
   end
@@ -248,6 +266,9 @@ defmodule Letflow.Idempotency do
   defp route_token(:inst_start), do: "inst_start"
   defp route_token(:inst_cancel), do: "inst_cancel"
   defp route_token(:inst_rebind), do: "inst_rebind"
+  defp route_token(:stock_create), do: "stock_create"
+  defp route_token(:stock_issue), do: "stock_issue"
+  defp route_token(:stock_post), do: "stock_post"
 
   # Checked before any length check or DB access: an invalid key never reaches
   # the legacy SELECT or an append.

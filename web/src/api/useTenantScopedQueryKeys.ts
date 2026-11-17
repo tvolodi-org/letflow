@@ -169,6 +169,10 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.approvalRules.all(tenantId),
       list: () => queryKeys.approvalRules.list(tenantId),
     },
+    ledgerSettings: {
+      all: () => queryKeys.ledgerSettings.all(tenantId),
+      list: () => queryKeys.ledgerSettings.list(tenantId),
+    },
     officialFormTemplates: {
       all: () => queryKeys.officialFormTemplates.all(tenantId),
       list: () => queryKeys.officialFormTemplates.list(tenantId),

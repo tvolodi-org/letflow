@@ -59,6 +59,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Ledger
   alias Letflow.Modules.KeyHelpers
   alias Letflow.Modules.Stock.ActorLabel
+  alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Repo
@@ -414,9 +415,25 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   post task. Returns `{:ok, view}` or `{:error, reason}`, `reason` one of `:not_found`,
   `:document_not_issued`, `:document_cancelled`, `:document_posted`, `:posting_pending`,
   `:definition_not_active`, `:internal`.
+
+  `who[:idempotency_key]` (REQ-847, stored `client:stock_post:<actor>:<K>`, see
+  `Letflow.Modules.Stock.Documents.ActionIdempotency`) makes a retry return the document as
+  `fetch` shows it now, also after the post task completed: no second instance, nothing posted.
+  The same key on another document is `{:error, :idempotency_key_reuse}`; a refused post binds
+  nothing.
   """
   @spec post(String.t(), term(), map(), term()) :: {:ok, map()} | {:error, atom()}
-  def post(prefix, id, %{actor_id: actor, activator: activator}, fetch) do
+  def post(prefix, id, %{actor_id: actor, activator: activator} = who, fetch) do
+    ActionIdempotency.run(
+      prefix,
+      Map.get(who, :idempotency_key),
+      id,
+      fn -> fetch.(prefix, id) end,
+      fn -> post_new(prefix, id, actor, activator, fetch) end
+    )
+  end
+
+  defp post_new(prefix, id, actor, activator, fetch) do
     with {:ok, view} <- fetch.(prefix, id),
          :ok <- postable(prefix, view),
          :ok <- active(prefix, Kinds.get(view.kind).definition, activator),
@@ -515,11 +532,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   # The one posting entry (cause of the kind) of the document, read through the caller's
   # tenant-wide authorization.
   defp posting_entry(authorized, view) do
-    cause = Kinds.get(view.kind).cause
+    causes = Kinds.causes(Kinds.get(view.kind))
 
     case entries(authorized, view.id) do
       {:ok, rows} ->
-        case Enum.filter(rows, &(&1.cause == cause)) do
+        case Enum.filter(rows, &(&1.cause in causes)) do
           [%{entry_id: entry_id}] -> {:ok, entry_id}
           _none_or_many -> {:error, :posting_inconsistent}
         end
@@ -722,7 +739,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     state = derive_state(base.state, marks)
     rows = if authorized, do: entries(authorized, base.id), else: :error
     kind = Kinds.get(base.kind)
-    receipt = receipt_row(rows, kind.cause)
+    receipt = receipt_row(rows, Kinds.causes(kind))
     posted_by = if(marks["posted"], do: completer(prefix, base.id, kind.completion_node))
     reversed_by = if(marks["reversed"], do: completer(prefix, base.id, "reverse"))
 
@@ -760,8 +777,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     Map.new(rows, &{&1.id, derive_state(&1.state, Map.get(marks, &1.id, %{}))})
   end
 
-  defp receipt_row({:ok, rows}, cause) do
-    case Enum.filter(rows, &(&1.cause == cause)) do
+  defp receipt_row({:ok, rows}, causes) do
+    case Enum.filter(rows, &(&1.cause in causes)) do
       [one] -> one
       _none_or_many -> nil
     end
@@ -774,7 +791,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp posting_check(_base, _state, _marks, :truncated, _prefix, _kind), do: "mismatch"
 
   defp posting_check(base, state, marks, {:ok, rows}, prefix, kind) do
-    receipts = Enum.filter(rows, &(&1.cause == kind.cause))
+    receipts = Enum.filter(rows, &(&1.cause in Kinds.causes(kind)))
     reversals = Enum.filter(rows, &(&1.cause == "reversal"))
 
     cond do

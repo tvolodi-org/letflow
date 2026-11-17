@@ -43,18 +43,13 @@ defmodule Letflow.Api.PhotosPermissionsTest do
     end
   end
 
-  test "A3 the regenerated golden carries all eighteen photo rows" do
+  test "A3 the regenerated golden carries every PhotosAdd and PhotosDelete row" do
     rows =
-      "priv/permission_matrix/effective.golden"
-      |> File.stream!()
-      |> Stream.map(&String.trim/1)
-      |> Stream.reject(&(&1 == "" or String.starts_with?(&1, "#")))
-      |> Enum.filter(fn row ->
-        permission = row |> String.split() |> Enum.at(1)
-        permission in ["PhotosAdd", "PhotosDelete"]
-      end)
+      for permission <- ["PhotosAdd", "PhotosDelete"],
+          [role, perm, allowed, owner, via] <- Letflow.GoldenRows.rows_for(permission),
+          do: Enum.join([role, perm, allowed, owner, via], " ")
 
-    assert length(rows) == 18
+    assert length(rows) == 2 * length(Letflow.GoldenRows.roles())
     assert "TENANT_ADMIN PhotosAdd true core core" in rows
     assert "TENANT_ADMIN PhotosDelete true core core" in rows
     assert "PLATFORM_ADMIN PhotosAdd true core core" in rows

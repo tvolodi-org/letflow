@@ -726,6 +726,10 @@ account, not an organization.)*
 
 ---
 
+## ⛔ HARD RULE — CI is limited to 10 minutes
+
+**Owner, 2026-11-17:** Any CI that runs longer than 10 minutes must be simplified, reduced and limited to 10 minutes. Full, cross-application suites run outside the standard production process, nightly or on demand, never as the standard per-task pipeline. Issues found by those full runs are fixed through standard CI, not through a full run. If a change concerns all modules, testing two or three modules is enough; if it concerns specific modules, run those modules' tests. Running the full suite in the standard pipeline requires very serious reasons written in the PR.
+
 ## ⛔ CI Failures Are Classified; A Repeat Is A Defect; Run CI-Shaped Locally First
 
 *(Added 2026-10-06.)*
