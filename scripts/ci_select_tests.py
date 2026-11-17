@@ -55,7 +55,7 @@ requires that module's tests plus the global pin set, not the full suite).
 Global pins on any lib change (T-2141): SINGLE_MODULE_PIN_TESTS and SINGLE_MODULE_PIN_PREFIXES are
 added to every selective run that touches lib/ or priv/modules/, not just single-module mode. This
 replaces the SENSITIVE_LIB_NAME_RE full-suite rule; files with names like permission, authorization,
-scope_enforcement, ledger_registration now run selective with global pins.
+scope_enforc*, ledger_registration now run selective with global pins.
 
 Full suite when: event is not pull_request/merge_group/push (nightly, workflow_dispatch), kill
 switch `off`, no changed files, more than --max-files files,
