@@ -1,51 +1,70 @@
 defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
   @moduledoc """
   REQ-854 / GH #4564: the pure helpers that turn an issued quick count document into the posting
-  command of cause `count_set` and into the leg that command must produce. No database. Used by
+  command of cause `count_set` and into the legs that command must produce. No database. Used by
   `Letflow.Modules.Stock.Documents.Posting`.
 
-  `command/3` is built ONLY from the frozen content of the issued version. The one line becomes ONE
-  leg: quantity = the absolute difference, a `to` side when the counted quantity is above the book,
-  a `from` side when it is below, and `expected_on_hand` = the stored `book_quantity` (REQ-853): if
-  anything moved the key between the count and the approval the core refuses `balance_changed`
-  (stock alias `quick_count_stale`). It carries NO `device_id`, `client_seq` or `client_event_time`
-  (the event time is the posting time) and the header's `reason_code`.
+  `command/3` is built ONLY from the frozen content of the issued version. Each non-zero-difference
+  line becomes ONE leg: quantity = the absolute difference, a `to` side when the counted quantity is
+  above the book, a `from` side when it is below, and `expected_on_hand` = the stored `book_quantity`
+  (REQ-853): if anything moved the key between the count and the approval the core refuses
+  `balance_changed` (stock alias `quick_count_stale`). It carries NO `device_id`, `client_seq` or
+  `client_event_time` (the event time is the posting time) and the header's `reason_code`.
 
-  A count equal to the book has no leg: `command/3` answers `:none` and `expected_legs/2` is empty.
+  A count equal to the book on ALL lines has no leg: `command/3` answers `:none` and
+  `expected_legs/2` is empty.
+
+  REQ-885: a workbook-load quick count may have more than one line; each non-zero-diff line
+  contributes one leg to the same posting command.
   """
 
-  @doc "True when the one line of `content` has a zero difference (a count that confirmed the book)."
+  @doc "True when ALL lines of `content` have a zero difference (a count that confirmed the book)."
   @spec confirmed?(map()) :: boolean()
   def confirmed?(content) do
-    case line(content) do
-      nil -> false
-      line -> zero?(Map.get(line, "difference"))
+    case Map.get(content, "lines") do
+      lines when is_list(lines) and lines != [] ->
+        Enum.all?(lines, &zero?(Map.get(&1, "difference")))
+
+      _other ->
+        false
     end
   end
 
-  @doc "The posting command, `:none` for a zero difference, `{:error, :line_record_missing}` without the line record."
+  @doc "The posting command, `:none` when all differences are zero, `{:error, :line_record_missing}` when a non-zero-diff line has no record id."
   @spec command(map(), map(), %{optional(integer()) => String.t()}) ::
           {:ok, map()} | :none | {:error, :line_record_missing}
   def command(view, %{content: content} = issued, line_ids) do
     header = Map.get(content, "header", %{})
+    lines = Map.get(content, "lines", [])
 
-    with %{} = line <- line(content),
-         {:ok, line_id} <- Map.fetch(line_ids, Map.get(line, "line_no")) do
-      if zero?(Map.get(line, "difference")) do
-        :none
-      else
-        {:ok,
-         %{
-           "cause" => "count_set",
-           "document_type" => "stock_quick_count",
-           "document_id" => view.id,
-           "client_op_id" => issued.version_id,
-           "reason_code" => Map.get(header, "reason_code"),
-           "lines" => [leg_line(line, line_id, header)]
-         }}
-      end
+    non_zero = Enum.reject(lines, &zero?(Map.get(&1, "difference")))
+
+    if non_zero == [] do
+      :none
     else
-      _missing -> {:error, :line_record_missing}
+      result =
+        Enum.reduce_while(non_zero, {:ok, []}, fn line, {:ok, acc} ->
+          case Map.fetch(line_ids, Map.get(line, "line_no")) do
+            {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, header) | acc]}}
+            :error -> {:halt, {:error, :line_record_missing}}
+          end
+        end)
+
+      case result do
+        {:ok, legs} ->
+          {:ok,
+           %{
+             "cause" => "count_set",
+             "document_type" => "stock_quick_count",
+             "document_id" => view.id,
+             "client_op_id" => issued.version_id,
+             "reason_code" => Map.get(header, "reason_code"),
+             "lines" => Enum.reverse(legs)
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -74,41 +93,27 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
 
   @doc """
   The expected legs of the frozen `content` as the tuple `leg_key` builds (the caller's function, one
-  normal form for every kind): none for a zero difference, else one with the signed difference.
+  normal form for every kind): none for zero differences, else one per non-zero-difference line.
   """
   @spec expected_legs(map(), (term(), term(), term(), term(), term(), term(), term() -> tuple())) ::
           [tuple()]
   def expected_legs(content, leg_key) do
     header = Map.get(content, "header", %{})
+    lines = Map.get(content, "lines", [])
 
-    case line(content) do
-      nil ->
-        []
-
-      line ->
-        if zero?(Map.get(line, "difference")) do
-          []
-        else
-          [
-            leg_key.(
-              Map.get(line, "catalog_item_id"),
-              Map.get(line, "location_id"),
-              Map.get(header, "org_unit_id"),
-              Map.get(line, "responsible_id"),
-              Map.get(line, "catalog_lot_id"),
-              Map.get(line, "catalog_uom_id"),
-              Map.get(line, "difference")
-            )
-          ]
-        end
-    end
-  end
-
-  defp line(content) do
-    case Map.get(content, "lines") do
-      [line | _] when is_map(line) -> line
-      _other -> nil
-    end
+    lines
+    |> Enum.reject(&zero?(Map.get(&1, "difference")))
+    |> Enum.map(fn line ->
+      leg_key.(
+        Map.get(line, "catalog_item_id"),
+        Map.get(line, "location_id"),
+        Map.get(header, "org_unit_id"),
+        Map.get(line, "responsible_id"),
+        Map.get(line, "catalog_lot_id"),
+        Map.get(line, "catalog_uom_id"),
+        Map.get(line, "difference")
+      )
+    end)
   end
 
   defp zero?(text), do: Decimal.eq?(decimal(text), 0)

@@ -1,12 +1,13 @@
 defmodule Letflow.Plugs.XlsxBodyParser do
   @moduledoc """
-  `Plug.Parsers` parser for the `.xlsx` media type on three routes: `POST
+  `Plug.Parsers` parser for the `.xlsx` media type on four routes: `POST
   /entities/records/:entity_type/import` (GH #3603, REQ-650), `POST /identity/users/import`
-  (T-1609, REQ-791) and `POST /modules/stock/stock-workbook/check` (REQ-884).
+  (T-1609, REQ-791), `POST /modules/stock/stock-workbook/check` (REQ-884) and
+  `POST /modules/stock/stock-workbook/apply` (REQ-885).
 
   Same shape as `Letflow.Plugs.CsvBodyParser`: it claims
   `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` only for a POST whose
-  path is one of those three routes and hands every other request on (`{:next, conn}`), so the
+  path is one of those four routes and hands every other request on (`{:next, conn}`), so the
   415 of every other route is unchanged. `Plug.Parsers` splits the content type at the first
   `/`, so the subtype is the whole `vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
 
@@ -45,6 +46,17 @@ defmodule Letflow.Plugs.XlsxBodyParser do
   # REQ-884: the check of a Qoimeks-layout balances workbook (module stock).
   def parse(
         %Plug.Conn{method: "POST", path_info: ["modules", "stock", "stock-workbook", "check"]} =
+          conn,
+        "application",
+        "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _headers,
+        opts
+      ),
+      do: read_xlsx(conn, opts)
+
+  # REQ-885: the load (apply) of a Qoimeks-layout balances workbook as a quick count (module stock).
+  def parse(
+        %Plug.Conn{method: "POST", path_info: ["modules", "stock", "stock-workbook", "apply"]} =
           conn,
         "application",
         "vnd.openxmlformats-officedocument.spreadsheetml.sheet",

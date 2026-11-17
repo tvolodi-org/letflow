@@ -356,6 +356,64 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
     end
   end
 
+  @doc """
+  REQ-885: runs the check inside the apply transaction; returns both the check answer and the
+  enriched changes (with catalog/location ids and strict decimal quantities) needed to build
+  document lines. Called by `Letflow.Modules.Stock.Documents.workbook_apply/6`.
+  """
+  @spec check_for_apply(map(), String.t(), binary()) ::
+          {:ok,
+           %{
+             answer: map(),
+             parsed: map(),
+             enriched: [
+               %{
+                 catalog_item_id: String.t(),
+                 location_id: String.t(),
+                 catalog_uom_id: String.t(),
+                 counted_quantity: String.t(),
+                 book_quantity: String.t(),
+                 difference: String.t()
+               }
+             ]
+           }}
+          | {:error, atom()}
+  def check_for_apply(%{prefix: prefix} = authorized, org_unit_id, bytes) do
+    with {:ok, parsed} <- parse(bytes),
+         {:ok, book} <- read_book(authorized) do
+      items = item_index(prefix)
+      locations = location_index(prefix)
+      answer = build(parsed, org_unit_id, prefix, items, locations, book)
+      enriched = enrich_for_apply(answer["changes"], items, locations)
+      {:ok, %{answer: answer, parsed: parsed, enriched: enriched}}
+    end
+  end
+
+  defp enrich_for_apply(changes, items, locations) do
+    Enum.map(changes, fn change ->
+      item = Map.get(items, change["item_code"], %{})
+
+      %{
+        catalog_item_id: item["record_id"],
+        location_id: Map.get(locations, change["place_code"]),
+        catalog_uom_id: item["base_uom_id"],
+        counted_quantity: nine_decimals(change["file_quantity"]),
+        book_quantity: nine_decimals(change["book_quantity"]),
+        difference: nine_decimals(change["difference"])
+      }
+    end)
+  end
+
+  defp nine_decimals(text) do
+    d = text |> Decimal.new() |> Decimal.round(9)
+    str = Decimal.to_string(d, :normal)
+
+    case String.split(str, ".", parts: 2) do
+      [whole] -> whole <> "." <> String.duplicate("0", 9)
+      [whole, frac] -> whole <> "." <> String.pad_trailing(frac, 9, "0")
+    end
+  end
+
   defp item_index(prefix) do
     case CatalogItems.list_active(prefix) do
       {:ok, items} -> Map.new(items, &{&1["code"], &1})

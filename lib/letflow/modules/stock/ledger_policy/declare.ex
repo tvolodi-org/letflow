@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | issue, write_off, kind_change_out | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
   | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
-  | count_set (REQ-854) | exactly one of the two | exactly one of the two | ONE line, `+q` at `to` or `-q` at `from`; the line carries `expected_on_hand` (text, at least 0, 9 decimals), which the leg keeps (REQ-853) |
+  | count_set (REQ-854) | exactly one of the two | exactly one of the two | 1 to 1000 lines, `+q` at `to` or `-q` at `from`; each line carries `expected_on_hand` (text, at least 0, 9 decimals), which the leg keeps (REQ-853). REQ-854 uses one line; REQ-885 (workbook load) uses one line per change, up to 1000 |
 
   The two legs of a line come from one `sku`, `lot`, `unit` and `quantity`: that keeps the lot and unit
   conservation that the sign rule `zero_sum_by_slot_1` (per sku) does not check. The key is
@@ -127,7 +127,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     max =
       case cause do
         "count_difference" -> @max_count_lines
-        "count_set" -> 1
+        "count_set" -> @max_lines
         _other -> @max_lines
       end
 

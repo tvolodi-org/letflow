@@ -68,9 +68,11 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Documents.Document
   alias Letflow.Documents.DocumentType
   alias Letflow.Documents.DocumentVersion
+  alias Letflow.Engine.Task
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.CountHold
@@ -83,6 +85,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Modules.Stock.Documents.QuickCountShape
   alias Letflow.Modules.Stock.Documents.Shape
   alias Letflow.Modules.Stock.PostingRules
+  alias Letflow.Modules.Stock.StockWorkbookImport
   alias Letflow.Repo
 
   @states ~w(draft issued posted reversed cancelled)
@@ -267,6 +270,175 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp authorized_read(nil), do: {:error, :not_found}
   defp authorized_read(_authorized), do: :ok
+
+  @doc """
+  REQ-885 / GH #4606: load a checked Qoimeks-layout balances workbook as a stock_quick_count
+  document. `authorized` is the tenant-wide ledger read authorization; `unit` is the org_unit_id;
+  `bytes` are the xlsx body; `file_name` is the workbook name (1–255 chars, default "workbook.xlsx").
+
+  Order: parse (422), no ledger auth (404), definition not active (409), then in one transaction:
+  re-check the bytes (422 on parse/check errors), no changes → 200 `{applied: false, changes: 0,
+  remarks: [...]}`, too many changes (> `max_lines` seam) → 422 `too_many_changes`, count order
+  blocking a key → 422 `count_in_progress`, otherwise create+issue the document → 201 response
+  `{document_id, number, lines, remarks, approve_task_id}`.
+  """
+  @spec workbook_apply(map(), String.t(), binary(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def workbook_apply(authorized, unit, bytes, file_name, actor, opts \\ [])
+      when is_map(authorized) do
+    with {:ok, _parsed} <- StockWorkbookImport.parse(bytes),
+         :ok <- authorized_read(authorized) do
+      spec = Kinds.get("quick_count")
+
+      with :ok <- activate(authorized.prefix, spec, Keyword.get(opts, :activator)) do
+        workbook_apply_tx(authorized, unit, bytes, file_name, spec, actor)
+      end
+    end
+  end
+
+  defp workbook_apply_tx(authorized, unit, bytes, file_name, spec, actor) do
+    prefix = authorized.prefix
+
+    result =
+      tx(prefix, fn ->
+        case StockWorkbookImport.check_for_apply(authorized, unit, bytes) do
+          {:error, reason} when is_atom(reason) ->
+            Repo.rollback(reason)
+
+          {:ok, %{answer: answer, parsed: parsed, enriched: enriched}} ->
+            changes = answer["changes"]
+
+            cond do
+              changes == [] ->
+                {:no_changes,
+                 %{
+                   "applied" => false,
+                   "changes" => 0,
+                   "remarks" => answer["remarks"]
+                 }}
+
+              answer["too_many_changes"] ->
+                Repo.rollback({"too_many_changes", %{}})
+
+              true ->
+                keys =
+                  Enum.map(enriched, fn c ->
+                    %{"org_unit" => unit, "location" => c.location_id}
+                  end)
+
+                case CountHold.check_keys(prefix, keys) do
+                  {:held, number} ->
+                    Repo.rollback({"count_in_progress", %{"held_by" => number}})
+
+                  :ok ->
+                    doc = build_workbook_doc(unit, file_name, parsed, answer, enriched)
+
+                    draft_attrs = %{
+                      type_key: spec.type_key,
+                      issuing_org_unit_id: unit,
+                      content: content(doc)
+                    }
+
+                    document_id =
+                      case Documents.create_draft(prefix, draft_attrs, actor) do
+                        {:ok, %{document: document}} -> document.id
+                        {:error, reason} -> Repo.rollback(draft_error(reason))
+                      end
+
+                    write_new(prefix, spec, document_id, doc, actor)
+
+                    case issue_once(prefix, document_id, actor) do
+                      {:ok, _issued} -> {:created, document_id, answer["remarks"]}
+                      {:error, reason} -> Repo.rollback(reason)
+                    end
+                end
+            end
+        end
+      end)
+
+    case result do
+      {:ok, {:no_changes, answer}} ->
+        {:ok, answer}
+
+      {:ok, {:created, id, remarks}} ->
+        view = fetch!(prefix, id)
+        unless view.state == "confirmed", do: start_posting(prefix, id, actor)
+        task_id = pending_approve_task_id(prefix, id)
+
+        {:ok,
+         %{
+           "document_id" => id,
+           "number" => view.number,
+           "lines" => length(view.lines),
+           "remarks" => remarks,
+           "approve_task_id" => task_id
+         }}
+
+      {:error, {reason, extras}} ->
+        {:error, {reason, extras}}
+
+      {:error, reason} when is_atom(reason) ->
+        {:error, reason}
+    end
+  end
+
+  defp build_workbook_doc(unit, file_name, parsed, answer, enriched) do
+    # Only entity-schema-valid fields go in header and lines (stock_quick_count enforces
+    # additionalProperties: false). The workbook-specific fields go in :workbook_ext which
+    # the content/1 function stores in the content JSONB under "workbook_ext".
+    header = %{
+      "org_unit_id" => unit,
+      "reason_code" => "other",
+      "reason_text" => "Записать остатки из файла"
+    }
+
+    lines =
+      enriched
+      |> Enum.with_index(1)
+      |> Enum.map(fn {c, n} ->
+        %{
+          "line_no" => n,
+          "location_id" => c.location_id,
+          "catalog_item_id" => c.catalog_item_id,
+          "catalog_uom_id" => c.catalog_uom_id,
+          "counted_quantity" => c.counted_quantity,
+          "book_quantity" => c.book_quantity,
+          "difference" => c.difference
+        }
+      end)
+
+    # Workbook-specific metadata stored in content JSONB (outside entity records).
+    # This includes per-line reason_code / reason_text too.
+    workbook_ext = %{
+      "source" => "workbook",
+      "file_name" => file_name,
+      "sheet" => parsed.sheet,
+      "rows_read" => parsed.rows_read,
+      "remarks_count" => length(answer["remarks"]),
+      "line_reason" => %{
+        "reason_code" => "other",
+        "reason_text" => "Записать остатки из файла"
+      }
+    }
+
+    %{kind: "quick_count", header: header, lines: lines, workbook_ext: workbook_ext}
+  end
+
+  defp pending_approve_task_id(prefix, document_id) do
+    Repo.one(
+      from(t in Task,
+        join: p in InstanceProjection,
+        on: p.instance_id == t.instance_id,
+        where:
+          t.status == :pending and t.node_id == "approve" and
+            fragment("?->>'document_id' = ?", p.variables, ^document_id),
+        order_by: [asc: t.inserted_at],
+        limit: 1,
+        select: t.id
+      ),
+      prefix: prefix
+    )
+  end
 
   defp quick_count_tx(prefix, spec, doc, actor, authorized) do
     unit = doc.header["org_unit_id"]
@@ -748,11 +920,19 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # The versioned content: the saved header and lines, optional keys absent when not given.
   defp content(doc) do
-    %{
+    base = %{
       "kind" => doc.kind,
       "header" => doc.header,
       "lines" => doc.lines
     }
+
+    # REQ-885: workbook-load documents carry extra metadata in the content (not in entity
+    # records, which enforce additionalProperties: false). The header workbook fields and the
+    # per-line reason fields are stored here and are available to posting and audit.
+    case Map.fetch(doc, :workbook_ext) do
+      {:ok, ext} -> Map.put(base, "workbook_ext", ext)
+      :error -> base
+    end
   end
 
   defp same_unit(current, doc) do
@@ -883,7 +1063,9 @@ defmodule Letflow.Modules.Stock.Documents do
       catalog_lot_id: fv["catalog_lot_id"],
       counted_quantity: fv["counted_quantity"],
       book_quantity: fv["book_quantity"],
-      difference: fv["difference"]
+      difference: fv["difference"],
+      reason_code: fv["reason_code"],
+      reason_text: fv["reason_text"]
     }
   end
 
@@ -921,6 +1103,8 @@ defmodule Letflow.Modules.Stock.Documents do
   # The keys of the header fields of the kind come from `Kinds.view_fields/2` (receipt: location,
   # responsible and counterparty; the two-sided kinds: the from and to fields).
   defp view(prefix, spec, document, version, {header_id, fv}) do
+    ext = workbook_ext(version)
+
     spec
     |> Kinds.view_fields(fv)
     |> Map.merge(%{
@@ -930,9 +1114,38 @@ defmodule Letflow.Modules.Stock.Documents do
       number: number_label(prefix, spec, document),
       issued_at: iso(version.issued_at),
       header_id: header_id,
-      lines: lines(prefix, spec, header_id)
+      lines: prefix |> lines(spec, header_id) |> with_line_reason(ext)
     })
+    |> Map.merge(workbook_header(ext))
   end
+
+  # REQ-885: a workbook-load quick count keeps `source`, `file_name`, `sheet`, `rows_read`,
+  # `remarks_count` and the per-line reason in the content of its version (`workbook_ext`); the
+  # entity records stay as REQ-854 declared them.
+  defp workbook_ext(%{content: %{"workbook_ext" => ext}}) when is_map(ext), do: ext
+  defp workbook_ext(_version), do: nil
+
+  defp workbook_header(nil), do: %{}
+
+  defp workbook_header(ext) do
+    %{
+      source: ext["source"],
+      file_name: ext["file_name"],
+      sheet: ext["sheet"],
+      rows_read: ext["rows_read"],
+      remarks_count: ext["remarks_count"]
+    }
+  end
+
+  defp with_line_reason(lines, %{"line_reason" => %{} = reason}) do
+    Enum.map(lines, fn line ->
+      line
+      |> Map.put(:reason_code, reason["reason_code"])
+      |> Map.put(:reason_text, reason["reason_text"])
+    end)
+  end
+
+  defp with_line_reason(lines, _ext), do: lines
 
   defp state(:draft), do: "draft"
   defp state(:issued), do: "issued"

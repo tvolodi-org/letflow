@@ -123,6 +123,16 @@ defmodule Letflow.Modules.Stock do
   (`Letflow.Modules.Stock.StockWorkbookImport`; runbook `docs/runbooks/stock-workbook-import.md`). Writes nothing: no
   record, ledger entry, audit entry or document number; no migration, record type or permission.
 
+  ## Balances workbook load (REQ-885 / GH #4606; version 0.21.0)
+
+  `POST /stock-workbook/apply?org_unit_id=<id>[&file_name=<text>]` (`StockQuickCount`, tenant-wide readers only): re-runs
+  the check inside a transaction and, when changes exist, creates and issues a `stock_quick_count` document with one line
+  per change (up to 1000; more than 1000 → 422 `too_many_changes`). The header carries `source: "workbook"`,
+  `file_name`, `sheet`, `rows_read` and `remarks_count`; each line carries `reason_code: "other"` and
+  `reason_text: "Записать остатки из файла"`. A count order whose scope covers any changed key blocks the load with
+  422 `count_in_progress`. No changes → 200 `applied: false`. Created → 201 `document_id, number, lines, remarks,
+  approve_task_id`. No new record type, migration or permission beyond `StockQuickCount`.
+
   ## Count worksheet (T-1905; no version bump)
 
   `GET /counts/:id/print/worksheet` (PDF) and `GET /counts/:id/paperwork/worksheet` (xlsx), `?lang`, `?expected=0|1`
@@ -404,7 +414,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.20.0",
+    version: "0.21.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -452,6 +462,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-sheet/print", :StockRead},
       {"GET", "/stock-workbook", :StockRead},
       {"POST", "/stock-workbook/check", :StockRead},
+      {"POST", "/stock-workbook/apply", :StockQuickCount},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},
