@@ -196,4 +196,8 @@ could name 16 million cells. Before XlsxReader runs, every verified part is scan
 XML parser and the same fill-in rules (`Letflow.Entities.XlsxImport.ReferenceScan`), and a sheet
 that would fill in more than 100 000 rows or 500 000 cells is `xlsx_too_large` (the stock
 workbook check passes 20 000 rows). This covers the record import, the users import and the
-stock workbook check. Covered by tests C3o and T-WI-15..17.
+stock workbook check. The scan reads each part as XlsxReader will (its `Utils.ensure_utf8/1`
+strips a UTF-8 BOM and decodes UTF-16/32 by BOM), and the rebuilt archive holds those decoded
+bytes, so scan and reader parse the same bytes; a part that still starts with a BOM after that is
+refused. The scan fails closed: an XML part with `<row>` or `<c>` tags that it cannot parse to the
+end is `xlsx_unreadable`. Covered by tests C3o, C3p and T-WI-15..18.

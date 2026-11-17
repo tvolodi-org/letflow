@@ -22,6 +22,9 @@ defmodule Letflow.Entities.XlsxImportTest do
     %{"name" => "at", "type" => "datetime"}
   ]
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+  @budget %{rows: 100, cells: 100}
+
   defp convert(sheets, opts \\ []),
     do: sheets |> XlsxFixture.build() |> XlsxImport.convert(@fields, opts)
 
@@ -252,9 +255,52 @@ defmodule Letflow.Entities.XlsxImportTest do
       assert scan.(back, %{rows: 9, cells: 100}) == :ok
       assert scan.(back, %{rows: 8, cells: 100}) == :too_large
 
-      # not XML (a binary part) and a malformed part are left to the reader
+      # not XML (a binary part, fails on its first byte) and a malformed part with no row are ok
       assert scan.(<<0, 1, 2>>, %{rows: 1, cells: 1}) == :ok
-      assert scan.(~s(<row r="x">), %{rows: 1, cells: 1}) == :ok
+      assert scan.(<<0x89, "PNG", 0, "<c r=\"A1\">">>, %{rows: 1, cells: 1}) == :ok
+      assert scan.(~s(<a><b></a>), %{rows: 1, cells: 1}) == :ok
+    end
+
+    test "C3o: the scan fails closed on a part with rows it cannot read to the end" do
+      scan = &XlsxImport.ReferenceScan.check/2
+      # a row number the reader's String.to_integer/1 raises on
+      assert scan.(~s(<row r="x">), %{rows: 1, cells: 1}) == :unreadable
+      # a sheet that breaks off after a row, and one with a UTF-8 BOM the parser refuses (in
+      # check_parts the scan gets the part with its BOM stripped, this is the scan alone)
+      assert scan.(sheet_xml(~s(<row r="1"><c r="A1"/></row><row>)) <> "<", @budget) ==
+               :unreadable
+
+      assert scan.(@bom <> sheet_xml(~s(<row r="2"><c r="B2"/></row>)), @budget) == :unreadable
+
+      # real cells are counted at every </c>, so a row that never closes is bounded too
+      open_row = ~s(<worksheet><sheetData><row r="1">) <> String.duplicate("<c/>", 30)
+      assert scan.(open_row, %{rows: 10, cells: 20}) == :too_large
+    end
+
+    test "C3p: a BOM in front of the sheet does not hide far references from the scan" do
+      far = Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>))
+
+      # the reader strips a UTF-8 BOM before it parses; the scan reads the same stripped bytes
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(padded(far, @bom)) end)
+
+      one = ~s(<row r="2"><c r="ZZZZZ2"/></row>)
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(padded(one, @bom)) end)
+
+      # a second BOM would be stripped by the reader again after the archive is rebuilt: refused
+      assert {:error, :xlsx_unreadable} = convert_bytes(padded(one, @bom <> @bom))
+
+      # a UTF-16 sheet under a name that is not .xml is decoded as the reader decodes it
+      assert {:ok, {:error, :xlsx_too_large}} = capped(fn -> convert_bytes(utf16_book(far)) end)
+
+      # declared encoding="UTF-16": the parser refuses the declaration (the reader's too), so a
+      # sheet with rows the scan cannot read to the end is refused, not passed on unscanned
+      declared = utf16_book(far, ~s(<?xml version="1.0" encoding="UTF-16"?>))
+      assert {:ok, {:error, :xlsx_unreadable}} = capped(fn -> convert_bytes(declared) end)
+
+      # a legitimate sheet with a BOM, UTF-8 or UTF-16, is still read
+      row = ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>A</t></is></c></row>)
+      assert {:ok, [%{line: 2, result: {:ok, _}}]} = convert_bytes(padded(row, @bom))
+      assert {:ok, [%{line: 2, result: {:ok, _}}]} = convert_bytes(utf16_book(row))
     end
 
     test "C3l: garbage never raises" do
@@ -266,17 +312,67 @@ defmodule Letflow.Entities.XlsxImportTest do
     end
   end
 
+  defp convert_bytes(bytes), do: XlsxImport.convert(bytes, @fields)
+
+  # Runs `fun` in a process killed past 64 MiB of heap: `{:ok, result}` or `{:died, why}`.
+  defp capped(fun) do
+    parent = self()
+    words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Process.flag(:max_heap_size, %{size: words, kill: true, error_logger: false})
+        send(parent, {:capped, self(), fun.()})
+      end)
+
+    receive do
+      {:capped, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        {:ok, result}
+
+      {:DOWN, ^ref, :process, ^pid, why} ->
+        {:died, why}
+    end
+  end
+
+  # The title header, then `rows_xml`, as a UTF-16LE sheet with a BOM named `sheet1.bin`.
+  defp utf16_book(rows_xml, decl \\ ~s(<?xml version="1.0"?>)) do
+    xml =
+      decl <>
+        ~s(<worksheet xmlns=) <>
+        ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
+        ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <>
+        rows_xml <> "</sheetData></worksheet>"
+
+    u16 = <<0xFF, 0xFE>> <> :unicode.characters_to_binary(xml, :utf8, {:utf16, :little})
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    rels =
+      ~s(<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns=) <>
+        ~s("http://schemas.openxmlformats.org/package/2006/relationships">) <>
+        ~s(<Relationship Id="rId1" Type="#{rel}/worksheet" Target="worksheets/sheet1.bin"/>) <>
+        ~s(<Relationship Id="rId2" Type="#{rel}/styles" Target="styles.xml"/>) <>
+        ~s(<Relationship Id="rId3" Type="#{rel}/sharedStrings" Target="sharedStrings.xml"/>) <>
+        "</Relationships>"
+
+    XlsxFixture.build([[["title"]]],
+      replace: %{"xl/_rels/workbook.xml.rels" => rels},
+      extra: [{"xl/worksheets/sheet1.bin", u16}]
+    )
+  end
+
   defp sheet_xml(rows_xml) do
     ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
       ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
       rows_xml <> "</sheetData></worksheet>"
   end
 
-  defp padded(rows_xml) do
+  defp padded(rows_xml, prefix \\ "") do
     xml =
-      sheet_xml(
-        ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <> rows_xml
-      )
+      prefix <>
+        sheet_xml(
+          ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>title</t></is></c></row>) <> rows_xml
+        )
 
     XlsxFixture.build([[["title"]]], replace: %{"xl/worksheets/sheet1.xml" => xml})
   end

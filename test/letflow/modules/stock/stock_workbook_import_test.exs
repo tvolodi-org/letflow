@@ -7,7 +7,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
   REQ-884 / GH #4607: the check of a Qoimeks-layout balances workbook. Criteria 1 to 9 as named in
   the requirement: access (T-WI-1), round trip (T-WI-2), normalising (T-WI-3), changes (T-WI-4),
   remarks (T-WI-5), header and caps (T-WI-6), read only and tenancy (T-WI-7), one parse (T-WI-8).
-  Byte bounds T-WI-10..14; reference padding (forged `r` references) T-WI-15..17.
+  Byte bounds T-WI-10..14; reference padding (forged `r` references) T-WI-15..18.
   Committed tenants in Sandbox `:auto` mode; `async: false` (app env seams, DDL).
   """
 
@@ -595,6 +595,34 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
 
       assert length(cells) == 8
     end
+
+    test "T-WI-18 a BOM in front of the sheet does not hide far references; the route says 422",
+         ctx do
+      bom = <<0xEF, 0xBB, 0xBF>>
+      wide_far = padded!(~s(<row r="1001"><c r="XFD1001"/></row>), bom)
+      many_far = padded!(Enum.map_join(2..1001, &~s(<row r="#{&1}"><c r="XFD#{&1}"/></row>)), bom)
+      one_far = padded!(~s(<row r="2"><c r="ZZZZZ2"/></row>), bom)
+
+      for bytes <- [wide_far, many_far, one_far] do
+        assert {:ok, {micros, {:error, :workbook_too_large}}} = capped(fn -> WI.parse(bytes) end)
+        assert micros < 500_000
+      end
+
+      # a second BOM, which the reader would strip again, is refused as unreadable
+      assert WI.parse(padded!(~s(<row r="2"><c r="ZZZZZ2"/></row>), bom <> bom)) ==
+               {:error, :xlsx_unreadable}
+
+      unit = Docs.unit!(ctx.a.schema_name)
+      path = "/stock-workbook/check?org_unit_id=#{unit}"
+      assert reason!(post_check(path, ctx.tok_a, one_far), 422) == "workbook_too_large"
+
+      # a legitimate book with a BOM is still read
+      row =
+        ~s(<row r="2"><c r="A2" t="inlineStr"><is><t>Z-1</t></is></c>) <>
+          ~s(<c r="B2" t="inlineStr"><is><t>n</t></is></c><c r="C2"><v>1</v></c></row>)
+
+      assert {:ok, %{rows_read: 1, rows: [%{article: "Z-1"}]}} = WI.parse(padded!(row, bom))
+    end
   end
 
   describe "docs" do
@@ -608,9 +636,10 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
   end
 
   # A book whose first sheet is the header row (A1 = Артикул) followed by `rows_xml`, verbatim.
-  defp padded!(rows_xml) do
+  defp padded!(rows_xml, prefix \\ "") do
     xml =
-      ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
+      prefix <>
+        ~s(<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns=) <>
         ~s("http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>) <>
         ~s(<row r="1"><c r="A1" t="inlineStr"><is><t>Артикул</t></is></c></row>) <>
         rows_xml <> "</sheetData></worksheet>"

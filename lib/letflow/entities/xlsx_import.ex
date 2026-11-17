@@ -180,23 +180,34 @@ defmodule Letflow.Entities.XlsxImport do
   # a fresh archive rebuilt from only the verified parts, so it can never inflate bytes that were
   # not counted here, whatever the original archive's directory says.
   # Stage 3 (in the same pass): every verified part is scanned for row and cell references
-  # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget.
+  # (`ReferenceScan`), so the reader never fills in more rows or cells than the budget. The scan
+  # reads the part as the reader will (`reader_text/1`), and the rebuilt archive holds those very
+  # bytes, so the reader's own decoding step leaves them as they are: scan and reader parse the
+  # same bytes (T-1122).
   defp check_parts(binary, budget) do
     with {:ok, entries} <- :zip.list_dir(binary) |> list_entries() do
       Enum.reduce_while(entries, {:ok, 0, []}, fn entry, {:ok, total, parts} ->
         case inflate_entry(binary, entry, @max_inflated - total) do
           {:ok, name, part} ->
-            total = total + byte_size(part)
+            text = reader_text(part)
+            total = total + max(byte_size(part), byte_size(text))
 
             cond do
               xml_part?(name) and not safe_xml?(part) ->
                 {:halt, {:error, :xlsx_unreadable}}
 
-              __MODULE__.ReferenceScan.check(part, budget) != :ok ->
+              text != part and not safe_text?(text) ->
+                {:halt, {:error, :xlsx_unreadable}}
+
+              total > @max_inflated ->
                 {:halt, {:error, :xlsx_too_large}}
 
               true ->
-                {:cont, {:ok, total, [{String.to_charlist(name), part} | parts]}}
+                case __MODULE__.ReferenceScan.check(text, budget) do
+                  :ok -> {:cont, {:ok, total, [{String.to_charlist(name), text} | parts]}}
+                  :too_large -> {:halt, {:error, :xlsx_too_large}}
+                  :unreadable -> {:halt, {:error, :xlsx_unreadable}}
+                end
             end
 
           {:error, _} = error ->
@@ -289,6 +300,22 @@ defmodule Letflow.Entities.XlsxImport do
   defp xml_part?(name) do
     name = to_string(name)
     String.ends_with?(name, ".xml") or String.ends_with?(name, ".rels")
+  end
+
+  # The bytes XlsxReader parses for a part: its `extract_xml/2` runs `Utils.ensure_utf8/1`, which
+  # strips a UTF-8 BOM and decodes UTF-16/32 by BOM. A part that function cannot decode is never
+  # parsed by the reader, so it is kept as it is. The rebuilt archive stores the decoded bytes,
+  # so a second BOM inside them (the reader would strip it and parse what follows) is refused by
+  # `safe_text?/1` instead of being handed on.
+  defp reader_text(part) do
+    case XlsxReader.Parsers.Utils.ensure_utf8(part) do
+      {:ok, text} -> text
+      {:error, _} -> part
+    end
+  end
+
+  defp safe_text?(text) do
+    :unicode.bom_to_encoding(text) == {:latin1, 0} and not Regex.match?(~r/<!doctype/i, text)
   end
 
   defp safe_xml?(part) do
@@ -475,22 +502,31 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   result is set by those numbers, not by the bytes of the XML.
 
   The scan is the same parse: the same parser (`Saxy.parse_string/3`, default options) over the
-  same verified bytes the rebuilt archive hands the reader, the same element names (`row`, `c`,
-  unprefixed), and the same rules: a row's number is its first `r` or the expected row; the rows
+  same verified bytes the rebuilt archive hands the reader (already decoded the way the reader's
+  `Utils.ensure_utf8/1` decodes them, in `XlsxImport.check_parts/2`), the same element names
+  (`row`, `c`, unprefixed), and the same rules: a row's number is its first `r` or the expected row; the rows
   between the expected row and that number are filled in, each as wide as the row that follows
   them (a lower number fills nothing, and the next row counts its own gap from it); a cell's
   column is its last `r` (parsed by XlsxReader's own `CellReference.parse/1`), and the cells
   between the expected column and that column are filled in. Constant memory; the part that
   XlsxReader reads is one of the parts scanned, whichever its relationship names.
 
-  A part the parser cannot read stops the scan as `:ok`: the reader's own parse of those bytes
-  stops at the same event, having built no more than the scan counted.
+  The scan fails closed: an XML part the parser cannot read to the end is `:unreadable` when it
+  holds a `<row>` or `<c>` tag (the reader may have started building rows from it), and so is a
+  row `r` that is not an integer (the reader's `String.to_integer/1` raises on it). A part that
+  does not start with `<` (a picture, a binary part) fails on its first byte, before any event,
+  and is `:ok`: the reader builds no row from it. Real cells are counted at every `</c>` as well
+  as at `</row>`, so a row that never closes is bounded too.
   """
 
   @behaviour Saxy.Handler
 
-  @doc "`:ok` when the filled-in rows and cells of `xml` stay within `budget`, else `:too_large`."
-  @spec check(binary(), %{rows: pos_integer(), cells: pos_integer()}) :: :ok | :too_large
+  @doc """
+  `:ok` when the filled-in rows and cells of `xml` stay within `budget`, `:too_large` when they
+  pass it, `:unreadable` when a part with rows or cells cannot be parsed to the end.
+  """
+  @spec check(binary(), %{rows: pos_integer(), cells: pos_integer()}) ::
+          :ok | :too_large | :unreadable
   def check(xml, %{rows: _, cells: _} = budget) when is_binary(xml) do
     state = %{
       budget: budget,
@@ -505,10 +541,12 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
 
     case Saxy.parse_string(xml, __MODULE__, state) do
       {:ok, :too_large} -> :too_large
-      _ -> :ok
+      {:ok, :unreadable} -> :unreadable
+      {:ok, _state} -> :ok
+      {:error, _} -> if contains_sheet_element?(xml), do: :unreadable, else: :ok
     end
   rescue
-    _ -> :ok
+    _ -> :unreadable
   end
 
   @impl Saxy.Handler
@@ -521,7 +559,7 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
 
     {:ok, %{state | current_row: current_row, row_len: 0, expected_column: 1}}
   rescue
-    ArgumentError -> {:stop, :ok}
+    ArgumentError -> {:stop, :unreadable}
   end
 
   def handle_event(:start_element, {"c", attributes}, state) do
@@ -540,13 +578,18 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
           state
       end
 
-    if state.row_len > state.budget.cells,
+    if state.cells + state.row_len > state.budget.cells,
       do: {:stop, :too_large},
       else: {:ok, %{state | cell_ref: ref}}
   end
 
-  def handle_event(:end_element, "c", state),
-    do: {:ok, %{state | row_len: state.row_len + 1, cell_ref: nil}}
+  def handle_event(:end_element, "c", state) do
+    state = %{state | row_len: state.row_len + 1, cell_ref: nil}
+
+    if state.cells + state.row_len > state.budget.cells,
+      do: {:stop, :too_large},
+      else: {:ok, state}
+  end
 
   def handle_event(:end_element, "row", state) do
     built = max(state.current_row - state.expected_row, 0) + 1
@@ -559,6 +602,13 @@ defmodule Letflow.Entities.XlsxImport.ReferenceScan do
   end
 
   def handle_event(_event, _data, state), do: {:ok, state}
+
+  # A parse error leaves no state behind, so whether a row or cell came before it is read from the
+  # bytes. A part that does not start with `<` (after a BOM and white space) fails on its first
+  # byte, before any event (a picture, a binary part); otherwise any `<row` or `<c` tag
+  # (unprefixed, as the reader matches them) counts. Pictures are thus never refused for a chance `<c ` byte pair.
+  defp contains_sheet_element?(xml),
+    do: Regex.match?(~r/\A(\xEF\xBB\xBF)?\s*</, xml) and Regex.match?(~r/<(row|c)[\s\/>]/, xml)
 
   defp first_r(attributes) do
     Enum.find_value(attributes, fn
