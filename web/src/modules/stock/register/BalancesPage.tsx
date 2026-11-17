@@ -64,6 +64,8 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const [selected, setSelected] = useState<string | null>(initialSelectedId)
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
+  const [workbookBusy, setWorkbookBusy] = useState(false)
+  const [workbookError, setWorkbookError] = useState<string | null>(null)
   const card = usePdfDownload(parseFilename)
   const [sheetFormat, setSheetFormat] = useState<OfficialFormFormat | null>(null)
   const [sheetSent, setSheetSent] = useState({ from: '', to: '' })
@@ -122,6 +124,25 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
       setExportFailed(true)
     } finally {
       setExporting(false)
+    }
+  }
+  const onWorkbook = async () => {
+    setWorkbookBusy(true)
+    setWorkbookError(null)
+    try {
+      const { blob, contentDisposition } = await stockApi.stockWorkbook()
+      saveBlob(blob, parseFilename(contentDisposition, 'stock.xlsx'))
+    } catch (err) {
+      const e = err as { status?: unknown; details?: { reason?: unknown } } | null
+      setWorkbookError(
+        e?.status === 422 && e.details?.reason === 'workbook_too_large'
+          ? 'stock.balances.workbookTooLarge'
+          : e?.status === 404
+            ? 'stock.balances.workbookNeedsAll'
+            : 'stock.balances.exportFailed',
+      )
+    } finally {
+      setWorkbookBusy(false)
     }
   }
   const first = pages[0]
@@ -196,6 +217,9 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
             <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
               {t('stock.balances.export')}
             </Button>
+            <Button variant="secondary" data-testid="stock-workbook-button" loading={workbookBusy} onClick={() => void onWorkbook()}>
+              {t('stock.balances.workbook')}
+            </Button>
             <OfficialFormMenu
               forms={['z3', 'z7']}
               busyKey={card.busyKey}
@@ -209,6 +233,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
         }
       />
       {exportFailed && <Banner tone="danger">{t('stock.balances.exportFailed')}</Banner>}
+      {workbookError !== null && <Banner tone="danger">{t(workbookError)}</Banner>}
       {card.error !== null && (
         <Banner tone="danger">
           {card.error === 'stock.balances.sheetEmpty'
@@ -228,6 +253,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
         onCancel={() => setSheetFormat(null)}
       />
       {!cardReady && <p className="caption" data-testid="stock-card-hint">{t('stock.balances.cardHint')}</p>}
+      <p className="caption" data-testid="workbook-hint">{t('stock.balances.workbookHint')}</p>
       {query.hasNextPage && <p className="caption">{t('stock.balances.exportHint')}</p>}
       <FilterBar
         activeChips={chips}
