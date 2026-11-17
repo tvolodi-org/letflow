@@ -40,9 +40,11 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
       b: b,
       ma: D.masters!(a.schema_name),
       mb: D.masters!(b.schema_name),
-      tok_a: S.token(ctx, :a, ["TENANT_ADMIN"]),
-      tok_a2: S.token(ctx, :a, ["TENANT_ADMIN"], sub: "user-a2"),
-      tok_b: S.token(ctx, :b, ["TENANT_ADMIN"])
+      # the criteria name a STOREKEEPER: the creators are storekeepers, the admin only reads
+      tok_admin: S.token(ctx, :a, ["TENANT_ADMIN"]),
+      tok_a: S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-a"),
+      tok_a2: S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-a2"),
+      tok_b: S.token(ctx, :b, ["STOREKEEPER"], sub: "keeper-a")
     })
   end
 
@@ -149,11 +151,15 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
     test "changed quantity returns 409 with reason idempotency_key_reuse, nothing written", ctx do
       ma = ctx.ma
       k = "key-#{System.unique_integer([:positive])}"
-      b = D.body(ma)
+      # distinctive values so that a leak of any of them into the 409 body is visible
+      b =
+        D.body(ma, nil, %{"note" => "uniq-note-7Q"})
+        |> put_in(["lines", Access.at(0), "quantity"], "7.25")
 
       {r0, d0} = counts(ctx.a.schema_name)
       first = create(ctx.tok_a, b, k) |> status!(201) |> body!()
       {r1, d1} = counts(ctx.a.schema_name)
+      assert {r1, d1} != {r0, d0}
 
       # Change a line quantity.
       b2 = put_in(b, ["lines", Access.at(0), "quantity"], "99.0")
@@ -161,15 +167,19 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
       resp2 = body!(conn2)
 
       assert resp2["reason"] == "idempotency_key_reuse"
-      # The first document's id is NOT in the 409 body (INV-2).
-      refute resp2["detail"] =~ first["id"]
 
-      {r2, d2} = counts(ctx.a.schema_name)
-      assert r1 == r2
-      assert d1 == d2
+      # Neither the first document's id nor any of its field values is in the 409 body
+      # (INV-2): checked on the raw body, so no field or extension can leak them.
+      leaked =
+        [first["id"], first["note"], "7.25", first["org_unit_id"], first["number"]] ++
+          Enum.flat_map(first["lines"] || [], &[&1["id"]])
 
-      # Existing tests: row counts did not change from before the first create.
-      _ = {r0, d0}
+      for v <- Enum.filter(leaked, &is_binary/1) do
+        refute conn2.resp_body =~ v, "the 409 body leaks #{inspect(v)}"
+      end
+
+      # Nothing was written by the refused request.
+      assert counts(ctx.a.schema_name) == {r1, d1}
     end
   end
 
@@ -209,13 +219,14 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
       D.request(:delete, "/documents/#{first["id"]}", ctx.tok_a) |> status!(204)
 
       # GET the discarded document → 404
-      D.request(:get, "/documents/#{first["id"]}", ctx.tok_a) |> status!(404)
+      get_conn = D.request(:get, "/documents/#{first["id"]}", ctx.tok_a) |> status!(404)
 
       {r1, d1} = counts(ctx.a.schema_name)
-      # Replay → 404 (same as GET), no new draft.
-      create(ctx.tok_a, b, k) |> status!(404)
+      # Replay → what GET answers (status and body, trace_id aside), no new draft.
+      replay_conn = create(ctx.tok_a, b, k) |> status!(404)
       {r2, d2} = counts(ctx.a.schema_name)
 
+      assert strip(body!(replay_conn)) == strip(body!(get_conn))
       assert r1 == r2
       assert d1 == d2
     end
@@ -261,6 +272,7 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
       raw = "conc-#{System.unique_integer([:positive])}"
       k = Idempotency.client_key(:stock_create, actor, nil, raw)
       b = D.body(ctx.ma)
+      {r0, d0} = counts(schema)
 
       task1 = Task.async(fn -> Documents.save(schema, b, actor, k) end)
       task2 = Task.async(fn -> Documents.save(schema, b, actor, k) end)
@@ -273,24 +285,44 @@ defmodule Letflow.Modules.Stock.DocumentsIdempotencyTest do
 
       assert doc1[:id] == doc2[:id],
              "tasks got different document ids: #{doc1[:id]} vs #{doc2[:id]}"
+
+      # Exactly one document exists afterwards: one header and its two lines (D.body).
+      {r1, d1} = counts(schema)
+      assert d1 == d0 + 1
+      assert r1 == r0 + 1 + length(b["lines"])
     end
   end
 
   describe "ID-8: key validation" do
     test "ID-8a header over 199 bytes → 422 max_length", ctx do
       long_key = String.duplicate("k", 200)
+      before = counts(ctx.a.schema_name)
       conn = create(ctx.tok_a, D.body(ctx.ma), long_key) |> status!(422)
       resp = body!(conn)
       errors = resp["errors"] || []
       assert Enum.any?(errors, &(&1["constraint"] == "max_length"))
+      assert counts(ctx.a.schema_name) == before
     end
 
     test "ID-8b NUL byte in header → 422 format", ctx do
       nul_key = "key" <> <<0>> <> "value"
+      before = counts(ctx.a.schema_name)
       conn = create(ctx.tok_a, D.body(ctx.ma), nul_key) |> status!(422)
       resp = body!(conn)
       errors = resp["errors"] || []
       assert Enum.any?(errors, &(&1["constraint"] == "format"))
+      assert counts(ctx.a.schema_name) == before
+    end
+
+    test "ID-8b2 invalid UTF-8 in the header → 422 format, nothing written", ctx do
+      bad_key = <<0xFF, 0xFE>>
+      assert not String.valid?(bad_key)
+      before = counts(ctx.a.schema_name)
+      conn = create(ctx.tok_a, D.body(ctx.ma), bad_key) |> status!(422)
+      resp = body!(conn)
+      errors = resp["errors"] || []
+      assert Enum.any?(errors, &(&1["constraint"] == "format"))
+      assert counts(ctx.a.schema_name) == before
     end
 
     test "ID-8c without header → two identical creates make two drafts (today's behaviour)",

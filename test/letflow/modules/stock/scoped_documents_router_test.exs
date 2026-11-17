@@ -268,7 +268,7 @@ defmodule Letflow.Modules.Stock.ScopedDocumentsRouterTest do
       not_found!(keyed_create(ctx.sk, body, key), reference)
       assert D.counts(ctx.schema) == before
 
-      # the document itself is untouched and the same scoped caller's GET refuses it too
+      # the document itself is untouched (read here with the tenant-wide admin token)
       stored = D.request(:get, "/documents/#{first["id"]}", ctx.tok_a) |> P.status!(200)
       assert stored["to_org_unit_id"] == ctx.mh.unit
     end
