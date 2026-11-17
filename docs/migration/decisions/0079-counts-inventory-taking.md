@@ -172,3 +172,18 @@ C1 is the only row that may start before GATE B; C2 to C8 wait for the owner's c
 ## Not decided here
 
 Camera scan and offline counting on the phone (phase D); printed paperwork in Russian and Kazakh (phase E); the asset register itself (phase C); ЭЦП (NCALayer); export of differences to 1C; period close (D-062: not part of this product); scoped posting (L6).
+
+## Amended by REQ-854 (Qoimeks parity G5 part 2, the quick count)
+
+- A count without a commission exists for ONE key: the quick count (`POST /quick-counts`, permission `StockQuickCount`,
+  kind `quick_count`, cause `count_set`). It sets the balance of one item at one place to the counted quantity (0
+  allowed) by posting the difference with a reason, with the four-eyes step of the opening and the REQ-853
+  `expected_on_hand` guard (`quick_count_stale`). Why: the Qoimeks adjustment is a one-person, one-line act; a commission
+  count of REQ-700..REQ-718 is too heavy for it. The formal count order stays the tool for a commission count.
+- The formal count rule: a quick count on a key inside the scope of an opened (`counting`, `counted`, `signed`), unposted,
+  uncancelled count order of the same org unit (pair rule of section 4) is refused `422 count_in_progress` with `held_by`
+  the order number at the route (nothing stored, no number taken). At approval and for its reversal the posting guard
+  (`FreezeGuard.check/2`) holds a summary of document type `stock_quick_count` under such an order, frozen or not
+  (`location_frozen`, `held_by`). Why: in the default no-freeze mode the formal count posts a delta from the cut-off, so
+  a quick count after the cut-off would be counted twice. A summary of any other document type is decided exactly as
+  before (REQ-765 unchanged).

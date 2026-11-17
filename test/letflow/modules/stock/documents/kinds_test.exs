@@ -10,7 +10,7 @@ defmodule Letflow.Modules.Stock.Documents.KindsTest do
 
   test "K-1: every kind has a completion_node; opening posts on approve, all others on post" do
     for spec <- Kinds.all() do
-      expected = if spec.kind == "opening", do: "approve", else: "post"
+      expected = if spec.kind in ["opening", "quick_count"], do: "approve", else: "post"
       assert Map.get(spec, :completion_node) == expected, "kind #{spec.kind}"
     end
   end

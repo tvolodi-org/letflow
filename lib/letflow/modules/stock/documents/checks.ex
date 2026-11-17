@@ -115,6 +115,39 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
     end
   end
 
+  @doc """
+  REQ-854: the master checks of the one line of a quick count, before anything is stored. `header` and
+  `line` are the parsed maps of `QuickCountShape` (string keys). In order: the location is linked to the
+  org unit (`not_linked`), a given responsible employee is active (`employee_not_active`), the unit is
+  valid for the item (`unit_not_valid`), the tracking policy (`lot_required`, `lot_not_allowed`,
+  `lot_expiry_missing`, `tracking_policy_not_supported`, `tracking_invalid`), a given lot belongs to the
+  item (`lot_not_valid`). Another tenant's ids are not found, so they fail the first check that reads them.
+  """
+  @spec quick_count(String.t(), map(), map()) :: :ok | refusal()
+  def quick_count(prefix, header, line) do
+    unit = Map.get(header, "org_unit_id")
+
+    with :ok <- check(Locations.linked?(prefix, unit, Map.get(line, "location_id")), "not_linked"),
+         :ok <- optional_employee(prefix, Map.get(line, "responsible_id")) do
+      view_line = %{
+        line_no: 1,
+        catalog_item_id: Map.get(line, "catalog_item_id"),
+        catalog_uom_id: Map.get(line, "catalog_uom_id"),
+        catalog_lot_id: Map.get(line, "catalog_lot_id")
+      }
+
+      case line(prefix, view_line, :ok) do
+        {:cont, :ok} -> :ok
+        {:halt, error} -> error
+      end
+    end
+  end
+
+  defp optional_employee(_prefix, nil), do: :ok
+
+  defp optional_employee(prefix, id),
+    do: check(Org.active_employee?(prefix, id), "employee_not_active")
+
   defp side(_prefix, nil, _name), do: :ok
 
   defp side(prefix, side, name) do

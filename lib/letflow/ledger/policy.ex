@@ -30,7 +30,8 @@ defmodule Letflow.Ledger.Policy do
           required(:quantity) => Decimal.t(),
           required(:unit_ref) => String.t(),
           optional(:attrs) => map(),
-          optional(:document_line_id) => String.t() | nil
+          optional(:document_line_id) => String.t() | nil,
+          optional(:expected_on_hand) => Decimal.t()
         }
 
   @typedoc "The declarative posting `declare/2` returns."
@@ -48,7 +49,7 @@ defmodule Letflow.Ledger.Policy do
   @uuid ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
   @token ~r/\A[a-z0-9._:-]+\z/
 
-  @leg_keys [:k, :quantity, :unit_ref, :attrs, :document_line_id]
+  @leg_keys [:k, :quantity, :unit_ref, :attrs, :document_line_id, :expected_on_hand]
 
   @posting_keys [
     :ledger_id,

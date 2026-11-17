@@ -84,7 +84,8 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
           refute conn.status == 403,
                  "#{method} #{path} (#{key}) -> #{conn.status} #{conn.resp_body}"
         else
-          assert key == :StockReconcile
+          # StockQuickCount (REQ-854) is withheld too: a role_grants widening of an existing role is refused
+          assert key in [:StockReconcile, :StockQuickCount]
           assert conn.status == 403, "#{method} #{path} -> #{conn.status}"
         end
       end

@@ -30,6 +30,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
       "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
       "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
       "count_difference" => %{sign_rule: :any, reason_required: true},
+      "count_set" => %{sign_rule: :any, reason_required: true},
       "kind_change_out" => %{sign_rule: :negative, reason_required: false}
     },
     key_bounds: [],
@@ -45,7 +46,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     max_event_lateness_hours: 96,
     error_aliases: %{
       "insufficient_balance" => "insufficient_stock",
-      "posting_held" => "location_frozen"
+      "posting_held" => "location_frozen",
+      "balance_changed" => "quick_count_stale"
     },
     posting_guard: %{module: Letflow.Modules.Stock.FreezeGuard, function: :check},
     policy: %{module: Letflow.Modules.Stock.LedgerPolicy, function: :declare}
@@ -55,7 +57,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.19.0"
+    assert m.version == "0.20.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -81,7 +83,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_freeze_location",
              "stock_posting_mark",
              "stock_opening",
-             "stock_opening_line"
+             "stock_opening_line",
+             "stock_quick_count",
+             "stock_quick_count_line"
            ]
 
     assert Enum.map(m.write_handlers, & &1.name) == [
@@ -97,7 +101,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              :StockRead,
              :StockReconcile,
              :StockCountOrder,
-             :StockCountRecord
+             :StockCountRecord,
+             :StockQuickCount
            ]
 
     assert m.role_grants == %{
@@ -132,7 +137,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_freeze_location" => {:column, "org_unit_id"},
              "stock_posting_mark" => {:column, "org_unit_id"},
              "stock_opening" => {:column, "org_unit_id"},
-             "stock_opening_line" => {:column, "org_unit_id"}
+             "stock_opening_line" => {:column, "org_unit_id"},
+             "stock_quick_count" => {:column, "org_unit_id"},
+             "stock_quick_count_line" => {:column, "org_unit_id"}
            }
 
     assert m.route_policies == [
@@ -155,6 +162,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
+             {"POST", "/quick-counts", :StockQuickCount},
              {"POST", "/counts", :StockCountOrder},
              {"PUT", "/counts/:id", :StockCountOrder},
              {"POST", "/counts/:id/issue", :StockCountOrder},
@@ -208,10 +216,13 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(count_difference hand_over issue kind_change_out opening opening_negative receipt return transfer write_off)
+             ~w(count_difference count_set hand_over issue kind_change_out opening opening_negative receipt return transfer write_off)
 
     # REQ-718: one cause, sign rule any, a reason required
     assert r.causes["count_difference"] == %{sign_rule: :any, reason_required: true}
+
+    # REQ-854: the quick count, sign rule any, a reason required
+    assert r.causes["count_set"] == %{sign_rule: :any, reason_required: true}
 
     assert r.causes["write_off"] == %{sign_rule: :negative, reason_required: true}
     assert r.causes["receipt"].sign_rule == :positive
@@ -223,7 +234,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
     assert r.error_aliases == %{
              "insufficient_balance" => "insufficient_stock",
-             "posting_held" => "location_frozen"
+             "posting_held" => "location_frozen",
+             "balance_changed" => "quick_count_stale"
            }
 
     assert r.posting_guard == %{module: Letflow.Modules.Stock.FreezeGuard, function: :check}
@@ -273,7 +285,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-2076 (REQ-846): create_idempotency.ex (pure Ecto schema, no Repo writes inside; Repo.insert! is in documents.ex) makes 47.
     # REQ-836: posting_rules.ex (reads the setting through Ledger, no Repo) makes 48.
     # T-2083 (REQ-884): stock_workbook_import.ex (reads through Ledger and the master read APIs, no Repo) makes 49.
-    assert length(files) == 49
+    # REQ-854: count_hold.ex (reads count orders), documents/quick_count_shape.ex and
+    # documents/quick_count_posting.ex (pure) make 52.
+    assert length(files) == 52
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -290,7 +304,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # GH 3735 R7: document_numbers.ex reads the core document and type rows (own tables) for the movement number.
     own_tables = fn path ->
       path =~
-        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex|freeze_state\.ex)}
+        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex|freeze_state\.ex|count_hold\.ex)}
     end
 
     for {path, source} <- sources,

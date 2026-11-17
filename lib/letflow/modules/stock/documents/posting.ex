@@ -25,6 +25,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   cause `opening`. The opening command has no offline triple, so its event time is its posting time
   (`Letflow.Modules.Stock.Documents.OpeningPosting`). Reversal and cancel are shared with the receipt.
 
+  REQ-854: a `quick_count` document starts one `stock_quick_count` instance in the same way (`submit`
+  completed by the counter right after the start, `approve` posts the cause `count_set` with the
+  `expected_on_hand` of its line, `Letflow.Modules.Stock.Documents.QuickCountPosting`). A count equal to
+  the book starts no instance and posts nothing: `state_fields/3` then derives the state `confirmed`.
+
   ## Lazy activation
 
   Install leaves the pack's process definitions as module-stamped drafts and `InstallContext` has
@@ -61,6 +66,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningPosting
+  alias Letflow.Modules.Stock.Documents.QuickCountPosting
   alias Letflow.Repo
 
   @reversal_definition "stock_reversal"
@@ -186,9 +192,14 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
                actor,
                view.org_unit_id
              ) do
-        if view.kind == "opening", do: complete_submit(prefix, instance_id, actor)
+        if view.kind in ["opening", "quick_count"],
+          do: complete_submit(prefix, instance_id, actor)
+
         {:ok, instance_id}
       end
+    else
+      :none -> {:error, :nothing_to_post}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -333,6 +344,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     OpeningPosting.command(view, issued, Map.new(view.lines, &{&1.line_no, &1.line_id}))
   end
 
+  defp post_command(%{kind: "quick_count"}, view, issued) do
+    QuickCountPosting.command(view, issued, Map.new(view.lines, &{&1.line_no, &1.line_id}))
+  end
+
   defp post_command(spec, view, %{content: content, number: number, period: period} = issued) do
     header = Map.get(content, "header", %{})
     lines = Map.get(content, "lines", [])
@@ -436,7 +451,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     cond do
       view.state == "draft" -> {:error, :document_not_issued}
       view.state == "cancelled" -> {:error, :document_cancelled}
-      view.state in ["posted", "reversed"] -> {:error, :document_posted}
+      view.state in ["posted", "reversed", "confirmed"] -> {:error, :document_posted}
       pending.post -> {:error, :posting_pending}
       true -> :ok
     end
@@ -719,7 +734,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   @spec state_fields(String.t(), map(), term()) :: map()
   def state_fields(prefix, base, authorized) do
     marks = marks(prefix, [base.id]) |> Map.get(base.id, %{})
-    state = derive_state(base.state, marks)
+    state = base.state |> derive_state(marks) |> confirmed(base)
     rows = if authorized, do: entries(authorized, base.id), else: :error
     kind = Kinds.get(base.kind)
     receipt = receipt_row(rows, Kinds.causes(kind))
@@ -748,6 +763,13 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   end
 
   defp derive_state(state, _marks), do: state
+
+  # REQ-854: an issued quick count whose difference is zero posts nothing and reads `confirmed`.
+  defp confirmed("issued", %{kind: "quick_count", lines: [line | _]}) do
+    if Decimal.eq?(Decimal.new(line.difference), 0), do: "confirmed", else: "issued"
+  end
+
+  defp confirmed(state, _base), do: state
 
   defp mark_at(nil), do: nil
 
@@ -812,7 +834,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   end
 
   # REQ-726: an opening has no client time, so its event time IS its posting time.
-  defp online_time?(%{kind: "opening"}, entry),
+  defp online_time?(%{kind: kind}, entry) when kind in ["opening", "quick_count"],
     do: same_instant?(Map.get(entry, :event_time), Map.get(entry, :posting_time))
 
   defp online_time?(_kind, _entry), do: true
@@ -844,6 +866,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   defp expected_from(%{kind: "opening"}, content),
     do: content |> OpeningPosting.expected_legs(&leg_key/7) |> Enum.sort()
+
+  defp expected_from(%{kind: "quick_count"}, content),
+    do: content |> QuickCountPosting.expected_legs(&leg_key/7) |> Enum.sort()
 
   defp expected_from(spec, content) do
     {from, to} = Kinds.sides(spec, Map.get(content, "header", %{}))
