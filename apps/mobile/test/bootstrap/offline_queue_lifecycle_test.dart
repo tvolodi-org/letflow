@@ -51,6 +51,8 @@ class _SpyQueue implements OfflineDraftQueue {
   }) async {}
   @override
   Future<void> clearRejection(String localId) async {}
+  @override
+  Future<void> setClientKey(String localId, String key) async {}
 }
 
 class _StateController extends BootstrapController {
@@ -165,7 +167,7 @@ void main() {
         client: _Gateway(),
       );
       sent = 0;
-      final sync = OfflineSyncService(_OneEntry(), (body) async => sent++);
+      final sync = OfflineSyncService(_OneEntry(), (body, key) async => sent++);
       await tester.pumpWidget(
         ProviderScope(
           overrides: [

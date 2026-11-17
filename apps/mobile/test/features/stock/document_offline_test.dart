@@ -73,6 +73,7 @@ class _MemQueue implements OfflineDraftQueue {
       label: e.label,
       summary: e.summary,
       createdAtMs: e.createdAtMs,
+      clientKey: e.clientKey,
       rejection: code,
       rejectionDetail: detail,
     );
@@ -88,6 +89,22 @@ class _MemQueue implements OfflineDraftQueue {
       label: e.label,
       summary: e.summary,
       createdAtMs: e.createdAtMs,
+    );
+  }
+
+  @override
+  Future<void> setClientKey(String localId, String key) async {
+    final i = items.indexWhere((e) => e.localId == localId);
+    final e = items[i];
+    items[i] = QueuedDraft(
+      localId: e.localId,
+      body: e.body,
+      label: e.label,
+      summary: e.summary,
+      createdAtMs: e.createdAtMs,
+      clientKey: key,
+      rejection: e.rejection,
+      rejectionDetail: e.rejectionDetail,
     );
   }
 

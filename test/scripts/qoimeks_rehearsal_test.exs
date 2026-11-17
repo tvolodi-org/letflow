@@ -4,7 +4,8 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
   `headers` sub-command) and `scripts/pilot/qoimeks_compare.sh` (expected counts vs a `demo_counts.sh snapshot`).
   No database and no network; the converter output is read back with the production reader `XlsxImport`.
 
-  CV-1..CV-9, CV-G3 (usual place, G3) and CV-G12a..e (codes, G12) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
+  CV-1..CV-9, CV-G3 (usual place, G3), CV-G4a..b (negative and zero balances, G4) and
+  CV-G12a..e (codes, G12) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
   The files go through the real stock import routes in `Letflow.Modules.Stock.QoimeksFilesTest` (ST-1..ST-3).
   """
 
@@ -93,14 +94,16 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
                "01-locations-01.xlsx",
                "02-uoms.xlsx",
                "03-items-01.xlsx",
-               "04-opening-lines-01.xlsx"
+               "04-opening-lines-01.xlsx",
+               "04-opening-lines-02.xlsx"
              ]
 
       assert Enum.map(m["files"], &{&1["entity_type"], &1["rows"]}) == [
                {"location_node", 5},
                {"catalog_uom", 3},
                {"catalog_item", 6},
-               {"stock_opening_line", 6}
+               {"stock_opening_line", 6},
+               {"stock_opening_line", 1}
              ]
 
       for f <- m["upload_order"] do
@@ -153,10 +156,12 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert counts(Path.join(dir, "o3"))["records.location_node"] == "1"
     end
 
-    test "CV-4 balance drops carry constant reasons; allow-drops exits 0", %{dir: dir} do
+    test "CV-4 balance drops carry constant reasons; zero rows are skipped; allow-drops exits 0",
+         %{dir: dir} do
       out = Path.join(dir, "o")
       assert {text, 3} = convert(@fixture, out)
-      assert text =~ "dropped balances row 6: quantity_not_positive"
+      assert text =~ "skipped balances row 6: quantity_zero"
+      refute text =~ "dropped balances row 6: quantity_not_positive"
       assert text =~ "dropped balances row 7: unknown_item"
 
       indir =
@@ -188,6 +193,60 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert text =~ "dropped balances row 1: too_many_fields"
     end
 
+    test "CV-G4a negative balances follow positive files in an all-negative document", %{dir: dir} do
+      out = Path.join(dir, "o-g4")
+      assert {_, 3} = convert(@fixture, out)
+      m = manifest(out)
+
+      assert Enum.take(m["upload_order"], -2) == [
+               "04-opening-lines-01.xlsx",
+               "04-opening-lines-02.xlsx"
+             ]
+
+      positive = read!(Path.join(out, "04-opening-lines-01.xlsx"), @line_cols)
+      assert length(positive) == 6
+
+      assert Enum.all?(positive, fn {_, row} ->
+               Decimal.compare(Decimal.new(row["quantity"]), 0) == :gt
+             end)
+
+      assert [{2, negative}] = read!(Path.join(out, "04-opening-lines-02.xlsx"), @line_cols)
+      assert negative["header_id"] == "QOI-HDR-02"
+      assert negative["catalog_item_id"] == "SKU-6"
+      assert negative["location_id"] == "WH-1"
+      assert negative["quantity"] == "-7"
+      assert negative["external_ref_id"] == "BAL:5:SKU-6:WH-1"
+
+      assert [_, second] = m["headers"]
+      assert second["id"] == "QOI-HDR-02"
+      assert second["file"] == "04-opening-lines-02.xlsx"
+      assert second["rows"] == 1
+      assert second["bootstrap"]["quantity"] == "-7"
+    end
+
+    test "CV-G4b zero and negative-zero rows are skips, never drops or opening lines", %{dir: dir} do
+      indir =
+        write_csvs(
+          Path.join(dir, "in-g4-zero"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit\nS1,Sample S1,pcs\n",
+          "sku,loc,qty\nS1,L1,0\nS1,L1,-0\nS1,L1,-0.000\n"
+        )
+
+      out = Path.join(dir, "o-g4-zero")
+      assert {text, 0} = convert(indir, out)
+      report = File.read!(Path.join(out, "report.txt"))
+      assert report =~ "skipped:\nskipped balances row 1: quantity_zero"
+      assert report =~ "skipped balances row 2: quantity_zero"
+      assert report =~ "skipped balances row 3: quantity_zero"
+      assert report =~ "skipped total 3"
+      assert report =~ "dropped total 0"
+      refute report =~ "dropped balances"
+      refute text =~ "quantity_not_positive"
+      refute File.exists?(Path.join(out, "04-opening-lines-01.xlsx"))
+      assert manifest(out)["headers"] == []
+    end
+
     test "CV-5 splitting: 200 rows per file, 100 lines per header", %{dir: dir} do
       locs = "loc_code,loc_name,loc_parent\nL1,Sample L1,\n"
       skus = Enum.map_join(1..250, "", &"S#{&1},Sample #{&1},pcs\n")
@@ -217,14 +276,14 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       convert(@fixture, out)
 
       assert counts(out) == %{
-               "documents" => "1",
+               "documents" => "2",
                "items_with_default_location" => "0",
                "records.catalog_item" => "6",
                "records.catalog_uom" => "3",
                "records.code_assignment" => "0",
                "records.code_tag" => "0",
                "records.location_node" => "5",
-               "records.stock_opening_line" => "6"
+               "records.stock_opening_line" => "7"
              }
     end
 
@@ -325,7 +384,16 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
     end
 
     test "CV-G12b without code inputs only the two zero count lines are added", %{dir: dir} do
-      # Fixed pre-REQ-852 converter: this comparison must keep working after this branch merges.
+      # Fixed pre-REQ-852 converter: compare on positive balances only, so the later REQ-837
+      # negative-file and zero-skip rules do not obscure the G12 comparison.
+      indir =
+        write_csvs(
+          Path.join(dir, "in-g12b"),
+          File.read!(Path.join(@fixture, "locations.csv")),
+          File.read!(Path.join(@fixture, "items.csv")),
+          "sku,loc,qty,as_of\n001,SHELF-A1,10,2026-01-15\n002,SHELF-A1,5.5,\n"
+        )
+
       baseline = Path.join(dir, "baseline/scripts/pilot/qoimeks_convert.py")
       File.mkdir_p!(Path.dirname(baseline))
       {source, 0} = System.cmd("git", ["show", "f83e6ccaf:scripts/pilot/qoimeks_convert.py"])
@@ -336,7 +404,7 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       args = [
         "convert",
         "--in",
-        @fixture,
+        indir,
         "--out",
         old_out,
         "--system",
@@ -349,8 +417,8 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
         "2026-02-01"
       ]
 
-      assert {_, 3} = System.cmd("python3", ["-I", baseline | args], stderr_to_stdout: true)
-      assert {_, 3} = convert(@fixture, new_out)
+      assert {_, 0} = System.cmd("python3", ["-I", baseline | args], stderr_to_stdout: true)
+      assert {_, 0} = convert(indir, new_out)
       old_manifest = manifest(old_out)
 
       for name <- ["manifest.json" | Enum.map(old_manifest["files"], & &1["file"])] do
@@ -503,7 +571,7 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
           "sku,loc,qty\nS1,L1,0\n"
         )
 
-      assert {_, 3} = convert(indir, Path.join(dir, "o7"))
+      assert {_, 0} = convert(indir, Path.join(dir, "o7"))
       refute File.read!(Path.join([dir, "o7", "report.txt"])) =~ "Sentinel"
     end
 

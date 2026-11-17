@@ -1,5 +1,6 @@
 // T-1499 (PWA M3): the offline draft queue: limits, survives a reopen, clear.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:letflow/api/client_key.dart';
 import 'package:letflow/offline/offline_queue.dart';
 import 'package:sembast/sembast_memory.dart';
 
@@ -130,5 +131,69 @@ void main() {
     realm = null;
     expect(await active.count(), 0);
     expect(await active.enqueue(_body(2)), EnqueueResult.full);
+  });
+
+  test('Q7: a new entry has a UUID v4 client key', () async {
+    final q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueue(_body(1));
+    final e = (await q.all()).single;
+    expect(e.clientKey, isNotNull);
+    expect(
+      e.clientKey,
+      matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')),
+    );
+    expect(isClientKey(e.clientKey!), isTrue);
+  });
+
+  test('Q8: two entries have different keys', () async {
+    final q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueue(_body(1));
+    await q.enqueue(_body(2));
+    final all = await q.all();
+    expect(all[0].clientKey, isNot(all[1].clientKey));
+  });
+
+  test('Q9: the client key survives a reload', () async {
+    var q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueue(_body(1));
+    final key = (await q.all()).single.clientKey;
+    await q.closeOnly();
+    q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    expect((await q.all()).single.clientKey, key);
+  });
+
+  test('Q10: an entry without a key (old format) loads with null key', () {
+    final old = QueuedDraft.fromJson({
+      'local_id': 'x',
+      'body': {'a': 1},
+      'label': '',
+      'created_at_ms': 0,
+      // no 'client_key'
+    });
+    expect(old.clientKey, isNull);
+  });
+
+  test('Q11: setClientKey persists the key', () async {
+    final q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueue(_body(1));
+    final id = (await q.all()).single.localId;
+    await q.setClientKey(id, 'test-key-value');
+    expect((await q.all()).single.clientKey, 'test-key-value');
+  });
+
+  test('Q12: enqueueRaw stores an entry without a key (legacy simulation)', () async {
+    final q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueueRaw(const QueuedDraft(
+      localId: 'old-1',
+      body: {'kind': 'receipt'},
+      label: '',
+      createdAtMs: 0,
+    ));
+    final e = (await q.all()).single;
+    expect(e.localId, 'old-1');
+    expect(e.clientKey, isNull);
+    // After setClientKey the key is stored.
+    await q.setClientKey('old-1', 'new-key');
+    expect((await q.all()).single.clientKey, 'new-key');
   });
 }
