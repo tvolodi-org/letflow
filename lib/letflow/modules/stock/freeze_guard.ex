@@ -18,6 +18,17 @@ defmodule Letflow.Modules.Stock.FreezeGuard do
   The guard writes nothing and takes no lock, reads module-managed types only, and never raises on a
   missing order or row (an order without rows freezes nothing).
 
+  ## Quick count (REQ-854)
+
+  `check/2` also answers `{:held, number}` for a summary whose `document_type` is `stock_quick_count`
+  (the cause `count_set` and its reversal, whose cause is `reversal`: `Documents.Posting.start_reversal/5`
+  gives the reversal the kind's document type, and the platform's guard summary falls back to the reversed
+  entry's) when one of its keys has the org unit of an opened (`counting`, `counted`, `signed`), unposted,
+  uncancelled count order and a location inside that order's scope, frozen or not
+  (`Letflow.Modules.Stock.CountHold`, decision 0079 "Amended by REQ-854"). The refusal is the platform's
+  `posting_held`, stock alias `location_frozen`, with `held_by`. A summary of any other document type is
+  decided exactly as above (REQ-765 unchanged: a no-freeze order holds nothing else).
+
   ## Lock order (REQ-765)
 
   `CountSheet.open/3` of a freeze order: (1) the per-order advisory lock (`CountSheet.lock_order!/2`)
@@ -40,6 +51,7 @@ defmodule Letflow.Modules.Stock.FreezeGuard do
   so the transaction rolls back), with a bounded timeout. It is read in `hook/1` only, in this module.
   """
 
+  alias Letflow.Modules.Stock.CountHold
   alias Letflow.Modules.Stock.FreezeState
 
   @hook_timeout 15_000
@@ -49,9 +61,11 @@ defmodule Letflow.Modules.Stock.FreezeGuard do
   def check(prefix, %{ledger_id: "stock", keys: keys} = summary)
       when is_binary(prefix) and is_list(keys) do
     result =
-      case FreezeState.active(prefix, DateTime.utc_now()) do
-        [] -> :ok
-        orders -> first_held(orders, summary)
+      with :ok <- quick_count_hold(prefix, summary) do
+        case FreezeState.active(prefix, DateTime.utc_now()) do
+          [] -> :ok
+          orders -> first_held(orders, summary)
+        end
       end
 
     hook(:guard_checked)
@@ -59,6 +73,12 @@ defmodule Letflow.Modules.Stock.FreezeGuard do
   end
 
   def check(_prefix, _summary), do: :ok
+
+  # REQ-854: only a quick count is held by an opened count order that does not freeze.
+  defp quick_count_hold(prefix, %{document_type: "stock_quick_count", keys: keys}),
+    do: CountHold.check_keys(prefix, keys)
+
+  defp quick_count_hold(_prefix, _summary), do: :ok
 
   defp first_held(orders, summary) do
     case Enum.find(orders, &(not exempt?(&1, summary) and frozen?(&1, summary.keys))) do

@@ -218,6 +218,7 @@ defmodule Letflow.TenantFixture do
     "script_rules",
     "script_task_dispatches",
     "service_task_dispatches",
+    "shared_stock_access",
     "solution_pack_overrides",
     # REQ-846: stock document create idempotency table.
     "stock_create_idempotency",

@@ -516,6 +516,83 @@
       "version": "1.0.0"
     },
     {
+      "definition_id": "00501000-0000-0040-0080-000000004564",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "submit"
+          },
+          {
+            "id": "e2",
+            "source": "submit",
+            "target": "approve"
+          },
+          {
+            "id": "e3",
+            "source": "approve",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "role": "STOCK_QUICK_COUNT_SUBMIT"
+            },
+            "id": "submit",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "distinct_from": [
+                "submit"
+              ],
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "approve",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_quick_count",
+      "version": "1.0.0"
+    },
+    {
       "definition_id": "00501000-0000-0040-0080-000000003763",
       "graph": {
         "edges": [
@@ -876,6 +953,140 @@
       "entity_definition_id": "b86eda74-879b-30b8-2f45-14f64c1ad522",
       "logical_shape_version": "1b469c6d066fb0c78fd42536fe2c349f2054befd519c39bfda2c8297c7f4d303",
       "name": "stock_opening_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #4564 / REQ-854 (Qoimeks parity G5 part 2). The header of a quick count document: one line that sets the balance of one item at one place to the counted quantity. It is written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status, posted_at or posted_by is stored here. There is no event_time: the ledger stamps the posting time (online posting, as the opening). org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). reason_code is one of recount, found, missing, damaged, other; reason_text is 1 to 500 characters and is required for other. After issue nothing of the header changes.",
+        "display_name": "Stock quick count (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_code",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_quick_count_document_id"
+          }
+        ],
+        "name": "stock_quick_count"
+      },
+      "display_name": "Stock quick count (header)",
+      "entity_definition_id": "487bede6-512a-b6bc-07db-ba0451110b36",
+      "logical_shape_version": "0d22501ba3142e78a809a97ea3f1a0cdae3bc23dce4a4c7df70094ea57bbbace",
+      "name": "stock_quick_count"
+    },
+    {
+      "definition_json": {
+        "description": "GH #4564 / REQ-854. The one line of a quick count document. header_id is the record_id of the stock_quick_count header (not the document id); the foreign_keys entry fk_stock_quick_count_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is always 1. location_id and responsible_id (optional) are record ids of modules locations and org, catalog_item_id, catalog_uom_id and catalog_lot_id of module catalog_items (other packs: no foreign key; the module checks them at the route). counted_quantity is the number the storekeeper counted (0 allowed), book_quantity the balance of the key read in the same transaction, difference = counted_quantity minus book_quantity: all exact decimals (precision 24, scale 9, decimal_strict), the difference may be negative. Written only by module stock; after issue nothing of the line changes.",
+        "display_name": "Stock quick count (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "type": "string"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "counted_quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "book_quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "difference",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_quick_count_line_header_id",
+            "references_entity": "stock_quick_count"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_quick_count_line_header_id"
+          }
+        ],
+        "name": "stock_quick_count_line"
+      },
+      "display_name": "Stock quick count (line)",
+      "entity_definition_id": "80534b20-4194-2875-cd56-53521488533e",
+      "logical_shape_version": "3f1b7b390738ad1407ecf474977a708bb480e8d9ae72c10d7244de80063ae0c2",
+      "name": "stock_quick_count_line"
     },
     {
       "definition_json": {

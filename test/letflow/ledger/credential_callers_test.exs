@@ -93,7 +93,7 @@ defmodule Letflow.Ledger.CredentialCallersTest do
           node["id"] == "submit",
           do: {d["process_key"], node}
 
-    assert [{"stock_opening", _}] = submits
+    assert [{"stock_opening", _}, {"stock_quick_count", _}] = submits
 
     for {_key, node} <- submits,
         do: refute(Map.has_key?(node["attributes"] || %{}, "module_writes"))
