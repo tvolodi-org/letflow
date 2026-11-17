@@ -5,6 +5,7 @@ import { useIntl } from 'react-intl'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
+import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { FormSection } from '@/components/ui/FormSection'
@@ -15,6 +16,7 @@ import { usePickerOptions } from '../register/stockPickers'
 import { stockApi } from '../register/stock.api'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { tasksApi } from '@/api/tasks'
+import { classifyError } from '@/utils/classifyError'
 import { quickCountApi, type QuickCountBody, type QuickCountDocument } from './quickCount.api'
 import {
   EMPTY_FORM, REASON_CODES, errorReasonToField, errorReasonToMessageId, isBannerError, validateQuantity,
@@ -65,6 +67,8 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
     retry: false,
   })
 
+  const balanceQueryState = balanceQuery.isPending ? 'loading' : balanceQuery.isError ? classifyError(balanceQuery.error) : 'success'
+
   const bookQuantity = balanceEnabled && balanceQuery.data
     ? (balanceQuery.data.rows[0]?.quantity ?? '0')
     : null
@@ -75,7 +79,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
 
   // Tasks query after result
   const tasksQuery = useQuery({
-    queryKey: ['quick-count-tasks', tenantId, result?.id ?? ''],
+    queryKey: stockQueryKeys.quickCountTasks(tenantId, result?.id ?? ''),
     queryFn: () => tasksApi.list({ instance_id: result!.id }),
     enabled: Boolean(result?.id),
     retry: false,
@@ -85,7 +89,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
 
   // Full task with self_approval_allowed
   const fullTaskQuery = useQuery({
-    queryKey: ['quick-count-task', tenantId, approveTask?.id ?? ''],
+    queryKey: stockQueryKeys.quickCountTask(tenantId, approveTask?.id ?? ''),
     queryFn: () => tasksApi.get(approveTask!.id),
     enabled: Boolean(approveTask?.id),
     retry: false,
@@ -229,18 +233,22 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError }: Qui
               />
             )}
 
-            {bookQuantity !== null && (
-              <div data-testid="balance-display">
-                <span>{t('stock.qc.balance')}: </span>
-                <span data-testid="book-quantity">{bookQuantity}</span>
-                {difference !== null && (
-                  <>
-                    <span>{' · '}</span>
-                    <span>{t('stock.qc.difference')}: </span>
-                    <span data-testid="difference-display">{difference}</span>
-                  </>
+            {balanceEnabled && (
+              <QueryStateBoundary state={balanceQueryState} onRetry={() => void balanceQuery.refetch()}>
+                {bookQuantity !== null && (
+                  <div data-testid="balance-display">
+                    <span>{t('stock.qc.balance')}: </span>
+                    <span data-testid="book-quantity">{bookQuantity}</span>
+                    {difference !== null && (
+                      <>
+                        <span>{' · '}</span>
+                        <span>{t('stock.qc.difference')}: </span>
+                        <span data-testid="difference-display">{difference}</span>
+                      </>
+                    )}
+                  </div>
                 )}
-              </div>
+              </QueryStateBoundary>
             )}
 
             <Field label={t('stock.qc.countedQuantity')} error={fieldErrors.countedQuantity}>
