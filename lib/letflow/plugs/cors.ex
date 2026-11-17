@@ -68,9 +68,9 @@ defmodule Letflow.Plugs.Cors do
   # echo of the request's `access-control-request-headers` value:
   #   * authorization    -- bearer token, every authenticated request (client.ts)
   #   * content-type     -- JSON body (client.ts)
-  #   * idempotency-key  -- no SPA call sends it any more (POST /api/v1/onboarding stopped in
-  #                         ISS-1091); kept allowed so a browser-based operator tool that sends it
-  #                         on the instances routes still passes preflight (ISS-0780 regression test)
+  #   * idempotency-key  -- the stock document create route (POST /api/v1/modules/stock/documents)
+  #                         sends it since REQ-846; also kept for browser-based operator tools
+  #                         that use it on the instances routes (ISS-0780 regression)
   #   * if-match         -- optimistic-concurrency PUT (web/src/api/entities.ts,
   #                         REQ-336, via client.putWithHeaders)
   #   * x-bpm-user-id    -- JWT `sub` claim, every authenticated request
