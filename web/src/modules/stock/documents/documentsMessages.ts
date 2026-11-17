@@ -170,6 +170,8 @@ export const docEn: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'The event time is not valid.',
   'stock.doc.error.definition_not_active': 'The stock document process is not active yet.',
   'stock.doc.error.posting_inconsistent': 'The posting is inconsistent. Contact the administrator.',
+  /** REQ-848: the document was already created/issued/posted with the same key but different content. */
+  'stock.doc.error.idempotency_key_reuse': 'This document was already sent with different content. Reload the list to see it.',
 }
 
 export const docRu: Record<string, string> = {
@@ -339,6 +341,7 @@ export const docRu: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'Время события недопустимо.',
   'stock.doc.error.definition_not_active': 'Процесс складских документов ещё не активен.',
   'stock.doc.error.posting_inconsistent': 'Проведение несогласованно. Обратитесь к администратору.',
+  'stock.doc.error.idempotency_key_reuse': 'Документ уже отправлялся с другим содержимым. Обновите список, чтобы его увидеть.',
 }
 
 export const docKk: Record<string, string> = {
@@ -508,4 +511,5 @@ export const docKk: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'Оқиға уақыты жарамсыз.',
   'stock.doc.error.definition_not_active': 'Қойма құжаттары процесі әлі белсенді емес.',
   'stock.doc.error.posting_inconsistent': 'Өткізу сәйкес келмейді. Әкімшіге хабарласыңыз.',
+  'stock.doc.error.idempotency_key_reuse': 'Құжат басқа мазмұнмен жіберілген. Оны көру үшін тізімді жаңартыңыз.',
 }

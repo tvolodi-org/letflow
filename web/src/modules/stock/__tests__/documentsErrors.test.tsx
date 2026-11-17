@@ -13,7 +13,7 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const VIEW = `${LIST}/d1`
@@ -23,6 +23,7 @@ beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
   fakeDocument(clientMock, stockDoc())
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
   window.localStorage.clear()
   useUiLocaleStore.getState().setLocaleTransient('en')
 })
@@ -32,12 +33,11 @@ afterEach(() => {
   useUiLocaleStore.getState().reloadFromEnvironment()
 })
 
+/** REQ-848: issue now calls postWithHeaders; intercept it to simulate a server refusal. */
 async function issueRefused(err: unknown) {
-  const post = clientMock.post
-  const base = post.getMockImplementation()!
-  post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
+  clientMock.postWithHeaders.mockImplementation(async (p: string) => {
     if (p.endsWith('/issue')) throw err
-    return base(p, b)
+    return {}
   })
   renderStock(VIEW, withPost)
   fireEvent.click(await screen.findByRole('button', { name: /^(Issue|Выпустить|Шығару)$/ }, { timeout: 15_000 }))
