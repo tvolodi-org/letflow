@@ -148,17 +148,22 @@ generic read with type access (`EntitiesQuery`) for `catalog_item`, `catalog_lot
 `authorization.ex` (`endpoint_policy_key("POST", "/entities/query")`). An unreadable owner and a missing photo answer
 the same 404 (INV-5).
 
-Two new tenant-scope atoms (planned, not yet on main):
+Two tenant-scope core atoms are on main since T-2041 (P2), checked in the owner router's handler rather
+than used as module route-policy keys (a module policy may name only its own atoms, and P4 reuses these
+atoms on other modules):
 - `PhotosAdd`: add a photo, change its caption, reorder, choose the main photo. Also needs the owner's read; for
   `evidence` also the owner's write check (`StockCountRecord` for a stock count line, `StockPost` for stock lines,
   `AssetsPost` for asset lines, `AssetsCountRecord` for asset count lines **[V]** `lib/letflow/modules/assets/router.ex`).
-- `PhotosDelete`: delete a photo of any user. A user may delete a photo **they** added, without this atom, while
-  the photo is not locked; that is the common "wrong shot" case **[A]**.
+- `PhotosDelete`: delete a photo of any user. A user who also holds `PhotosAdd` may delete a photo **they** added,
+  without `PhotosDelete`, while the photo is not locked; that is the common "wrong shot" case. A pure reader
+  cannot delete **[A, refined by T-2041]**.
 
 Grants: TENANT_ADMIN holds both through its all-tenant-scope rule; PLATFORM_ADMIN only inside the platform company;
-TENANT_AUDITOR holds neither (read-only, `docs/roles.md`); STOREKEEPER gets `PhotosAdd` through the stock manifest
-`role_grants`, as it gets the stock atoms, and not `PhotosDelete` **[A]**. Screenshots keep `ProblemReportsManage`
-for reading; the reporter adds them only while sending the report.
+TENANT_AUDITOR holds neither (read-only, `docs/roles.md`). STOREKEEPER gets neither in P2: the earlier plan to
+grant `PhotosAdd` through the stock manifest `role_grants` cannot work for a core atom (a manifest may grant only
+its own atoms). P4 decides the replacement mechanism (a core rule or a `grantable/0` entry) when it adds the other
+owner kinds **[A, corrected by T-2041]**. Screenshots keep `ProblemReportsManage` for reading; the reporter adds
+them only while sending the report.
 
 ### 5.6 Evidence lock
 Evidence photos can be added and removed only while the line can still be changed: the count sheet is open, the
@@ -254,7 +259,7 @@ Sizes: S = under one day of one task, M = one to two tasks, L = needs a split at
 | # | Slice | Contents | Size | After | Review |
 |---|-------|----------|------|-------|--------|
 | P1 | Service core | the two tables (tenant migration), `Letflow.Attachments` add/list/get/delete/reorder/set-main/caption, the byte checks and strip (5.1, 5.2), caps, allowance counting, audit, owner registry, GPS fixture test; no route | M | — | security (untrusted file input, tenant data) |
-| P2 | Gallery routes for one owner | `PhotosAdd`, `PhotosDelete` atoms; routes for `assets_card` in the assets router; permission matrix golden | M | P1 | security (new atoms and routes, INV-10 negative) |
+| P2 | Gallery routes for one owner — **built (T-2041)** | `PhotosAdd`, `PhotosDelete` atoms; routes for `assets_card` in the assets router; permission matrix golden | M | P1 | security (new atoms and routes, INV-10 negative) |
 | P3 | Gallery screen | gallery on the asset card: upload by button, drop, paste, camera input on phone, caption, order, main, delete; main-photo thumbnail in the card list; ru/kk/en; screenshot matrix | M | P2 | gui review |
 | P4 | Gallery on the other masters | registry lines and screens for `catalog_item`, `catalog_lot`, `location_node` | M | P3 | gui review |
 | P5 | Problem-report screenshots | T-1950 part 2 on the service, platform schema, 30-day job; **built in T-2043** (the T-2015 dialog is unchanged, legacy rows are dual-read until purged) | M | P1 | security |

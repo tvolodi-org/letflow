@@ -92,7 +92,10 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :CurrenciesManage,
     :DataExport,
     :ApprovalRulesManage,
-    :OfficialFormTemplatesManage
+    :OfficialFormTemplatesManage,
+    :LedgerSettingsManage,
+    :PhotosAdd,
+    :PhotosDelete
   ]
 
   @new_permissions [
@@ -282,7 +285,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
                 :TenantSecurityManage,
                 :TasksReassignRouted,
                 :ApprovalRulesManage,
-                :OfficialFormTemplatesManage
+                :OfficialFormTemplatesManage,
+                :LedgerSettingsManage
               ] do
         assert Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], permission, true),
                "#{inspect(permission)} must stay held by the platform tenant's PLATFORM_ADMIN"

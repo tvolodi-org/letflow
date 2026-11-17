@@ -27,8 +27,8 @@ defmodule Letflow.Api.TasksReadAllTest do
   @golden "priv/permission_matrix/effective.golden"
   @five [:PLATFORM_ADMIN, :PROCESS_DESIGNER, :PROCESS_OPERATOR, :TENANT_ADMIN, :TENANT_AUDITOR]
 
-  test "A1 fifth to last core permission (CurrenciesManage, DataExport, ApprovalRulesManage and OfficialFormTemplatesManage follow), tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-5) |> hd() == @perm
+  test "A1 eighth to last core permission (CurrenciesManage, DataExport, ApprovalRulesManage, OfficialFormTemplatesManage, LedgerSettingsManage, PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-8) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
@@ -151,7 +151,13 @@ defmodule Letflow.Api.TasksReadAllTest do
   test "A6 the catch-alls are untouched: no false clause was added" do
     for p <-
           Authorization.permissions() --
-            [:TasksWorkInScope, :TenantSecurityManage, :TasksReassignRouted, :ApprovalRulesManage] do
+            [
+              :TasksWorkInScope,
+              :TenantSecurityManage,
+              :TasksReassignRouted,
+              :ApprovalRulesManage,
+              :LedgerSettingsManage
+            ] do
       assert Authorization.role_allows?(:PLATFORM_ADMIN, p), inspect(p)
     end
 

@@ -250,6 +250,42 @@ defmodule Letflow.AttachmentsTest do
       assert link_count(c) == 1
     end
 
+    test "S-CAP-BIG a 20 MB caption is refused by size, before any per-character work (INV-8)",
+         c do
+      link = add!(c, 1)
+      big = String.duplicate("a", 20_000_000)
+
+      # 8M words = 64 MB. The old charlist (2 words per code point) needed 40M words and was killed.
+      run = fn fun ->
+        {pid, ref} =
+          spawn_monitor(fn ->
+            Process.flag(:max_heap_size, %{size: 8_000_000, kill: true, error_logger: false})
+            exit({:result, fun.()})
+          end)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, reason} -> reason
+        end
+      end
+
+      assert {:result, {:error, :caption_invalid}} = run.(fn -> add(c, 2, %{caption: big}) end)
+
+      assert {:result, {:error, :caption_invalid}} =
+               run.(fn -> Attachments.set_caption(c.prefix, c.owner, link.id, big, c.ctx) end)
+
+      # whitespace padding inside the byte bound is still trimmed
+      assert {:ok, %Link{caption: "Front"}} =
+               Attachments.set_caption(
+                 c.prefix,
+                 c.owner,
+                 link.id,
+                 String.duplicate(" ", 500) <> "Front",
+                 c.ctx
+               )
+
+      assert link_count(c) == 1
+    end
+
     test "S-DUPTH thumbnail identical to the original: delete removes the one blob", c do
       bytes = img(3)
       link = add!(c, 3, %{original: bytes, thumbnail: bytes})

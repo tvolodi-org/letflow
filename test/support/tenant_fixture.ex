@@ -181,6 +181,8 @@ defmodule Letflow.TenantFixture do
     "instance_state_snapshots",
     "label_overrides",
     "ledger_balance",
+    # REQ-834 (GH #4547): per-tenant negative balance setting, one row per registration name.
+    "ledger_balance_settings",
     "ledger_counter",
     "ledger_entry",
     "ledger_leg",

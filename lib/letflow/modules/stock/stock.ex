@@ -95,6 +95,14 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Whole-stock workbook (REQ-865 / GH #4579; no version bump)
+
+  `GET /stock-workbook` (`StockRead`, tenant-wide readers only, no query key): the whole current stock as one `.xlsx`
+  in the Qoimeks import layout (`Letflow.Modules.Stock.StockWorkbook`; columns Артикул, Номенклатура, Конечный остаток,
+  Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes; one row per item, place and unit, the item's usual
+  place first, `catalog_item.default_location_id`). Read only: no record, posting or audit entry, no migration,
+  record type or permission.
+
   ## Count worksheet (T-1905; no version bump)
 
   `GET /counts/:id/print/worksheet` (PDF) and `GET /counts/:id/paperwork/worksheet` (xlsx), `?lang`, `?expected=0|1`
@@ -389,6 +397,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/documents/:id/print", :StockRead},
       {"GET", "/stock-card/print", :StockRead},
       {"GET", "/stock-sheet/print", :StockRead},
+      {"GET", "/stock-workbook", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},

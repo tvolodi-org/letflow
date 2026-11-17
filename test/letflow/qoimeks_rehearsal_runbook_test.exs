@@ -135,10 +135,10 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
 
   test "QR-5 freeze, ANALYZE and rollback are numbered steps; one transaction is per file" do
     steps = section(md(), "Steps")
-    assert steps =~ ~r/^8\. \*\*Write freeze/m
-    assert steps =~ ~r/^9\. \*\*ANALYZE/m
+    assert steps =~ ~r/^9\. \*\*Write freeze/m
+    assert steps =~ ~r/^10\. \*\*ANALYZE/m
     assert steps =~ "changes no row"
-    assert steps =~ ~r/^10\. \*\*Rollback/m
+    assert steps =~ ~r/^11\. \*\*Rollback/m
     assert steps =~ "stock-movements.xlsx"
     [_, tx] = Regex.run(~r/\| One transaction \|([^\n]*)/, md())
     assert tx =~ "atomic=true"
@@ -169,6 +169,27 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
 
   test "QR-7 field and reason names exist in their sources" do
     assert :ok = check_masters(md(), lib_text())
+  end
+
+  test "QR-9 the code files, optional inputs and unchanged re-upload are documented" do
+    text = md()
+    steps = section(text, "Steps")
+    assert text =~ "| 4 | `code_tag` | `Codes.Import` |"
+    assert text =~ "| 5 | `code_assignment` | `Codes.ImportAssignment` |"
+    assert text =~ "`value, kind, external_ref_system, external_ref_id`"
+    assert text =~ "`code_id, target_type, target_id, external_ref_system, external_ref_id`"
+    assert steps =~ "and `barcode` the SKU's barcode"
+    assert steps =~ "optional\n   `codes.csv`"
+    assert steps =~ "06-codes-NN.xlsx"
+    assert steps =~ "07-code-assignments-NN.xlsx"
+    assert steps =~ "after any\n   `05-item-places-NN.xlsx` files"
+    assert steps =~ "every `code_tag` and `code_assignment` row, is `unchanged`"
+
+    script = File.read!(Path.join(@root, "scripts/pilot/qoimeks_convert.py"))
+    assert script =~ "[barcode]"
+    assert script =~ "optional codes.csv"
+    assert script =~ "06-codes-NN.xlsx"
+    assert script =~ "07-code-assignments-NN.xlsx"
   end
 
   test "QR-8 a renamed reason is caught" do

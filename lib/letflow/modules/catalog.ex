@@ -320,6 +320,7 @@ defmodule Letflow.Modules.Catalog do
       {ledger_id,
        %{
          name: name,
+         module_id: manifest.id,
          registration: plain,
          read_permission: plain.permissions[:read],
          reconcile_permission: plain.permissions[:reconcile]

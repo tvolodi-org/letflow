@@ -9,11 +9,16 @@ secret and touches no database. Run it on a copy of the data, QA only (docs/runb
   python3 -I scripts/pilot/qoimeks_convert.py headers --out DIR --responses DIR \\
       --org-unit-id UUID --responsible-id UUID
 
-`convert` reads locations.csv (loc_code, loc_name, loc_parent), items.csv (sku, sku_name, unit, [home_loc], [alt_loc])
-and balances.csv (sku, loc, qty, [as_of]) from --in. `home_loc` (the usual place, a loc_code) goes into the items file
-as `default_location_id` (G3); `alt_loc` (the second place) is NOT carried: the report counts the rows that had one. `--mapping` is a JSON object {"<column in the extract>": "<neutral name>"}.
-It writes into --out: 01-locations-NN.xlsx, 02-uoms.xlsx, 03-items-NN.xlsx, 04-opening-lines-NN.xlsx, manifest.json,
-report.txt and expected_counts.txt. A file type with no rows is not written.
+`convert` reads locations.csv (loc_code, loc_name, loc_parent), items.csv (sku, sku_name, unit, [home_loc], [alt_loc],
+[barcode]) and balances.csv (sku, loc, qty, [as_of]) from --in. The optional codes.csv holds active code rows
+(object_type, object_code, code_type, code) for SKUs and places. `home_loc` (the usual place, a loc_code) goes into
+the items file as `default_location_id` (G3); `alt_loc` (the second place) is NOT carried: the report counts the rows
+that had one. `--mapping` is a JSON object {"<column in the extract>": "<neutral name>"}.
+It writes into --out: 01-locations-NN.xlsx, 02-uoms.xlsx, 03-items-NN.xlsx, 06-codes-NN.xlsx,
+07-code-assignments-NN.xlsx, 04-opening-lines-NN.xlsx, manifest.json, report.txt and expected_counts.txt. Code files are
+written only when at least one code survives and are ordered before the opening lines; a file type with no rows is
+not written. The barcode column and codes.csv code types ean13, ean8, code128 and manual become kind barcode; qr
+becomes kind qr. A repeated code for the same object is kept once; a code already kept for another object is dropped.
 
 `headers` reads manifest.json and the saved JSON responses of the first three uploads (RDIR/<file stem>.json, the
 `results[]` with `line` and `record_id`) and writes headers/QOI-HDR-NN.json, one `POST /documents` body per opening
@@ -30,6 +35,7 @@ import io
 import json
 import re
 import sys
+import unicodedata
 import zipfile
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -46,10 +52,14 @@ LINE_COLS = [
     "header_id", "org_unit_id", "location_id", "responsible_id", "catalog_item_id",
     "catalog_uom_id", "quantity", "received_on", "external_ref_system", "external_ref_id",
 ]
+CODE_COLS = ["value", "kind", "external_ref_system", "external_ref_id"]
+ASSIGNMENT_COLS = ["code_id", "target_type", "target_id", "external_ref_system", "external_ref_id"]
+CODE_TYPES = {"ean13", "ean8", "code128", "qr", "manual"}
 NEEDED = {
     "locations": ["loc_code", "loc_name", "loc_parent"],
     "items": ["sku", "sku_name", "unit"],
     "balances": ["sku", "loc", "qty"],
+    "codes": ["object_type", "object_code", "code_type", "code"],
 }
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -149,6 +159,10 @@ def read_csv(path, mapping, kind):
     return rows
 
 
+def read_optional_csv(path, mapping, kind):
+    return read_csv(path, mapping, kind) if Path(path).is_file() else []
+
+
 def bal_ref(sku, loc):
     """Unambiguous balance reference: the sku length prefixes the pair, so (A, B:C) and (A:B, C) differ."""
     return "BAL:%d:%s:%s" % (len(sku), sku, loc)
@@ -190,6 +204,46 @@ def order_locations(rows, drops):
     return out
 
 
+def collect_codes(items, code_rows, item_codes, loc_codes, drops):
+    """Keep the first owner of each valid code; item barcodes precede rows of codes.csv."""
+    kept, owners = [], {}
+
+    def add(source, n, object_type, object_code, code_type, code):
+        if source == "codes" and object_type not in ("sku", "location"):
+            drops.append((source, n, "code_object_type_unknown"))
+            return
+        if source == "codes" and code_type not in CODE_TYPES:
+            drops.append((source, n, "code_type_unknown"))
+            return
+        if not code:
+            return
+        if any(c.isspace() or unicodedata.category(c) == "Cc" for c in code):
+            drops.append((source, n, "code_invalid"))
+            return
+        target_type = "catalog_item" if object_type == "sku" else "location_node"
+        known = object_code in (item_codes if object_type == "sku" else loc_codes)
+        if not known:
+            reason = "code_unknown_item" if object_type == "sku" else "code_unknown_location"
+            drops.append((source, n, reason))
+            return
+        target = (target_type, object_code)
+        if code in owners:
+            if owners[code] != target:
+                drops.append((source, n, "code_taken"))
+            return
+        owners[code] = target
+        kept.append((code, "qr" if code_type == "qr" else "barcode", target_type, object_code))
+
+    for r in items:
+        add("items", r["_source_row"], "sku", r["sku"], "barcode", r.get("barcode", ""))
+    for n, r in enumerate(code_rows, 1):
+        if r.get("_surplus"):
+            drops.append(("codes", n, "too_many_fields"))
+        else:
+            add("codes", n, r["object_type"], r["object_code"], r["code_type"], r["code"])
+    return kept
+
+
 def cmd_convert(a):
     out = check_out(a.out)
     if not DATE_RE.match(a.received_on):
@@ -206,6 +260,7 @@ def cmd_convert(a):
     locs = read_csv(src / "locations.csv", mapping, "locations")
     items = read_csv(src / "items.csv", mapping, "items")
     bals = read_csv(src / "balances.csv", mapping, "balances")
+    code_rows = read_optional_csv(src / "codes.csv", mapping, "codes")
 
     drops = []
     sysn = a.system
@@ -230,6 +285,7 @@ def cmd_convert(a):
             drops.append(("items", n, "unknown_default_location"))
         else:
             seen.add(r["sku"])
+            r["_source_row"] = n
             good_items.append(r)
             if r.get("alt_loc"):
                 second_places += 1
@@ -237,6 +293,7 @@ def cmd_convert(a):
     if len(units) > MAX_ROWS:
         fail("more than %d distinct units" % MAX_ROWS)
     unit_of = {r["sku"]: r["unit"] for r in good_items}
+    codes = collect_codes(good_items, code_rows, set(unit_of), loc_codes, drops)
 
     lines, keys = [], set()
     for n, r in enumerate(bals, 1):
@@ -297,6 +354,15 @@ def cmd_convert(a):
         for j, row in enumerate(part):
             item_pos[row[0]] = (name, j + 2)
 
+    code_rows_out = [[code, kind, sysn, code] for code, kind, _, _ in codes]
+    assignment_rows_out = [[code, target_type, target, sysn, code]
+                           for code, _, target_type, target in codes]
+    for prefix, etype, header, rows in (
+            ("06-codes", "code_tag", CODE_COLS, code_rows_out),
+            ("07-code-assignments", "code_assignment", ASSIGNMENT_COLS, assignment_rows_out)):
+        for i, part in enumerate(chunks(rows, MAX_ROWS), 1):
+            emit("%s-%02d.xlsx" % (prefix, i), etype, header, part)
+
     headers = []
     for i, part in enumerate(chunks(lines, MAX_LINES), 1):
         hid = "QOI-HDR-%02d" % i
@@ -320,6 +386,8 @@ def cmd_convert(a):
         "documents": len(headers),
         "records.catalog_item": len(item_rows),
         "records.catalog_uom": len(units),
+        "records.code_assignment": len(assignment_rows_out),
+        "records.code_tag": len(code_rows_out),
         "records.location_node": len(loc_rows),
         "records.stock_opening_line": len(lines),
         "items_with_default_location": len(with_place),

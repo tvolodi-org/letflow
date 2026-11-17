@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.29.0,catalog_items@0.5.0,codes@0.6.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
+# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.6.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 99
-# rows: 891
+# permissions: 102
+# rows: 918
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
 AGENT_RUNNER AssetsCardWrite false module:assets -
@@ -60,6 +60,7 @@ AGENT_RUNNER InstancesRead false core -
 AGENT_RUNNER InstancesStart false core -
 AGENT_RUNNER IntegrationMappingsManage false core -
 AGENT_RUNNER LabelsManage false core -
+AGENT_RUNNER LedgerSettingsManage false core -
 AGENT_RUNNER LocationsWrite false module:locations -
 AGENT_RUNNER MembershipsRead true core core
 AGENT_RUNNER MetricsRead false core -
@@ -73,6 +74,8 @@ AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER OfficialFormTemplatesManage false core -
 AGENT_RUNNER OrgEmployeesWrite false module:org -
 AGENT_RUNNER OrgStructureWrite false module:org -
+AGENT_RUNNER PhotosAdd false core -
+AGENT_RUNNER PhotosDelete false core -
 AGENT_RUNNER PlatformServicesManage false core -
 AGENT_RUNNER ProblemReportsManage false core -
 AGENT_RUNNER ProcurementLineRecord false module:procurement -
@@ -159,6 +162,7 @@ CANDIDATE InstancesRead false core -
 CANDIDATE InstancesStart false core -
 CANDIDATE IntegrationMappingsManage false core -
 CANDIDATE LabelsManage false core -
+CANDIDATE LedgerSettingsManage false core -
 CANDIDATE LocationsWrite false module:locations -
 CANDIDATE MembershipsRead false core -
 CANDIDATE MetricsRead false core -
@@ -172,6 +176,8 @@ CANDIDATE NumberSequencesManage false core -
 CANDIDATE OfficialFormTemplatesManage false core -
 CANDIDATE OrgEmployeesWrite false module:org -
 CANDIDATE OrgStructureWrite false module:org -
+CANDIDATE PhotosAdd false core -
+CANDIDATE PhotosDelete false core -
 CANDIDATE PlatformServicesManage false core -
 CANDIDATE ProblemReportsManage false core -
 CANDIDATE ProcurementLineRecord false module:procurement -
@@ -258,6 +264,7 @@ PLATFORM_ADMIN InstancesRead true core core
 PLATFORM_ADMIN InstancesStart true core core
 PLATFORM_ADMIN IntegrationMappingsManage true core core
 PLATFORM_ADMIN LabelsManage true core core
+PLATFORM_ADMIN LedgerSettingsManage false core -
 PLATFORM_ADMIN LocationsWrite true module:locations core
 PLATFORM_ADMIN MembershipsRead true core core
 PLATFORM_ADMIN MetricsRead true core core
@@ -271,6 +278,8 @@ PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN OfficialFormTemplatesManage true core core
 PLATFORM_ADMIN OrgEmployeesWrite true module:org core
 PLATFORM_ADMIN OrgStructureWrite true module:org core
+PLATFORM_ADMIN PhotosAdd true core core
+PLATFORM_ADMIN PhotosDelete true core core
 PLATFORM_ADMIN PlatformServicesManage true core core
 PLATFORM_ADMIN ProblemReportsManage true core core
 PLATFORM_ADMIN ProcurementLineRecord true module:procurement core
@@ -357,6 +366,7 @@ PROCESS_DESIGNER InstancesRead true core core
 PROCESS_DESIGNER InstancesStart true core core
 PROCESS_DESIGNER IntegrationMappingsManage false core -
 PROCESS_DESIGNER LabelsManage false core -
+PROCESS_DESIGNER LedgerSettingsManage false core -
 PROCESS_DESIGNER LocationsWrite false module:locations -
 PROCESS_DESIGNER MembershipsRead true core core
 PROCESS_DESIGNER MetricsRead false core -
@@ -370,6 +380,8 @@ PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER OfficialFormTemplatesManage false core -
 PROCESS_DESIGNER OrgEmployeesWrite false module:org -
 PROCESS_DESIGNER OrgStructureWrite false module:org -
+PROCESS_DESIGNER PhotosAdd false core -
+PROCESS_DESIGNER PhotosDelete false core -
 PROCESS_DESIGNER PlatformServicesManage false core -
 PROCESS_DESIGNER ProblemReportsManage false core -
 PROCESS_DESIGNER ProcurementLineRecord false module:procurement -
@@ -456,6 +468,7 @@ PROCESS_OPERATOR InstancesRead true core core
 PROCESS_OPERATOR InstancesStart true core core
 PROCESS_OPERATOR IntegrationMappingsManage false core -
 PROCESS_OPERATOR LabelsManage false core -
+PROCESS_OPERATOR LedgerSettingsManage false core -
 PROCESS_OPERATOR LocationsWrite false module:locations -
 PROCESS_OPERATOR MembershipsRead true core core
 PROCESS_OPERATOR MetricsRead true core core
@@ -469,6 +482,8 @@ PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR OfficialFormTemplatesManage false core -
 PROCESS_OPERATOR OrgEmployeesWrite false module:org -
 PROCESS_OPERATOR OrgStructureWrite false module:org -
+PROCESS_OPERATOR PhotosAdd false core -
+PROCESS_OPERATOR PhotosDelete false core -
 PROCESS_OPERATOR PlatformServicesManage false core -
 PROCESS_OPERATOR ProblemReportsManage false core -
 PROCESS_OPERATOR ProcurementLineRecord false module:procurement -
@@ -555,6 +570,7 @@ STOREKEEPER InstancesRead false core -
 STOREKEEPER InstancesStart false core -
 STOREKEEPER IntegrationMappingsManage false core -
 STOREKEEPER LabelsManage false core -
+STOREKEEPER LedgerSettingsManage false core -
 STOREKEEPER LocationsWrite false module:locations -
 STOREKEEPER MembershipsRead true core core
 STOREKEEPER MetricsRead false core -
@@ -568,6 +584,8 @@ STOREKEEPER NumberSequencesManage false core -
 STOREKEEPER OfficialFormTemplatesManage false core -
 STOREKEEPER OrgEmployeesWrite false module:org -
 STOREKEEPER OrgStructureWrite false module:org -
+STOREKEEPER PhotosAdd false core -
+STOREKEEPER PhotosDelete false core -
 STOREKEEPER PlatformServicesManage false core -
 STOREKEEPER ProblemReportsManage false core -
 STOREKEEPER ProcurementLineRecord false module:procurement -
@@ -654,6 +672,7 @@ TASK_WORKER InstancesRead true core core
 TASK_WORKER InstancesStart false core -
 TASK_WORKER IntegrationMappingsManage false core -
 TASK_WORKER LabelsManage false core -
+TASK_WORKER LedgerSettingsManage false core -
 TASK_WORKER LocationsWrite false module:locations -
 TASK_WORKER MembershipsRead true core core
 TASK_WORKER MetricsRead false core -
@@ -667,6 +686,8 @@ TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER OfficialFormTemplatesManage false core -
 TASK_WORKER OrgEmployeesWrite false module:org -
 TASK_WORKER OrgStructureWrite false module:org -
+TASK_WORKER PhotosAdd false core -
+TASK_WORKER PhotosDelete false core -
 TASK_WORKER PlatformServicesManage false core -
 TASK_WORKER ProblemReportsManage false core -
 TASK_WORKER ProcurementLineRecord false module:procurement -
@@ -753,6 +774,7 @@ TENANT_ADMIN InstancesRead true core core
 TENANT_ADMIN InstancesStart true core core
 TENANT_ADMIN IntegrationMappingsManage true core core
 TENANT_ADMIN LabelsManage true core core
+TENANT_ADMIN LedgerSettingsManage true core core
 TENANT_ADMIN LocationsWrite true module:locations core
 TENANT_ADMIN MembershipsRead true core core
 TENANT_ADMIN MetricsRead true core core
@@ -766,6 +788,8 @@ TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN OfficialFormTemplatesManage true core core
 TENANT_ADMIN OrgEmployeesWrite true module:org core
 TENANT_ADMIN OrgStructureWrite true module:org core
+TENANT_ADMIN PhotosAdd true core core
+TENANT_ADMIN PhotosDelete true core core
 TENANT_ADMIN PlatformServicesManage false core -
 TENANT_ADMIN ProblemReportsManage false core -
 TENANT_ADMIN ProcurementLineRecord true module:procurement core
@@ -852,6 +876,7 @@ TENANT_AUDITOR InstancesRead true core core
 TENANT_AUDITOR InstancesStart false core -
 TENANT_AUDITOR IntegrationMappingsManage false core -
 TENANT_AUDITOR LabelsManage false core -
+TENANT_AUDITOR LedgerSettingsManage false core -
 TENANT_AUDITOR LocationsWrite false module:locations -
 TENANT_AUDITOR MembershipsRead true core core
 TENANT_AUDITOR MetricsRead true core core
@@ -865,6 +890,8 @@ TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR OfficialFormTemplatesManage false core -
 TENANT_AUDITOR OrgEmployeesWrite false module:org -
 TENANT_AUDITOR OrgStructureWrite false module:org -
+TENANT_AUDITOR PhotosAdd false core -
+TENANT_AUDITOR PhotosDelete false core -
 TENANT_AUDITOR PlatformServicesManage false core -
 TENANT_AUDITOR ProblemReportsManage false core -
 TENANT_AUDITOR ProcurementLineRecord false module:procurement -

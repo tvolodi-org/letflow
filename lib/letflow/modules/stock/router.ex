@@ -94,6 +94,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-sheet/print?location&from&to&format=pdf\|docx&lang=ru\|kk` (T-1925; official form Z-7 / Q-7, the stock balances sheet of one location for one period: opening, income, expense, closing per item, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_period`, `period_in_future`, `invalid_format`, `invalid_lang`, `sheet_too_long` (more than 5000 entries or 1000 rows), `print_unsupported_character` |
+  | `GET /stock-workbook` (REQ-865; the whole current stock in the Qoimeks import layout, `Letflow.Modules.Stock.StockWorkbook.build/1`; no query key accepted) | `StockRead` | 200 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` `stock-YYYY-MM-DD.xlsx`, 404 when the caller is a scoped reader (a full tenant-wide reader is required; a hidden unit's stock would otherwise appear as zero), 422 `invalid_filter` (any query key), `workbook_too_large` (more than 10 000 data rows) |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`); T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
@@ -181,6 +182,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.FormZ7
   alias Letflow.Modules.Stock.StockCardSource
   alias Letflow.Modules.Stock.StockSheetSource
+  alias Letflow.Modules.Stock.StockWorkbook
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
@@ -326,6 +328,20 @@ defmodule Letflow.Modules.Stock.Router do
         {:error, :sheet_too_long} -> unprocessable(conn, "sheet_too_long")
         {:error, :period_in_future} -> unprocessable(conn, "period_in_future")
         {:error, reason} -> form_failure(conn, reason)
+      end
+    end)
+  end
+
+  authz_get "/stock-workbook", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      with {:ok, _} <- no_params(conn),
+           {:ok, {file_name, binary}} <- StockWorkbook.build(authorized) do
+        send_xlsx(conn, binary, file_name)
+      else
+        {:error, :invalid_filter} -> refuse(conn, :invalid_filter)
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, :workbook_too_large} -> unprocessable(conn, "workbook_too_large")
+        {:error, _} -> Response.internal_error(conn)
       end
     end)
   end
@@ -1390,6 +1406,13 @@ defmodule Letflow.Modules.Stock.Router do
 
     if Enum.all?(params, fn {key, value} -> key in allowed and is_binary(value) end),
       do: {:ok, params},
+      else: {:error, :invalid_filter}
+  end
+
+  # Refuses any query key: used by routes that take no query parameters.
+  defp no_params(conn) do
+    if Plug.Conn.fetch_query_params(conn).query_params == %{},
+      do: {:ok, %{}},
       else: {:error, :invalid_filter}
   end
 

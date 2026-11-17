@@ -9,8 +9,8 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   locations, uoms and items are core masters, the lines file is the stock opening import.
 
   ST-1 whole procedure incl. the header bootstrap (also 100 and 101 lines); ST-2 repeatable (headers reused);
-  ST-3 masters import into a tenant without stock; ST-5 colon-bearing keys stay distinct; ST-4 another tenant's token
-  writes nothing. `async: false` (Sandbox `:auto`).
+  ST-3 masters import into a tenant without stock; ST-G3 loads the usual place; ST-G12 loads and resolves item and
+  place codes; ST-5 colon-bearing keys stay distinct; ST-4 another tenant's token writes nothing. `async: false` (Sandbox `:auto`).
   """
 
   use Letflow.DataCase, async: false
@@ -19,6 +19,7 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   import Plug.Conn
 
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Modules.Codes
   alias Letflow.Modules.Installs
   alias Letflow.Modules.Org
   alias Letflow.OrgFixture
@@ -45,7 +46,7 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   # The tenant of the shared stock fixture already holds some masters: the converter's counts are compared as
   # increments over this baseline (the real rehearsal tenant is empty, and qoimeks_compare.sh compares absolutes).
   defp snapshot(schema) do
-    types = ~w(location_node catalog_uom catalog_item stock_opening_line)
+    types = ~w(location_node catalog_uom catalog_item code_tag code_assignment stock_opening_line)
 
     Map.new(types, &{&1, count(schema, &1)})
     |> Map.put("items_with_default_location", with_place(schema))
@@ -164,7 +165,7 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
       )
 
   # Runs steps 1-4 of the runbook's upload procedure; returns the outcomes of the lines files in order.
-  defp rehearse!(ctx, out) do
+  defp rehearse!(ctx, out, on_upload \\ fn _, _ -> :ok end) do
     resp = Path.join(ctx.dir, "resp_" <> Path.basename(out))
     File.mkdir_p!(resp)
     m = manifest(out)
@@ -174,6 +175,8 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
 
       assert Enum.all?(results, &(&1["outcome"] in ["created", "unchanged", "updated"])),
              inspect(results)
+
+      on_upload.(f, results)
     end
 
     py([
@@ -346,6 +349,91 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
     rehearse!(ctx, out)
     assert_counts(ctx, out)
     assert with_place(ctx.schema) - ctx.base["items_with_default_location"] == 2
+  end
+
+  test "ST-G12 code files import after their masters, resolve their targets and repeat unchanged",
+       ctx do
+    dir = Path.join(ctx.dir, "in_g12")
+    File.mkdir_p!(dir)
+
+    File.write!(
+      Path.join(dir, "locations.csv"),
+      "loc_code,loc_name,loc_parent\nL1,Sample L1,\n"
+    )
+
+    File.write!(
+      Path.join(dir, "items.csv"),
+      "sku,sku_name,unit,barcode\nA,Sample A,pcs,4870001112223\nB,Sample B,pcs,\n"
+    )
+
+    File.write!(Path.join(dir, "balances.csv"), "sku,loc,qty\nA,L1,1\n")
+
+    File.write!(Path.join(dir, "codes.csv"), """
+    object_type,object_code,code_type,code
+    sku,A,ean13,4870001112223
+    sku,B,qr,QR-B
+    location,L1,code128,LOC-L1
+    """)
+
+    out = convert!(ctx, dir, "og12")
+
+    code_files =
+      for %{"file" => f, "entity_type" => t} <- manifest(out)["files"],
+          t in ["code_tag", "code_assignment"],
+          do: f
+
+    assert code_files == ["06-codes-01.xlsx", "07-code-assignments-01.xlsx"]
+
+    rehearse!(ctx, out, fn f, results ->
+      if f in code_files, do: send(self(), {:g12_upload, f, results})
+    end)
+
+    for f <- code_files do
+      assert_received {:g12_upload, ^f, results}
+      assert Enum.all?(results, &(&1["outcome"] == "created")), inspect(results)
+    end
+
+    assert_counts(ctx, out)
+
+    record_id = fn type, code ->
+      Repo.one!(
+        from(r in Latest,
+          where:
+            r.entity_type == ^type and not r.deleted and
+              fragment("?->>'code' = ?", r.field_values, ^code),
+          select: r.record_id
+        ),
+        prefix: ctx.schema
+      )
+    end
+
+    item_a = record_id.("catalog_item", "A")
+    item_b = record_id.("catalog_item", "B")
+    place = record_id.("location_node", "L1")
+
+    assert {:ok, %{"status" => "assigned", "kind" => "barcode", "target_id" => ^item_a}} =
+             Codes.resolve(ctx.schema, "4870001112223")
+
+    assert {:ok, %{"status" => "assigned", "kind" => "qr", "target_id" => ^item_b}} =
+             Codes.resolve(ctx.schema, "QR-B")
+
+    assert {:ok,
+            %{
+              "status" => "assigned",
+              "kind" => "barcode",
+              "target_type" => "location_node",
+              "target_id" => ^place
+            }} = Codes.resolve(ctx.schema, "LOC-L1")
+
+    again = Path.join(ctx.dir, "again_g12")
+    File.mkdir_p!(again)
+
+    for %{"file" => f, "entity_type" => t} <- manifest(out)["files"], f in code_files do
+      results = upload_ok!(ctx, t, Path.join(out, f), again)
+      assert Enum.all?(results, &(&1["outcome"] == "unchanged")), inspect(results)
+    end
+
+    assert_counts(ctx, out)
   end
 
   test "ST-5 balance keys that differ only in where a colon sits both survive", ctx do

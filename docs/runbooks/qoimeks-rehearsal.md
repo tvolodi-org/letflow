@@ -16,7 +16,9 @@ modules and has one import of its own (all through
 | 1 | `location_node` | `Locations.Import` | `code, name, node_kind, parent_id, external_ref_system, external_ref_id` |
 | 2 | `catalog_uom` | `CatalogItems.Import` | `code, name, active, external_ref_system, external_ref_id` |
 | 3 | `catalog_item` | `CatalogItems.Import` | `code, name, base_uom_id, kind, active, external_ref_system, external_ref_id` |
-| 4 | `stock_opening_line` | `Stock.Documents.OpeningImport` | `header_id, org_unit_id, location_id, responsible_id, catalog_item_id, catalog_uom_id, quantity, received_on, external_ref_system, external_ref_id` |
+| 4 | `code_tag` | `Codes.Import` | `value, kind, external_ref_system, external_ref_id` |
+| 5 | `code_assignment` | `Codes.ImportAssignment` | `code_id, target_type, target_id, external_ref_system, external_ref_id` |
+| 6 | `stock_opening_line` | `Stock.Documents.OpeningImport` | `header_id, org_unit_id, location_id, responsible_id, catalog_item_id, catalog_uom_id, quantity, received_on, external_ref_system, external_ref_id` |
 
 The converted files are pushed through these real routes by `test/letflow/modules/stock/qoimeks_files_test.exs`.
 Facts that shape the procedure: every reference cell is an **external id** under the row's own system; `parent_id`
@@ -26,10 +28,13 @@ together with its first real balance (below).
 
 ## Steps
 
-1. **Extract** from the frozen copy of the Qoimeks database three CSV files in a directory outside the repository:
+1. **Extract** from the frozen copy of the Qoimeks database three required CSV files in a directory outside the repository:
    `locations.csv` (`loc_code, loc_name, loc_parent`), `items.csv` (`sku, sku_name, unit`, optional `home_loc`
-   the usual place as a `loc_code` and `alt_loc` the second place), `balances.csv`
-   (`sku, loc, qty`, optional `as_of`). The Qoimeks schema is not in this repository: if its column names differ, write a
+   the usual place as a `loc_code`, `alt_loc` the second place and `barcode` the SKU's barcode from Qoimeks
+   `Штрихкод`; a blank barcode is no code), and `balances.csv` (`sku, loc, qty`, optional `as_of`). The optional
+   `codes.csv` holds the active rows of the Qoimeks codes table: `object_type` (`sku` or `location`), `object_code`
+   (the SKU or place code), `code_type` (`ean13`, `ean8`, `code128`, `qr` or `manual`) and `code`. The converter works
+   without it. The Qoimeks schema is not in this repository: if its column names differ, write a
    `map.json` `{"<extract column>": "<neutral name>"}` and pass `--mapping`. Comma or semicolon delimiters and a BOM are read.
 2. **Convert** (no network, no database):
    `python3 -I scripts/pilot/qoimeks_convert.py convert --in IN --out OUT --system qoimeks-rehearsal --org-unit-ext U --responsible-ext E --received-on YYYY-MM-DD`.
@@ -40,10 +45,15 @@ together with its first real balance (below).
    whose place names no location is dropped as `unknown_default_location`). The second place is not imported:
    `report.txt` says how many kept items had one ("items with a second place, not imported (G3)"), and the snapshot
    key `items_with_default_location` is compared in step 4.
-   Outputs: `01-locations-NN.xlsx`, `02-uoms.xlsx`, `03-items-NN.xlsx`, `04-opening-lines-NN.xlsx`, `manifest.json`,
-   `report.txt`, `expected_counts.txt`.
-3. **Upload masters** in the manifest order (locations, uoms, items) with `dry_run=true` first, then `atomic=true`. Save
-   each response JSON as `RDIR/<file name without .xlsx>.json`.
+   Outputs: `01-locations-NN.xlsx`, `02-uoms.xlsx`, `03-items-NN.xlsx`, `06-codes-NN.xlsx`,
+   `07-code-assignments-NN.xlsx`, `04-opening-lines-NN.xlsx`, `manifest.json`, `report.txt`, `expected_counts.txt`.
+   The two code file types are written only when at least one code survives; every barcode and `codes.csv` row that
+   survives produces one row in each. `qr` stays kind `qr`; all other code types become `barcode`. A repeated code for
+   the same object is kept once, while the first object keeps a code offered again for another object.
+3. **Upload masters and code files** in the manifest order (locations, uoms, items, item places, codes, assignments)
+   with `dry_run=true` first, then `atomic=true`. Upload `06-codes-NN.xlsx` and `07-code-assignments-NN.xlsx` after any
+   `05-item-places-NN.xlsx` files (after the item files when no 05 files were written), and before the opening lines.
+   Save each response JSON as `RDIR/<file name without .xlsx>.json`.
 4. **Headers**: `python3 -I scripts/pilot/qoimeks_convert.py headers --out OUT --responses RDIR --org-unit-id UUID --responsible-id UUID`
    writes `OUT/headers/QOI-HDR-NN.json`; `POST /api/v1/documents` each body (one draft opening per header, created with its first balance).
 5. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
@@ -57,16 +67,21 @@ together with its first real balance (below).
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
    Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
 
-8. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
+8. **Compare masters (REQ-881)**: save the Letflow records export (POST `/api/v1/entities/records/<type>/export`, format `json`) for each of `location_node`, `catalog_uom` and `catalog_item` as one or more JSON files in a directory `EXPDIR` (file names `<type>-<anything>.json`). Then run
+   `python3 -I scripts/pilot/qoimeks_masters_compare.py --locations IN/locations.csv --items IN/items.csv --export-dir EXPDIR`.
+   It prints one `DIFF` line per code that differs or is on one side only, `ROWS` and one sha256 `HASH` per side over the sorted (code, name) list for each of the three tables, and `RESULT` per table then overall. Exit 0 means all three tables are equal, 1 differences, 2 bad input. Export records with `deleted: true` are excluded.
+
+9. **Write freeze (do it before step 1)**: the Qoimeks team switches on the Qoimeks `MAINTENANCE_MODE` (writes answer 503)
    before the extract and switches it off after the last check; write down the time it was on (about 40 s was enough
    for Client 1). Letflow does not switch it.
-9. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
-   the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
-10. **Rollback**: lift the Qoimeks write freeze (step 8). The Qoimeks data was never changed, and the phones still hold the
+10. **ANALYZE (after the opening documents are posted)**: infra runs one `ANALYZE;` statement on the Letflow database through
+    the same `PSQL` command line that `scripts/demo/demo_counts.sh` uses. It refreshes planner statistics only and changes no row.
+11. **Rollback**: lift the Qoimeks write freeze (step 9). The Qoimeks data was never changed, and the phones still hold the
     Qoimeks address and token. The Letflow company is kept, not deleted. For anything entered in Letflow after the switch, take
     the stock movements export (`stock-movements.xlsx`) and enter it in Qoimeks by hand.
 
-Repeating: re-upload the master files (step 3) and the lines files (step 5) with the same files; every row is `unchanged`.
+Repeating: re-upload the master files, the code files and the lines files (steps 3 and 5) with the same files; every
+row, including every `code_tag` and `code_assignment` row, is `unchanged`.
 Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
 headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
 
@@ -78,12 +93,12 @@ The move rules of Qoimeks Client 1 and where Letflow meets them. State: built, t
 |---|---|---|
 | Copy | The runbook works on a copy; the source is untouched (intro, step 1) | built |
 | One transaction | One transaction per file (`atomic=true`, `check_atomic` in `lib/letflow/routers/entities/record_import.ex`, steps 3 and 5) on a company that is empty before the load (step 6). The whole load is not one transaction: it is several files and posting tasks | built |
-| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (REQ-881) | built; master hash planned, REQ-881 |
+| Counts and hashes per table | Record counts (step 6, `scripts/pilot/qoimeks_compare.sh`), the quantity hash (step 7, `scripts/pilot/qoimeks_balances_compare.py`), the master data hash per table (step 8, `scripts/pilot/qoimeks_masters_compare.py`) | built |
 | Current balances equal | Step 7, `scripts/pilot/qoimeks_balances_compare.py` | built |
 | Check-only run first | `dry_run=true` before `atomic=true` (steps 3 and 5) | built |
-| Short write freeze | Step 8, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
-| ANALYZE after the load | Step 9, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
-| Rollback | Step 10, lift the Qoimeks freeze; the Letflow company is kept | this section |
+| Short write freeze | Step 9, the Qoimeks `MAINTENANCE_MODE`, switched by the Qoimeks team | this section |
+| ANALYZE after the load | Step 10, one `ANALYZE;` through `PSQL` after the opening documents are posted | this section |
+| Rollback | Step 11, lift the Qoimeks freeze; the Letflow company is kept | this section |
 | Outside working hours | The operator schedules the move outside Client 1's working hours | this section |
 | No real data leaves production | Work on a copy and a QA company only (D-050); output files stay outside the repository | this section |
 | Old copy kept 30 days | The Qoimeks copy and its extract are kept 30 days after the move | this section |

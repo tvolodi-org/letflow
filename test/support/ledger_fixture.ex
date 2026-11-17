@@ -270,6 +270,24 @@ defmodule Letflow.LedgerFixture do
 
   def pad(k), do: k ++ List.duplicate("", 8 - length(k))
 
+  @doc """
+  REQ-834: writes the tenant's negative balance setting of `registration_name` (the context
+  function of REQ-835 does not exist yet; no route): inserts or updates the one row.
+  """
+  @spec set_negative_balance!(String.t(), String.t(), boolean()) :: :ok
+  def set_negative_balance!(schema, registration_name, allow?) do
+    Repo.query!(
+      ~s|INSERT INTO "#{schema}".ledger_balance_settings (id, registration_name, allow_negative, changed_by, changed_at, reason, inserted_at, updated_at) VALUES ($1, $2, $3, $4, now(), 'test', now(), now()) ON CONFLICT (registration_name) DO UPDATE SET allow_negative = EXCLUDED.allow_negative, updated_at = now()|,
+      [Ecto.UUID.bingenerate(), registration_name, allow?, Ecto.UUID.bingenerate()]
+    )
+
+    :ok
+  end
+
+  @doc "The test registration declaring `negative_balance: :tenant_setting` (REQ-834)."
+  @spec settable_registration() :: map()
+  def settable_registration, do: Map.put(registration(), :negative_balance, :tenant_setting)
+
   @doc "The balance row of `k` as a map, or nil."
   def balance(schema, k) do
     [k1, k2, k3, k4, k5, k6, k7, k8] = pad(k)

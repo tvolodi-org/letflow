@@ -24,7 +24,8 @@ defmodule Letflow.Modules.LedgerRegistration do
         max_event_lateness_hours: 1..720,                         # absent reads as 96
         error_aliases: %{String.t() => String.t()},
         units: [String.t()],
-        posting_guard: {module(), atom()}}                        # REQ-764: nested module, arity 2
+        posting_guard: {module(), atom()},                        # REQ-764: nested module, arity 2
+        negative_balance: :refuse | :tenant_setting}              # REQ-834 (0090): absent reads as :refuse
 
   ## Errors
 
@@ -32,7 +33,8 @@ defmodule Letflow.Modules.LedgerRegistration do
   in sorted name order. One closed reason per check, in this order: `:shape` (slice-local: input
   that is not the shape above at all, so no arbitrary term can crash validation), `:instances_not_enabled`,
   `:ledger_id_form`, `:ledger_id_overlap`, `:slots`, `:causes`, `:key_bounds`, `:scope_slot`,
-  `:lateness`, `:units`, `:policy`, `:posting_guard`, `:permissions`, `:auditor_or_candidate_post`, `:error_aliases`.
+  `:lateness`, `:units`, `:policy`, `:posting_guard`, `:permissions`, `:auditor_or_candidate_post`, `:error_aliases`, `:invalid_negative_balance` (REQ-834,
+  decision 0090: the optional `:negative_balance` key holds anything but `:refuse` or `:tenant_setting`).
   A permission atom that is a core permission is refused earlier, by rule 3 of the catalog
   (`:core_permission_collision`), because every permission named here must be in the manifest's own
   `:permissions`. Slots being append-only against the installed registration is not checked here
@@ -52,7 +54,8 @@ defmodule Letflow.Modules.LedgerRegistration do
     :max_event_lateness_hours,
     :error_aliases,
     :units,
-    :posting_guard
+    :posting_guard,
+    :negative_balance
   ]
   @required_keys [:ledger_ids, :slots, :causes, :permissions, :policy]
 
@@ -80,6 +83,7 @@ defmodule Letflow.Modules.LedgerRegistration do
           | :permissions
           | :auditor_or_candidate_post
           | :error_aliases
+          | :invalid_negative_balance
 
   @doc """
   Validates the `:ledger` key of `manifest`. `known_manifests` includes the manifest itself
@@ -170,8 +174,9 @@ defmodule Letflow.Modules.LedgerRegistration do
          :ok <- check_policy(registration, entry_module),
          :ok <- check_posting_guard(registration, entry_module),
          :ok <- check_permissions(registration, manifest),
-         :ok <- check_auditor_or_candidate(registration, manifest) do
-      check_aliases(name, registration, ledger, manifest, known)
+         :ok <- check_auditor_or_candidate(registration, manifest),
+         :ok <- check_aliases(name, registration, ledger, manifest, known) do
+      check_negative_balance(registration)
     end
   end
 
@@ -383,6 +388,16 @@ defmodule Letflow.Modules.LedgerRegistration do
   end
 
   defp guard_ok(_guard, _entry_module), do: {:error, :posting_guard}
+
+  # REQ-834 (0090 section 1): `:refuse` (the default when the key is absent) or `:tenant_setting`,
+  # which makes the ledger follow the tenant's stored negative balance setting.
+  defp check_negative_balance(registration) do
+    case Map.fetch(registration, :negative_balance) do
+      :error -> :ok
+      {:ok, mode} when mode in [:refuse, :tenant_setting] -> :ok
+      {:ok, _other} -> {:error, :invalid_negative_balance}
+    end
+  end
 
   defp check_permissions(%{permissions: perms}, manifest)
        when is_map(perms) and not is_struct(perms) do

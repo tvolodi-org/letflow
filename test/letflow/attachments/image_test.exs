@@ -63,6 +63,22 @@ defmodule Letflow.Attachments.ImageTest do
       end
     end
 
+    @tag timeout: 20_000
+    test "I-M9 a 5 MiB run of fill bytes is refused in linear time" do
+      bytes = <<0xFF, 0xD8>> <> :binary.copy(<<0xFF>>, 5_242_878)
+      task = Task.async(fn -> Image.check(bytes, :original) end)
+
+      assert {:ok, {:error, :photo_malformed}} =
+               Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill)
+    end
+
+    test "I-M10 a short run of fill bytes before a marker is still accepted" do
+      <<soi::binary-size(2), rest::binary>> = Fx.jpeg()
+      bytes = soi <> :binary.copy(<<0xFF>>, 40) <> rest
+
+      assert {:ok, %{content_type: "image/jpeg"}} = Image.check(bytes, :original)
+    end
+
     test "garbage after a valid prefix does not raise" do
       for n <- 0..40 do
         bytes = binary_part(Fx.jpeg(meta: [:exif]), 0, n)

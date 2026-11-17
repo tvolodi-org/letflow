@@ -41,6 +41,14 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:card, "POST", "/cards/:id/retire", :idem, :call},
     {:card, "GET", "/cards/:id/lock", nil, :call},
     {:card, "GET", "/cards/:id/print", nil, :call},
+    {:card, "GET", "/cards/:id/photos", nil, :call},
+    {:card, "POST", "/cards/:id/photos", :empty, :call},
+    {:card, "GET", "/cards/:id/photos/:photo_id/original", nil, :none},
+    {:card, "GET", "/cards/:id/photos/:photo_id/thumbnail", nil, :none},
+    {:card, "PATCH", "/cards/:id/photos/:photo_id", :photo_caption, :none},
+    {:card, "POST", "/cards/:id/photos/:photo_id/main", :empty, :none},
+    {:card, "PUT", "/cards/:id/photos/order", :photo_order, :call},
+    {:card, "DELETE", "/cards/:id/photos/:photo_id", nil, :none},
     {:adoc, "PUT", "/documents/:id", :adoc_put, :call},
     {:adoc, "DELETE", "/documents/:id", nil, :call},
     {:adoc, "GET", "/documents/:id", nil, :call},
@@ -182,6 +190,12 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
       :card_patch ->
         %{"idempotency_key" => Ecto.UUID.generate(), "name" => "Hijack"}
+
+      :photo_order ->
+        %{"photo_ids" => []}
+
+      :photo_caption ->
+        %{"caption" => "x"}
 
       :adoc_put ->
         AD.body(ctx.mab)
@@ -478,7 +492,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
             {@stock, ctx.tok_sb, "/movements"},
             {@stock, ctx.tok_sb, "/reconcile"},
             {@stock, ctx.tok_sb, "/stock-card/print"},
-            {@stock, ctx.tok_sb, "/stock-sheet/print"}
+            {@stock, ctx.tok_sb, "/stock-sheet/print"},
+            {@stock, ctx.tok_sb, "/stock-workbook"}
           ],
           key <- ["tenant_id", "tenant", "prefix", "schema"] do
         value = if key == "tenant_id", do: ctx.aa.tenant_id, else: ctx.aa.schema_name
