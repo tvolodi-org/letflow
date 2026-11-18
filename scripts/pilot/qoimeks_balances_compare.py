@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""qoimeks_balances_compare.py -- RH-7: quantity per item and place, Letflow balances xlsx vs Qoimeks balances.csv. T-2024.
+"""qoimeks_balances_compare.py -- RH-7: quantity per item and place, Letflow balances vs Qoimeks balances.csv. T-2024.
 
-Read-only and offline: it opens two files, prints a report, writes nothing, opens no network connection and reads no secret.
+Read-only and offline: it opens files, prints a report, writes nothing, opens no network connection and reads no secret.
 Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 8).
 
   python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv balances.csv \\
       [--items items.csv] [--locations locations.csv] [--mapping map.json] [--keep-nonpositive]
+  python3 -I scripts/pilot/qoimeks_balances_compare.py --json-pages PAGES --csv balances.csv \\
+      [--items items.csv] [--locations locations.csv] [--mapping map.json] [--keep-nonpositive]
 
 --xlsx   the Letflow stock balances export (sheet "balances", columns sku, location, quantity; lots of one item and place are summed).
+--json-pages  a directory of every saved JSON page of GET /api/v1/modules/stock/balances, named page-001.json,
+              page-002.json, ... in cursor order. Every page but the last must have a non-null next_cursor; the last
+              must have next_cursor null, so a partial export is refused instead of reported as a partial difference.
 --csv    the Qoimeks extract (columns sku, loc, qty), the same one `qoimeks_convert.py convert` reads; --mapping as there.
 --items / --locations  optional extract files (sku, sku_name / loc_code, loc_name): only used to print names next to the codes.
 
@@ -16,7 +21,8 @@ Rows with a quantity of zero or below are left out on BOTH sides by default and 
 Duplicate (item, place) rows are summed on both sides.
 
 Output: one `DIFF <kind> <item> <place> csv=<q> xlsx=<q>` line per difference (kind: only_csv, only_xlsx, quantity), with
-names when given, then `HASH csv|xlsx <sha256>` and `ROWS csv|xlsx N`. The hash is over the sorted lines
+names when given, then `HASH csv|xlsx <sha256>` and `ROWS csv|xlsx N`. With --json-pages the Letflow side is labelled
+`letflow` instead of `xlsx` in DIFF, HASH, ROWS and LEFT_OUT lines. The hash is over the sorted lines
 `item TAB place TAB quantity` (quantity as a plain decimal with no trailing zeros, newline after each line).
 Exit codes: 0 no difference and equal hashes, 1 differences, 2 bad input.
 """
@@ -143,6 +149,48 @@ def xlsx_totals(path):
     return out
 
 
+# ---------------------------------------------------------------- paged JSON balances
+
+def json_pages_totals(path):
+    """Totals of one complete, filename-ordered cursor chain of balances JSON pages."""
+    directory = Path(path)
+    if not directory.is_dir():
+        fail("json-pages is not a directory")
+    pages = sorted(directory.glob("page-*.json"))
+    if not pages:
+        fail("no balance pages found (expected page-*.json)")
+    expected = ["page-%03d.json" % n for n in range(1, len(pages) + 1)]
+    if [page.name for page in pages] != expected:
+        fail("balance pages must be named page-001.json, page-002.json, ... without gaps")
+    out = {}
+    for page_no, page in enumerate(pages):
+        try:
+            data = json.loads(page.read_text(encoding="utf-8"), parse_float=Decimal)
+        except (OSError, ValueError):
+            fail("balance page is not readable JSON: %s" % page.name)
+        if not isinstance(data, dict) or not isinstance(data.get("rows"), list) or "next_cursor" not in data:
+            fail("balance page has no rows list and next_cursor: %s" % page.name)
+        cursor = data["next_cursor"]
+        if page_no < len(pages) - 1:
+            if not isinstance(cursor, str) or not cursor:
+                fail("incomplete balance page sequence before %s" % page.name)
+        elif cursor is not None:
+            fail("incomplete balance page sequence: last page has next_cursor")
+        for row_no, row in enumerate(data["rows"], 1):
+            where = "json page %s row %d" % (page.name, row_no)
+            if not isinstance(row, dict):
+                fail("%s: balance row is not an object" % where)
+            sku, loc = row.get("sku"), row.get("location")
+            if not isinstance(sku, str) or not isinstance(loc, str):
+                fail("%s: item or place is not text" % where)
+            sku, loc = sku.strip(), loc.strip()
+            if not sku or not loc:
+                fail("%s: item or place is empty" % where)
+            key = (sku, loc)
+            out[key] = out.get(key, Decimal(0)) + dec(row.get("quantity"), where)
+    return out
+
+
 # ---------------------------------------------------------------- csv
 
 def read_csv(path, mapping, needed):
@@ -195,7 +243,9 @@ def label(code, table):
 
 def main():
     ap = argparse.ArgumentParser(description="RH-7 balances compare")
-    ap.add_argument("--xlsx", required=True)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--xlsx")
+    source.add_argument("--json-pages")
     ap.add_argument("--csv", required=True)
     ap.add_argument("--items")
     ap.add_argument("--locations")
@@ -211,10 +261,12 @@ def main():
             fail("mapping is not readable JSON")
         if not isinstance(mapping, dict):
             fail("mapping must be a JSON object")
-    if not Path(a.xlsx).is_file():
+    if a.xlsx and not Path(a.xlsx).is_file():
         fail("missing xlsx file")
 
-    sides = {"csv": csv_totals(a.csv, mapping), "xlsx": xlsx_totals(a.xlsx)}
+    side = "xlsx" if a.xlsx else "letflow"
+    letflow = xlsx_totals(a.xlsx) if a.xlsx else json_pages_totals(a.json_pages)
+    sides = {"csv": csv_totals(a.csv, mapping), side: letflow}
     left_out = {}
     if not a.keep_nonpositive:
         for s in sides:
@@ -224,24 +276,24 @@ def main():
     loc_names = names(a.locations, mapping, "loc_code", "loc_name")
 
     diffs = []
-    for key in sorted(set(sides["csv"]) | set(sides["xlsx"])):
-        c, x = sides["csv"].get(key), sides["xlsx"].get(key)
+    for key in sorted(set(sides["csv"]) | set(sides[side])):
+        c, x = sides["csv"].get(key), sides[side].get(key)
         if c is not None and x is not None and c == x:
             continue
-        kind = "only_xlsx" if c is None else "only_csv" if x is None else "quantity"
-        diffs.append("DIFF %s %s %s csv=%s xlsx=%s" % (
+        kind = "only_" + side if c is None else "only_csv" if x is None else "quantity"
+        diffs.append("DIFF %s %s %s csv=%s %s=%s" % (
             kind, label(key[0], item_names), label(key[1], loc_names),
-            "-" if c is None else plain(c), "-" if x is None else plain(x)))
+            "-" if c is None else plain(c), side, "-" if x is None else plain(x)))
     for d in diffs:
         print(d)
     h = {s: digest(sides[s]) for s in sides}
-    for s in ("csv", "xlsx"):
+    for s in ("csv", side):
         print("ROWS %s %d" % (s, len(sides[s])))
         print("HASH %s %s" % (s, h[s]))
     for s, n in left_out.items():
         print("LEFT_OUT %s nonpositive %d" % (s, n))
-    print("RESULT %s" % ("equal" if not diffs and h["csv"] == h["xlsx"] else "different"))
-    sys.exit(0 if not diffs and h["csv"] == h["xlsx"] else 1)
+    print("RESULT %s" % ("equal" if not diffs and h["csv"] == h[side] else "different"))
+    sys.exit(0 if not diffs and h["csv"] == h[side] else 1)
 
 
 if __name__ == "__main__":
