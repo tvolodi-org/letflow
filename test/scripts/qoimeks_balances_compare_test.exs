@@ -6,7 +6,8 @@ defmodule Letflow.Scripts.QoimeksBalancesCompareTest do
   No database, no network.
 
   BC-1 equal, BC-2 quantity difference, BC-3 only on one side, BC-4 hash independent of row order and lot split,
-  BC-5 non-positive rows, BC-6 names, BC-7 bad input.
+  BC-5 non-positive rows, BC-6 names, BC-7 bad input, BC-8 a complete multi-page JSON export, BC-9 an incomplete
+  JSON page sequence.
   """
 
   use ExUnit.Case, async: true
@@ -45,10 +46,26 @@ defmodule Letflow.Scripts.QoimeksBalancesCompareTest do
     path
   end
 
+  defp json_page!(dir, rows, next_cursor, name) do
+    File.mkdir_p!(dir)
+
+    body = %{
+      "rows" =>
+        Enum.map(rows, fn {sku, loc, qty} ->
+          %{"sku" => sku, "location" => loc, "quantity" => qty}
+        end),
+      "next_cursor" => next_cursor
+    }
+
+    path = Path.join(dir, name)
+    File.write!(path, Jason.encode!(body))
+    path
+  end
+
   defp run(args), do: System.cmd("python3", ["-I", @script | args], stderr_to_stdout: true)
 
   defp hashes(out) do
-    for [_, side, h] <- Regex.scan(~r/^HASH (csv|xlsx) ([0-9a-f]{64})$/m, out),
+    for [_, side, h] <- Regex.scan(~r/^HASH (csv|xlsx|letflow) ([0-9a-f]{64})$/m, out),
         into: %{},
         do: {side, h}
   end
@@ -92,6 +109,38 @@ defmodule Letflow.Scripts.QoimeksBalancesCompareTest do
     # the hash is over the sorted lines "item TAB place TAB quantity"
     expected = :crypto.hash(:sha256, "001\tA\t10\n002\tB\t2\n") |> Base.encode16(case: :lower)
     assert %{"csv" => ^expected, "xlsx" => ^expected} = hashes(out)
+  end
+
+  test "BC-8 all rows of two JSON pages equal the same 60-row CSV", %{dir: d} do
+    rows = for n <- 1..60, do: {"SKU-#{n}", "LOC-A", "#{n}.25"}
+    {first, second} = Enum.split(rows, 50)
+    pages = Path.join(d, "pages")
+    json_page!(pages, first, "page-2", "page-001.json")
+    json_page!(pages, second, nil, "page-002.json")
+    c = csv!(d, for({sku, loc, qty} <- rows, do: "#{sku},#{loc},#{qty},"))
+
+    assert {out, 0} = run(["--json-pages", pages, "--csv", c])
+    refute out =~ "DIFF"
+    assert out =~ "ROWS csv 60"
+    assert out =~ "ROWS letflow 60"
+    assert out =~ "RESULT equal"
+    assert %{"csv" => h, "letflow" => h2} = hashes(out)
+    assert h == h2
+  end
+
+  test "BC-9 a saved page with a next cursor is refused as an incomplete export", %{dir: d} do
+    pages = Path.join(d, "pages")
+    json_page!(pages, [{"001", "A", "1"}], "page-2", "page-001.json")
+    c = csv!(d, ["001,A,1,"])
+
+    assert {out, 2} = run(["--json-pages", pages, "--csv", c])
+    assert out =~ "incomplete"
+    refute out =~ "Traceback"
+
+    json_page!(pages, [{"003", "C", "3"}], nil, "page-003.json")
+    assert {out, 2} = run(["--json-pages", pages, "--csv", c])
+    assert out =~ "without gaps"
+    refute out =~ "Traceback"
   end
 
   test "BC-5 zero and negative rows are left out on both sides and counted; kept with the flag",

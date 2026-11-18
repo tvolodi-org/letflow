@@ -97,14 +97,13 @@ empty, so it is created together with its first real balance (below).
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
    For a scripted run, take the credentials from the env file of the QA actor in the team root; never print it.
 
-8. **Compare quantities (RH-7)**: `GET /api/v1/modules/stock/balances` is cursor-paged, and its xlsx export contains
-   only the first page (50 rows), never the whole balance list. Read every page: call the balances route, then call
-   `GET /api/v1/modules/stock/balances?cursor=<next_cursor>` while the previous response's `next_cursor` is not
-   `null`, and merge the rows of every page before comparing. The synthetic run had 13 pages for 603 rows; the real
-   Client 1 run had 3 pages for 589 rows. For the compare tool, export those same pages with `format=xlsx`, following
-   the same cursor chain, and merge the data rows of every page's `balances` sheet under one header into
-   `stock-balances.xlsx` (sheet `balances`); do not compare the single first-page export. Then run
-   `python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
+8. **Compare quantities (RH-7)**: `GET /api/v1/modules/stock/balances` is cursor-paged and its xlsx export contains only the first page
+   (50 rows), never the whole balance list (the synthetic run had 13 pages for 603 rows, the real Client 1 run 3 pages for 589 rows).
+   For the full comparison read every page and let the tool merge them: save the JSON response of
+   `GET /api/v1/modules/stock/balances` as `PAGES/page-001.json`, then request `cursor=<next_cursor>` with the same filters and save each
+   following page as `page-002.json`, `page-003.json`, ... until `next_cursor` is null. Run
+   `python3 -I scripts/pilot/qoimeks_balances_compare.py --json-pages PAGES --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
+   The tool refuses an incomplete or gapped page sequence. For a one-page export only, `--xlsx stock-balances.xlsx` remains available.
    It prints one `DIFF` line per item and place that differs (with names), `ROWS` and one sha256 `HASH` per side over the sorted
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
    Rows with quantity zero or below are left out on both sides (counted in `LEFT_OUT`); `--keep-nonpositive` compares them too.
