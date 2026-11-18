@@ -14,6 +14,8 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Field } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
+import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
+import { classifyError } from '@/utils/classifyError'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockQueryKeys } from '../register/stockQueryKeys'
@@ -90,6 +92,14 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
     queryFn: () => workbookApi.imports(),
     retry: false,
   })
+
+  const importsRendererState = harness
+    ? 'success'
+    : importsQuery.isPending
+      ? 'loading'
+      : importsQuery.isError
+        ? classifyError(importsQuery.error)
+        : 'success'
 
   /** True when the current form state matches the last successful check: load is eligible. */
   const isChecked =
@@ -411,14 +421,19 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
 
       <section aria-label={t('stock.wb.loads.title')} data-testid="wb-loads-section">
         <h2>{t('stock.wb.loads.title')}</h2>
-        <DataTable
-          columns={loadColumns}
-          data={importRows}
-          isLoading={importsQuery.isPending && !harness}
-          emptyMessage={t('stock.wb.loads.empty')}
-          getRowId={(r) => r.document_id}
-          labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-        />
+        <QueryStateBoundary
+          state={importsRendererState}
+          onRetry={() => void importsQuery.refetch()}
+        >
+          <DataTable
+            columns={loadColumns}
+            data={importRows}
+            isLoading={false}
+            emptyMessage={t('stock.wb.loads.empty')}
+            getRowId={(r) => r.document_id}
+            labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+          />
+        </QueryStateBoundary>
       </section>
 
       {cancelDialog !== null && (
