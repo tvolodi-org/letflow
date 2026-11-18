@@ -111,7 +111,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Step 4 shows the title "Движения" and filter labels "Позиция", "Местонахождение", "Подразделение";
+        Step 4 shows the title "Движения" and filter labels "Позиция", "Место хранения", "Подразделение";
         no English text is visible in those elements.
       evidence: Screenshot of step 4.
     on_fail:
@@ -123,7 +123,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Step 5 shows the title "Қозғалыстар" and filter labels "Позиция", "Орналасу жері", "Бөлімше";
+        Step 5 shows the title "Қозғалыстар" and filter labels "Позиция", "Сақтау орны", "Бөлімше";
         no English or Russian text is visible in those elements.
       evidence: Screenshot of step 5.
     on_fail:
