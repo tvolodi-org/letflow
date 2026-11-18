@@ -91,3 +91,44 @@ App env `:stock_workbook_import_max_rows` and `:stock_workbook_import_max_change
 `Letflow.Modules.Stock.StockWorkbookImport` (`parse/1` pure, `check/3`); the bytes are read only through
 `Letflow.Entities.XlsxImport.read_text_rows/1` (bounded inflate, no DOCTYPE; one parse); the body is taken by
 `Letflow.Plugs.XlsxBodyParser`; the route is in `Letflow.Modules.Stock.Router`.
+
+## Load (REQ-885)
+
+The load creates a `stock_quick_count` document and starts the approval process. The check's rules
+run again inside the transaction before anything is written.
+
+### Route
+
+`POST /api/v1/modules/stock/stock-workbook/apply?org_unit_id=<id>[&file_name=<text>]`
+
+- Body: same media type and body parser as the check; 2 MiB at most.
+- Permission `StockQuickCount` (held by TENANT_ADMIN and PLATFORM_ADMIN as of REQ-854; STOREKEEPER does not hold it); tenant-wide readers only (a scoped reader gets 404).
+- `file_name`: optional, 1 to 255 characters, default `workbook.xlsx`.
+- `org_unit_id` and format errors: same as the check.
+- 409 `definition_not_active` if the `stock_quick_count` process definition is not active.
+- 422 `too_many_changes`: the file has more than 1 000 differences; nothing written.
+- 422 `count_in_progress` with `held_by` the order number: a count order whose scope covers a
+  key in the file is opened; nothing written.
+- 200 `applied: false, changes: 0, remarks: [...]`: the file equals the stock; nothing written.
+- 201 `document_id, number, lines, remarks, approve_task_id`: document created and issued.
+
+### After load
+
+The document is an issued `stock_quick_count` (kind `quick_count`, prefix `QCT`). Its header
+keeps the quick count schema (`org_unit_id`, `reason_code: "other"`, `reason_text: "Записать
+остатки из файла"`). The version content carries `workbook_ext` with `source: "workbook"`,
+`file_name`, `sheet`, `rows_read` and `remarks_count`; read it with `GET /documents/:id`.
+
+**Difference from `POST /quick-counts`.** The load does not run the REQ-854 location-link check
+(`not_linked`): a changed key at a place that is not linked to the org unit is not refused, and
+posting does not re-check the link. The load writes only what the REQ-884 check finds, and that
+check does not test the link either.
+
+**Four eyes ON (default).** The loader's own completion of the approve task is refused
+`separation_of_duties`; a second user completes it. After approval the ledger receives one entry
+of cause `count_set` with one leg per change. If a balance changed between the load and the
+approval, the whole entry is refused `quick_count_stale`; the task stays pending. The user
+cancels the import (see REQ-886) and re-checks.
+
+**Four eyes OFF.** When the tenant has the `stock_quick_count / approve` approval rule set to
+`four_eyes: false`, the loader can complete the approve task alone.
