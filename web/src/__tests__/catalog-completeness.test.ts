@@ -81,6 +81,11 @@ import {
   qcRu,
   qcKk,
 } from '@/modules/stock/quickCount/quickCountMessages'
+import {
+  wbEn,
+  wbRu,
+  wbKk,
+} from '@/modules/stock/workbook/workbookMessages'
 import { linesMessages } from '@/components/ui/lines/linesMessages'
 import {
   documentsEn as assetsDocEn,
@@ -309,6 +314,12 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'stock.qc:stock.qc.item': 'item: Казах screens already write позиция in running text',
   'stock.qc:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'stock.qc:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
+  'stock:stock.wb.col.article': 'артикул: loanword, same spelling in Kazakh',
+  'stock:stock.wb.col.file': 'файл: loanword, same spelling in Kazakh',
+  'stock:stock.wb.loads.col.file': 'файл: loanword, same spelling in Kazakh',
+  'stock.wb:stock.wb.col.article': 'артикул: loanword, same spelling in Kazakh',
+  'stock.wb:stock.wb.col.file': 'файл: loanword, same spelling in Kazakh',
+  'stock.wb:stock.wb.loads.col.file': 'файл: loanword, same spelling in Kazakh',
   'stock:stock.doc.field.counterparty': 'loanword, same spelling in Kazakh',
   'stock:stock.filter.lot':
     'lot: Kazakh screens already write Партия/Партиялар',
@@ -478,6 +489,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('stock.qc', fromSplit(qcEn, qcRu, qcKk))
   })
 
+  it('workbookMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('stock.wb', fromSplit(wbEn, wbRu, wbKk))
+  })
+
   // --- structured catalogs (TypeScript interface guarantees key presence; check empty values) ---
 
   it('formMessages (structured): no empty values in any locale', () => {
@@ -583,6 +598,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['assets.documents', fromSplit(assetsDocEn, assetsDocRu, assetsDocKk)],
       ['stock.forms', fromSplit(formEn, formRu, formKk)],
       ['stock.qc', fromSplit(qcEn, qcRu, qcKk)],
+      ['stock.wb', fromSplit(wbEn, wbRu, wbKk)],
       ['formMessages', formMessages],
       ['layoutMessages', layoutMessages],
       ['nav', navMessages],

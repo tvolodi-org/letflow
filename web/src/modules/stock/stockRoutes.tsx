@@ -10,6 +10,7 @@ import CountsPage from './counts/CountsPage'
 import StockHelpPage from './help/StockHelpPage'
 import QuickCountPage from './quickCount/QuickCountPage'
 import { STOCK_QUICK_COUNT, STOCK_READ } from './stockPermissions'
+import WorkbookImportPage from './workbook/WorkbookImportPage'
 
 export const stockRouteObjects: RouteObject[] = [
   {
@@ -66,6 +67,14 @@ export const stockRouteObjects: RouteObject[] = [
     element: (
       <RequirePermission permission={STOCK_QUICK_COUNT}>
         <QuickCountPage />
+      </RequirePermission>
+    ),
+  },
+  {
+    path: 'admin/stock/workbook-import',
+    element: (
+      <RequirePermission permission={STOCK_QUICK_COUNT}>
+        <WorkbookImportPage />
       </RequirePermission>
     ),
   },
