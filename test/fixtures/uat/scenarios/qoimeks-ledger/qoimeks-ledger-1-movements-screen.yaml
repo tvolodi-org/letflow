@@ -1,0 +1,144 @@
+# T-2168 (BA): Qoimeks QA walk, ledger effects L6 and L7: movement history screen. QA only, SYNTHETIC data, never the real tenant, no production.
+# REQ ids covered: REQ-830 (posting scope: the authority check accepts the TENANT_ADMIN's tenant-wide grant on the existing openings),
+#   REQ-831 (stock document routes accept the full-access admin for the read path StockRead).
+# Sources opened: docs/requirements.yaml REQ-830, REQ-831; web/src/modules/stock/stockMessages.ts (screen title "Movements" / "Движения" / "Қозғалыстар";
+#   filters; empty-state "No movements found." / "Движений не найдено." / "Қозғалыс табылмады.");
+#   web/src/modules/stock/stockRoutes.tsx (route admin/stock/movements, permission StockRead);
+#   web/src/components/layout/navMessages.ts (nav entry "Movements" / "Движения" / "Қозғалыстар").
+# Not UAT-observable here, with reasons:
+#   (a) L6 scope_denied path (a storekeeper with limited org-unit access refused for an out-of-scope leg): the roster has no scoped STOREKEEPER actor
+#       for qoimeks-qa; the check is covered by REQ-830 backend tests.
+#   (b) The xlsx download of movements: tested in qoimeks-ledger-2 alongside the actual post outcome.
+# This scenario is read-only: it creates nothing and changes nothing.
+---
+id: qoimeks-ledger-1-movements-screen
+scope: qoimeks-ledger
+title: The Qoimeks QA administrator opens the Movements screen, sees the opening balance postings and their filters, in Russian and Kazakh and on a phone
+version: "1.0"
+tags: [qoimeks, ledger, movements, L6, desktop, phone_390, ru, kk]
+
+description: >
+  The tenant has 603 posted opening balances. Each posting wrote one entry into the movement ledger,
+  so the Movements screen holds at least 603 entries.
+  The administrator opens the Movements screen, checks that entries appear, notes the first entry and uses
+  the item and location filters to narrow the list. The same is then checked in Russian ("Движения"),
+  in Kazakh ("Қозғалыстар") and on a 390 px wide window.
+  This scenario is read-only: it creates nothing and changes nothing, so there is nothing to clean up.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The stock module is active on the tenant; the administrator holds StockRead through TENANT_ADMIN and may open the Movements screen.
+    check: system_seeded
+    detail: If the stock nav entry is absent, report BLOCKED.
+  - description: The 603 opening balances are posted and each left one ledger entry visible in the Movements screen.
+    check: system_seeded
+    detail: >
+      If fewer than 603 entries appear without any filter and the Balances screen also shows fewer than 603 rows,
+      report BLOCKED and quote both counts. If only the Movements screen is sparse (balances are correct), report BLOCKED
+      for movement steps only.
+  - description: The run can drive a real browser at 390 px width and screenshot it.
+    check: system_seeded
+    detail: If the width cannot be set, report BLOCKED for step 5 only; walk the desktop steps first.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the Movements screen in English at desktop width (1440 px).
+      The administrator notes the total number of rows shown without any filter as N1,
+      and notes the first row's item code, location and cause.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator enters the item code from step 1 in the item filter. The number of rows is noted as N2.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator adds the location from step 1 to the item filter. The number of rows is noted as N3.
+      The administrator then clears both filters.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator switches the language to Russian and reads the Movements screen title and the filter labels.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator switches the language to Kazakh and reads the Movements screen title and the filter labels.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      At 390 px width the administrator opens the Movements screen in Kazakh and reads whether
+      rows and filter controls are visible and reachable without sideways scrolling.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator switches the language back to English.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The Movements screen in English shows the opening balance postings.
+    verification:
+      method: gui_screen
+      detail: >
+        N1 is at least 603; the first row shows an item code, a location and a cause related to
+        the stock opening; no error banner or empty-state message is shown.
+      evidence: Screenshot of step 1 (1440 px, English).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot see the posted movement history; stock audit is impossible.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The item filter narrows the list; adding the location narrows it further.
+    verification:
+      method: gui_screen
+      detail: N2 is less than N1 and greater than zero; N3 is at most N2; clearing all filters restores the full list.
+      evidence: Screenshots of steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot search the movement history by item or location.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The Movements screen title and filter labels are in Russian.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the title "Движения" and filter labels "Позиция", "Местонахождение", "Подразделение";
+        no English text is visible in those elements.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Russian-speaking operators see English labels on the movement history screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The Movements screen title and filter labels are in Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5 shows the title "Қозғалыстар" and filter labels "Позиция", "Орналасу жері", "Бөлімше";
+        no English or Russian text is visible in those elements.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Kazakh-speaking operators see non-Kazakh labels on the movement history screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: At 390 px width the Movements screen is usable in Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows rows and filter controls visible without a horizontal scroll bar; nothing is cut at the right
+        edge; the filter area is reachable through the navigation menu if collapsed.
+      evidence: Screenshot of step 6 at 390 px width.
+    on_fail:
+      severity: MAJOR
+      business_impact: Administrators on a phone cannot read the movement history.
+      suggested_action: route_to_frontend_dev
