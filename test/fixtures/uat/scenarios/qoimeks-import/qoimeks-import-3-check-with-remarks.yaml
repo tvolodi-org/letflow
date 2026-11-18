@@ -1,0 +1,107 @@
+# T-2158 (BA): UAT walk for balance import and Excel load on the Qoimeks QA tenant.
+# REQ-884 (GH #4607): module stock checks a Qoimeks-layout balances workbook, with Russian per-row warnings.
+# Sources:
+#   docs/runbooks/stock-workbook-import.md (remark R8: артикул не найден; remark R11: look-alike letter; normalising rules)
+#   web/src/modules/stock/workbook/workbookMessages.ts (stock.wb.result.remarks, stock.wb.result.remarksHint)
+#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin: TENANT_ADMIN)
+# Remark R8 text (from runbook): "<a>: артикул не найден, строка пропущена"
+# Remark R11 text (from runbook): "<a>: место \"<zone>\" \"<rack>\" <shelf> прочитано как <code>"
+# Note: remark texts from the server are always Russian, regardless of UI locale.
+# Runner preparation (uat-wb-remarks.xlsx):
+#   Create a minimal .xlsx file with two rows:
+#     Row 1 (header): cell A1 = "Артикул" (this is the required header)
+#     Row 2 (data):   A2 = "UAT-TEST-REMARKS-001", B2 = "Test item for UAT", C2 = "5",
+#                     D2 = Cyrillic "К" (U+041A, looks like Latin K), E2 = Cyrillic "А" (U+0410),
+#                     F2 = "1"
+#   The article "UAT-TEST-REMARKS-001" does not exist in the QA catalog, so the server will produce
+#   remark R8: "UAT-TEST-REMARKS-001: артикул не найден, строка пропущена"
+#   (R8 fires before R11 since the article is not found; R11 would fire if the article were known.)
+#   This file has 0 changes (the unknown article is skipped) and 1 remark in Russian.
+#   UAT assumption, to be confirmed by the process owner: the article code "UAT-TEST-REMARKS-001"
+#   does not appear in the Qoimeks QA tenant's catalog.
+---
+id: qoimeks-import-3-check-with-remarks
+scope: qoimeks-qa
+title: The administrator checks a workbook that has an unknown article code and sees the Russian remark that names the article and says the row is skipped
+version: "1.0"
+tags: [qoimeks, import, check, remarks, ru, desktop]
+
+description: >
+  On a 1440 px desktop window in Russian, the administrator uploads a minimal test workbook
+  (uat-wb-remarks.xlsx, prepared as described in the preparation section above) for any org unit.
+  The workbook contains one data row with an unknown article code and Cyrillic look-alike letters
+  in the zone and rack columns. The check finds the article is not in the catalog and produces
+  one remark in Russian: the remark text includes the article code, the word "артикул не найден"
+  and "строка пропущена". The changes table is empty (0 changes) because the skipped article
+  contributes no balance target. The remarks section shows the hint that remarks are always in Russian.
+  This scenario writes nothing.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The Qoimeks QA tenant is reachable and the administrator's credentials are available.
+    check: system_seeded
+    detail: If the tenant is not reachable or credentials are missing, report BLOCKED for the whole scenario.
+  - description: The run can drive a real browser at a window width of 1440 px in Russian.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+  - description: >
+      The UAT runner has prepared uat-wb-remarks.xlsx as described in the preparation section above
+      (a two-row xlsx with header "Артикул" and one data row with article "UAT-TEST-REMARKS-001").
+    check: runner_prepared
+    detail: If the file cannot be prepared, report BLOCKED for steps 2 and 3.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address
+      (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 1440 px wide and switches the
+      UI language to Russian.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the "Загрузка остатков из Excel" screen (via the Balances screen button),
+      selects any org unit with balances, uploads uat-wb-remarks.xlsx and presses "Проверить".
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the remarks section and the changes section of the check result.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The check result shows 1 remark in Russian naming the unknown article code.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 2, the check summary shows 1 row read, 0 changes and 1 remark. The "Замечания"
+        (remarks) section is expanded and shows one entry with text
+        "UAT-TEST-REMARKS-001: артикул не найден, строка пропущена" (the row number prefix
+        "строка N: " is also shown before the article code). The changes section shows "В файле нет
+        отличий от текущих остатков." The "Записать остатки из файла" button is not enabled.
+      evidence: Screenshot showing the remark text and the 0-changes message.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Russian-language remarks about data issues in the file are not shown. Bookkeepers cannot
+        tell which rows were skipped and why, so they cannot correct their file before loading.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The remarks hint tells the user that remarks are always written in Russian.
+    verification:
+      method: gui_screen
+      detail: >
+        The remarks section heading or hint text reads "Замечания описывают ошибки в файле и его данных."
+        (even though the UI is in Russian, this confirms the message is present).
+      evidence: Screenshot of the remarks hint text.
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        Bookkeepers who work in a language other than Russian are not told that the remark texts
+        are always in Russian, which may cause confusion when the UI is set to Kazakh.
+      suggested_action: route_to_frontend_dev

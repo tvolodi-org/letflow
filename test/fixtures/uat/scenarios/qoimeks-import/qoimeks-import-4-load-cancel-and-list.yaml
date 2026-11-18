@@ -1,0 +1,181 @@
+# T-2158 (BA): UAT walk for balance import and Excel load on the Qoimeks QA tenant.
+# REQ-884 (GH #4607): module stock checks a Qoimeks-layout balances workbook.
+# REQ-885 (GH #4606): module stock loads a checked balances workbook, creates a quick_count document.
+# REQ-886 (GH #4605): module stock lists the balances workbook loads and cancels one.
+# REQ-887 (GH #4604): web screen 'Загрузка остатков из Excel'.
+# Sources:
+#   docs/runbooks/stock-workbook-import.md (load route POST /stock-workbook/apply, cancel route,
+#     list route GET /stock-workbook/imports, states: issued/cancelled, cancel-before-approval answer)
+#   web/src/modules/stock/workbook/workbookMessages.ts (en: load.success, loads.state.issued,
+#     loads.state.cancelled, cancel.cancelled, err.import_already_cancelled)
+#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin: TENANT_ADMIN; holds StockQuickCount and StockReverse)
+# Cleanup: this scenario cancels the load before approval, so no balance changes and no cleanup is needed.
+#   The quick_count document created is left in state "cancelled".
+# Runner preparation (uat-wb-one-change.xlsx):
+#   Take uat-wb-exact.xlsx from scenario 1 (exact-match workbook for one org unit), open it in a
+#   spreadsheet application (Excel, LibreOffice Calc, etc.), change exactly one balance quantity by
+#   adding 1 to it, and save as uat-wb-one-change.xlsx. Note: the item and place whose quantity was
+#   changed are called "the test item" and "the test place" in this scenario.
+---
+id: qoimeks-import-4-load-cancel-and-list
+scope: qoimeks-qa
+title: The administrator loads a workbook with one change, sees the import in the list, cancels it before approval, then tries to cancel the same import again and is refused
+version: "1.0"
+tags: [qoimeks, import, load, cancel, list, desktop, en]
+
+description: >
+  On a 1440 px desktop window in English, the administrator checks the one-change workbook
+  (uat-wb-one-change.xlsx), sees one change in the result, then loads it. The screen shows the
+  document number and a link to the document. The "Previous loads" section at the bottom of the
+  screen lists this load with state "Issued". The administrator opens the cancel dialog, provides
+  a reason and cancels the load. The list updates to state "Cancelled" and balances are unchanged.
+  The administrator then tries to cancel the same load a second time: the screen shows the error
+  "This load is already cancelled." and no second cancellation is started.
+  Cleanup: the load is cancelled before approval, so no balance changes and no document is left pending.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The Qoimeks QA tenant is reachable, the stock module is active, and the administrator's
+      credentials are available.
+    check: system_seeded
+    detail: If the tenant is not reachable or credentials are missing, report BLOCKED.
+  - description: The run can drive a real browser at a window width of 1440 px.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED.
+  - description: >
+      The UAT runner has prepared uat-wb-one-change.xlsx as described in the preparation section above
+      (uat-wb-exact.xlsx with exactly one quantity changed by 1). Note the org unit and the item
+      and place whose quantity was changed.
+    check: runner_prepared
+    detail: If the file cannot be prepared, report BLOCKED for steps 2 to 5.
+  - description: >
+      No count order is currently open for the org unit used in this scenario. If one is open,
+      the load will be refused with a "count in progress" error; complete or cancel it first.
+    check: runner_prepared
+    detail: If a count order is open and cannot be closed, report BLOCKED for step 3.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address
+      (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 1440 px wide, in English.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the "Load balances from Excel" screen, selects the same org unit
+      used when preparing uat-wb-one-change.xlsx, uploads the file and presses "Check". They
+      read the check result showing 1 change.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator presses "Write balances from the file" to load the workbook.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator scrolls to the "Previous loads" section at the bottom of the import screen
+      and reads the list entry for the load they just created.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator clicks the "Cancel" button for the new load in the list, enters the reason
+      "UAT test cancel" in the dialog and confirms.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator reads the updated list entry for the same load.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator looks at the cancelled load entry in the list to see whether a "Cancel"
+      button is still available for it.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The check result shows exactly 1 change and the load button is enabled.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 2, the check summary shows 1 under "Changed" and 0 under "Remarks". The
+        changes table shows one row for the test item at the test place with the book quantity,
+        the file quantity (book + 1) and the difference (+1 or the signed value). The "Write
+        balances from the file" button is enabled.
+      evidence: Screenshot of the check result panel showing the single change row.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The check does not detect a known one-unit difference. Bookkeepers cannot trust the check
+        to identify what the load will change before they commit to it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The load creates a document and shows its number with a link to it.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 3, the screen shows the message "The load is recorded as document {number}.
+        The balances will change after the document is approved." with a link "Open document"
+        and the document number starting with "QCT" (the quick-count prefix). The "Write balances
+        from the file" button is no longer active.
+      evidence: Screenshot of the load success message with the document number.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Loading a workbook does not create a document. Bookkeepers cannot apply file balances to the stock.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The import list shows the new load with state "Issued".
+    verification:
+      method: gui_screen
+      detail: >
+        After step 4, the "Previous loads" section lists the new load with the document number,
+        the administrator's name, the file name "uat-wb-one-change.xlsx", the lines count 1
+        (one changed row), 0 remarks and state "Issued". A "Cancel" button is shown for this row.
+      evidence: Screenshot of the imports list showing the new entry in state Issued.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The load list does not show the pending import. Bookkeepers cannot track which imports are
+        waiting for approval or cancel an erroneous one.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Cancelling the load before approval changes its state to "Cancelled" and leaves balances unchanged.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 5, the screen shows "The load is cancelled." The load entry in the list
+        now shows state "Cancelled" and the "Cancel" button is no longer shown for it.
+        The stock balances for the test item at the test place remain at their original value
+        (the same as before step 3), which the runner may verify by opening the balances screen.
+      evidence: Screenshot of the imports list with the entry in state Cancelled.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A bookkeeper cannot cancel an erroneous load before it is approved. The document would
+        proceed to approval and change the wrong balances.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The Cancel action is not available for a cancelled load; the UI refuses it at the control level.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 7, the "Cancel" button is absent from the cancelled load entry in the list.
+        The business action of cancelling an already-cancelled load is refused at the UI level
+        (the button is not shown; no cancel dialog opens). The load state remains "Cancelled".
+      evidence: Screenshot of the imports list showing the cancelled entry without a Cancel button.
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The Cancel button is shown for already-cancelled loads, which could mislead bookkeepers
+        into thinking they need to cancel a load that is already in a final state.
+      suggested_action: route_to_frontend_dev

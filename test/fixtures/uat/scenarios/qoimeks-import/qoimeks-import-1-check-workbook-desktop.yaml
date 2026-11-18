@@ -1,0 +1,137 @@
+# T-2158 (BA): UAT walk for balance import and Excel load on the Qoimeks QA tenant.
+# REQ-884 (GH #4607): module stock checks a Qoimeks-layout balances workbook against the stock of one org unit,
+#   normalising look-alike letters and decimal commas, with Russian per-row warnings, and writes nothing.
+# REQ-887 (GH #4604): web screen 'Загрузка остатков из Excel' — check a workbook, show remarks and differences,
+#   write the balances from the file, list the loads and cancel one, in English, Russian and Kazakh.
+# Sources:
+#   docs/runbooks/stock-workbook-import.md (route, layout, normalising rules, remark list R1..R11)
+#   web/src/modules/stock/workbook/workbookMessages.ts (en/ru/kk screen texts)
+#   web/src/modules/stock/workbook/WorkbookImportPage.tsx (route: admin/stock/workbook-import, guard: StockQuickCount)
+#   web/src/modules/stock/register/BalancesPage.tsx (button to workbook-import for holders of StockQuickCount)
+#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin: TENANT_ADMIN; TENANT_ADMIN holds StockQuickCount per REQ-854)
+# NOT UAT-observable here: (a) normalising of Cyrillic look-alike letters (Russian remarks R11): covered in scenario 3;
+#   (b) the load write path and document creation: covered in scenarios 4 and 5;
+#   (c) a caller without StockQuickCount navigating to the import screen: the roster has no second actor for this realm.
+# Runner preparation: download the balances workbook for one org unit via the API
+#   GET https://qoimeks-qa.letflow.qa.bizdala.com/api/v1/modules/stock/stock-workbook?org_unit_id=<id>
+#   with the TENANT_ADMIN token, and save as uat-wb-exact.xlsx. This file matches the current stock exactly
+#   (the check will return 0 changes). The org_unit_id can be found by opening admin/stock/balances and
+#   noting any org unit that shows balances; its id is in the URL or the API response.
+---
+id: qoimeks-import-1-check-workbook-desktop
+scope: qoimeks-qa
+title: The administrator checks the balances workbook on a desktop width, sees no changes for an exact-match file, and is refused when uploading a non-Excel file
+version: "1.0"
+tags: [qoimeks, import, check, desktop, en]
+
+description: >
+  On a 1440 px desktop window in English, the administrator navigates from the stock Balances screen
+  to the "Load balances from Excel" page. They choose an org unit, upload the xlsx workbook of that
+  org unit's current balances (uat-wb-exact.xlsx, downloaded as described in the preparation section
+  above) and press Check. The result shows the sheet name, the number of rows read, 0 changed rows
+  (the file exactly matches the book) and 0 remarks. The "Write balances from the file" button is
+  not enabled because there is nothing to change. The administrator then tries to drop a plain-text
+  file into the file drop zone: the screen refuses it immediately with the message "Only .xlsx files
+  are accepted" without sending any request to the server.
+  This scenario writes nothing: no document, no ledger entry and no audit entry.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The Qoimeks QA tenant exists, the stock module is active, and the synthetic data is loaded
+      (142 places, 666 items, at least one org unit with balances). The administrator's credentials
+      are available through the UAT credential source.
+    check: system_seeded
+    detail: If the tenant is not reachable or credentials are missing, report BLOCKED for the whole scenario.
+  - description: The run can drive a real browser at a window width of 1440 px.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+  - description: >
+      The UAT runner has downloaded the exact-match balances workbook for one org unit
+      (see the preparation section above) and saved it as uat-wb-exact.xlsx. Any org unit
+      with existing balances works; note the org unit name used for step 3.
+    check: runner_prepared
+    detail: >
+      If the download fails or no org unit has balances, report BLOCKED for steps 3 and 4
+      and note which condition was not met.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address
+      (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 1440 px wide, in English.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the stock Balances screen from the side navigation and finds
+      the "Load balances from Excel" button in the page header.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator clicks "Load balances from Excel" and arrives on the import screen.
+      They select the org unit whose workbook they downloaded, upload the file uat-wb-exact.xlsx
+      using the file drop zone, and press the "Check" button.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator reads the check result shown on the import screen.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator removes the uploaded file by choosing a new file: they drag a plain-text
+      file (for example a .txt file) into the drop zone.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The import screen opens with its English title and an org-unit selector.
+    verification:
+      method: page_state
+      detail: >
+        After step 2 the browser navigates to admin/stock/workbook-import. The heading reads
+        "Load balances from Excel" and an org-unit selector is shown; no error banner is present.
+        The "Check" button is present but the file drop zone shows no file yet.
+      evidence: Screenshot of the import screen before uploading.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Bookkeepers cannot reach the Excel import screen and have no way to load balances from their file.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The check result shows 0 changes and 0 remarks for the exact-match workbook.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 3, the check summary section shows the sheet name, a rows-read count matching
+        the number of balance rows in the file, 0 under "Changed", 0 under "Remarks", and the
+        message "No balance differs from the file." The "Write balances from the file" button is
+        disabled (there is nothing to apply).
+      evidence: Screenshot of the check result panel showing the summary counts and the no-change message.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The check shows phantom differences for a file that already matches the book. Bookkeepers
+        would see spurious change lists, raise unnecessary corrections and lose confidence in the tool.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Uploading a non-xlsx file is refused immediately on the client side.
+    verification:
+      method: gui_screen
+      detail: >
+        In step 5, the screen shows the message "Only .xlsx files are accepted" at once after
+        the file is dragged in, without navigating away and without a loading spinner. The file
+        is not shown as selected and no server request is sent.
+      evidence: Screenshot of the error message in the drop zone.
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The screen sends an unusable file to the server and shows a less clear error. Bookkeepers
+        may be confused when uploading the wrong file format by accident.
+      suggested_action: route_to_frontend_dev
