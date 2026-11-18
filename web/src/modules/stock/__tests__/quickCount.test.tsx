@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** REQ-855: quick count screen — C1 nav guard, C2 core flow (item search/scan, exact difference), C3 validation,
- *  C4 error codes in en/ru/kk, C5 four-eyes, C6 reference. */
+ *  C4 error codes in en/ru/kk, C5 four-eyes, C6 reference, C7 field widths. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -585,6 +585,25 @@ describe('C5b no approve task', () => {
     await waitFor(() => expect(screen.getByTestId('no-task-hint')).toBeInTheDocument())
     expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
     expect(clientMock.get.mock.calls.some(([p]: string[]) => p === '/api/v1/tasks/task-submit')).toBe(false)
+  })
+})
+
+// --- C7: Field widths (design system README, Forms: size fields by content, never stretch) ---
+describe('C7 field widths', () => {
+  const box = (el: Element | null) => el?.closest('.lf-field') as HTMLElement
+  it('sizes every field by its content and sets the count in mono', async () => {
+    renderQC()
+    await pickItem('nut', 'Nut M8')
+    await waitFor(() => expect(sel('catalog_lot_id')).not.toBeNull())
+    expect(screen.getByTestId('item-field')).toHaveClass('lf-field--l')
+    for (const name of ['location_id', 'org_unit_id', 'catalog_lot_id', 'reason_code']) {
+      expect(box(sel(name))).toHaveClass('lf-field--m')
+    }
+    const counted = screen.getByTestId('counted-quantity-input')
+    expect(box(counted)).toHaveClass('lf-field--s')
+    expect(counted.closest('.lf-control')).toHaveClass('lf-control--mono')
+    fireEvent.change(sel('reason_code'), { target: { value: 'other' } })
+    expect(box(await screen.findByTestId('reason-text-input'))).toHaveClass('lf-field--l')
   })
 })
 

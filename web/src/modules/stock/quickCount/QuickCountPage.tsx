@@ -270,7 +270,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
           )}
 
           <FormSection title={t('stock.qc.form.section')}>
-            <div className={fieldErrors.itemId ? 'lf-field lf-field--error' : 'lf-field'} data-testid="item-field">
+            <div className={fieldErrors.itemId ? 'lf-field lf-field--l lf-field--error' : 'lf-field lf-field--l'} data-testid="item-field">
               <label className="lf-label" htmlFor="qc-item">{t('stock.qc.item')}</label>
               <ItemPicker
                 id="qc-item"
@@ -293,6 +293,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
             </div>
             <Select
               name="location_id"
+              width="m"
               label={t('stock.qc.location')}
               value={form.locationId}
               onChange={set('locationId')}
@@ -302,6 +303,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
             />
             <Select
               name="org_unit_id"
+              width="m"
               label={t('stock.qc.orgUnit')}
               value={form.orgUnitId}
               onChange={set('orgUnitId')}
@@ -312,6 +314,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
             {form.itemId && isLotTracked && (
               <Select
                 name="catalog_lot_id"
+                width="m"
                 label={t('stock.qc.lot')}
                 value={form.lotId}
                 onChange={set('lotId')}
@@ -339,7 +342,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
               </QueryStateBoundary>
             )}
 
-            <Field label={t('stock.qc.countedQuantity')} error={fieldErrors.countedQuantity}>
+            <Field label={t('stock.qc.countedQuantity')} error={fieldErrors.countedQuantity} width="s" mono>
               <input
                 type="text"
                 name="counted_quantity"
@@ -351,6 +354,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
 
             <Select
               name="reason_code"
+              width="m"
               label={t('stock.qc.reasonCode')}
               value={form.reasonCode}
               onChange={set('reasonCode')}
@@ -359,7 +363,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
             />
 
             {form.reasonCode === 'other' && (
-              <Field label={t('stock.qc.reasonText')} error={fieldErrors.reasonText}>
+              <Field label={t('stock.qc.reasonText')} error={fieldErrors.reasonText} width="l">
                 <textarea
                   name="reason_text"
                   value={form.reasonText}
