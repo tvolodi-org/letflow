@@ -5,7 +5,7 @@
 export const wbEn: Record<string, string> = {
   'stock.wb.title': 'Load balances from Excel',
   'stock.wb.lede': 'Check a Qoimeks-layout workbook against one org unit\'s stock, then write the balances from the file.',
-  'stock.wb.balancesLink': 'Open balances from Excel',
+  'stock.wb.balancesLink': 'Load balances from Excel',
   'stock.wb.orgUnit': 'Org unit',
   'stock.wb.orgUnit.placeholder': 'Choose an org unit',
   'stock.wb.card.check': 'Check workbook',
