@@ -1059,6 +1059,9 @@ defmodule Letflow.Api.AuthorizationTest do
         {"POST", "/script-rules/:key/versions/:version/confirm", :ScriptRulesConfirm},
         {"GET", "/script-rules/:key/versions/:version/audit", :ScriptRulesAuditRead},
         {"PUT", "/tenants/:slug/script-policy/solo-audited", :TenantsManage},
+        # T-2184: existing-tenant hostname registration.
+        {"PUT", "/tenants/:slug/hostname", :TenantsManage},
+        {"DELETE", "/tenants/:slug/hostname", :TenantsManage},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding", :TenantsManage},
         {"GET", "/onboarding/:id", :TenantsManage},

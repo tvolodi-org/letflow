@@ -442,7 +442,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
       end
     end
 
-    test "the six /tenants routes, /onboarding, /platform-migrations and /event-retention keep :TenantsManage (platform scope)" do
+    test "the /tenants routes, /onboarding, /platform-migrations and /event-retention keep :TenantsManage (platform scope)" do
       for {method, path} <- [
             {"POST", "/tenants"},
             {"GET", "/tenants"},
@@ -456,6 +456,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
             {"PUT", "/tenants/:slug/script-policy/kill-switch"},
             # GH 2534 7b-2b
             {"PUT", "/tenants/:slug/script-policy/solo-audited"},
+            # T-2184: existing-tenant hostname registration.
+            {"PUT", "/tenants/:slug/hostname"},
+            {"DELETE", "/tenants/:slug/hostname"},
             {"POST", "/onboarding"},
             {"GET", "/onboarding/:id"},
             {"POST", "/onboarding/:id/bind-realm"},
