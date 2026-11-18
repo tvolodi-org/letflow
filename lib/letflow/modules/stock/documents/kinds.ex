@@ -24,12 +24,18 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   Assumptions, owner may change at GATE B: prefixes `TRF`, `HOV`, `RET`, `ISS`, `WOF`.
 
   REQ-854: `quick_count` (header `stock_quick_count`, line `stock_quick_count_line`, prefix `QCT`, cause
-  `count_set`) has ONE line and no event time. It is created only by `POST /quick-counts`
+  `count_set`) has ONE line and no event time when created by `POST /quick-counts`
   (`Letflow.Modules.Stock.Documents.quick_count/4`, `Letflow.Modules.Stock.Documents.QuickCountShape`):
   `parse/2` answers `unknown_kind` for it, so `POST /documents` and `PUT /documents/:id` cannot reach it.
   Its header keys are `org_unit_id`, `reason_code` and `reason_text`; the line carries the place, the item and
   the counted, book and difference quantities. `sides/2` is `{nil, nil}` (the leg side follows the sign of the
   difference, `Letflow.Modules.Stock.Documents.QuickCountPosting`).
+
+  REQ-885: when created by `POST /stock-workbook/apply` (`Letflow.Modules.Stock.Documents.workbook_apply/6`)
+  the `quick_count` document may have MORE THAN ONE line. The header schema is unchanged (`org_unit_id`,
+  `reason_code`, `reason_text`); the workbook-load keys `source`, `file_name`, `sheet`, `rows_read`,
+  `remarks_count` and the per-line reason are stored in the version content under `workbook_ext`
+  (`Letflow.Modules.Stock.Documents.workbook_apply/6`).
   """
 
   alias Letflow.Modules.Stock.Documents.OpeningShape

@@ -214,7 +214,7 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     assert Decimal.eq?(zero_book.expected_on_hand, 0)
   end
 
-  test "QS-9 the policy refuses a missing or bad expected, two lines, both sides and client time" do
+  test "QS-9 the policy refuses a missing or bad expected, over 1000 lines, both sides and client time" do
     bad = fn line -> assert {:error, {:invalid_posting, %{leg_no: 1}}} = declare([line]) end
     bad.(Map.delete(policy_line(%{}), :expected_on_hand))
     bad.(policy_line(%{expected_on_hand: "-1"}))
@@ -223,8 +223,10 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     bad.(policy_line(%{to: %{org_unit: @id, location: @id2}}))
     bad.(policy_line(%{quantity: "0"}))
 
-    assert {:error, {:invalid_posting, %{leg_no: 2}}} =
-             declare([policy_line(%{}), policy_line(%{})])
+    # REQ-885: the policy takes one line per change of a workbook load (1 to 1000); the one-line rule
+    # of `POST /quick-counts` is the route's (`QuickCountShape`), not the policy's.
+    assert {:ok, %{legs: [_, _]}} = declare([policy_line(%{}), policy_line(%{})])
+    assert {:error, {:invalid_posting, _}} = declare(List.duplicate(policy_line(%{}), 1001))
 
     for key <- [:device_id, :client_seq, :client_event_time, :event_time] do
       assert {:error, {:invalid_posting, _}} = declare([policy_line(%{})], %{key => "x"})
