@@ -58,18 +58,21 @@ empty, so it is created together with its first real balance (below).
    `05-item-places-NN.xlsx` files (after the item files when no 05 files were written), and before the opening lines.
    Save each response JSON as `RDIR/<file name without .xlsx>.json`.
 4. **Headers**: `python3 -I scripts/pilot/qoimeks_convert.py headers --out OUT --responses RDIR --org-unit-id UUID --responsible-id UUID`
-   writes `OUT/headers/QOI-HDR-NN.json`; `POST /api/v1/documents` each body (one draft opening per header, created with its first balance).
+   writes `OUT/headers/QOI-HDR-NN.json`; `POST /api/v1/modules/stock/documents` each body (one draft opening per header, created with its first balance; `POST /api/v1/documents` answers 403). Create the headers of the **positive** files now; the header of each file with negative lines waits until the setting of step 5 is on (before that it is refused 422 `quantity_invalid`).
 5. **Allow negative opening balances** before loading any lines. A tenant administrator with the
    `:LedgerSettingsManage` permission calls `PUT /api/v1/ledger-settings/stock` on the rehearsal tenant with exactly
    `{"allow_negative": true, "reason": "Qoimeks rehearsal: load negative opening balances"}`. Keep the reason in the
    request; the route requires it and audits the change. This switch is QA-only and does not change another tenant.
+   Only now create the headers of the negative lines files (step 4, same route). Order: positive headers, switch on, negative headers.
 6. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
+   Opening documents are **drafts until posted**: post each one with `POST /api/v1/modules/stock/documents/:id/post`, the positive files first and the negative files last. Balances exist only after posting, so the read-back below and the quantity compare of step 8 work only after this posting.
    After the last file, a user with `StockRead` calls `GET /api/v1/modules/stock/balances` and checks every negative
    `(sku, loc)` key from `IN/balances.csv`: its quantity equals the extract exactly, including `-7` in the synthetic
    fixture. A skipped zero row has no opening line; its absent balance key reads as zero.
-7. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` and run
+7. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` (an operator without database access takes the record counts from the record exports and the stock document list instead) and run
    `scripts/pilot/qoimeks_compare.sh OUT/expected_counts.txt after.txt TENANT_SLUG`. Exit 0 means equal, 1 prints
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
+   For a scripted run, take the credentials from the env file of the QA actor in the team root; never print it.
 
 8. **Compare quantities (RH-7)**: export the stock balances (`stock-balances.xlsx`, sheet `balances`) and run
    `python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
