@@ -27,6 +27,8 @@ defmodule Letflow.PilotRolloutRunbookTest do
     "Onboarding",
     "Data load",
     "Printed forms",
+    # REQ-860: the old Qoimeks app address (written for the pilot of the Qoimeks tenant).
+    "Old Qoimeks app address",
     "Support",
     "Open owner questions"
   ]
@@ -156,7 +158,8 @@ defmodule Letflow.PilotRolloutRunbookTest do
     {:ok, md: File.read!(@runbook), mans: manifests()}
   end
 
-  test "T1 the level-2 headings are the seven of the requirement, in order", %{md: md} do
+  test "T1 the level-2 headings are the seven of the requirement plus the REQ-860 section, in order",
+       %{md: md} do
     headings =
       for line <- lines(md),
           String.starts_with?(line, "## "),

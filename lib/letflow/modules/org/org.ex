@@ -249,6 +249,19 @@ defmodule Letflow.Modules.Org do
   def active_employee?(prefix, id), do: ReadApi.active?(prefix, id, [@employee])
 
   @doc """
+  REQ-860: the record id of the first active `org_employee` of the tenant (lowest record id), or
+  `nil`. The old Qoimeks app names no responsible employee; the shared stock access files its
+  movements under this one (a pilot tenant has exactly one, `docs/runbooks/qoimeks-rehearsal.md`).
+  """
+  @spec first_active_employee_id(prefix :: term()) :: String.t() | nil
+  def first_active_employee_id(prefix) do
+    case ReadApi.list_active(prefix, @employee) do
+      {:ok, [first | _rest]} -> first["record_id"]
+      _none -> nil
+    end
+  end
+
+  @doc """
   The live `org_employee` whose `user_id` equals `user_id` exactly, active or not (the caller
   checks `active`): `{:ok, map}` in the `lookup/2` shape, else `{:error, :not_found}`. A
   `user_id` that is not text, empty, contains NUL, is invalid UTF-8 or is over 256 bytes is

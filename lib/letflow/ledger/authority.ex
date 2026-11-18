@@ -6,7 +6,8 @@ defmodule Letflow.Ledger.Authority do
   its command.
 
     1. the credential must be exactly `:oidc` (an allowlist: `nil`, `:api_token` and anything
-       else are refused, no database read);
+       else are refused, no database read), or, for the one module that declares it, `:shared_access`
+       (REQ-860: see the clause);
     2. the roles are read NOW from the database (`Identity.list_effective_role_names/2`), never
        taken from the activation snapshot or the request, so a role revoked after the task was
        claimed is refused; `PLATFORM_ADMIN` is stripped outside the platform tenant
@@ -68,8 +69,33 @@ defmodule Letflow.Ledger.Authority do
     end
   end
 
+  # REQ-860 (decision 0091 section 2): the shared access is the one other credential that may post. The
+  # rule (its module, its two permissions, the live credential row of the subject) is in
+  # the function configured as `:shared_access_authority` (MFA, `config/config.exs`); no role is read, the credential is not a role.
+  def check_with_read(cap)
+      when is_struct(cap, Capability) and cap.credential == :shared_access do
+    with {:ok, atom} <- permission_atom(cap),
+         true <- shared_access_may_post?(cap, atom) do
+      {:ok, true}
+    else
+      _denied -> {:error, :role_denied}
+    end
+  end
+
   def check_with_read(cap) when is_struct(cap, Capability),
     do: {:error, :credential_unsupported}
+
+  # The rule of the credential kind `:shared_access` lives with the module that owns the credential; the
+  # ledger names no module file, so it is found by configuration. No configuration: refused.
+  defp shared_access_may_post?(cap, atom) do
+    case Application.get_env(:letflow, :shared_access_authority) do
+      {module, function} when is_atom(module) and is_atom(function) ->
+        apply(module, function, [cap.prefix, cap.module_id, cap.subject_id, atom]) == true
+
+      _unconfigured ->
+        false
+    end
+  end
 
   defp read?(%{registration: %{permissions: permissions}}, roles, overlay) do
     case Map.get(permissions, :read) do

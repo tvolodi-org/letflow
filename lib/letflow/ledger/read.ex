@@ -69,7 +69,7 @@ defmodule Letflow.Ledger.Read do
   @default_limit 50
   @max_value_bytes 200
   @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
-  @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree leg_slots)
+  @entry_filters ~w(cause document_type document_id correlation_id entry_id from_seq to_seq scope_subtree leg_slots)
   @subtree_key "scope_subtree"
 
   # ---- balances ------------------------------------------------------------------------------
@@ -560,6 +560,11 @@ defmodule Letflow.Ledger.Read do
     do: is_integer(value) and value >= 0
 
   defp valid_entry_value?(@subtree_key, value), do: valid_node_id?(value)
+
+  # REQ-860: one entry by id (the old-app reverse call names a movement by its entry id).
+  defp valid_entry_value?("entry_id", value),
+    do: is_binary(value) and match?({:ok, _}, Ecto.UUID.cast(value))
+
   defp valid_entry_value?(_name, value), do: valid_value?(value, false)
 
   defp decode_entry_cursor(n) when is_integer(n) and n >= 0, do: {:ok, n}
@@ -599,6 +604,7 @@ defmodule Letflow.Ledger.Read do
         {"document_type", v}, q -> where(q, [e], e.document_type == ^v)
         {"document_id", v}, q -> where(q, [e], e.document_id == ^v)
         {"correlation_id", v}, q -> where(q, [e], e.correlation_id == ^v)
+        {"entry_id", v}, q -> where(q, [e], e.id == type(^v, Ecto.UUID))
         {"leg_slots", pairs}, q -> leg_slots_filter(q, a, pairs, subtree)
       end)
 

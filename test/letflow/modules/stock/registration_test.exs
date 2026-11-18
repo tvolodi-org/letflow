@@ -289,7 +289,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-854: count_hold.ex (reads count orders), documents/quick_count_shape.ex and
     # documents/quick_count_posting.ex (pure) make 53.
     # REQ-859: old_app_reads.ex (reads through Ledger and the master read APIs, no Repo) makes 54.
-    assert length(files) == 54
+    # REQ-860: old_app_writes.ex (the old app's movement post and reverse, through the document and ledger functions, no Repo) makes 55.
+    assert length(files) == 55
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

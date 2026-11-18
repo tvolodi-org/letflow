@@ -69,6 +69,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Modules.Stock.Documents.QuickCountPosting
   alias Letflow.Repo
+  alias Letflow.SharedStockAccess
 
   @reversal_definition "stock_reversal"
   @count_definition "stock_count_posting"
@@ -717,6 +718,14 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   @doc false
   def completer(prefix, id, node) do
+    case completer_row(prefix, id, node) do
+      {completed_by, _output} -> completed_by
+      nil -> nil
+    end
+  end
+
+  # `{completed_by, output_variables}` of the latest completed task of `node`, or nil.
+  defp completer_row(prefix, id, node) do
     Repo.one(
       from(t in Task,
         join: p in InstanceProjection,
@@ -726,7 +735,66 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
             fragment("?->>'document_id' = ?", p.variables, ^id),
         order_by: [desc: t.completed_at],
         limit: 1,
-        select: t.completed_by
+        select: {t.completed_by, t.output_variables}
+      ),
+      prefix: prefix
+    )
+  end
+
+  @doc """
+  REQ-860: cancels the pending reversal instance of document `id` (the shared access calls it when
+  the ledger refused the reversal, so a retry is not stuck on `reversal_pending`). `:ok` or `:error`.
+  """
+  @spec withdraw_reversal(String.t(), String.t(), String.t()) :: :ok | :error
+  def withdraw_reversal(prefix, id, actor) do
+    ids = definition_ids(prefix, @reversal_definition)
+
+    instance_ids =
+      Repo.all(
+        from(t in Task,
+          join: p in InstanceProjection,
+          on: p.instance_id == t.instance_id,
+          where:
+            t.status == :pending and t.node_id == "reverse" and p.status == :active and
+              p.definition_id in ^ids and fragment("?->>'document_id' = ?", p.variables, ^id),
+          select: t.instance_id,
+          distinct: true
+        ),
+        prefix: prefix
+      )
+
+    Enum.reduce_while(instance_ids, :ok, fn instance_id, :ok ->
+      attrs = %{actor_id: actor, idempotency_key: "stock-withdraw-rev:#{instance_id}"}
+
+      case Engine.cancel_instance(instance_id, attrs, prefix: prefix) do
+        {:ok, _} -> {:cont, :ok}
+        _other -> {:halt, :error}
+      end
+    end)
+  end
+
+  @doc """
+  REQ-860: the id of the pending task of `node` ("post" or "reverse") of the active instance of
+  document `id`, or nil. The shared access completes it itself (`Letflow.Modules.Stock.OldAppWrites`).
+  """
+  @spec pending_task_id(String.t(), String.t(), String.t()) :: String.t() | nil
+  def pending_task_id(prefix, id, node) when node in ["post", "reverse"] do
+    ids =
+      Enum.flat_map(
+        Kinds.definition_names() ++ [@reversal_definition],
+        &definition_ids(prefix, &1)
+      )
+
+    Repo.one(
+      from(t in Task,
+        join: p in InstanceProjection,
+        on: p.instance_id == t.instance_id,
+        where:
+          t.status == :pending and t.node_id == ^node and p.status == :active and
+            p.definition_id in ^ids and fragment("?->>'document_id' = ?", p.variables, ^id),
+        order_by: [desc: t.inserted_at],
+        limit: 1,
+        select: t.id
       ),
       prefix: prefix
     )
@@ -755,20 +823,85 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     rows = if authorized, do: entries(authorized, base.id), else: :error
     kind = Kinds.get(base.kind)
     receipt = receipt_row(rows, Kinds.causes(kind))
-    posted_by = if(marks["posted"], do: completer(prefix, base.id, kind.completion_node))
-    reversed_by = if(marks["reversed"], do: completer(prefix, base.id, "reverse"))
+    posted = if(marks["posted"], do: completer_row(prefix, base.id, kind.completion_node))
+    reversed = if(marks["reversed"], do: completer_row(prefix, base.id, "reverse"))
+    posted_by = posted && elem(posted, 0)
+    reversed_by = reversed && elem(reversed, 0)
+    shared = SharedStockAccess.shared_actors(prefix, [posted_by, reversed_by])
 
     %{
       state: state,
       posted_at: marks |> Map.get("posted") |> mark_at(),
       posted_by: posted_by,
-      posted_by_label: ActorLabel.label(prefix, posted_by),
+      posted_by_label: actor_label(prefix, posted, shared),
+      posted_via_shared_access: via_shared?(posted_by, shared),
       entry_id: receipt && receipt.entry_id,
       reversed_at: marks |> Map.get("reversed") |> mark_at(),
       reversed_by: reversed_by,
-      reversed_by_label: ActorLabel.label(prefix, reversed_by),
+      reversed_by_label: actor_label(prefix, reversed, shared),
+      reversed_via_shared_access: via_shared?(reversed_by, shared),
       posting_check: posting_check(base, state, marks, rows, prefix, kind)
     }
+  end
+
+  # REQ-860 (decision 0091 section 5): a step completed through the shared stock access shows the typed
+  # operator name in place of a person's name. The name is read only when the completer IS a shared
+  # access actor of this tenant; a personal account that sends an `operator` output variable never
+  # gets it shown.
+  defp actor_label(_prefix, nil, _shared), do: nil
+
+  defp actor_label(prefix, {completed_by, output}, shared) do
+    if via_shared?(completed_by, shared),
+      do: operator_text(output),
+      else: ActorLabel.label(prefix, completed_by)
+  end
+
+  defp via_shared?(nil, _shared), do: false
+  defp via_shared?(actor, shared), do: MapSet.member?(shared, actor)
+
+  defp operator_text(%{"operator" => name}) when is_binary(name), do: name
+  defp operator_text(_output), do: nil
+
+  @doc """
+  REQ-860: `%{{document_id, :posted | :reversed} => operator}` for the documents `ids`: the typed
+  operator name of the live post and reverse tasks completed by a shared stock access actor of this
+  tenant. Documents posted by a personal account have no entry. One query for the tasks and one for
+  the actors.
+  """
+  @spec shared_operators(String.t(), [String.t()]) :: %{
+          {String.t(), :posted | :reversed} => String.t()
+        }
+  def shared_operators(_prefix, []), do: %{}
+
+  def shared_operators(prefix, ids) when is_list(ids) do
+    nodes = ["reverse" | @post_nodes]
+
+    rows =
+      Repo.all(
+        from(t in Task,
+          join: p in InstanceProjection,
+          on: p.instance_id == t.instance_id,
+          where:
+            t.status == :completed and t.node_id in ^nodes and
+              fragment("?->>'document_id' = ANY(?)", p.variables, type(^ids, {:array, :string})),
+          order_by: [asc: t.completed_at],
+          select:
+            {fragment("?->>'document_id'", p.variables), t.node_id, t.completed_by,
+             t.output_variables}
+        ),
+        prefix: prefix
+      )
+
+    shared = SharedStockAccess.shared_actors(prefix, Enum.map(rows, &elem(&1, 2)))
+
+    Enum.reduce(rows, %{}, fn {doc, node, by, output}, acc ->
+      with true <- via_shared?(by, shared),
+           name when is_binary(name) <- operator_text(output) do
+        Map.put(acc, {doc, if(node == "reverse", do: :reversed, else: :posted)}, name)
+      else
+        _other -> acc
+      end
+    end)
   end
 
   defp derive_state("issued", marks) do

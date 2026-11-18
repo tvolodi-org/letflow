@@ -21,7 +21,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   * `movements/2`: the newest `limit` ledger entries (50 when `limit` is missing or outside 1..500),
     newest first: `id`, `kind` (the document type, `reversal` for a reversal), `sku_id`,
     `location_id` (null when the entry has no place), `quantity` (absolute value of the first leg),
-    `operator` (null until REQ-860 stores the typed operator name), `created_at` (posting time).
+    `operator` (the typed operator name of a movement made through the shared access, null for a personal account's), `created_at` (posting time).
     Optional integer filters `sku_id`, `location_id`.
 
   Quantities are JSON numbers (the old app reads them as numbers). An unknown integer filter
@@ -37,6 +37,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Codes
   alias Letflow.Modules.Locations
+  alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.SharedStockAccess.IntIds
 
   @page 200
@@ -225,33 +226,77 @@ defmodule Letflow.Modules.Stock.OldAppReads do
            Ledger.balances(authorized, {:posting_seq, :latest}, %{}, %{limit: 1}),
          {:ok, rows} <- widen(authorized, filters, limit, latest || 0, limit, 0) do
       newest = rows |> Enum.sort_by(& &1.posting_seq, :desc) |> Enum.take(limit)
-      prefix = authorized.prefix
-
-      entry_ids = IntIds.assign(prefix, :movement, Enum.map(newest, & &1.entry_id))
-
-      legs = Enum.map(newest, &first_leg/1)
-      skus = IntIds.assign(prefix, :sku, for(%{k: [sku | _]} <- legs, do: sku))
-      locs = IntIds.assign(prefix, :location, for(%{k: [_, loc | _]} <- legs, do: loc))
-
-      out =
-        for {row, leg} <- Enum.zip(newest, legs),
-            id = Map.get(entry_ids, uuid(row.entry_id)),
-            not is_nil(id) do
-          %{
-            id: id,
-            kind: kind(row),
-            sku_id: leg_ref(leg, 0, skus),
-            location_id: leg_ref(leg, 1, locs),
-            quantity: leg_quantity(leg),
-            operator: nil,
-            created_at: row.posting_time
-          }
-        end
-
-      {:ok, out}
+      {:ok, build_rows(authorized, newest)}
     else
       {:error, :invalid_filter} -> {:error, :invalid_filter}
       {:error, _other} -> {:error, :unavailable}
+    end
+  end
+
+  # The Qoimeks movement rows of ledger entries `newest` (as `Ledger.entries/3` answers them), in order.
+  defp build_rows(authorized, newest) do
+    prefix = authorized.prefix
+    entry_ids = IntIds.assign(prefix, :movement, Enum.map(newest, & &1.entry_id))
+
+    legs = Enum.map(newest, &first_leg/1)
+    skus = IntIds.assign(prefix, :sku, for(%{k: [sku | _]} <- legs, do: sku))
+    locs = IntIds.assign(prefix, :location, for(%{k: [_, loc | _]} <- legs, do: loc))
+
+    operators =
+      Posting.shared_operators(
+        prefix,
+        newest |> Enum.map(& &1.document_id) |> Enum.reject(&is_nil/1)
+      )
+
+    for {row, leg} <- Enum.zip(newest, legs),
+        id = Map.get(entry_ids, uuid(row.entry_id)),
+        not is_nil(id) do
+      %{
+        id: id,
+        kind: kind(row),
+        sku_id: leg_ref(leg, 0, skus),
+        location_id: leg_ref(leg, 1, locs),
+        quantity: leg_quantity(leg),
+        operator: Map.get(operators, {row.document_id, operator_step(row)}),
+        created_at: row.posting_time
+      }
+    end
+  end
+
+  defp operator_step(%{cause: "reversal"}), do: :reversed
+  defp operator_step(_row), do: :posted
+
+  @doc """
+  REQ-860: the Qoimeks movement row of ledger entry `entry_uuid` (a uuid), or `nil` when there is none.
+  `authorized` is the tenant-wide read value of the shared access.
+  """
+  @spec movement(map(), String.t()) :: map() | nil
+  def movement(authorized, entry_uuid) do
+    case Ledger.entries(authorized, %{"entry_id" => entry_uuid}, %{limit: 1}) do
+      {:ok, %{rows: [row]}} -> authorized |> build_rows([row]) |> List.first()
+      _none -> nil
+    end
+  end
+
+  @doc """
+  REQ-860: the ledger entry (`Ledger.entries/3` row shape) of entry uuid `entry_uuid`, or `nil`.
+  """
+  @spec entry(map(), String.t()) :: map() | nil
+  def entry(authorized, entry_uuid) do
+    case Ledger.entries(authorized, %{"entry_id" => entry_uuid}, %{limit: 1}) do
+      {:ok, %{rows: [row]}} -> row
+      _none -> nil
+    end
+  end
+
+  @doc """
+  REQ-860: the Qoimeks movement rows of the entries of document `document_id`, oldest first.
+  """
+  @spec movements_of_document(map(), String.t()) :: [map()]
+  def movements_of_document(authorized, document_id) do
+    case Ledger.entries(authorized, %{"document_id" => document_id}, %{limit: 100}) do
+      {:ok, %{rows: rows}} -> build_rows(authorized, rows)
+      _error -> []
     end
   end
 
