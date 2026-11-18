@@ -93,7 +93,11 @@ defmodule Letflow.TenantProvisioner.Request do
     host = raw |> String.trim() |> String.downcase()
 
     with true <- byte_size(host) in 1..253,
-         [suffix] <- Enum.filter(suffixes, &String.ends_with?(host, "." <> &1)) |> Enum.take(1),
+         false <- host in suffixes,
+         [suffix] <-
+           Enum.filter(suffixes, &String.ends_with?(host, "." <> &1))
+           |> Enum.sort_by(&byte_size/1, :desc)
+           |> Enum.take(1),
          label = binary_part(host, 0, byte_size(host) - byte_size(suffix) - 1),
          true <- Regex.match?(@label_regex, label),
          false <- Tenant.reserved_slug?(label) do
@@ -105,11 +109,7 @@ defmodule Letflow.TenantProvisioner.Request do
 
   def hostname(_raw, _suffixes), do: {:error, "hostname"}
 
-  defp suffixes do
-    :letflow
-    |> Application.get_env(Letflow.TenantProvisioner, [])
-    |> Keyword.get(:allowed_hostname_suffixes, [])
-  end
+  defp suffixes, do: Letflow.TenantProvisioner.Config.allowed_hostname_suffixes()
 
   defp known_keys(body),
     do: if(Enum.all?(Map.keys(body), &(&1 in @keys)), do: :ok, else: {:error, "body"})

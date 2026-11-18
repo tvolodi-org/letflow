@@ -594,4 +594,15 @@ defmodule Letflow.Identity.TenantTest do
       refute cs.valid?
     end
   end
+
+  test "R3 reserved company labels are exact and case insensitive" do
+    labels = ~w(auth app www pwa api qa staging mail send rsend demo admin status)
+    assert Tenant.reserved_slugs() == labels
+
+    for label <- labels do
+      assert Tenant.reserved_slug?(" " <> String.upcase(label) <> " ")
+    end
+
+    for label <- ~w(auth2 pwa2 acme), do: refute(Tenant.reserved_slug?(label))
+  end
 end

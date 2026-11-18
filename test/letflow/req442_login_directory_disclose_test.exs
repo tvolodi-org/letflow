@@ -262,7 +262,7 @@ defmodule Letflow.Req442LoginDirectoryDiscloseTest do
   end
 
   describe "AC5: the internal match type" do
-    test "rows are plain maps with exactly slug, display_name and disclose (boolean); nothing else leaves the lookup" do
+    test "rows carry only slug, display_name, hostname and disclose" do
       {_tenant, email, keys, _slug} = tenant_with_entry!("uniform_plus_email")
 
       for result <- [
@@ -271,7 +271,7 @@ defmodule Letflow.Req442LoginDirectoryDiscloseTest do
           ] do
         assert {:ok, [row]} = result
         refute is_struct(row)
-        assert row |> Map.keys() |> Enum.sort() == [:disclose, :display_name, :slug]
+        assert row |> Map.keys() |> Enum.sort() == [:disclose, :display_name, :hostname, :slug]
         assert is_boolean(row.disclose)
         refute inspect(row) =~ "login_disclosure_mode"
         refute inspect(row) =~ "idp_realm_id"
@@ -318,6 +318,7 @@ defmodule Letflow.Req442LoginDirectoryDiscloseTest do
 
       assert select_body =~ "slug: t.slug"
       assert select_body =~ "display_name: t.display_name"
+      assert select_body =~ "hostname: onboarding.hostname"
       assert select_body =~ "disclose:"
       refute select_body =~ "t.id"
       refute select_body =~ "idp_realm_id"

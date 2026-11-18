@@ -2,7 +2,7 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
   @moduledoc """
   Drift test for the tenant realm template `priv/keycloak/provisioner/v2/tenant-realm.json`
   (REQ-593, decision 0072 D2). File-only: no Keycloak, no database. The v1 template and its
-  drift test are not touched; v2 is pinned as v1 plus six named keys.
+  drift test are not touched; v2 pins its added keys, STOREKEEPER and exact callbacks.
 
   `violations/1` returns an atom per broken rule. The shipped template must give `[]`, and
   each rule is shown to bite by a mutated copy.
@@ -24,8 +24,17 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
   # ---- the rules -----------------------------------------------------------------------
 
   def violations(realm) do
-    checks = [&version/1, &reset/1, &locale/1, &text_keys/1, &secrets/1, &users/1]
+    checks = [&version/1, &reset/1, &locale/1, &text_keys/1, &secrets/1, &users/1, &redirects/1]
     checks |> Enum.flat_map(& &1.(realm)) |> Enum.uniq()
+  end
+
+  defp redirects(realm) do
+    [client] = realm["clients"]
+
+    if client["redirectUris"] == [
+         "https://__TENANT_HOST__/auth/callback",
+         "https://__TENANT_HOST__/auth/callback?realm=__TENANT_SLUG__"
+       ] and client["webOrigins"] == ["https://__TENANT_HOST__"], do: [], else: [:redirects_wrong]
   end
 
   defp version(realm) do
@@ -130,12 +139,17 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
           &Enum.reject(&1, fn r -> r["name"] == "STOREKEEPER" end)
         )
 
+      stripped =
+        update_in(stripped, ["clients"], fn [client] ->
+          [Map.put(client, "redirectUris", hd(v1["clients"])["redirectUris"])]
+        end)
+
       assert stripped == Map.update!(v1, "attributes", &Map.delete(&1, "templateVersion"))
 
       placeholders =
         ~r/__[A-Z_]+__/ |> Regex.scan(File.read!(@template)) |> List.flatten() |> Enum.uniq()
 
-      assert Enum.sort(placeholders) == ["__REALM_ID__", "__TENANT_HOST__"]
+      assert Enum.sort(placeholders) == ["__REALM_ID__", "__TENANT_HOST__", "__TENANT_SLUG__"]
     end
 
     test "V2-roles the realm roles are the closed role list minus PLATFORM_ADMIN" do
@@ -168,7 +182,7 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
       readme = File.read!(@readme)
 
       for s <-
-            ~w(__REALM_ID__ __TENANT_HOST__ templateVersion resetPasswordAllowed supportedLocales smtpServer emailTheme) do
+            ~w(__REALM_ID__ __TENANT_HOST__ __TENANT_SLUG__ templateVersion resetPasswordAllowed supportedLocales smtpServer emailTheme) do
         assert readme =~ s
       end
 
@@ -177,6 +191,23 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
       assert readme =~ ~r/`v1` is frozen/
       assert readme =~ ~r/Outside the template/
       assert readme =~ ~r/(texts|localizationTexts)/
+    end
+  end
+
+  test "R2 exact callbacks reject host, path and query wildcards" do
+    assert violations(template()) == []
+
+    for bad <- [
+          "https://*.example.com/auth/callback",
+          "https://__TENANT_HOST__/*",
+          "https://__TENANT_HOST__/auth/callback?realm=*"
+        ] do
+      realm =
+        update_in(template(), ["clients"], fn [client] ->
+          [Map.put(client, "redirectUris", [bad])]
+        end)
+
+      assert :redirects_wrong in violations(realm)
     end
   end
 end

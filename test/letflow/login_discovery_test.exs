@@ -478,4 +478,19 @@ defmodule Letflow.LoginDiscoveryTest do
       |> String.replace(~r/^\s*#.*$/m, "")
     end
   end
+
+  test "M2 delivery keeps hostname but strips internal fields" do
+    match = %{
+      slug: "acme",
+      display_name: "Acme",
+      hostname: "acme.ai-letflow.com",
+      disclose: true,
+      tenant_id: "hidden",
+      idp_realm_id: "hidden",
+      settings: %{}
+    }
+
+    assert {:deliver, [ref]} = LoginDiscovery.delivery(:uniform_plus_email, {:ok, [match]})
+    assert ref == Map.take(match, [:slug, :display_name, :hostname])
+  end
 end

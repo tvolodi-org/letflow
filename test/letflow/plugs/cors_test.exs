@@ -313,4 +313,121 @@ defmodule Letflow.Plugs.CorsTest do
       assert get_resp_header(conn, "access-control-allow-credentials") == []
     end
   end
+
+  describe "company namespace C2-C4" do
+    setup do
+      old = Application.get_env(:letflow, Letflow.TenantProvisioner)
+
+      Application.put_env(:letflow, Letflow.TenantProvisioner,
+        allowed_hostname_suffixes: ~w(ai-letflow.com qa.ai-letflow.com qa.bizdala.com)
+      )
+
+      on_exit(fn ->
+        if old,
+          do: Application.put_env(:letflow, Letflow.TenantProvisioner, old),
+          else: Application.delete_env(:letflow, Letflow.TenantProvisioner)
+      end)
+    end
+
+    test "C2 HTTPS company GET and preflight echo only the request origin" do
+      for origin <-
+            ~w(https://acme.ai-letflow.com https://acme.qa.ai-letflow.com https://acme.qa.bizdala.com https://acme.ai-letflow.com:443) do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        assert actual.status == 200
+        assert get_resp_header(actual, "access-control-allow-origin") == [origin]
+
+        preflight =
+          conn(:options, "/health")
+          |> put_req_header("origin", origin)
+          |> put_req_header("access-control-request-method", "POST")
+          |> call()
+
+        assert preflight.status == 204
+        assert get_resp_header(preflight, "access-control-allow-origin") == [origin]
+        assert get_resp_header(preflight, "vary") == ["origin"]
+        assert get_resp_header(preflight, "access-control-max-age") == ["600"]
+
+        assert get_resp_header(preflight, "access-control-allow-methods") == [
+                 "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+               ]
+
+        assert get_resp_header(preflight, "access-control-allow-headers") == [
+                 "authorization, content-type, idempotency-key, if-match, x-bpm-user-id"
+               ]
+      end
+    end
+
+    test "C3 malformed, reserved and foreign origins get no CORS allowance" do
+      for origin <-
+            ~w(https://evil.example https://ai-letflow.com https://a.b.ai-letflow.com https://*.ai-letflow.com http://acme.ai-letflow.com https://user@acme.ai-letflow.com https://acme.ai-letflow.com/ https://acme.ai-letflow.com?x=1 https://acme.ai-letflow.com#x https://acme.ai-letflow.com:444 https://auth.ai-letflow.com https://qa.ai-letflow.com https://acme.ai-letflow.com.evil.example) do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        assert get_resp_header(actual, "access-control-allow-origin") == [], origin
+
+        preflight =
+          conn(:options, "/health")
+          |> put_req_header("origin", origin)
+          |> put_req_header("access-control-request-method", "POST")
+          |> call()
+
+        refute preflight.status == 204
+        assert get_resp_header(preflight, "access-control-allow-origin") == []
+      end
+    end
+
+    test "C3 whitespace in an origin host is not a company origin" do
+      for origin <- ["https://acme.ai-letflow.com ", "https:// acme.ai-letflow.com"] do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        assert get_resp_header(actual, "access-control-allow-origin") == []
+      end
+    end
+
+    test "C3 non-UTF-8 and oversized origins are refused without raising (INV-8)" do
+      long = "https://" <> String.duplicate("a", 400) <> ".qa.ai-letflow.com"
+
+      for origin <- [<<"https://", 0xFF, ".qa.ai-letflow.com">>, <<0xC3>>, long] do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        refute actual.halted
+        assert actual.status == 200
+        assert get_resp_header(actual, "access-control-allow-origin") == []
+
+        preflight =
+          conn(:options, "/health")
+          |> put_req_header("origin", origin)
+          |> put_req_header("access-control-request-method", "POST")
+          |> call()
+
+        refute preflight.status == 204
+        assert get_resp_header(preflight, "access-control-allow-origin") == []
+      end
+    end
+
+    test "C3 malformed ports are refused even if URI parsing defaults to 443" do
+      for origin <- ["https://acme.ai-letflow.com:bad", "https://acme.ai-letflow.com:"] do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        assert get_resp_header(actual, "access-control-allow-origin") == []
+      end
+    end
+
+    test "C4 invalid suffix policy leaves exact origins independent" do
+      for value <- [nil, [], "ai-letflow.com", ["ai-letflow.com", "bad suffix"]] do
+        Application.put_env(:letflow, Letflow.TenantProvisioner, allowed_hostname_suffixes: value)
+
+        denied =
+          conn(:get, "/health")
+          |> put_req_header("origin", "https://acme.ai-letflow.com")
+          |> call()
+
+        assert get_resp_header(denied, "access-control-allow-origin") == []
+        exact = conn(:get, "/health") |> put_req_header("origin", @allowed_origin) |> call()
+        assert get_resp_header(exact, "access-control-allow-origin") == [@allowed_origin]
+      end
+
+      Application.delete_env(:letflow, Letflow.TenantProvisioner)
+
+      denied =
+        conn(:get, "/health") |> put_req_header("origin", "https://acme.ai-letflow.com") |> call()
+
+      assert get_resp_header(denied, "access-control-allow-origin") == []
+    end
+  end
 end

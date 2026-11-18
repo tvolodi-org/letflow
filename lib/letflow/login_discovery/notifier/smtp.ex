@@ -35,7 +35,9 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp do
          {:ok, composed} <-
            Message.compose(recipient_email, tenants, %{
              from: config.from,
-             base_url: config.base_url
+             base_url: config.base_url,
+             allowed_hostname_suffixes:
+               Letflow.TenantProvisioner.Config.allowed_hostname_suffixes()
            }),
          {:ok, credentials} <- credentials() do
       Transport.send_message(composed, connection(config), credentials, [])

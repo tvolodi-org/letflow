@@ -27,6 +27,9 @@ defmodule Letflow.Plugs.Cors do
     blocks the SPA's `/api/tenant-config` bootstrap with a silent fallback to a
     hardcoded Keycloak authority. No `*`, ever. `config/runtime.exs` overrides
     this in prod via `CORS_ALLOWED_ORIGINS`, fail-closed to `[]` when unset.
+    Independently, the guarded provisioner suffix list permits HTTPS company origins:
+    one non-reserved label, default port, no userinfo, path, query or fragment. The
+    longest matching suffix wins; no database lookup or wildcard response is used.
   * **Rejection is silent, not a 403.** CORS is a browser-enforced,
     response-header-driven mechanism — the server's only lever is which
     headers it emits. An unlisted `Origin` gets no CORS headers at all and
@@ -135,7 +138,41 @@ defmodule Letflow.Plugs.Cors do
   end
 
   @spec origin_allowed?(String.t()) :: boolean()
-  defp origin_allowed?(origin), do: origin in allowed_origins()
+  defp origin_allowed?(origin), do: origin in allowed_origins() or company_origin?(origin)
+
+  # The Origin header is unauthenticated input and this plug runs before every route:
+  # anything that is not a short printable-ASCII string is refused before URI.new/1,
+  # which raises on a non-UTF-8 byte (INV-8). Fails closed.
+  defp company_origin?(origin) when byte_size(origin) > 300, do: false
+
+  defp company_origin?(origin) do
+    if Regex.match?(~r/\A[\x21-\x7e]+\z/, origin), do: parse_company_origin?(origin), else: false
+  end
+
+  defp parse_company_origin?(origin) do
+    with {:ok,
+          %URI{
+            scheme: "https",
+            host: host,
+            port: 443,
+            userinfo: nil,
+            path: nil,
+            query: nil,
+            fragment: nil
+          }}
+         when is_binary(host) <- URI.new(origin),
+         # URI parsers can normalize an empty port to 443; accept only serialized origins.
+         true <- origin in ["https://" <> host, "https://" <> host <> ":443"],
+         {:ok, _host} <-
+           Letflow.TenantProvisioner.Request.hostname(
+             host,
+             Letflow.TenantProvisioner.Config.allowed_hostname_suffixes()
+           ) do
+      true
+    else
+      _invalid -> false
+    end
+  end
 
   @spec preflight_request?(Plug.Conn.t()) :: boolean()
   defp preflight_request?(conn) do

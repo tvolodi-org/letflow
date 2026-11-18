@@ -178,7 +178,7 @@ defmodule Letflow.Routers.LoginDiscoveryTest do
   defp disclosed(:active_plus_inactive), do: :a
 
   defp tenant_ref(w, key) do
-    %{slug: w[key].slug, display_name: w[key].display_name}
+    %{slug: w[key].slug, display_name: w[key].display_name, hostname: nil}
   end
 
   # Runs one request with its whole footprint measured.
@@ -274,11 +274,15 @@ defmodule Letflow.Routers.LoginDiscoveryTest do
 
       keys ->
         # exactly ONE delivery, of the typed (normalised) address, with the tenant maps
-        # stripped to exactly slug + display_name, in query (display_name) order
+        # stripped to slug + display_name + hostname (nil without onboarding), in query order
         assert [{recipient, tenants}] = r.deliveries
         assert recipient == String.downcase(String.trim(email))
         assert tenants == Enum.map(keys, &tenant_ref(w, &1))
-        assert Enum.all?(tenants, &(&1 |> Map.keys() |> Enum.sort() == [:display_name, :slug]))
+
+        assert Enum.all?(
+                 tenants,
+                 &(&1 |> Map.keys() |> Enum.sort() == [:display_name, :hostname, :slug])
+               )
     end
   end
 

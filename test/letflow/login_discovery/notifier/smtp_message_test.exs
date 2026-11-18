@@ -406,4 +406,57 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.MessageTest do
       end
     end
   end
+
+  test "M3 company links are independent with no-host fallback" do
+    slug = "t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d"
+
+    tenants = [
+      %{slug: slug, display_name: "Acme", hostname: " ACME.demo.example.test "},
+      %{slug: "other/?", display_name: "Other", hostname: "other.demo.example.test"},
+      %{slug: "legacy", display_name: "Legacy", hostname: nil}
+    ]
+
+    assert {:ok, message} =
+             Message.compose(
+               @recipient,
+               tenants,
+               Map.put(@opts, :allowed_hostname_suffixes, ["demo.example.test"])
+             )
+
+    assert message.body =~ "https://acme.demo.example.test/?realm=" <> slug
+    assert message.body =~ "https://other.demo.example.test/?realm=other%2F%3F"
+    assert message.body =~ @base <> "/?realm=legacy"
+    refute message.body =~ @base <> "/?realm=" <> slug
+    entry = "https://acme.demo.example.test/?realm=" <> slug
+
+    assert URI.to_string(%{URI.parse(entry) | path: "/auth/callback"}) ==
+             "https://acme.demo.example.test/auth/callback?realm=t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d"
+  end
+
+  test "M4 present invalid company hosts fail closed without fallback" do
+    for host <- [
+          "",
+          42,
+          "auth.demo.example.test",
+          "acme.evil.example",
+          "acme.demo.example.test/path",
+          "https://acme.demo.example.test",
+          "*.demo.example.test",
+          <<255>>
+        ] do
+      assert {:error, :invalid_message} =
+               Message.compose(
+                 @recipient,
+                 [%{slug: "a", display_name: "A", hostname: host}],
+                 Map.put(@opts, :allowed_hostname_suffixes, ["demo.example.test"])
+               )
+    end
+
+    assert {:error, :invalid_message} =
+             Message.compose(
+               @recipient,
+               [%{slug: "a", display_name: "A", hostname: "acme.demo.example.test"}],
+               @opts
+             )
+  end
 end

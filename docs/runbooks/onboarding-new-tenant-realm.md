@@ -25,7 +25,8 @@ values belong in this file or in any evidence field.
   power inside a customer tenant; `TENANT_ADMIN` is the tenant's owner role).
 - `lib/letflow/design/req447-infra-realm-mapping.md`, sections 1 and 3b (every new realm must
   issue `TENANT_ADMIN`).
-- The tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is for the provisioner; step R1 below still describes the manual clone.
+- The current provisioner template is `priv/keycloak/provisioner/v2/tenant-realm.json`; its README lists the exact callbacks and all three substitutions.
+- The historical tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is retained as a historical reference; new provisioning uses v2.
 
 ## Realm roles a tenant realm must carry
 
@@ -47,15 +48,31 @@ Check: `python3 -I scripts/check_realm_roles.py [realm.json ...]` fails when any
 
 ## Ordered steps
 
-**Reserved slug (T-1861):** the slug `pwa` is reserved (infra serves the QA PWA at `pwa.letflow.qa.bizdala.com`, an exact-name vhost under the tenant wildcard). Tenant creation (`POST /api/v1/onboarding`, `POST /api/v1/tenants`) and the provisioner hostname check refuse it with the usual 422/invalid-field answer and write nothing. The list is `Letflow.Identity.Tenant.reserved_slugs/0`, in one place; existing tenants are not touched.
+**Reserved slugs (D-158):** `auth`, `app`, `www`, `pwa`, `api`, `qa`, `staging`, `mail`,
+`send`, `rsend`, `demo`, `admin`, `status`. `Letflow.Identity.Tenant.reserved_slugs/0` is the
+single list, compared trimmed and case-insensitively. Tenant creation and the provisioner
+refuse these slugs; both the provisioner and `POST /api/v1/onboarding` also refuse them as the
+first hostname label before any write (422 on `hostname`). Existing rows are not rewritten.
 
-1. **R1 Create the realm.** Clone the `bpm-default` realm definition
-   (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
-   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. The company URL is
+1. **R1 Create the realm.** Use `priv/keycloak/provisioner/v2/tenant-realm.json`, filling
+   its three placeholders and the SMTP/first-administrator configuration described in its README.
+   Do not clone the development seed `priv/keycloak/realms/bpm-default.json` with its demo users
+   and wildcard redirects. The template includes `TENANT_ADMIN`. The company URL is
    `https://<company>.ai-letflow.com` (for example `https://sss.ai-letflow.com`). Set the
    `letflow-web` client's valid redirect URIs to
-   `https://<company>.ai-letflow.com/auth/callback*` and its web origin to
-   `https://<company>.ai-letflow.com`, by hand or through the approved provisioner. The wizard no
+   exactly `https://<company>.ai-letflow.com/auth/callback` and
+   `https://<company>.ai-letflow.com/auth/callback?realm=<tenant-slug>`, and its web origin to
+   exactly `https://<company>.ai-letflow.com`, by hand or through the approved provisioner.
+   QA uses `https://<company>.qa.ai-letflow.com/auth/callback` and
+   `https://<company>.qa.ai-letflow.com/auth/callback?realm=<tenant-slug>`, with web origin
+   `https://<company>.qa.ai-letflow.com`. The query uses the tenant's actual full `Tenant.slug`;
+   provisioned tenants use `Request.slug/1` (`t-` plus 32 hex digits). Never use the shorter
+   `Request.realm_for/1` (20 hex digits), or infer the slug from the company label. Keycloak 26.2 compares
+   queries exactly: register both the plain host-only/silent callback and the mail/stored-realm
+   callback. Never register a wildcard host, path, query or web origin. QA Keycloak stays
+   `auth.qa.bizdala.com`; old bizdala QA hosts stay valid. Production is future configuration,
+   not built here. Infra must replace its `qa-client-redirect-add.py` path-wildcard behavior
+   and substitute `__TENANT_SLUG__` before live registration. The wizard no
    longer collects `client_config`, `realm_config` or redirect URIs (GH 2463); it shows one line saying
    the realm and client are created by infra. DNS records, certificates and the actual Keycloak realm
    and redirect configuration are infra/PM actions, not performed by Letflow's host-resolution code.

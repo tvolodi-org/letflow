@@ -290,4 +290,20 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpTest do
       refute "DATA" in transcript.commands
     end
   end
+
+  test "M5 SMTP adapter delivers the company-host link" do
+    sink = S.start_sink!(:accept)
+    S.configure_smtp!(sink, [])
+    S.put_app_env!(Letflow.TenantProvisioner, allowed_hostname_suffixes: ["demo.example.test"])
+    slug = "t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d"
+
+    assert :ok =
+             Smtp.deliver_tenant_list(@recipient, [
+               %{slug: slug, display_name: "Acme", hostname: "acme.demo.example.test"}
+             ])
+
+    assert [message] = SmtpSink.messages(sink)
+    assert message.data =~ "https://acme.demo.example.test/?realm=" <> slug
+    SmtpSink.await_closed(sink)
+  end
 end

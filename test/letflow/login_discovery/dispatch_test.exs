@@ -63,7 +63,7 @@ defmodule Letflow.LoginDiscovery.DispatchTest do
   end
 
   defp tenants(w), do: [tenant_ref(w.a), tenant_ref(w.b)]
-  defp tenant_ref(t), do: %{slug: t.slug, display_name: t.display_name}
+  defp tenant_ref(t), do: %{slug: t.slug, display_name: t.display_name, hostname: nil}
 
   # ── failure isolation (INV-8) ───────────────────────────────────────────
 
@@ -308,7 +308,10 @@ defmodule Letflow.LoginDiscovery.DispatchTest do
       H.await_idle()
       assert [{"two@x.test", delivered}] = H.deliveries()
       # `disclose` is stripped before the notifier sees the tenant maps
-      assert Enum.all?(delivered, &(&1 |> Map.keys() |> Enum.sort() == [:display_name, :slug]))
+      assert Enum.all?(
+               delivered,
+               &(&1 |> Map.keys() |> Enum.sort() == [:display_name, :hostname, :slug])
+             )
 
       # a disclosed single is answered by the 200, not by mail
       assert Dispatch.submit("one@x.test", :redirect_single, {:ok, [only]}) == :ok

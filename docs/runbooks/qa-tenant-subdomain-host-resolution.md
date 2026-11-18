@@ -1,5 +1,10 @@
 # QA tenant subdomains: how Letflow picks the tenant, and what `<slug>.letflow.qa.bizdala.com` needs
 
+Current-state note (D-158, T-2148): company CORS, login-directory mail and exact redirects now
+follow the shared guarded suffix policy; see `tenant-provisioner-credential.md` and
+`onboarding-new-tenant-realm.md`. The dated study below retains its historical gap analysis.
+
+
 Study for GH #3252 (REQ-572, portfolio D-019, QA only). The findings below were taken from the code on
 `main` at the time of writing; symbols are cited, not line numbers.
 

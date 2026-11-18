@@ -47,6 +47,22 @@ defmodule Letflow.TenantProvisioner.RequestTest do
 
   defp parse(overrides), do: Request.parse(body(overrides), now: @now)
 
+  test "S2 overlapping company suffixes work in either order" do
+    suffixes = ~w(ai-letflow.com qa.ai-letflow.com letflow.qa.bizdala.com qa.bizdala.com)
+
+    for allowed <- [suffixes, Enum.reverse(suffixes)] do
+      for host <-
+            ~w(acme.qa.ai-letflow.com acme.ai-letflow.com acme.letflow.qa.bizdala.com acme.qa.bizdala.com) do
+        assert {:ok, ^host} = Request.hostname(host, allowed)
+      end
+
+      for host <-
+            ~w(ai-letflow.com qa.ai-letflow.com letflow.qa.bizdala.com qa.bizdala.com a.b.ai-letflow.com *.ai-letflow.com https://acme.ai-letflow.com acme.ai-letflow.com:443 acme.ai-letflow.com/path acme.ai-letflow.com.evil.example) do
+        assert {:error, "hostname"} = Request.hostname(host, allowed)
+      end
+    end
+  end
+
   test "C5 a valid body parses; e-mail and tenant id are canonical" do
     assert {:ok, request} = Request.parse(body(%{"tenant_id" => @id}), now: @now)
     assert request.tenant_id == @id
@@ -256,5 +272,49 @@ defmodule Letflow.TenantProvisioner.RequestTest do
     end
 
     defp nil_like, do: %{"x" => 1}
+  end
+
+  test "S1 parses all migration suffixes and refuses a malformed member" do
+    var = "LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES"
+
+    assert {:ok, %{provisioner: config}} =
+             Config.parse(
+               %{
+                 var =>
+                   " QA.ai-letflow.com, ai-letflow.com,letflow.qa.bizdala.com,qa.bizdala.com "
+               },
+               :test
+             )
+
+    assert config[:allowed_hostname_suffixes] ==
+             ~w(qa.ai-letflow.com ai-letflow.com letflow.qa.bizdala.com qa.bizdala.com)
+
+    assert {:error, ^var} = Config.parse(%{var => "ai-letflow.com,https://bad.example"}, :test)
+  end
+
+  test "S3 runtime suffixes fail closed for missing and malformed settings" do
+    for value <- [
+          nil,
+          "ai-letflow.com",
+          [nil],
+          ["ai-letflow.com", "*.example.com"],
+          ["AI-letflow.com"],
+          []
+        ] do
+      Application.put_env(:letflow, Letflow.TenantProvisioner, allowed_hostname_suffixes: value)
+      assert Config.allowed_hostname_suffixes() == []
+      assert {:error, "hostname"} = parse(%{})
+    end
+
+    Application.delete_env(:letflow, Letflow.TenantProvisioner)
+    assert Config.allowed_hostname_suffixes() == []
+    Application.put_env(:letflow, Letflow.TenantProvisioner, nil)
+    assert Config.allowed_hostname_suffixes() == []
+  end
+
+  test "R4 all reserved company host labels are refused before parsing succeeds" do
+    for label <- ~w(auth app www pwa api qa staging mail send rsend demo admin status) do
+      assert {:error, "hostname"} = parse(%{"hostname" => label <> ".qa.example"})
+    end
   end
 end
