@@ -93,9 +93,9 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V1 answers 200. The "location_code" value starts with the letter L (the same first character as LOC_L).
-        "location_words" contains the word "слева". The transcript equals the sent phrase.
-        (Items may be empty if no specific item was named; that is acceptable for this check.)
+        V1 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter L.
+        The "transcript" field equals the sent phrase and contains the word "слева", confirming the zone word
+        was present in the phrase. Items may be empty if no specific item was named; that is acceptable for this check.
       evidence: V1 body.
     on_fail:
       severity: MAJOR
@@ -109,8 +109,8 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V2 answers 200. The "location_code" value starts with the letter R (the same first character as LOC_R).
-        "location_words" contains the word "справа".
+        V2 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter R.
+        The "transcript" field equals the sent phrase and contains the word "справа".
       evidence: V2 body.
     on_fail:
       severity: MAJOR
@@ -123,8 +123,9 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V3 answers 200. The "location_code" value starts with the letter L. "location_words" contains "сол жақ".
-        The transcript equals the sent phrase.
+        V3 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter L.
+        The "transcript" field equals the sent phrase and contains the words "сол жақ", confirming the Kazakh zone
+        word was present in the phrase.
       evidence: V3 body.
     on_fail:
       severity: MAJOR
@@ -137,7 +138,8 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V4 answers 200. The "location_code" value starts with the letter R. "location_words" contains "оң жақ".
+        V4 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter R.
+        The "transcript" field equals the sent phrase and contains the words "оң жақ".
       evidence: V4 body.
     on_fail:
       severity: MAJOR

@@ -91,7 +91,7 @@ expected_outcomes:
         V1 answers 200 with the keys kind, items, location, to_location, quantity, transcript and dropped.
         The "transcript" value equals the sent phrase "получил пять единиц товара на склад" character for character.
         If the language-model step is off: kind is "unknown", items is empty, location and to_location are null,
-        quantity is null, dropped is empty, and a "notices" or similar field names "llm_off".
+        quantity is null, dropped is empty, and the "notice" field equals "llm_off".
         If the model is on: kind is "receipt" (since "получил" is the receipt kind word added by REQ-862), items may
         be empty if no item matched, and the other fields hold the model's answer.
       evidence: V1 body.
