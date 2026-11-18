@@ -501,7 +501,7 @@ defmodule Letflow.TenantProvisioner do
 
   defp not_taken(request) do
     cond do
-      match?({:ok, _}, Identity.get_onboarding_by_hostname(request.hostname)) ->
+      Letflow.TenantHosts.taken?(request.hostname, nil) ->
         {:error, :conflict}
 
       match?({:ok, _}, Identity.resolve_tenant_by_realm(request.idp_realm_id)) ->

@@ -1065,6 +1065,10 @@ defmodule Letflow.Api.Authorization do
   # separation-of-duties mode. Platform scope.
   def endpoint_policy_key("PUT", "/tenants/:slug/script-policy/solo-audited"), do: :TenantsManage
 
+  # T-2184: existing-tenant hostname registration is platform scope.
+  def endpoint_policy_key("PUT", "/tenants/:slug/hostname"), do: :TenantsManage
+  def endpoint_policy_key("DELETE", "/tenants/:slug/hostname"), do: :TenantsManage
+
   # REQ-382 / ISS-0993 -- authenticated write path onto the caller's OWN
   # tenant.settings (Letflow.Routers.TenantSettings), mounted at /tenant/settings
   # (no target-tenant parameter: the tenant patched is always the caller's own,

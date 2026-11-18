@@ -26,6 +26,15 @@ defmodule Letflow.Identity.OnboardingRecord do
 
   @type t :: %__MODULE__{}
 
+  @doc "Changes only the company host, preserving the onboarding identity."
+  @spec hostname_changeset(t(), map()) :: Ecto.Changeset.t()
+  def hostname_changeset(%__MODULE__{} = record, attrs) do
+    record
+    |> cast(attrs, [:hostname])
+    |> validate_required([:hostname])
+    |> unique_constraint(:hostname)
+  end
+
   @doc """
   Insert changeset for `Letflow.Identity.create_onboarding/1`. `attrs` carries
   `tenant_id`/`slug`/`hostname` — all three required.

@@ -42,6 +42,10 @@ defmodule Letflow.Routers.Tenants do
 
   ## THIS IS THE HIGHEST-RISK ROUTE GROUP IN S4 (AC6)
 
+  T-2184 adds `PUT/DELETE /:slug/hostname` for an existing tenant's company
+  host. These use the same platform-only `:TenantsManage` gate, validate through
+  `Letflow.TenantHosts` and atomically audit on the tenant and platform chains.
+
   These six handlers operate on the global `tenants` table, entirely
   outside REQ-072's per-tenant `:prefix`-scoping mechanism — there is no
   tenant context to scope by, because these handlers decide which tenants
@@ -247,6 +251,15 @@ defmodule Letflow.Routers.Tenants do
     handle_put_script_solo_audited(conn, conn.params["slug"])
   end
 
+  # T-2184: platform-only company-host registration for an existing tenant.
+  authz_put "/:slug/hostname", :TenantsManage do
+    handle_hostname(conn, conn.params["slug"], :set)
+  end
+
+  authz_delete "/:slug/hostname", :TenantsManage do
+    handle_hostname(conn, conn.params["slug"], :remove)
+  end
+
   # REQ-077 R10 (ENV-03) -- the ONE route this requirement contributes to
   # this router (design §2.4): own-tenant TENANT scope, key :PromotionsManage
   # (ISS-0993 row 34), no longer :Unknown. `:test_tenant_id` is caller-supplied and
@@ -260,6 +273,92 @@ defmodule Letflow.Routers.Tenants do
   end
 
   authz_unmatched(:platform_prefix)
+
+  defp handle_hostname(conn, slug, operation) do
+    with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
+         {:ok, tenant} <- Identity.get_tenant_by_slug(slug),
+         prefix when is_binary(prefix) <- verified_platform_prefix(conn),
+         true <-
+           match?(
+             {:ok, ^prefix},
+             TenantProvisioning.registered_schema(conn.assigns.auth_context.tenant_id)
+           ) do
+      opts = [
+        actor_id: conn.assigns.auth_context.user_id,
+        platform_prefix: prefix,
+        trace_id: conn.assigns[:trace_id]
+      ]
+
+      result =
+        case operation do
+          :set ->
+            body = conn.body_params
+            raw = if is_map(body), do: Map.get(body, "hostname")
+            Letflow.TenantHosts.set_host(tenant.id, raw, opts)
+
+          :remove ->
+            Letflow.TenantHosts.remove_host(tenant.id, opts)
+        end
+
+      case result do
+        {:ok, outcome, record} ->
+          Response.ok(conn, %{
+            tenant_id: tenant.id,
+            slug: tenant.slug,
+            hostname: record.hostname,
+            onboarding_id: record.id,
+            changed: outcome != :unchanged
+          })
+
+        {:ok, outcome} ->
+          Response.ok(conn, %{
+            tenant_id: tenant.id,
+            slug: tenant.slug,
+            hostname: nil,
+            onboarding_id: nil,
+            changed: outcome != :unchanged
+          })
+
+        {:error, reason} ->
+          hostname_error(conn, reason)
+      end
+    else
+      {:error, :not_found} -> Response.not_found(conn)
+      _unverified_prefix -> Response.internal_error(conn)
+    end
+  end
+
+  defp hostname_error(conn, reason)
+       when reason in [:required, :invalid_hostname, :reserved_hostname] do
+    {constraint, message} =
+      case reason do
+        :required -> {"required", "field is required"}
+        :invalid_hostname -> {"format", "must be one label under an allowed company-host suffix"}
+        :reserved_hostname -> {"reserved", "is reserved"}
+      end
+
+    error = %Letflow.Api.Validation.FieldError{
+      field: "hostname",
+      constraint: constraint,
+      message: message
+    }
+
+    Response.send_problem(conn, Validation.problem([error]))
+  end
+
+  defp hostname_error(conn, :not_found), do: Response.not_found(conn)
+  defp hostname_error(conn, :tenant_purged), do: Response.conflict(conn, "tenant was purged")
+
+  defp hostname_error(conn, :not_provisioned),
+    do: Response.conflict(conn, "tenant is not provisioned")
+
+  defp hostname_error(conn, :hostname_taken),
+    do: Response.conflict(conn, "hostname already bound")
+
+  defp hostname_error(conn, :ambiguous_host),
+    do: Response.conflict(conn, "tenant has more than one host; remove them first")
+
+  defp hostname_error(conn, _audit_failed_or_internal), do: Response.internal_error(conn)
 
   # ── POST /tenants (design §7.1, AC4, AC7) ───────────────────────────────
 

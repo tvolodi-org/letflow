@@ -733,6 +733,31 @@ defmodule Letflow.Routers.AdminV1Test do
   end
 
   describe "C6 conflicts" do
+    test "P1 legacy padded uppercase hostname remains reserved" do
+      holder = TenantFixture.provisioned_tenant!(slug_prefix: "host-holder")
+      host = "up-#{System.unique_integer([:positive])}.qa.example"
+
+      Repo.insert!(
+        OnboardingRecord.insert_changeset(%OnboardingRecord{}, %{
+          tenant_id: holder.tenant_id,
+          slug: holder.tenant.slug,
+          hostname: "  " <> String.upcase(host) <> " "
+        })
+      )
+
+      on_exit(fn ->
+        Repo.delete_all(from(r in OnboardingRecord, where: r.tenant_id == ^holder.tenant_id))
+      end)
+
+      body = create_body(%{"hostname" => host})
+      track(body["tenant_id"])
+      before = counts()
+      response = call(:post, "/admin/v1/tenants", @write_token, body)
+      assert response.status == 409, response.resp_body
+      assert json(response)["error"] == "conflict"
+      assert counts() == before
+    end
+
     test "a hostname or a realm owned by another tenant, or an id owned by a non-provisioned tenant, is 409",
          ctx do
       {first, _answer} = create!()

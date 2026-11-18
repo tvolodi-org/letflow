@@ -4,6 +4,77 @@ Current-state note (D-158, T-2148): company CORS, login-directory mail and exact
 follow the shared guarded suffix policy; see `tenant-provisioner-credential.md` and
 `onboarding-new-tenant-realm.md`. The dated study below retains its historical gap analysis.
 
+## Register or change the host of an existing tenant (T-2184)
+
+Use the API instead of inserting into `public.onboarding_registry` by hand:
+
+| Request | Body | Result |
+|---|---|---|
+| `PUT /api/v1/tenants/:slug/hostname` | `{"hostname":"company.qa.ai-letflow.com"}` | 200: `tenant_id`, `slug`, normalized `hostname`, `onboarding_id`, `changed` |
+| `DELETE /api/v1/tenants/:slug/hostname` | None | 200: same keys, null hostname and onboarding id |
+
+Both require a PLATFORM_ADMIN token of the configured **platform tenant**. A tenant's
+TENANT_ADMIN or PLATFORM_ADMIN cannot call them, even for its own slug (403).
+`Letflow.TenantHosts` writes the registry and both audit chains in one transaction;
+the platform entry identifies the operator, and the tenant entry identifies only
+the actor class `platform_operator`.
+
+The hostname must be one label under a suffix configured in
+`LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES`. The shared policy supports
+`qa.ai-letflow.com`, `ai-letflow.com` and the existing bizdala suffixes; only
+configured suffixes are enabled. An empty setting refuses every host. Wildcards,
+extra labels, malformed names and reserved labels are refused (422 with a hostname
+field error). Reserved labels: `auth`, `app`, `www`, `pwa`, `api`, `qa`, `staging`,
+`mail`, `send`, `rsend`, `demo`, `admin`, `status`.
+
+An unknown slug returns 404. An occupied hostname, a purged tenant, an
+unprovisioned tenant or multiple legacy host rows return 409 (remove the legacy
+rows with DELETE before setting one host). Audit failure returns a fixed 500 and
+rolls back the write. After a 500 or a lost response, repeat PUT: it is idempotent,
+and `changed: false` means the host was already stored. A repeated DELETE also
+returns `changed: false`.
+
+There is **one host per tenant**. PUT replaces it and keeps its onboarding id;
+the previous hostname stops resolving. DELETE removes the onboarding id too, so
+`/api/v1/onboarding/:id/...` returns 404 until a new registration creates a new id.
+A purged tenant's host stays reserved and cannot be removed. Existing hand-written
+rows remain valid; this release performs no backfill or rewrite.
+
+For QA creation, use this order: `realm` → `users` → `POST /api/v1/tenants`
+(including `idp_realm_id`) → `host <slug> <hostname>`. The `/admin/v1/tenants`
+provisioner already stores its validated host on creation and now also refuses
+legacy case/padding variants held by another tenant. A replay of a provisioner
+create completes missing steps, including re-registering its host after DELETE.
+
+The infra helper is maintained outside this product. T-2184 supplies
+`infra/qa-tenant-create.host-mode.patch` in its task artifacts, with a patched copy
+and tests. Infra must apply that patch to `ai-dala-infra/scripts/qa-tenant-create.py`
+before using these commands; it adds `host` and `unhost` modes, preserving the
+helper's slug allowlist:
+
+```bash
+ssh ubuntu-16gb-nbg1-1 "sudo -n python3 - host qoimeks-qa qoimeks-qa.qa.ai-letflow.com" < scripts/qa-tenant-create.py
+ssh ubuntu-16gb-nbg1-1 "sudo -n python3 - unhost qoimeks-qa" < scripts/qa-tenant-create.py
+```
+
+The helper obtains the platform `admin-user` token at the **public** issuer
+`https://auth.qa.bizdala.com` using the host-only seeded-users file. Minting it at
+`127.0.0.1:3204` yields the wrong issuer. Tokens and passwords are never printed.
+
+Post-merge operator check (after auto-CD deploys this API to QA): apply the infra
+patch, then register `qoimeks-qa`, `qoimeks-client1-qa` and `rehearsal-1` with their
+actual DNS names. Register `gate-b6` with the same API directly; the helper's
+existing allowlist deliberately excludes `gate-*`. Use the old
+`<slug>.letflow.qa.bizdala.com` names while the new QA DNS is unavailable. For each:
+
+```bash
+curl --fail --silent 'https://qoimeks-qa.letflow.qa.bizdala.com/api/tenant-config?host=qoimeks-qa.letflow.qa.bizdala.com'
+```
+
+Verify `oidc_authority` ends in `/realms/<tenant realm>` rather than the default
+realm. Also configure the exact Keycloak redirects for the chosen host per
+`onboarding-new-tenant-realm.md`; no wildcard registration is added here.
+
 
 Study for GH #3252 (REQ-572, portfolio D-019, QA only). The findings below were taken from the code on
 `main` at the time of writing; symbols are cited, not line numbers.

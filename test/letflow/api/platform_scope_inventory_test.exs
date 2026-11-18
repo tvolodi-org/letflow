@@ -569,6 +569,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"PUT", "/tenants/:slug/script-policy/kill-switch"},
     # GH 2534 7b-2b (decision 0053 D6): the platform flag allowing solo_audited.
     {"PUT", "/tenants/:slug/script-policy/solo-audited"},
+    # T-2184: existing-tenant hostname registration.
+    {"PUT", "/tenants/:slug/hostname"},
+    {"DELETE", "/tenants/:slug/hostname"},
     {"POST", "/onboarding"},
     {"GET", "/onboarding/:id"},
     {"POST", "/onboarding/:id/bind-realm"},
@@ -595,13 +598,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 39 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 41 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 39
+      assert length(@platform_routes) == 41
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
@@ -611,7 +614,8 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
 
       # GH 2534 7b-2a added GET /:slug/script-policy and PUT /:slug/script-policy/kill-switch;
       # 7b-2b added PUT /:slug/script-policy/solo-audited.
-      assert length(tenants_routes) == 11
+      # T-2184 added PUT/DELETE hostname (11 -> 13).
+      assert length(tenants_routes) == 13
 
       non_platform =
         for {method, path, key} <- tenants_routes,

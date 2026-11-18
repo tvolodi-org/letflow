@@ -10,6 +10,7 @@ DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
 DELETE /tenant/logo TenantSettingsManage
+DELETE /tenants/:slug/hostname TenantsManage
 DELETE /webhooks/subscriptions/:id WebhookSubscriptionsManage
 GET /admin/services AdminServicesRead
 GET /audit AuditRead
@@ -297,5 +298,6 @@ PUT /script-policy/sod ScriptPolicyManage
 PUT /script-rules/:key/versions/:version ScriptsWrite
 PUT /tenant/logo TenantSettingsManage
 PUT /tenant/modules/:module_id/settings ModulesManage
+PUT /tenants/:slug/hostname TenantsManage
 PUT /tenants/:slug/script-policy/kill-switch TenantsManage
 PUT /tenants/:slug/script-policy/solo-audited TenantsManage
