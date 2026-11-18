@@ -1,0 +1,113 @@
+# T-2163 (BA): the old shared token, scoped to this tenant. The value of Qoimeks QA is refused at another company's old-app address, at an address of a company that does not exist, and on every ordinary API route; all with the same answer. QA only, synthetic data.
+# REQ ids covered: REQ-859 (AC 2: same 401 for unknown slug and the value of tenant A sent to tenant B's address; AC 5: the value is never passed to the ordinary API), REQ-858 (AC 5: tenant isolation), REQ-857 (decision 0091 sections 6 and 8.1, INV-10).
+# Sources opened: docs/requirements.yaml REQ-858, REQ-859; docs/migration/decisions/0091-shared-stock-access.md sections 3, 6, 8.1, 11a; docs/agents/instructions/security-invariants.md INV-1, INV-5, INV-10 (read for the isolation wording); test/fixtures/uat/actors.yaml.
+# ROSTER GAP, stated: no second tenant has the shared access enabled and no second actor of this realm exists; the "other company's address" is therefore an address of a company slug that is not listed (the platform's default tenant slug bpm-default and a made-up slug). The deployment setting lists only the QA slugs the operator chose; a listed second tenant cannot be assumed.
+# NOT UAT-observable: the cross-tenant case where the other tenant itself holds a shared access (needs a second listed tenant and its administrator); it is covered by the REQ-858 AC 5 and REQ-859 AC 2 backend tests. A tenant administrator of another company trying the status routes: no roster actor for this realm other than the administrator, and the status routes take the tenant from the sign-in.
+# Cleanup: creates the tenant's shared access and revokes it at the end. Wrong-value attempts are kept to 3 so the failure limit of the address (10 failures a minute per address, docs/runbooks/auth-rate-limits.md) is not reached. No stock row is written.
+---
+id: qoimeks-token-3-value-is-bound-to-this-tenant
+scope: qoimeks-qa
+title: The Qoimeks QA shared stock access value is refused at other companies' addresses and on every ordinary API route, with the same answer each time
+version: "1.0"
+tags: [qoimeks, shared_stock_access, tenancy, refusal, api]
+
+description: >
+  The Qoimeks QA administrator creates the tenant's shared stock access (value V1). The value works at the tenant's own old-app address (catalog read answers 200). The same value is then presented at
+  the old-app address of the company slug bpm-default, at the address of a slug that does not exist (noted as nowhere-xyz), and at the tenant's own address with a made-up value W. All three are refused with the
+  same 401 ("invalid or expired bearer token"), same body and same headers (trace identifier dropped before comparing), so an outsider cannot tell whether a company exists, has the feature, or whether
+  the value was right. The value is also presented on the ordinary stock balances route of the tenant (the route the administrator's own screens use) and is refused (401): the old-app value opens only the old-app address.
+  Posting routes at the old-app address and the other company's data are not touched. The administrator revokes the access at the end.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The tenant slug qoimeks-qa is listed in the deployment setting that allows a shared stock access, the tenant is active with the stock module, scope enforcement is off, and the status says no shared access exists.
+    check: system_seeded
+    detail: If not enabled, or one already exists, report BLOCKED for the whole scenario and say which; do not revoke an existing one.
+  - description: The administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+    check: system_seeded
+    detail: If sign-in fails, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates the shared stock access with an empty request. The answer is noted as C1; the value is V1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The old-app address of qoimeks-qa is asked for the item catalog presenting V1. The answer is noted as R1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The old-app address of the company slug bpm-default is asked for the item catalog presenting V1. The answer is noted as R2 (status, body, headers).
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The old-app address of the slug nowhere-xyz is asked for the item catalog presenting V1. The answer is noted as R3 (status, body, headers).
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The old-app address of qoimeks-qa is asked for the item catalog presenting the made-up value W (64 characters of the letters a to f). The answer is noted as R4 (status, body, headers).
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The tenant's ordinary stock balances read is asked, presenting V1 as the bearer value and no signed-in session. The answer is noted as R5.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access (answer D1) and reads the status (answer S1).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The value works at the tenant's own old-app address.
+    verification:
+      method: http_status
+      detail: C1 is 201 with a value; R1 is 200 with the tenant's items.
+      evidence: Status of C1 (masked) and R1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The checks that follow prove nothing if the value never worked.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The value is refused at another company's address, at a non-existent address and with a wrong value, all with one answer.
+    verification:
+      method: http_status
+      detail: R2, R3 and R4 are each 401 with detail "invalid or expired bearer token". Their bodies (trace identifier dropped) and headers are identical to each other; none names a tenant, a slug, or a reason.
+      evidence: Status, body and headers of R2, R3, R4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Either one company's value opens another company's stock, or the refusal tells an outsider which companies exist or have the feature enabled.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The old-app value opens nothing on the ordinary API.
+    verification:
+      method: http_status
+      detail: R5 is 401 and returns no balances.
+      evidence: Status of R5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A shared secret held by phones reaches personal-account routes (tasks, approvals, users).
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The tenant ends with no shared access.
+    verification:
+      method: api_response
+      detail: D1 is 204 and S1 says exists false.
+      evidence: Status of D1 and body of S1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A test value stays alive on the QA tenant.
+      suggested_action: route_to_wf03
