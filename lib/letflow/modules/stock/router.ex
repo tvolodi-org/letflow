@@ -97,6 +97,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-sheet/print?location&from&to&format=pdf\|docx&lang=ru\|kk` (T-1925; official form Z-7 / Q-7, the stock balances sheet of one location for one period: opening, income, expense, closing per item, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_period`, `period_in_future`, `invalid_format`, `invalid_lang`, `sheet_too_long` (more than 5000 entries or 1000 rows), `print_unsupported_character` |
   | `POST /stock-workbook/check?org_unit_id=` (REQ-884; an `.xlsx` body in the Qoimeks layout checked against the stock of one org unit, `StockWorkbookImport.check/3`, writes nothing; `docs/runbooks/stock-workbook-import.md`) | `StockRead` | 200 `sheet, rows_read, remarks, changes, unchanged_count, too_many_changes`, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, 413 over the 2 MiB body |
+  | `POST /stock-workbook/apply?org_unit_id=` (REQ-885; loads the checked workbook, writes a stock_quick_count document; `StockWorkbookImport.check_for_apply/3`, `Documents.workbook_apply/6`; `docs/runbooks/stock-workbook-import.md`) | `StockQuickCount` | 201 `document_id, number, lines, remarks, approve_task_id`, 200 `applied false, changes 0, remarks` when no change, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, `too_many_changes`, `count_in_progress`, 409 `definition_not_active`, 413 over the 2 MiB body |
   | `GET /stock-workbook` (REQ-865; the whole current stock in the Qoimeks import layout, `Letflow.Modules.Stock.StockWorkbook.build/1`; no query key accepted) | `StockRead` | 200 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` `stock-YYYY-MM-DD.xlsx`, 404 when the caller is a scoped reader (a full tenant-wide reader is required; a hidden unit's stock would otherwise appear as zero), 422 `invalid_filter` (any query key), `workbook_too_large` (more than 10 000 data rows) |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`); T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
@@ -399,6 +400,91 @@ defmodule Letflow.Modules.Stock.Router do
 
         {:error, _} ->
           Response.internal_error(conn)
+      end
+    end)
+  end
+
+  @workbook_apply_reasons [
+    :org_unit_required,
+    :org_unit_not_found,
+    :xlsx_unreadable,
+    :header_missing,
+    :workbook_too_large
+  ]
+
+  # REQ-885 / GH #4606: the apply (load) of a Qoimeks-layout balances workbook as a quick count.
+  authz_post "/stock-workbook/apply", :StockQuickCount do
+    with_access(conn, :quick_count, fn conn, access ->
+      authorized = read_authorized(conn)
+
+      if is_nil(authorized) do
+        Response.not_found(conn)
+      else
+        with :ok <- full_reader(authorized),
+             {:ok, params} <- params(conn, ["org_unit_id", "file_name"]),
+             {:ok, unit} <- check_org_unit(authorized, params),
+             {:ok, bytes} <- check_body(conn) do
+          file_name = Map.get(params, "file_name", "workbook.xlsx")
+
+          file_name_result =
+            cond do
+              file_name == "" -> {:error, :invalid_filter}
+              String.length(file_name) > 255 -> {:error, :invalid_filter}
+              true -> {:ok, file_name}
+            end
+
+          case file_name_result do
+            {:error, reason} ->
+              unprocessable(conn, Atom.to_string(reason))
+
+            {:ok, file_name} ->
+              opts = [activator: Letflow.Api.Context.activator(conn)]
+
+              case Documents.workbook_apply(
+                     authorized,
+                     unit,
+                     bytes,
+                     file_name,
+                     access.actor_id,
+                     opts
+                   ) do
+                {:ok, %{"applied" => false} = answer} ->
+                  Response.ok(conn, answer)
+
+                {:ok, answer} ->
+                  Response.send_json(conn, 201, answer)
+
+                {:error, :not_found} ->
+                  Response.not_found(conn)
+
+                {:error, :definition_not_active} ->
+                  conn
+                  |> Plug.Conn.put_status(409)
+                  |> Response.ok(%{"reason" => "definition_not_active"})
+
+                {:error, :busy} ->
+                  Response.service_unavailable(conn, "busy")
+
+                {:error, {reason, extras}} ->
+                  refuse_document(conn, {reason, extras})
+
+                {:error, reason} when reason in @workbook_apply_reasons ->
+                  unprocessable(conn, Atom.to_string(reason))
+
+                {:error, _} ->
+                  Response.internal_error(conn)
+              end
+          end
+        else
+          {:error, :not_found} ->
+            Response.not_found(conn)
+
+          {:error, :invalid_filter} ->
+            refuse(conn, :invalid_filter)
+
+          {:error, reason} when reason in @workbook_apply_reasons ->
+            unprocessable(conn, Atom.to_string(reason))
+        end
       end
     end)
   end

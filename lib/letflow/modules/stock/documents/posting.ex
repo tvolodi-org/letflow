@@ -782,8 +782,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp derive_state(state, _marks), do: state
 
   # REQ-854: an issued quick count whose difference is zero posts nothing and reads `confirmed`.
-  defp confirmed("issued", %{kind: "quick_count", lines: [line | _]}) do
-    if Decimal.eq?(Decimal.new(line.difference), 0), do: "confirmed", else: "issued"
+  # REQ-885: multi-line quick count (workbook load) confirms only when ALL lines have zero difference.
+  defp confirmed("issued", %{kind: "quick_count", lines: lines}) when lines != [] do
+    if Enum.all?(lines, &Decimal.eq?(Decimal.new(&1.difference), 0)),
+      do: "confirmed",
+      else: "issued"
   end
 
   defp confirmed(state, _base), do: state

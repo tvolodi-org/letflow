@@ -187,3 +187,16 @@ Camera scan and offline counting on the phone (phase D); printed paperwork in Ru
   (`location_frozen`, `held_by`). Why: in the default no-freeze mode the formal count posts a delta from the cut-off, so
   a quick count after the cut-off would be counted twice. A summary of any other document type is decided exactly as
   before (REQ-765 unchanged).
+
+## Amended by REQ-885 (Qoimeks parity G8 part 4, the balances workbook load)
+
+- A `stock_quick_count` document may now have MORE THAN ONE line when its source is a balances
+  workbook (`POST /stock-workbook/apply`, content field `workbook_ext.source: "workbook"`). The
+  existing `POST /quick-counts` route still keeps exactly one line. Why: Qoimeks parity (its
+  "write balances from file" action), one approval and one stale check for the whole file, and an
+  import that can be cancelled as one document instead of one count per row.
+- The posting command for a multi-line quick count has one ledger leg per line; the existing
+  stale guard (`quick_count_stale`, REQ-853 `expected_on_hand`) applies to ALL legs: a balance
+  that moved after the load refuses the WHOLE entry, keeping the system consistent.
+- The formal count rule (REQ-854) extends to the workbook load: a count order whose scope covers
+  ANY key in the file blocks the load with 422 `count_in_progress`.
