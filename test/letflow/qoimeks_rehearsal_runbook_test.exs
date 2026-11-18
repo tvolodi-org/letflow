@@ -49,6 +49,13 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
         do: cells
   end
 
+  defp numbered_step(steps, number) do
+    case Regex.run(~r/^#{number}\. \*\*.*?(?=^\d+\. \*\*|\z)/ms, steps) do
+      [step] -> String.replace(step, ~r/\s+/, " ")
+      nil -> ""
+    end
+  end
+
   defp check_rules(md) do
     case section(md, @moves) do
       nil ->
@@ -214,6 +221,111 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
     assert steps =~ "GET /api/v1/modules/stock/balances"
     assert steps =~ "quantity equals the extract exactly"
     assert steps =~ "skipped zero row has no opening line"
+  end
+
+  test "QR-G8A opening headers use the stock route, idempotency and the safe negative order" do
+    steps = section(md(), "Steps")
+    headers = numbered_step(steps, 4)
+    setting = numbered_step(steps, 5)
+
+    assert headers =~ "POST /api/v1/modules/stock/documents"
+    assert headers =~ "Idempotency-Key"
+    assert headers =~ "`POST /api/v1/documents` answers 403"
+    assert headers =~ "Create the headers of the **positive** files now"
+    assert setting =~ "Only now create the headers of the negative lines files"
+    assert setting =~ "Order: positive headers, switch on, negative headers"
+    assert setting =~ "422 `quantity_invalid`"
+
+    ordered_steps = String.replace(steps, ~r/\s+/, " ")
+    positive_at = :binary.match(ordered_steps, "Create the headers of the **positive** files now")
+    switch_at = :binary.match(ordered_steps, "PUT /api/v1/ledger-settings/stock")
+
+    negative_at =
+      :binary.match(ordered_steps, "Only now create the headers of the negative lines files")
+
+    assert positive_at != :nomatch
+    assert switch_at != :nomatch
+    assert negative_at != :nomatch
+    assert positive_at < switch_at
+    assert switch_at < negative_at
+  end
+
+  test "QR-G8B posting requires issue and approval, with four-eyes handling and retry-only post" do
+    steps = section(md(), "Steps")
+    upload = numbered_step(steps, 6)
+
+    assert upload =~ "POST /api/v1/modules/stock/documents/<id>/issue"
+    assert upload =~ "Idempotency-Key"
+    assert upload =~ "stock_opening"
+    assert upload =~ "approve"
+    assert upload =~ "POST /api/v1/tasks/<task id>/complete"
+    assert upload =~ "`{}`"
+    assert upload =~ "four_eyes"
+    assert upload =~ "defaults to `true`"
+    assert upload =~ "403 `separation_of_duties`"
+    assert upload =~ "PUT /api/v1/approval-rules/stock_opening/approve"
+    assert upload =~ ~s({"four_eyes": false, "reason": "one-person Qoimeks rehearsal company"})
+    assert upload =~ "pilot-rollout.md"
+    assert upload =~ "step 6"
+    assert upload =~ "POST /api/v1/modules/stock/documents/:id/post"
+    assert upload =~ "only a retry"
+    assert upload =~ "409 `document_not_issued`"
+    assert upload =~ "409 `posting_pending`"
+    assert upload =~ "positive documents first"
+    assert upload =~ "negative documents last"
+
+    four_eyes_at = :binary.match(upload, "PUT /api/v1/approval-rules/stock_opening/approve")
+    issue_at = :binary.match(upload, "/issue")
+    complete_at = :binary.match(upload, "/complete")
+    read_back_at = :binary.match(upload, "After the last file")
+    assert four_eyes_at != :nomatch
+    assert issue_at != :nomatch
+    assert complete_at != :nomatch
+    assert read_back_at != :nomatch
+    assert four_eyes_at < issue_at
+    assert issue_at < complete_at
+    assert complete_at < read_back_at
+  end
+
+  test "QR-G8C quantity comparison merges every cursor page, not only the xlsx first page" do
+    compare = numbered_step(section(md(), "Steps"), 8)
+
+    assert compare =~ "GET /api/v1/modules/stock/balances"
+    assert compare =~ "next_cursor"
+    assert compare =~ "cursor=<next_cursor>"
+    assert compare =~ "null"
+    assert compare =~ "every page"
+    assert compare =~ "merge"
+    assert compare =~ "only the first page"
+    assert compare =~ "50 rows"
+    assert compare =~ "13 pages for 603 rows"
+    assert compare =~ "3 pages for 589 rows"
+    assert compare =~ "stock-balances.xlsx"
+  end
+
+  test "QR-G8D repeat, counts and scope constraints match posted opening behavior" do
+    text = md()
+    steps = section(text, "Steps")
+    counts = numbered_step(steps, 7)
+
+    repeating =
+      text
+      |> String.split("Repeating:", parts: 2)
+      |> Enum.at(1, "")
+      |> String.replace(~r/\s+/, " ")
+
+    scope = section(text, "Deliberately not here")
+
+    assert counts =~ "without database access"
+    assert counts =~ "record exports"
+    assert counts =~ "stock document list"
+    assert counts =~ "env file of the QA actor in the team root"
+    assert counts =~ "never print"
+    assert repeating =~ "only before the opening documents are posted"
+    assert repeating =~ "document_not_draft"
+    assert repeating =~ "nothing is written"
+    refute scope =~ "posting of the opening documents"
+    assert scope =~ "ledger-side count comparison"
   end
 
   test "QR-8 a renamed reason is caught" do

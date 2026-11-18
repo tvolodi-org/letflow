@@ -58,20 +58,43 @@ empty, so it is created together with its first real balance (below).
    `05-item-places-NN.xlsx` files (after the item files when no 05 files were written), and before the opening lines.
    Save each response JSON as `RDIR/<file name without .xlsx>.json`.
 4. **Headers**: `python3 -I scripts/pilot/qoimeks_convert.py headers --out OUT --responses RDIR --org-unit-id UUID --responsible-id UUID`
-   writes `OUT/headers/QOI-HDR-NN.json`; `POST /api/v1/documents` each body (one draft opening per header, created with its first balance).
+   writes `OUT/headers/QOI-HDR-NN.json`; send each body to `POST /api/v1/modules/stock/documents` with an
+   `Idempotency-Key` header, so a scripted retry cannot create a duplicate opening header (one draft opening per
+   header, created with its first balance). `POST /api/v1/documents` answers 403. Create the headers of the
+   **positive** files now; the header of each file with negative lines waits until the setting of step 5 is on.
 5. **Allow negative opening balances** before loading any lines. A tenant administrator with the
    `:LedgerSettingsManage` permission calls `PUT /api/v1/ledger-settings/stock` on the rehearsal tenant with exactly
    `{"allow_negative": true, "reason": "Qoimeks rehearsal: load negative opening balances"}`. Keep the reason in the
    request; the route requires it and audits the change. This switch is QA-only and does not change another tenant.
+   Only now create the headers of the negative lines files (step 4, same route and `Idempotency-Key`); before the
+   switch such a header is refused 422 `quantity_invalid`. Order: positive headers, switch on, negative headers.
 6. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
+   Opening documents are **drafts until posted**. The `stock_opening` approval's `four_eyes` defaults to `true`, so
+   the issuer cannot approve their own document: the completion answers 403 `separation_of_duties`. For a one-admin
+   tenant, before issuing and approving the documents call `PUT /api/v1/approval-rules/stock_opening/approve` with
+   `{"four_eyes": false, "reason": "one-person Qoimeks rehearsal company"}` as in `docs/runbooks/pilot-rollout.md`
+   step 6. After the lines are loaded, call `POST /api/v1/modules/stock/documents/<id>/issue` with an
+   `Idempotency-Key` header for each document. This starts the `stock_opening` approval and creates its `approve`
+   task. Complete that task through `POST /api/v1/tasks/<task id>/complete` with `{}`; completing the approval posts
+   the document. `POST /api/v1/modules/stock/documents/:id/post` is only a retry route: before issue it answers 409
+   `document_not_issued`, and while approval is pending it answers 409 `posting_pending`. Process the positive documents first
+   and the negative documents last. Balances exist only after posting, so the read-back below and
+   the quantity compare of step 8 work only after every document is posted.
    After the last file, a user with `StockRead` calls `GET /api/v1/modules/stock/balances` and checks every negative
    `(sku, loc)` key from `IN/balances.csv`: its quantity equals the extract exactly, including `-7` in the synthetic
    fixture. A skipped zero row has no opening line; its absent balance key reads as zero.
-7. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` and run
+7. **Compare counts**: take `scripts/demo/demo_counts.sh snapshot > after.txt` (an operator without database access takes the record counts from the record exports and the stock document list instead) and run
    `scripts/pilot/qoimeks_compare.sh OUT/expected_counts.txt after.txt TENANT_SLUG`. Exit 0 means equal, 1 prints
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
+   For a scripted run, take the credentials from the env file of the QA actor in the team root; never print it.
 
-8. **Compare quantities (RH-7)**: export the stock balances (`stock-balances.xlsx`, sheet `balances`) and run
+8. **Compare quantities (RH-7)**: `GET /api/v1/modules/stock/balances` is cursor-paged, and its xlsx export contains
+   only the first page (50 rows), never the whole balance list. Read every page: call the balances route, then call
+   `GET /api/v1/modules/stock/balances?cursor=<next_cursor>` while the previous response's `next_cursor` is not
+   `null`, and merge the rows of every page before comparing. The synthetic run had 13 pages for 603 rows; the real
+   Client 1 run had 3 pages for 589 rows. For the compare tool, export those same pages with `format=xlsx`, following
+   the same cursor chain, and merge the data rows of every page's `balances` sheet under one header into
+   `stock-balances.xlsx` (sheet `balances`); do not compare the single first-page export. Then run
    `python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv IN/balances.csv --items IN/items.csv --locations IN/locations.csv`.
    It prints one `DIFF` line per item and place that differs (with names), `ROWS` and one sha256 `HASH` per side over the sorted
    (item, place, quantity) list, and `RESULT`. Exit 0 means no difference and equal hashes, 1 differences, 2 bad input.
@@ -92,7 +115,8 @@ empty, so it is created together with its first real balance (below).
     the stock movements export (`stock-movements.xlsx`) and enter it in Qoimeks by hand.
 
 Repeating: re-upload the master files, the code files and the lines files (steps 3 and 6) with the same files; every
-row, including every `code_tag` and `code_assignment` row, is `unchanged`.
+row, including every `code_tag` and `code_assignment` row, is `unchanged` only before the opening documents are
+posted. After posting, lines files are refused `document_not_draft` and nothing is written.
 Do NOT repeat steps 4 or 5: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409), and the
 negative-balance setting is already on. Reuse the existing headers and skip their creation. Balance references are
 `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
@@ -152,6 +176,6 @@ bad rows and verify all 603 non-zero, valid balances are accepted.
 
 ## Deliberately not here
 
-Tenant and realm creation, users, the cut-over and the read-only switch (steps 4-6 of T-1569 section 5), posting of the
-opening documents and the ledger-side count comparison (a manual follow-up on the QA copy), lots, prices, movement
-history, and every owner decision still open in T-1569. The converter is not wired into the product; no route or flag runs it.
+Tenant and realm creation, users, the cut-over and the read-only switch (steps 4-6 of T-1569 section 5), the
+ledger-side count comparison (a manual follow-up on the QA copy), lots, prices, movement history, and every owner
+decision still open in T-1569. The converter is not wired into the product; no route or flag runs it.
