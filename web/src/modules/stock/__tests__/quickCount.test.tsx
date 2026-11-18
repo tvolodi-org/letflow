@@ -69,8 +69,8 @@ function setupMastersMock() {
   })
 }
 
-function setupCombinedPostMock(opts: { failQuickCount?: unknown } = {}) {
-  const doc = quickCountDoc()
+function setupCombinedPostMock(opts: { failQuickCount?: unknown; doc?: Record<string, unknown> } = {}) {
+  const doc = { ...quickCountDoc(), ...opts.doc }
   const task = { id: TASK_ID, instance_id: DOC_ID, status: 'COMPLETED', assignee_type: 'USER', assignee_ref: 'u1', created_at: '2026-11-18T02:00:00Z' }
   const mastersImpl = clientMock.post.getMockImplementation()!
   clientMock.post.mockImplementation(async (path: string, body?: Record<string, unknown>) => {
@@ -84,17 +84,23 @@ function setupCombinedPostMock(opts: { failQuickCount?: unknown } = {}) {
   })
 }
 
-function setupGetMock(opts: { balance?: string; selfApprovalAllowed?: boolean } = {}) {
+/** The route's own key set (router.ex @balance_keys): any other query key is a 422 invalid_filter there. */
+const BALANCE_KEYS = ['basis', 'cutoff_seq', 'as_of', 'as_of_date', 'limit', 'cursor', 'format', 'scope_subtree', 'sku', 'location', 'org_unit', 'responsible', 'lot']
+
+function setupGetMock(opts: { balance?: string; selfApprovalAllowed?: boolean; tasks?: unknown[]; extraRows?: unknown[] } = {}) {
   const task = { id: TASK_ID, instance_id: DOC_ID, token_id: 't1', node_id: 'approve', status: 'PENDING', assignee_type: 'USER', assignee_ref: 'u1', created_at: '2026-11-18T02:00:00Z' }
+  // The counter's own submit task of the same instance, already completed: never the one to approve.
+  const submitTask = { ...task, id: 'task-submit', node_id: 'submit', status: 'COMPLETED' }
   clientMock.get.mockImplementation(async (path: string, params?: Record<string, string>) => {
     if (path === '/api/v1/modules/stock/balances') {
+      if (Object.keys(params ?? {}).some((k) => !BALANCE_KEYS.includes(k))) throw refusal(422, 'invalid_filter')
       if (opts.balance !== undefined) {
-        return { rows: [{ sku: 'i1', location: 'l1', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity: opts.balance }], next_cursor: null }
+        return { rows: [...(opts.extraRows ?? []), { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity: opts.balance }], next_cursor: null }
       }
       return { rows: [], next_cursor: null }
     }
     if (path === '/api/v1/tasks' && params?.['instance_id'] === DOC_ID) {
-      return { items: [task], next_cursor: null }
+      return { items: opts.tasks ?? [submitTask, task], next_cursor: null }
     }
     if (path === `/api/v1/tasks/${TASK_ID}`) {
       return { ...task, self_approval_allowed: opts.selfApprovalAllowed ?? false }
@@ -188,8 +194,24 @@ describe('C2 core flow', () => {
     const postCall = clientMock.post.mock.calls.find(([p]: string[]) => p === '/api/v1/modules/stock/quick-counts')
     expect(postCall).toBeDefined()
     const body = postCall![1] as Record<string, unknown>
-    expect(body).toMatchObject({ catalog_item_id: 'i1', location_id: 'l1', org_unit_id: 'u1', counted_quantity: '7', reason_code: 'recount' })
-    expect(body).not.toHaveProperty('catalog_lot_id')
+    // Exactly the form fields plus the item's base unit (quick_count_shape.ex @required has catalog_uom_id).
+    expect(body).toEqual({ catalog_item_id: 'i1', catalog_uom_id: 'm1', location_id: 'l1', org_unit_id: 'u1', counted_quantity: '7', reason_code: 'recount' })
+
+    // The balance was read with the route's slot keys for this item, place and org unit
+    const balanceCall = clientMock.get.mock.calls.find(([p]: string[]) => p === '/api/v1/modules/stock/balances')
+    expect(balanceCall![1]).toEqual({ sku: 'i1', location: 'l1', org_unit: 'u1' })
+  })
+
+  it('books against the slot with no responsible, not another slot of the same key', async () => {
+    setupGetMock({
+      balance: '10',
+      extraRows: [{ sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'r9', lot: null, unit_ref: 'm1', quantity: '99' }],
+    })
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('10'))
   })
 })
 
@@ -389,6 +411,57 @@ describe('C5 four eyes', () => {
     // My Tasks link is present
     expect(screen.getByTestId('my-tasks-link')).toBeInTheDocument()
     expect(screen.getByTestId('my-tasks-link')).toHaveAttribute('href', '/tasks')
+  })
+})
+
+// --- C5b: no approve task found ---
+describe('C5b no approve task', () => {
+  it('says the count waits for approval and links My Tasks when the task list is empty', async () => {
+    setupGetMock({ balance: '10', tasks: [] })
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+
+    await waitFor(() => expect(screen.getByTestId('no-task-hint')).toBeInTheDocument())
+    expect(screen.getByTestId('no-task-hint')).toHaveTextContent(qcEn['stock.qc.no_task_hint'])
+    expect(screen.getByTestId('my-tasks-link')).toHaveAttribute('href', '/tasks')
+    expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('four-eyes-hint')).not.toBeInTheDocument()
+  })
+
+  it('shows no approval hint for a confirmed count (zero difference starts no instance)', async () => {
+    setupGetMock({ balance: '7', tasks: [] })
+    setupCombinedPostMock({ doc: { state: 'confirmed' } })
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+
+    await waitFor(() => expect(screen.getByTestId('quick-count-result')).toBeInTheDocument())
+    await waitFor(() => expect(clientMock.get.mock.calls.some(([p]: string[]) => p === '/api/v1/tasks')).toBe(true))
+    expect(screen.queryByTestId('no-task-hint')).not.toBeInTheDocument()
+    expect(screen.getByTestId('new-count-button')).toBeInTheDocument()
+  })
+
+  it('does not offer the completed submit task for approval', async () => {
+    setupGetMock({ balance: '10', selfApprovalAllowed: true, tasks: [{ id: 'task-submit', instance_id: DOC_ID, token_id: 't1', node_id: 'submit', status: 'COMPLETED', created_at: '2026-11-18T02:00:00Z' }] })
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+
+    await waitFor(() => expect(screen.getByTestId('no-task-hint')).toBeInTheDocument())
+    expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
+    expect(clientMock.get.mock.calls.some(([p]: string[]) => p === '/api/v1/tasks/task-submit')).toBe(false)
   })
 })
 

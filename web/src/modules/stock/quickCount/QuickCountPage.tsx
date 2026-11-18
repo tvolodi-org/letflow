@@ -30,6 +30,29 @@ import {
 
 const NONE: never[] = []
 
+interface BalanceRow { responsible?: string | null; lot?: string | null; unit_ref?: string | null; quantity?: string | null }
+
+/** Query of GET /balances for the form's key: the route's slot names, the lot only when one is chosen. */
+export function balanceKeyParams(form: QuickCountForm): Record<string, string> {
+  return {
+    sku: form.itemId,
+    location: form.locationId,
+    org_unit: form.orgUnitId,
+    ...(form.lotId ? { lot: form.lotId } : {}),
+  }
+}
+
+/** The row the server books against: no responsible, the chosen lot (none when empty), the item's base unit. */
+export function bookRow<R extends BalanceRow>(rows: R[], lotId: string, uomId: string): R | undefined {
+  return rows.find((row) =>
+    !row.responsible && (row.lot ?? '') === lotId && (!uomId || !row.unit_ref || row.unit_ref === uomId))
+}
+
+function baseUomId(fields: Record<string, unknown> | undefined): string {
+  const value = fields?.['base_uom_id']
+  return typeof value === 'string' ? value : ''
+}
+
 /** Harness-only: pre-set initial state for screenshot fixtures without async interaction. */
 export interface QuickCountHarnessProps {
   initialForm?: Partial<QuickCountForm>
@@ -78,17 +101,22 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
 
   // Load balance when all three keys are present
   const balanceEnabled = Boolean(form.itemId && form.locationId && form.orgUnitId)
+  // The route's slot keys (sku, location, org_unit, lot): any other key is refused with invalid_filter.
+  const balanceParams = balanceKeyParams(form)
   const balanceQuery = useQuery({
-    queryKey: stockQueryKeys.balances(tenantId, JSON.stringify({ catalog_item: form.itemId, location: form.locationId, org_unit: form.orgUnitId })),
-    queryFn: () => stockApi.balances({ catalog_item: form.itemId, location: form.locationId, org_unit: form.orgUnitId }),
+    queryKey: stockQueryKeys.balances(tenantId, JSON.stringify(balanceParams)),
+    queryFn: () => stockApi.balances(balanceParams),
     enabled: balanceEnabled,
     retry: false,
   })
 
   const balanceQueryState = balanceQuery.isPending ? 'loading' : balanceQuery.isError ? classifyError(balanceQuery.error) : 'success'
 
+  // The server's book quantity is the slot with no responsible and the chosen lot (none when empty), in the
+  // item's base unit; the client drops empty query values, so that slot is picked from the rows here.
+  const uomId = baseUomId(selectedItem?.fields)
   const bookQuantity = balanceEnabled && balanceQuery.data
-    ? (balanceQuery.data.rows[0]?.quantity ?? '0')
+    ? (bookRow(balanceQuery.data.rows, form.lotId, uomId)?.quantity ?? '0')
     : null
 
   const difference = bookQuantity !== null && form.countedQuantity !== ''
@@ -103,7 +131,8 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
     retry: false,
   })
 
-  const approveTask = tasksQuery.data?.items[0] ?? null
+  // The pending approve task only: the counter's own submit task belongs to the same instance.
+  const approveTask = tasksQuery.data?.items.find((task) => task.node_id === 'approve' && task.status === 'PENDING') ?? null
 
   // Full task with self_approval_allowed
   const fullTaskQuery = useQuery({
@@ -191,6 +220,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
     setSubmitError(null)
     const body: QuickCountBody = {
       catalog_item_id: form.itemId,
+      catalog_uom_id: uomId,
       location_id: form.locationId,
       org_unit_id: form.orgUnitId,
       counted_quantity: form.countedQuantity,
@@ -440,6 +470,16 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                   <>
                     <Banner tone="info">{t('stock.qc.four_eyes_hint')}</Banner>
                     <div data-testid="four-eyes-hint">
+                      <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
+                    </div>
+                  </>
+                ) : result.state === 'issued' ? (
+                  // No pending approve task came back: the count still waits for approval, so say where it is done.
+                  <>
+                    <div data-testid="no-task-hint">
+                      <Banner tone="info">{t('stock.qc.no_task_hint')}</Banner>
+                    </div>
+                    <div>
                       <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
                     </div>
                   </>

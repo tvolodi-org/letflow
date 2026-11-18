@@ -62,12 +62,13 @@ function entitiesRoute(): FixtureRoute {
   }
 }
 
-function balanceRoute(quantity: string): FixtureRoute {
+// The fixture router sees no query string, so the screen's slot (item, lot) is given here.
+function balanceRoute(quantity: string, sku = 'i1', lot: string | null = null): FixtureRoute {
   return {
     match: (p, m) => p === '/api/v1/modules/stock/balances' && m === 'GET',
     reply: () => ({
       status: 200,
-      body: { rows: [{ sku: 'i1', location: 'l1', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity }], next_cursor: null },
+      body: { rows: [{ sku, location: 'l1', org_unit: 'u1', responsible: null, lot, unit_ref: 'm1', quantity }], next_cursor: null },
     }),
   }
 }
@@ -94,10 +95,10 @@ function taskDetailRoute(selfApprovalAllowed: boolean): FixtureRoute {
   }
 }
 
-function tasksListRoute(): FixtureRoute {
+function tasksListRoute(items: unknown[] = [baseTask]): FixtureRoute {
   return {
     match: (p, m) => p === '/api/v1/tasks' && m === 'GET',
-    reply: () => ({ status: 200, body: { items: [baseTask], next_cursor: null } }),
+    reply: () => ({ status: 200, body: { items, next_cursor: null } }),
   }
 }
 
@@ -199,7 +200,7 @@ export const quickCountScreens: HarnessScreen[] = [
   // 5. Lot-tracked item: Lot select visible
   {
     name: 'stock-quick-count-lot',
-    routes: [entitiesRoute(), balanceRoute('5')],
+    routes: [entitiesRoute(), balanceRoute('5', 'i2', 'lot1')],
     initialPath: '/admin/stock/quick-count',
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialForm={LOT_FORM} />),
@@ -278,6 +279,14 @@ export const quickCountScreens: HarnessScreen[] = [
   {
     name: 'stock-quick-count-result-task-error',
     routes: [entitiesRoute(), tasksListErrorRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialResult={quickCountDoc} />),
+  },
+  // 15. Result with no pending approve task found (tasks list answers empty): the approval hint and My Tasks link
+  {
+    name: 'stock-quick-count-result-no-task',
+    routes: [entitiesRoute(), tasksListRoute([])],
     initialPath: '/admin/stock/quick-count',
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialResult={quickCountDoc} />),

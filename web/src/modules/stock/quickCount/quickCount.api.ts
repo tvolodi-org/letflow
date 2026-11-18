@@ -16,6 +16,7 @@ export interface QuickCountDocument extends StockDocument {
 
 export interface QuickCountBody {
   catalog_item_id: string
+  catalog_uom_id: string
   location_id: string
   org_unit_id: string
   catalog_lot_id?: string
