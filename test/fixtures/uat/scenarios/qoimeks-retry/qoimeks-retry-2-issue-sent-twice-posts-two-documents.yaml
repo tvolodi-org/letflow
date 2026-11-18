@@ -1,0 +1,216 @@
+# T-2161 (BA): qoimeks-retry group, scenario 2. QA only, no real data.
+# Covers REQ-859 (old-app address reads, build #4664) and REQ-860 (old-app address writes, build #4666).
+# Decision 0091 section 9 notes that retry deduplication by client id on the old-app address
+# is deferred to T-2029; the client `id` field in the POST body is currently accepted and ignored,
+# so a retry posts a second document. This scenario documents that current behavior in Kazakh.
+#
+# NOT UAT-observable (stated, not invented):
+# - The actual Qoimeks mobile application (APK) on a physical Android phone.
+# - Concurrent sends from two phones: this scenario covers a sequential retry.
+# - The token value: referred to as "the shared token" only.
+---
+id: qoimeks-retry-2-issue-sent-twice-posts-two-documents
+scope: qoimeks-qa
+title: An issue posted twice from the old-app address with the same client id currently posts two documents (retry deduplication pending T-2029), verified in Kazakh
+version: "1.0"
+tags: [qoimeks, retry, idempotency-gap, old-app, issue, balance, kk]
+
+description: >
+  Decision 0091 section 9 notes that retry deduplication by client id at the old-app address is a
+  future feature deferred to T-2029. Currently the client `id` field in the POST /movements body is
+  accepted and ignored (Letflow.Routers.SharedStockAccess, REQ-860 build #4666); a second send with
+  the same client id creates a second stock document. This scenario documents that current behavior
+  for an issue in Kazakh. The test runner sends an issue for 3 units twice with the same client id
+  I-RETRY-2. The expected current behavior: both sends are accepted (201 each with different movement
+  ids), the balance decreases by 6 (not by 3), and the document list shows two issues. When T-2029 is
+  delivered and A2 returns the same movement id as A1, this scenario should be retired.
+  Cleanup: both posted issues are reversed. The balance screen is verified in Kazakh.
+  Not exercised, with reasons: (a) the actual phone screen and APK; (b) concurrent sends.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      REQ-858 build #4662), a shared stock token exists for the tenant, and the old-app address
+      (decision 0091 section 6, REQ-859 build #4664) answers for the tenant slug qoimeks-qa.
+    check: system_seeded
+    detail: >
+      If the old-app address is not reachable or the tenant has no shared token, report BLOCKED
+      for the whole scenario and name which precondition is missing.
+  - description: >
+      The tenant has at least one item, ITEM-RETRY-I2, with a posted balance of at least 10 units
+      in one place so that issuing 3 units twice does not go below zero (or the tenant allows
+      negative balances).
+    check: system_seeded
+    detail: >
+      If no item with a sufficient positive balance exists, choose the nearest item with a balance
+      above 6 and note the actual quantity. If no item with a sufficient balance exists and the
+      tenant does not allow negative balances, report BLOCKED.
+  - description: No movement with client id I-RETRY-2 has been posted in this tenant yet.
+    check: test_setup
+    detail: If a movement with client id I-RETRY-2 already exists, use a different client id.
+  - description: The run can drive a real browser.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for steps 1 and 5 to 7.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant address and opens the stock balance screen.
+      The balance of ITEM-RETRY-I2 is noted as B0.
+    via: ui
+
+  - step: 2
+    actor: admin
+    action: >
+      The test runner sends an issue to the old-app address for ITEM-RETRY-I2, quantity 3,
+      from the place where B0 was recorded, operator name "Тест-повтор",
+      client id I-RETRY-2 (the `id` field in the JSON body). The answer is noted as A1.
+    via: api
+
+  - step: 3
+    actor: admin
+    action: >
+      The test runner sends the same issue a second time: same item, same quantity 3, same place,
+      same operator name, same client id I-RETRY-2. The answer is noted as A2.
+    via: api
+
+  - step: 4
+    actor: admin
+    action: >
+      The test runner reads the balance of ITEM-RETRY-I2 from the old-app address balances call.
+      The answer is noted as B1-api.
+    via: api
+
+  - step: 5
+    actor: admin
+    action: >
+      The administrator switches the browser language to Kazakh and opens the balance screen at
+      1440 px. The balance row of ITEM-RETRY-I2 is noted as B1-ui.
+    via: ui
+
+  - step: 6
+    actor: admin
+    action: >
+      The administrator opens the stock document list in Kazakh and looks for issues with the
+      operator name "Тест-повтор". The list is noted as D1.
+    via: ui
+
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reads the balance screen at 390 px in Kazakh. The balance of ITEM-RETRY-I2
+      is noted as B1-phone.
+    via: ui
+
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reverses the first issue (movement id from A1) at the old-app address with
+      operator name "Тест-откат". The answer is noted as REV1.
+    via: api
+
+  - step: 9
+    actor: admin
+    action: >
+      The administrator reverses the second issue (movement id from A2) at the old-app address
+      with operator name "Тест-откат". The answer is noted as REV2 and the balance is noted as
+      BFINAL.
+    via: api
+
+  - step: 10
+    actor: admin
+    action: >
+      The administrator switches the browser language back to English.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Both sends answer 201 with different movement ids (current non-idempotent behavior).
+    verification:
+      method: api_response
+      detail: >
+        A1 has HTTP status 201 and contains a movement id M1. A2 has HTTP status 201 and contains
+        a movement id M2 where M2 differs from M1: each send was treated as a new document. This
+        is the current behavior when retry deduplication is not yet built. Note: if A2 returns M1
+        (the same movement id), retry deduplication from decision 0091 section 9 / T-2029 has been
+        delivered; retire this scenario.
+      evidence: "HTTP status and movement ids of A1 (M1) and A2 (M2) compared."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If either send returns a non-201 status, the old-app write path is broken and the Qoimeks
+        application cannot post movements.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The balance decreased by 6 (B0 minus 3 minus 3), reflecting two posted documents.
+    verification:
+      method: api_response
+      detail: >
+        B1-api equals B0 minus 6. This is the current behavior: the second send was treated as a
+        new issue. Note: if B1-api equals B0 minus 3, deduplication may already be working.
+      evidence: "B0 and B1-api values from the balances call."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If B1-api equals B0 minus 3, deduplication may be working and T-2029 may have been
+        delivered. If B1-api differs otherwise, the write path produced an incorrect balance.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: The stock balance screen in Kazakh shows the decreased balance and no untranslated text.
+    verification:
+      method: gui_screen
+      detail: >
+        B1-ui equals B0 minus 6. The balance screen column headings and navigation are in Kazakh.
+        No raw message key (for example a text like "stock.balance.quantity") appears on the screen.
+      evidence: "Screenshot of the balance screen in Kazakh at 1440 px."
+    on_fail:
+      severity: MAJOR
+      business_impact: Kazakh-speaking warehouse workers see English or missing text.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: The document list shows two issues for operator "Тест-повтор".
+    verification:
+      method: gui_screen
+      detail: >
+        D1 contains exactly two documents with operator "Тест-повтор", both with status posted and
+        kind issue. This confirms two separate documents were created by the two sends.
+      evidence: "Screenshot of the document list in Kazakh filtered to operator Тест-повтор."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If D1 shows one document, deduplication may be working. If D1 shows zero documents,
+        neither send was recorded correctly.
+      suggested_action: route_to_wf03
+
+  - id: EO-005
+    description: The balance screen at 390 px shows the same decreased balance in Kazakh.
+    verification:
+      method: gui_screen
+      detail: B1-phone equals B1-ui. No horizontal clipping at 390 px.
+      evidence: "Screenshot of the balance screen at 390 px in Kazakh."
+    on_fail:
+      severity: MINOR
+      business_impact: Phone users see a different or clipped balance.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-006
+    description: Both reversals are accepted and the balance returns to B0.
+    verification:
+      method: api_response
+      detail: >
+        REV1 has HTTP status 201. REV2 has HTTP status 201. BFINAL equals B0. The synthetic data
+        is restored.
+      evidence: "HTTP status of REV1 and REV2; BFINAL equals B0."
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The synthetic balance is left in a changed state; subsequent runs may start from a wrong
+        balance.
+      suggested_action: route_to_wf03

@@ -1,0 +1,190 @@
+# T-2161 (BA): qoimeks-retry group, scenario 3. QA only, no real data.
+# Covers REQ-859 (old-app address reads, build #4664) and REQ-860 (old-app address writes, build #4666).
+# Decision 0091 section 9 notes that retry deduplication by client id on the old-app address is
+# deferred to T-2029; the client `id` field in the POST body is currently accepted and ignored.
+# A second send with the same client id but different data is currently accepted as a second document
+# (409 idempotency_key_reuse is not returned, because the deduplication is not yet wired to the body
+# `id` field). This scenario documents that current behavior so QA can surface the gap.
+#
+# NOT UAT-observable (stated, not invented):
+# - The actual Qoimeks mobile application; the runner acts at the HTTP level.
+# - Concurrent sends: this scenario covers a sequential send.
+---
+id: qoimeks-retry-3-same-client-id-different-data-also-accepted
+scope: qoimeks-qa
+title: Same client id with different quantity is currently accepted as a second document, not refused (retry deduplication pending T-2029)
+version: "1.0"
+tags: [qoimeks, retry, idempotency-gap, old-app, conflict, balance, ru]
+
+description: >
+  Decision 0091 section 9 notes that retry deduplication by client id at the old-app address is a
+  future feature deferred to T-2029. Currently the client `id` field in the POST /movements body is
+  accepted and ignored (Letflow.Routers.SharedStockAccess, REQ-860 build #4666); a second send with
+  the same client id but different data is accepted as a new document rather than refused with 409
+  idempotency_key_reuse. The 409 idempotency_key_reuse refusal is defined in
+  Letflow.Modules.Stock.OldAppWrites for use once the deduplication is wired, but it is not reachable
+  via the body `id` field today. This scenario documents that current behavior as a known gap.
+  The test runner sends a receipt for 10 units, then a receipt for 15 units, both with the same
+  client id C-RETRY-3. The expected current behavior: both are accepted (201 each with different
+  movement ids) and the balance increases by 25 (not by 10). When T-2029 is delivered and the
+  second send returns 409, this scenario should be retired.
+  Cleanup: both posted receipts are reversed. The balance screen is verified in Russian.
+  Not exercised, with reasons: (a) the actual phone screen; (b) concurrent sends.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      REQ-858 build #4662), a shared stock token exists for the tenant, and the old-app address
+      (decision 0091 section 6, REQ-859 build #4664) answers for the tenant slug qoimeks-qa.
+    check: system_seeded
+    detail: >
+      If the old-app address is not reachable or the tenant has no shared token, report BLOCKED
+      for the whole scenario and name which precondition is missing.
+  - description: >
+      The tenant has an item ITEM-RETRY-C3 with a posted balance of at least 25 units in one place
+      (since both sends will be accepted: 10 + 15).
+    check: system_seeded
+    detail: If no such item exists, choose the nearest item with a sufficient balance and note it.
+  - description: No movement with client id C-RETRY-3 has been posted in this tenant yet.
+    check: test_setup
+    detail: If a movement with client id C-RETRY-3 exists, use a different client id.
+  - description: The run can drive a real browser.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for steps 1 and 5 to 6.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant address and opens the balance screen in Russian
+      at 1440 px. The balance of ITEM-RETRY-C3 is noted as B0.
+    via: ui
+
+  - step: 2
+    actor: admin
+    action: >
+      The test runner sends a receipt for ITEM-RETRY-C3, quantity 10, operator name
+      "Тест-конфликт", client id C-RETRY-3 (the `id` field in the JSON body). The answer is
+      noted as A1.
+    via: api
+
+  - step: 3
+    actor: admin
+    action: >
+      The test runner sends a receipt for ITEM-RETRY-C3, quantity 15 (different from step 2),
+      operator name "Тест-конфликт", same client id C-RETRY-3. The answer is noted as A2.
+    via: api
+
+  - step: 4
+    actor: admin
+    action: >
+      The test runner reads the balance of ITEM-RETRY-C3 from the old-app address balances call.
+      The answer is noted as B1-api.
+    via: api
+
+  - step: 5
+    actor: admin
+    action: >
+      The administrator refreshes the balance screen in Russian at 1440 px.
+      The balance of ITEM-RETRY-C3 is noted as B1-ui.
+    via: ui
+
+  - step: 6
+    actor: admin
+    action: >
+      The administrator opens the balance screen at 390 px. The balance is noted as B1-phone.
+    via: ui
+
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reverses the first receipt (movement id from A1) at the old-app address
+      with operator name "Тест-откат". The answer is noted as REV1.
+    via: api
+
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reverses the second receipt (movement id from A2) at the old-app address
+      with operator name "Тест-откат". The answer is noted as REV2 and the balance is noted as
+      BFINAL.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Both sends answer 201 with different movement ids (current behavior: the body `id` field is
+      ignored and no conflict check is performed).
+    verification:
+      method: api_response
+      detail: >
+        A1 has HTTP status 201 and contains a movement id M1. A2 has HTTP status 201 and contains
+        a movement id M2 where M2 differs from M1: both sends were accepted as separate documents.
+        A2 does not return 409. This is the current behavior when the deduplication by body `id`
+        field is not yet wired (Letflow.Modules.Stock.OldAppWrites, REQ-860 build #4666). Note:
+        if A2 returns HTTP 409 with reason idempotency_key_reuse (the refusal defined in
+        Letflow.Modules.Stock.OldAppWrites for use once T-2029 wires it), that feature has been
+        delivered; retire this scenario.
+      evidence: "HTTP status and movement ids of A1 (M1) and A2 (M2) compared."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If either send returns a non-201 status and not 409, the old-app write path is broken.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The balance increased by 25 (B0 plus 10 plus 15), reflecting two accepted documents.
+    verification:
+      method: api_response
+      detail: >
+        B1-api equals B0 plus 25. Both sends were accepted as new documents. This is the current
+        behavior. Note: if B1-api equals B0 plus 10 (only the first send counted), T-2029 may have
+        been delivered.
+      evidence: "B0 and B1-api values from the balances call."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If B1-api equals B0 plus 10, deduplication may be working. If B1-api differs otherwise,
+        the write path produced an incorrect balance.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: The balance screen in Russian shows the increase of 25.
+    verification:
+      method: gui_screen
+      detail: >
+        B1-ui equals B0 plus 25. All text on the screen is in Russian. No raw message key appears.
+      evidence: "Screenshot of the balance screen in Russian at 1440 px."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The warehouse team reads balances in Russian; a wrong balance leads to wrong picks and
+        counts.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: The balance screen at 390 px shows the same increased balance.
+    verification:
+      method: gui_screen
+      detail: B1-phone equals B1-ui. No clipping at 390 px.
+      evidence: "Screenshot at 390 px."
+    on_fail:
+      severity: MINOR
+      business_impact: Phone users see a different or clipped balance.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: Both reversals are accepted and the balance returns to B0.
+    verification:
+      method: api_response
+      detail: >
+        REV1 has HTTP status 201. REV2 has HTTP status 201. BFINAL equals B0. The synthetic data
+        is restored.
+      evidence: "HTTP status of REV1 and REV2; BFINAL equals B0."
+    on_fail:
+      severity: MINOR
+      business_impact: The synthetic balance is left changed; later runs may start from a wrong value.
+      suggested_action: route_to_wf03

@@ -1,0 +1,189 @@
+# T-2161 (BA): qoimeks-retry group, scenario 4. QA only, no real data.
+# Covers REQ-857 (decision record), REQ-858 (token lifecycle), REQ-859 (old-app address reads).
+# Access refusal tests for the old-app address before the retry function can be used.
+#
+# NOT UAT-observable (stated, not invented):
+# - The rate-limit lockout on many wrong tokens (REQ-859 criterion 3): requires many rapid requests;
+#   tested by unit tests; not UAT-observable here.
+# - The admin creating or rotating the shared token through the browser UI: REQ-861 is cancelled
+#   (no Tokens screen, owner 2026-11-16); the token is managed through the admin API only.
+---
+id: qoimeks-retry-4-no-token-and-wrong-token-refused-valid-posts
+scope: qoimeks-qa
+title: The old-app address refuses requests without a token and with a wrong token; a valid token posts and reads; the shared token is refused on the standard admin API
+version: "1.0"
+tags: [qoimeks, old-app, refusal, access, token, idempotency, ru, kk]
+
+description: >
+  The old-app address is the only place where the shared stock token is accepted. This scenario
+  confirms the boundary: a request without a token and a request with a wrong token are each
+  refused with the same 401 (no information about whether a valid credential exists). A request
+  with the valid shared token posts a small receipt. The administrator verifies the balance via
+  the browser. The shared token cannot be used on the standard admin API (/api/v1) for a
+  balance read. Cleanup: the receipt posted with the valid token is reversed.
+  Not exercised, with reasons: (a) rate-limit lockout (needs many rapid wrong requests): covered
+  by REQ-859 unit tests; (b) a request where the tenant is not listed in
+  LETFLOW_SHARED_STOCK_ACCESS_TENANTS: not reproducible on this tenant during normal UAT because
+  the tenant must be listed for any test to run.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      REQ-858 build #4662), a shared stock token is set for the tenant, and the old-app address
+      (decision 0091 section 6, REQ-859 build #4664) answers for the slug qoimeks-qa.
+    check: system_seeded
+    detail: >
+      If the old-app address is not reachable or no shared token is configured, report BLOCKED
+      for the whole scenario and name which precondition is missing.
+  - description: >
+      The tenant has an item ITEM-RETRY-A4 with a posted balance in at least one place.
+    check: system_seeded
+    detail: If no such item exists, choose any item from the synthetic catalog.
+  - description: No movement with client id A-RETRY-4 has been posted in this tenant.
+    check: test_setup
+    detail: If a movement with client id A-RETRY-4 exists, remove it or use a different id.
+  - description: The run can drive a real browser.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for steps 5 and 6.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The test runner sends a request to the old-app address catalog call without any
+      Authorization header. The answer is noted as R1.
+    expect_refusal: true
+    via: api
+
+  - step: 2
+    actor: admin
+    action: >
+      The test runner sends a request to the old-app address catalog call with the
+      Authorization header value "WRONG-TOKEN-VALUE". The answer is noted as R2.
+    expect_refusal: true
+    via: api
+
+  - step: 3
+    actor: admin
+    action: >
+      The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
+      operator name "Тест-доступ", client id A-RETRY-4, using the valid shared token.
+      The answer is noted as A1.
+    via: api
+
+  - step: 4
+    actor: admin
+    action: >
+      The test runner sends the catalog call to the standard admin API path at the tenant
+      address (/api/v1 route) with the shared token value as the Authorization header.
+      The answer is noted as R3.
+    expect_refusal: true
+    via: api
+
+  - step: 5
+    actor: admin
+    action: >
+      The administrator signs in on the tenant address and opens the balance screen in Russian
+      at 1440 px. The balance of ITEM-RETRY-A4 is noted as B1-ui.
+    via: ui
+
+  - step: 6
+    actor: admin
+    action: >
+      The administrator opens the balance screen at 390 px in Russian. The balance of
+      ITEM-RETRY-A4 is noted as B1-phone.
+    via: ui
+
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reverses the receipt posted in step 3 with operator name "Тест-откат".
+      The balance after reversal is noted as BFINAL.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A request without a token and a request with a wrong token each answer 401 with the same
+      body; no information about the tenant's credential is revealed.
+    verification:
+      method: api_response
+      detail: >
+        R1 has HTTP status 401. R2 has HTTP status 401. After the trace_id field is removed from
+        both bodies (it differs on every request), R1's body is byte-identical to R2's body
+        (same error shape as the other 401 cases of REQ-859 criterion 2). Neither body mentions
+        whether a credential exists for this tenant.
+      evidence: "HTTP status and body of R1 and R2 side by side."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A different 401 body for "no credential" vs "wrong value" tells an attacker whether a
+        credential exists and whether it is worth brute-forcing.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The valid token posts the receipt and answers 201.
+    verification:
+      method: api_response
+      detail: >
+        A1 has HTTP status 201 and contains a movement id. The posted quantity is 2.
+      evidence: "HTTP status 201 and movement id from A1."
+    on_fail:
+      severity: BLOCKER
+      business_impact: The old Qoimeks app cannot post any movement; stock operations are stopped.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: The shared token is refused on the standard admin API.
+    verification:
+      method: api_response
+      detail: >
+        R3 has HTTP status 401. The shared token does not grant access to any /api/v1 route
+        (REQ-860 criterion 5 and decision 0091 section 6).
+      evidence: "HTTP status 401 from R3."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A credential that works on the admin API can read all tenant data, not just balances
+        and movements; tenant isolation is broken.
+      suggested_action: route_to_wf03
+
+  - id: EO-004
+    description: The balance screen in Russian at 1440 px shows the increase from the valid posting.
+    verification:
+      method: gui_screen
+      detail: >
+        B1-ui shows the balance of ITEM-RETRY-A4 increased by 2 compared to its value before
+        step 3. All text is in Russian.
+      evidence: "Screenshot of the balance screen at 1440 px in Russian."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The warehouse team cannot see the result of a movement posted by the old app; stock
+        is unreconcilable.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: The balance screen at 390 px shows the same increased balance.
+    verification:
+      method: gui_screen
+      detail: B1-phone equals B1-ui. No clipping at 390 px.
+      evidence: "Screenshot at 390 px in Russian."
+    on_fail:
+      severity: MINOR
+      business_impact: Phone users see a different or clipped balance.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-006
+    description: The reversal restores the balance.
+    verification:
+      method: api_response
+      detail: BFINAL equals the balance before step 3. The synthetic data is restored.
+      evidence: "BFINAL equals the pre-test balance."
+    on_fail:
+      severity: MINOR
+      business_impact: The synthetic balance is left changed; later runs may start from a wrong value.
+      suggested_action: route_to_wf03
