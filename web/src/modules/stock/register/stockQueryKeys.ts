@@ -12,4 +12,5 @@ export const stockQueryKeys = {
   options: (tenantId: string, type: string, scope: string) => ['stock', tenantId, 'options', type, scope] as const,
   quickCountTasks: (tenantId: string, instanceId: string) => ['stock', tenantId, 'quick-count-tasks', instanceId] as const,
   quickCountTask: (tenantId: string, taskId: string) => ['stock', tenantId, 'quick-count-task', taskId] as const,
+  workbookImports: (tenantId: string) => ['stock', tenantId, 'workbook-imports'] as const,
 }

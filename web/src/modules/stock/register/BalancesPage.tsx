@@ -2,8 +2,10 @@
  *  quantity text as the route answers it, Load more. Reads the latest basis only (no basis / cutoff_seq key). */
 import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
+import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { useAccess } from '@/auth/access'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -59,6 +61,9 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
+  const access = useAccess()
+  const canWorkbookImport = access.can('StockQuickCount')
+  const navigate = useNavigate()
   const [filters, setFilters] = useState<BalanceFilters>(EMPTY_BALANCE_FILTERS)
   const [asOf, setAsOf] = useState('')
   const [selected, setSelected] = useState<string | null>(initialSelectedId)
@@ -214,6 +219,15 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
         actions={
           <>
             <StockHelpLink topic="balances" />
+            {canWorkbookImport && (
+              <Button
+                variant="secondary"
+                data-testid="wb-import-link"
+                onClick={() => navigate('/admin/stock/workbook-import')}
+              >
+                {t('stock.wb.balancesLink')}
+              </Button>
+            )}
             <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
               {t('stock.balances.export')}
             </Button>

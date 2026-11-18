@@ -27,6 +27,7 @@ entry; they do not each need their own menu item.
 | `/admin/stock/documents/:id` | Selected stock document. |
 | `/admin/stock/documents/new` | New action on Stock documents. |
 | `/admin/stock/help/:topic` | Help links on stock screens. |
+| `/admin/stock/workbook-import` | Opened from the Load from Excel button on the Balances screen (REQ-887). |
 | `/admin/tenants/:slug/edit` | Edit action on Tenants. |
 | `/admin/users/:userId` | Selected user. |
 | `/admin/users/import` | Import action on Users. |
