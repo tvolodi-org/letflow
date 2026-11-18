@@ -1,0 +1,145 @@
+# T-2163 (BA): the old shared token. Creating the access again while one exists replaces the value (rotation); the old value is refused at once, the new one works, a value that is too short or has a space is refused and changes nothing. QA only, synthetic data.
+# REQ ids covered: REQ-858 (AC 2: given value, hash only, 422 shared_access_value_invalid; AC 3: rotation, revoke), REQ-859 (AC 1, 2), REQ-857 (decision 0091 section 4.3: rotate, given value minimum length 64 hex characters).
+# Sources opened: docs/requirements.yaml REQ-858 (criteria 2 and 3; its REWORDED paragraph: no time limit, no screen), docs/migration/decisions/0091-shared-stock-access.md sections 4.3 and 8.1, docs/runbooks/pilot-rollout.md item 2.
+# NOT UAT-observable: that only the SHA-256 of a given value is stored (REQ-858 AC 2: a test reads the stored row); the audit entry shared_stock_access.rotated (no roster actor reads the audit view of this tenant). Every step is via: api (no screen exists, REQ-861 cancelled).
+# Cleanup: the scenario ends by revoking, so the tenant ends with no shared access. No stock row is written.
+---
+id: qoimeks-token-2-rotation-switches-the-old-value-off
+scope: qoimeks-qa
+title: A second create replaces the shared stock access value, so the old value is refused at once, the new one works, a value that is too short or has a space is refused and changes nothing
+version: "1.0"
+tags: [qoimeks, shared_stock_access, rotate, given_value, refusal, api]
+
+description: >
+  The Qoimeks QA administrator creates the shared stock access with a value of their own choice (noted as V1: 64 characters of the letters a to f and digits, the form of the old Qoimeks token). The old-app address
+  accepts V1 for a catalog read. The administrator then creates again with an empty request: the system generates a new value V2 and V1 stops working at once (401 as for any unproven request) while V2 works.
+  The status shows the creation time unchanged and a change time set. Two further create requests are refused with the reason "value invalid" and change nothing: a value of 10 characters (too short) and a
+  value of 64 characters with a space inside. After them V2 still works. The administrator revokes the access at the end. The shared access has no expiry, so no waiting step exists.
+  Not exercised, with reasons: the stored form of the value and the audit entry (see header).
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The tenant slug qoimeks-qa is listed in the deployment setting that allows a shared stock access, the tenant is active with the stock module, and its scope enforcement is off.
+    check: system_seeded
+    detail: If the status says "not enabled", report BLOCKED for the whole scenario and say the deployment setting does not list the tenant.
+  - description: The tenant has NO shared stock access (status says none exists).
+    check: system_seeded
+    detail: If one exists, report BLOCKED for the whole scenario; do not revoke it to make the scenario run (the pilot phones may hold it).
+  - description: The administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+    check: system_seeded
+    detail: If sign-in fails, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates the shared stock access with the value 3f9a1c5e7b2d4a60918c3e5f7a1b2c4d6e8f0a1b3c5d7e9f1a2b4c6d8e0f1a23 (64 characters). The answer is noted as C1 and the value as V1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The old-app address of the tenant is asked for the item catalog presenting V1. The answer is noted as R1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the status. The answer is noted as S1 (creation time T1).
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator creates the shared stock access again with an empty request. The answer is noted as C2; the generated value is V2.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The old-app address is asked for the catalog presenting V1. The answer is noted as R2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The old-app address is asked for the catalog presenting V2. The answer is noted as R3. The administrator reads the status; the answer is noted as S2.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator creates the shared stock access with the value 0123456789 (10 characters). The answer is noted as C3.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator creates the shared stock access with the value 3f9a1c5e7b2d4a60918c3e5f7a1b2c4d 6e8f0a1b3c5d7e9f1a2b4c6d8e0f1a23 (64 characters of the first form with one space in the middle). The answer is noted as C4.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The old-app address is asked for the catalog presenting V2 (answer R4).
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The old-app address is asked for the catalog presenting V1 (answer R5).
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access (answer D1) and reads the status (answer S3).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A value the administrator chooses is accepted and works at the old address.
+    verification:
+      method: http_status
+      detail: C1 is 201. R1 is 200 with the item list of this tenant.
+      evidence: Status of C1 (value masked) and R1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The phones cannot keep the value they already hold, so every phone must be re-set by hand.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Replacing the value switches the old one off at once and turns the new one on.
+    verification:
+      method: http_status
+      detail: C2 is 201 with a value V2 different from V1. R2 is 401 with detail "invalid or expired bearer token" on the next request (no wait). R3 is 200.
+      evidence: Status of C2 (masked), R2 and R3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: After a leak the administrator cannot cut off the old value by replacing it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The status after the replacement keeps the creation time and sets a change time; it shows no value.
+    verification:
+      method: api_response
+      detail: S2 has the same creation time as S1 (T1) and a change time (rotated_at) that is set; no field of S1 or S2 holds V1 or V2.
+      evidence: Bodies of S1 and S2.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator cannot tell when the value was last replaced.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A value that is too short or has a space is refused with the reason "value invalid" and nothing changes.
+    verification:
+      method: api_response
+      detail: C3 and C4 are 422 with reason shared_access_value_invalid. After them R4 (V2) is 200 and R5 (V1) is 401, so neither refused request replaced the value.
+      evidence: Status and reason of C3 and C4; status of R4 and R5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A weak or malformed value could become the key to the company's stock, or a typo could lock the phones out.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Revoking ends the scenario with no shared access.
+    verification:
+      method: api_response
+      detail: D1 is 204; S3 says exists false.
+      evidence: Status of D1 and body of S3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A test value stays alive on the QA tenant.
+      suggested_action: route_to_wf03
