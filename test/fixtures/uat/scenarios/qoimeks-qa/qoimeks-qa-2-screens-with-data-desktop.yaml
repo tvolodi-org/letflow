@@ -1,0 +1,127 @@
+# T-2129 (BA), rewritten in T-2182 (issue #4687): the tenant holds data, the first version assumed an empty tenant. QA only, no real data.
+# Decision (operator, 2026-11-19): the tenant keeps its data; the scenarios judge what is true with data.
+# The data is SYNTHETIC: the Qoimeks-shaped dataset of scripts/pilot/qoimeks_gen.py, seed 42 (666 items, 134 rack places plus 8 hierarchy nodes, 600 positive balance rows;
+# all fictitious, see that script's docstring). The size reported by the owner for qoimeks-qa is about 142 places, 666 items, 603 balances, 6-7 posted opening documents:
+# counts are NOT asserted exactly (the tenant may have gained or lost a few rows since); the scenario asserts "rows are shown".
+# Sources: web/src/modules/locations/locationsMessages.ts ('locations.tree.title': Locations), web/src/modules/catalog_items/catalogItemsItemsMessages.ts ('catalog_items.items.title': Items),
+# web/src/modules/stock/documents/documentsMessages.ts ('stock.doc.title': Stock documents), web/src/modules/stock/stockMessages.ts ('stock.balances.title': Balances),
+# web/src/modules/locations/locationsRoutes.tsx, catalog_items/catalogItemsRoutes.tsx, stock/stockRoutes.tsx (the screen paths).
+# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision), not a defect.
+# Not UAT-observable here: exact row counts (see above); the error banner of a failed request cannot be forced from the roster, only its absence is judged.
+---
+id: qoimeks-qa-2-screens-with-data-desktop
+scope: qoimeks-qa
+title: >-
+  On a desktop width the locations, catalog items, stock documents and stock balances screens of the Qoimeks QA tenant open without an error and show rows of the synthetic dataset
+version: "2.0"
+tags: [smoke, qoimeks, synthetic_data, locations, catalog_items, stock, desktop, navigation]
+
+description: >
+  The tenant holds a synthetic, Qoimeks-shaped dataset (scripts/pilot/qoimeks_gen.py, seed 42): places, catalog items, balances and posted opening
+  stock documents. The administrator, on a desktop-width window (1440 px), signs in and opens in turn the locations screen, the catalog items screen,
+  the stock documents screen and the stock balances screen from the side navigation. Each one opens by the menu, shows its title,
+  shows rows (not an empty message, not a red error banner, not an endless loading mark, not a blank page).
+  The administrator then goes back to the first screen by the menu and it opens again with its rows.
+  Not exercised, with reasons: (a) the screens of the org, codes and assets modules: no screen of them is named for this smoke;
+  (b) editing, posting or importing: this group reads only and changes nothing, so the data stays as it is for the next runs;
+  (c) exact row counts: the tenant data may drift, only "rows are shown" is judged.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >-
+      The Qoimeks QA tenant has the modules locations, catalog_items and stock installed and active, and holds the synthetic dataset
+      (places, catalog items, stock balances and at least one posted stock document).
+    check: system_seeded
+    detail: If a module is not active, report BLOCKED for the steps of that module. If a screen shows an empty message instead of rows, that is a FAIL of its outcome (the data is promised), but first confirm the tenant was not reset; if it was reset, report BLOCKED.
+  - description: The administrator is able to sign in on the realm qoimeks-qa (see the first scenario of this group).
+    check: system_seeded
+    detail: If sign-in fails, report BLOCKED for the whole scenario.
+  - description: The run can drive a real browser at a window width of 1440 px, English language.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 1440 px wide, in English.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the locations screen from the side navigation and reads it.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator opens the catalog items screen from the side navigation and reads it.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the stock documents screen from the side navigation and reads it.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the stock balances screen from the side navigation and reads it.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator opens the locations screen again from the side navigation and reads it.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The locations screen opens by the menu and shows places of the synthetic dataset.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the screen titled "Locations", with places listed in the tree (the warehouse, its zones and rack places of the dataset); no "No locations yet" message, no error banner, no permanent "Loading" mark.
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see or manage the places of the warehouse.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The catalog items screen opens by the menu and shows items of the synthetic dataset.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows the screen titled "Items" with table rows (item code and title columns filled); no "No items yet" message, no error banner.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The item catalog cannot be read, so no stock work can start.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The stock documents screen opens by the menu and shows the posted opening documents.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows the screen titled "Stock documents" with at least one row; no "No stock documents found." message, no error banner.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The storekeeper cannot see what has been posted.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The stock balances screen opens by the menu and shows balance rows.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows the screen titled "Balances" with balance rows (item, place, quantity); no "No balances found." message, no error banner.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The storekeeper cannot tell what is in stock.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: Navigation by the menu is repeatable, and the top bar shows the tenant slug.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows the locations screen with its rows again, the same as step 2. In every step the top bar shows the slug qoimeks-qa as the tenant name, which is accepted for this tenant.
+      evidence: Screenshots of step 6 and of the top bar.
+    on_fail:
+      severity: MINOR
+      business_impact: Moving between screens loses data or breaks, so daily work is unreliable.
+      suggested_action: route_to_frontend_dev
