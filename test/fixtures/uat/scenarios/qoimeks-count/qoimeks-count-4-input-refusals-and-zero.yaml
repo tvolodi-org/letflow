@@ -1,0 +1,132 @@
+# T-2159 (BA): Qoimeks QA walk, quick count. QA only, SYNTHETIC data, no production.
+# Covers: REQ-855 criterion 3 (zero accepted; negative and more than 9 decimals refused before sending; reason "Other" needs a note), REQ-854 criteria 4 (zero allowed here) and 9 (input refusals; the client side only).
+# Sources: docs/requirements.yaml REQ-854 criteria 4 and 9, REQ-855 criterion 3; quickCountMessages.ts (texts: "The quantity cannot be negative.", "No more than 9 decimal places.", 'Enter a note for "Other".', "Enter the counted quantity.").
+# Writes nothing: every step ends before "Submit count" is accepted. The step with zero only reads the difference and is NOT submitted (submitting zero on a positive key would empty the balance of shared QA stock).
+# Not UAT-observable: the server-side refusals (reason_invalid, lot required, serial-tracked item, unknown_kind) because the screen blocks the bad input before sending, and a refused request must not be probed by hand (rules of the BA role);
+# they are covered by REQ-854 criterion 9 tests. Rest of the group list: see qoimeks-count-1.
+---
+id: qoimeks-count-4-input-refusals-and-zero
+scope: qoimeks-count
+title: The quick count form refuses a negative quantity, more than nine decimals, an empty quantity and the reason Other without a note, and accepts zero as a counted quantity
+version: "1.0"
+tags: [qoimeks, stock, quick_count, validation, refusal, zero, desktop, en]
+
+description: >
+  On the quick count form with an item, place and org unit chosen, the administrator tries four bad inputs one after another, each in its own step, and each must be refused with a message at its field and no
+  count recorded: a negative quantity, a quantity with ten decimals, no quantity at all, and the reason "Other" with an empty note. Then, in a step of its own that is not a refusal, the administrator types zero:
+  zero is a valid count (Qoimeks rule: zero is allowed in a count and nowhere else), the form shows the difference as minus the book quantity and shows no field error. The administrator leaves without submitting.
+  The stock documents list gets no new document and the balance of the key is unchanged.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: Same tenant, data, permission and browser as qoimeks-count-1 (desktop 1440 px, English).
+    check: system_seeded
+    detail: Any missing part is BLOCKED for the whole scenario.
+  - description: A key with an item without lots and a positive book quantity B, not one of the three negative balances.
+    check: system_seeded
+    detail: If none exists, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens Balances, notes one row (item, location, org unit, quantity B) and the number of documents in the stock documents list, then opens "Quick count" and chooses that item, location and org unit.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator types -1 as the counted quantity, chooses the reason "Recount" and presses "Submit count".
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator types 1.0000000001 (ten decimals) as the counted quantity, keeps the reason "Recount" and presses "Submit count".
+    expect_refusal: true
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator clears the counted quantity field, keeps the reason "Recount" and presses "Submit count".
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator types 1 as the counted quantity, chooses the reason "Other", leaves the note empty and presses "Submit count".
+    expect_refusal: true
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator types 0 as the counted quantity, chooses the reason "Recount" and reads the form. The administrator does NOT press "Submit count".
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator leaves the screen through the stock navigation, reads Balances for the key and the number of documents in the stock documents list.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A negative quantity is refused at its field.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows "The quantity cannot be negative." at the counted quantity field and no result panel.
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A negative count would be sent to the server or recorded.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: More than nine decimals are refused at the field.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows "No more than 9 decimal places." and no result panel.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A quantity the ledger cannot hold would be sent.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: An empty quantity is refused at the field.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows "Enter the counted quantity." and no result panel.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MINOR
+      business_impact: An empty count would be sent.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The reason Other needs a note.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows 'Enter a note for "Other".' at the note field and no result panel.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count with the reason "Other" and no explanation would enter the record.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: Zero is accepted as a counted quantity and shows the difference.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows no field error on the quantity, and Difference equal to minus B (for B 10, -10).
+      evidence: Screenshot of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A storekeeper who finds nothing on the shelf cannot record that the stock is zero.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: Nothing was written by the four refusals or the zero look.
+    verification:
+      method: gui_screen
+      detail: Step 7 shows the key at B on Balances and the same number of documents as in step 1.
+      evidence: Screenshot of step 7 and of the list.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused count left a trace or changed stock.
+      suggested_action: route_to_backend_dev

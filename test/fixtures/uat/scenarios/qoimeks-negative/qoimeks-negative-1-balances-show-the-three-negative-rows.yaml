@@ -1,0 +1,99 @@
+# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# REQ ids covered: REQ-833 (decision 0090: a ledger registration may carry negative balances, set per tenant), REQ-834 (the ledger honours the setting),
+#   REQ-836 (the stock registration opts in), REQ-837 (negative opening lines move with their sign; the tenant data holds 3 of them).
+# Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md (sections 1, 3, 7); docs/requirements.yaml REQ-833..839;
+#   web/src/components/layout/navMessages.ts (screen names Balances / Остатки / Қалдықтар); task text (142 places, 666 items, 603 posted opening balances incl. 3 negative).
+# Not UAT-observable here, with reasons:
+#   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
+#   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests.
+---
+id: qoimeks-negative-1-balances-show-the-three-negative-rows
+scope: qoimeks-qa
+title: The Qoimeks QA administrator finds the three negative opening balances on the Balances screen, in three languages and on a phone
+version: "1.0"
+tags: [qoimeks, negative_balance, balances, ru, kk, phone_390]
+
+description: >
+  The tenant holds 603 posted opening balances, 3 of which are negative (synthetic data). The administrator opens the Balances screen, finds the rows whose
+  quantity has a minus sign, and checks that there are exactly three, that each shows the minus quantity as loaded (no zero, no sign change, no blank),
+  and that the rest of the screen reads normally. The same is checked in Russian, in Kazakh and at a phone width of 390 px.
+  Read-only: the scenario creates nothing and changes nothing, so there is nothing to clean up.
+  Precondition risk: if the three negative rows were never loaded, or were corrected after loading, the count differs and the scenario reports BLOCKED, not PASS.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The tenant's 603 opening balances are posted and 3 of them are negative (synthetic data, as the task states).
+    check: system_seeded
+    detail: If the count of negative rows is not 3, report BLOCKED and quote the count seen.
+  - description: The stock module is installed and active; the administrator may read balances.
+    check: system_seeded
+    detail: If the Balances entry is missing from the side navigation, report BLOCKED.
+  - description: The run can drive a real browser at 1440 px and at 390 px wide.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and sorts or scans the quantity column so the rows with a minus sign come together.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator counts the rows whose quantity starts with a minus sign and notes, for each, the item, the place and the quantity.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator switches the language to Russian (the screen is then called "Остатки") and reads the same three rows and the column headings.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator switches the language to Kazakh (the screen is then called "Қалдықтар") and reads the same three rows and the column headings.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator narrows the browser window to 390 px wide, opens Balances in the language chosen last and finds the same three rows again.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator switches the language back to English and widens the window again, to leave the account as found.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Exactly three rows show a negative quantity and each keeps the quantity as it was loaded.
+    verification:
+      method: gui_screen
+      detail: Step 2 lists three rows with a minus sign, each with a non-zero quantity and a named item and place; no row shows a blank or zero quantity in place of the minus value.
+      evidence: Screenshot of step 1 and the three noted rows of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A negative balance loaded from the old system is lost or changed, so stock figures after the move are wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The same three rows read the same in Russian and Kazakh, and the screen speaks the chosen language.
+    verification:
+      method: gui_screen
+      detail: Steps 3 and 4 show the same items, places and quantities as step 2; the screen title reads "Остатки" in Russian and "Қалдықтар" in Kazakh; no raw message key and no leftover English heading.
+      evidence: Screenshots of steps 3 and 4.
+    on_fail:
+      severity: MINOR
+      business_impact: Russian or Kazakh speaking storekeepers read a half-English screen or a changed figure.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: At 390 px the three rows can still be found and read, with no clipped quantity.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows the quantity with its minus sign in full for each of the three rows, no horizontal clipping that hides the sign or the digits.
+      evidence: Screenshot of step 5 at 390 px.
+    on_fail:
+      severity: MINOR
+      business_impact: A storekeeper on a phone cannot tell a negative balance from a positive one.
+      suggested_action: route_to_frontend_dev

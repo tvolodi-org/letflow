@@ -1,0 +1,89 @@
+# T-2159 (BA): Qoimeks QA walk, quick count. QA only, SYNTHETIC data, no production.
+# Covers: REQ-854 criterion 6 (counted equal to book: document issued with difference 0, no posting, state confirmed), REQ-855 criteria 2 (submit result: number, book, counted, difference)
+# and 6 (result state of the screen). Sources: docs/requirements.yaml REQ-854 point (4) and criterion 6; QuickCountPage.tsx (result facts: Document, Book quantity, Counted quantity, Difference, State);
+# documentsMessages.ts ("Confirmed" / "Подтверждён" / "Расталды").
+# Writes: ONE quick count document with the reason note "UAT qoimeks-count-2". No ledger entry, so no balance changes. A document cannot be deleted; it stays as history on the QA tenant and is
+# named by that note. Clean-up: nothing to undo in the balance; the run lists the document number in its report.
+# Not UAT-observable: see the group list in qoimeks-count-1 (phone app, voice, count_in_progress, quick_count_stale, four-eyes).
+---
+id: qoimeks-count-2-count-equal-to-book-confirms
+scope: qoimeks-count
+title: The Qoimeks QA administrator counts an item and enters exactly the book quantity, and the count is recorded as confirmed with difference zero and the balance does not move
+version: "1.0"
+tags: [qoimeks, stock, quick_count, confirmed, desktop, en]
+
+description: >
+  The administrator fills the quick count form for an item and place, types the same quantity the form shows as the book quantity, chooses the reason "Recount",
+  types the note "UAT qoimeks-count-2" and submits. The screen shows the recorded count: a document number, book quantity B, counted quantity B, difference 0, state Confirmed, and no approval is asked
+  (nothing has to be posted). The balance of the key on the Balances screen is still B and the Movements screen shows no new movement for it from this count.
+  The document is found in the stock documents list as a quick count with the same numbers.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: Same tenant, data, permission and browser as qoimeks-count-1 (desktop 1440 px, English).
+    check: system_seeded
+    detail: Any missing part is BLOCKED for the whole scenario.
+  - description: No formal count (inventory) order is open over the chosen place in the same org unit.
+    check: system_seeded
+    detail: UAT assumption, to be confirmed by the process owner (the tenant holds none as far as the task text says). If the screen refuses with a message that a count is in progress, report BLOCKED and quote the message and its order number.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens Balances, notes a row with a positive quantity B for an item without lots (not one of the three negative rows) with its location and org unit, and notes the number of rows of the Movements screen for that item (or its latest movement).
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens "Quick count", chooses that item, location and org unit, reads the book quantity, types the same number in the counted quantity field, chooses the reason "Recount" and types the note "UAT qoimeks-count-2".
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator presses "Submit count" and reads the result.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the stock documents screen, finds the document by its number and opens it.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens Balances and Movements again and reads the same key.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The count is accepted and shown as confirmed with difference zero, with no approval asked.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows "Count recorded", a document number, Book quantity B, Counted quantity B, Difference 0, State "Confirmed", item, location and org unit as chosen, reason "Recount"; no Approve button and no hint to approve in My Tasks.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count that confirmed the book is lost, or the user is asked to approve a count that has nothing to post.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The recorded document is found in the stock documents and carries the same numbers.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows the document with the number of step 3, a quick count type, state Confirmed, book B, counted B, difference 0.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: There is no record of who counted and when.
+      suggested_action: route_to_backend_dev
+  - id: EO-003
+    description: The balance did not move and no movement was written.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows the key still at B on Balances and no new movement on Movements compared with step 1.
+      evidence: Screenshots of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A count that agrees with the book would change stock.
+      suggested_action: route_to_backend_dev
