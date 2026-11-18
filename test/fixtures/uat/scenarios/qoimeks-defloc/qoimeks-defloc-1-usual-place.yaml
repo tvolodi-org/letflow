@@ -1,0 +1,108 @@
+# T-2162. QA only; synthetic data, never the real Qoimeks tenant.
+# Covers REQ-843 AC1 (populated card), AC2 (ru/kk), AC3 (browser sizes);
+# REQ-841 AC2 only the read-back/display of an already imported place, not import execution.
+# Sources opened: docs/requirements.yaml REQ-841..845; merged build a38927e09 (#4621),
+# superseding the two-place build 6e7c4bbaa; web/src/modules/catalog_items/items/ItemDetails.tsx
+# (reference labels and Related balances), ItemsPage.tsx (selection and narrow layout),
+# catalogItemsItemsMessages.ts (ru/kk labels), catalogItemsRoutes.tsx and index.ts
+# (Items screen under StockRead); web/src/components/ui/registry/RegistryDetails.tsx.
+# NOT UAT-observable in this browser walk: import reference rejection/atomicity and clearing
+# (REQ-841 AC3/4), converter/rehearsal counts (REQ-842), definition/manifest/hash pins.
+# Observable evidence for those belongs to admin import result files and converter report.txt,
+# expected_counts.txt and comparison output; this card walk does not claim those checks passed.
+# REQ-844/845 are cancelled: no document/phone prefill, second-place hint or voice use is expected.
+# Phone below means the web screen at 390 px, not an APK or a Flutter screen.
+# Sensitive actions: no approve, pay/release or user changes; all stock here is synthetic.
+# The other-company data refusal is in qoimeks-defloc-3. No other-tenant stock actor is supplied.
+---
+id: qoimeks-defloc-1-usual-place
+scope: qoimeks-qa
+title: An imported item's usual place is readable on its card in Russian and Kazakh
+version: "1.0"
+tags: [qoimeks, default_location, desktop, phone_390, ru, kk, read_only]
+description: >
+  Read the usual place on an existing synthetic item's card and compare its code and name
+  with the Locations screen. Run the entire walk in each combination of 1440 px and
+  390 px width, Russian and Kazakh, light and dark appearance. Save labelled screenshots
+  of the card and its matching location in every combination. This walk creates and
+  changes no business records; cleanup restores the starting language and appearance,
+  clears the search and closes the card. Do not replace browser evidence with a query result.
+actors:
+  admin: actor-qoimeks-qa-admin
+preconditions:
+  - description: The run uses only the synthetic Qoimeks QA tenant and its administrator.
+    check: system_seeded
+    detail: >
+      Open https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, using
+      QOIMEKS_QA_ADMIN credentials from UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*.
+      If this address cannot reach this tenant, report BLOCKED; do not substitute a real tenant.
+      The supplied baseline is 142 places, 666 items and 603 posted opening balances including
+      three negative ones, with opening four-eyes off. Do not reset data or change that setting.
+  - description: An existing active synthetic item has an assigned usual place.
+    check: system_seeded
+    detail: >
+      Before the walk, record the actual item code/name and its assigned place code/name from
+      the synthetic import evidence or the administrator's read-only item and location query
+      results. Use only this tenant's data, follow all result pages and keep the chosen values
+      in the run evidence. Do not invent an article or infer its usual place from a stock balance.
+      If no such item can be identified, report BLOCKED for this scenario, not PASS.
+  - description: A real browser can show every required width, language and appearance.
+    check: system_seeded
+    detail: >
+      Record the initial language and appearance. Missing browser or credentials blocks the walk;
+      an unavailable display variant is recorded as BLOCKED, never replaced by a desktop shot.
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Sign in to the QA tenant, set the current display combination, and open Items from
+      the navigation. Search for the recorded article code and open that exact item's card.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      Read the usual place in Overview. Capture the item code, the field label and its value
+      together. At phone width, scroll the card to show the full field without zooming out.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      Open Locations from the navigation, find the recorded place by its code, and read its
+      name. Return to Items, search for the same article and open its card again.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      Reload the browser on the selected card and read its usual place again. Capture the
+      reopened card. After all display combinations, clear the search, close the card and
+      restore the starting language and appearance.
+    via: ui
+expected_outcomes:
+  - id: EO-001
+    description: The usual place is the assigned location's code and name.
+    verification:
+      method: gui_screen
+      detail: >
+        The card shows the recorded place as code - name, matching the Locations screen and
+        the recorded assignment. Overview has one usual-place field and no second-place field.
+        No internal identifier, raw message key or loading placeholder
+        remains after loading finishes. It is the same place after navigation and reload.
+      evidence: Assignment evidence and screenshots of the card, location and reloaded card for all eight display combinations.
+    on_fail:
+      severity: MAJOR
+      business_impact: The warehouse user cannot identify where the item normally belongs.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: Both languages and both widths keep the usual-place information readable.
+    verification:
+      method: gui_screen
+      detail: >
+        Russian labels the field Обычное место; Kazakh labels it Әдеттегі орын. The stored
+        place code and name stay the same when language changes; master names need not be
+        translated. At 390 px the card opens in the narrow layout and the whole label and
+        value can be read without horizontal page scrolling. Light and dark remain legible.
+      evidence: Labelled 1440/390 px, ru/kk, light/dark card screenshots; note any missing variant as BLOCKED.
+    on_fail:
+      severity: MAJOR
+      business_impact: Phone users or Kazakh-speaking users cannot read the item's usual place.
+      suggested_action: route_to_frontend_dev
