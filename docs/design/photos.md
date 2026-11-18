@@ -262,6 +262,12 @@ Sizes: S = under one day of one task, M = one to two tasks, L = needs a split at
 | P2 | Gallery routes for one owner — **built (T-2041)** | `PhotosAdd`, `PhotosDelete` atoms; routes for `assets_card` in the assets router; permission matrix golden | M | P1 | security (new atoms and routes, INV-10 negative) |
 | P3 | Gallery screen | gallery on the asset card: upload by button, drop, paste, camera input on phone, caption, order, main, delete; main-photo thumbnail in the card list; ru/kk/en; screenshot matrix | M | P2 | gui review |
 | P4 | Gallery on the other masters | registry lines and screens for `catalog_item`, `catalog_lot`, `location_node` | M | P3 | gui review |
+| P4a | Registry support — **built (T-2044)** | three `Owners` entries (`catalog_item`, `catalog_lot`, `location_node`), service-contract tests; no routes, no UI | — | P3 | security |
+| P4b | Authenticated photo routes (after T-2044) | `EntitiesQuery`/type/scope checks for the three owners, STOREKEEPER `PhotosAdd` via core role rule, real-router tests, permission-matrix golden | — | P4a | security |
+| P4c | Shared gallery + catalog-item screen (after P4b) | extract P3 gallery behind owner adapter, item Photos + list thumbnails, full screenshot matrix re-including 13 asset-card harness states | — | P4b | gui review |
+| P4d | Lot gallery (after P4c) | lot screen Photos, reader access independent of `CatalogLotsWrite`, thumbnail; lot screen matrix | — | P4c | gui review |
+| P4e | Location gallery (after P4d) | location-tree Photos + tree-row thumbnails, full matrix | — | P4d | gui review |
+| P4-QA | Acceptance walk (after P4e) | QA: menu-to-record-to-photo for all three masters as the owner, desktop + phone/camera, per-step screenshots | — | P4e | — |
 | P5 | Problem-report screenshots | T-1950 part 2 on the service, platform schema, 30-day job; **built in T-2043** (the T-2015 dialog is unchanged, legacy rows are dual-read until purged) | M | P1 | security |
 | P6 | Evidence photos | count lines and receipt/issue/write-off lines, evidence lock on close/issue/post, screens | L (split: stock, assets) | P2 | security |
 | P7 | Export | `photos` dataset in the data export | S | P4 | security |
