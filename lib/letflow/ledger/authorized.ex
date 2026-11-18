@@ -1,7 +1,12 @@
 defmodule Letflow.Ledger.Authorized do
   @moduledoc """
   REQ-637 / GH #3559 part B (slice L2b): the authorized value of the read side of the core
-  ledger. The only way to get one is `Letflow.Ledger.authorize/3`; `balances/4`, `entries/3` and
+  ledger. There are two ways to get one: `Letflow.Ledger.authorize/3` (a verified conn principal)
+  and, for the REQ-859 shared stock access that has no principal,
+  `Letflow.Ledger.authorize_shared_access/3` (tenant-wide, read-only). The second has exactly one
+  caller outside the ledger files, `Letflow.Routers.SharedStockAccess`, after it proved the
+  credential; a source scan test (`authorize_test.exs`, "REQ-859 the credential-proved minting
+  path has one caller") pins that. `balances/4`, `entries/3` and
   (part C) `reconcile/2` accept nothing else, and take the tenant schema prefix and the ledger
   id from it, never from a caller map.
 

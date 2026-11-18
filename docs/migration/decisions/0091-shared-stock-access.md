@@ -446,6 +446,26 @@ new decision record.
 
 **EXTRA:** A webhook or notification when the credential is rotated or revoked. Not built here.
 
+## 11a. Amendment (REQ-859, as built)
+
+Where the build of the old-app address differs from sections 7, 8.1 and 9 above, the build rules:
+
+- Movement ids map through the tenant table `movement_int_ids` (not `ledger_entry_int_ids`); the other
+  two tables are `catalog_item_int_ids` and `location_node_int_ids` (migration `20261118100001`).
+- Every pre-credential refusal is the 401 that `Letflow.Api.Response.unauthorized/2` sends for the
+  detail `invalid or expired bearer token` (the same problem body as the API pipeline), not the
+  hand-written `{"error": "unauthorized", ...}` shape shown in section 8.1. Its bytes and headers are
+  identical for every refusal reason (test "C2 every refusal is byte-identical").
+- Scope enforcement `on` or `shadow` answers 403 `{"error": "scope_enforcement_active"}` (section 9
+  said 503 or 409).
+- The read authorization has no `conn` principal: `Letflow.Ledger.authorize_shared_access/3` mints a
+  tenant-wide, read-only `Authorized` value from the proved tenant row. Its only caller outside the
+  ledger files is `Letflow.Routers.SharedStockAccess`; a source scan test in
+  `test/letflow/ledger/authorize_test.exs` pins that.
+- Known QA limits, to close before production: a timing difference between a listed and an unlisted
+  slug, and unbounded page widening and per-row lookups in `Letflow.Modules.Stock.OldAppReads`
+  (bounded today only by the per-credential request limit).
+
 ## 12. Owner table
 
 Every assumption marked "assumption, owner may change" in the sections above:
