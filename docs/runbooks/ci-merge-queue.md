@@ -32,7 +32,9 @@ Rules to remember:
 - Fail-safe: if the diff, the script, or its output fails, the step exits non-zero and CI runs
   every gate. A push to `main` never says `false` for backend; for frontend and mobile it uses
   the push range (`before..sha`, T-1614); the nightly and `workflow_dispatch` never say `false`.
-- Docs-only changes: `scripts/ci_docs_only.sh` decides; shard 1 runs the docs tests, shards 2-8 skip.
+- Docs-only changes: `scripts/ci_docs_only.sh` nominates docs tests for the bounded planner.
+  Every standard change also runs fixed identity/global pins and static checks; backend
+  filtering cannot skip those, including on web/mobile-only PRs.
 - The required checks (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`) are
   always reported; a gate that is not needed reports success without work.
 
@@ -53,17 +55,20 @@ Steps:
 3. Land the fix through the queue with the **`[main-fix]` title rule**: the queue entry's commit
    subject must start with `fix` followed by `(`, `:` or `!` (for example `fix(GH #N): ...`), or
    contain `[main-fix]` anywhere (case-insensitive). The guard then sets `force_full`: that group
-   runs the **full** backend suite (not the selective one) and is allowed to land. A subject like
+   uses the **bounded high-risk** backend plan and is allowed to land. A subject like
    `Fix the ...` without the bracket form does not match (`fix` must be followed by `(`, `:`, `!`
    or end of line); add `[main-fix]` when unsure.
-4. When the fix is merged and its push run on `main` is green, `full_run_marker` deletes
-   `ci-main-red` (it is an ancestor of the new HEAD). A failed or timed-out run counts as red; a
-   cancelled one does not.
+4. After the fix merges, run extended verification (`workflow_dispatch`, or the next
+   nightly). Only when backend, frontend and mobile all succeed on a descendant does
+   `full_run_marker` delete `ci-main-red`. A green bounded push cannot prove recovery
+   and preserves the marker. No demo or production promotion while the last nightly is red.
+   The operator logs nightly omissions as `selector miss` with test and commit range in
+   the defect ledger, and creates a p1 task traced to the responsible change after a lighter day.
 5. Operator escape (only if the tag is stale, for example the red commit was reverted and the run
    was cancelled): `git push origin :refs/tags/ci-main-red`. Say why in the PR or report.
 
-Do not queue unrelated work as `[main-fix]` to jump the guard: a fix group runs the whole suite
-and delays everyone.
+Do not queue unrelated work as `[main-fix]` to jump the guard. Fix groups use bounded coverage;
+full verification belongs to extended CI.
 
 ## 3. The queue ejects a group, or a PR is unmergeable
 
@@ -119,22 +124,10 @@ Two worked examples from 2026-11-08:
   killer deadline and an explicit `timeout_ms`. It could not be reproduced on a quiet host, so
   the fix is by reading the code; say so in the PR instead of claiming a red proof.
 
-- **Docs-tests hang (T-1325, seen again on T-1513):** on a docs-only change shard 1 runs the docs
-  tests with one retry. Since T-1575 (#4106) each attempt is capped at 1000 s (`timeout 1000`) and
-  the job at 38 min (`timeout-minutes: 38`), because the selected docs-test files (about 64 in #4106) took 567-597 s against
-  the old 600 s cap and were killed with exit 124. Before that fix the log showed
-  `Result: N passed`, then a `could not lookup Ecto repo Letflow.Repo` exit message, and the step
-  ended with `docs tests: attempt 2 failed with exit 124`. No test failed, so this is not a
-  content fault. Two shapes were seen. (a) Teardown hang: the run finished and hung on exit.
-  (b) Too slow: the selected files were still running when `timeout` stopped
-  them; the `Finished in` line is close to the cap and the `Result:` count differs between the
-  two attempts (T-1513: 852 then 1038 tests; T-1516 the same day). A `Finished in` close to the
-  cap is still the sign of shape (b). Do not rework the docs: re-run the failed jobs once (the
-  engine's `ci_check` does this), and report a repeat as a defect against #4106.
-  A PR whose head is older than a `[main-fix]` commit keeps the old workflow file on re-run (a
-  GitHub re-run reuses the original commit and `ci.yml`), so re-running it can never pass: merge
-  main into the branch and push instead (T-1513: three attempts timed out on the pre-#4106
-  workflow).
+- **Docs-tests hang (historical T-1325/T-1513):** the former retry and 38–45 minute
+  docs runner was removed by T-2155. Docs tests now use the same bounded plan as
+  other standard changes. Inspect the plan/deferred artifact and the job timeout;
+  never restore the full docs set or lengthen the standard deadline.
 
 Handling:
 

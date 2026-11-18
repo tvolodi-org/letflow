@@ -73,12 +73,9 @@
 #      Team plan (60 concurrent jobs on standard runners; was the free plan's 20): ~33 long jobs for 3 PRs in flight fit;
 #      a plan or runner-size change is the owner's decision.
 #
-# 5. T-1249: docs-only change. When EVERY changed file is under docs/ (job `changes`, step
-#    "Decide whether the change is docs-only", rule in scripts/ci_docs_only.sh; pull_request and
-#    merge_group only), `backend_static` still runs (register consistency checks), shard 1 runs
-#    only the docs-related test files (`scripts/ci_docs_only.sh files`, step "Run docs tests")
-#    and shards 2-8 skip their expensive steps and report success. Job and check names do not
-#    change, so the aggregator is unchanged. Any path outside docs/ gives the full shards.
+# 5. T-2155: every standard event consumes a bounded explicit plan, including docs-only
+#    changes and sensitive paths. Overflow runs nightly/dispatch. Static/global checks remain;
+#    selector failure fails the gate. See docs/merge-queue.md for priorities and budgets.
 #
 # Toolchain versions: read from .tool-versions (elixir 1.20.3-otp-29,
 # erlang 29.0.5, rust 1.97.1) via setup-beam's version-file input (Elixir/OTP)
@@ -212,11 +209,15 @@ concurrency:
   # REQ-401..REQ-416's backend runs all being cancelled or skipped.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# GH #2622 (OQ-4): every job sets timeout-minutes (>= 4x the observed max over the last 30
-# successful runs; design lib/letflow/design/gh2622-ci-push-concurrency-and-cd-tip.md §4). A timed-out
+# T-2155: bounded selection ships first. CI_TIMEOUT_MINUTES=10 enables the 600s job cap
+# only after hosted stock/config/identity measurements; unset reverts to previous limits.
+# Extended runs explicitly retain 60 minutes. A timed-out
 # job is cancelled by GitHub (conclusion `cancelled`): non-success. The `backend` aggregator turns a
 # timed-out backend leg into red; a timed-out `frontend` or `mobile` job makes the run non-success
 # directly. Either way CD never deploys the run. See docs/runbooks/qa-lag.md.
+# Long steps run through scripts/ci_job_deadline.py: it stops the command 45 s before the
+# job limit and names the job and the unfinished test files first (no retry).
+
 jobs:
   # Not a required status check. Computes whether backend-relevant /
   # frontend-relevant paths changed so the backend legs (skipped at job level) and
@@ -229,9 +230,10 @@ jobs:
   changes:
     name: Detect changed paths
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 10) }}
     outputs:
-      backend: ${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}
+      # Fixed identity/global checks run even for web/mobile/docs-only changes.
+      backend: 'true'
       frontend: ${{ steps.filter.outputs.frontend || steps.fallback.outputs.frontend }}
       mobile: ${{ steps.filter.outputs.mobile || steps.fallback.outputs.mobile }}
       heavy: ${{ steps.heavy.outputs.heavy }}
@@ -405,11 +407,8 @@ jobs:
             echo "Exam and :slow tests skipped by path: this change touches nothing they depend on. The nightly run on main (and workflow_dispatch) runs the full suite." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # T-1249: is this change ONLY under docs/? Then the backend shards run just the docs-related
-      # test files (scripts/ci_docs_only.sh files) instead of the full suite; the static job still
-      # runs the register consistency checks, and every job and required check name stays. Same
-      # fail-safe as the heavy step: only a pull_request or merge_group run with a usable range
-      # and a clean script result may say true; everything else says false (full shards).
+      # Docs-only remains a diagnostic and skips isolated runtime tails. Docs test files
+      # themselves go through the same bounded selector as every other standard change.
       - name: Decide whether the change is docs-only
         id: docs
         env:
@@ -440,14 +439,14 @@ jobs:
           echo "docs_only=$docs_only ($reason)"
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if [ "$docs_only" = "true" ]; then
-            echo "Docs-only change: shard 1 runs the docs-related tests only, shards 2-6 skip their work. The merge queue and main run the same rule / the full suite as configured." >> "$GITHUB_STEP_SUMMARY"
+            echo "Docs-only change: docs-related tests use the bounded plan; static checks remain." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # T-1297: stop the queue on a red main. The marker is the tag `ci-main-red`, written by job
       # `full_run_marker` when a run of main fails. A merge-group run fails fast here with that
       # message, EXCEPT a group whose commit subjects start with `fix` (or carry `[main-fix]`):
-      # that group is the way a fix lands, so it runs the FULL suite (forced below) and its green
-      # push run on main clears the marker. Pull-request runs are not blocked. Operator escape:
+      # that group is the way a fix lands, so it uses bounded repair coverage and its green
+      # successful extended verification on main clears the marker. Pull-request runs are not blocked. Operator escape:
       # delete the tag (`git push origin :refs/tags/ci-main-red`).
       - name: Main red guard (merge queue)
         id: redguard
@@ -464,19 +463,19 @@ jobs:
           red=$(git rev-parse refs/tags/ci-main-red)
           subjects=$(git log --format=%s "$MG_BASE_SHA..$MG_HEAD_SHA" 2>/dev/null || true)
           if grep -qiE '^fix([(:!]|$)|\[main-fix\]' <<<"$subjects"; then
-            echo "force_full=main full CI is red at $red; this group claims a fix, so it runs the full suite" >> "$GITHUB_OUTPUT"
+            echo "force_full=main full CI is red at $red; this group claims a fix, so it uses bounded high-risk coverage" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "main_red=true" >> "$GITHUB_OUTPUT"
-          echo "::error::main full CI red (since $red): the merge queue is stopped until a fix lands. A queue entry whose title starts with fix( or has [main-fix] runs the full suite and may land; see docs/merge-queue.md."
+          echo "::error::main full CI red (since $red): the merge queue is stopped until a fix lands. A queue entry whose title starts with fix( or has [main-fix] uses bounded high-risk coverage and may land; see docs/merge-queue.md."
           echo "### main full CI red" >> "$GITHUB_STEP_SUMMARY"
           echo "Failing commit on main: $red. Merge-group runs fail fast until a fix lands." >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       # T-1297 (L-24): selective or full backend run. Rules and the file map: scripts/ci_select_tests.py.
       # T-2141: counter removed; nightly (schedule/workflow_dispatch) runs the full suite.
-      # Any failure of this step runs everything (mode full), as does the kill switch
-      # (repository variable CI_SELECTIVE = off).
+      # Standard events never emit full. Missing ranges use bounded safety coverage;
+      # process errors/malformed plans fail closed. CI_SELECTIVE=off stays bounded.
       - name: Select backend tests (selective or full)
         id: select
         if: always()
@@ -502,11 +501,10 @@ jobs:
             echo "Changed files: ${nfiles:-unknown}" >> "$GITHUB_STEP_SUMMARY"
             echo "backend tests mode=$1 reason=$2 changed_files=${nfiles:-unknown}"
           }
-          full() { emit full "$1" "" ""; exit 0; }
-          if [ "$DOCS_ONLY" = "true" ]; then
-            emit docs-only "docs-only change: shard 1 runs the docs-related tests (scripts/ci_docs_only.sh)" "" ""
-            exit 0
-          fi
+          fail() { echo "::error::$1; refusing to run without a bounded plan"; exit 1; }
+          case "$EVENT_NAME" in
+            schedule|workflow_dispatch) emit full "extended CI: $EVENT_NAME" "" ""; exit 0 ;;
+          esac
           BASE=""; HEAD=""; DOTS=".."
           nfiles=""
           case "$EVENT_NAME" in
@@ -519,28 +517,40 @@ jobs:
             git fetch --no-tags --depth=50 origin "$BASE" || true
           fi
           if [ -z "$BASE" ] || [ -z "$HEAD" ] || [ "$BASE" = "$ZERO" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
-            full "event $EVENT_NAME: no usable base commit"
+            CHANGED=""
+          elif ! CHANGED=$(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}"); then
+            CHANGED=""
           fi
-          if ! CHANGED=$(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}"); then full "git diff failed"; fi
           nfiles=$(grep -c . <<<"$CHANGED" || true)
-          args=(--event "$EVENT_NAME" --kill-switch "$(bash scripts/ci_kill_switch.sh "${KILL:-}" "${PROBE:-}")" --plan-out "$RUNNER_TEMP/ci_plan.txt")
+          printf '%s\n' "${BASE:-unavailable}${DOTS}${HEAD:-unavailable}" > "$RUNNER_TEMP/ci_range.txt"
+          args=(--event "$EVENT_NAME" --kill-switch "$(bash scripts/ci_kill_switch.sh "${KILL:-}" "${PROBE:-}")" --plan-out "$RUNNER_TEMP/ci_plan.txt" --deferred-out "$RUNNER_TEMP/ci_deferred.txt")
           [ -n "$FORCE_FULL" ] && args+=(--force-full "$FORCE_FULL")
           if ! OUT=$(python3 -I scripts/ci_select_tests.py "${args[@]}" <<<"$CHANGED") ; then
-            full "selection step failed (scripts/ci_select_tests.py)"
+            fail "selection step failed (scripts/ci_select_tests.py)"
           fi
           mode=$(sed -n 's/^mode=\(selective\|full\)$/\1/p' <<<"$OUT")
           reason=$(sed -n 's/^reason=//p' <<<"$OUT" | head -n 1)
           skip=$(sed -n 's/^skip_shards=//p' <<<"$OUT" | head -n 1)
-          [[ $skip =~ ^[0-9\ ]*$ ]] || full "selection output malformed"
+          [[ $skip =~ ^[0-9\ ]*$ ]] || fail "selection output malformed"
           case "$mode" in
-            full) full "$reason" ;;
+            full) fail "standard event returned full" ;;
             selective)
-              [ -f "$RUNNER_TEMP/ci_plan.txt" ] || full "selection wrote no plan"
+              [ -f "$RUNNER_TEMP/ci_plan.txt" ] || fail "selection wrote no plan"
               emit selective "$reason" "$skip" "$(cat "$RUNNER_TEMP/ci_plan.txt")"
               ;;
-            *) full "selection output malformed" ;;
+            *) fail "selection output malformed" ;;
           esac
 
+      - name: Preserve bounded selection evidence
+        if: steps.select.outputs.mode == 'selective'
+        uses: actions/upload-artifact@v4
+        with:
+          name: standard-backend-selection
+          path: |
+            ${{ runner.temp }}/ci_plan.txt
+            ${{ runner.temp }}/ci_deferred.txt
+            ${{ runner.temp }}/ci_range.txt
+          retention-days: 14
 
   # Q-1037 / GH #2364 (backend-gate sharding): the static half of the old single `backend`
   # job. NOT a required status check (only the aggregator `backend` below is). Runs the
@@ -558,7 +568,7 @@ jobs:
   backend_static:
     name: Backend static checks + isolated tails
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 30) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
 
@@ -628,6 +638,16 @@ jobs:
           --health-retries 30
 
     steps:
+      - name: Record job deadline
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          JOB_LIMIT_MINUTES: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 30) }}
+        run: |
+          echo "CI_JOB_LIMIT_MINUTES=$JOB_LIMIT_MINUTES" >> "$GITHUB_ENV"
+          echo "CI_JOB_LABEL=backend_static" >> "$GITHUB_ENV"
+          echo "CI_JOB_DEADLINE_S=$(( $(date +%s) + JOB_LIMIT_MINUTES * 60 - 45 ))" >> "$GITHUB_ENV"
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -709,7 +729,7 @@ jobs:
 
       - name: Run static checks (mix letflow.check.static)
         if: needs.changes.outputs.backend != 'false'
-        run: mix letflow.check.static
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- mix letflow.check.static
         env:
           MIX_ENV: test
           WASMEX_BUILD: true
@@ -804,7 +824,7 @@ jobs:
       # Push to main, schedule and dispatch give docs_only=false, so the tails still run there.
       - name: Run isolated tails (mix letflow.check.test --tails-only)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true'
-        run: mix letflow.check.test --tails-only
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- mix letflow.check.test --tails-only
         env:
           MIX_ENV: test
           WASMEX_BUILD: true
@@ -837,7 +857,7 @@ jobs:
   backend_shard:
     name: Backend shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 45) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
     strategy:
@@ -862,33 +882,43 @@ jobs:
           --health-retries 30
 
     steps:
+      - name: Record job deadline
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          JOB_LIMIT_MINUTES: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 45) }}
+        run: |
+          echo "CI_JOB_LIMIT_MINUTES=$JOB_LIMIT_MINUTES" >> "$GITHUB_ENV"
+          echo "CI_JOB_LABEL=backend_shard ${{ matrix.shard }}/${{ strategy.job-total }}" >> "$GITHUB_ENV"
+          echo "CI_JOB_DEADLINE_S=$(( $(date +%s) + JOB_LIMIT_MINUTES * 60 - 45 ))" >> "$GITHUB_ENV"
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Set up Elixir/OTP (from .tool-versions)
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: ${{ !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard)) }}
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
           version-type: strict
 
       - name: Read pinned Rust version from .tool-versions
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: ${{ !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard)) }}
         id: rust_pin
         run: |
           version=$(grep -E '^rust ' .tool-versions | awk '{print $2}')
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust (pinned via .tool-versions)
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: ${{ !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard)) }}
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.rust_pin.outputs.version }}
 
       - name: Cache deps and _build
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: ${{ !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard)) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -899,7 +929,7 @@ jobs:
             ${{ runner.os }}-mix-
 
       - name: Install dependencies
-        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: needs.changes.outputs.backend != 'false' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         run: mix deps.get
 
       # Step 3 of the backend-gate speed-up (Q-1037 / GH #2364): the service database is a
@@ -909,7 +939,7 @@ jobs:
       # header of this file). The step fails unless the three values really read back as `off`,
       # so a silent no-op cannot masquerade as a tuned run.
       - name: Tune Postgres for CI (durability off, throwaway database)
-        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: needs.changes.outputs.backend != 'false' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         env:
           PGPASSWORD: letflow
         run: |
@@ -949,22 +979,35 @@ jobs:
       # goes to a file; scripts/test_parallel.sh runs only those files (TEST_PARALLEL_PLAN below).
       - name: Record shard start time
         id: shard_start
-        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: needs.changes.outputs.backend != 'false' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Write selective test plan
-        if: needs.changes.outputs.mode == 'selective' && needs.changes.outputs.docs_only != 'true' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        if: needs.changes.outputs.mode == 'selective' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         env:
           PLAN: ${{ needs.changes.outputs.plan }}
         run: printf '%s\n' "$PLAN" > "$RUNNER_TEMP/ci_plan.txt"
 
       - name: Run test shard
-        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
-        run: mix letflow.check.test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        if: needs.changes.outputs.backend != 'false' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            schedule|workflow_dispatch) ;;
+            *)
+              [ "$MODE" = selective ] && [ -s "$TEST_PARALLEL_PLAN" ] || { echo "::error::standard shard requires a nonempty bounded plan"; exit 1; }
+              ;;
+          esac
+          python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- mix letflow.check.test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ needs.changes.outputs.mode }}
+          TMPDIR: ${{ runner.temp }}
+          TEST_PARALLEL_KEEP_LOGS: 1
           MIX_ENV: test
           WASMEX_BUILD: true
           TEST_PARALLEL_N: 4
+          TEST_PARALLEL_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           # GH #2630: non-pool reserve = 4 partitions x a nested app-starting child capped at a
           # 4-slot pool (test/support/nested_mix.ex). 97 usable - 10 headroom - 16 = 71, so
           # TEST_POOL_SIZE = 71 / 4 = 17; worst case 4*17 + 16 + 2 external = 86 of 97.
@@ -987,43 +1030,21 @@ jobs:
           TEST_PARALLEL_EXTRA_ARGS: "--slowest 40 --slowest-modules 80"
           TEST_PARALLEL_PRINT_SLOWEST: 1
 
-      # T-1249: docs-only change: shard 1 runs only the test files that read docs/ (list from
-      # scripts/ci_docs_only.sh files); shards 2-8 skip every expensive step and report success.
-      # The register consistency checks (requirements registration, handoff lint) run in
-      # `backend_static`, which is not skipped by docs_only.
-      - name: Run docs tests (docs-only change)
-        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
-        timeout-minutes: 42
+      - name: Nightly selector misses
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # T-1617: run only the docs tests that read the changed paths plus a fixed smoke set
-          # (scripts/ci_docs_only.sh select), not all ~65 files (three merge groups hit exit 124).
-          # BASE/HEAD are the same range the `changes` job used.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then
-            RANGE="${{ github.event.merge_group.base_sha }}..${{ github.event.merge_group.head_sha }}"
-          else
-            RANGE=""
+          # Compare the exact nightly snapshot, not a moving branch or an unrelated PR.
+          run=$(gh run list --workflow CI --event push --commit "$HEAD_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$run" ]; then
+            gh run download "$run" --name standard-backend-selection --dir "$RUNNER_TEMP/standard-selection" || true
           fi
-          files=()
-          if [ -n "$RANGE" ] && git diff --name-only "$RANGE" > /tmp/docs_changed.txt; then
-            mapfile -t files < <(bash scripts/ci_docs_only.sh select < /tmp/docs_changed.txt)
-          fi
-          if [ "${#files[@]}" -eq 0 ]; then
-            mapfile -t files < <(bash scripts/ci_docs_only.sh files)
-          fi
-          echo "docs-only change: running ${#files[@]} docs-related test files"
-          printf '  %s\n' "${files[@]}"
-          # One attempt capped at 2400 s (T-1617 stop-gap; the selected set is normally a few
-          # minutes). The step-level timeout-minutes (42) stays under the job's 45 min.
-          rc=0
-          timeout 2400 mix test "${files[@]}" || rc=$?
-          if [ "$rc" -ne 0 ]; then echo "docs tests: failed with exit ${rc}"; fi
-          exit "$rc"
-        env:
-          MIX_ENV: test
-          WASMEX_BUILD: true
+          range=$(cat "$RUNNER_TEMP/standard-selection/ci_range.txt" 2>/dev/null || printf 'unavailable..%s' "$HEAD_SHA")
+          python3 -I scripts/ci_select_tests.py --nightly-log-dir "$RUNNER_TEMP" --standard-plan "$RUNNER_TEMP/standard-selection/ci_plan.txt" --commit-range "$range" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Shard wall time
         if: always() && steps.shard_start.outputs.ts != ''
@@ -1052,7 +1073,7 @@ jobs:
   backend:
     name: Backend gate (mix letflow.check)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 15) }}
     needs: [changes, backend_static, backend_shard]
     if: ${{ always() }}
     steps:
@@ -1091,13 +1112,13 @@ jobs:
   # (push, nightly, workflow_dispatch). NOT a required check. Tags are moved with the job's own
   # token (contents: write); a tag push does not start workflows.
   #   ci-main-red    a commit of main whose backend run failed. Merge-group runs fail fast while it
-  #                  exists (job `changes`, step "Main red guard"). Deleted by the next green run of a
-  #                  descendant commit. A failed or timed-out run counts; a cancelled one does not.
+  #                  exists (job `changes`, step "Main red guard"). Only successful extended
+  #                  verification of a descendant clears it. Bounded pushes cannot prove recovery.
   full_run_marker:
     name: Selective CI markers (main)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    needs: [changes, backend]
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 10) }}
+    needs: [changes, backend, frontend, mobile]
     if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     permissions:
       contents: write
@@ -1109,14 +1130,29 @@ jobs:
       - name: Move the markers
         env:
           RESULT: ${{ needs.backend.result }}
+          EVENT_NAME: ${{ github.event_name }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          MOBILE_RESULT: ${{ needs.mobile.result }}
         run: |
           set -uo pipefail
+          case "$EVENT_NAME" in
+            schedule|workflow_dispatch)
+              case "$FRONTEND_RESULT/$MOBILE_RESULT" in
+                success/success) ;;
+                *) RESULT=failure ;;
+              esac
+              ;;
+          esac
           sha=$(git rev-parse HEAD)
           newer() { # tag: absent or an ancestor of HEAD
             ! git rev-parse -q --verify "refs/tags/$1" >/dev/null || git merge-base --is-ancestor "refs/tags/$1" HEAD
           }
           case "$RESULT" in
             success)
+              case "$EVENT_NAME" in
+                schedule|workflow_dispatch) ;;
+                *) echo "bounded push: preserve ci-main-red until extended verification"; exit 0 ;;
+              esac
               if git rev-parse -q --verify refs/tags/ci-main-red >/dev/null && git merge-base --is-ancestor refs/tags/ci-main-red HEAD; then
                 git push origin :refs/tags/ci-main-red && echo "cleared ci-main-red" | tee -a "$GITHUB_STEP_SUMMARY"
               fi
@@ -1160,7 +1196,7 @@ jobs:
     # setup is needed here.
     name: Frontend gate (npm run check)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 30) }}
     needs: changes
     # NOT `always()` (unlike the aggregator `backend`, which needs it; see its note).
     # GH #2412: skipped at JOB level when the path filter says `false` (docs-only PR), so no
@@ -1174,6 +1210,16 @@ jobs:
         working-directory: web
 
     steps:
+      - name: Record job deadline
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          JOB_LIMIT_MINUTES: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 30) }}
+        run: |
+          echo "CI_JOB_LIMIT_MINUTES=$JOB_LIMIT_MINUTES" >> "$GITHUB_ENV"
+          echo "CI_JOB_LABEL=frontend" >> "$GITHUB_ENV"
+          echo "CI_JOB_DEADLINE_S=$(( $(date +%s) + JOB_LIMIT_MINUTES * 60 - 45 ))" >> "$GITHUB_ENV"
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -1190,7 +1236,7 @@ jobs:
 
       - name: Run frontend gate
         if: needs.changes.outputs.frontend != 'false'
-        run: npm run check
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- npm run check
 
   # REQ-420: Mobile gate job, appended alongside `backend`/`frontend` as a sibling under
   # the same `on:` triggers, touching none of their keys. Structurally parallel to
@@ -1216,7 +1262,7 @@ jobs:
   mobile:
     name: Mobile gate (flutter analyze + test + build)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 45) }}
     needs: changes
     # NOT `always()` -- same reasoning as `frontend` (see this design's §3 and
     # the ISS-0591/ISS-0592 design doc's job-block note): `!cancelled()` keeps this job
@@ -1229,6 +1275,16 @@ jobs:
         working-directory: apps/mobile
 
     steps:
+      - name: Record job deadline
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          JOB_LIMIT_MINUTES: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 60 || (vars.CI_TIMEOUT_MINUTES == '10' && 10 || 45) }}
+        run: |
+          echo "CI_JOB_LIMIT_MINUTES=$JOB_LIMIT_MINUTES" >> "$GITHUB_ENV"
+          echo "CI_JOB_LABEL=mobile" >> "$GITHUB_ENV"
+          echo "CI_JOB_DEADLINE_S=$(( $(date +%s) + JOB_LIMIT_MINUTES * 60 - 45 ))" >> "$GITHUB_ENV"
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -1250,21 +1306,21 @@ jobs:
 
       - name: Analyze
         if: needs.changes.outputs.mobile != 'false'
-        run: flutter analyze
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter analyze
 
       - name: Test
         if: needs.changes.outputs.mobile != 'false'
-        run: flutter test
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter test
 
       - name: Browser crypto test (Chrome)
         if: needs.changes.outputs.mobile != 'false'
         run: |
           google-chrome --version
-          flutter test --platform chrome test/auth/web_session_crypto_browser_test.dart
+          python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter test --platform chrome test/auth/web_session_crypto_browser_test.dart
 
       - name: Build debug APK
         if: needs.changes.outputs.mobile != 'false'
-        run: flutter build apk --debug
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter build apk --debug
       - name: Build web (PWA)
         if: needs.changes.outputs.mobile != 'false'
-        run: flutter build web --release
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter build web --release

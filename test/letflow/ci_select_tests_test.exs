@@ -1,7 +1,7 @@
 defmodule Letflow.CiSelectTestsTest do
   @moduledoc """
   T-1297 (L-24): `scripts/ci_select_tests.py` decides, from the changed-file list, whether a run
-  executes only the related backend tests or the full suite; `ci.yml` wires it in. These tests run
+  executes bounded related backend tests or the extended suite; `ci.yml` wires it in. These tests run
   the real script against this repository's tree and pin the workflow's contract (required check
   names, 8-shard matrix, full-run paths, markers).
   """
@@ -13,6 +13,93 @@ defmodule Letflow.CiSelectTestsTest do
   @script "scripts/ci_select_tests.py"
   @ci_yml Path.join(@root, ".github/workflows/ci.yml")
   @leaf "lib/letflow/modules/locations/tree.ex"
+
+  @tag timeout: 120_000
+  test "B1: standard fallback cases always produce a bounded plan" do
+    for event <- ["pull_request", "merge_group", "push"],
+        files <- [
+          ["lib/letflow/modules/stock/stock.ex", "docs/roles.md"],
+          ["config/config.exs"],
+          ["lib/letflow/identity.ex"],
+          ["priv/permission_matrix/effective.golden"],
+          for(i <- 1..45, do: "docs/note#{i}.md")
+        ] do
+      {kv, plan} = select(files, ["--event", event])
+      assert kv["mode"] == "selective", "#{event} #{inspect(files)}: #{inspect(kv)}"
+      assert plan != []
+      assert length(plan) <= 160
+
+      assert Enum.any?(
+               plan,
+               &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
+             )
+    end
+  end
+
+  test "B5: stock and web changes retain fixed identity and global pins" do
+    for changed <- ["lib/letflow/modules/stock/stock.ex", "web/src/x.tsx"] do
+      {_, plan} = select([changed])
+
+      for test <- [
+            "test/letflow/api/permission_matrix_test.exs",
+            "test/letflow/identity/binding_writers_scan_test.exs",
+            "test/letflow/identity/tenant_update_changeset_removed_test.exs"
+          ] do
+        assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
+      end
+    end
+
+    backend =
+      @ci_yml |> YamlElixir.read_from_file!() |> get_in(["jobs", "changes", "outputs", "backend"])
+
+    assert backend == "true"
+  end
+
+  @tag :tmp_dir
+  test "B6: a bounded green push cannot clear a red nightly", %{tmp_dir: dir} do
+    step =
+      @ci_yml
+      |> YamlElixir.read_from_file!()
+      |> get_in(["jobs", "full_run_marker", "steps"])
+      |> Enum.find(&(&1["name"] == "Move the markers"))
+
+    git = Path.join(dir, "git")
+
+    File.write!(
+      git,
+      "#!/bin/sh\necho \"$*\" >> \"$GIT_CALLS\"\n[ \"$*\" != 'rev-parse HEAD' ] || echo head456\nexit 0\n"
+    )
+
+    File.chmod!(git, 0o755)
+    calls = Path.join(dir, "calls.txt")
+
+    for {event, frontend, clears?} <- [
+          {"push", "success", false},
+          {"schedule", "success", true},
+          {"workflow_dispatch", "success", true},
+          {"schedule", "failure", false}
+        ] do
+      File.write!(calls, "")
+
+      {out, 0} =
+        System.cmd("bash", ["-c", step["run"]],
+          cd: @root,
+          stderr_to_stdout: true,
+          env: [
+            {"PATH", dir <> ":" <> System.get_env("PATH")},
+            {"GIT_CALLS", calls},
+            {"RESULT", "success"},
+            {"EVENT_NAME", event},
+            {"FRONTEND_RESULT", frontend},
+            {"MOBILE_RESULT", "success"},
+            {"GITHUB_STEP_SUMMARY", Path.join(dir, "summary.md")}
+          ]
+        )
+
+      assert String.contains?(File.read!(calls), "push origin :refs/tags/ci-main-red") == clears?,
+             out
+    end
+  end
 
   defp select(files, extra \\ []) do
     plan = Path.join(System.tmp_dir!(), "sel_plan_#{System.unique_integer([:positive])}.txt")
@@ -59,7 +146,8 @@ defmodule Letflow.CiSelectTestsTest do
     assert Enum.any?(plan, &String.ends_with?(&1, " " <> t))
   end
 
-  test "S3: sensitive paths run the full suite" do
+  @tag timeout: 120_000
+  test "S3: sensitive paths select bounded high-risk coverage" do
     for p <- [
           "priv/repo/migrations/20261101000000_x.exs",
           "config/test.exs",
@@ -72,12 +160,13 @@ defmodule Letflow.CiSelectTestsTest do
           "lib/letflow/ledger/entry.ex"
         ] do
       {kv, _} = select([@leaf, p])
-      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+      assert kv["mode"] == "selective", "#{p}: #{inspect(kv)}"
       assert kv["reason"] != ""
     end
   end
 
-  test "S3b: module-write authorization and module installs run the full suite (T-1403)" do
+  @tag timeout: 120_000
+  test "S3b: module-write authorization and module installs select high-risk tests" do
     for p <- [
           "lib/letflow/modules/installs.ex",
           "lib/letflow/modules/tenant_module.ex",
@@ -90,11 +179,12 @@ defmodule Letflow.CiSelectTestsTest do
           "lib/letflow/routers/tenant_modules.ex"
         ] do
       {kv, _} = select([p])
-      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+      assert kv["mode"] == "selective", "#{p}: #{inspect(kv)}"
     end
   end
 
-  test "S3d: role and permission seeding runs the full suite (T-1428)" do
+  @tag timeout: 120_000
+  test "S3d: role and permission seeding selects bounded coverage" do
     for p <- [
           "priv/permission_matrix/effective.golden",
           "test/support/tenant_fixture.ex",
@@ -104,7 +194,7 @@ defmodule Letflow.CiSelectTestsTest do
           "lib/letflow/identity_migration.ex"
         ] do
       {kv, _} = select([p])
-      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+      assert kv["mode"] == "selective", "#{p}: #{inspect(kv)}"
     end
   end
 
@@ -129,44 +219,161 @@ defmodule Letflow.CiSelectTestsTest do
     assert Enum.any?(plan, &String.contains?(&1, "test/letflow/engine/"))
   end
 
-  test "S4: more than 40 changed files run the full suite" do
+  test "S4: more than 40 changed files select bounded coverage" do
     files = for i <- 1..41, do: "docs/note#{i}.md"
     {kv, _} = select(files)
-    assert kv["mode"] == "full"
+    assert kv["mode"] == "selective"
     assert kv["reason"] =~ "41 changed files"
   end
 
-  test "S5: kill switch, nightly, manual run and empty list run the full suite" do
-    assert {%{"mode" => "full", "reason" => "kill switch" <> _}, _} =
-             select([@leaf], ["--kill-switch", "off"])
+  test "S5: only nightly and manual run can run the full suite" do
+    {kv, plan} = select([@leaf], ["--kill-switch", "off"])
+    assert kv["mode"] == "selective"
+    assert kv["reason"] =~ "kill switch"
+    assert plan != []
 
     for ev <- ["schedule", "workflow_dispatch"] do
       {kv, _} = select([@leaf], ["--event", ev])
       assert kv["mode"] == "full", ev
     end
 
-    assert {%{"mode" => "full"}, _} = select([])
+    assert {%{"mode" => "selective"}, [_ | _]} = select([])
   end
 
-  test "S7: a forced full run (red main fix group) and a selection error are full" do
+  test "S7: red-main fix and missing timing manifest stay bounded" do
     {kv, _} = select([@leaf], ["--force-full", "main red, fix group"])
 
-    assert kv == %{
-             "mode" => "full",
-             "reason" => "main red, fix group",
-             "skip_shards" => "",
-             "selected_count" => "0"
-           }
+    assert kv["mode"] == "selective"
+    assert kv["reason"] =~ "main red, fix group (bounded repair)"
 
     {kv, _} = select([@leaf], ["--manifest", "test/does_not_exist.txt"])
-    assert kv["mode"] == "full"
+    assert kv["mode"] == "selective"
     assert kv["reason"] =~ "unreadable"
   end
 
-  test "S8: a deleted lib file and a module named in config/ run the full suite" do
+  test "S8: a deleted lib file uses the bounded safety set" do
     {kv, _} = select(["lib/letflow/no_such_file_t1297.ex"])
-    assert kv["mode"] == "full"
+    assert kv["mode"] == "selective"
     assert kv["reason"] =~ "removed or renamed"
+  end
+
+  test "B2: partition budgets defer overflow in priority order" do
+    code = """
+    import importlib.util, json, types
+    spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+    s = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s)
+    files = ['test/letflow/example/case%d_test.exs' % i for i in range(200)]
+    args = types.SimpleNamespace(root='.', shards=2, per_shard=4, target_ms=10000, standard_max_tests=160)
+    weights = dict.fromkeys(files, 3000)
+    lines, skip, deferred = s.bounded_plan(files, [files[-1]], weights, args, files)
+    chosen = [line.split()[1] for line in lines]
+    totals = {}
+    for line in lines:
+        part, test = line.split()
+        totals[part] = totals.get(part, 0) + weights[test]
+    assert files[-1] in chosen, 'changed test has first priority'
+    assert max(totals.values()) <= args.target_ms
+    assert set(chosen).isdisjoint(deferred)
+    assert set(chosen) | set(deferred) == set(files)
+    assert len(chosen) == 24 and len(deferred) == 176
+    print('bounded priority and overflow PASS')
+    """
+
+    assert {"bounded priority and overflow PASS\n", 0} =
+             System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+  end
+
+  @tag :tmp_dir
+  test "B3: nightly summary names missed failures and handles missing evidence", %{tmp_dir: dir} do
+    logs = Path.join(dir, "letflow_test_parallel.fixture")
+    File.mkdir_p!(logs)
+    plan = Path.join(dir, "standard.txt")
+    File.write!(plan, "1 test/letflow/known_test.exs\n")
+
+    File.write!(Path.join(logs, "partition-1.log"), """
+      1) test missed branch (Letflow.MissedTest)
+         test/letflow/missed_test.exs:12
+         Assertion failed
+      2) test already covered (Letflow.KnownTest)
+         test/letflow/known_test.exs:9
+    """)
+
+    {out, 0} =
+      System.cmd(
+        "python3",
+        [
+          "-I",
+          @script,
+          "--nightly-log-dir",
+          dir,
+          "--standard-plan",
+          plan,
+          "--commit-range",
+          "base123..head456"
+        ],
+        cd: @root
+      )
+
+    assert out =~ "selector miss count: 1"
+    assert out =~ "Compared commit range: `base123..head456`"
+    assert out =~ "selector miss: `test/letflow/missed_test.exs` — test missed branch"
+    refute out =~ "selector miss: `test/letflow/known_test.exs`"
+
+    {out, 0} =
+      System.cmd("python3", ["-I", @script, "--nightly-log-dir", dir], cd: @root)
+
+    assert out =~ "Selector coverage unavailable"
+    refute out =~ "selector miss count: 0"
+  end
+
+  @tag :tmp_dir
+  test "B4: the workflow fails closed on selector failure or an unbounded response", %{
+    tmp_dir: dir
+  } do
+    step =
+      @ci_yml
+      |> YamlElixir.read_from_file!()
+      |> get_in(["jobs", "changes", "steps"])
+      |> Enum.find(&(&1["id"] == "select"))
+
+    File.mkdir_p!(Path.join(dir, "scripts"))
+
+    for script <- ["ci_kill_switch.sh", "ci_emit_outputs.sh"] do
+      File.cp!(Path.join([@root, "scripts", script]), Path.join([dir, "scripts", script]))
+    end
+
+    for body <- [
+          "raise SystemExit(1)",
+          "print('mode=full\\nreason=unsafe fallback\\nskip_shards=')",
+          "print('mode=broken\\nreason=malformed\\nskip_shards=')",
+          "print('mode=selective\\nreason=missing plan\\nskip_shards=')"
+        ] do
+      File.write!(Path.join([dir, "scripts", "ci_select_tests.py"]), body)
+      output = Path.join(dir, "outputs.txt")
+      File.write!(output, "")
+
+      {out, status} =
+        System.cmd("bash", ["-c", step["run"]],
+          cd: dir,
+          stderr_to_stdout: true,
+          env: [
+            {"EVENT_NAME", "push"},
+            {"RUNNER_TEMP", dir},
+            {"GITHUB_OUTPUT", output},
+            {"GITHUB_STEP_SUMMARY", Path.join(dir, "summary.md")},
+            {"PUSH_BEFORE", String.duplicate("0", 40)},
+            {"PUSH_AFTER", "unavailable"},
+            {"KILL", ""},
+            {"PROBE", "false"},
+            {"FORCE_FULL", "bounded repair test"}
+          ]
+        )
+
+      assert status == 1, out
+      assert out =~ "refusing to run without a bounded plan"
+      refute File.read!(output) =~ "mode=full"
+    end
   end
 
   test "S9: plan partitions are contiguous from 1 and idle shards are the tail" do
@@ -184,12 +391,12 @@ defmodule Letflow.CiSelectTestsTest do
     assert kv["skip_shards"] == expected
   end
 
-  test "S10: web-only change selects nothing and idles every shard" do
+  test "S10: web-only change runs the fixed safety set" do
     {kv, plan} = select(["web/src/x.tsx"])
     assert kv["mode"] == "selective"
-    assert kv["selected_count"] == "0"
-    assert plan == []
-    assert kv["skip_shards"] == "1 2 3 4 5 6 7 8"
+    assert String.to_integer(kv["selected_count"]) >= 9
+    assert plan != []
+    refute kv["skip_shards"] == "1 2 3 4 5 6 7 8"
   end
 
   describe "pull-request diff range (T-1303)" do
@@ -357,9 +564,9 @@ defmodule Letflow.CiSelectTestsTest do
              "permission_matrix_test not in plan"
     end
 
-    test "M4: a priv/modules change spanning two modules runs the full suite" do
+    test "M4: a priv/modules change spanning two modules stays bounded" do
       {kv, _} = select([@stock_priv, "priv/modules/exam/pack.json"])
-      assert kv["mode"] == "full", inspect(kv)
+      assert kv["mode"] == "selective", inspect(kv)
       assert kv["reason"] =~ "multiple modules", inspect(kv)
     end
 

@@ -155,7 +155,7 @@ defmodule Letflow.CiDocsOnlyTest do
     assert "test/letflow/identity/sync_scope_guard_test.exs" in files
   end
 
-  test "D4: ci.yml wires the rule: shards keep their names, full test step is skipped when docs-only" do
+  test "D4: docs changes use the bounded shard plan and retain static checks" do
     ci = YamlElixir.read_from_file!(@ci_yml)
 
     assert get_in(ci, ["jobs", "changes", "outputs", "docs_only"]) =~
@@ -173,9 +173,9 @@ defmodule Letflow.CiDocsOnlyTest do
     refute shard["if"] =~ "docs_only"
 
     steps = Map.new(shard["steps"], &{&1["name"], &1})
-    assert steps["Run test shard"]["if"] =~ "docs_only != 'true'"
-    assert steps["Run docs tests (docs-only change)"]["if"] =~ "docs_only == 'true'"
-    assert steps["Run docs tests (docs-only change)"]["run"] =~ "ci_docs_only.sh select"
+    refute steps["Run test shard"]["if"] =~ "docs_only"
+    assert steps["Run test shard"]["run"] =~ "standard shard requires a nonempty bounded plan"
+    refute Map.has_key?(steps, "Run docs tests (docs-only change)")
     # T-1689: only the isolated-tails step is skipped on docs-only; the job and every other step
     # (static checks, permission matrix: the register checks) are not gated on docs_only
     static_steps = get_in(ci, ["jobs", "backend_static", "steps"])
