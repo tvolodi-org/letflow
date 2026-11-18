@@ -58,13 +58,16 @@ kcadm.sh set-password -r demo-showroom --username demo-smoke --new-password "$(c
 from `OIDC_CLIENT_ID` (`Letflow.Routers.TenantConfig`). `VITE_OIDC_AUTHORITY` and `VITE_OIDC_CLIENT_ID` are only the fallback
 when that request fails, so one build serves every promote.
 
-**Default tenant (runtime setting `LETFLOW_DEFAULT_TENANT_SLUG`).** `?host=` has no host-to-tenant binding, so a visit
-to `https://demo.letflow.ai-dala.com/` with no `?realm=` and no remembered slug is answered with the default tenant. Set
-`LETFLOW_DEFAULT_TENANT_SLUG=showroom` in the backend environment (a tenant slug, not a realm id; read per request, restart
-the backend to change it, no web rebuild). The root URL and deep links in a fresh tab then land on the showroom realm. Order
-of choice: `?realm=` first, then the slug remembered in the browser session, then this default. Unset or empty keeps the
-constant `bpm-default` (QA and production). A slug that is unknown, inactive or has no realm also falls back to
-`bpm-default`. `https://demo.letflow.ai-dala.com/?realm=showroom` still works; an nginx redirect is no longer needed.
+**Bound host and default tenant (runtime setting `LETFLOW_DEFAULT_TENANT_SLUG`).** A visit with no
+explicit `?realm=` and no remembered slug sends its hostname to `GET /api/tenant-config`. A hostname
+already bound in onboarding resolves to that company's active tenant, realm and branding. An unknown or
+unusable hostname is answered with the default tenant. Set `LETFLOW_DEFAULT_TENANT_SLUG=showroom` in the
+backend environment (a tenant slug, not a realm id; read per request, restart the backend to change it,
+no web rebuild) so an unbound demo root and its fresh-tab deep links land on the showroom realm. Order
+of choice: explicit/remembered realm, then bound host, then this configured default, then the constant
+`bpm-default`. Unset or empty keeps `bpm-default`; an unknown, inactive or realm-less configured slug
+does too. `https://demo.letflow.ai-dala.com/?realm=showroom` still works; an nginx redirect is no longer
+needed.
 
 **Environment banner (runtime setting `LETFLOW_ENV_LABEL`).** The yellow banner shows for test-type tenants. Three states:
 unset keeps the default `TEST ENVIRONMENT` banner (QA); set to empty (or blanks) hides it (the demo instance sets it empty);

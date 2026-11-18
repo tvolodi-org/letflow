@@ -15,6 +15,7 @@ defmodule Letflow.Routers.TenantLogoPublicTest do
   import Plug.Test
 
   alias Letflow.Identity
+  alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantLogo
   alias Letflow.Routers.TenantConfig
@@ -173,6 +174,28 @@ defmodule Letflow.Routers.TenantLogoPublicTest do
 
       assert web("?realm=" <> q(t.tenant.slug))["branding"]["logo_url"] ==
                logo_path(t.tenant.slug)
+    end
+
+    test "L1 a bound host with an upload gets the resolved tenant's slug-addressed logo" do
+      t = tenant!("t1359-l1") |> upload!()
+      host = "#{t.tenant.slug}.ai-letflow.com"
+
+      record =
+        %OnboardingRecord{}
+        |> OnboardingRecord.insert_changeset(%{
+          tenant_id: t.tenant_id,
+          slug: t.tenant.slug,
+          hostname: host
+        })
+        |> Repo.insert!()
+
+      # Registered after the committed-tenant fixture, so this FK-dependent row is removed first.
+      on_exit(fn ->
+        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Repo)
+        Repo.delete_all(from(o in OnboardingRecord, where: o.id == ^record.id))
+      end)
+
+      assert web("?host=" <> q(host))["branding"]["logo_url"] == logo_path(t.tenant.slug)
     end
 
     test "W2 ?realm= hit without an upload keeps the stored string" do

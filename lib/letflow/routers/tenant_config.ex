@@ -63,11 +63,11 @@ defmodule Letflow.Routers.TenantConfig do
   the `LETFLOW_ENV_LABEL` operator setting for the test-environment banner; absent when
   the variable is unset, a platform setting and not a tenant attribute, so INV-2 and
   INV-5 are unaffected). `tenant_type` is `"test"`, `"production"` or
-  `null`; it is non-null only on the branch that resolved a real realm through
-  `?realm=<slug>`, and `null` on every default branch (unknown slug, nil or
-  empty realm, lookup failure, `?host=`, no parameter), so those bodies stay
-  byte-identical (INV-5). It is the same bounded inference as a non-default
-  realm id, and it is never a name, slug, display name or id (INV-2).
+  `null`; it is non-null only when a real tenant is resolved through `?realm=<slug>` or a bound
+  `?host=<hostname>`, and `null` on every default branch (unknown slug or host, inactive or migrating
+  tenant, nil or empty realm, lookup failure, no parameter), so those bodies stay byte-identical
+  (INV-5). It is the same bounded inference as a non-default realm id, and it is never a name, slug,
+  display name or id (INV-2).
 
   It returns exactly three values: an OIDC authority URL (which embeds a realm
   id), a public client id, and a `branding` block. Both of the first two are
@@ -97,12 +97,13 @@ defmodule Letflow.Routers.TenantConfig do
   `branding.logo_url` may now be a path, `/api/tenant-config/logo?slug=<slug>`, in place of the
   stored string. That happens only when `:tenant_logo_upload_enabled` is on and the resolved tenant
   passes the logo route's guard (non-empty `idp_realm_id`, status other than `:inactive`) and has an
-  upload. Which slug can appear: on a `?realm=` hit, the slug the caller sent; on every default branch
-  (`?realm=` miss, `?host=`, no parameter), the constant `bpm-default`, which `oidc_authority` already
-  discloses. Nothing new is learnable. The image bytes, hash, size and `updated_by` never appear in
-  the body (INV-2): only whether a logo exists is read. With the flag off, or with no upload, the
-  stored string (or the platform default) is returned exactly as before; `branding_from_settings/1`
-  is unchanged. The row `GET /api/tenant-config` above stays "always 200".
+  upload. Which slug can appear: on a `?realm=` hit, the resolved tenant's canonical slug; on a bound
+  `?host=` hit, that same resolved tenant's slug (never the caller-supplied hostname); on every default
+  branch, the constant `bpm-default`, which `oidc_authority` already discloses. Nothing new is
+  learnable. The image bytes, hash, size and `updated_by` never appear in the body (INV-2): only whether
+  a logo exists is read. With the flag off, or with no upload, the stored string (or the platform
+  default) is returned exactly as before; `branding_from_settings/1` is unchanged. The row
+  `GET /api/tenant-config` above stays "always 200".
 
   `GET /api/tenant-config/logo` resolves ONLY by `?slug=` (no `?realm=`, `?host=` or default
   fallback). Seven cases return one identical 404 (same status, body and header names, INV-5): no
@@ -113,61 +114,34 @@ defmodule Letflow.Routers.TenantConfig do
 
   ## Precedence
 
-    1. `?realm=<slug>` present — resolve the tenant by slug; if it resolves and
-       has a non-nil `idp_realm_id`, that wins and the host branch is
-       **skipped**.
-    2. Otherwise `?host=<hostname>` — see below; today this always falls
-       through to the default tenant, with that tenant's own branding.
-    3. Otherwise, or on any miss, or on **any** error — the default tenant: the
-       tenant whose slug is in the runtime env var `LETFLOW_DEFAULT_TENANT_SLUG`
-       when it resolves to an active tenant with a realm (T-1481; set to
-       `showroom` on the demo), else the constant realm `bpm-default`
-       (branding of that realm's tenant when it can be read, else the platform
-       default). The web's order is `?realm=`, remembered slug, then this.
+    1. `?realm=<slug>` present — resolve the tenant by slug; if it resolves, is active and has a
+       non-empty `idp_realm_id`, that wins and the host branch is skipped.
+    2. Otherwise `?host=<hostname>` — resolve the already stored `onboarding_registry.hostname` to its
+       tenant. Comparison trims and lower-cases both request and stored values; an active tenant with a
+       non-empty realm supplies the response, its `tenant_type`, and its canonical slug for an uploaded
+       logo. Unknown, malformed, ambiguous, inactive, migrating, realm-less and failed lookups fall
+       through without selecting an arbitrary company.
+    3. Otherwise, or on any miss or error — the default tenant: the tenant whose slug is in
+       `LETFLOW_DEFAULT_TENANT_SLUG` when it resolves to an active tenant with a realm (T-1481; set to
+       `showroom` on the demo), else the constant realm `bpm-default` (branding of that realm's tenant
+       when it can be read, else the platform default). The web's order is `?realm=`, remembered slug,
+       then host.
 
-  ## `?host=` is accepted, and today always falls through to the default
+  ## `?host=` resolves the company's existing onboarding binding
 
-  GH #2936: "the default" means the default realm **and the branding saved by the
-  tenant that owns it** (`bpm-default`), not the platform default. A normal page
-  load calls `?host=` (the SPA has no realm slug yet), so without this a saved
-  brand colour was never applied after a reload. This adds no hostname binding: it
-  reads the one tenant the response already names via `oidc_authority`, so it
-  discloses nothing beyond what the `?realm=bpm-default` call already returns.
+  T-1359/F1b: the public bootstrap route reads the global `onboarding_registry` and `tenants` tables;
+  no second hostname store is needed. For example, `sss.ai-letflow.com` resolves only the tenant whose
+  onboarding row stores that hostname. This lookup selects public sign-in configuration only. It never
+  authorizes a request or selects a tenant-data prefix: after authentication, the verified token issuer
+  remains authoritative.
 
-  PROVENANCE (historical, not current decision authority):
-  R-Co resolves `?host=` by joining `tenant_hostnames` -> `tenant`
-  (`tenant_config.zig:167-207`). **Letflow has no host->tenant binding of any
-  kind** — `grep -rn "tenant_hostname\\|hostname" lib/ priv/repo/migrations/`
-  returns zero hits. Letflow has only realm->tenant and slug->tenant.
+  GH #2936: "the default" means the default realm **and the branding saved by the tenant that owns it**
+  (`bpm-default`), not the platform default. An unknown or otherwise unusable host therefore returns
+  exactly the no-parameter default answer. A bound host instead returns that company's public realm and
+  allowlisted branding, the same bounded disclosure as its `?realm=<slug>` answer.
 
-  PROVENANCE (historical, not current decision authority):
-  Adding a `tenant_hostnames` table, Ecto schema and migration here was
-  **considered and rejected**: no acceptance criterion asks for it, nothing in
-  this requirement would ever write to it, and a table with no writer is a
-  partial backing subsystem shipped with no producer — the **REQ-056 failure
-  mode**, which REQ-078's own text invokes twice as the reason
-  `sandbox_access.zig` is not ported. We cannot decline to port a guard with
-  no caller in one paragraph and add a table with no writer in the next.
-  **REQ-078 therefore adds NO migration at all.**
-
-  PROVENANCE (historical, not current decision authority):
-  So `?host=` is honoured syntactically and produces the default config —
-  which is **byte-identical to what R-Co produces for an unbound hostname**
-  (`tenant_config.zig:81-102` leaves `realm_id = "bpm-default"`). Since
-  Letflow has no bindings at all, every hostname is unbound, and the default
-  config is the one served — a graceful degradation of an unimplemented
-  feature, not a functional non-port.
-
-  This works today for the only caller:
-  `web/src/auth/tenantConfig.ts:43-45` resolves a realm slug from
-  `sessionStorage`/the URL **first** and passes `{realm: slug}`, falling back
-  to `{host: hostname}` only when no slug is known. The supported branch is
-  the preferred branch.
-
-  **Owner of hostname->tenant binding: REQ-076 (tenant onboarding)** — the
-  point at which a tenant acquires an identity a hostname could be bound to.
-  **A later reader must not "fix" this by adding a migration without an owning
-  requirement.**
+  The SPA passes `{host: window.location.hostname}` when no explicit or remembered realm slug exists
+  (`web/src/auth/tenantConfig.ts`). No cookie, tenant picker, new route or frontend storage is involved.
 
   ## No trace id on this endpoint
 
@@ -187,9 +161,8 @@ defmodule Letflow.Routers.TenantConfig do
 
   This is the one REQ-078 route that does **not** call
   `Letflow.Api.Context.scoped_repo_opts/1`. It is unauthenticated by design
-  and reads only the **global** `tenants` table, which lives outside every
-  per-tenant schema — there is no prefix to derive and no per-tenant row to
-  reach.
+  and reads only the **global** `tenants` and `onboarding_registry` tables, which live outside every
+  per-tenant schema — there is no prefix to derive and no per-tenant row to reach.
   """
 
   use Plug.Router
@@ -331,53 +304,68 @@ defmodule Letflow.Routers.TenantConfig do
 
   # Step 1: ?realm=<slug>. A hit with a non-nil idp_realm_id wins outright and
   # the host branch is skipped. Returns {realm_id, tenant_or_nil, tenant_type, logo_slug} -- OQ-1
-  # (design §4; logo_slug is the slug the caller sent, or bpm-default on the default
-  # branches, REQ-591): the matched %Tenant{} (and therefore its already-loaded
+  # (design §4; logo_slug is the resolved tenant's slug on a slug or host hit, or bpm-default on
+  # the default branches, REQ-591): the matched %Tenant{} (and therefore its already-loaded
   # :settings field) is threaded straight through to config_map/2 so the
   # branding helper never performs a second, independent DB lookup for the
   # same slug in the same request.
   defp resolve_realm(slug, host) when is_binary(slug) do
-    case servable_tenant(slug) do
+    case servable_tenant_by_slug(slug) do
       {:ok, tenant} ->
-        {tenant.idp_realm_id, tenant, tenant_type_value(tenant), slug}
+        {tenant.idp_realm_id, tenant, tenant_type_value(tenant), tenant.slug}
 
       :error ->
         resolve_realm(nil, host)
     end
   end
 
-  # Steps 2 and 3: ?host=<hostname>, or neither parameter. Letflow has no
-  # host->tenant binding, so both name the default tenant: the one named by the
-  # runtime env var LETFLOW_DEFAULT_TENANT_SLUG when it resolves to a servable
-  # tenant (T-1481, demo sets it to showroom), else the constant default realm.
-  # Either way the answer carries the branding of the tenant that owns that realm
-  # (GH #2936), so a saved brand colour survives a normal page load. Both routes
-  # converge here, so they stay provably identical. See the moduledoc; do NOT add
-  # a hostname table here.
+  # Steps 2 and 3: ?host=<hostname>, or neither parameter. A host hit resolves through the global
+  # onboarding registry and uses the resolved tenant's realm, branding, type and logo slug. Every
+  # miss or failure converges on the default tenant: the one named by LETFLOW_DEFAULT_TENANT_SLUG
+  # when servable, else the constant default realm (GH #2936).
   #
-  # tenant_type is nil here even though the default tenant is non-nil: only the
-  # slug-resolved branch above may disclose a type (REQ-472, INV-5).
-  defp resolve_realm(nil, _host_or_absent) do
+  # tenant_type is nil on the default branches even though the default tenant is non-nil: only a
+  # slug- or host-resolved branch may disclose a type (REQ-472, INV-5).
+  defp resolve_realm(nil, host) when is_binary(host) do
+    case servable_tenant_by_hostname(host) do
+      {:ok, tenant} ->
+        {tenant.idp_realm_id, tenant, tenant_type_value(tenant), tenant.slug}
+
+      :error ->
+        resolve_default_realm()
+    end
+  end
+
+  defp resolve_realm(nil, _host_or_absent), do: resolve_default_realm()
+
+  defp resolve_default_realm do
     with slug when is_binary(slug) <- non_empty(System.get_env("LETFLOW_DEFAULT_TENANT_SLUG")),
-         {:ok, tenant} <- servable_tenant(slug) do
-      {tenant.idp_realm_id, tenant, nil, slug}
+         {:ok, tenant} <- servable_tenant_by_slug(slug) do
+      {tenant.idp_realm_id, tenant, nil, tenant.slug}
     else
       _unset_or_unservable -> {@default_realm, default_realm_tenant(), nil, @default_realm}
     end
   end
 
-  # A tenant that may name its realm: found by slug, non-empty idp_realm_id, not
-  # inactive (the same guard the logo route applies). Never raises.
-  defp servable_tenant(slug) do
-    case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
-      {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
-      when is_binary(realm_id) and realm_id != "" and tenant.status != :inactive ->
-        {:ok, tenant}
-
-      _miss_or_nil_realm_or_error ->
-        :error
-    end
+  # A tenant that may name its realm: active and with a non-empty idp_realm_id. The same guard
+  # applies whether the public bootstrap request names a slug or a hostname. Never raises.
+  defp servable_tenant_by_slug(slug) do
+    slug
+    |> Identity.safe_get_tenant_by_slug("tenant-config")
+    |> servable_tenant()
   end
+
+  defp servable_tenant_by_hostname(hostname) do
+    hostname
+    |> Identity.safe_get_tenant_by_hostname("tenant-config")
+    |> servable_tenant()
+  end
+
+  defp servable_tenant({:ok, %Tenant{idp_realm_id: realm_id, status: :active} = tenant})
+       when is_binary(realm_id) and realm_id != "",
+       do: {:ok, tenant}
+
+  defp servable_tenant(_miss_or_unservable), do: :error
 
   # Explicit named-key read, closed to the two known values (INV-2).
   defp tenant_type_value(%Tenant{tenant_type: type}) when type in ["test", "production"],

@@ -17,15 +17,20 @@ Each customer company signs in through its own tenant and realm. Each statement 
 
 1. Each customer company is its own tenant with its own Keycloak realm (portfolio decision D-016, one realm per tenant).
 2. The realm is made from the versioned template `priv/keycloak/provisioner/v2/tenant-realm.json`.
-3. Until a production provisioner is approved, the tenant gets its realm by the manual steps of
-   `docs/runbooks/onboarding-new-tenant-realm.md` (the QA-only provisioner of `docs/runbooks/tenant-provisioner-credential.md`
-   is not used for production, D-019 item 9).
-4. The tenant is then set to `tenant_type` production, as the section "Tenant type (REQ-469)" of
+3. The company URL is `https://<company>.ai-letflow.com` (owner decision, 2026-11-18). The SPA's
+   `GET /api/tenant-config?host=<company>.ai-letflow.com` resolves the hostname stored at onboarding
+   to that company's active tenant, returning its realm and allowlisted pre-authentication branding.
+   An unknown or unservable host falls back to the default configuration. The hostname never selects
+   a tenant-data prefix; authenticated access still comes from the verified token issuer (T-1359).
+4. Until a production provisioner is approved, the tenant gets its realm by the manual steps of
+   `docs/runbooks/onboarding-new-tenant-realm.md` (the QA-only provisioner of
+   `docs/runbooks/tenant-provisioner-credential.md` is not used for production, D-019 item 9).
+5. The tenant is then set to `tenant_type` production, as the section "Tenant type (REQ-469)" of
    `docs/runbooks/onboarding-new-tenant-realm.md` says.
-5. D-019 item 7 settles the Keycloak admin rights of the first administrator for demo tenants only (no Keycloak admin
+6. D-019 item 7 settles the Keycloak admin rights of the first administrator for demo tenants only (no Keycloak admin
    rights). Manage-users rights for the first administrator of a production tenant are decided later, so this page
    states no rule for a production tenant; see "Open owner questions".
-6. Gate F pre-go-live CHECK (not an owner question): re-probe the production `bpm-default` realm for the nine realm roles
+7. Gate F pre-go-live CHECK (not an owner question): re-probe the production `bpm-default` realm for the nine realm roles
    (AGENT_RUNNER, CANDIDATE, PLATFORM_ADMIN, PROCESS_DESIGNER, PROCESS_OPERATOR, STOREKEEPER, TASK_WORKER, TENANT_ADMIN,
    TENANT_AUDITOR). STOREKEEPER, TENANT_ADMIN and TENANT_AUDITOR were missing on 2026-10-14; a fix is infra's and only on
    the owner's production go. Nothing is touched on production by this page. Run the same check again when the roles-as-data

@@ -158,10 +158,9 @@ defmodule Letflow.Routers.MobileTenantConfig do
   when no slug is known yet), MOB-2's mobile callers always resolve a slug
   (deep-link subdomain or manual entry) before calling this endpoint. This
   route therefore accepts a single `?slug=<tenant_slug>` parameter and has no
-  `?host=` parameter or branch. If a future requirement needs server-side
-  host resolution for mobile, that is a new parameter on this module, not a
-  retrofit of `Letflow.Routers.TenantConfig`'s `?host=` handling — Letflow
-  still has no host->tenant binding of any kind.
+  `?host=` parameter or branch. The web endpoint has its own onboarding-host lookup (T-1359), but
+  mobile's slug-only contract is unchanged; server-side host resolution for mobile would be a new
+  parameter on this module, not a retrofit of the web route's handling.
 
   ## No trace id on this endpoint
 
