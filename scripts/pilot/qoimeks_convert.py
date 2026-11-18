@@ -5,15 +5,19 @@ Prepared, not started: this tool only reads CSV files and writes files. It opens
 secret and touches no database. Run it on a copy of the data, QA only (docs/runbooks/qoimeks-rehearsal.md).
 
   python3 -I scripts/pilot/qoimeks_convert.py convert --in DIR --out DIR --system S \\
-      --org-unit-ext ID --responsible-ext ID --received-on YYYY-MM-DD [--mapping map.json] [--allow-drops]
+      --org-unit-ext ID --responsible-ext ID --received-on YYYY-MM-DD [--mapping map.json] [--allow-drops] \\
+      [--blank-name-fallback code]
   python3 -I scripts/pilot/qoimeks_convert.py headers --out DIR --responses DIR \\
       --org-unit-id UUID --responsible-id UUID
 
-`convert` reads locations.csv (loc_code, loc_name, loc_parent), items.csv (sku, sku_name, unit, [home_loc], [alt_loc],
-[barcode]) and balances.csv (sku, loc, qty, [as_of]) from --in. The optional codes.csv holds active code rows
-(object_type, object_code, code_type, code) for SKUs and places. `home_loc` (the usual place, a loc_code) goes into
-the items file as `default_location_id` (G3); `alt_loc` (the second place) is NOT carried: the report counts the rows
-that had one. `--mapping` is a JSON object {"<column in the extract>": "<neutral name>"}.
+`convert` reads locations.csv (loc_code, loc_name, [loc_parent]), items.csv (sku, sku_name, unit, [home_loc], [alt_loc],
+[barcode]) and balances.csv (sku, loc, qty, [as_of]) from --in. A locations file without loc_parent is a flat list.
+The optional codes.csv holds active code rows (object_type, object_code, code_type, code) for SKUs and places.
+`home_loc` (the usual place, a loc_code) goes into the items file as `default_location_id` (G3); `alt_loc` (the second
+place) is NOT carried: the report counts the rows that had one. `--mapping` is either a flat JSON object
+{"<column in the extract>": "<neutral name>"} applied to every file, or an object keyed locations/items/balances/codes
+whose values are such column objects. `--blank-name-fallback code` (off by default) gives a blank location or item name
+the row's code; the report counts these rows and lists their row numbers, and the manifest records the option.
 It writes into --out: 01-locations-NN.xlsx, 02-uoms.xlsx, 03-items-NN.xlsx, 06-codes-NN.xlsx,
 07-code-assignments-NN.xlsx, 04-opening-lines-NN.xlsx, manifest.json, report.txt and expected_counts.txt. Code files are
 written only when at least one code survives and are ordered before the opening lines; a file type with no rows is
@@ -58,7 +62,7 @@ CODE_COLS = ["value", "kind", "external_ref_system", "external_ref_id"]
 ASSIGNMENT_COLS = ["code_id", "target_type", "target_id", "external_ref_system", "external_ref_id"]
 CODE_TYPES = {"ean13", "ean8", "code128", "qr", "manual"}
 NEEDED = {
-    "locations": ["loc_code", "loc_name", "loc_parent"],
+    "locations": ["loc_code", "loc_name"],
     "items": ["sku", "sku_name", "unit"],
     "balances": ["sku", "loc", "qty"],
     "codes": ["object_type", "object_code", "code_type", "code"],
@@ -137,6 +141,30 @@ def write_xlsx(path, header, rows):
 
 # ---------------------------------------------------------------- csv
 
+def load_mapping(path):
+    """Return one column mapping per input kind; the old flat object applies to all of them."""
+    mappings = {kind: {} for kind in NEEDED}
+    if not path:
+        return mappings
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        fail("--mapping is not readable JSON")
+    if not isinstance(data, dict):
+        fail("--mapping must be a JSON object")
+    if all(isinstance(v, str) for v in data.values()):
+        return {kind: data for kind in NEEDED}
+    if not all(isinstance(v, dict) for v in data.values()):
+        fail("--mapping must be a flat column object or an object keyed locations/items/balances/codes")
+    if set(data) - set(NEEDED):
+        fail("--mapping per-file keys must be locations, items, balances or codes")
+    for kind, mapping in data.items():
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()):
+            fail("--mapping per-file values must map column names to column names")
+        mappings[kind] = mapping
+    return mappings
+
+
 def read_csv(path, mapping, kind):
     p = Path(path)
     if not p.is_file():
@@ -176,7 +204,7 @@ def chunks(seq, n):
 
 # ---------------------------------------------------------------- convert
 
-def order_locations(rows, drops):
+def order_locations(rows, drops, blank_name_fallback, blank_names):
     """Rows with code, name, unique code; parents before children (depth order). Rejects are counted by row number."""
     ok, seen = [], set()
     for n, r in enumerate(rows, 1):
@@ -184,16 +212,19 @@ def order_locations(rows, drops):
             drops.append(("locations", n, "too_many_fields"))
         elif not r["loc_code"]:
             drops.append(("locations", n, "missing_code"))
-        elif not r["loc_name"]:
+        elif not r["loc_name"] and blank_name_fallback != "code":
             drops.append(("locations", n, "missing_name"))
         elif r["loc_code"] in seen:
             drops.append(("locations", n, "duplicate_code"))
         else:
+            if not r["loc_name"]:
+                r["loc_name"] = r["loc_code"]
+                r["_blank_name_row"] = n
             seen.add(r["loc_code"])
             ok.append((n, r))
     placed, out, pending = set(), [], ok
     while pending:
-        nxt = [(n, r) for n, r in pending if not r["loc_parent"] or r["loc_parent"] in placed]
+        nxt = [(n, r) for n, r in pending if not r.get("loc_parent") or r["loc_parent"] in placed]
         if not nxt:
             break
         for n, r in nxt:
@@ -201,8 +232,12 @@ def order_locations(rows, drops):
             out.append(r)
         pending = [x for x in pending if x not in nxt]
     for n, r in pending:
-        known = r["loc_parent"] in seen
+        known = r.get("loc_parent") in seen
         drops.append(("locations", n, "parent_rejected_or_cycle" if known else "unknown_parent"))
+    for r in out:
+        n = r.pop("_blank_name_row", None)
+        if n is not None:
+            blank_names.append(("locations", n))
     return out
 
 
@@ -250,24 +285,18 @@ def cmd_convert(a):
     out = check_out(a.out)
     if not DATE_RE.match(a.received_on):
         fail("--received-on must be YYYY-MM-DD")
-    mapping = {}
-    if a.mapping:
-        try:
-            mapping = json.loads(Path(a.mapping).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            fail("--mapping is not readable JSON")
-        if not isinstance(mapping, dict):
-            fail("--mapping must be a JSON object")
+    mappings = load_mapping(a.mapping)
     src = Path(a.indir)
-    locs = read_csv(src / "locations.csv", mapping, "locations")
-    items = read_csv(src / "items.csv", mapping, "items")
-    bals = read_csv(src / "balances.csv", mapping, "balances")
-    code_rows = read_optional_csv(src / "codes.csv", mapping, "codes")
+    locs = read_csv(src / "locations.csv", mappings["locations"], "locations")
+    items = read_csv(src / "items.csv", mappings["items"], "items")
+    bals = read_csv(src / "balances.csv", mappings["balances"], "balances")
+    code_rows = read_optional_csv(src / "codes.csv", mappings["codes"], "codes")
 
     drops = []
+    blank_names = []
     sysn = a.system
 
-    locations = order_locations(locs, drops)
+    locations = order_locations(locs, drops, a.blank_name_fallback, blank_names)
     loc_codes = {r["loc_code"] for r in locations}
 
     good_items, seen = [], set()
@@ -277,7 +306,7 @@ def cmd_convert(a):
             drops.append(("items", n, "too_many_fields"))
         elif not r["sku"]:
             drops.append(("items", n, "missing_sku"))
-        elif not r["sku_name"]:
+        elif not r["sku_name"] and a.blank_name_fallback != "code":
             drops.append(("items", n, "missing_name"))
         elif not r["unit"]:
             drops.append(("items", n, "missing_unit"))
@@ -286,6 +315,9 @@ def cmd_convert(a):
         elif r.get("home_loc") and r["home_loc"] not in loc_codes:
             drops.append(("items", n, "unknown_default_location"))
         else:
+            if not r["sku_name"]:
+                r["sku_name"] = r["sku"]
+                blank_names.append(("items", n))
             seen.add(r["sku"])
             r["_source_row"] = n
             good_items.append(r)
@@ -336,7 +368,7 @@ def cmd_convert(a):
         write_xlsx(out / name, header, rows)
         files.append({"file": name, "entity_type": etype, "rows": len(rows)})
 
-    loc_rows = [[r["loc_code"], r["loc_name"], "location", r["loc_parent"], sysn, r["loc_code"]] for r in locations]
+    loc_rows = [[r["loc_code"], r["loc_name"], "location", r.get("loc_parent", ""), sysn, r["loc_code"]] for r in locations]
     loc_pos = {}  # code -> (file, sheet row)
     for i, part in enumerate(chunks(loc_rows, MAX_ROWS), 1):
         name = "01-locations-%02d.xlsx" % i
@@ -399,8 +431,8 @@ def cmd_convert(a):
     (out / "expected_counts.txt").write_text("".join("%s %d\n" % kv for kv in sorted(counts.items())), encoding="utf-8")
     manifest = {
         "system": sysn, "org_unit_ext": a.org_unit_ext, "responsible_ext": a.responsible_ext,
-        "received_on": a.received_on, "upload_order": [f["file"] for f in files],
-        "files": files, "headers": headers,
+        "received_on": a.received_on, "blank_name_fallback": a.blank_name_fallback,
+        "upload_order": [f["file"] for f in files], "files": files, "headers": headers,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -412,6 +444,10 @@ def cmd_convert(a):
         if counts[label] == 0:
             report.append("no rows for %s: no file written" % label.split(".")[1])
     report.append("items with a second place, not imported (G3) %d" % second_places)
+    if a.blank_name_fallback:
+        report.append("blank names replaced by code: %d" % len(blank_names))
+        for kind, n in blank_names:
+            report.append("blank name replaced by code %s row %d" % (kind, n))
     if skipped:
         report.append("skipped:")
         for kind, n, reason in sorted(skipped, key=lambda d: (d[0], d[1])):
@@ -493,6 +529,7 @@ def main(argv=None):
     c.add_argument("--responsible-ext", required=True)
     c.add_argument("--received-on", required=True)
     c.add_argument("--mapping")
+    c.add_argument("--blank-name-fallback", choices=("code",))
     c.add_argument("--allow-drops", action="store_true")
     h = sub.add_parser("headers")
     h.add_argument("--out", required=True)
