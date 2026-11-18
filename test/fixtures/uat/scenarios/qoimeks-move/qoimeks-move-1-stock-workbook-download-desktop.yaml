@@ -1,0 +1,120 @@
+# T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data (142 places, 666 items, 603 posted opening balances incl. 3 negative), never the real tenant.
+# Requirements covered: REQ-865 (whole-stock workbook in the Qoimeks import layout, module stock), REQ-866 (the "Stock workbook (Qoimeks layout)" button on the Balances screen).
+# Context: the move rules (REQ-880, docs/runbooks/qoimeks-rehearsal.md section "Move rules") say counts and current balances must be equal after the move; this workbook is what the bookkeepers open to see the whole stock after the move.
+# Sources opened: docs/requirements.yaml REQ-865/866; web/src/modules/stock/stockMessages.ts (stock.balances.workbook, workbookHint); lib/letflow/modules/stock/router.ex (GET /stock-workbook, file name stock-YYYY-MM-DD.xlsx).
+# Not UAT-observable here: the 10 000 row refusal (workbook_too_large) and the "scoped reader gets not found" answer: the tenant holds 603 balances and the roster has no scoped stock reader of this tenant.
+# Cleanup: nothing is written; the only trace is a downloaded file in the run's download folder, which the run deletes at the end.
+---
+id: qoimeks-move-1-stock-workbook-download-desktop
+scope: qoimeks-qa
+title: The Qoimeks QA administrator downloads the whole-stock workbook from the Balances screen on a desktop and finds the Qoimeks layout, the Cyrillic letters, the three negative balances and the same count as the screen
+version: "1.0"
+tags: [qoimeks, move, stock, balances, workbook, desktop, en, file_content]
+
+description: >
+  On a desktop window (1440 px, English) the administrator opens the stock Balances screen, reads the button "Stock workbook (Qoimeks layout)" and the caption under it,
+  presses it, and opens the saved file. The file is named stock-<year>-<month>-<day>.xlsx, has one sheet, the ten headers of the Qoimeks import layout in row 1
+  (Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes), lists items by code from the lowest up, keeps the Cyrillic look-alike letter that the synthetic data puts in every 100th item name whole,
+  shows the three negative opening balances as negative numbers, and the number of rows with a non-zero quantity matches the number of balances the screen shows.
+  The screen's own filters and page do not change the file (step 3 repeats the download with a filter set and compares the row count).
+  Not exercised, with reasons: the too-many-rows refusal (tenant holds far less than 10 000 rows) and the whole-company-reader refusal (no scoped stock reader in the roster for this tenant);
+  both are covered by component tests of the screen, not by this walk.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant holds the synthetic stock (666 items, 142 places, 603 posted opening balances of which 3 are negative) and the stock module is active.
+    check: system_seeded
+    detail: If the Balances screen is empty, report BLOCKED for the whole scenario and say what the screen showed.
+  - description: The run can drive a real browser at 1440 px width in English, can save a download and can open an .xlsx file to read its cells.
+    check: system_seeded
+    detail: If the file cannot be opened, report BLOCKED for steps 4 to 6 and still check steps 1 to 3 (button, caption, download starts).
+  - description: The administrator's browser language is English at the start.
+    check: system_seeded
+    detail: If not, switch to English first and carry on.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com and opens the Balances screen from the side navigation (stock section).
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the buttons above the list and the caption under the button "Stock workbook (Qoimeks layout)". The administrator also notes how many balance rows the screen reports in all, if it reports a total; if it only pages, the administrator pages to the end and counts the rows.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator sets any filter on the screen (for example one place), presses "Stock workbook (Qoimeks layout)" and saves the file; then clears the filter, presses the same button again and saves the second file.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the second file and reads its sheet name, row 1 and the first ten data rows.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator counts the data rows with a quantity other than zero in the second file, finds the rows with a negative quantity, and finds the row of article 0100 (the synthetic data gives every 100th item, 0100, 0200 and so on, one Cyrillic look-alike letter at the end of its name) and reads its name.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator compares the first file (taken with a filter on) with the second: same number of data rows.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The button and its caption are on the Balances screen and say that the file always holds the whole current stock.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the button "Stock workbook (Qoimeks layout)" next to the existing export button, and under it the caption "The workbook always holds the whole current stock, whatever the filters and the page on this screen."; no error banner.
+      evidence: Screenshot of the Balances screen at step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The bookkeepers cannot find the file they need to check the stock after the move.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The download works and the file is named by date.
+    verification:
+      method: file_content
+      detail: Step 3 saves two files named stock-YYYY-MM-DD.xlsx with today's date (QA host date); each opens as an .xlsx workbook with one sheet; no error banner "The file could not be exported" was shown.
+      evidence: The file names and a screenshot of the screen after each download.
+    on_fail:
+      severity: MAJOR
+      business_impact: The whole-stock check after the move cannot be done.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The file has the Qoimeks layout and lists items by code.
+    verification:
+      method: file_content
+      detail: Step 4 shows row 1 with the headers Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes in columns A to J, and the article codes of the first ten data rows in ascending byte order of the code.
+      evidence: The cells of row 1 and column A of the first ten rows, quoted.
+    on_fail:
+      severity: MAJOR
+      business_impact: The file cannot be corrected in Excel and loaded back by the Qoimeks rules.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Names keep their Cyrillic letters, and the three negative opening balances show as negative numbers; the row count matches the screen.
+    verification:
+      method: file_content
+      detail: >-
+        Step 5 finds the name of article 0100 ending in a Cyrillic letter (it looks like a Latin one), with no question mark or broken character; if article 0100 holds no stock and has no row, the run takes another article numbered 0200, 0300 and so on that has a row; exactly three data rows hold a negative quantity in column C (the synthetic data has 3 negative opening balances; if the run finds another number, report it as found and do not call it a pass); the count of rows with a non-zero quantity equals the balance count read at step 2. UAT assumption, to be confirmed by the process owner (the QA operator who seeded the tenant): no item stands twice at one place with the same unit, so 603 balances give 603 rows; if the counts differ, the run reports both numbers and does not guess the cause.
+      evidence: The counts and the three negative rows (article and quantity), quoted.
+    on_fail:
+      severity: MAJOR
+      business_impact: After the move the stock in the workbook would differ from the stock on the screen, so nobody could trust either.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A filter on the screen does not change the file.
+    verification:
+      method: file_content
+      detail: Step 6 finds the same number of data rows in both files.
+      evidence: Both row counts, quoted.
+    on_fail:
+      severity: MAJOR
+      business_impact: A bookkeeper who filtered the screen would get a partial stock without knowing it.
+      suggested_action: route_to_frontend_dev
