@@ -41,6 +41,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
   alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Modules.Stock.Views
 
   @definition "stock_count_posting"
@@ -65,7 +66,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
          {:ok, issued} <- issued(prefix, diff_id),
          lines = CountDifferences.content_lines(issued.content),
          :ok <- some_lines(lines),
-         :ok <- shortage_check(Map.get(opts, :authorized), header, lines),
+         :ok <- shortage_check(prefix, Map.get(opts, :authorized), header, lines),
          :ok <- active(prefix, @definition, Map.get(opts, :activator)),
          {:ok, command} <- command(header, issued, lines),
          {:ok, _instance} <- start_post(prefix, header, issued, diff_id, command, actor) do
@@ -96,7 +97,15 @@ defmodule Letflow.Modules.Stock.CountPosting do
   # at task completion, where only the task inbox shows it. Here the first such line (by line_no) is
   # named with ids only, never the balance. A caller without a ledger read, a read error or a truncated
   # page skips the check; the ledger refusal at completion stays the authority.
-  defp shortage_check(nil, _header, _lines), do: :ok
+  # REQ-836 (decision 0090 section 4): on a tenant that allows negative balances the check does not
+  # apply, a posting that takes a key below zero is accepted by the ledger.
+  defp shortage_check(_prefix, nil, _header, _lines), do: :ok
+
+  defp shortage_check(prefix, authorized, header, lines) do
+    if PostingRules.negative_allowed?(prefix),
+      do: :ok,
+      else: shortage_check(authorized, header, lines)
+  end
 
   defp shortage_check(authorized, header, lines) do
     lines

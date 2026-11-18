@@ -8,6 +8,7 @@ describe('documentStateTone', () => {
     ['posted', 'success', 'dot'],
     ['reversed', 'warning', 'triangle'],
     ['cancelled', 'neutral', 'dash'],
+    ['confirmed', 'success', 'dot'],
     ['anything-else', 'neutral', 'dot'],
   ])('%s -> %s / %s', (state, tone, glyph) => {
     expect(documentStateTone(state)).toEqual({ tone, glyph })

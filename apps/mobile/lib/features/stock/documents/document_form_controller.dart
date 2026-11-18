@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_error.dart';
+import '../../../api/client_key.dart';
 import '../../../i18n/i18n.dart';
 import '../../../offline/install_state.dart' show requestPersistentStorage;
 import '../../../offline/offline_queue.dart';
@@ -19,6 +20,7 @@ import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'document_refusals.dart';
 import 'documents_api.dart';
+import 'negative_balance.dart';
 
 class DocFormController extends ChangeNotifier {
   DocFormController({
@@ -27,6 +29,7 @@ class DocFormController extends ChangeNotifier {
     required this.draft,
     this.queue,
     this.replacesQueuedId,
+    this.negativeCheck,
   });
 
   /// Edit and resend: the refused queue entry this draft replaces. It is
@@ -40,6 +43,14 @@ class DocFormController extends ChangeNotifier {
 
   /// True after a Save was stored in the offline queue instead of sent.
   bool queuedLocally = false;
+
+  /// REQ-840: the advisory negative-balance warning; null switches it off.
+  final NegativeBalanceCheck? negativeCheck;
+
+  /// Indexes of the lines that would take a balance below zero (a warning,
+  /// never a block).
+  Set<int> negativeLines = const {};
+  int _negativeSeq = 0;
 
   final StockDocumentsApi api;
   final PickerLoader pickers;
@@ -68,6 +79,12 @@ class DocFormController extends ChangeNotifier {
   final Map<String, String> labels = {};
   bool _dirty = false;
   bool _disposed = false;
+
+  /// Idempotency key for the current save-new request; cleared on draft change or success.
+  String? _saveKey;
+
+  /// Idempotency key for the current issue request; cleared on draft change or success.
+  String? _issueKey;
 
   void showMessage(String text) {
     message = text;
@@ -210,6 +227,7 @@ class DocFormController extends ChangeNotifier {
     }
     voiceEpoch++;
     _dirty = true;
+    unawaited(refreshNegative());
     if (d.items.length > 1) {
       voiceChoices = d.items;
       _voiceQuantity = d.quantity;
@@ -249,6 +267,7 @@ class DocFormController extends ChangeNotifier {
     await _fillItem(index, item.id, quantity: quantity ?? '');
     voiceEpoch++;
     _notify();
+    unawaited(refreshNegative());
   }
 
   /// A scanned lot fills the lot and, from the lot record, its item and the
@@ -292,9 +311,11 @@ class DocFormController extends ChangeNotifier {
     if (_dirty || draft.id == null) {
       if (!await _save()) return;
     }
-    final saved = await api.issue(draft.id!);
+    _issueKey ??= newClientKey();
+    final saved = await api.issue(draft.id!, key: _issueKey);
     draft = saved;
     _dirty = false;
+    _issueKey = null;
   });
 
   Future<void> discard() => _run(() async {
@@ -307,8 +328,10 @@ class DocFormController extends ChangeNotifier {
     if (!draft.isSaveable) return false;
     final id = draft.id;
     if (id == null) {
+      _saveKey ??= newClientKey();
       try {
-        draft = await api.save(draft);
+        draft = await api.save(draft, key: _saveKey);
+        _saveKey = null;
         await _dropReplaced(queue);
       } on NetworkUnavailableError {
         final q = queue;
@@ -396,6 +419,22 @@ class DocFormController extends ChangeNotifier {
 
   void _changed() {
     _dirty = true;
+    _saveKey = null;
+    _issueKey = null;
+    _notify();
+    unawaited(refreshNegative());
+  }
+
+  /// Evaluates the warning again for the current draft; a slower earlier
+  /// answer never overwrites a later one.
+  Future<void> refreshNegative() async {
+    final check = negativeCheck;
+    if (check == null || !editable) return;
+    final seq = ++_negativeSeq;
+    final result = await check.evaluate(draft);
+    if (seq != _negativeSeq || _disposed) return;
+    if (setEquals(result, negativeLines)) return;
+    negativeLines = result;
     _notify();
   }
 

@@ -135,6 +135,43 @@ defmodule Letflow.Modules.Catalog do
   @spec asset_expiry_sweep(prefix :: String.t()) :: :ok
   def asset_expiry_sweep(prefix), do: Letflow.Modules.Assets.Reminders.sweep(prefix)
 
+  # REQ-859 (decision 0091 section 7): the three reads of the old Qoimeks address,
+  # `Letflow.Routers.SharedStockAccess`. This file is the one core file the boundary check lets name a
+  # module file; the answers are built by `Letflow.Modules.Stock.OldAppReads`.
+  @doc false
+  def old_app_catalog(prefix), do: Letflow.Modules.Stock.OldAppReads.catalog(prefix)
+  @doc false
+  def old_app_balances(authorized, params),
+    do: Letflow.Modules.Stock.OldAppReads.balances(authorized, params)
+
+  @doc false
+  def old_app_movements(authorized, params),
+    do: Letflow.Modules.Stock.OldAppReads.movements(authorized, params)
+
+  # REQ-860: the two writes of the old Qoimeks address (movement post and reverse), see `OldAppWrites`.
+  @doc false
+  def old_app_post(prefix, actor_id, authorized, params, header),
+    do:
+      Letflow.Modules.Stock.OldAppWrites.post_movement(
+        prefix,
+        actor_id,
+        authorized,
+        params,
+        header
+      )
+
+  @doc false
+  def old_app_reverse(prefix, actor_id, authorized, id, params, header),
+    do:
+      Letflow.Modules.Stock.OldAppWrites.reverse_movement(
+        prefix,
+        actor_id,
+        authorized,
+        id,
+        params,
+        header
+      )
+
   @doc """
   Creates a record of an entity type that a module manages (GH #2680 slice 3) through that module's
   own authoring surface: a system path with no HTTP user, for the mix seed task. A type with no

@@ -11,6 +11,7 @@ defmodule Letflow.Modules.Stock.Router do
   | Route | Permission | Ledger call | 200 body |
   |---|---|---|---|
   | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, coverage, rows` (+ `as_of_date` when asked) |
+  | `GET /posting-rules` (REQ-836, decision 0090; no query key accepted) | `StockRead` | 200 `{"negative_balance": "allowed" \| "refused"}` for the caller's tenant (`PostingRules.negative_allowed?/1`, no SQL here); 404 as the other reads |
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
@@ -22,14 +23,15 @@ defmodule Letflow.Modules.Stock.Router do
 
   | Route | Permission | Ok |
   |---|---|---|
-  | `POST /documents` | `StockPost` | 201 document |
+  | `POST /documents` | `StockPost` | 201 document (header `idempotency-key`: same key + same body replays the existing document, same key + different body is 409 `idempotency_key_reuse`, REQ-846) |
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
-  | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/issue` | `StockPost` | 200 document (header `idempotency-key`: a retry of the same issue replays the document, a key used on another document is 409 `idempotency_key_reuse`, REQ-847) |
   | `POST /documents/:id/check` | `StockPost` | 200 `ok, lines` (opening only, writes nothing) |
-  | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
+  | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance; header `idempotency-key` as on issue: a retry replays the document, REQ-847) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
+  | `POST /quick-counts` (REQ-854; flat body: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (0 allowed), `reason_code`, optional `catalog_lot_id`, `responsible_id`, `reason_text`) | `StockQuickCount` | 201 issued `quick_count` document (`book_quantity`, `counted_quantity`, `difference` on its line); 422 `count_in_progress` with `held_by`, 409 `definition_not_active` |
   | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `StockRead` | 200 document |
 
@@ -94,6 +96,10 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; receipt, issue, write-off, transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, `hand_over` or `return`, T-1417/T-1959; `form=z1` the form Z-1 / Қ-1 of an issued or posted `receipt`, T-1912; `form=z6` the form Z-6 / Қ-6 of an issued or posted `write_off`, T-1914) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-sheet/print?location&from&to&format=pdf\|docx&lang=ru\|kk` (T-1925; official form Z-7 / Q-7, the stock balances sheet of one location for one period: opening, income, expense, closing per item, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_period`, `period_in_future`, `invalid_format`, `invalid_lang`, `sheet_too_long` (more than 5000 entries or 1000 rows), `print_unsupported_character` |
+  | `POST /stock-workbook/check?org_unit_id=` (REQ-884; an `.xlsx` body in the Qoimeks layout checked against the stock of one org unit, `StockWorkbookImport.check/3`, writes nothing; `docs/runbooks/stock-workbook-import.md`) | `StockRead` | 200 `sheet, rows_read, remarks, changes, unchanged_count, too_many_changes`, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, 413 over the 2 MiB body |
+  | `POST /stock-workbook/apply?org_unit_id=` (REQ-885; loads the checked workbook, writes a stock_quick_count document; `StockWorkbookImport.check_for_apply/3`, `Documents.workbook_apply/6`; `docs/runbooks/stock-workbook-import.md`) | `StockQuickCount` | 201 `document_id, number, lines, remarks, approve_task_id`, 200 `applied false, changes 0, remarks` when no change, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, `too_many_changes`, `count_in_progress`, 409 `definition_not_active`, 413 over the 2 MiB body |
+  | `GET /stock-workbook/imports` (REQ-886; lists the last 50 workbook loads, `Documents.workbook_imports/2`, no query key) | `StockRead` | 200 `rows` (each `document_id, number, created_at, created_by, file_name, sheet, lines, remarks_count, state, reversal_pending`), 404 for a scoped reader, 422 `invalid_filter` (any query key) |
+  | `POST /stock-workbook/imports/:id/cancel` (REQ-886; cancels or starts the reversal of a workbook load, `Documents.workbook_cancel/7`; body `{reason: text}`) | `StockReverse` | 200 `{action: "cancelled", lines: N}` (before approval) or `{action: "reverse_pending", lines: N}` (after posting), 404 for unknown/non-workbook/cross-tenant id, 409 `reversal_pending`, 422 `import_already_cancelled`, `reason_required`, `reason_too_long` |
   | `GET /stock-workbook` (REQ-865; the whole current stock in the Qoimeks import layout, `Letflow.Modules.Stock.StockWorkbook.build/1`; no query key accepted) | `StockRead` | 200 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` `stock-YYYY-MM-DD.xlsx`, 404 when the caller is a scoped reader (a full tenant-wide reader is required; a hidden unit's stock would otherwise appear as zero), 422 `invalid_filter` (any query key), `workbook_too_large` (more than 10 000 data rows) |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`); T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
@@ -159,7 +165,9 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
+  alias Letflow.Api.Validation
   alias Letflow.Documents.FormPrint
+  alias Letflow.Idempotency
   alias Letflow.Ledger
   alias Letflow.Modules.RouterKit
   alias Letflow.Modules.Stock.Access
@@ -180,9 +188,11 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.FormZ5
   alias Letflow.Modules.Stock.FormZ6
   alias Letflow.Modules.Stock.FormZ7
+  alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Modules.Stock.StockCardSource
   alias Letflow.Modules.Stock.StockSheetSource
   alias Letflow.Modules.Stock.StockWorkbook
+  alias Letflow.Modules.Stock.StockWorkbookImport
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
@@ -226,6 +236,23 @@ defmodule Letflow.Modules.Stock.Router do
         end
       else
         {:error, reason} -> refuse(conn, reason)
+      end
+    end)
+  end
+
+  # REQ-836: the stock forms learn here whether the tenant allows a balance below zero (the core
+  # settings route needs the admin permission). The answer is one word per tenant, never a balance.
+  authz_get "/posting-rules", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      case params(conn, []) do
+        {:ok, _params} ->
+          answer =
+            if PostingRules.negative_allowed?(authorized.prefix), do: "allowed", else: "refused"
+
+          Response.ok(conn, %{negative_balance: answer})
+
+        {:error, reason} ->
+          refuse(conn, reason)
       end
     end)
   end
@@ -332,6 +359,61 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # REQ-886 / GH #4605: the list of workbook loads.
+  authz_get "/stock-workbook/imports", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      with :ok <- full_reader(authorized),
+           {:ok, _} <- no_params(conn),
+           {:ok, rows} <- Documents.workbook_imports(authorized.prefix, authorized) do
+        Response.ok(conn, %{"rows" => rows})
+      else
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, :invalid_filter} -> refuse(conn, :invalid_filter)
+      end
+    end)
+  end
+
+  # REQ-886 / GH #4605: cancel or start the reversal of a workbook load. Tenant-wide only
+  # (scoped principals get the same 404 as an unknown path via `with_access`).
+  authz_post "/stock-workbook/imports/:id/cancel", :StockReverse do
+    with_access(conn, :reverse, fn conn, access ->
+      authorized = read_authorized(conn)
+      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+      activator = Letflow.Api.Context.activator(conn)
+
+      result =
+        Documents.workbook_cancel(
+          access.prefix,
+          conn.params["id"],
+          body(conn),
+          access.actor_id,
+          authorized,
+          activator,
+          fetch
+        )
+
+      case result do
+        {:ok, answer} ->
+          Response.ok(conn, answer)
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :reversal_pending} ->
+          problem(conn, Error.conflict("request refused"), "reversal_pending")
+
+        {:error, :import_already_cancelled} ->
+          unprocessable(conn, "import_already_cancelled")
+
+        {:error, {:unprocessable, reason}} when is_atom(reason) ->
+          unprocessable(conn, Atom.to_string(reason))
+
+        {:error, reason} ->
+          refuse_document(conn, reason)
+      end
+    end)
+  end
+
   authz_get "/stock-workbook", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, _} <- no_params(conn),
@@ -342,6 +424,124 @@ defmodule Letflow.Modules.Stock.Router do
         {:error, :not_found} -> Response.not_found(conn)
         {:error, :workbook_too_large} -> unprocessable(conn, "workbook_too_large")
         {:error, _} -> Response.internal_error(conn)
+      end
+    end)
+  end
+
+  @workbook_check_reasons [
+    :org_unit_required,
+    :org_unit_not_found,
+    :xlsx_unreadable,
+    :header_missing,
+    :workbook_too_large
+  ]
+
+  # REQ-884 / GH #4607: the check of a Qoimeks-layout balances workbook; writes nothing.
+  authz_post "/stock-workbook/check", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      with :ok <- full_reader(authorized),
+           {:ok, params} <- params(conn, ["org_unit_id"]),
+           {:ok, unit} <- check_org_unit(authorized, params),
+           {:ok, bytes} <- check_body(conn),
+           {:ok, answer} <- StockWorkbookImport.check(authorized, unit, bytes) do
+        Response.ok(conn, answer)
+      else
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :invalid_filter} ->
+          refuse(conn, :invalid_filter)
+
+        {:error, reason} when reason in @workbook_check_reasons ->
+          unprocessable(conn, Atom.to_string(reason))
+
+        {:error, _} ->
+          Response.internal_error(conn)
+      end
+    end)
+  end
+
+  @workbook_apply_reasons [
+    :org_unit_required,
+    :org_unit_not_found,
+    :xlsx_unreadable,
+    :header_missing,
+    :workbook_too_large
+  ]
+
+  # REQ-885 / GH #4606: the apply (load) of a Qoimeks-layout balances workbook as a quick count.
+  authz_post "/stock-workbook/apply", :StockQuickCount do
+    with_access(conn, :quick_count, fn conn, access ->
+      authorized = read_authorized(conn)
+
+      if is_nil(authorized) do
+        Response.not_found(conn)
+      else
+        with :ok <- full_reader(authorized),
+             {:ok, params} <- params(conn, ["org_unit_id", "file_name"]),
+             {:ok, unit} <- check_org_unit(authorized, params),
+             {:ok, bytes} <- check_body(conn) do
+          file_name = Map.get(params, "file_name", "workbook.xlsx")
+
+          file_name_result =
+            cond do
+              file_name == "" -> {:error, :invalid_filter}
+              String.length(file_name) > 255 -> {:error, :invalid_filter}
+              true -> {:ok, file_name}
+            end
+
+          case file_name_result do
+            {:error, reason} ->
+              unprocessable(conn, Atom.to_string(reason))
+
+            {:ok, file_name} ->
+              opts = [activator: Letflow.Api.Context.activator(conn)]
+
+              case Documents.workbook_apply(
+                     authorized,
+                     unit,
+                     bytes,
+                     file_name,
+                     access.actor_id,
+                     opts
+                   ) do
+                {:ok, %{"applied" => false} = answer} ->
+                  Response.ok(conn, answer)
+
+                {:ok, answer} ->
+                  Response.send_json(conn, 201, answer)
+
+                {:error, :not_found} ->
+                  Response.not_found(conn)
+
+                {:error, :definition_not_active} ->
+                  conn
+                  |> Plug.Conn.put_status(409)
+                  |> Response.ok(%{"reason" => "definition_not_active"})
+
+                {:error, :busy} ->
+                  Response.service_unavailable(conn, "busy")
+
+                {:error, {reason, extras}} ->
+                  refuse_document(conn, {reason, extras})
+
+                {:error, reason} when reason in @workbook_apply_reasons ->
+                  unprocessable(conn, Atom.to_string(reason))
+
+                {:error, _} ->
+                  Response.internal_error(conn)
+              end
+          end
+        else
+          {:error, :not_found} ->
+            Response.not_found(conn)
+
+          {:error, :invalid_filter} ->
+            refuse(conn, :invalid_filter)
+
+          {:error, reason} when reason in @workbook_apply_reasons ->
+            unprocessable(conn, Atom.to_string(reason))
+        end
       end
     end)
   end
@@ -364,7 +564,15 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :create, fn conn, access ->
-      render_document(conn, Documents.save(access.prefix, body(conn), access.actor_id), 201)
+      with {:ok, idem_key} <- Idempotency.from_header(conn, :stock_create, access.actor_id, nil) do
+        access.prefix
+        |> Documents.save(body(conn), access.actor_id, idem_key)
+        |> replay_in_scope(access)
+        |> then(&render_document(conn, &1, 201))
+      else
+        {:error, :idempotency_key_too_long} -> idempotency_key_too_long(conn)
+        {:error, :idempotency_key_invalid} -> idempotency_key_invalid(conn)
+      end
     end)
   end
 
@@ -389,13 +597,21 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/issue", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+      with {:ok, idem_key} <- action_key(conn, :stock_issue, access) do
+        opts = [
+          activator: Letflow.Api.Context.activator(conn),
+          authorized: read_authorized(conn),
+          idempotency_key: idem_key
+        ]
 
-      render_document(
-        conn,
-        Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
-        200
-      )
+        render_document(
+          conn,
+          Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
+          200
+        )
+      else
+        {:error, reason} -> refuse_action_key(conn, reason)
+      end
     end)
   end
 
@@ -412,10 +628,19 @@ defmodule Letflow.Modules.Stock.Router do
   authz_post "/documents/:id/post", :StockPost,
     scope: {:resolver, {Letflow.Modules.Stock.Access, :document_scope}} do
     doc_write(conn, :post, :stored, fn conn, access ->
-      who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
-      authorized = read_authorized(conn)
-      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
-      render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
+      with {:ok, idem_key} <- action_key(conn, :stock_post, access) do
+        who = %{
+          actor_id: access.actor_id,
+          activator: Letflow.Api.Context.activator(conn),
+          idempotency_key: idem_key
+        }
+
+        authorized = read_authorized(conn)
+        fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+        render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
+      else
+        {:error, reason} -> refuse_action_key(conn, reason)
+      end
     end)
   end
 
@@ -430,6 +655,20 @@ defmodule Letflow.Modules.Stock.Router do
         Posting.reverse(access.prefix, conn.params["id"], body(conn), who, authorized, fetch)
 
       render_document(conn, result, 200)
+    end)
+  end
+
+  # REQ-854: the quick count. Tenant-wide callers only (`Access.check/2` with `:quick_count`); the ledger
+  # read authorization is the book-quantity read, a refusal of it is the unknown-document 404.
+  authz_post "/quick-counts", :StockQuickCount do
+    with_access(conn, :quick_count, fn conn, access ->
+      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+
+      render_document(
+        conn,
+        Documents.quick_count(access.prefix, body(conn), access.actor_id, opts),
+        201
+      )
     end)
   end
 
@@ -759,6 +998,41 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # REQ-847: the idempotency key of the issue and post routes. A malformed key (over-long, invalid)
+  # is a 422 only for a document the caller can read: `doc_write/4` lets an unknown id through to the
+  # handler (INV-5), so the caller's own fetch of the requested id runs FIRST and its refusal (the
+  # unknown-document 404) wins. The answer then does not depend on whether a document outside the
+  # caller's scope exists (decision 0051 D7: no 422 that reveals existence).
+  defp action_key(conn, family, access) do
+    case Idempotency.from_header(conn, family, access.actor_id, nil) do
+      {:ok, key} ->
+        {:ok, key}
+
+      {:error, reason} ->
+        authorized = read_authorized(conn)
+
+        case Documents.fetch(access.prefix, conn.params["id"], authorized) do
+          {:ok, _document} -> {:error, reason}
+          {:error, not_readable} -> {:error, {:fetch, not_readable}}
+        end
+    end
+  end
+
+  defp refuse_action_key(conn, {:fetch, reason}), do: refuse_document(conn, reason)
+  defp refuse_action_key(conn, :idempotency_key_too_long), do: idempotency_key_too_long(conn)
+  defp refuse_action_key(conn, :idempotency_key_invalid), do: idempotency_key_invalid(conn)
+
+  # REQ-846 / REQ-831 (decision 0051 M9): a replayed create returns the STORED document, whose units
+  # a tenant-wide replace may have moved out of a scoped creator's set after the first create. The
+  # body check of `doc_write/4` saw only the request body, so the stored units are checked here:
+  # outside the set the answer is the not-found one of an unknown document (INV-5), nothing
+  # written. A first create always passes (its stored units are the body's, already checked).
+  defp replay_in_scope({:ok, %{id: id}} = saved, access) do
+    if Access.units_allowed?(access, :stored, id, nil), do: saved, else: {:error, :not_found}
+  end
+
+  defp replay_in_scope(other, _access), do: other
+
   # Tenant-wide callers only: a scoped answer of `Access.check/2` (REQ-831, :post and :reverse) is
   # refused with the same 404 as before, so a route with no unit check (the voice drafts read the
   # whole tenant's catalog) never serves a scoped principal.
@@ -837,6 +1111,12 @@ defmodule Letflow.Modules.Stock.Router do
   defp render_document(conn, {:error, reason}, _status), do: refuse_document(conn, reason)
 
   defp refuse_document(conn, :not_found), do: Response.not_found(conn)
+
+  # REQ-846: same key with a different body is 409 with reason idempotency_key_reuse.
+  # 409 is intentional (deviates from the 422 of generic record routes, design D6):
+  # the Qoimeks rule says 409, and the stock routes already use 409 for state conflicts.
+  defp refuse_document(conn, :idempotency_key_reuse),
+    do: problem(conn, Error.conflict("request refused"), "idempotency_key_reuse")
 
   defp refuse_document(conn, :document_not_draft),
     do: problem(conn, Error.conflict("request refused"), "document_not_draft")
@@ -1348,6 +1628,34 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  defp full_reader(%{scope: :all}), do: :ok
+  defp full_reader(_other), do: {:error, :not_found}
+
+  defp check_org_unit(authorized, params) do
+    case Map.get(params, "org_unit_id") do
+      nil ->
+        {:error, :org_unit_required}
+
+      raw ->
+        with true <- String.trim(raw) != "" or {:error, :org_unit_required},
+             {:ok, unit} <- Ecto.UUID.cast(raw),
+             {:ok, resolver} <- Letflow.Modules.Catalog.document_org_resolver(),
+             true <- resolver.unit_exists?(authorized.prefix, unit) do
+          {:ok, unit}
+        else
+          {:error, :org_unit_required} = e -> e
+          _ -> {:error, :org_unit_not_found}
+        end
+    end
+  end
+
+  defp check_body(conn) do
+    case conn.body_params do
+      %{"_xlsx" => bytes} when is_binary(bytes) -> {:ok, bytes}
+      _ -> {:error, :xlsx_unreadable}
+    end
+  end
+
   @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
   defp send_xlsx(conn, binary, name) do
@@ -1552,6 +1860,13 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp unprocessable(conn, reason),
     do: problem(conn, Error.unprocessable("request refused"), reason)
+
+  # REQ-846: stable 422 for an over-long or invalid idempotency-key header on the create route.
+  defp idempotency_key_too_long(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:header)]))
+
+  defp idempotency_key_invalid(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:header)]))
 
   defp problem(conn, problem, reason, extra \\ %{}),
     do: Response.send_problem(conn, %{problem | extensions: Map.put(extra, "reason", reason)})

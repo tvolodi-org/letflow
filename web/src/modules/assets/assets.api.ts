@@ -2,6 +2,7 @@
  *  in the body and exactly the keys the route accepts; no call sends a tenant identifier. */
 import { client } from '@/api/client'
 import { entitiesApi } from '@/api/entities'
+import type { CardPhoto, CardPhotoList } from './cardPhotosModel'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 
 const BASE = '/api/v1/modules/assets'
@@ -15,6 +16,8 @@ export type CardBody = Record<string, string | null>
 
 const seg = (id: string) => encodeURIComponent(id)
 
+const photosBase = (card: string) => `${BASE}/cards/${seg(card)}/photos`
+
 export const assetsApi = {
   createCard: (b: CardBody, key: string) => client.post<EntityRecord>(`${BASE}/cards`, { ...b, idempotency_key: key }),
   updateCard: (id: string, b: CardBody, key: string) =>
@@ -25,6 +28,24 @@ export const assetsApi = {
   cardLock: (id: string) => client.get<{ posted: boolean; held?: boolean }>(`${BASE}/cards/${seg(id)}/lock`),
   retireCard: (id: string, key: string) =>
     client.post<EntityRecord>(`${BASE}/cards/${seg(id)}/retire`, { idempotency_key: key }),
+  /** T-2042 (photos P3): the gallery of one card (routes of T-2041). No tenant identifier and no idempotency key:
+   *  the server answers an upload of the same bytes again with 200 and the stored photo. */
+  listCardPhotos: (card: string) => client.get<CardPhotoList>(photosBase(card)),
+  uploadCardPhoto: (card: string, original: Blob, thumbnail: Blob, caption: string) => {
+    const form = new FormData()
+    form.append('original', original, 'photo.jpg')
+    form.append('thumbnail', thumbnail, 'thumbnail.jpg')
+    if (caption !== '') form.append('caption', caption)
+    return client.post<CardPhoto>(photosBase(card), form)
+  },
+  cardPhotoContent: (card: string, photo: string, kind: 'original' | 'thumbnail') =>
+    client.getBlob(`${photosBase(card)}/${seg(photo)}/${kind}`),
+  setCardPhotoCaption: (card: string, photo: string, caption: string) =>
+    client.patch<CardPhoto>(`${photosBase(card)}/${seg(photo)}`, { caption }),
+  setCardPhotoMain: (card: string, photo: string) => client.post<CardPhoto>(`${photosBase(card)}/${seg(photo)}/main`, {}),
+  orderCardPhotos: (card: string, photoIds: string[]) =>
+    client.put<CardPhotoList>(`${photosBase(card)}/order`, { photo_ids: photoIds }),
+  deleteCardPhoto: (card: string, photo: string) => client.delete<void>(`${photosBase(card)}/${seg(photo)}`),
 }
 
 /** The one "load everything" loop (cap and `truncated` flag included) is shared: lib/entities/fetchAllRecords. */

@@ -44,7 +44,16 @@ defmodule Letflow.Modules.Stock.IssueWriteoffShapeTest do
     assert Kinds.by_type_key("stock_writeoff").kind == "write_off"
     refute Kinds.get("issue").two_sided?
     assert {%{}, nil} = Kinds.sides(Kinds.get("write_off"), %{})
-    assert length(Enum.uniq_by(Kinds.all(), & &1.device_id)) == length(Kinds.all())
+
+    # opening and quick_count are never offline: they carry no device_id (nil); the rest are distinct
+    device_ids = for %{device_id: id} <- Kinds.all(), id != nil, do: id
+    assert length(Enum.uniq(device_ids)) == length(device_ids)
+
+    assert Enum.sort(for(%{device_id: nil, kind: k} <- Kinds.all(), do: k)) == [
+             "opening",
+             "quick_count"
+           ]
+
     assert length(Enum.uniq_by(Kinds.all(), & &1.prefix)) == length(Kinds.all())
   end
 

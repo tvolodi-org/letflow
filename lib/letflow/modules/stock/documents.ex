@@ -14,8 +14,13 @@ defmodule Letflow.Modules.Stock.Documents do
 
   Each save, replace, discard and issue is one `Repo.transaction`; a failed step calls `Repo.rollback/1`
   so nothing partial stays. Record writes use the stock module authority
-  (`Letflow.Entities.ManagedTypes.owner_for!/1`), a fresh idempotency key per write and the default
-  scope `:all` (only tenant-wide principals reach the routes, see `Letflow.Modules.Stock.Access`).
+  (`Letflow.Entities.ManagedTypes.owner_for!/1`), a fresh server idempotency key per write for
+  record-level deduplication, and the default scope `:all` (only tenant-wide principals reach the
+  routes, see `Letflow.Modules.Stock.Access`).  When the caller supplies an idempotency-key header
+  on the create route (REQ-846), `save/4` uses a client key instead and tracks the binding in the
+  per-tenant `stock_create_idempotency` table. The issue route (`issue/4`, `opts[:idempotency_key]`) and
+  the post retry route (`Posting.post/4`) take the same header (REQ-847): a retry of the same request
+  replays the document, see `Letflow.Modules.Stock.Documents.ActionIdempotency`.
   `document_id` on the header is the id of the versioned document, which never changes and carries the
   state: `draft`, `issued` or `cancelled` (the status of its live version), the gap-free number and the
   issued time. Nothing of that is stored on the header. The id on the routes is this document id.
@@ -46,6 +51,10 @@ defmodule Letflow.Modules.Stock.Documents do
   * The clock of the event-time window is the app env `:stock_documents_clock` (a zero-arity function,
     default `DateTime.utc_now/0`); it exists only so a test can fix the time.
 
+  REQ-854: `quick_count/4` creates AND issues a `quick_count` document (one line that sets the balance of one
+  item at one place to the counted quantity) in one call; see its doc. `save/3` and `replace/4` refuse that kind
+  `unknown_kind` (`Kinds.parse/2`).
+
   Errors: `{:error, :not_found}`, `{:error, :document_not_draft}`, `{:error, :busy}`,
   `{:error, :internal}` or `{:error, {reason, extras}}` (a 422, `reason` a string, `extras` a map with
   the fixed keys `"field"` and `"line_no"`).
@@ -59,15 +68,24 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Documents.Document
   alias Letflow.Documents.DocumentType
   alias Letflow.Documents.DocumentVersion
+  alias Letflow.Engine.Task
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.EventStore.InstanceProjection
+  alias Letflow.Ledger
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.CountHold
+  alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Checks
+  alias Letflow.Modules.Stock.Documents.CreateIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.OpeningChecks
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.Documents.QuickCountShape
   alias Letflow.Modules.Stock.Documents.Shape
+  alias Letflow.Modules.Stock.PostingRules
+  alias Letflow.Modules.Stock.StockWorkbookImport
   alias Letflow.Repo
 
   @states ~w(draft issued posted reversed cancelled)
@@ -82,15 +100,42 @@ defmodule Letflow.Modules.Stock.Documents do
   @spec states() :: [String.t()]
   def states, do: @states
 
+  # REQ-836: only an opening balance can carry a negative quantity, and only on a tenant that allows
+  # negative balances; the setting is read (tenant prefix only) just for that kind.
+  defp parse(prefix, %{"kind" => "opening"} = body, :create),
+    do: Kinds.parse(body, :create, PostingRules.negative_allowed?(prefix))
+
+  defp parse(prefix, body, {:replace, "opening"} = mode),
+    do: Kinds.parse(body, mode, PostingRules.negative_allowed?(prefix))
+
+  defp parse(_prefix, body, mode), do: Kinds.parse(body, mode)
+
   # -- writes -------------------------------------------------------------------------------------
 
   @doc """
   Creates the versioned draft, the header and the lines from `body` (string keys). Returns the new
   document as `fetch/2` renders it.
+
+  When `idempotency_key` is a namespaced client key (starts with `"client:"`), the create is
+  idempotent: a second call with the same key and an equal body (key-order-insensitive) returns the
+  current state of the existing document without writing; a second call with the same key and a
+  different body returns `{:error, :idempotency_key_reuse}`. Two concurrent creates with the same
+  key are serialised on a transaction-scoped advisory lock and produce exactly one document.
+
+  A `nil` or server-minted `idempotency_key` (not starting with `"client:"`) keeps the original
+  behaviour: every call creates a new draft.
   """
-  @spec save(String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def save(prefix, body, actor) when is_binary(prefix) do
-    with {:ok, doc} <- Kinds.parse(body, :create) do
+  @spec save(String.t(), map(), String.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def save(prefix, body, actor, idempotency_key \\ nil) when is_binary(prefix) do
+    if is_binary(idempotency_key) and String.starts_with?(idempotency_key, "client:") do
+      save_idempotent(prefix, body, actor, idempotency_key)
+    else
+      save_new(prefix, body, actor)
+    end
+  end
+
+  defp save_new(prefix, body, actor) do
+    with {:ok, doc} <- parse(prefix, body, :create) do
       spec = Kinds.get(doc.kind)
 
       tx(prefix, fn ->
@@ -110,13 +155,67 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
+  # Idempotent create: advisory lock → lookup → same body replay or key-reuse refusal → create.
+  defp save_idempotent(prefix, body, actor, key) do
+    with {:ok, doc} <- parse(prefix, body, :create) do
+      hash = body_hash(body)
+      spec = Kinds.get(doc.kind)
+
+      tx(prefix, fn ->
+        # Serialise concurrent creates on the same key within this tenant.
+        case Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [key]) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(log_internal(reason))
+        end
+
+        case Repo.get(CreateIdempotency, key, prefix: prefix) do
+          %CreateIdempotency{body_hash: ^hash, document_id: doc_id} ->
+            # Same body: return current state without writing (deleted = 404 propagated).
+            fetch!(prefix, doc_id)
+
+          %CreateIdempotency{} ->
+            # Different body for the same key: refuse.
+            Repo.rollback(:idempotency_key_reuse)
+
+          nil ->
+            # First use of this key: create the document and record the binding.
+            unit = doc.header["org_unit_id"]
+
+            draft_attrs = %{
+              type_key: spec.type_key,
+              issuing_org_unit_id: unit,
+              content: content(doc)
+            }
+
+            document_id =
+              case Documents.create_draft(prefix, draft_attrs, actor) do
+                {:ok, %{document: document}} -> document.id
+                {:error, reason} -> Repo.rollback(draft_error(reason))
+              end
+
+            result = write_new(prefix, spec, document_id, doc, actor)
+
+            %CreateIdempotency{}
+            |> CreateIdempotency.changeset(%{
+              key: key,
+              document_id: result.id,
+              body_hash: hash
+            })
+            |> Repo.insert!(prefix: prefix)
+
+            result
+        end
+      end)
+    end
+  end
+
   @doc "Replaces the whole draft `id` with `body`; see the moduledoc."
   @spec replace(String.t(), term(), map(), String.t()) :: {:ok, map()} | {:error, term()}
   def replace(prefix, id, body, actor) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          {:ok, current} <- fetch(prefix, id),
          :ok <- draft?(current),
-         {:ok, doc} <- Kinds.parse(body, {:replace, current.kind}),
+         {:ok, doc} <- parse(prefix, body, {:replace, current.kind}),
          :ok <- same_unit(current, doc) do
       tx(prefix, fn ->
         lock!(prefix, id)
@@ -137,6 +236,531 @@ defmodule Letflow.Modules.Stock.Documents do
       end)
     end
   end
+
+  @doc """
+  REQ-854 / GH #4564: the quick count. `body` is the flat map `QuickCountShape` parses. Order of refusals:
+  the shape (422), the read authority (`opts[:authorized]` nil: `{:error, :not_found}`, the unknown-document
+  answer, before any master is looked at), the master checks (`Checks.quick_count/3`, 422), the kind's
+  process definition made active with `opts[:activator]` (`{:error, :definition_not_active}`), then in ONE
+  transaction: the formal
+  count rule (`CountHold`, 422 `count_in_progress` with `held_by` the order number), the book quantity of
+  the key read through `Ledger.balances/4` with `opts[:authorized]` (nil: `{:error, :not_found}`, the
+  unknown-document answer; a balance of another unit is `unit_not_valid`, a negative balance
+  `book_quantity_negative`: the core's `expected_on_hand` is at least 0), the draft, the header and the
+  line (`book_quantity`, `difference` = counted minus book) and the issue. Nothing is stored and no number is
+  taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
+  is zero (then the document reads `confirmed`: no instance, no ledger entry). Returns the issued document
+  as `fetch/3` renders it.
+  """
+  @spec quick_count(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def quick_count(prefix, body, actor, opts \\ []) when is_binary(prefix) do
+    spec = Kinds.get("quick_count")
+    authorized = Keyword.get(opts, :authorized)
+
+    with {:ok, doc} <- QuickCountShape.parse(body),
+         :ok <- authorized_read(authorized),
+         :ok <- Checks.quick_count(prefix, doc.header, hd(doc.lines)),
+         :ok <- activate(prefix, spec, Keyword.get(opts, :activator)),
+         {:ok, id} <- quick_count_tx(prefix, spec, doc, actor, authorized) do
+      view = fetch!(prefix, id)
+      unless view.state == "confirmed", do: start_posting(prefix, id, actor)
+      fetch(prefix, id, authorized)
+    end
+  end
+
+  defp authorized_read(nil), do: {:error, :not_found}
+  defp authorized_read(_authorized), do: :ok
+
+  @doc """
+  REQ-885 / GH #4606: load a checked Qoimeks-layout balances workbook as a stock_quick_count
+  document. `authorized` is the tenant-wide ledger read authorization; `unit` is the org_unit_id;
+  `bytes` are the xlsx body; `file_name` is the workbook name (1–255 chars, default "workbook.xlsx").
+
+  Order: parse (422), no ledger auth (404), definition not active (409), then in one transaction:
+  re-check the bytes (422 on parse/check errors), no changes → 200 `{applied: false, changes: 0,
+  remarks: [...]}`, too many changes (> `max_lines` seam) → 422 `too_many_changes`, count order
+  blocking a key → 422 `count_in_progress`, otherwise create+issue the document → 201 response
+  `{document_id, number, lines, remarks, approve_task_id}`.
+  """
+  @spec workbook_apply(map(), String.t(), binary(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def workbook_apply(authorized, unit, bytes, file_name, actor, opts \\ [])
+      when is_map(authorized) do
+    with {:ok, _parsed} <- StockWorkbookImport.parse(bytes),
+         :ok <- authorized_read(authorized) do
+      spec = Kinds.get("quick_count")
+
+      with :ok <- activate(authorized.prefix, spec, Keyword.get(opts, :activator)) do
+        workbook_apply_tx(authorized, unit, bytes, file_name, spec, actor)
+      end
+    end
+  end
+
+  defp workbook_apply_tx(authorized, unit, bytes, file_name, spec, actor) do
+    prefix = authorized.prefix
+
+    result =
+      tx(prefix, fn ->
+        case StockWorkbookImport.check_for_apply(authorized, unit, bytes) do
+          {:error, reason} when is_atom(reason) ->
+            Repo.rollback(reason)
+
+          {:ok, %{answer: answer, parsed: parsed, enriched: enriched}} ->
+            changes = answer["changes"]
+
+            cond do
+              changes == [] ->
+                {:no_changes,
+                 %{
+                   "applied" => false,
+                   "changes" => 0,
+                   "remarks" => answer["remarks"]
+                 }}
+
+              answer["too_many_changes"] ->
+                Repo.rollback({"too_many_changes", %{}})
+
+              true ->
+                keys =
+                  Enum.map(enriched, fn c ->
+                    %{"org_unit" => unit, "location" => c.location_id}
+                  end)
+
+                case CountHold.check_keys(prefix, keys) do
+                  {:held, number} ->
+                    Repo.rollback({"count_in_progress", %{"held_by" => number}})
+
+                  :ok ->
+                    doc = build_workbook_doc(unit, file_name, parsed, answer, enriched)
+
+                    draft_attrs = %{
+                      type_key: spec.type_key,
+                      issuing_org_unit_id: unit,
+                      content: content(doc)
+                    }
+
+                    document_id =
+                      case Documents.create_draft(prefix, draft_attrs, actor) do
+                        {:ok, %{document: document}} -> document.id
+                        {:error, reason} -> Repo.rollback(draft_error(reason))
+                      end
+
+                    write_new(prefix, spec, document_id, doc, actor)
+
+                    case issue_once(prefix, document_id, actor) do
+                      {:ok, _issued} -> {:created, document_id, answer["remarks"]}
+                      {:error, reason} -> Repo.rollback(reason)
+                    end
+                end
+            end
+        end
+      end)
+
+    case result do
+      {:ok, {:no_changes, answer}} ->
+        {:ok, answer}
+
+      {:ok, {:created, id, remarks}} ->
+        view = fetch!(prefix, id)
+        unless view.state == "confirmed", do: start_posting(prefix, id, actor)
+        task_id = pending_approve_task_id(prefix, id)
+
+        {:ok,
+         %{
+           "document_id" => id,
+           "number" => view.number,
+           "lines" => length(view.lines),
+           "remarks" => remarks,
+           "approve_task_id" => task_id
+         }}
+
+      {:error, {reason, extras}} ->
+        {:error, {reason, extras}}
+
+      {:error, reason} when is_atom(reason) ->
+        {:error, reason}
+    end
+  end
+
+  @workbook_import_limit 50
+
+  @doc """
+  REQ-886 / GH #4605: the last #{@workbook_import_limit} workbook loads (stock_quick_count
+  documents from `workbook_apply/6`), newest first. `authorized` must be a tenant-wide ledger
+  read principal; a scoped reader gets `{:error, :not_found}`. Each item carries:
+  `document_id, number, created_at, created_by, file_name, sheet, lines, remarks_count,
+  state, reversal_pending`.
+  """
+  @spec workbook_imports(String.t(), map()) :: {:ok, [map()]} | {:error, :not_found}
+  def workbook_imports(prefix, authorized) do
+    with :ok <- authorized_read(authorized) do
+      spec = Kinds.get("quick_count")
+      doc_type = Repo.get(DocumentType, spec.type_key, prefix: prefix)
+
+      rows =
+        Repo.all(
+          from(d in Document,
+            join: v in DocumentVersion,
+            on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
+            where: d.type_key == ^spec.type_key,
+            where: fragment("?->'workbook_ext'->>'source' = 'workbook'", v.content),
+            order_by: [desc: d.inserted_at, desc: d.id],
+            limit: @workbook_import_limit,
+            select: %{
+              id: d.id,
+              inserted_at: d.inserted_at,
+              number: d.number,
+              period: d.period,
+              version_status: v.status,
+              issued_by: v.issued_by,
+              content: v.content
+            }
+          ),
+          prefix: prefix
+        )
+
+      ids = Enum.map(rows, & &1.id)
+      marks_map = Posting.marks(prefix, ids)
+      reversal_set = workbook_pending_reverses(prefix, ids)
+
+      # Header records carry the header_id used to count lines.
+      header_fvs =
+        if ids == [] do
+          %{}
+        else
+          Repo.all(
+            from(r in Latest,
+              where:
+                r.entity_type == ^spec.type_key and not r.deleted and
+                  fragment(
+                    "?->>'document_id' = ANY(?)",
+                    r.field_values,
+                    type(^ids, {:array, :string})
+                  ),
+              select: {fragment("?->>'document_id'", r.field_values), r.record_id}
+            ),
+            prefix: prefix
+          )
+          |> Map.new()
+        end
+
+      header_ids = Map.values(header_fvs)
+
+      line_counts =
+        if header_ids == [] do
+          %{}
+        else
+          Repo.all(
+            from(r in Latest,
+              where:
+                r.entity_type == ^spec.line_type and not r.deleted and
+                  fragment(
+                    "?->>'header_id' = ANY(?)",
+                    r.field_values,
+                    type(^header_ids, {:array, :string})
+                  ),
+              group_by: fragment("?->>'header_id'", r.field_values),
+              select: {fragment("?->>'header_id'", r.field_values), count(r.record_id)}
+            ),
+            prefix: prefix
+          )
+          |> Map.new()
+        end
+
+      result =
+        Enum.map(rows, fn row ->
+          marks = Map.get(marks_map, row.id, %{})
+          state = workbook_import_state(row.version_status, marks)
+          header_id = Map.get(header_fvs, row.id)
+          line_count = if header_id, do: Map.get(line_counts, header_id, 0), else: 0
+          ext = get_in(row.content, ["workbook_ext"]) || %{}
+
+          number =
+            if row.number && doc_type,
+              do: Letflow.Documents.number_label(doc_type, row.number, row.period)
+
+          %{
+            document_id: row.id,
+            number: number,
+            created_at: row.inserted_at |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+            created_by: row.issued_by,
+            file_name: ext["file_name"],
+            sheet: ext["sheet"],
+            lines: line_count,
+            remarks_count: ext["remarks_count"],
+            state: state,
+            reversal_pending: row.id in reversal_set
+          }
+        end)
+
+      {:ok, result}
+    end
+  end
+
+  defp workbook_import_state(:cancelled, _marks), do: "cancelled"
+
+  defp workbook_import_state(:issued, marks) do
+    cond do
+      Map.has_key?(marks, "reversed") -> "reversed"
+      Map.has_key?(marks, "posted") -> "posted"
+      true -> "issued"
+    end
+  end
+
+  defp workbook_import_state(:draft, _marks), do: "draft"
+
+  defp workbook_pending_reverses(_prefix, []), do: MapSet.new()
+
+  defp workbook_pending_reverses(prefix, ids) do
+    all_def_ids =
+      (Kinds.definition_names() ++ ["stock_reversal", "stock_quick_count"])
+      |> Enum.uniq()
+      |> Enum.flat_map(fn name ->
+        Repo.all(
+          from(d in Letflow.Definitions.ProcessDefinition,
+            where: d.name == ^name,
+            select: d.id
+          ),
+          prefix: prefix
+        )
+      end)
+
+    if all_def_ids == [] do
+      MapSet.new()
+    else
+      Repo.all(
+        from(t in Task,
+          join: p in InstanceProjection,
+          on: p.instance_id == t.instance_id,
+          where:
+            t.status == :pending and t.node_id == "reverse" and
+              p.status == :active and
+              p.definition_id in ^all_def_ids and
+              fragment(
+                "?->>'document_id' = ANY(?)",
+                p.variables,
+                type(^ids, {:array, :string})
+              ),
+          select: fragment("?->>'document_id'", p.variables),
+          distinct: true
+        ),
+        prefix: prefix
+      )
+      |> MapSet.new()
+    end
+  end
+
+  @doc """
+  REQ-886 / GH #4605: cancel or start the reversal of a workbook load.
+
+  Validates reason from `body["reason"]` first (422 `reason_required` / `reason_too_long`).
+  Then finds the document: an unknown id, a non-workbook-load and another tenant's document
+  are all `{:error, :not_found}`. Then:
+  - already cancelled or reversed → `{:error, :import_already_cancelled}`
+  - reversal already pending → `{:error, :reversal_pending}`
+  - issued (awaiting approval) → cancel via `Posting.cancel/5` → `{:ok, %{action: "cancelled", lines: N}}`
+  - posted → start reversal via `Posting.reverse/6` → `{:ok, %{action: "reverse_pending", lines: N}}`
+
+  The other refusals of `Posting.reverse/6` pass through unchanged.
+  """
+  @spec workbook_cancel(String.t(), term(), term(), String.t(), map(), term(), fun()) ::
+          {:ok, map()} | {:error, term()}
+  def workbook_cancel(prefix, raw_id, body, actor_id, authorized, activator, fetch) do
+    reason = if is_map(body), do: Map.get(body, "reason")
+
+    with {:ok, _reason} <- Documents.validate_cancel_reason(reason),
+         {:ok, id} <- cast(raw_id),
+         :ok <- check_workbook_load(prefix, id) do
+      pending = Posting.pending(prefix, id)
+
+      case fetch.(prefix, id) do
+        {:error, _} ->
+          {:error, :not_found}
+
+        {:ok, view} ->
+          cond do
+            view.state in ["cancelled", "reversed"] ->
+              {:error, :import_already_cancelled}
+
+            pending.reverse ->
+              {:error, :reversal_pending}
+
+            view.state == "issued" ->
+              with {:ok, final_view} <-
+                     Posting.cancel(prefix, id, body, actor_id, fetch) do
+                {:ok, %{action: "cancelled", lines: length(final_view.lines)}}
+              end
+
+            view.state == "posted" ->
+              reason = Map.get(body, "reason")
+              reverse_body = %{"reason_code" => "other", "reason_text" => reason}
+              who = %{actor_id: actor_id, activator: activator}
+
+              with {:ok, _final_view} <-
+                     Posting.reverse(prefix, id, reverse_body, who, authorized, fetch) do
+                {:ok, %{action: "reverse_pending", lines: length(view.lines)}}
+              end
+
+            true ->
+              {:error, :not_found}
+          end
+      end
+    end
+  end
+
+  # Checks that `id` names a live stock_quick_count document with source "workbook".
+  # Returns :ok or {:error, :not_found}.
+  defp check_workbook_load(prefix, id) do
+    result =
+      Repo.one(
+        from(d in Document,
+          join: v in DocumentVersion,
+          on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
+          where: d.id == ^id and d.type_key == "stock_quick_count",
+          where: fragment("?->'workbook_ext'->>'source' = 'workbook'", v.content),
+          select: 1,
+          limit: 1
+        ),
+        prefix: prefix
+      )
+
+    if result == 1, do: :ok, else: {:error, :not_found}
+  end
+
+  defp build_workbook_doc(unit, file_name, parsed, answer, enriched) do
+    # Only entity-schema-valid fields go in header and lines (stock_quick_count enforces
+    # additionalProperties: false). The workbook-specific fields go in :workbook_ext which
+    # the content/1 function stores in the content JSONB under "workbook_ext".
+    header = %{
+      "org_unit_id" => unit,
+      "reason_code" => "other",
+      "reason_text" => "Записать остатки из файла"
+    }
+
+    lines =
+      enriched
+      |> Enum.with_index(1)
+      |> Enum.map(fn {c, n} ->
+        %{
+          "line_no" => n,
+          "location_id" => c.location_id,
+          "catalog_item_id" => c.catalog_item_id,
+          "catalog_uom_id" => c.catalog_uom_id,
+          "counted_quantity" => c.counted_quantity,
+          "book_quantity" => c.book_quantity,
+          "difference" => c.difference
+        }
+      end)
+
+    # Workbook-specific metadata stored in content JSONB (outside entity records).
+    # This includes per-line reason_code / reason_text too.
+    workbook_ext = %{
+      "source" => "workbook",
+      "file_name" => file_name,
+      "sheet" => parsed.sheet,
+      "rows_read" => parsed.rows_read,
+      "remarks_count" => length(answer["remarks"]),
+      "line_reason" => %{
+        "reason_code" => "other",
+        "reason_text" => "Записать остатки из файла"
+      }
+    }
+
+    %{kind: "quick_count", header: header, lines: lines, workbook_ext: workbook_ext}
+  end
+
+  defp pending_approve_task_id(prefix, document_id) do
+    Repo.one(
+      from(t in Task,
+        join: p in InstanceProjection,
+        on: p.instance_id == t.instance_id,
+        where:
+          t.status == :pending and t.node_id == "approve" and
+            fragment("?->>'document_id' = ?", p.variables, ^document_id),
+        order_by: [asc: t.inserted_at],
+        limit: 1,
+        select: t.id
+      ),
+      prefix: prefix
+    )
+  end
+
+  defp quick_count_tx(prefix, spec, doc, actor, authorized) do
+    unit = doc.header["org_unit_id"]
+    [line] = doc.lines
+
+    tx(prefix, fn ->
+      case CountHold.check(prefix, unit, line["location_id"]) do
+        :ok -> :ok
+        {:held, number} -> Repo.rollback({"count_in_progress", %{"held_by" => number}})
+      end
+
+      doc = with_book!(doc, book_quantity(authorized, unit, line))
+
+      draft_attrs = %{
+        type_key: spec.type_key,
+        issuing_org_unit_id: unit,
+        content: content(doc)
+      }
+
+      document_id =
+        case Documents.create_draft(prefix, draft_attrs, actor) do
+          {:ok, %{document: document}} -> document.id
+          {:error, reason} -> Repo.rollback(draft_error(reason))
+        end
+
+      write_new(prefix, spec, document_id, doc, actor)
+
+      case issue_once(prefix, document_id, actor) do
+        {:ok, _issued} -> document_id
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # The balance of the exact key (an absent responsible or lot is the empty slot). No row is 0.
+  defp book_quantity(authorized, unit, line) do
+    filters = %{
+      "sku" => line["catalog_item_id"],
+      "location" => line["location_id"],
+      "org_unit" => unit,
+      "responsible" => line["responsible_id"] || "",
+      "lot" => line["catalog_lot_id"] || ""
+    }
+
+    case Ledger.balances(authorized, {:posting_seq, :latest}, filters, %{limit: 10}) do
+      {:ok, %{rows: [], next_cursor: nil}} ->
+        Decimal.new(0)
+
+      {:ok, %{rows: [row], next_cursor: nil}} ->
+        if row.unit_ref == line["catalog_uom_id"],
+          do: row.quantity,
+          else: {:refuse, "unit_not_valid"}
+
+      _unreadable ->
+        {:refuse, "ledger_read_failed"}
+    end
+  end
+
+  defp with_book!(_doc, {:refuse, reason}), do: Repo.rollback({reason, %{}})
+
+  defp with_book!(doc, book) do
+    book = to_decimal(book)
+    if Decimal.lt?(book, 0), do: Repo.rollback({"book_quantity_negative", %{}})
+
+    [line] = doc.lines
+    difference = Decimal.sub(Decimal.new(line["counted_quantity"]), book)
+
+    line =
+      line
+      |> Map.put("book_quantity", QuickCountShape.decimal_text(book))
+      |> Map.put("difference", QuickCountShape.decimal_text(difference))
+
+    %{doc | lines: [line]}
+  end
+
+  defp to_decimal(%Decimal{} = d), do: d
+  defp to_decimal(text) when is_binary(text), do: Decimal.new(text)
 
   @opening_line_fields [
     {"location_id", :location_id},
@@ -234,12 +858,16 @@ defmodule Letflow.Modules.Stock.Documents do
       }
       |> Map.reject(fn {_k, v} -> is_nil(v) end)
 
-    case Kinds.parse(header, {:replace, "opening"}) do
+    case parse(prefix, header, {:replace, "opening"}) do
       {:ok, doc} ->
         case Documents.edit_draft(prefix, locked.id, content(doc), actor) do
           {:ok, _version} -> :ok
           {:error, reason} -> Repo.rollback(draft_error(reason))
         end
+
+      # REQ-836: the new line mixes signs with the document (decision 0090 section 4).
+      {:error, {"quantity_invalid", _extras}} ->
+        Repo.rollback(:quantity_invalid)
 
       {:error, reason} ->
         Repo.rollback(log_internal(reason))
@@ -279,9 +907,24 @@ defmodule Letflow.Modules.Stock.Documents do
   instance. A refused check or a definition that cannot be activated issues nothing and takes no
   number. Returns the issued document (`opts[:authorized]` is the ledger read authorization for
   `posting_check`).
+
+  `opts[:idempotency_key]` (REQ-847, the stored `client:stock_issue:<actor>:<K>` key, see
+  `Letflow.Modules.Stock.Documents.ActionIdempotency`) makes a retry of the same issue return the
+  document as it is now: no second number, no second posting instance. The same key on another
+  document is `{:error, :idempotency_key_reuse}`; a refused issue binds nothing.
   """
   @spec issue(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def issue(prefix, id, actor, opts \\ []) when is_binary(prefix) do
+    ActionIdempotency.run(
+      prefix,
+      Keyword.get(opts, :idempotency_key),
+      id,
+      fn -> fetch(prefix, id, Keyword.get(opts, :authorized)) end,
+      fn -> issue_new(prefix, id, actor, opts) end
+    )
+  end
+
+  defp issue_new(prefix, id, actor, opts) do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
@@ -522,11 +1165,19 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # The versioned content: the saved header and lines, optional keys absent when not given.
   defp content(doc) do
-    %{
+    base = %{
       "kind" => doc.kind,
       "header" => doc.header,
       "lines" => doc.lines
     }
+
+    # REQ-885: workbook-load documents carry extra metadata in the content (not in entity
+    # records, which enforce additionalProperties: false). The header workbook fields and the
+    # per-line reason fields are stored here and are available to posting and audit.
+    case Map.fetch(doc, :workbook_ext) do
+      {:ok, ext} -> Map.put(base, "workbook_ext", ext)
+      :error -> base
+    end
   end
 
   defp same_unit(current, doc) do
@@ -646,6 +1297,23 @@ defmodule Letflow.Modules.Stock.Documents do
     |> Enum.sort_by(& &1.line_no)
   end
 
+  defp line_view("quick_count", {record_id, fv}) do
+    %{
+      line_id: record_id,
+      line_no: fv["line_no"],
+      location_id: fv["location_id"],
+      responsible_id: fv["responsible_id"],
+      catalog_item_id: fv["catalog_item_id"],
+      catalog_uom_id: fv["catalog_uom_id"],
+      catalog_lot_id: fv["catalog_lot_id"],
+      counted_quantity: fv["counted_quantity"],
+      book_quantity: fv["book_quantity"],
+      difference: fv["difference"],
+      reason_code: fv["reason_code"],
+      reason_text: fv["reason_text"]
+    }
+  end
+
   defp line_view("opening", {record_id, fv}) do
     %{
       line_id: record_id,
@@ -680,6 +1348,8 @@ defmodule Letflow.Modules.Stock.Documents do
   # The keys of the header fields of the kind come from `Kinds.view_fields/2` (receipt: location,
   # responsible and counterparty; the two-sided kinds: the from and to fields).
   defp view(prefix, spec, document, version, {header_id, fv}) do
+    ext = workbook_ext(version)
+
     spec
     |> Kinds.view_fields(fv)
     |> Map.merge(%{
@@ -689,9 +1359,38 @@ defmodule Letflow.Modules.Stock.Documents do
       number: number_label(prefix, spec, document),
       issued_at: iso(version.issued_at),
       header_id: header_id,
-      lines: lines(prefix, spec, header_id)
+      lines: prefix |> lines(spec, header_id) |> with_line_reason(ext)
     })
+    |> Map.merge(workbook_header(ext))
   end
+
+  # REQ-885: a workbook-load quick count keeps `source`, `file_name`, `sheet`, `rows_read`,
+  # `remarks_count` and the per-line reason in the content of its version (`workbook_ext`); the
+  # entity records stay as REQ-854 declared them.
+  defp workbook_ext(%{content: %{"workbook_ext" => ext}}) when is_map(ext), do: ext
+  defp workbook_ext(_version), do: nil
+
+  defp workbook_header(nil), do: %{}
+
+  defp workbook_header(ext) do
+    %{
+      source: ext["source"],
+      file_name: ext["file_name"],
+      sheet: ext["sheet"],
+      rows_read: ext["rows_read"],
+      remarks_count: ext["remarks_count"]
+    }
+  end
+
+  defp with_line_reason(lines, %{"line_reason" => %{} = reason}) do
+    Enum.map(lines, fn line ->
+      line
+      |> Map.put(:reason_code, reason["reason_code"])
+      |> Map.put(:reason_text, reason["reason_text"])
+    end)
+  end
+
+  defp with_line_reason(lines, _ext), do: lines
 
   defp state(:draft), do: "draft"
   defp state(:issued), do: "issued"
@@ -922,4 +1621,35 @@ defmodule Letflow.Modules.Stock.Documents do
       _default -> DateTime.utc_now()
     end
   end
+
+  # Canonical body hash for idempotency comparison (REQ-846).  Produces the
+  # same digest for maps with identical content regardless of key order or
+  # surrounding whitespace, by recursively sorting map keys before JSON encoding.
+  defp body_hash(body) do
+    body
+    |> canonical_json()
+    |> :erlang.iolist_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(m) when is_map(m) do
+    pairs =
+      m
+      |> Enum.sort_by(fn {k, _} -> k end)
+      |> Enum.map(fn {k, v} -> [Jason.encode!(k), ":", canonical_json(v)] end)
+
+    ["{", Enum.intersperse(pairs, ","), "}"]
+  end
+
+  defp canonical_json(list) when is_list(list) do
+    ["[", list |> Enum.map(&canonical_json/1) |> Enum.intersperse(","), "]"]
+  end
+
+  defp canonical_json(nil), do: "null"
+  defp canonical_json(true), do: "true"
+  defp canonical_json(false), do: "false"
+  defp canonical_json(n) when is_integer(n), do: Integer.to_string(n)
+  defp canonical_json(n) when is_float(n), do: Jason.encode!(n)
+  defp canonical_json(s) when is_binary(s), do: Jason.encode!(s)
 end

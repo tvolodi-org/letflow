@@ -8,6 +8,8 @@ export function documentStateTone(state: string): { tone: StatusTone; glyph: Sta
     case 'posted': return { tone: 'success', glyph: 'dot' }
     case 'reversed': return { tone: 'warning', glyph: 'triangle' }
     case 'cancelled': return { tone: 'neutral', glyph: 'dash' }
+    // REQ-854: a quick count with zero difference posts nothing; the book is confirmed as it stands.
+    case 'confirmed': return { tone: 'success', glyph: 'dot' }
     default: return { tone: 'neutral', glyph: 'dot' }
   }
 }

@@ -46,6 +46,7 @@ export const docEn: Record<string, string> = {
   'stock.doc.waiting.opening': 'A second administrator approves the posting in the task inbox. The person who issued it cannot.',
   'stock.doc.action.check': 'Check all lines',
   'stock.doc.check.ok': 'All lines passed the check.',
+  'stock.doc.negativeBalance': 'The balance will become negative',
   'stock.doc.check.line': 'Line {line}: {reason}',
   'stock.doc.error.line': 'Line {line}:',
   'stock.doc.error.received_on_in_future': 'The real receipt date is in the future.',
@@ -60,6 +61,7 @@ export const docEn: Record<string, string> = {
   'stock.doc.state.posted': 'Posted',
   'stock.doc.state.reversed': 'Reversed',
   'stock.doc.state.cancelled': 'Cancelled',
+  'stock.doc.state.confirmed': 'Confirmed',
   'stock.doc.action.edit': 'Edit',
   'stock.doc.action.discard': 'Discard',
   'stock.doc.action.issue': 'Issue',
@@ -169,6 +171,8 @@ export const docEn: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'The event time is not valid.',
   'stock.doc.error.definition_not_active': 'The stock document process is not active yet.',
   'stock.doc.error.posting_inconsistent': 'The posting is inconsistent. Contact the administrator.',
+  /** REQ-848: the document was already created/issued/posted with the same key but different content. */
+  'stock.doc.error.idempotency_key_reuse': 'This document was already sent with different content. Reload the list to see it.',
 }
 
 export const docRu: Record<string, string> = {
@@ -214,6 +218,7 @@ export const docRu: Record<string, string> = {
   'stock.doc.waiting.opening': 'Проведение подтверждает второй администратор во входящих задачах. Тот, кто выпустил документ, подтвердить не может.',
   'stock.doc.action.check': 'Проверить все строки',
   'stock.doc.check.ok': 'Все строки прошли проверку.',
+  'stock.doc.negativeBalance': 'Остаток станет отрицательным',
   'stock.doc.check.line': 'Строка {line}: {reason}',
   'stock.doc.error.line': 'Строка {line}:',
   'stock.doc.error.received_on_in_future': 'Фактическая дата получения в будущем.',
@@ -228,6 +233,7 @@ export const docRu: Record<string, string> = {
   'stock.doc.state.posted': 'Проведён',
   'stock.doc.state.reversed': 'Сторнирован',
   'stock.doc.state.cancelled': 'Отменён',
+  'stock.doc.state.confirmed': 'Подтверждён',
   'stock.doc.action.edit': 'Изменить',
   'stock.doc.action.discard': 'Удалить черновик',
   'stock.doc.action.issue': 'Выпустить',
@@ -337,6 +343,7 @@ export const docRu: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'Время события недопустимо.',
   'stock.doc.error.definition_not_active': 'Процесс складских документов ещё не активен.',
   'stock.doc.error.posting_inconsistent': 'Проведение несогласованно. Обратитесь к администратору.',
+  'stock.doc.error.idempotency_key_reuse': 'Документ уже отправлялся с другим содержимым. Обновите список, чтобы его увидеть.',
 }
 
 export const docKk: Record<string, string> = {
@@ -382,6 +389,7 @@ export const docKk: Record<string, string> = {
   'stock.doc.waiting.opening': 'Өткізуді кіріс тапсырмаларда екінші әкімші растайды. Құжатты шығарған адам растай алмайды.',
   'stock.doc.action.check': 'Барлық жолдарды тексеру',
   'stock.doc.check.ok': 'Барлық жолдар тексеруден өтті.',
+  'stock.doc.negativeBalance': 'Қалдық теріс болады',
   'stock.doc.check.line': 'Жол {line}: {reason}',
   'stock.doc.error.line': 'Жол {line}:',
   'stock.doc.error.received_on_in_future': 'Нақты алынған күні болашақта.',
@@ -396,6 +404,7 @@ export const docKk: Record<string, string> = {
   'stock.doc.state.posted': 'Өткізілген',
   'stock.doc.state.reversed': 'Қайта жазылған',
   'stock.doc.state.cancelled': 'Бас тартылған',
+  'stock.doc.state.confirmed': 'Расталды',
   'stock.doc.action.edit': 'Өзгерту',
   'stock.doc.action.discard': 'Жобаны жою',
   'stock.doc.action.issue': 'Шығару',
@@ -505,4 +514,5 @@ export const docKk: Record<string, string> = {
   'stock.doc.error.event_time_invalid': 'Оқиға уақыты жарамсыз.',
   'stock.doc.error.definition_not_active': 'Қойма құжаттары процесі әлі белсенді емес.',
   'stock.doc.error.posting_inconsistent': 'Өткізу сәйкес келмейді. Әкімшіге хабарласыңыз.',
+  'stock.doc.error.idempotency_key_reuse': 'Құжат басқа мазмұнмен жіберілген. Оны көру үшін тізімді жаңартыңыз.',
 }

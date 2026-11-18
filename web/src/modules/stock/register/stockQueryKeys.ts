@@ -10,4 +10,6 @@ export const stockQueryKeys = {
   movementDocument: (tenantId: string, id: string) => ['stock', tenantId, 'movement-document', id] as const,
   names: (tenantId: string, type: string, ids: string) => ['stock', tenantId, 'names', type, ids] as const,
   options: (tenantId: string, type: string, scope: string) => ['stock', tenantId, 'options', type, scope] as const,
+  quickCountTasks: (tenantId: string, instanceId: string) => ['stock', tenantId, 'quick-count-tasks', instanceId] as const,
+  quickCountTask: (tenantId: string, taskId: string) => ['stock', tenantId, 'quick-count-task', taskId] as const,
 }

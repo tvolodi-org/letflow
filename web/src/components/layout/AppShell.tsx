@@ -76,6 +76,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/official-forms', group: 'tenantAdmin', label: 'Official forms', permission: P.OfficialFormTemplatesManage },
   { to: '/admin/currencies', group: 'tenantAdmin', label: 'Currencies', permission: P.CurrenciesManage },
   { to: '/admin/approval-rules', group: 'tenantAdmin', label: 'Approval rules', permission: P.ApprovalRulesManage },
+  { to: '/admin/ledger-settings', group: 'tenantAdmin', label: 'Negative balances', permission: P.LedgerSettingsManage },
   { to: '/admin/import', group: 'tenantAdmin', label: 'Import data', permission: P.EntitiesRecordsImport, needsImportTypes: true },
   { to: '/admin/module-lifecycle', group: 'tenantAdmin', label: 'Module lifecycle', permission: P.ModulesManage, enabled: isModulesUninstallEnabled },
   { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
@@ -114,6 +115,7 @@ const FLUID_PATHS = [
   '/admin/assets/documents',
   '/admin/assets/counts',
   '/admin/problem-reports',
+  '/admin/assets/cards',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {

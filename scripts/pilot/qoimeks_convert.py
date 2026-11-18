@@ -17,8 +17,10 @@ that had one. `--mapping` is a JSON object {"<column in the extract>": "<neutral
 It writes into --out: 01-locations-NN.xlsx, 02-uoms.xlsx, 03-items-NN.xlsx, 06-codes-NN.xlsx,
 07-code-assignments-NN.xlsx, 04-opening-lines-NN.xlsx, manifest.json, report.txt and expected_counts.txt. Code files are
 written only when at least one code survives and are ordered before the opening lines; a file type with no rows is
-not written. The barcode column and codes.csv code types ean13, ean8, code128 and manual become kind barcode; qr
-becomes kind qr. A repeated code for the same object is kept once; a code already kept for another object is dropped.
+not written. Positive opening lines are chunked first; negative lines follow in all-negative files (REQ-837). Zero
+balances are skipped as `quantity_zero`, not dropped. The barcode column and codes.csv code types ean13, ean8,
+code128 and manual become kind barcode; qr becomes kind qr. A repeated code for the same object is kept once; a code
+already kept for another object is dropped.
 
 `headers` reads manifest.json and the saved JSON responses of the first three uploads (RDIR/<file stem>.json, the
 `results[]` with `line` and `record_id`) and writes headers/QOI-HDR-NN.json, one `POST /documents` body per opening
@@ -295,7 +297,7 @@ def cmd_convert(a):
     unit_of = {r["sku"]: r["unit"] for r in good_items}
     codes = collect_codes(good_items, code_rows, set(unit_of), loc_codes, drops)
 
-    lines, keys = [], set()
+    positive_lines, negative_lines, skipped, keys = [], [], [], set()
     for n, r in enumerate(bals, 1):
         q = r["qty"]
         if r.get("_surplus"):
@@ -312,8 +314,8 @@ def cmd_convert(a):
             drops.append(("balances", n, "quantity_invalid"))
             continue
         asof = r.get("as_of", "") or a.received_on
-        if d <= 0:
-            drops.append(("balances", n, "quantity_not_positive"))
+        if d == 0:
+            skipped.append(("balances", n, "quantity_zero"))
         elif r["sku"] not in unit_of:
             drops.append(("balances", n, "unknown_item"))
         elif r["loc"] not in loc_codes:
@@ -324,7 +326,8 @@ def cmd_convert(a):
             drops.append(("balances", n, "duplicate_balance"))
         else:
             keys.add((r["sku"], r["loc"]))
-            lines.append((r["sku"], r["loc"], format(d.normalize(), "f"), asof))
+            line = (r["sku"], r["loc"], format(d.normalize(), "f"), asof)
+            (negative_lines if d < 0 else positive_lines).append(line)
 
     out.mkdir(parents=True, exist_ok=True)
     files, report = [], []
@@ -364,7 +367,8 @@ def cmd_convert(a):
             emit("%s-%02d.xlsx" % (prefix, i), etype, header, part)
 
     headers = []
-    for i, part in enumerate(chunks(lines, MAX_LINES), 1):
+    line_groups = chunks(positive_lines, MAX_LINES) + chunks(negative_lines, MAX_LINES)
+    for i, part in enumerate(line_groups, 1):
         hid = "QOI-HDR-%02d" % i
         name = "04-opening-lines-%02d.xlsx" % i
         rows = [[hid, a.org_unit_ext, loc, a.responsible_ext, sku, unit_of[sku], qty, asof, sysn, bal_ref(sku, loc)]
@@ -389,7 +393,7 @@ def cmd_convert(a):
         "records.code_assignment": len(assignment_rows_out),
         "records.code_tag": len(code_rows_out),
         "records.location_node": len(loc_rows),
-        "records.stock_opening_line": len(lines),
+        "records.stock_opening_line": len(positive_lines) + len(negative_lines),
         "items_with_default_location": len(with_place),
     }
     (out / "expected_counts.txt").write_text("".join("%s %d\n" % kv for kv in sorted(counts.items())), encoding="utf-8")
@@ -408,6 +412,11 @@ def cmd_convert(a):
         if counts[label] == 0:
             report.append("no rows for %s: no file written" % label.split(".")[1])
     report.append("items with a second place, not imported (G3) %d" % second_places)
+    if skipped:
+        report.append("skipped:")
+        for kind, n, reason in sorted(skipped, key=lambda d: (d[0], d[1])):
+            report.append("skipped %s row %d: %s" % (kind, n, reason))
+        report.append("skipped total %d" % len(skipped))
     for kind, n, reason in sorted(drops, key=lambda d: (d[0], d[1])):
         report.append("dropped %s row %d: %s" % (kind, n, reason))
     report.append("dropped total %d" % len(drops))

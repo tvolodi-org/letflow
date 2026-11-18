@@ -19,6 +19,8 @@ import { catalogItemsScreens } from './fixtures/catalogItems'
 import { recordCodesScreens } from './fixtures/recordCodes'
 import { truncatedListScreens } from './fixtures/truncatedLists'
 import { stockWorkbookScreens } from './fixtures/stockWorkbook'
+import { stockNegativeBalanceScreens } from './fixtures/stockNegativeBalance'
+import { quickCountScreens } from './fixtures/quickCountScreens'
 import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
 import { listDetailSaveScreens } from './fixtures/listDetailSave'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
@@ -62,6 +64,7 @@ import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { stockDocumentsKeyReuseScreens } from './fixtures/stockDocumentsKeyReuse'
 import { linesEditorScreens } from './fixtures/linesEditor'
 import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockPrintButtonsScreens } from './fixtures/stockPrintButtons'
@@ -109,6 +112,8 @@ import { problemReportsScreens } from './fixtures/problemReports'
 import { printTemplatesScreens } from './fixtures/printTemplates'
 import { pageHeaderNewMenuScreens } from './fixtures/pageHeaderNewMenu'
 import { myProblemReportsScreens } from './fixtures/myProblemReports'
+import { assetCardPhotosScreens } from './fixtures/assetCardPhotos'
+import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -374,6 +379,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
     ...stockDocumentsEditScreens,
+    ...stockDocumentsKeyReuseScreens,
     ...linesEditorScreens,
     ...stockDocumentsLayoutScreens,
     ...stockPrintButtonsScreens,
@@ -414,6 +420,10 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...pageHeaderNewMenuScreens,
     ...myProblemReportsScreens,
     ...printTemplatesScreens,
+    ...ledgerSettingsScreens,
     ...stockWorkbookScreens,
+    ...assetCardPhotosScreens,
+    ...stockNegativeBalanceScreens,
+    ...quickCountScreens,
   ].map(s => [s.name, s]),
 )

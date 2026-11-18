@@ -124,7 +124,7 @@ defmodule Letflow.LedgerFixture do
 
     %Capability{
       prefix: schema,
-      registration_name: "test",
+      registration_name: Keyword.get(opts, :registration_name, "test"),
       registration: Keyword.get_lazy(opts, :registration, &registration/0),
       command: Map.merge(%{client_op_id: "op-#{unique}"}, Keyword.get(opts, :command, %{})),
       posting:

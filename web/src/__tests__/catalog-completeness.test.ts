@@ -29,6 +29,7 @@ import { auditMessages } from '@/i18n/auditMessages'
 import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { approvalRulesMessages } from '@/pages/admin/approval-rules/approvalRulesMessages'
+import { ledgerSettingsMessages } from '@/pages/admin/ledger-settings/ledgerSettingsMessages'
 import { officialFormsMessages } from '@/pages/admin/official-forms/officialFormsMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import {
@@ -75,6 +76,11 @@ import {
   formRu,
   formKk,
 } from '@/modules/stock/forms/officialFormMessages'
+import {
+  qcEn,
+  qcRu,
+  qcKk,
+} from '@/modules/stock/quickCount/quickCountMessages'
 import { linesMessages } from '@/components/ui/lines/linesMessages'
 import {
   documentsEn as assetsDocEn,
@@ -233,6 +239,9 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
     'accounting term, used unchanged in Kazakh books and forms',
   'assets:assets.reg.col.asset': 'loanword, same spelling in Kazakh',
   'assets:assets.reg.filter.asset': 'loanword, same spelling in Kazakh',
+  'assets:assets.tabs.photos': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.title': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
+  'assets:assets.photos.unnamed': 'photo: loanword, the Kazakh screens already write Фото (T-2042)',
   'catalog_items:catalog_items.col.item':
     'item: Kazakh screens already write позиция in running text',
   'catalog_items:catalog_items.create.item':
@@ -292,6 +301,14 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'stock:stock.col.item':
     'item: Kazakh screens already write позиция in running text',
   'stock:stock.col.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.item': 'item: Kazakh screens already write позиция in running text',
+  'stock:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
+  'stock.qc:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock.qc:stock.qc.item': 'item: Казах screens already write позиция in running text',
+  'stock.qc:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock.qc:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
   'stock:stock.doc.field.counterparty': 'loanword, same spelling in Kazakh',
   'stock:stock.filter.lot':
     'lot: Kazakh screens already write Партия/Партиялар',
@@ -377,6 +394,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('approvalRules', approvalRulesMessages)
   })
 
+  it('ledgerSettingsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('ledgerSettings', ledgerSettingsMessages)
+  })
+
   it('officialFormsMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('officialForms', officialFormsMessages)
   })
@@ -451,6 +472,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('officialFormMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('stock.forms', fromSplit(formEn, formRu, formKk))
+  })
+
+  it('quickCountMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('stock.qc', fromSplit(qcEn, qcRu, qcKk))
   })
 
   // --- structured catalogs (TypeScript interface guarantees key presence; check empty values) ---
@@ -543,6 +568,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
       ['approvalRules', approvalRulesMessages],
+      ['ledgerSettings', ledgerSettingsMessages],
       ['officialForms', officialFormsMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
@@ -556,6 +582,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       // assets.register and stock.documents are merged into assets and stock above
       ['assets.documents', fromSplit(assetsDocEn, assetsDocRu, assetsDocKk)],
       ['stock.forms', fromSplit(formEn, formRu, formKk)],
+      ['stock.qc', fromSplit(qcEn, qcRu, qcKk)],
       ['formMessages', formMessages],
       ['layoutMessages', layoutMessages],
       ['nav', navMessages],

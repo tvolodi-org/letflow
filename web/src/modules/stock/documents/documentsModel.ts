@@ -34,8 +34,9 @@ export const DOC_REASONS = [
   'busy', 'posting_pending', 'document_posted', 'document_cancelled', 'document_not_posted', 'document_reversed',
   'reversal_pending', 'document_not_issued', 'received_on_in_future', 'external_ref_pair', 'external_ref_taken',
 ] as const
-/** Real answers of main that the entry does not list (assumption: shown with their own message too). */
-export const DOC_EXTRA_REASONS = ['field_invalid', 'event_time_invalid', 'definition_not_active', 'posting_inconsistent'] as const
+/** Real answers of main that the entry does not list (assumption: shown with their own message too).
+ *  idempotency_key_reuse (REQ-848): the server refused because the same key was sent with a different body. */
+export const DOC_EXTRA_REASONS = ['field_invalid', 'event_time_invalid', 'definition_not_active', 'posting_inconsistent', 'idempotency_key_reuse'] as const
 /** REQ-721/723: the two sides of a transfer, hand over or return are the same on every field (client check, also a server answer). */
 export const DOC_SIDE_REASONS = ['sides_equal'] as const
 const ALL_REASONS: readonly string[] = [...DOC_REASONS, ...DOC_EXTRA_REASONS, ...DOC_SIDE_REASONS]

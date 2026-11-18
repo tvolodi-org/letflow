@@ -12,17 +12,21 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithHeaders: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const VIEW = `${LIST}/d1`
 const BUTTONS = ['Edit', 'Discard', 'Issue', 'Retry posting', 'Reverse', 'Cancel document']
 const present = () => BUTTONS.filter((b) => screen.queryByRole('button', { name: b }) !== null)
+/** REQ-848: issue and post now call postWithHeaders with the idempotency-key header. */
+const postWithHeadersTo = (suffix: string) =>
+  clientMock.postWithHeaders.mock.calls.filter(([p]: string[]) => p === `${DOCS}/${suffix}`)
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
   fakeDocument(clientMock, stockDoc())
+  clientMock.postWithHeaders.mockResolvedValue(stockDoc())
 })
 afterEach(() => cleanup())
 
@@ -58,9 +62,10 @@ describe('C4-b draft', () => {
   it('Discard and Issue call after a confirm and re-read', async () => {
     renderStock(VIEW, withPost)
     fireEvent.click(await screen.findByRole('button', { name: 'Issue' }))
-    expect(postsTo(clientMock, 'd1/issue')).toHaveLength(0)
+    expect(postWithHeadersTo('d1/issue')).toHaveLength(0)
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
-    await waitFor(() => expect(postsTo(clientMock, 'd1/issue')).toEqual([[`${DOCS}/d1/issue`]]))
+    await waitFor(() => expect(postWithHeadersTo('d1/issue')).toHaveLength(1))
+    expect(postWithHeadersTo('d1/issue')[0][2]).toMatchObject({ 'idempotency-key': expect.stringMatching(/^[0-9a-f-]{36}$/) })
     await waitFor(() => expect(clientMock.get.mock.calls.filter(([p]) => p === `${DOCS}/d1`).length).toBeGreaterThan(1))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(clientMock.delete).not.toHaveBeenCalled()
@@ -76,7 +81,7 @@ describe('C4-c issued', () => {
     expect(await screen.findByText('Posting waits for the post task in the task inbox.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open the task inbox' })).toHaveAttribute('href', '/tasks')
     fireEvent.click(screen.getByRole('button', { name: 'Retry posting' }))
-    await waitFor(() => expect(postsTo(clientMock, 'd1/post')).toHaveLength(1))
+    await waitFor(() => expect(postWithHeadersTo('d1/post')).toHaveLength(1))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel document' }))
     fireEvent.click(screen.getByTestId('reason-dialog-confirm'))
     expect(postsTo(clientMock, 'd1/cancel')).toHaveLength(0)

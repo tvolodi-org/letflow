@@ -52,6 +52,18 @@ defmodule Letflow.Modules.Stock do
   types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
   migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
 
+  ## Negative balances (REQ-836 / GH #4545, decision 0090; version 0.19.0)
+
+  The `stock` ledger registration declares `negative_balance: :tenant_setting`: every posting and
+  every reversal obeys the tenant's negative balance setting row (no row: refuse, as before). A new
+  cause `opening_negative` (sign rule `negative`) posts an opening document whose lines are all
+  negative; one opening document never mixes signs, and a negative line is accepted only while the
+  tenant allows negative balances (`Letflow.Modules.Stock.PostingRules`). The count posting skips its
+  advisory shortage check on an allow tenant. One read route, `GET /posting-rules` (`StockRead`),
+  answers `{"negative_balance": "allowed" | "refused"}`. No migration, no new permission. The registration is read from
+  the manifest, so an installed tenant follows it at once; no row exists until a tenant administrator
+  switches the setting.
+
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
   The count order: three module-managed record types (`count_order`, `count_order_scope`,
@@ -102,6 +114,35 @@ defmodule Letflow.Modules.Stock do
   Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes; one row per item, place and unit, the item's usual
   place first, `catalog_item.default_location_id`). Read only: no record, posting or audit entry, no migration,
   record type or permission.
+
+  ## Balances workbook check (REQ-884 / GH #4607; no version bump)
+
+  `POST /stock-workbook/check?org_unit_id=<id>` (`StockRead`, tenant-wide readers only; body: an `.xlsx` in the layout
+  above, 2 MiB at most): reads the first worksheet forgivingly (look-alike Cyrillic letters, decimal commas) and answers
+  per-row Russian remarks and the changes a load would make against the stock of that org unit
+  (`Letflow.Modules.Stock.StockWorkbookImport`; runbook `docs/runbooks/stock-workbook-import.md`). Writes nothing: no
+  record, ledger entry, audit entry or document number; no migration, record type or permission.
+
+  ## Balances workbook load (REQ-885 / GH #4606; version 0.21.0)
+
+  `POST /stock-workbook/apply?org_unit_id=<id>[&file_name=<text>]` (`StockQuickCount`, tenant-wide readers only): re-runs
+  the check inside a transaction and, when changes exist, creates and issues a `stock_quick_count` document with one line
+  per change (up to 1000; more than 1000 → 422 `too_many_changes`). The header carries `source: "workbook"`,
+  `file_name`, `sheet`, `rows_read` and `remarks_count`; each line carries `reason_code: "other"` and
+  `reason_text: "Записать остатки из файла"`. A count order whose scope covers any changed key blocks the load with
+  422 `count_in_progress`. No changes → 200 `applied: false`. Created → 201 `document_id, number, lines, remarks,
+  approve_task_id`. No new record type, migration or permission beyond `StockQuickCount`.
+
+  ## Workbook import list and cancel (REQ-886 / GH #4605; no version bump)
+
+  `GET /stock-workbook/imports` (`StockRead`, tenant-wide only, no query key): the last 50 workbook loads newest
+  first; each row carries `document_id, number, created_at, created_by, file_name, sheet, lines, remarks_count,
+  state, reversal_pending` (`Documents.workbook_imports/2`).
+  `POST /stock-workbook/imports/:id/cancel` (`StockReverse`; body `{reason: text}`): reason checked first
+  (422 `reason_required` / `reason_too_long`); issued document → cancelled (200 `{action: "cancelled", lines: N}`);
+  posted document → reversal started (200 `{action: "reverse_pending", lines: N}`); reversal already running →
+  409 `reversal_pending`; already cancelled or reversed → 422 `import_already_cancelled`; unknown / non-workbook /
+  cross-tenant → 404 (`Documents.workbook_cancel/7`). No new permission, record type or migration.
 
   ## Count worksheet (T-1905; no version bump)
 
@@ -209,6 +250,23 @@ defmodule Letflow.Modules.Stock do
   /frozen-locations` (`StockRead`). No migration, no new permission. The no-freeze count of REQ-718 is
   unchanged. Assumptions, owner may change at GATE B: the pair rule, the refused task stays pending.
 
+  ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
+
+  `post_document`, `post_count` and `post_kind_change_out` now declare `reads` for `catalog_item`,
+  `catalog_uom`, `catalog_lot`, `location_node`, `org_unit` and `org_employee`, and
+  `Letflow.Modules.Stock.Handlers` checks every master named by a posting line before it builds any
+  write step. For a line with a `to` side (the side that adds stock): `sku` must be a live active
+  `catalog_item`, `unit` a live active `catalog_uom` equal to the item's `base_uom_id`, a given `lot` a
+  live active `catalog_lot` whose `item_id` equals `sku`, and the to-side `location`, `org_unit` and
+  (if given) `responsible` live active `location_node`, `org_unit` and `org_employee`; the from side of
+  the same line (transfer / hand over / return) is checked for liveness only. For a line with only a
+  `from` side: each of the same ids is a live record of its type (active false is accepted on a removing
+  side). The first failed check returns `{:error, :invalid_arguments}`, which the engine maps to
+  `validation_failed` with audit detail `handler_invalid_arguments`; nothing of the completion commits
+  and the post task stays pending. Each distinct (type, id) pair is read at most once per handler call.
+  A dry build (`read/3` answers `{:error, :dry_build}`) skips all checks. Reversals read nothing
+  (decision 0073 note 9.5): `reverse_document` declares no reads and is not changed.
+
   ## Opening line import (REQ-727 / GH #3773; version 0.10.0)
 
   The manifest registers `import_opening_line/3` for `stock_opening_line` (`:import_functions`): an xlsx
@@ -216,6 +274,21 @@ defmodule Letflow.Modules.Stock do
   document named by the header's external id; it never posts and does not run the line checks (the
   check route does). See `Letflow.Modules.Stock.Documents.OpeningImport`. No route, permission or
   migration. Assumptions, owner may change at GATE B: reference cells use the row's external-ref system.
+
+  ## Quick count (REQ-854 / GH #4564, Qoimeks parity G5 part 2; version 0.20.0)
+
+  The kind `quick_count` (`Letflow.Modules.Stock.Documents.Kinds`; record types `stock_quick_count` and
+  `stock_quick_count_line`, document type `stock_quick_count`, prefix `QCT`): ONE line that sets the
+  balance of one item at one place to the counted quantity (0 allowed, here only). `POST /quick-counts`
+  (permission `StockQuickCount`) reads the book quantity under the caller's stock read authority, stores
+  `book_quantity` and `difference = counted - book`, and issues the document in one transaction; the
+  process `stock_quick_count` (`submit` completed by the counter, `approve` with `distinct_from ["submit"]`)
+  posts the cause `count_set` (ONE leg, quantity = the difference, `expected_on_hand` = the book quantity:
+  a key that moved since is refused `balance_changed`, stock alias `quick_count_stale`). A count equal to
+  the book posts nothing; the document reads `confirmed`. A key inside an opened, unposted, uncancelled
+  count order of the same org unit is refused `count_in_progress` at the route and `location_frozen` at
+  approval (`Letflow.Modules.Stock.FreezeGuard`). A tenant installed before 0.20.0 needs a reinstall for
+  the new document type and process (QA only, as for the opening of 0.9.0).
 
   ## Slots and their order (append-only, rule 12)
 
@@ -228,14 +301,18 @@ defmodule Letflow.Modules.Stock do
 
   `receipt` and `opening` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
   `hand_over` and `return` (zero sum per sku), `count_difference` (REQ-718, sign rule `any`, a reason
-  required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
+  required) and `count_set` (REQ-854, sign rule `any`, a reason required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
 
   ## Permissions
 
   `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
-  `StockCountRecord` (REQ-701: open, count, add surplus lines, close). TENANT_ADMIN, PLATFORM_ADMIN and
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close) and `StockQuickCount` (REQ-854: the
+  quick count). TENANT_ADMIN, PLATFORM_ADMIN and
   STOREKEEPER (D-093, decision 0081) hold them; STOREKEEPER holds all but `StockReconcile` (an administrative
-  reconciliation view; one line in `role_grants` if the owner wants it). OQ-11 of decision 0073 stays open.
+  reconciliation view; one line in `role_grants` if the owner wants it) and `StockQuickCount` (REQ-854: a
+  `role_grants` widening of a role already in the baseline is refused by `mix letflow.permission_matrix` until
+  per-tenant grant snapshots exist, decision 0081 D2, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; adding
+  it to STOREKEEPER is one line in `role_grants` once the tool allows it). OQ-11 of decision 0073 stays open.
   """
 
   @behaviour Letflow.Modules.Module
@@ -269,7 +346,9 @@ defmodule Letflow.Modules.Stock do
     "count_freeze_location",
     "stock_posting_mark",
     "stock_opening",
-    "stock_opening_line"
+    "stock_opening_line",
+    "stock_quick_count",
+    "stock_quick_count_line"
   ]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
@@ -333,16 +412,20 @@ defmodule Letflow.Modules.Stock do
                                  declared_fields: %{}
                                }
 
+  # REQ-854: the quick count (prefix QCT, year numbering, pad 6; assumption, owner may change).
+  @quick_count_type %{@opening_type | key: "stock_quick_count", number_prefix: "QCT"}
+
   @document_types [
                     @receipt_type,
-                    @opening_type | @one_side_document_types ++ @two_side_document_types
+                    @opening_type,
+                    @quick_count_type | @one_side_document_types ++ @two_side_document_types
                   ] ++
                     @count_document_types
 
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.17.0",
+    version: "0.21.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -353,10 +436,17 @@ defmodule Letflow.Modules.Stock do
       :StockRead,
       :StockReconcile,
       :StockCountOrder,
-      :StockCountRecord
+      :StockCountRecord,
+      :StockQuickCount
     ],
     role_grants: %{
-      STOREKEEPER: [:StockRead, :StockPost, :StockReverse, :StockCountOrder, :StockCountRecord]
+      STOREKEEPER: [
+        :StockRead,
+        :StockPost,
+        :StockReverse,
+        :StockCountOrder,
+        :StockCountRecord
+      ]
     },
     required_roles: [],
     settings_schema: %{
@@ -368,6 +458,7 @@ defmodule Letflow.Modules.Stock do
     },
     route_policies: [
       {"GET", "/balances", :StockRead},
+      {"GET", "/posting-rules", :StockRead},
       {"GET", "/movements", :StockRead},
       {"GET", "/reconcile", :StockReconcile},
       {"POST", "/documents", :StockPost},
@@ -381,9 +472,14 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-card/print", :StockRead},
       {"GET", "/stock-sheet/print", :StockRead},
       {"GET", "/stock-workbook", :StockRead},
+      {"POST", "/stock-workbook/check", :StockRead},
+      {"POST", "/stock-workbook/apply", :StockQuickCount},
+      {"GET", "/stock-workbook/imports", :StockRead},
+      {"POST", "/stock-workbook/imports/:id/cancel", :StockReverse},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},
+      {"POST", "/quick-counts", :StockQuickCount},
       {"POST", "/counts", :StockCountOrder},
       {"PUT", "/counts/:id", :StockCountOrder},
       {"POST", "/counts/:id/issue", :StockCountOrder},
@@ -436,7 +532,9 @@ defmodule Letflow.Modules.Stock do
       "count_freeze_location",
       "stock_posting_mark",
       "stock_opening",
-      "stock_opening_line"
+      "stock_opening_line",
+      "stock_quick_count",
+      "stock_quick_count_line"
     ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
@@ -460,7 +558,9 @@ defmodule Letflow.Modules.Stock do
       "count_freeze_location" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"},
       "stock_opening" => {:column, "org_unit_id"},
-      "stock_opening_line" => {:column, "org_unit_id"}
+      "stock_opening_line" => {:column, "org_unit_id"},
+      "stock_quick_count" => {:column, "org_unit_id"},
+      "stock_quick_count_line" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{
@@ -475,7 +575,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "reverse_document",
@@ -504,7 +612,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_kind_change_out",
@@ -518,7 +634,15 @@ defmodule Letflow.Modules.Stock do
           "mark" => %{required: true},
           "posting" => %{required: true}
         },
-        posts_ledger: "stock"
+        posts_ledger: "stock",
+        reads: [
+          "catalog_item",
+          "catalog_uom",
+          "catalog_lot",
+          "location_node",
+          "org_unit",
+          "org_employee"
+        ]
       }
     ],
     import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],
@@ -535,15 +659,18 @@ defmodule Letflow.Modules.Stock do
         causes: %{
           "receipt" => %{sign_rule: :positive, reason_required: false},
           "opening" => %{sign_rule: :positive, reason_required: false},
+          "opening_negative" => %{sign_rule: :negative, reason_required: false},
           "issue" => %{sign_rule: :negative, reason_required: false},
           "write_off" => %{sign_rule: :negative, reason_required: true},
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "count_difference" => %{sign_rule: :any, reason_required: true},
+          "count_set" => %{sign_rule: :any, reason_required: true},
           "kind_change_out" => %{sign_rule: :negative, reason_required: false}
         },
         key_bounds: [],
+        negative_balance: :tenant_setting,
         permissions: %{
           post: :StockPost,
           reverse: :StockReverse,
@@ -555,7 +682,8 @@ defmodule Letflow.Modules.Stock do
         posting_guard: {Letflow.Modules.Stock.FreezeGuard, :check},
         error_aliases: %{
           "insufficient_balance" => "insufficient_stock",
-          "posting_held" => "location_frozen"
+          "posting_held" => "location_frozen",
+          "balance_changed" => "quick_count_stale"
         },
         policy: {Letflow.Modules.Stock.LedgerPolicy, :declare}
       }

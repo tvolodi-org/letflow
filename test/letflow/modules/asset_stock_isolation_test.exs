@@ -109,7 +109,9 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:count, "GET", "/counts/:id/posting-document", nil, :none},
     {:count, "GET", "/counts/:id/signatures", nil, :none},
     {:count, "GET", "/counts/:id/paperwork/:kind", nil, :call},
-    {:count, "GET", "/counts/:id/print/:kind", nil, :call}
+    {:count, "GET", "/counts/:id/print/:kind", nil, :call},
+    # REQ-886 (G8): cancel or start the reversal of a workbook load.
+    {:swb, "POST", "/stock-workbook/imports/:id/cancel", :cancel, :call}
   ]
 
   setup do
@@ -381,7 +383,17 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
       # book and open an order; returns its id in state `counting`
       counting = fn w ->
-        S.post!(s, "receipt", %{lines: [S.line(S.uuid(), "10", %{to: S.side(w.unit, w.a)})]})
+        # REQ-832: the posting checks its masters, so the booked item and unit are real catalog records.
+        n = System.unique_integer([:positive])
+        uom = Letflow.CatalogItemsFixture.uom!(s, "ISL#{n}")
+        item = Letflow.CatalogItemsFixture.item!(s, "ISLI#{n}", uom.record_id)
+
+        S.post!(s, "receipt", %{
+          lines: [
+            S.line(item.record_id, "10", %{to: S.side(w.unit, w.a)}, %{unit: uom.record_id})
+          ]
+        })
+
         id = ok.(call(@stock, "POST", "/counts", chair_tok, CF.input(w, window)), 201)["id"]
         ok.(call(@stock, "POST", "/counts/#{id}/issue", chair_tok, %{}), 200)
         ok.(call(@stock, "POST", "/counts/#{id}/open", chair_tok, %{}), 200)
@@ -493,7 +505,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
             {@stock, ctx.tok_sb, "/reconcile"},
             {@stock, ctx.tok_sb, "/stock-card/print"},
             {@stock, ctx.tok_sb, "/stock-sheet/print"},
-            {@stock, ctx.tok_sb, "/stock-workbook"}
+            {@stock, ctx.tok_sb, "/stock-workbook"},
+            {@stock, ctx.tok_sb, "/posting-rules"}
           ],
           key <- ["tenant_id", "tenant", "prefix", "schema"] do
         value = if key == "tenant_id", do: ctx.aa.tenant_id, else: ctx.aa.schema_name

@@ -2,7 +2,7 @@
 """qoimeks_balances_compare.py -- RH-7: quantity per item and place, Letflow balances xlsx vs Qoimeks balances.csv. T-2024.
 
 Read-only and offline: it opens two files, prints a report, writes nothing, opens no network connection and reads no secret.
-Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 7).
+Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 8).
 
   python3 -I scripts/pilot/qoimeks_balances_compare.py --xlsx stock-balances.xlsx --csv balances.csv \\
       [--items items.csv] [--locations locations.csv] [--mapping map.json] [--keep-nonpositive]
@@ -11,8 +11,9 @@ Run it on QA copies only (docs/runbooks/qoimeks-rehearsal.md, step 7).
 --csv    the Qoimeks extract (columns sku, loc, qty), the same one `qoimeks_convert.py convert` reads; --mapping as there.
 --items / --locations  optional extract files (sku, sku_name / loc_code, loc_name): only used to print names next to the codes.
 
-Rows with a quantity of zero or below are left out on BOTH sides (the converter drops them, rule R-2) and counted in the
-summary; --keep-nonpositive compares them too. Duplicate (item, place) rows are summed on both sides.
+Rows with a quantity of zero or below are left out on BOTH sides by default and counted in the summary;
+--keep-nonpositive compares them too. The runbook's step 6 checks the negative keys that REQ-837 loads.
+Duplicate (item, place) rows are summed on both sides.
 
 Output: one `DIFF <kind> <item> <place> csv=<q> xlsx=<q>` line per difference (kind: only_csv, only_xlsx, quantity), with
 names when given, then `HASH csv|xlsx <sha256>` and `ROWS csv|xlsx N`. The hash is over the sorted lines

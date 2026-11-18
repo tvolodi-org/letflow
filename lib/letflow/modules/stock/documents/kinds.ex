@@ -22,6 +22,20 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   Each kind has its own `device_id`: the offline idempotency triple `(device_id, client_seq)` must not
   collide across kinds, because each document type numbers on its own.
   Assumptions, owner may change at GATE B: prefixes `TRF`, `HOV`, `RET`, `ISS`, `WOF`.
+
+  REQ-854: `quick_count` (header `stock_quick_count`, line `stock_quick_count_line`, prefix `QCT`, cause
+  `count_set`) has ONE line and no event time when created by `POST /quick-counts`
+  (`Letflow.Modules.Stock.Documents.quick_count/4`, `Letflow.Modules.Stock.Documents.QuickCountShape`):
+  `parse/2` answers `unknown_kind` for it, so `POST /documents` and `PUT /documents/:id` cannot reach it.
+  Its header keys are `org_unit_id`, `reason_code` and `reason_text`; the line carries the place, the item and
+  the counted, book and difference quantities. `sides/2` is `{nil, nil}` (the leg side follows the sign of the
+  difference, `Letflow.Modules.Stock.Documents.QuickCountPosting`).
+
+  REQ-885: when created by `POST /stock-workbook/apply` (`Letflow.Modules.Stock.Documents.workbook_apply/6`)
+  the `quick_count` document may have MORE THAN ONE line. The header schema is unchanged (`org_unit_id`,
+  `reason_code`, `reason_text`); the workbook-load keys `source`, `file_name`, `sheet`, `rows_read`,
+  `remarks_count` and the per-line reason are stored in the version content under `workbook_ext`
+  (`Letflow.Modules.Stock.Documents.workbook_apply/6`).
   """
 
   alias Letflow.Modules.Stock.Documents.OpeningShape
@@ -35,6 +49,7 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   @return_keys @two_side_common ++ ~w(from_org_unit_id to_location_id to_responsible_id)
 
   @opening_keys ~w(org_unit_id note external_ref_system external_ref_id)
+  @quick_count_keys ~w(org_unit_id reason_code reason_text)
 
   @table [
     %{
@@ -134,6 +149,20 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
       id_keys: ~w(org_unit_id),
       two_sided?: false,
       completion_node: "approve"
+    },
+    %{
+      kind: "quick_count",
+      type_key: "stock_quick_count",
+      line_type: "stock_quick_count_line",
+      definition: "stock_quick_count",
+      cause: "count_set",
+      prefix: "QCT",
+      device_id: nil,
+      header_keys: @quick_count_keys,
+      required: ~w(org_unit_id reason_code),
+      id_keys: ~w(org_unit_id),
+      two_sided?: false,
+      completion_node: "approve"
     }
   ]
 
@@ -169,7 +198,7 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   @spec definition_names() :: [String.t()]
   def definition_names, do: Enum.map(@table, & &1.definition)
 
-  @withdrawable ~w(issue write_off transfer hand_over return)
+  @withdrawable ~w(issue write_off transfer hand_over return quick_count)
 
   @doc """
   True for the kinds whose posting the ledger can refuse for stock (negative or zero-sum legs): an
@@ -186,12 +215,33 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   Parses a save or replace body; `mode` is `:create` or `{:replace, kind}`. `opening` goes to
   `Letflow.Modules.Stock.Documents.OpeningShape` (REQ-725), every other kind to
   `Letflow.Modules.Stock.Documents.Shape` (which answers `unknown_kind` for a kind it does not know).
+  `quick_count` (REQ-854) is refused `unknown_kind` in both modes.
   """
-  @spec parse(term(), :create | {:replace, String.t()}) ::
+  @spec parse(term(), :create | {:replace, String.t()}, boolean()) ::
           {:ok, map()} | {:error, {String.t(), map()}}
-  def parse(%{"kind" => "opening"} = body, :create), do: OpeningShape.parse(body, :create)
-  def parse(body, {:replace, "opening"}), do: OpeningShape.parse(body, {:replace, "opening"})
-  def parse(body, mode), do: Shape.parse(body, mode)
+  def parse(body, mode, allow_negative? \\ false)
+
+  def parse(%{"kind" => "quick_count"}, :create, _allow_negative?),
+    do: {:error, {"unknown_kind", %{}}}
+
+  def parse(_body, {:replace, "quick_count"}, _allow_negative?),
+    do: {:error, {"unknown_kind", %{}}}
+
+  def parse(%{"kind" => "opening"} = body, :create, allow_negative?),
+    do: OpeningShape.parse(body, :create, allow_negative?)
+
+  def parse(body, {:replace, "opening"}, allow_negative?),
+    do: OpeningShape.parse(body, {:replace, "opening"}, allow_negative?)
+
+  def parse(body, mode, _allow_negative?), do: Shape.parse(body, mode)
+
+  @doc """
+  The ledger causes a document of `spec` can be posted under (REQ-836): an opening is `opening` or,
+  when all its lines are negative, `opening_negative`; every other kind has its one cause.
+  """
+  @spec causes(spec()) :: [String.t()]
+  def causes(%{kind: "opening"}), do: ["opening", "opening_negative"]
+  def causes(%{cause: cause}), do: [cause]
 
   @doc "The spec whose header record type / document type is `type_key`, or `nil`."
   @spec by_type_key(term()) :: spec() | nil
@@ -225,7 +275,7 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   receipt, `to` is `nil` for an issue and a write-off. A missing field is `nil` in the side.
   """
   @spec sides(spec(), map()) :: {side() | nil, side() | nil}
-  def sides(%{kind: "opening"}, _header), do: {nil, nil}
+  def sides(%{kind: kind}, _header) when kind in ["opening", "quick_count"], do: {nil, nil}
 
   def sides(%{kind: "receipt"}, header) do
     {nil, side(header, "org_unit_id", "location_id", "responsible_id")}

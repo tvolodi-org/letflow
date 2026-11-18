@@ -215,8 +215,9 @@ platform company). Slice P7.
   browsers; no PWA is needed for that.
 - Flutter client: the camera already used by the codes scan screen (`docs/assets/phone-flows.md`, section 1) is
   reused for a still photo; slice P8.
-- Before upload the client shows the thumbnails with a remove button; upload is one request per photo with an
-  idempotency key, so a retried request after a network failure does not make a second photo.
+- Before upload the client shows the thumbnails with a remove button; upload is one request per photo; a retried
+  request whose bytes already exist under the same owner returns 200 and is treated as success (content-based
+  replay by the server), so a retry after a network failure does not make a second photo.
 
 ### 5.12 Offline
 v1 is online, as every phone flow is (MOB-8). A photo that fails to upload stays in the open form with "Retry" until
@@ -260,7 +261,7 @@ Sizes: S = under one day of one task, M = one to two tasks, L = needs a split at
 |---|-------|----------|------|-------|--------|
 | P1 | Service core | the two tables (tenant migration), `Letflow.Attachments` add/list/get/delete/reorder/set-main/caption, the byte checks and strip (5.1, 5.2), caps, allowance counting, audit, owner registry, GPS fixture test; no route | M | — | security (untrusted file input, tenant data) |
 | P2 | Gallery routes for one owner — **built (T-2041)** | `PhotosAdd`, `PhotosDelete` atoms; routes for `assets_card` in the assets router; permission matrix golden | M | P1 | security (new atoms and routes, INV-10 negative) |
-| P3 | Gallery screen | gallery on the asset card: upload by button, drop, paste, camera input on phone, caption, order, main, delete; main-photo thumbnail in the card list; ru/kk/en; screenshot matrix | M | P2 | gui review |
+| P3 | Gallery screen — **built (T-2042)** | gallery on the asset card: upload by button, drop, paste, camera input on phone, caption, order, main, delete; main-photo thumbnail in the card list; ru/kk/en; screenshot matrix | M | P2 | gui review |
 | P4 | Gallery on the other masters | registry lines and screens for `catalog_item`, `catalog_lot`, `location_node` | M | P3 | gui review |
 | P4a | Registry support — **built (T-2044)** | three `Owners` entries (`catalog_item`, `catalog_lot`, `location_node`), service-contract tests; no routes, no UI | — | P3 | security |
 | P4b | Authenticated photo routes (after T-2044) | `EntitiesQuery`/type/scope checks for the three owners, STOREKEEPER `PhotosAdd` via core role rule, real-router tests, permission-matrix golden | — | P4a | security |

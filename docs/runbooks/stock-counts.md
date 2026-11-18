@@ -199,6 +199,57 @@ Assumptions, owner may change at GATE B: the pair rule rather than the whole pla
 scheduled expiry job, the flag cannot change after issue. Existing installs take the new type and fields through the
 module-upgrade path; no row exists before, nothing is backfilled.
 
+## Quick count (REQ-854, GH #4564; module `stock` 0.20.0)
+
+A counter (a TENANT_ADMIN or PLATFORM_ADMIN user; see "Who holds it" below) counts ONE item at ONE place and types the number; after posting, the balance of that key IS the counted
+number, whatever it was before (the Qoimeks adjustment). The change is a normal ledger movement (cause `count_set`,
+sign rule `any`, reason required), undone by one reversal. Quantity 0 is allowed here and only here: the other kinds
+keep `quantity_invalid` for a line quantity of 0. The formal count order above stays the tool for a commission count.
+
+| Route | Permission | Ok | Refusals |
+|---|---|---|---|
+| `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `book_quantity_negative`, `count_in_progress` with `held_by` |
+
+* **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule) and PLATFORM_ADMIN (core rule). STOREKEEPER does
+  not hold it: the permission matrix check (`mix letflow.permission_matrix --check`) refuses a `role_grants` widening of a role
+  already in the baseline until per-tenant grant snapshots exist (decision 0081 D2), so the spec's STOREKEEPER grant is deferred
+  and is one line in the stock manifest's `role_grants` once the tool allows it. A STOREKEEPER gets 403.
+
+* **Body.** Flat: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (decimal text, 0 or
+  more, at most 9 decimals), `reason_code` (`recount`, `found`, `missing`, `damaged`, `other`), optional `catalog_lot_id`
+  (required for a lot-tracked item), `responsible_id`, `reason_text` (1 to 500 characters, required for `other`).
+  Serial-tracked items are refused `tracking_policy_not_supported`, as for receipts. `POST /documents` and
+  `PUT /documents/:id` refuse the kind `quick_count` (`unknown_kind`), so the permission cannot be bypassed.
+  Read, cancel, reverse and print use the existing `/documents` routes.
+* **One call.** The route reads the book quantity of the key (balance of that exact item, place, org unit, responsible
+  and lot) with the caller's stock read authority, stores it as `book_quantity` with `difference` = counted minus book,
+  and issues the document in the same transaction. A refusal stores nothing and takes no number.
+* **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
+  issue, `approve` (role TENANT_ADMIN like every stock posting task, `distinct_from submit`) posts. Four eyes are ON by
+  default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
+  it OFF one person counts and approves (one `task.self_approved` audit entry). The first quick count of a tenant must
+  be issued by a user who may activate definitions (the lazy activation is as for every stock kind).
+* **Stale.** The posting carries `expected_on_hand` = the book quantity (REQ-853). If anything moved the key between the
+  count and the approval the core refuses `balance_changed` (stock alias `quick_count_stale`, 409), the task stays
+  pending: cancel the document and count again. The balance never ends as "old plus difference" by accident.
+* **Equal.** A count equal to the book makes no process instance and no ledger entry; the document reads `confirmed`
+  (who and when are still recorded).
+* **Negative book.** A key whose book quantity is negative (tenant setting) is refused `book_quantity_negative`: the
+  compare-and-set value is at least 0 (decision 0073, REQ-853).
+* **Formal count rule.** A quick count on a key inside the scope of a count order of the same org unit that has been
+  opened and is not posted or cancelled (`counting`, `counted`, `signed`, no `posted` mark; the scope is the order's
+  `count_order_scope` locations and everything below them) is refused at the route with `422 count_in_progress` and
+  `held_by` the order number, and at approval (and for its reversal) with `409 location_frozen` and `held_by`
+  (`Letflow.Modules.Stock.FreezeGuard`, whether or not the order freezes). Why: in the default no-freeze mode the formal
+  count posts a delta from the cut-off, so a quick count after the cut-off would be counted twice (Known gaps 1 and 3
+  above). A quick count before the order is opened is in the book of the cut-off. A frozen location refuses it like
+  every posting. Any other document type is decided as before (REQ-765 unchanged).
+* **Not here.** The web and phone screens (REQ-855, REQ-856), several lines per quick count and the import of balances as
+  adjustments (G8), a client retry id (G7: a retried create makes a second document, whose approval is refused
+  `quick_count_stale` once the first posted).
+
+An install older than 0.20.0 needs a reinstall for the new document type and process (QA only).
+
 ## The count worksheet (T-1905; no version bump)
 
 A print of the order for the field, to count on paper and type in later. `GET /api/v1/modules/stock/counts/:id/print/worksheet?lang=ru|kk|en&expected=0|1`

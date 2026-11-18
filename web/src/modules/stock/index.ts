@@ -6,7 +6,7 @@
  */
 import type { ModuleDefinition } from '@/modules/types'
 import { stockRouteObjects } from './stockRoutes'
-import { STOCK_POST, STOCK_READ } from './stockPermissions'
+import { STOCK_POST, STOCK_QUICK_COUNT, STOCK_READ } from './stockPermissions'
 import { stockMessages } from './stockMessages'
 
 function importLabels(entityType: string) {
@@ -24,5 +24,6 @@ export const stockModuleDefinition: ModuleDefinition = {
     { to: '/admin/stock/balances', label: 'Balances', permission: STOCK_READ },
     { to: '/admin/stock/movements', label: 'Movements', permission: STOCK_READ },
     { to: '/admin/stock/counts', label: 'Counts', permission: STOCK_READ },
+    { to: '/admin/stock/quick-count', label: 'Quick count', permission: STOCK_QUICK_COUNT },
   ],
 }

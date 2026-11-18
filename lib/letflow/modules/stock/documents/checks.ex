@@ -6,14 +6,14 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   from the `stock` ledger registration, not a second literal) before the clock nor more than 5 minutes
   after it; the boundaries are accepted, one second beyond is refused (`event_time_too_old`,
   `event_time_in_future`). `masters/2` runs the master checks of decision 0073 D-P (`declare/2` reads no
-  master data; the ledger's own master validation is slice L7), in the order of the entry, and stops at
+  master data; the master checks at posting are in the stock handlers, REQ-832), in the order of the entry, and stops at
   the first failure: the org unit and the location are linked (`not_linked`), the responsible employee is
   active (`employee_not_active`), a given counterparty is a live active `catalog_counterparty`
   (`counterparty_not_active`), then per line in `line_no` order the unit is valid for the item
   (`unit_not_valid`) and a given lot belongs to the item (`lot_not_valid`). A failure carries the
   reason and, for a line check, its `line_no`; for a two-sided kind (REQ-721) the from side is checked
-  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is not
-  caught until L7 (runbook).
+  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is caught
+  at posting by the stock handlers (REQ-832, runbook).
 
   REQ-714 / GH #3747: `received_on/2` refuses a real receipt date after the event day (local date in the
   constant zone `Asia/Almaty`, read from PostgreSQL because the project has no Elixir tz database;
@@ -114,6 +114,39 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
       lines(prefix, view)
     end
   end
+
+  @doc """
+  REQ-854: the master checks of the one line of a quick count, before anything is stored. `header` and
+  `line` are the parsed maps of `QuickCountShape` (string keys). In order: the location is linked to the
+  org unit (`not_linked`), a given responsible employee is active (`employee_not_active`), the unit is
+  valid for the item (`unit_not_valid`), the tracking policy (`lot_required`, `lot_not_allowed`,
+  `lot_expiry_missing`, `tracking_policy_not_supported`, `tracking_invalid`), a given lot belongs to the
+  item (`lot_not_valid`). Another tenant's ids are not found, so they fail the first check that reads them.
+  """
+  @spec quick_count(String.t(), map(), map()) :: :ok | refusal()
+  def quick_count(prefix, header, line) do
+    unit = Map.get(header, "org_unit_id")
+
+    with :ok <- check(Locations.linked?(prefix, unit, Map.get(line, "location_id")), "not_linked"),
+         :ok <- optional_employee(prefix, Map.get(line, "responsible_id")) do
+      view_line = %{
+        line_no: 1,
+        catalog_item_id: Map.get(line, "catalog_item_id"),
+        catalog_uom_id: Map.get(line, "catalog_uom_id"),
+        catalog_lot_id: Map.get(line, "catalog_lot_id")
+      }
+
+      case line(prefix, view_line, :ok) do
+        {:cont, :ok} -> :ok
+        {:halt, error} -> error
+      end
+    end
+  end
+
+  defp optional_employee(_prefix, nil), do: :ok
+
+  defp optional_employee(prefix, id),
+    do: check(Org.active_employee?(prefix, id), "employee_not_active")
 
   defp side(_prefix, nil, _name), do: :ok
 

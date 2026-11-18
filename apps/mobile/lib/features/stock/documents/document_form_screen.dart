@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../api/api_client.dart' show WriteCapableHttpGateway;
 import '../../../api/api_error.dart';
 import '../../../i18n/i18n.dart';
 import '../../../renderers/renderer_state.dart';
@@ -23,6 +24,7 @@ import 'documents_providers.dart';
 import '../../../offline/offline_queue.dart' show QueuedDraft;
 import 'offline_providers.dart';
 import '../voice/voice_panel.dart';
+import 'negative_balance.dart';
 import 'picker_sheet.dart';
 import 'scan_fill_sheet.dart';
 
@@ -48,12 +50,14 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   RendererState<DocDraft> _load = const RendererLoading();
   bool _notFound = false;
   late final StockDocumentsApi _api;
+  late final WriteCapableHttpGateway _gateway;
   late final PickerLoader _pickers;
 
   @override
   void initState() {
     super.initState();
     final gateway = ref.read(stockGatewayProvider);
+    _gateway = gateway;
     _api = StockDocumentsApi(gateway);
     _pickers = PickerLoader(gateway);
     final kind = widget.kind;
@@ -97,7 +101,9 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
       draft: draft,
       queue: ref.read(offlineQueueProvider),
       replacesQueuedId: widget.queuedId,
+      negativeCheck: NegativeBalanceCheck(NegativeBalanceApi(_gateway)),
     )..addListener(_onChange);
+    unawaited(_controller!.refreshNegative());
   }
 
   Future<void> _fetch() async {
@@ -595,6 +601,29 @@ class _LineEditor extends ConsumerWidget {
               onChanged: (v) =>
                   c.setLine(index, c.draft.lines[index].copyWith(quantity: v)),
             ),
+            if (c.negativeLines.contains(index))
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  key: Key('stock-doc-line-$index-negative'),
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.tertiary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        tr('stock.doc.negativeBalance'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.tertiary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             if (spec.hasPrice) ...[
               TextFormField(
                 key: Key('stock-doc-line-$index-unit_price'),

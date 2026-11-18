@@ -6,6 +6,7 @@ import { helpEn, helpKk, helpRu } from './help/stockHelpMessages'
 import { docEn, docKk, docRu } from './documents/documentsMessages'
 import { formEn, formKk, formRu } from './forms/officialFormMessages'
 import { countsEn, countsKk, countsRu } from './counts/countsMessages'
+import { qcEn, qcKk, qcRu } from './quickCount/quickCountMessages'
 
 export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type StockUiLocale = UiLocale
@@ -446,7 +447,7 @@ const kk: Record<string, string> = {
 }
 
 export const stockMessages: Record<StockUiLocale, Record<string, string>> = {
-  en: { ...en, ...countsEn, ...formEn, ...helpEn },
-  ru: { ...ru, ...countsRu, ...formRu, ...helpRu },
-  kk: { ...kk, ...countsKk, ...formKk, ...helpKk },
+  en: { ...en, ...countsEn, ...formEn, ...helpEn, ...qcEn },
+  ru: { ...ru, ...countsRu, ...formRu, ...helpRu, ...qcRu },
+  kk: { ...kk, ...countsKk, ...formKk, ...helpKk, ...qcKk },
 }

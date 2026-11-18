@@ -336,34 +336,31 @@ defmodule Letflow.AttachmentsTest do
       assert link_count(c) == 10
     end
 
-    test "S-RATE 60 links of the actor in the last hour block the next add; older ones do not count",
+    test "S-RATE 60 upload_events of the actor in the last hour block the next add; older ones do not count",
          c do
-      first = add!(c, 1)
-      blob_id = first.blob_id
       now = DateTime.utc_now()
 
-      rows = fn age_seconds, count ->
+      upload_events = fn age_seconds, count ->
         for _ <- 1..count do
           %{
             id: Ecto.UUID.bingenerate(),
-            tenant_id: Ecto.UUID.dump!(c.fx.tenant_id),
-            owner_kind: "other_owner",
-            owner_id: Ecto.UUID.bingenerate(),
-            purpose: "photo",
-            position: 1,
-            is_main: false,
-            blob_id: Ecto.UUID.dump!(blob_id),
-            uploaded_by: Ecto.UUID.dump!(c.actor),
-            inserted_at: DateTime.add(now, -age_seconds, :second),
-            updated_at: now
+            actor_id: Ecto.UUID.dump!(c.actor),
+            inserted_at: DateTime.add(now, -age_seconds, :second)
           }
         end
       end
 
-      Repo.insert_all("attachment_links", rows.(7200, 59), prefix: c.prefix)
+      # 59 events older than 1 hour: none count towards the limit
+      Repo.insert_all("upload_events", upload_events.(7200, 59), prefix: c.prefix)
+      # check_rate sees 0 in window → succeeds, records 1 upload_event
+      assert {:ok, _, :created} = add(c, 1)
+
+      # 58 more events within the window → 1 (real) + 58 = 59 in window
+      Repo.insert_all("upload_events", upload_events.(60, 58), prefix: c.prefix)
+      # check_rate sees 59 in window → succeeds, records another → now 60 in window
       assert {:ok, _, :created} = add(c, 2)
 
-      Repo.insert_all("attachment_links", rows.(60, 58), prefix: c.prefix)
+      # check_rate sees 60 in window (>= @uploads_per_hour) → rate exceeded
       assert {:error, :upload_rate_exceeded} = add(c, 3)
     end
 
@@ -372,6 +369,46 @@ defmodule Letflow.AttachmentsTest do
       assert {:ok, again, :replayed} = add(c, 1)
       assert again.id == link.id
       assert {link_count(c), length(audits(c))} == {1, 1}
+    end
+
+    test "T-2133-A add then delete does not reset the rate counter; 61 uploads are refused on the 61st",
+         c do
+      # Upload 59 and delete each one; the upload_events table retains one row per upload.
+      for n <- 1..59 do
+        {:ok, link, :created} = add(c, n)
+        {:ok, _} = Attachments.delete(c.prefix, c.owner, link.id, c.ctx, false)
+      end
+
+      # 59 upload_events in the window; one more slot
+      assert {:ok, _, :created} = add(c, 60)
+
+      # 60 upload_events in the window; next add is refused before image parsing
+      assert {:error, :upload_rate_exceeded} = add(c, 61)
+    end
+
+    @tag timeout: 60_000
+    test "T-2133-B a throttled upload does not reach the image parser or virus scanner", c do
+      # Fill the rate limit via upload_events directly (avoid 60 real parses in this test).
+      now = DateTime.utc_now()
+
+      rows =
+        for _ <- 1..60 do
+          %{
+            id: Ecto.UUID.bingenerate(),
+            actor_id: Ecto.UUID.dump!(c.actor),
+            inserted_at: now
+          }
+        end
+
+      Repo.insert_all("upload_events", rows, prefix: c.prefix)
+
+      # Register our scanner so we can detect if it was called.
+      put_scanner!(Recorder)
+      Process.register(self(), :t2040_scan_recorder)
+
+      assert {:error, :upload_rate_exceeded} = add(c, 1)
+
+      refute_received {:scanned, _}, "scanner was called on a throttled upload"
     end
   end
 

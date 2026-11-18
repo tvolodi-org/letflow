@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
   test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.9.0" do
     m = Stock.manifest()
-    assert m.version == "0.17.0" and Catalog.validate(m) == :ok
+    assert m.version == "0.21.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
     assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
 
@@ -60,7 +60,8 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
                :StockRead,
                :StockReconcile,
                :StockCountOrder,
-               :StockCountRecord
+               :StockCountRecord,
+               :StockQuickCount
              ]
 
     assert m.role_grants == %{
@@ -205,7 +206,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
     end
 
     # the receipt, the opening (REQ-725), issue and write-off (REQ-715), the three two-sided kinds
-    # and the four count types
-    assert length(Repo.all(DocumentType, prefix: s)) == 11
+    # the quick count (REQ-854) and the four count types
+    assert length(Repo.all(DocumentType, prefix: s)) == 12
   end
 end

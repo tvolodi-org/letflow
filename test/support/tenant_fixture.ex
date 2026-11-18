@@ -143,6 +143,8 @@ defmodule Letflow.TenantFixture do
     "attachment_links",
     "audit_chain_locks",
     "audit_entries",
+    # REQ-859: uuid-to-integer mapping for the old-app address (sku_id).
+    "catalog_item_int_ids",
     "correlation_cursors",
     "definition_sequence",
     "dlq_entries",
@@ -186,7 +188,11 @@ defmodule Letflow.TenantFixture do
     "ledger_counter",
     "ledger_entry",
     "ledger_leg",
+    # REQ-859: location_id mapping for the old-app address.
+    "location_node_int_ids",
     "lua_script_execution_audit",
+    # REQ-859: movement id mapping for the old-app address.
+    "movement_int_ids",
     "number_sequence_counters",
     "number_sequence_definitions",
     "number_sequence_numbers",
@@ -218,7 +224,10 @@ defmodule Letflow.TenantFixture do
     "script_rules",
     "script_task_dispatches",
     "service_task_dispatches",
+    "shared_stock_access",
     "solution_pack_overrides",
+    # REQ-846: stock document create idempotency table.
+    "stock_create_idempotency",
     "tasks",
     "tenant_currencies",
     "tenant_logos",
@@ -227,6 +236,8 @@ defmodule Letflow.TenantFixture do
     "tenant_role",
     "timers",
     "tokens",
+    # T-2133: upload events for the deletion-proof rolling-hour rate limit.
+    "upload_events",
     "user_entity_grants",
     "user_entity_type_grants",
     "user_entity_type_write_grants",

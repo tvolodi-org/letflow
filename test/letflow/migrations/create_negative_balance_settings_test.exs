@@ -37,7 +37,7 @@ defmodule Letflow.CreateNegativeBalanceSettingsTest do
     schema = fx.schema_name
 
     assert {@version, CreateNegativeBalanceSettings} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -1)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -5)
 
     refute check_exists?(schema)
 

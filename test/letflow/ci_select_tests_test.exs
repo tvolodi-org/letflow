@@ -17,7 +17,7 @@ defmodule Letflow.CiSelectTestsTest do
   defp select(files, extra \\ []) do
     plan = Path.join(System.tmp_dir!(), "sel_plan_#{System.unique_integer([:positive])}.txt")
     input = Enum.join(files, "\n") <> "\n"
-    base = ["--event", "merge_group", "--commits-since-full", "2", "--plan-out", plan]
+    base = ["--event", "merge_group", "--plan-out", plan]
 
     {out, 0} =
       System.cmd(
@@ -46,7 +46,8 @@ defmodule Letflow.CiSelectTestsTest do
     {kv, plan} = select([@leaf])
     assert kv["mode"] == "selective", inspect(kv)
     assert String.to_integer(kv["selected_count"]) in 1..600
-    assert kv["reason"] =~ "test files related"
+    # reason contains "test files" in both normal and single-module formats
+    assert kv["reason"] =~ "test files", inspect(kv)
     assert Enum.all?(plan, &Regex.match?(~r/^\d+ test\/.+_test\.exs$/, &1))
     assert length(plan) == String.to_integer(kv["selected_count"])
   end
@@ -68,8 +69,7 @@ defmodule Letflow.CiSelectTestsTest do
           ".github/workflows/ci.yml",
           "scripts/ci_select_tests.py",
           "test/shard_manifest.txt",
-          "lib/letflow/ledger/entry.ex",
-          "lib/letflow/authorization.ex"
+          "lib/letflow/ledger/entry.ex"
         ] do
       {kv, _} = select([@leaf, p])
       assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
@@ -80,7 +80,6 @@ defmodule Letflow.CiSelectTestsTest do
   test "S3b: module-write authorization and module installs run the full suite (T-1403)" do
     for p <- [
           "lib/letflow/modules/installs.ex",
-          "lib/letflow/modules/ledger_registration.ex",
           "lib/letflow/modules/tenant_module.ex",
           "lib/letflow/entities/handler_writes.ex",
           "lib/letflow/engine.ex",
@@ -102,12 +101,23 @@ defmodule Letflow.CiSelectTestsTest do
           "lib/letflow/identity.ex",
           "lib/letflow/identity/role_registry.ex",
           "lib/letflow/identity/role_backfill.ex",
-          "lib/letflow/identity_migration.ex",
+          "lib/letflow/identity_migration.ex"
+        ] do
+      {kv, _} = select([p])
+      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+    end
+  end
+
+  # T-2137: lib/letflow/modules/<m>/stock.ex and exam.ex define role_grants but are module-scoped;
+  # after T-2136 they use single-module selective mode (global pins cover permission matrix).
+  test "S3e: a module-scoped role_grants file uses single-module mode, not full (T-2137)" do
+    for p <- [
           "lib/letflow/modules/stock/stock.ex",
           "lib/letflow/modules/exam/exam.ex"
         ] do
       {kv, _} = select([p])
-      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+      assert kv["mode"] == "selective", "#{p}: #{inspect(kv)}"
+      assert kv["reason"] =~ "single module", "#{p}: #{inspect(kv)}"
     end
   end
 
@@ -136,23 +146,6 @@ defmodule Letflow.CiSelectTestsTest do
     end
 
     assert {%{"mode" => "full"}, _} = select([])
-  end
-
-  test "S6: the 10th merge since the last green full run is full; unknown counter is full" do
-    {kv, _} = select([@leaf], ["--commits-since-full", "10"])
-    assert kv["mode"] == "full"
-    assert kv["reason"] =~ "10 merges since"
-
-    {kv, _} = select([@leaf], ["--commits-since-full", "9"])
-    assert kv["mode"] == "selective"
-
-    {out, 0} =
-      System.cmd("bash", ["-c", "echo #{@leaf} | python3 -I #{@script} --event merge_group"],
-        cd: @root
-      )
-
-    assert out =~ "mode=full"
-    assert out =~ "counter unknown"
   end
 
   test "S7: a forced full run (red main fix group) and a selection error are full" do
@@ -271,7 +264,6 @@ defmodule Letflow.CiSelectTestsTest do
     } do
       assert yml =~ "scripts/ci_select_tests.py"
       assert yml =~ "vars.CI_SELECTIVE"
-      assert yml =~ "ci-full-green"
       assert yml =~ "ci-main-red"
       assert yml =~ "main full CI red"
       assert yml =~ "TEST_PARALLEL_PLAN"
@@ -281,7 +273,6 @@ defmodule Letflow.CiSelectTestsTest do
 
     test "docs describe the scheme" do
       doc = File.read!(Path.join([@root, "docs", "merge" <> "-queue.md"]))
-      assert doc =~ "ci-full-green"
       assert doc =~ "ci-main-red"
       assert doc =~ "CI_SELECTIVE"
     end
@@ -315,5 +306,88 @@ defmodule Letflow.CiSelectTestsTest do
     assert yml =~ "bash scripts/ci_emit_outputs.sh"
     refute yml =~ ~S|printf '%s'; echo "PLAN_EOF"|
     assert script =~ ~S|printf '%s\n'|
+  end
+
+  describe "single-module selective mode (T-2137)" do
+    @stock_lib "lib/letflow/modules/stock/count_posting.ex"
+    @stock_priv "priv/modules/stock/pack.json"
+    @exam_lib "lib/letflow/modules/exam/authoring.ex"
+
+    test "M1: a stock-only lib diff selects no exam test" do
+      {kv, plan} = select([@stock_lib])
+      assert kv["mode"] == "selective", inspect(kv)
+      assert kv["reason"] =~ "single module stock", inspect(kv)
+
+      refute Enum.any?(plan, &String.contains?(&1, "test/letflow/modules/exam/")),
+             "exam tests appeared in plan for stock-only diff"
+    end
+
+    test "M2: a stock-only diff selects the global pin tests (permission matrix, ledger reg, engine floor)" do
+      {kv, plan} = select([@stock_lib])
+      assert kv["mode"] == "selective"
+
+      assert Enum.any?(
+               plan,
+               &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
+             ),
+             "permission_matrix_test not in plan"
+
+      assert Enum.any?(
+               plan,
+               &String.ends_with?(&1, " test/letflow/modules/ledger_registration_test.exs")
+             ),
+             "ledger_registration_test not in plan"
+
+      assert Enum.any?(plan, &String.contains?(&1, "test/letflow/engine/")),
+             "engine floor tests not in plan"
+    end
+
+    test "M3: a priv/modules/stock change is single-module selective and selects stock tests" do
+      {kv, plan} = select([@stock_priv])
+      assert kv["mode"] == "selective", inspect(kv)
+      assert kv["reason"] =~ "single module stock", inspect(kv)
+
+      assert Enum.any?(plan, &String.contains?(&1, "test/letflow/modules/stock/")),
+             "stock tests not in plan for priv/modules/stock change"
+
+      assert Enum.any?(
+               plan,
+               &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
+             ),
+             "permission_matrix_test not in plan"
+    end
+
+    test "M4: a priv/modules change spanning two modules runs the full suite" do
+      {kv, _} = select([@stock_priv, "priv/modules/exam/pack.json"])
+      assert kv["mode"] == "full", inspect(kv)
+      assert kv["reason"] =~ "multiple modules", inspect(kv)
+    end
+
+    test "M5: a lib change touching two modules falls back to normal closure (not single-module)" do
+      {kv, _} = select([@stock_lib, @exam_lib])
+
+      # Two-module diff: not single-module mode; normal closure applies (still selective for small diffs).
+      refute kv["reason"] =~ "single module", inspect(kv)
+    end
+  end
+
+  # T-2141: files with names matching the old SENSITIVE_LIB_NAME_RE patterns now run selective
+  # with global pins instead of full suite.
+  test "S3f: ledger_registration.ex uses selective mode with global pins (T-2141)" do
+    p = "lib/letflow/modules/ledger_registration.ex"
+    {kv, plan} = select([p])
+    assert kv["mode"] == "selective", "expected selective, got #{inspect(kv)}"
+
+    assert Enum.any?(
+             plan,
+             &String.ends_with?(&1, " test/letflow/modules/ledger_registration_test.exs")
+           ),
+           "ledger_registration_test not in plan"
+
+    assert Enum.any?(
+             plan,
+             &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
+           ),
+           "permission_matrix_test not in plan"
   end
 end

@@ -189,7 +189,7 @@ defmodule Letflow.Modules.Stock.OpeningRouterTest do
       read = D.request(:get, "/documents/#{doc["id"]}", ctx.tok_a) |> P.status!(200)
 
       assert read |> Map.keys() |> Enum.sort() ==
-               ~w(entry_id external_ref_id external_ref_system header_id id issued_at kind lines note number org_unit_id posted_at posted_by posted_by_label posting_check reversed_at reversed_by reversed_by_label state)
+               ~w(entry_id external_ref_id external_ref_system header_id id issued_at kind lines note number org_unit_id posted_at posted_by posted_by_label posted_via_shared_access posting_check reversed_at reversed_by reversed_by_label reversed_via_shared_access state)
 
       for line <- read["lines"] do
         assert line |> Map.keys() |> Enum.sort() ==

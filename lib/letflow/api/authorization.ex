@@ -1002,6 +1002,11 @@ defmodule Letflow.Api.Authorization do
       when method in ["POST", "GET", "DELETE"],
       do: :TokensManage
 
+  # REQ-858 (decision 0091): the tenant's shared stock access, under the existing permission.
+  def endpoint_policy_key(method, "/shared-stock-access")
+      when method in ["POST", "GET", "DELETE"],
+      do: :TokensManage
+
   def endpoint_policy_key("GET", "/audit"), do: :AuditRead
 
   def endpoint_policy_key(method, "/dlq" <> _rest) when method in ["GET", "POST"],
