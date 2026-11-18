@@ -30,20 +30,29 @@ empty, so it is created together with its first real balance (below).
 ## Steps
 
 1. **Extract** from the frozen copy of the Qoimeks database three required CSV files in a directory outside the repository:
-   `locations.csv` (`loc_code, loc_name, loc_parent`), `items.csv` (`sku, sku_name, unit`, optional `home_loc`
-   the usual place as a `loc_code`, `alt_loc` the second place and `barcode` the SKU's barcode from Qoimeks
-   `Штрихкод`; a blank barcode is no code), and `balances.csv` (`sku, loc, qty`, optional `as_of`). The optional
-   `codes.csv` holds the active rows of the Qoimeks codes table: `object_type` (`sku` or `location`), `object_code`
-   (the SKU or place code), `code_type` (`ean13`, `ean8`, `code128`, `qr` or `manual`) and `code`. The converter works
-   without it. The Qoimeks schema is not in this repository: if its column names differ, write a
-   `map.json` `{"<extract column>": "<neutral name>"}` and pass `--mapping`. Comma or semicolon delimiters and a BOM are read.
+   `locations.csv` (`loc_code, loc_name`, optional `loc_parent`; omit it for a flat list), `items.csv`
+   (`sku, sku_name, unit`, optional `home_loc` the usual place as a `loc_code`, `alt_loc` the second place and `barcode` the SKU's barcode
+   from Qoimeks `Штрихкод`; a blank barcode is no code), and `balances.csv`
+   (`sku, loc, qty`, optional `as_of`). The optional
+   `codes.csv` holds the active rows of the Qoimeks codes table:
+   `object_type` (`sku` or `location`), `object_code` (the SKU or place code), `code_type` (`ean13`, `ean8`, `code128`,
+   `qr` or `manual`) and `code`. The converter works without it. The Qoimeks schema is not in this repository: if its
+   column names differ, write a `map.json` and pass `--mapping`. The old flat form
+   `{"<extract column>": "<neutral name>"}` applies to every file. When the same extract column has different meanings,
+   use a top-level object keyed `locations`, `items`, `balances` and `codes`, each holding its own flat column object;
+   omitted files keep their neutral names. Comma or semicolon delimiters and a BOM are read.
 2. **Convert** (no network, no database):
    `python3 -I scripts/pilot/qoimeks_convert.py convert --in IN --out OUT --system qoimeks-rehearsal --org-unit-ext U --responsible-ext E --received-on YYYY-MM-DD`.
    `U` and `E` are the external ids of the org unit and the responsible employee created in the QA tenant (Qoimeks has no
    such notion). Read `OUT/report.txt` (row numbers and constant reasons, no cell text): exit 3 means rows were dropped;
-   decide with the customer's contact, then fix the extract or pass `--allow-drops`. Zero balances are listed separately
-   under `skipped:` as `quantity_zero`; they are not drops and do not cause exit 3. Negative balances are kept with their
-   exact sign: positive opening files come first, followed by files containing only negative lines (REQ-837).
+   decide with the customer's contact, then fix the extract or pass `--allow-drops`. A blank location or item name is
+   still dropped as `missing_name` by default, with the usual dependent-row drops. Only when the row's code is an
+   acceptable display name, pass the explicit `--blank-name-fallback code` option. The report then says
+   `blank names replaced by code: n` and lists each replacement by file and row number, without cell text;
+   `manifest.json` records `blank_name_fallback` as `code`, or `null` when the option is off. Zero balances are listed
+   separately under `skipped:` as `quantity_zero`; they are not drops and do not cause exit 3. Negative balances are
+   kept with their exact sign: positive opening files come first, followed by files containing only negative lines
+   (REQ-837).
    The usual place goes into `03-items-NN.xlsx` as the column `default_location_id` (G3, one place per item; an item
    whose place names no location is dropped as `unknown_default_location`). The second place is not imported:
    `report.txt` says how many kept items had one ("items with a second place, not imported (G3)"), and the snapshot

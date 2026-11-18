@@ -4,8 +4,9 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
   `headers` sub-command) and `scripts/pilot/qoimeks_compare.sh` (expected counts vs a `demo_counts.sh snapshot`).
   No database and no network; the converter output is read back with the production reader `XlsxImport`.
 
-  CV-1..CV-9, CV-G3 (usual place, G3), CV-G4a..b (negative and zero balances, G4) and
-  CV-G12a..e (codes, G12) converter, CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
+  CV-1..CV-9, CV-G3 (usual place, G3), CV-G4a..b (negative and zero balances, G4),
+  CV-G12a..e (codes, G12) and CV-13a..c (per-file mappings and explicit blank-name fallback) converter,
+  CP-1..CP-4 count comparison. CP-5 (CI path) is in `ci_backend_path_filter_test.exs`.
   The files go through the real stock import routes in `Letflow.Modules.Stock.QoimeksFilesTest` (ST-1..ST-3).
   """
 
@@ -81,6 +82,15 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
     File.write!(Path.join(dir, "items.csv"), items)
     File.write!(Path.join(dir, "balances.csv"), bals)
     dir
+  end
+
+  defp write_blank_name_csvs(dir) do
+    write_csvs(
+      dir,
+      "loc_code,loc_name,loc_parent\nL1,,\nL2,Named place,\n",
+      "sku,sku_name,unit,home_loc\nS1,,pcs,\nS2,Named item,pcs,L1\nS3,Other item,pcs,\n",
+      "sku,loc,qty\nS1,L1,1\nS2,L2,2\nS3,L1,3\n"
+    )
   end
 
   describe "convert" do
@@ -420,8 +430,11 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert {_, 0} = System.cmd("python3", ["-I", baseline | args], stderr_to_stdout: true)
       assert {_, 0} = convert(indir, new_out)
       old_manifest = manifest(old_out)
+      new_manifest = manifest(new_out)
+      assert Map.fetch!(new_manifest, "blank_name_fallback") == nil
+      assert Map.delete(new_manifest, "blank_name_fallback") == old_manifest
 
-      for name <- ["manifest.json" | Enum.map(old_manifest["files"], & &1["file"])] do
+      for name <- Enum.map(old_manifest["files"], & &1["file"]) do
         assert File.read!(Path.join(new_out, name)) == File.read!(Path.join(old_out, name)), name
       end
 
@@ -605,6 +618,106 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert {_, 0} = convert(indir, Path.join(dir, "o10"), ["--mapping", map])
       assert {out, 2} = convert(indir, Path.join(dir, "o10b"))
       assert out =~ "no column loc_code"
+    end
+
+    test "CV-13a per-file mapping separates equal names and accepts a flat location list", %{
+      dir: dir
+    } do
+      indir =
+        write_csvs(
+          Path.join(dir, "in13a"),
+          "code,name,active\nL1,Place One,true\n",
+          "code,name,unit,active,location_code,alt_location_code\nS1,Item One,pcs,true,L1,\n",
+          "sku_code,location_code,qty\nS1,L1,2\n"
+        )
+
+      File.write!(Path.join(indir, "codes.csv"), "object,target,format,value\nsku,S1,ean13,C-1\n")
+
+      map = Path.join(dir, "map13a.json")
+
+      File.write!(
+        map,
+        Jason.encode!(%{
+          "locations" => %{"code" => "loc_code", "name" => "loc_name"},
+          "items" => %{
+            "code" => "sku",
+            "name" => "sku_name",
+            "location_code" => "home_loc",
+            "alt_location_code" => "alt_loc"
+          },
+          "balances" => %{"sku_code" => "sku", "location_code" => "loc"},
+          "codes" => %{
+            "object" => "object_type",
+            "target" => "object_code",
+            "format" => "code_type",
+            "value" => "code"
+          }
+        })
+      )
+
+      out = Path.join(dir, "o13a")
+      assert {_, 0} = convert(indir, out, ["--mapping", map])
+      assert [{2, location}] = read!(Path.join(out, "01-locations-01.xlsx"), @loc_cols)
+      assert location["code"] == "L1"
+      assert location["name"] == "Place One"
+      assert Map.get(location, "parent_id", "") == ""
+
+      item_cols = @item_cols ++ ~w(default_location_id)
+      assert [{2, item}] = read!(Path.join(out, "03-items-01.xlsx"), item_cols)
+      assert item["code"] == "S1"
+      assert item["name"] == "Item One"
+      assert item["default_location_id"] == "L1"
+      assert [{2, line}] = read!(Path.join(out, "04-opening-lines-01.xlsx"), @line_cols)
+      assert line["catalog_item_id"] == "S1"
+      assert line["location_id"] == "L1"
+      assert line["quantity"] == "2"
+      assert [{2, code}] = read!(Path.join(out, "06-codes-01.xlsx"), @code_cols)
+      assert code["value"] == "C-1"
+      assert code["kind"] == "barcode"
+      assert Map.fetch!(manifest(out), "blank_name_fallback") == nil
+    end
+
+    test "CV-13b blank-name fallback is off by default and existing drops still cascade", %{
+      dir: dir
+    } do
+      indir = write_blank_name_csvs(Path.join(dir, "in13b"))
+      out = Path.join(dir, "o13b")
+      assert {report, 3} = convert(indir, out)
+      assert report =~ "dropped locations row 1: missing_name"
+      assert report =~ "dropped items row 1: missing_name"
+      assert report =~ "dropped items row 2: unknown_default_location"
+      assert report =~ "dropped balances row 1: unknown_item"
+      assert report =~ "dropped balances row 2: unknown_item"
+      assert report =~ "dropped balances row 3: unknown_location"
+      refute report =~ "blank names replaced by code:"
+      assert Map.fetch!(manifest(out), "blank_name_fallback") == nil
+    end
+
+    test "CV-13c blank-name fallback uses codes and reports only counts and row numbers", %{
+      dir: dir
+    } do
+      indir = write_blank_name_csvs(Path.join(dir, "in13c"))
+      out = Path.join(dir, "o13c")
+      assert {_, 0} = convert(indir, out, ["--blank-name-fallback", "code"])
+      report = File.read!(Path.join(out, "report.txt"))
+      assert report =~ "blank names replaced by code: 2"
+      assert report =~ "blank name replaced by code locations row 1"
+      assert report =~ "blank name replaced by code items row 1"
+      assert report =~ "dropped total 0"
+      refute report =~ "L1"
+      refute report =~ "S1"
+      assert Map.fetch!(manifest(out), "blank_name_fallback") == "code"
+      assert counts(out)["records.location_node"] == "2"
+      assert counts(out)["records.catalog_item"] == "3"
+      assert counts(out)["records.stock_opening_line"] == "3"
+
+      locations = read!(Path.join(out, "01-locations-01.xlsx"), @loc_cols)
+      assert Enum.any?(locations, fn {_, row} -> row["code"] == "L1" and row["name"] == "L1" end)
+
+      items =
+        read!(Path.join(out, "03-items-01.xlsx"), @item_cols ++ ~w(default_location_id))
+
+      assert Enum.any?(items, fn {_, row} -> row["code"] == "S1" and row["name"] == "S1" end)
     end
   end
 

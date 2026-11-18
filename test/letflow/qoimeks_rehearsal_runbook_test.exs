@@ -223,6 +223,18 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
     assert steps =~ "skipped zero row has no opening line"
   end
 
+  test "QR-10 per-file mappings and the explicit blank-name fallback are documented" do
+    steps = section(md(), "Steps")
+    assert steps =~ "omit it for a flat list"
+    assert steps =~ "top-level object keyed `locations`, `items`, `balances` and `codes`"
+    assert steps =~ "old flat form"
+    assert steps =~ "--blank-name-fallback code"
+    assert steps =~ "by default"
+    assert steps =~ "blank names replaced by code: n"
+    assert steps =~ "row number, without cell text"
+    assert steps =~ "`blank_name_fallback` as `code`, or `null`"
+  end
+
   test "QR-G8A opening headers use the stock route, idempotency and the safe negative order" do
     steps = section(md(), "Steps")
     headers = numbered_step(steps, 4)
