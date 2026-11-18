@@ -381,6 +381,26 @@ defmodule Letflow.Plugs.CorsTest do
       end
     end
 
+    test "C3 non-UTF-8 and oversized origins are refused without raising (INV-8)" do
+      long = "https://" <> String.duplicate("a", 400) <> ".qa.ai-letflow.com"
+
+      for origin <- [<<"https://", 0xFF, ".qa.ai-letflow.com">>, <<0xC3>>, long] do
+        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        refute actual.halted
+        assert actual.status == 200
+        assert get_resp_header(actual, "access-control-allow-origin") == []
+
+        preflight =
+          conn(:options, "/health")
+          |> put_req_header("origin", origin)
+          |> put_req_header("access-control-request-method", "POST")
+          |> call()
+
+        refute preflight.status == 204
+        assert get_resp_header(preflight, "access-control-allow-origin") == []
+      end
+    end
+
     test "C3 malformed ports are refused even if URI parsing defaults to 443" do
       for origin <- ["https://acme.ai-letflow.com:bad", "https://acme.ai-letflow.com:"] do
         actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()

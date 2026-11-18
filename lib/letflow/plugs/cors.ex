@@ -140,7 +140,16 @@ defmodule Letflow.Plugs.Cors do
   @spec origin_allowed?(String.t()) :: boolean()
   defp origin_allowed?(origin), do: origin in allowed_origins() or company_origin?(origin)
 
+  # The Origin header is unauthenticated input and this plug runs before every route:
+  # anything that is not a short printable-ASCII string is refused before URI.new/1,
+  # which raises on a non-UTF-8 byte (INV-8). Fails closed.
+  defp company_origin?(origin) when byte_size(origin) > 300, do: false
+
   defp company_origin?(origin) do
+    if Regex.match?(~r/\A[\x21-\x7e]+\z/, origin), do: parse_company_origin?(origin), else: false
+  end
+
+  defp parse_company_origin?(origin) do
     with {:ok,
           %URI{
             scheme: "https",

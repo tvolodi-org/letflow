@@ -94,6 +94,9 @@ let the sweep purge expired demos when you see it.
 
 QA keeps old names while enabling both new suffixes:
 `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES=qa.ai-letflow.com,ai-letflow.com,letflow.qa.bizdala.com,qa.bizdala.com`.
+Keep every suffix that an existing stored company host uses in this list: login-discovery
+mail refuses a message whose stored host is outside the list, so dropping an old suffix
+stops those mails for every member of that tenant.
 The setting is a list, without leading dots. Invalid members fail boot; unset or malformed
 runtime values enable no company hosts. This same policy governs provisioning, HTTPS CORS
 origins (default port, no path/query/userinfo) and login-directory mail. Exact
