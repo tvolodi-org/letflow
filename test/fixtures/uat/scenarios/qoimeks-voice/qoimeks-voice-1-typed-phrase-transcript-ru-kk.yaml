@@ -1,0 +1,164 @@
+# T-2164 (BA): Qoimeks QA walk scenarios — voice input: Russian and Kazakh letter names and zone words.
+# Covers REQ-741 criteria 2 and 6 (typed phrase body, provider-off and provider-on transcript return, nothing stored),
+# REQ-862 (letter-name and zone-word prompt words now present in the voice draft route for every tenant).
+# Sources: docs/runbooks/stock-voice.md (Routes, Failures); docs/requirements.yaml REQ-741 (body: text and lang ru or kk;
+# provider-off: 200 with transcript, kind unknown, empty items, null location, null quantity, notice llm_off; nothing stored),
+# REQ-862 (kind words получил, отпустил, списал, по факту in the prompt; letter-name table; zone words).
+#
+# NOT UAT-observable: speech recognition via ElevenLabs (requires a real audio file and provider keys set by the owner,
+# D-086); the content of the system prompt sent to the language model (server-internal); the mobile voice panel UI
+# (the Flutter mobile app is not driven by the UAT runner); the log never holding the phrase or the key (a unit test
+# captures the log). Desktop (1440 px) and phone (390 px) widths produce the same API response; this is an API-only scenario.
+---
+id: qoimeks-voice-1-typed-phrase-transcript-ru-kk
+scope: qoimeks-qa
+title: The Qoimeks QA administrator sends a typed phrase in Russian and Kazakh and receives its transcript back; nothing is stored
+version: "1.0"
+tags: [qoimeks, voice, api, ru, kk, transcript, provider-off]
+
+description: >
+  The administrator sends a typed phrase via the voice draft-text route in Russian and then in Kazakh. Regardless of
+  whether the language-model step is on or off, the route returns the transcript: with the model off it returns kind
+  "unknown", empty items, null location and the notice "llm_off"; with the model on it returns a draft (kind, items and
+  location resolved from the phrase). In both cases no stock document, count record or other data is stored by the call.
+  The route refuses a request with no text, a request with an extra field, and a request with the language "en".
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The Qoimeks QA tenant has the stock module installed and the voice draft-text route is reachable by the
+      administrator's session token.
+    check: system_seeded
+    detail: If the stock module is absent or the route answers 404, report BLOCKED for all steps.
+  - description: >
+      The stock documents list and the count records list are readable; their counts at the start of the run are
+      noted as D0 and C0.
+    check: system_seeded
+    detail: If the lists are not readable, report BLOCKED for steps 1 and 5.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the stock documents list and the count records list and notes the item counts as D0 and C0.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "получил пять единиц товара на склад" with the language "ru".
+      The answer is noted as V1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator sends the same typed phrase with the language "kk". The answer is noted as V2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator sends a voice draft-text request with no text field. The answer is noted as R1.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator sends the phrase "принял товар" with the language "ru" and an extra field "save" set to true.
+      The answer is noted as R2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator sends the phrase "принял товар" with the language "en". The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reads the stock documents list and the count records list again and notes the counts as D1 and C1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A typed phrase in Russian is answered with its transcript and a draft (or the provider-off notice);
+      the transcript equals the sent phrase exactly.
+    verification:
+      method: api_response
+      detail: >
+        V1 answers 200 with the keys kind, items, location, to_location, quantity, transcript and dropped.
+        The "transcript" value equals the sent phrase "получил пять единиц товара на склад" character for character.
+        If the language-model step is off: kind is "unknown", items is empty, location and to_location are null,
+        quantity is null, dropped is empty, and the "notice" field equals "llm_off".
+        If the model is on: kind is "receipt" (since "получил" is the receipt kind word added by REQ-862), items may
+        be empty if no item matched, and the other fields hold the model's answer.
+      evidence: V1 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The voice typed-phrase route does not answer for the Qoimeks QA tenant, or does not return the transcript,
+        blocking the voice input function for every Qoimeks operator.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: >
+      A typed phrase in Kazakh is answered the same way.
+    verification:
+      method: api_response
+      detail: >
+        V2 answers 200. The "transcript" equals the sent phrase. The structure is the same as V1; the language hint
+        kk was accepted. If the model is on and "получил" is not in the Kazakh kind list, kind may be "unknown";
+        the transcript being present confirms the route accepted the kk language hint.
+      evidence: V2 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Kazakh-language voice input does not work for Qoimeks operators.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Nothing is stored by any typed-phrase call, accepted or refused.
+    verification:
+      method: api_response
+      detail: >
+        D1 equals D0 and C1 equals C0: no stock document or count record was created by steps 2, 3, 4, 5, 6.
+      evidence: D0, D1, C0, C1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A voice phrase creates a stock document or count without the operator confirming it.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A request without a text field is refused with the field named.
+    verification:
+      method: api_response
+      detail: R1 answers 422 with the reason "field_invalid" and field "text".
+      evidence: R1 body.
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        An empty request is accepted as a phrase, potentially filling the form with wrong data.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: An extra field not part of the request body is refused.
+    verification:
+      method: api_response
+      detail: R2 answers 422 with the reason "field_not_allowed" naming the field "save".
+      evidence: R2 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A client could send extra fields attempting to bypass the confirmation step.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A language other than Russian or Kazakh is refused.
+    verification:
+      method: api_response
+      detail: R3 answers 422 with the reason "bad_language".
+      evidence: R3 body.
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The route accepts an unsupported language, and the language model is prompted in a language the
+        application does not support for Qoimeks operators.
+      suggested_action: route_to_elixir_dev
