@@ -17,14 +17,14 @@ const rec = (id: string, type: string, fields: Record<string, unknown>): EntityR
 
 const MASTERS: Record<string, EntityRecord[]> = {
   catalog_item: [
-    rec('i1', 'catalog_item', { name: 'Safety gloves (L)', base_uom_id: 'm1', lot_tracking_policy: 'none' }),
-    rec('i2', 'catalog_item', { name: 'Cardboard box A4', base_uom_id: 'm1', lot_tracking_policy: 'lot_tracked' }),
+    rec('i1', 'catalog_item', { code: 'GLV-L', name: 'Safety gloves (L)', base_uom_id: 'm1', tracking_policy: 'none' }),
+    rec('i2', 'catalog_item', { code: 'BOX-A4', name: 'Cardboard box A4', base_uom_id: 'm1', tracking_policy: 'lot' }),
   ],
   location_node: [rec('l1', 'location_node', { name: 'Warehouse A' })],
   org_unit: [rec('u1', 'org_unit', { name: 'Procurement' })],
   catalog_lot: [
-    rec('lot1', 'catalog_lot', { name: 'LOT-2026-001', item_id: 'i2' }),
-    rec('lot2', 'catalog_lot', { name: 'LOT-2026-002', item_id: 'i2' }),
+    rec('lot1', 'catalog_lot', { code: 'LOT-2026-001', item_id: 'i2' }),
+    rec('lot2', 'catalog_lot', { code: 'LOT-2026-002', item_id: 'i2' }),
   ],
   catalog_uom: [rec('m1', 'catalog_uom', { name: 'pcs' })],
 }
@@ -290,5 +290,13 @@ export const quickCountScreens: HarnessScreen[] = [
     initialPath: '/admin/stock/quick-count',
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialResult={quickCountDoc} />),
+  },
+  // 16. Refusal: unknown_kind shown as its own banner message
+  {
+    name: 'stock-quick-count-refusal-unknown-kind',
+    routes: [entitiesRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialSubmitError={{ reason: 'unknown_kind' }} />),
   },
 ]

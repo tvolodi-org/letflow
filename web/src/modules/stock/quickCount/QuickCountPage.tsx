@@ -1,8 +1,9 @@
 /** QuickCountPage — REQ-855. Quick count screen: count a single item at a location, show the balance diff,
  *  submit the count, and optionally approve it in-place (four-eyes rule). */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
+import { AlertCircle } from 'lucide-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
@@ -10,6 +11,7 @@ import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { FormSection } from '@/components/ui/FormSection'
+import { ItemPicker } from '@/components/ui/lines/ItemPicker'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -17,6 +19,7 @@ import { useToast } from '@/hooks/useToast'
 import { documentStateTone } from '@/lib/documentStateTone'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
+import { buildCatalog } from '../documents/linesCatalog'
 import { stockApi } from '../register/stock.api'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { tasksApi } from '@/api/tasks'
@@ -24,7 +27,7 @@ import { classifyError } from '@/utils/classifyError'
 import type { RendererState } from '@/utils/classifyError'
 import { quickCountApi, type QuickCountBody, type QuickCountDocument } from './quickCount.api'
 import {
-  EMPTY_FORM, REASON_CODES, errorReasonToField, errorReasonToMessageId, isBannerError, validateQuantity,
+  EMPTY_FORM, REASON_CODES, errorReasonToField, errorReasonToMessageId, isBannerError, needsLot, subtractDecimal, validateQuantity,
   type QuickCountForm,
 } from './quickCountModel'
 
@@ -90,9 +93,10 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
   const locations = usePickerOptions('location_node', NONE)
   const orgUnits = usePickerOptions('org_unit', NONE)
 
-  // Load item record to check lot_tracking_policy
+  // The item field finds by code, name or barcode, and a keyboard scanner's code + Enter picks the item (ItemPicker).
+  const catalog = useMemo(() => buildCatalog(items), [items])
   const selectedItem = items.find((i) => i.value === form.itemId)
-  const isLotTracked = selectedItem?.fields?.['lot_tracking_policy'] === 'lot_tracked'
+  const isLotTracked = needsLot(selectedItem?.fields)
   const lots = usePickerOptions(
     'catalog_lot',
     form.itemId ? [{ field: 'item_id', op: 'eq', value: form.itemId }] : NONE,
@@ -119,8 +123,9 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
     ? (bookRow(balanceQuery.data.rows, form.lotId, uomId)?.quantity ?? '0')
     : null
 
+  // Exact decimal subtraction: a float would show 10.3 - 10.1 as 0.20000000000000107.
   const difference = bookQuantity !== null && form.countedQuantity !== ''
-    ? String(Number(form.countedQuantity) - Number(bookQuantity))
+    ? subtractDecimal(form.countedQuantity, bookQuantity)
     : null
 
   // Tasks query after result
@@ -265,15 +270,27 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
           )}
 
           <FormSection title={t('stock.qc.form.section')}>
-            <Select
-              name="catalog_item_id"
-              label={t('stock.qc.item')}
-              value={form.itemId}
-              onChange={set('itemId')}
-              options={items}
-              placeholder={t('stock.qc.select')}
-              error={fieldErrors.itemId}
-            />
+            <div className={fieldErrors.itemId ? 'lf-field lf-field--error' : 'lf-field'} data-testid="item-field">
+              <label className="lf-label" htmlFor="qc-item">{t('stock.qc.item')}</label>
+              <ItemPicker
+                id="qc-item"
+                value={form.itemId}
+                catalog={catalog}
+                label={t('stock.qc.item')}
+                invalid={Boolean(fieldErrors.itemId)}
+                describedBy={fieldErrors.itemId ? 'qc-item-error' : 'qc-item-hint'}
+                onPick={(item) => set('itemId')(item?.id ?? '')}
+                pickOnEnter
+              />
+              {fieldErrors.itemId ? (
+                <span className="lf-error" id="qc-item-error">
+                  <AlertCircle className="lf-icon" aria-hidden="true" />
+                  {fieldErrors.itemId}
+                </span>
+              ) : (
+                <span className="lf-hint" id="qc-item-hint">{t('stock.qc.item_hint')}</span>
+              )}
+            </div>
             <Select
               name="location_id"
               label={t('stock.qc.location')}

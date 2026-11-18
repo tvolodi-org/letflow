@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
-/** REQ-855: quick count screen — C1 nav guard, C2 core flow, C3 validation, C4 error codes, C5 four-eyes, C6 reference. */
+/** REQ-855: quick count screen — C1 nav guard, C2 core flow (item search/scan, exact difference), C3 validation,
+ *  C4 error codes in en/ru/kk, C5 four-eyes, C6 reference. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
-import { MASTERS } from './stockTestKit'
-import { qcEn } from '../quickCount/quickCountMessages'
+import { MASTERS, rec } from './stockTestKit'
+import { qcEn, qcKk, qcRu } from '../quickCount/quickCountMessages'
+import { subtractDecimal, validateQuantity } from '../quickCount/quickCountModel'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { stockRouteObjects } from '../stockRoutes'
 
@@ -50,6 +53,15 @@ function renderQC(access: AccessState = withQC) {
   )
 }
 
+/** Items with codes and tracking policies (the catalog_item fields the item field and the lot field read). */
+const QC_MASTERS: typeof MASTERS = {
+  ...MASTERS,
+  catalog_item: [
+    rec('i1', { code: 'BLT-M8', name: 'Bolt M8', base_uom_id: 'm1', tracking_policy: 'none', barcode: '4600001' }),
+    rec('i2', { code: 'NUT-M8', name: 'Nut M8', base_uom_id: 'm1', tracking_policy: 'lot' }),
+  ],
+}
+
 function refusal(status: number, reason?: string, extra: Record<string, unknown> = {}) {
   return { status, message: 'x', code: String(status), details: reason ? { reason, ...extra } : {} }
 }
@@ -62,7 +74,7 @@ function setupMastersMock() {
     const filters = b.filters ?? []
     const ids = filters.find((f) => f.field === 'record_id' && f.op === 'in')?.value as string[] | undefined
     const itemId = filters.find((f) => f.field === 'item_id' && f.op === 'eq')?.value
-    const items = (MASTERS[b.entity_type ?? ''] ?? []).filter(
+    const items = (QC_MASTERS[b.entity_type ?? ''] ?? []).filter(
       (r) => (!ids || ids.includes(r.record_id)) && (itemId === undefined || r.field_values['item_id'] === itemId),
     )
     return { items, next_cursor: null }
@@ -121,17 +133,28 @@ function quickCountDoc() {
   }
 }
 
-/** Select all three required fields by waiting for each option to appear in the DOM. */
+const sel = (name: string) => document.querySelector(`select[name="${name}"]`) as HTMLSelectElement
+const itemInput = () => document.getElementById('qc-item') as HTMLInputElement
+
+/** Types into the item field as a keyboard scanner does (the text, then Enter), once the catalog has loaded. */
+async function pickItem(text = 'BLT-M8', title = 'Bolt M8') {
+  await waitFor(() => expect(itemInput()).not.toBeNull())
+  fireEvent.change(itemInput(), { target: { value: text } })
+  await within(await screen.findByRole('listbox')).findByText(title)
+  fireEvent.keyDown(itemInput(), { key: 'Enter' })
+}
+
+async function pickSelect(name: string, value: string) {
+  await waitFor(() => expect(sel(name).querySelectorAll('option').length).toBeGreaterThan(1))
+  fireEvent.change(sel(name), { target: { value } })
+}
+
+/** Select all three required fields: the item by its code, place and org unit from their lists. */
 async function selectFields() {
-  // Wait for options to load, then select
-  await waitFor(() => expect(screen.getByRole('combobox', { name: /item/i }).querySelectorAll('option').length).toBeGreaterThan(1))
-  fireEvent.change(screen.getByRole('combobox', { name: /item/i }), { target: { value: 'i1' } })
-
-  await waitFor(() => expect(screen.getByRole('combobox', { name: /location/i }).querySelectorAll('option').length).toBeGreaterThan(1))
-  fireEvent.change(screen.getByRole('combobox', { name: /location/i }), { target: { value: 'l1' } })
-
-  await waitFor(() => expect(screen.getByRole('combobox', { name: /org unit/i }).querySelectorAll('option').length).toBeGreaterThan(1))
-  fireEvent.change(screen.getByRole('combobox', { name: /org unit/i }), { target: { value: 'u1' } })
+  await pickItem()
+  await waitFor(() => expect(itemInput()).toHaveValue('BLT-M8 – Bolt M8'))
+  await pickSelect('location_id', 'l1')
+  await pickSelect('org_unit_id', 'u1')
 }
 
 beforeEach(() => {
@@ -141,7 +164,10 @@ beforeEach(() => {
   setupGetMock()
   clearAllToasts()
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  useUiLocaleStore.getState().reloadFromEnvironment()
+})
 
 // --- C1: Navigation guard ---
 describe('C1 navigation guard', () => {
@@ -215,6 +241,76 @@ describe('C2 core flow', () => {
   })
 })
 
+// --- C2b: item search and keyboard scanner ---
+describe('C2b item search and scanner', () => {
+  it('a scanned code + Enter selects the item and fires the balance query', async () => {
+    setupGetMock({ balance: '10' })
+    renderQC()
+    await pickItem('BLT-M8')
+    expect(itemInput()).toHaveValue('BLT-M8 – Bolt M8')
+    await pickSelect('location_id', 'l1')
+    await pickSelect('org_unit_id', 'u1')
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('10'))
+    const balanceCall = clientMock.get.mock.calls.find(([p]: string[]) => p === '/api/v1/modules/stock/balances')
+    expect(balanceCall![1]).toEqual({ sku: 'i1', location: 'l1', org_unit: 'u1' })
+  })
+
+  it('a scanned barcode + Enter selects its item', async () => {
+    renderQC()
+    fireEvent.change(await waitFor(() => itemInput()), { target: { value: '4600001' } })
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument())
+    await waitFor(() => {
+      fireEvent.keyDown(itemInput(), { key: 'Enter' })
+      expect(itemInput()).toHaveValue('BLT-M8 – Bolt M8')
+    })
+  })
+
+  it('search by part of the name lists the item and Enter picks it', async () => {
+    renderQC()
+    await pickItem('nut', 'Nut M8')
+    expect(itemInput()).toHaveValue('NUT-M8 – Nut M8')
+    // A lot-tracked item (tracking_policy lot) shows the lot field; the first item (none) did not.
+    expect(sel('catalog_lot_id')).not.toBeNull()
+  })
+
+  it('an item with tracking_policy none has no lot field', async () => {
+    renderQC()
+    await pickItem()
+    await waitFor(() => expect(itemInput()).toHaveValue('BLT-M8 – Bolt M8'))
+    expect(sel('catalog_lot_id')).toBeNull()
+  })
+})
+
+// --- C2c: exact difference ---
+describe('C2c exact difference', () => {
+  it('book 10.1 and counted 10.3 shows 0.2, not a float artefact', async () => {
+    setupGetMock({ balance: '10.1' })
+    renderQC()
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('10.1'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '10.3' } })
+    expect(screen.getByTestId('difference-display').textContent).toBe('0.2')
+  })
+
+  it('a 9-decimal count beyond float precision is exact', async () => {
+    setupGetMock({ balance: '0.000000001' })
+    renderQC()
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('0.000000001'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '12345678901.123456789' } })
+    expect(screen.getByTestId('difference-display').textContent).toBe('12345678901.123456788')
+  })
+
+  it('subtractDecimal is exact and trims trailing zeros', () => {
+    expect(subtractDecimal('7', '10')).toBe('-3')
+    expect(subtractDecimal('10.3', '10.1')).toBe('0.2')
+    expect(subtractDecimal('5', '5.000000000')).toBe('0')
+    expect(subtractDecimal('0.1', '0.3')).toBe('-0.2')
+    expect(subtractDecimal('1.5', '10.000000000')).toBe('-8.5')
+    expect(subtractDecimal('1e3', '1')).toBeNull()
+  })
+})
+
 // --- C3: Quantity validation ---
 describe('C3 quantity validation', () => {
   it('accepts 0', async () => {
@@ -251,11 +347,23 @@ describe('C3 quantity validation', () => {
     expect(clientMock.post.mock.calls.filter(([p]: string[]) => p === '/api/v1/modules/stock/quick-counts').length).toBe(0)
   })
 
+  it('refuses 1e3, 0x10 and a padded number as not a number without sending', async () => {
+    for (const v of ['1e3', '0x10', ' 5 ', '1.', '.5']) expect(validateQuantity(v)).toBe('stock.qc.err.quantity_invalid')
+    for (const v of ['0', '7', '10.3', '1.123456789']) expect(validateQuantity(v)).toBeUndefined()
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('counted-quantity-input')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '1e3' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    expect(await screen.findByText(qcEn['stock.qc.err.quantity_invalid'])).toBeInTheDocument()
+    expect(clientMock.post.mock.calls.filter(([p]: string[]) => p === '/api/v1/modules/stock/quick-counts').length).toBe(0)
+  })
+
   it('refuses reason other without text without sending', async () => {
     setupCombinedPostMock()
     renderQC()
-    await waitFor(() => expect(screen.getByRole('combobox', { name: /reason/i })).toBeInTheDocument())
-    fireEvent.change(screen.getByRole('combobox', { name: /reason/i }), { target: { value: 'other' } })
+    await waitFor(() => expect(sel('reason_code')).not.toBeNull())
+    fireEvent.change(sel('reason_code'), { target: { value: 'other' } })
     fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '5' } })
     fireEvent.click(screen.getByTestId('submit-quick-count'))
     expect(await screen.findByText(qcEn['stock.qc.err.reason_text_required'])).toBeInTheDocument()
@@ -264,6 +372,16 @@ describe('C3 quantity validation', () => {
 })
 
 // --- C4: Error codes ---
+const CATALOGS = { en: qcEn, ru: qcRu, kk: qcKk } as const
+const HELD = 'CNT-2026-000017'
+/** The four refusal codes of AC4: the HTTP status the route answers, and whether the message carries held_by. */
+const CODES = [
+  { reason: 'count_in_progress', status: 422, heldBy: true },
+  { reason: 'location_frozen', status: 409, heldBy: true },
+  { reason: 'quick_count_stale', status: 422, heldBy: false },
+  { reason: 'unknown_kind', status: 422, heldBy: false },
+] as const
+
 describe('C4 error codes', () => {
   async function setupAndSubmit(err: unknown) {
     setupCombinedPostMock({ failQuickCount: err })
@@ -274,25 +392,30 @@ describe('C4 error codes', () => {
     fireEvent.click(screen.getByTestId('submit-quick-count'))
   }
 
-  it('count_in_progress shows order number', async () => {
-    await setupAndSubmit(refusal(422, 'count_in_progress', { held_by: 'QCT-2026-000001' }))
-    await waitFor(() => expect(screen.getByTestId('submit-error-banner')).toBeInTheDocument())
-    expect(screen.getByTestId('submit-error-banner').textContent).toContain('QCT-2026-000001')
+  for (const code of CODES) {
+    for (const lang of ['en', 'ru', 'kk'] as const) {
+      it(`${code.reason} shows its own message in ${lang}`, async () => {
+        useUiLocaleStore.getState().setLocaleTransient(lang)
+        const text = CATALOGS[lang][`stock.qc.error.${code.reason}`]
+        expect(text).toBeTruthy()
+        await setupAndSubmit(refusal(code.status, code.reason, code.heldBy ? { held_by: HELD } : {}))
+        const banner = await screen.findByTestId('submit-error-banner')
+        expect(banner.textContent).toContain(text!.replace('{held_by}', HELD))
+        expect(banner.textContent).not.toContain(CATALOGS[lang]['stock.qc.error.generic'])
+        if (code.heldBy) expect(banner.textContent).toContain(HELD)
+        else expect(text).not.toContain('{held_by}')
+      })
+    }
+  }
+
+  it('the four messages differ from each other and from the generic one in every language', () => {
+    for (const cat of Object.values(CATALOGS)) {
+      const texts = [...CODES.map((c) => cat[`stock.qc.error.${c.reason}`]), cat['stock.qc.error.generic']]
+      expect(new Set(texts).size).toBe(texts.length)
+    }
   })
 
-  it('location_frozen shows order number', async () => {
-    await setupAndSubmit(refusal(409, 'location_frozen', { held_by: 'QCT-2026-000001' }))
-    await waitFor(() => expect(screen.getByTestId('submit-error-banner')).toBeInTheDocument())
-    expect(screen.getByTestId('submit-error-banner').textContent).toContain('QCT-2026-000001')
-  })
-
-  it('quick_count_stale shows balance changed message', async () => {
-    await setupAndSubmit(refusal(422, 'quick_count_stale'))
-    await waitFor(() => expect(screen.getByTestId('submit-error-banner')).toBeInTheDocument())
-    expect(screen.getByTestId('submit-error-banner').textContent).toContain('balance changed')
-  })
-
-  it('unknown 422 shows generic message', async () => {
+  it('an unknown reason shows the generic message', async () => {
     await setupAndSubmit(refusal(422, 'totally_unknown_reason'))
     await waitFor(() => expect(screen.getByTestId('submit-error-banner')).toBeInTheDocument())
     expect(screen.getByTestId('submit-error-banner').textContent).toContain(
@@ -389,10 +512,10 @@ describe('C5 four eyes', () => {
     await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
 
     // Location and org unit selects still have values
-    expect(screen.getByRole('combobox', { name: /location/i })).toHaveValue('l1')
-    expect(screen.getByRole('combobox', { name: /org unit/i })).toHaveValue('u1')
+    expect(sel('location_id')).toHaveValue('l1')
+    expect(sel('org_unit_id')).toHaveValue('u1')
     // Item is reset
-    expect(screen.getByRole('combobox', { name: /item/i })).toHaveValue('')
+    expect(itemInput()).toHaveValue('')
   })
 
   it('shows four-eyes hint with My Tasks link when self_approval_allowed is false', async () => {
