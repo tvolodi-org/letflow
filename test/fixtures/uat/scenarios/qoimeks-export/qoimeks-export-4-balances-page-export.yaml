@@ -1,0 +1,89 @@
+# T-2166 (BA): Qoimeks QA walk, the page export of balances (the file of the stock register, not the Qoimeks layout). QA only, synthetic data. No real data, no production.
+# Requirements covered: REQ-728 (balances xlsx: file name, sheets "balances" and "report", headers, report rows), REQ-866 (criterion 1: the existing Export button still saves stock-balances.xlsx with the screen's filters).
+# Sources: docs/requirements.yaml REQ-728 criterion 2 (header row sku, location, org_unit, responsible, lot, unit_ref, quantity, last_posting_seq; report sheet rows basis, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor; file name stock-balances.xlsx);
+# web/src/modules/stock/register/BalancesPage.tsx (onExport saves stock-balances.xlsx; the hint says the file holds the first page only); web/src/modules/stock/stockMessages.ts.
+# Not UAT-observable, with reasons: (a) the exact quantity cells against the JSON answer of the same request: a comparison of two API answers, covered by the router tests and by scripts/qoimeks_balances_compare.py (task #4676 notes that this file holds one page only; 50 of 603 rows on a first page of 50); here the file is compared with the screen instead;
+# (b) a scoped reader's file and the refusals (404 for an API token, 403 for a user without stock read): the roster has no such actor; (c) the neutralising of a text starting with = + - @ as a text cell: the synthetic stock holds no such value, covered by the pure test of the renderer.
+# Cleanup: none, read-only.
+---
+id: qoimeks-export-4-balances-page-export
+scope: qoimeks-qa
+title: The Export to Excel button of the Balances screen saves the shown page as stock-balances.xlsx with a balances sheet, a report sheet and the register's own headers, on desktop and on a phone width
+version: "1.0"
+tags: [qoimeks, export, xlsx, balances, desktop, phone]
+
+description: >
+  The administrator opens the Balances screen (1440 px), notes the number of rows shown on the first page and reads the hint under the list that the file holds the loaded first page only.
+  The administrator clicks "Export to Excel", and the saved file is read: two sheets, the register's column headers and the report sheet that states the time basis. The same is repeated in a window 390 px wide.
+  This is not the Qoimeks layout of scenario 1: the columns here are the register's own (item code, place, org unit, and so on).
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant has the stock module active and its synthetic stock loaded (603 posted opening balances, three negative).
+    check: system_seeded
+    detail: If the Balances screen is empty, report BLOCKED for EO-002 and EO-003.
+  - description: The run can drive a real browser at 1440 px and at 390 px, English language, and can read a downloaded xlsx file.
+    check: system_seeded
+    detail: If the file cannot be read, report BLOCKED for EO-002 and EO-003 and keep the screenshots.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), in English, opens the Balances screen at 1440 px and counts the rows of the first page.
+      If the list has more pages, the hint "The file holds the rows loaded on the first page only." is shown under it; the administrator reads it.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator clicks "Export to Excel" and waits until the file is saved. The run reads the file name, the sheet names, the header row of the first sheet, the number of its data rows and the two columns of the second sheet.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The browser window is made 390 px wide. The administrator opens the Balances screen again, clicks "Export to Excel" and waits until the file is saved; the run reads the file name and the sheet names.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The hint under the list tells the user that the page export holds the first page only, when there are more pages.
+    verification:
+      method: gui_screen
+      detail: Step 1 shows the hint "The file holds the rows loaded on the first page only." under the list when the tenant's stock does not fit one page (603 balances); no error banner after the download.
+      evidence: Screenshot of step 1.
+    on_fail:
+      severity: MINOR
+      business_impact: A user could take a one-page file for the whole stock.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The file has the agreed name, two sheets and the register's column headers.
+    verification:
+      method: file_content
+      detail: The file is named stock-balances.xlsx; the first sheet is named "balances" and its row 1 reads sku, location, org_unit, responsible, lot, unit_ref, quantity, last_posting_seq; its data rows are as many as the rows of the first page of step 1; the second sheet is named "report".
+      evidence: The file name, sheet names, row 1 and row count read from the saved file of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Reports built on this file by the bookkeepers break.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The report sheet states the time basis of the numbers.
+    verification:
+      method: file_content
+      detail: The second sheet has two columns, key and value, and the keys basis, cutoff_seq, as_of, timezone, filters, ledger_seq and next_cursor; next_cursor is filled when the stock has more rows than the file holds; no price, value or user identifier appears anywhere in the file.
+      evidence: The cells of the report sheet read from the saved file.
+    on_fail:
+      severity: MAJOR
+      business_impact: A balance file without its time basis cannot be used for a count or a report (the platform's report rule).
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: On a phone width the same button saves the same kind of file.
+    verification:
+      method: file_content
+      detail: Step 3 shows the button reachable without sideways scrolling and nothing cut off; the file is named stock-balances.xlsx and has the sheets "balances" and "report".
+      evidence: Screenshot of the Balances screen at 390 px and the sheet names read from the saved file.
+    on_fail:
+      severity: MAJOR
+      business_impact: Storekeepers on a phone cannot export.
+      suggested_action: route_to_frontend_dev

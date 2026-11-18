@@ -1,0 +1,103 @@
+# T-2166 (BA): Qoimeks QA walk, Russian and Kazakh texts of the export buttons, and the fixed Russian layout of the file. QA only, synthetic data. No real data, no production.
+# Requirements covered: REQ-866 (criterion 3: labels and caption in en, ru, kk; wording is a UAT assumption of that requirement), REQ-865 (criterion 2: the headers are fixed Russian words of the Qoimeks layout whatever the screen language).
+# Sources: web/src/modules/stock/stockMessages.ts (keys stock.balances.workbook, workbookHint, export, exportHint and the movements export keys in the three languages); docs/requirements.yaml REQ-865 and REQ-866.
+# Texts below are quoted from stockMessages.ts. The wording is a UAT assumption, to be confirmed by the process owner (REQ-866 says so).
+# Not UAT-observable, with reasons: (a) the two refusal banners (too many rows, reader of the whole company needed): they appear only with more than 10,000 rows or a scoped reader, and the roster has neither; covered by the component test of REQ-866 criterion 2.
+# Cleanup: the browser keeps the language choice for the account, so the last step puts the language back to English.
+---
+id: qoimeks-export-3-workbook-ru-kk
+scope: qoimeks-qa
+title: The Balances screen of the Qoimeks QA tenant shows the export buttons and the caption in Russian and Kazakh, and the downloaded workbook keeps the same Russian Qoimeks headers in both languages
+version: "1.0"
+tags: [qoimeks, export, xlsx, i18n, ru, kk, en]
+
+description: >
+  The administrator opens the Balances screen, switches the language to Russian and reads the two export buttons and the caption, downloads the workbook and reads its headers;
+  switches to Kazakh and does the same; then returns to English. The screen texts follow the language, while the file is the same in every language: its sheet name and its
+  ten headers are the Russian words of the Qoimeks import layout, because the Excel import reads those words.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant has the stock module active and its synthetic stock loaded.
+    check: system_seeded
+    detail: If the Balances screen is empty, the buttons are still checked; report BLOCKED only for the file rows, not for the headers.
+  - description: The administrator's language choice is English at the start; the run drives a real browser at 1440 px and can read a downloaded xlsx file.
+    check: system_seeded
+    detail: If the language is not English at the start, switch to English first and carry on.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), opens the Balances screen, opens the language menu (the globe in the top bar) and chooses Russian.
+      The administrator reads the title, the two export buttons and the caption.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      In Russian, the administrator clicks the workbook button and the run reads the sheet name and row 1 of the saved file.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator chooses Kazakh in the language menu and reads the title, the two export buttons and the caption.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      In Kazakh, the administrator clicks the workbook button and the run reads the sheet name and row 1 of the saved file.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the Movements screen in Kazakh and reads the title and the export button.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator chooses English in the language menu and reads the Balances screen.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: In Russian the Balances screen shows its export texts in Russian.
+    verification:
+      method: gui_screen
+      detail: Step 1 shows the title "Остатки", the buttons "Выгрузить в Excel" and "Остатки для Excel (как в Qoimeks)", and the caption "В файл попадают все текущие остатки, независимо от фильтров и страницы на этом экране."; the language code reads RU; no English sentence and no raw message key such as "stock.balances.workbook".
+      evidence: Screenshot of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: Russian-speaking bookkeepers meet a half-English screen at the export.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: In Kazakh the Balances and Movements screens show their export texts in Kazakh.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows the title "Қалдықтар", the buttons "Excel-ге жүктеу" and "Excel үшін қалдықтар (Qoimeks сияқты)", and the caption "Файлға барлық ағымдағы қалдықтар түседі, бұл экрандағы сүзгілер мен беттің маңызы жоқ."; step 5 shows the title "Қозғалыстар" and the button "Экспорт (xlsx)"; the language code reads KK; no raw message key.
+      evidence: Screenshots of steps 3 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Kazakh-speaking users meet a half-English screen at the export.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The file does not change with the screen language.
+    verification:
+      method: file_content
+      detail: In steps 2 and 4 the sheet name is "Остатки YYYY-MM-DD" and cells A1 to J1 read "Артикул", "Номенклатура", "Конечный остаток", "Зона", "Стеллаж", "Полка", "Второе место", "Место", "Ед. изм.", "Коды / Codes", the same in both files.
+      evidence: The sheet name and row 1 read from the two saved files.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A file with Kazakh or English headers is not read by the Qoimeks Excel import.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Switching back to English restores the English texts.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows the title "Balances", the buttons "Export to Excel" and "Stock workbook (Qoimeks layout)"; the language code reads EN.
+      evidence: Screenshot of step 6.
+    on_fail:
+      severity: MINOR
+      business_impact: The account is left in another language than the one the user chose.
+      suggested_action: route_to_frontend_dev
