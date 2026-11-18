@@ -1,4 +1,4 @@
-# QA tenant subdomains: how Letflow picks the tenant, and what `<slug>.letflow.qa.bizdala.com` needs
+# QA tenant subdomains: how Letflow picks the tenant, and what `<slug>.qa.ai-letflow.com` needs (old `<slug>.letflow.qa.bizdala.com` stays valid)
 
 Current-state note (D-158, T-2148): company CORS, login-directory mail and exact redirects now
 follow the shared guarded suffix policy; see `tenant-provisioner-credential.md` and
@@ -12,7 +12,10 @@ Study for GH #3252 (REQ-572, portfolio D-019, QA only). The findings below were 
 > the hostname stored in `onboarding_registry` to its active tenant and returns that tenant's realm and
 > allowlisted branding. Unknown, malformed, ambiguous or unservable hosts retain the default response.
 > Production company URLs use `https://<company>.ai-letflow.com`, replacing the proposed
-> `<slug>.letflow.bizdala.com` scheme. The rest of this document is the dated QA study, kept as history;
+> `<slug>.letflow.bizdala.com` scheme. QA company URLs use `https://<slug>.qa.ai-letflow.com`; the old
+> `<slug>.letflow.qa.bizdala.com` names stay valid as an alias. QA Keycloak remains
+> `auth.qa.bizdala.com`. DNS and certificates for the new QA names are not yet configured (owner token
+> O-016, infra). The rest of this document is the dated QA study, kept as history;
 > its statements that host binding is missing are not current behavior. DNS, certificates and Keycloak
 > redirect configuration remain infra/PM work.
 
