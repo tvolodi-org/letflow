@@ -15,6 +15,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   # impl_order: REQ-860
   use Letflow.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Plug.Conn
 
   alias Letflow.Engine
@@ -135,6 +136,23 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
     do: call(:post, fx.tenant.slug, "/movements/#{id}/reverse", value, body, headers)
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
+
+  defp credential_actor!(schema) do
+    Repo.one!(from(c in SharedStockAccess.Credential, select: c.actor_id), prefix: schema)
+  end
+
+  defp shared_complete(schema, task, actor_id) do
+    Engine.complete_task(
+      task.id,
+      %{
+        output_variables: %{"operator" => "X"},
+        actor_id: actor_id,
+        idempotency_key: Ecto.UUID.generate()
+      },
+      prefix: schema,
+      credential: :shared_access
+    )
+  end
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
@@ -442,7 +460,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       assert written(t.ctx.schema) == before
     end
 
-    test "W-6 the ledger authority refuses a stranger actor and a revoked credential", t do
+    test "W-6 the ledger authority refuses a stranger actor and an API token", t do
       doc = P.issue!(t.ctx)
       task = P.pending_task(t.ctx, doc["id"], "post")
 
@@ -463,6 +481,37 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
       # an API-token credential still cannot post
       assert {:error, _} = P.complete(t.ctx, task, credential: :api_token)
+    end
+
+    test "W-6b the authority refuses a credential revoked after the router proved it", t do
+      doc = P.issue!(t.ctx)
+      task = P.pending_task(t.ctx, doc["id"], "post")
+      actor = credential_actor!(t.ctx.schema)
+
+      # the credential is live now: the authority would accept this actor ...
+      assert SharedStockAccess.active_actor?(t.ctx.schema, actor)
+
+      # ... and is revoked between the request and the posting
+      :ok =
+        SharedStockAccess.revoke(t.ctx.schema, %{user_id: Ecto.UUID.generate(), trace_id: nil})
+
+      refute SharedStockAccess.active_actor?(t.ctx.schema, actor)
+      assert {:error, _} = shared_complete(t.ctx.schema, task, actor)
+      assert P.pending_task(t.ctx, doc["id"], "post") != nil
+      assert P.counts(t.ctx, doc["id"]) == %{entries: %{}, marks: 0}
+    end
+
+    test "W-6c the authority refuses the actor of another tenant's credential", t do
+      _value_b = access!(t.b.b)
+      actor_b = credential_actor!(t.b.b.schema_name)
+      doc = P.issue!(t.ctx)
+      task = P.pending_task(t.ctx, doc["id"], "post")
+
+      assert SharedStockAccess.active_actor?(t.b.b.schema_name, actor_b)
+      refute SharedStockAccess.active_actor?(t.ctx.schema, actor_b)
+      assert {:error, _} = shared_complete(t.ctx.schema, task, actor_b)
+      assert P.pending_task(t.ctx, doc["id"], "post") != nil
+      assert P.counts(t.ctx, doc["id"]) == %{entries: %{}, marks: 0}
     end
   end
 

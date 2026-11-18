@@ -72,6 +72,9 @@ defmodule Letflow.Ledger.Authority do
   # REQ-860 (decision 0091 section 2): the shared access is the one other credential that may post. The
   # rule (its module, its two permissions, the live credential row of the subject) is in
   # the function configured as `:shared_access_authority` (MFA, `config/config.exs`); no role is read, the credential is not a role.
+  # The scope check (step 4) is skipped: the shared access router refuses a tenant whose scope
+  # enforcement is not `off` at request time (decision 0091 sections 9 and 11b); a switch-on between
+  # the request and the posting is not re-read here (accepted for QA).
   def check_with_read(cap)
       when is_struct(cap, Capability) and cap.credential == :shared_access do
     with {:ok, atom} <- permission_atom(cap),

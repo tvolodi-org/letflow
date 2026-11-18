@@ -466,6 +466,32 @@ Where the build of the old-app address differs from sections 7, 8.1 and 9 above,
   slug, and unbounded page widening and per-row lookups in `Letflow.Modules.Stock.OldAppReads`
   (bounded today only by the per-credential request limit).
 
+## 11b. Amendment (REQ-860, as built)
+
+The two write calls (`POST /movements`, `POST /movements/:id/reverse`) widen a settled ledger rule, so the
+build choices are recorded here (decision 0073 note 16.2 said the credential must be exactly `:oidc`):
+
+- **A second credential kind, `:shared_access`.** `Letflow.Ledger.Authority` accepts it for one purpose:
+  the rule is not in the ledger but in the function configured as `:shared_access_authority`
+  (`{module, function}`, `config/config.exs`), which is `Letflow.SharedStockAccess.may_post?/4`: module
+  `stock`, permission `StockPost` or `StockReverse`, and a subject that is the actor of a credential row
+  of the tenant that is not revoked, read at the moment of the posting. No role is read. With no
+  configuration the kind is refused (fail closed). The HTTP auth context holds only `:oidc` or `:api_token`
+  (`AuthPipeline`), so no request value can be `:shared_access`; the one place that sets it is
+  `Letflow.Modules.Stock.OldAppWrites` (pinned by T-SEC-3a and T-SEC-3g in
+  `test/letflow/ledger/credential_callers_test.exs`).
+- **Scope is not re-read at posting time.** The shared-access clause skips the scope check because the
+  router refuses a tenant whose scope enforcement is not `off` (403 `scope_enforcement_active`, section
+  9) at request time. A switch-on between the request and the posting is not caught; accepted for QA.
+- **The operator name is a task output variable.** It is stored as the output variable `operator` of the
+  completed `post` / `reverse` task and shown only when the completer is a shared-access actor of the
+  tenant, so a personal account cannot fake an operator label.
+- **The actor is the credential's synthetic actor id** (a random uuid created with the credential), the
+  actor of every step of the document.
+- **A refused receipt stays issued.** A receipt cannot be cancelled while its post task is pending; a
+  receipt has no realistic ledger refusal. A refused issue, transfer or reversal is discarded, cancelled
+  or withdrawn.
+
 ## 12. Owner table
 
 Every assumption marked "assumption, owner may change" in the sections above:

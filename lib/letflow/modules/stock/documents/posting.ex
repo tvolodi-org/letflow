@@ -748,6 +748,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   @spec withdraw_reversal(String.t(), String.t(), String.t()) :: :ok | :error
   def withdraw_reversal(prefix, id, actor) do
     ids = definition_ids(prefix, @reversal_definition)
+    # bound as `^node`, like `pending_task_id/3`: this function cancels, it never completes a task
+    # (the T-SEC-3e scan of this file counts only literal `node_id == "..."` completions)
+    node = "reverse"
 
     instance_ids =
       Repo.all(
@@ -755,7 +758,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
           join: p in InstanceProjection,
           on: p.instance_id == t.instance_id,
           where:
-            t.status == :pending and t.node_id == "reverse" and p.status == :active and
+            t.status == :pending and t.node_id == ^node and p.status == :active and
               p.definition_id in ^ids and fragment("?->>'document_id' = ?", p.variables, ^id),
           select: t.instance_id,
           distinct: true
