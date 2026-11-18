@@ -1,0 +1,94 @@
+# T-2166 (BA): Qoimeks QA walk, the downloaded whole-stock workbook is read back by the check of "Load balances from Excel" (check only, nothing is written). QA only, synthetic data. No real data, no production.
+# Requirements covered: REQ-865 (the file reads back by the Qoimeks import rules), REQ-884 (the check writes nothing), REQ-887 (the web screen "Загрузка остатков из Excel": check result, remarks in Russian).
+# Sources: docs/requirements.yaml REQ-865 criterion 4 (round trip), REQ-884 and REQ-887 (titles: check a Qoimeks-layout workbook, write nothing; screen to check a workbook and show the Russian remarks); web/src/modules/stock/workbook/workbookMessages.ts (en: "Load balances from Excel", button "Check workbook", "Check", "Remarks", "No balance differs from the file.", "Write balances from the file"; ru: title "Загрузка остатков из Excel", "No differences" text "В файле нет отличий от текущих остатков.");
+# web/src/modules/stock/stockRoutes.tsx (route admin/stock/workbook-import).
+# This scenario NEVER presses "Write balances from the file" (the write creates a stock document, so it would change tenant data); the run stops after the check.
+# UAT assumption, to be confirmed by the process owner: the check is made against one org unit and the downloaded file adds up balances of all org units per item and place, so for an org unit holding only part of the stock the check may list differences; the scenario therefore asserts that the check runs, reads the rows and writes nothing, and records the differences it shows, instead of asserting "no differences".
+# Not UAT-observable, with reasons: (a) the full Qoimeks round trip rules (usual and second place, rows added up by place) of REQ-865 criterion 4: covered by the unit test on the fixture of the Qoimeks test TestWriteThenParse, a file built from a fixture the synthetic tenant does not hold; (b) the writing of the load and its cancel: they change stock and are left out on purpose (not a UAT-observable read-only check).
+# Cleanup: none, nothing is written; the downloaded file stays in the run folder.
+---
+id: qoimeks-export-6-workbook-check-roundtrip
+scope: qoimeks-qa
+title: The whole-stock workbook downloaded from the Balances screen is accepted by the check of "Load balances from Excel", the rows are read, the remarks are in Russian, and nothing is written
+version: "1.0"
+tags: [qoimeks, export, xlsx, import, roundtrip, ru, en]
+
+description: >
+  The administrator downloads the whole-stock workbook, opens the screen "Load balances from Excel" (the "Загрузка остатков из Excel" screen of the stock module), chooses an org unit, picks the downloaded file and presses "Check".
+  The check reads the file by the Qoimeks rules: it reports how many rows it read, and lists remarks (in Russian) and differences, if any. The administrator reads the result and leaves the screen without writing anything.
+  The same is done in Russian. The loads list and the Balances screen are compared before and after to show that nothing changed. The run stops before "Write balances from the file".
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant has the stock module active with its synthetic stock, the screen "Load balances from Excel" is available to the administrator, and at least one org unit exists to choose.
+    check: system_seeded
+    detail: If the screen or the org unit choice is not available, report BLOCKED for the whole scenario and name what is missing.
+  - description: The run can drive a real browser at 1440 px, can upload a file saved by the previous step, and can read the screen text.
+    check: system_seeded
+    detail: If the file cannot be chosen in the browser, report BLOCKED for steps 3 to 6.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), in English, opens the Balances screen, notes the number of balance rows, and clicks "Stock workbook (Qoimeks layout)" to save the file.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the screen "Load balances from Excel" (from the Balances screen or the stock menu) and reads the page: the org unit field, the file field and the limit text.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator chooses one org unit, picks the saved file, and presses "Check". The administrator waits for the result.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator reads the check summary (rows read, changed, unchanged, remarks), the remarks and the list of changes if shown.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator switches the language to Russian, repeats the check on the same file and reads the summary and the remarks again.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator reads the list of earlier loads on the same screen, goes back to the Balances screen and counts its rows. The administrator does not press "Write balances from the file". Then the administrator switches the language back to English.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The check accepts the file produced by the export and reads its rows.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows a check result with the sheet that was read (the sheet named "Остатки YYYY-MM-DD") and "Rows read" greater than 0, no refusal for a missing "Артикул" header, no message that the file is not a valid workbook, and no raw message key.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The workbook the system exports cannot be loaded back, so the correct-in-Excel flow the bookkeepers rely on is broken.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The remarks and the screen follow the language and are in Russian as the screen states.
+    verification:
+      method: gui_screen
+      detail: In step 4 (English) the hint under the remarks says that remarks are written in Russian; in step 5 (Russian) the title reads "Загрузка остатков из Excel", the summary and column titles are in Russian, and the remarks, if any, are in Russian; a result without differences reads "В файле нет отличий от текущих остатков.". The differences found (if any) are recorded by the run as an observation, not as a failure (see the UAT assumption in the header).
+      evidence: Screenshots of steps 4 and 5.
+    on_fail:
+      severity: MINOR
+      business_impact: Russian-speaking bookkeepers cannot read why a row was refused.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The check writes nothing.
+    verification:
+      method: gui_screen
+      detail: In step 6 the list of earlier loads is the same as before the check (empty, or without a new line), and the Balances screen shows the same number of rows as in step 1.
+      evidence: Screenshots of step 6 and step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A check that writes would change stock before anyone has decided to.
+      suggested_action: route_to_elixir_dev
