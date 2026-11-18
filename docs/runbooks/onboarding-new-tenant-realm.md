@@ -71,7 +71,7 @@ first hostname label before any write (422 on `hostname`). Existing rows are not
    queries exactly: register both the plain host-only/silent callback and the mail/stored-realm
    callback. Never register a wildcard host, path, query or web origin. QA Keycloak stays
    `auth.qa.bizdala.com`; old bizdala QA hosts stay valid. Production is future configuration,
-   not built here. Infra must replace its `qa-client-redirect-add.py` path-wildcard behavior
+   not built here (owner token O-016, infra). Infra must replace its `qa-client-redirect-add.py` path-wildcard behavior
    and substitute `__TENANT_SLUG__` before live registration. The wizard no
    longer collects `client_config`, `realm_config` or redirect URIs (GH 2463); it shows one line saying
    the realm and client are created by infra. DNS records, certificates and the actual Keycloak realm
