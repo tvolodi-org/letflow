@@ -2308,6 +2308,52 @@ defmodule Letflow.Identity do
       {:error, :lookup_failed}
   end
 
+  @doc """
+  Resolves a public sign-in hostname through the global onboarding registry to its tenant.
+
+  The comparison is case-insensitive and ignores padding on both the request and the stored
+  hostname. Missing, empty and overlong names return `:not_found`; ambiguous legacy rows and
+  lookup exceptions or exits return `:lookup_failed`. Only the fixed `context_label` and an
+  exception class or exit tag are logged, never the hostname or database error details.
+  """
+  @spec safe_get_tenant_by_hostname(hostname :: String.t(), context_label :: String.t()) ::
+          {:ok, Tenant.t()} | {:error, :not_found | :lookup_failed}
+  def safe_get_tenant_by_hostname(hostname, context_label) do
+    normalized = hostname |> String.trim() |> String.downcase()
+
+    if normalized == "" or byte_size(normalized) > 253 do
+      {:error, :not_found}
+    else
+      query =
+        from(record in OnboardingRecord,
+          join: tenant in Tenant,
+          on: tenant.id == record.tenant_id,
+          where: fragment("lower(btrim(?))", record.hostname) == ^normalized,
+          select: tenant
+        )
+
+      case Repo.one(query) do
+        %Tenant{} = tenant -> {:ok, tenant}
+        nil -> {:error, :not_found}
+      end
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "#{context_label} hostname lookup failed (#{inspect(exception.__struct__)}); " <>
+          "falling through to the default realm"
+      )
+
+      {:error, :lookup_failed}
+  catch
+    :exit, _reason ->
+      Logger.warning(
+        "#{context_label} hostname lookup exited; falling through to the default realm"
+      )
+
+      {:error, :lookup_failed}
+  end
+
   @type patch_opts :: [
           actor_id: Ecto.UUID.t() | nil,
           platform_prefix: String.t() | nil,

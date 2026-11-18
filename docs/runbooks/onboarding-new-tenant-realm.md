@@ -51,9 +51,14 @@ Check: `python3 -I scripts/check_realm_roles.py [realm.json ...]` fails when any
 
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition
    (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
-   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. Set the `letflow-web` client's valid
-   redirect URIs for this tenant's hostname by hand. The wizard no longer collects `client_config`,
-   `realm_config` or redirect URIs (GH 2463); it shows one line saying the realm and client are created by infra.
+   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. The company URL is
+   `https://<company>.ai-letflow.com` (for example `https://sss.ai-letflow.com`). Set the
+   `letflow-web` client's valid redirect URIs to
+   `https://<company>.ai-letflow.com/auth/callback*` and its web origin to
+   `https://<company>.ai-letflow.com`, by hand or through the approved provisioner. The wizard no
+   longer collects `client_config`, `realm_config` or redirect URIs (GH 2463); it shows one line saying
+   the realm and client are created by infra. DNS records, certificates and the actual Keycloak realm
+   and redirect configuration are infra/PM actions, not performed by Letflow's host-resolution code.
 2. **R2 Create the first administrator.** Create the user with the e-mail set and the e-mail
    marked VERIFIED (Letflow binds a pending administrator only on `email_verified=true`; without
    that claim in the token no grant can bind). When the onboarding response said
@@ -74,9 +79,10 @@ Check: `python3 -I scripts/check_realm_roles.py [realm.json ...]` fails when any
    the tenant from `migrating` to `active` (`Letflow.TenantOnboarding.provision_and_migrate/1`).
    You do not activate the tenant by hand. If it is still `migrating`, see "If the tenant stays
    migrating" below.
-4. **R4 First sign-in.** The administrator signs in once. Verify `GET /api/v1/me` shows
-   `TENANT_ADMIN` (role names only). Re-read `GET /api/v1/onboarding/{id}`: `login.status` is
-   `realm_bound`.
+4. **R4 First sign-in.** The administrator opens `https://<company>.ai-letflow.com`; the public
+   tenant-config lookup resolves that hostname to this tenant's realm and branding. They sign in once
+   on Keycloak. Verify `GET /api/v1/me` shows `TENANT_ADMIN` (role names only). Re-read
+   `GET /api/v1/onboarding/{id}`: `login.status` is `realm_bound`.
 5. **R5 Confirm a pending grant was used.** When a pending administrator was named, read
    `GET /api/v1/onboarding/{id}/pending-admins`: the grant's `state` is `bound` (and `email` is null).
    A grant still `open` with a growing `age_seconds` means the person has not signed in yet, or the

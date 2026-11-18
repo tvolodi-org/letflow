@@ -247,7 +247,7 @@ defmodule Letflow.PilotRolloutRunbookTest do
           "docs/assets/asset-xlsx.md",
           "proposal, to be confirmed by the owner",
           "tvolodi-org/letflow",
-          "pending the sign-in choice"
+          "T-1359 resolves the company's onboarding hostname"
         ] do
       assert String.contains?(md, needle), "runbook does not mention #{needle}"
     end

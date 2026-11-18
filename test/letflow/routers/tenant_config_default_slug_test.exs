@@ -10,6 +10,7 @@ defmodule Letflow.Routers.TenantConfigDefaultSlugTest do
   import Ecto.Query, only: [from: 2]
   import Plug.Test
 
+  alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
   alias Letflow.TenantSlugFixture
 
@@ -98,5 +99,28 @@ defmodule Letflow.Routers.TenantConfigDefaultSlugTest do
     System.put_env(@var, t.slug)
 
     assert raw("/api/tenant-config?realm=no-such-tenant-zz") == raw("/api/tenant-config")
+  end
+
+  test "D6: a bound host beats the configured default; an unbound host still uses it" do
+    default = insert_tenant!()
+    bound = insert_tenant!()
+    host = "#{bound.slug}.ai-letflow.com"
+    System.put_env(@var, default.slug)
+
+    %OnboardingRecord{}
+    |> OnboardingRecord.insert_changeset(%{
+      tenant_id: bound.id,
+      slug: bound.slug,
+      hostname: host
+    })
+    |> Repo.insert!()
+
+    bound_body = Jason.decode!(raw("/api/tenant-config?host=#{host}"))
+    assert bound_body["oidc_authority"] =~ "/realms/#{bound.idp_realm_id}"
+    assert bound_body["tenant_type"] == "test"
+
+    default_body = raw("/api/tenant-config")
+    assert raw("/api/tenant-config?host=unbound.ai-letflow.com") == default_body
+    assert Jason.decode!(default_body)["oidc_authority"] =~ "/realms/#{default.idp_realm_id}"
   end
 end

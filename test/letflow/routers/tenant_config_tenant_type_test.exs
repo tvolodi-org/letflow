@@ -12,6 +12,7 @@ defmodule Letflow.Routers.TenantConfigTenantTypeTest do
   import Ecto.Query, only: [from: 2]
   import Plug.Test
 
+  alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
   alias Letflow.TenantSlugFixture
 
@@ -123,5 +124,24 @@ defmodule Letflow.Routers.TenantConfigTenantTypeTest do
       assert decoded["branding"] |> Map.keys() |> Enum.sort() ==
                ["app_name", "brand_colors", "logo_url"]
     end
+  end
+
+  test "T6: a bound host exposes its tenant type; an unbound host remains null" do
+    for type <- ["production", "test"] do
+      tenant = insert_tenant!(%{tenant_type: type})
+      host = "#{tenant.slug}.ai-letflow.com"
+
+      %OnboardingRecord{}
+      |> OnboardingRecord.insert_changeset(%{
+        tenant_id: tenant.id,
+        slug: tenant.slug,
+        hostname: host
+      })
+      |> Repo.insert!()
+
+      assert type_of(raw("/api/tenant-config?host=#{host}")) == type
+    end
+
+    assert type_of(raw("/api/tenant-config?host=unbound.ai-letflow.com")) == nil
   end
 end

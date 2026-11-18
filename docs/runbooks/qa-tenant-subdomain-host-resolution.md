@@ -1,9 +1,17 @@
 # QA tenant subdomains: how Letflow picks the tenant, and what `<slug>.letflow.qa.bizdala.com` needs
 
-Study for GH #3252 (REQ-572, portfolio D-019, QA only). Read-only: no behaviour was changed.
-Findings were taken from the code on `main` at the time of writing; symbols are cited, not line numbers.
+Study for GH #3252 (REQ-572, portfolio D-019, QA only). The findings below were taken from the code on
+`main` at the time of writing; symbols are cited, not line numbers.
 
-## Short answer
+> **Implemented after this study (T-1359, 2026-11-18):** `GET /api/tenant-config?host=` now resolves
+> the hostname stored in `onboarding_registry` to its active tenant and returns that tenant's realm and
+> allowlisted branding. Unknown, malformed, ambiguous or unservable hosts retain the default response.
+> Production company URLs use `https://<company>.ai-letflow.com`, replacing the proposed
+> `<slug>.letflow.bizdala.com` scheme. The rest of this document is the dated QA study, kept as history;
+> its statements that host binding is missing are not current behavior. DNS, certificates and Keycloak
+> redirect configuration remain infra/PM work.
+
+## Short answer (historical study)
 
 Letflow does **not** resolve the tenant from the `Host` header. A new tenant whose hostname is
 `<slug>.letflow.qa.bizdala.com` will be reached by the network (infra's wildcard already serves the same

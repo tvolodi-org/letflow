@@ -155,11 +155,11 @@ defmodule Letflow.Routers.TenantConfigTest do
   end
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # GH #2936 — a normal page load (?host= or no parameter) names the default
+  # GH #2936 — an UNBOUND host (?host=) or no parameter names the default
   # realm; it must carry that realm's tenant's saved branding.
   # ═══════════════════════════════════════════════════════════════════════════
 
-  describe "GH #2936: the host/no-parameter branch returns the default realm's own saved branding" do
+  describe "GH #2936: the unbound-host/no-parameter branch returns the default realm's own saved branding" do
     defp get_config_by_host(host),
       do: get_config_path("/api/tenant-config?host=#{URI.encode_www_form(host)}")
 
