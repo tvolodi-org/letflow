@@ -1,0 +1,170 @@
+# T-2165 (BA): Qoimeks QA walk, quick count screen in Russian and Kazakh at phone width (390 px) and at 1440 px, with its input refusals. QA only, SYNTHETIC stock data, no real data, never the real Qoimeks tenant.
+# Covers: REQ-855 (web Quick count screen, texts in en, ru and kk: web/src/modules/stock/quickCount/quickCountMessages.ts; navigation labels in web/src/components/layout/navMessages.ts; merged as build commit b890bae04),
+#   REQ-854 criterion 9 and 4 as seen on the screen (negative quantity, more than 9 decimals, reason "other" without a note are refused; the screen checks them before anything is sent).
+#   REQ-856 (phone-app Quick count with voice) is cancelled, see scenario qoimeks-mobile-3-quick-count-on-phone-width.
+# This scenario creates NO record: every refused step is stopped by the screen's own check before any request is sent, and no step presses "Submit count" with a valid form. Nothing to clean up.
+# Not UAT-observable, with reasons:
+#   (a) The server-side refusal texts (count_in_progress, location_frozen, quick_count_stale, reason_invalid from the server): they need a formal count order or a second user posting at the same time; they are covered by the component tests of REQ-855 criterion 4 (a test per code, per language) and not walked here.
+#   (b) Voice and camera: see scenario qoimeks-mobile-3-quick-count-on-phone-width, (a) and (b).
+#   (c) The Kazakh wording of the long messages is checked by reading them against the file named above; whether the Kazakh is good language is for a Kazakh-speaking reader of the screenshots, not decided by the run.
+---
+id: qoimeks-mobile-4-quick-count-ru-kk-and-input-refusals
+scope: qoimeks-qa
+title: The Quick count screen of the Qoimeks QA tenant speaks Russian and Kazakh at phone width and desktop width, and refuses an empty form, a negative quantity, too many decimals and a reason "Other" without a note
+version: "1.0"
+tags: [qoimeks, mobile, quick_count, phone, i18n, ru, kk, validation, refusal]
+
+description: >
+  The administrator switches the language of the screen to Russian (title "Быстрый пересчёт"), opens the Quick count screen in a window 390 px wide, and reads the title, the line under it, the field labels and the reason list.
+  Then four refusals are tried one by one, each ending without anything being sent: the empty form is submitted (the fields item, place and org unit say "Обязательное поле" and the quantity asks for the number);
+  a negative quantity is typed; a number with ten decimals is typed; the reason "Другое" is chosen with no note. Each time the screen shows its own message in Russian next to the field and records nothing.
+  The same is then done in Kazakh (title "Жылдам санақ"), and the reading is repeated at 1440 px in both languages. Finally the language is put back to English.
+  The messages are not raw keys, no English words stay in a Russian or Kazakh screen, and the text fits the 390 px width without sideways scrolling.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The Qoimeks QA tenant has the stock module active and the administrator's account holds the stock quick count permission, so that the Quick count screen is in the navigation.
+    check: system_seeded
+    detail: If the entry "Quick count" is missing from the navigation, report BLOCKED for the whole scenario and name the missing permission (StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule, docs/roles.md; UAT assumption, to be confirmed by the process owner - the account's role was not read).
+  - description: The administrator's browser language choice is English at the start (a fresh profile).
+    check: system_seeded
+    detail: If the screen opens in another language, switch to English first and carry on.
+  - description: The run can drive a real browser at window widths of 390 px and 1440 px and takes screenshots.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), opens the language menu (the globe with the current language code in the top bar) and chooses Russian.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the navigation (the button that unfolds it), chooses "Быстрый пересчёт" and reads the screen, and opens the list of reasons without choosing a new one.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      With the form empty the administrator presses the submit button ("Отправить пересчёт").
+    expect_refusal: true
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator types -5 in the field of the counted quantity ("Фактическое количество") and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator replaces the quantity with 1, chooses the reason "Другое", leaves the note ("Примечание к причине") empty and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator switches the language to Kazakh, opens the screen "Жылдам санақ" through the navigation and reads it (title, line under it, labels, the list of reasons).
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      With the form empty the administrator presses the submit button ("Санақты жіберу").
+    expect_refusal: true
+    via: ui
+  - step: 9
+    actor: admin
+    action: >
+      The administrator types -5 in the field of the counted quantity ("Нақты саны") and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 10
+    actor: admin
+    action: >
+      The administrator replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 11
+    actor: admin
+    action: >
+      The administrator replaces the quantity with 1, chooses the reason "Басқа", leaves the note empty and presses the submit button.
+    expect_refusal: true
+    via: ui
+  - step: 12
+    actor: admin
+    action: >
+      In a window 1440 px wide the administrator reads the Quick count screen in Russian and in Kazakh (title, line under it, labels), without submitting anything, and then switches the language back to English.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The Quick count screen is fully in Russian and fits a phone width.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the navigation entry and the title "Быстрый пересчёт", the line "Пересчитайте одну позицию на складе и зафиксируйте фактическое количество.", the labels "Позиция", "Местонахождение", "Подразделение", "Фактическое количество", "Причина", and the reasons "Пересчёт", "Найдено", "Недостача", "Повреждено", "Другое"; no English words, no raw keys such as "stock.qc.title"; the text is inside the 390 px width, with no horizontal scroll bar and no overlapping controls.
+      evidence: Screenshots of step 2 at 390 px.
+    on_fail:
+      severity: MAJOR
+      business_impact: Russian-speaking storekeepers get a half-English count screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The empty form is refused in Russian and nothing is recorded.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows "Обязательное поле" at the item, place and org unit fields and "Введите фактическое количество." at the quantity; the form stays, no result "Пересчёт зафиксирован" appears.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: An empty count could be sent, or the user gets no hint of what is missing.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: A negative quantity, ten decimals and a reason "Другое" without a note are each refused in Russian and nothing is recorded.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows "Количество не может быть отрицательным."; step 5 shows "Не более 9 знаков после запятой."; step 6 shows "Введите примечание для «Другое»." next to the note field. In each of the three the form stays and no result "Пересчёт зафиксирован" appears.
+      evidence: Screenshots of steps 4, 5 and 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong count could be sent to the stock, or the user cannot tell why it was not taken.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The Kazakh screen and the same four refusals are in Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7 shows the title "Жылдам санақ" and the labels "Позиция", "Орналасу жері", "Бөлімше", "Нақты саны", "Себеп"; the reasons "Қайта санақ", "Табылды", "Жетіспейді", "Зақымдалған", "Басқа";
+        steps 8 to 11 show the refusals "Міндетті өріс", "Нақты санды енгізіңіз.", "Сан теріс болуы мүмкін емес.", "9-дан артық ондық таңба болмауы керек.", "«Басқа» үшін ескертпе енгізіңіз."; no English words and no raw keys (the Kazakh file itself uses the words "Позиция" and "Партия" as they are in Russian); nothing is recorded.
+      evidence: Screenshots of steps 7 to 11 at 390 px.
+    on_fail:
+      severity: MAJOR
+      business_impact: Kazakh-speaking storekeepers get a half-Russian or half-English count screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: At 1440 px both languages read correctly and the language returns to English.
+    verification:
+      method: gui_screen
+      detail: Step 12 shows the same texts as EO-001 and EO-004 in the wider layout without cut-off text; after switching back, the title reads "Quick count" and the line "Count a single item at a location and record the actual quantity.".
+      evidence: Screenshots of step 12 in the three languages.
+    on_fail:
+      severity: MINOR
+      business_impact: The desktop screen differs from the phone one, or the account is left in a language the next run does not expect.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: The scenario leaves no stock document behind.
+    verification:
+      method: gui_screen
+      detail: After step 12 the stock documents screen shows no quick count document created by this run (no document with a number starting with QCT appeared after the run began).
+      evidence: Screenshot of the stock documents screen after step 12, with the list's newest rows visible.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused input slipped through and a count was recorded on the synthetic stock.
+      suggested_action: route_to_frontend_dev

@@ -1,0 +1,125 @@
+# T-2165 (BA): Qoimeks QA walk, phone PWA: the entry page, its install hint and its web-app description. QA only, synthetic data, no real data.
+# Covers: REQ-867 (the PWA entry names its scripts with a build stamp; the hosting runbook gives the install and update steps on iPhone and Android; merged as build commit 50548fe36),
+#   the PWA web build of apps/mobile (docs/runbooks/mobile-web-pwa-hosting.md, docs/runbooks/mobile-web-pwa-signin.md), and the install hint texts offline.install.* in apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb.
+#   REQ-810 (stay signed in 30 days) is behind a build flag that is off by default and is not exercised here; REQ-869 (update banner) is cancelled, so no update banner is expected anywhere.
+# Not UAT-observable, with reasons:
+#   (a) Really installing the app ("Add to Home Screen" on an iPhone in Safari, "Install app" in Chrome on Android): the run drives a desktop browser with a phone-sized window; the browser's install prompt and the home-screen icon belong to the device. Observable instead: the install hint on screen and the web-app description file.
+#   (b) Safari on iPhone: no iPhone is in the run. Chrome at a 390 px window does not prove Safari.
+#   (c) Offline work and the 7-day storage rule: needs a real device switched to airplane mode (docs/runbooks/mobile-web-pwa-ready-check.md device pass).
+# The PWA address is not in the repository: it is given to the run by the operator (see the precondition). The PWA is the web build of the same Flutter code as the Android app.
+---
+id: qoimeks-mobile-1-pwa-entry-install-hint-phone
+scope: qoimeks-qa
+title: The Qoimeks QA phone PWA opens at phone width, shows the company-code entry, offers the install hint in English, Russian and Kazakh, and describes itself as an installable app
+version: "1.0"
+tags: [qoimeks, mobile, pwa, install, phone, i18n, ru, kk, en]
+
+description: >
+  A person opens the address of the phone web app (PWA) of the Qoimeks QA tenant in a browser window 390 px wide, and again at 1440 px.
+  Before anyone is signed in, the page shows the company-code entry ("Company code" with the helper that the code comes from the company administrator and a Continue button).
+  The page text is not cut off, nothing needs sideways scrolling, and no control overlaps another. The administrator then signs in (the sign-in itself is walked in the next scenario)
+  and reads the install hint ("Install on your phone") that the app shows once on the stock document list, with the iPhone and Android steps in English, Russian and Kazakh and the "I have read it" button that hides it.
+  The administrator also opens the web-app description file of the PWA (manifest.json next to the entry page) and the entry page's source to check that the app presents itself as "Letflow", opens as a standalone app,
+  has its icons, and that every script the entry page loads carries the build stamp "?v=" followed by 12 characters.
+  The run is done twice: at 390 px (the phone) and at 1440 px (desktop), English first, then Russian and Kazakh for the install hint.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The operator gives the run the address of the phone web app (PWA) that serves the Qoimeks QA tenant, over https, and the QA identity provider has that exact address registered for the company's mobile sign-in client.
+    check: system_seeded
+    detail: Source docs/runbooks/mobile-web-pwa-signin.md steps 1 and 2 (infra registers the address by hand). UAT assumption, to be confirmed by the process owner - no PWA address for qoimeks-qa is recorded in the repository. If no PWA address is given, report BLOCKED for the whole scenario and say so; do not use the web administration address instead.
+  - description: The run can drive a real browser at window widths of 390 px and 1440 px, with the browser language set to English at the start.
+    check: system_seeded
+    detail: If no browser can be started or the width cannot be set, report BLOCKED for the whole scenario.
+  - description: The install hint has not been dismissed in this browser profile yet (a fresh profile).
+    check: system_seeded
+    detail: If the hint was dismissed earlier, clear the site data of the PWA address and carry on; if that is impossible, report BLOCKED for steps 3 and 4.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Before signing in, the administrator opens the PWA address in a window 390 px wide and reads the page.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the same PWA address in a window 1440 px wide and reads the page.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      In the 390 px window the administrator signs in as in the next scenario (company code qoimeks-qa, the administrator's own account) and reads the install hint shown on the stock document list: its title, its text and its button, but does not press the button yet.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator changes the app language to Russian and then to Kazakh (the language switch of the app, as in the next scenario) and reads the install hint each time; then presses the "I have read it" button in Kazakh ("Оқыдым") and reads the list again.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      In a new browser tab the administrator opens the file manifest.json that sits next to the PWA entry page (the PWA address followed by manifest.json) and reads its text.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      In another tab the administrator opens the source of the PWA entry page (view-source of the PWA address) and reads the lines that load scripts and files.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Before sign-in the PWA shows the company-code entry and fits a phone width.
+    verification:
+      method: gui_screen
+      detail: Step 1 at 390 px shows the prompt "Company code", the helper "You get this code from your company administrator" and the button "Continue"; the text is fully inside the 390 px width, there is no horizontal scroll bar and no two controls overlap. Step 2 at 1440 px shows the same elements without error.
+      evidence: Screenshots of steps 1 and 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A storekeeper cannot even begin to sign in on a phone.
+      suggested_action: route_to_mobile_dev
+  - id: EO-002
+    description: The install hint tells the phone user how to install the app, in English, Russian and Kazakh, and can be hidden.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the title "Install on your phone", an iPhone line ("Add to Home Screen" through Safari's Share button) or an Android line ("Install app" or "Add to home screen") as the browser kind decides, and the button "I have read it".
+        Step 4 shows the title "Установить на телефон" with "Я прочитал" in Russian and "Телефонға орнату" with "Оқыдым" in Kazakh, with no English words left in the hint and no text shown as a raw key such as "offline.install.title".
+        After the Kazakh button is pressed the hint is gone from the list and does not come back when the list is reloaded.
+      evidence: Screenshots of steps 3 and 4 in the three languages, and of the list after the button.
+    on_fail:
+      severity: MAJOR
+      business_impact: Phone users are not told how to install the app, so the app loses saved drafts after 7 days without use.
+      suggested_action: route_to_mobile_dev
+  - id: EO-003
+    description: The web-app description makes the page installable as "Letflow".
+    verification:
+      method: file_content
+      detail: Step 5 shows a JSON text with the name "Letflow", display "standalone", a start address, and icons of 192 and 512 pixels (the maskable ones too). The file opens (no error page).
+      evidence: Screenshot or saved text of the manifest.json tab.
+    on_fail:
+      severity: MAJOR
+      business_impact: The browser will not offer to install the app, or installs it with a wrong name or icon.
+      suggested_action: route_to_mobile_dev
+  - id: EO-004
+    description: Every script and style file that the entry page loads by a relative address carries the build stamp.
+    verification:
+      method: file_content
+      detail: In step 6 each relative script or link address in the page source (for example flutter_bootstrap.js and manifest.json) ends with "?v=" and 12 characters; an absolute address (https://...) or a fragment (#...) is left as it is; the entry page itself has no stamp in its own address.
+      evidence: Screenshot or saved text of the page source.
+    on_fail:
+      severity: MINOR
+      business_impact: Behind a cache that ignores the no-cache rule a phone can load a new entry page with an old script and show a blank screen after an update.
+      suggested_action: route_to_mobile_dev
+  - id: EO-005
+    description: No update banner or update button exists anywhere in the PWA (the update check was cancelled).
+    verification:
+      method: gui_screen
+      detail: In steps 3 and 4 the stock document list and the app menu show no "update available" banner and no "Check for updates" entry. This records the owner's decision of 2026-11-16, not a fault.
+      evidence: The same screenshots as EO-002.
+    on_fail:
+      severity: MINOR
+      business_impact: None for the business; a banner would mean the cancelled feature came back unannounced.
+      suggested_action: log_for_owner

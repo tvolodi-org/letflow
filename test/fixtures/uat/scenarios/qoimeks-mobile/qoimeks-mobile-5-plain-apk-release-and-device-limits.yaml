@@ -1,0 +1,99 @@
+# T-2165 (BA): Qoimeks QA walk, the plain Android APK: what a browser can observe (the published release record and the APK file). QA only, no real data, no production.
+# Covers: REQ-868 (signed Android release build, APK and AAB, release record latest.json, release runbook docs/runbooks/mobile-android-release.md; merged as build commit b8a8285de).
+#   REQ-869 (update banner and "Check for updates") is CANCELLED (owner 2026-11-16): there is no update banner in the app; a phone updates by installing the newer APK over the old one (docs/runbooks/mobile-android-release.md, opening paragraph). Nothing here expects one.
+# NOT UAT-OBSERVABLE (the install and the sign-in on the phone), with the reason for each - the run is a desktop browser and has no phone or emulator:
+#   (a) Installing the APK on an Android phone ("allow installs from this source", package install): a device action.
+#   (b) Signing in inside the Android app (identity redirect com.bizdala.letflow:/oauth2redirect, docs/runbooks/mobile-web-pwa-signin.md first paragraph): needs the installed app.
+#   (c) Installing a newer APK over an older one and keeping saved drafts: needs two APKs on a device.
+#   (d) Camera scan and voice in the app: need a device camera and microphone.
+#   (e) Which key signed the APK: the apksigner check is run by the release script on the build machine (docs/runbooks/mobile-android-release.md section 2); it is not visible in a browser. This scenario checks only the published files.
+#   The observable check for (a) to (d) is a person with an Android phone following docs/runbooks/mobile-android-release.md section 4 (install on a phone) by hand; the team does not run it, and this scenario does not claim it passed.
+# The download address is not in the repository: the operator (infra) gives it to the run. If none is given, the whole scenario is BLOCKED, not passed.
+---
+id: qoimeks-mobile-5-plain-apk-release-and-device-limits
+scope: qoimeks-qa
+title: The QA download location of the plain Android APK publishes a readable release record and an APK whose checksum matches, and the on-phone install and sign-in are recorded as not observable here
+version: "1.0"
+tags: [qoimeks, mobile, apk, android, release, download, not_uat_observable]
+
+description: >
+  A person opens the QA download location of the Letflow Android app in a browser (window 390 px wide, then 1440 px) and reads the release record file latest.json:
+  the version code and version name, the address of the APK, its checksum, the minimum version code, the release notes in Russian, Kazakh and English, and the publish time (UTC).
+  They then download the APK that the record points to, compute its SHA-256 checksum, and compare it with the checksum in the record and in the file next to the APK (the file with the same name and the ending .sha256).
+  They check that the address of the APK is https, that the file name carries the version name and version code of the record, and that the release record's notes read in the three languages without cut-off at the narrow window.
+  Nothing is installed and nobody signs in: see the list in the header. Cleanup: the downloaded APK is deleted from the run's folder at the end; nothing on the tenant is changed.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The operator gives the run the https address of the QA download location where the Android release files were published (the base address used for the release build).
+    check: system_seeded
+    detail: Source docs/runbooks/mobile-android-release.md section 3 (the output folder is handed to infra for the QA download location). UAT assumption, to be confirmed by the process owner - no download address for QA is recorded in the repository and no release is known to have been published. If no address is given or latest.json answers not found, report BLOCKED for the whole scenario and say "no release published".
+  - description: The run can drive a real browser at window widths of 390 px and 1440 px, can download a file, and can compute a SHA-256 checksum of a downloaded file.
+    check: system_seeded
+    detail: If a file cannot be downloaded, report BLOCKED for steps 3 and 4.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      In a window 390 px wide the administrator opens the address of latest.json at the download location and reads the text.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the same file in a window 1440 px wide and reads the text.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator opens the checksum file (the APK's file name followed by .sha256) in the browser and reads it, then downloads the APK from the address in latest.json and computes the SHA-256 checksum of the downloaded file.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator deletes the downloaded APK from the run's folder.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The release record is readable and complete.
+    verification:
+      method: file_content
+      detail: Steps 1 and 2 show a JSON text with exactly the keys versionCode, versionName, url, sha256, minVersionCode, notes (with exactly the keys ru, kk and en) and published; versionCode and minVersionCode are whole numbers, minVersionCode is not above versionCode, url starts with https://, published is a UTC time. The text is readable at 390 px without a script error page.
+      evidence: Saved text of latest.json and screenshots of steps 1 and 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Infra and the next release cannot tell which build is published, and the next release cannot refuse an old version code.
+      suggested_action: route_to_mobile_dev
+  - id: EO-002
+    description: The APK file name matches the record and the checksum matches the file.
+    verification:
+      method: file_content
+      detail: The file name in url is letflow-<versionName>-<versionCode>.apk with the values of the record; the checksum file holds the same hexadecimal value as the record's sha256; the SHA-256 computed in step 3 equals that value.
+      evidence: The three checksum values side by side in the run's report.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A phone could install a file that is not the one that was published (damaged or replaced).
+      suggested_action: route_to_security_reviewer
+  - id: EO-003
+    description: The release notes read in three languages.
+    verification:
+      method: file_content
+      detail: The ru, kk and en notes are each non-empty text in their own language (the run reads them; the wording is not asserted); none holds a raw placeholder.
+      evidence: The notes text in the run's report.
+    on_fail:
+      severity: MINOR
+      business_impact: The person who hands the APK to storekeepers has no notes in their language.
+      suggested_action: log_for_owner
+  - id: EO-004
+    description: The install and sign-in on the phone are recorded as not observed.
+    verification:
+      method: file_content
+      detail: The run's report lists items (a) to (e) of this scenario's header as "not UAT-observable" with the reason, and does not mark them passed.
+      evidence: The run's report.
+    on_fail:
+      severity: MINOR
+      business_impact: The release is described as tested on a phone when nobody did.
+      suggested_action: log_for_owner
