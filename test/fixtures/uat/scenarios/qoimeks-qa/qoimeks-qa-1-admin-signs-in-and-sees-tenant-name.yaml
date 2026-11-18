@@ -40,7 +40,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator opens the tenant's own address in the browser, is taken to the sign-in page of this tenant, and signs in with the tenant account.
+      The administrator opens the tenant's own address with the realm named in it (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa), is taken to the sign-in page of this tenant, and signs in with the tenant account. The realm is named in the address because, until issue 4686 is fixed, the host alone resolves to the default realm and would show the wrong sign-in page.
     via: ui
   - step: 2
     actor: admin
@@ -69,7 +69,7 @@ expected_outcomes:
     description: The top bar shows the name of this tenant.
     verification:
       method: gui_screen
-      detail: In step 2 the tenant name in the top bar is the name the tenant was registered with (Qoimeks QA or the registered display name), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
+      detail: In step 2 the tenant name in the top bar is the tenant slug qoimeks-qa or the registered display name (the slug is accepted by the operator's decision of T-2182), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
       evidence: Screenshot of the top bar at 1440 px width.
     on_fail:
       severity: MAJOR

@@ -1,0 +1,93 @@
+# T-2129 (BA), rewritten in T-2182 (issue #4687): the tenant holds data. QA only, no real data.
+# Data: SYNTHETIC, Qoimeks-shaped dataset of scripts/pilot/qoimeks_gen.py, seed 42 (fictitious; exact counts are not asserted).
+# Sources: the same screens and titles as scenario qoimeks-qa-2-screens-with-data-desktop (web/src/modules/locations/locationsMessages.ts, catalog_items/catalogItemsItemsMessages.ts,
+# stock/documents/documentsMessages.ts, stock/stockMessages.ts); web/src/components/layout/AppShell.tsx (the side navigation of a narrow window).
+# The 390 px width is a browser window setting of the run, not a device test: no real phone is used.
+# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision).
+---
+id: qoimeks-qa-3-screens-with-data-phone-390
+scope: qoimeks-qa
+title: >-
+  On a phone width of 390 px the locations, catalog items, stock documents and stock balances screens of the Qoimeks QA tenant show rows, fit the width and can be reached by the menu
+version: "2.0"
+tags: [smoke, qoimeks, synthetic_data, phone, responsive, navigation]
+
+description: >
+  Same tenant, same synthetic data, but the browser window is 390 px wide (a phone). The administrator signs in, finds the
+  navigation (on a narrow window the side navigation is folded away and is opened by a button), and opens the locations,
+  catalog items, stock documents and stock balances screens. Each shows rows, nothing needs sideways scrolling to read the page,
+  and no control overlaps another.
+  Not exercised, with reasons: (a) a real phone or the mobile application: the task asks for a window width only;
+  (b) the scanner of the stock count: it needs a count order that this smoke does not create; (c) exact row counts: only "rows are shown" is judged.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >-
+      The Qoimeks QA tenant has the modules locations, catalog_items and stock installed and active, and holds the synthetic dataset
+      (places, catalog items, stock balances and at least one posted stock document).
+    check: system_seeded
+    detail: If a module is not active, report BLOCKED for the steps of that module. If the tenant was reset and a screen is empty, report BLOCKED for that screen only.
+  - description: The run can drive a real browser at a window width of 390 px, English language.
+    check: system_seeded
+    detail: If no browser can be started or the width cannot be set, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 390 px wide, in English, and reads the page that opens.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the navigation (the button that unfolds it on a narrow window) and chooses the locations screen, then reads it.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator opens the navigation again, chooses the catalog items screen, and reads it.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the navigation again, chooses the stock documents screen, and reads it.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the navigation again, chooses the stock balances screen, and reads it.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: After sign-in on a phone width the workspace opens and the navigation can be reached.
+    verification:
+      method: gui_screen
+      detail: Step 1 shows the workspace without an error banner and a control that opens the navigation; in steps 2 to 5 that control opens it and each chosen entry opens the right screen.
+      evidence: Screenshots of step 1 and of the opened navigation.
+    on_fail:
+      severity: MAJOR
+      business_impact: Nobody can move between screens on a phone.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The four screens show rows of the synthetic dataset, not empty messages and not errors.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the "Locations" screen with places; step 3 the "Items" screen with item rows; step 4 the "Stock documents" screen with at least one row; step 5 the "Balances" screen with balance rows. No empty message ("No locations yet", "No items yet", "No stock documents found.", "No balances found."), no error banner and no permanent "Loading" mark on any of them. On a narrow window a screen may show its list and its detail one after the other; seeing the list with its rows is enough.
+      evidence: One screenshot per step at 390 px.
+    on_fail:
+      severity: MAJOR
+      business_impact: A phone user sees a broken or empty screen where the desktop user sees data.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: No page needs sideways scrolling and no control overlaps another at 390 px.
+    verification:
+      method: gui_screen
+      detail: In every screenshot of steps 1 to 5 the page has no horizontal scroll bar (the page width equals the 390 px window), the screen title and the first rows are fully inside the width, and no two controls overlap. A wide table that scrolls inside its own frame is accepted; the whole page scrolling sideways is not.
+      evidence: The five screenshots at 390 px, checked at the right edge.
+    on_fail:
+      severity: MINOR
+      business_impact: Rows are unreadable on a phone and the product looks unfinished.
+      suggested_action: route_to_frontend_dev

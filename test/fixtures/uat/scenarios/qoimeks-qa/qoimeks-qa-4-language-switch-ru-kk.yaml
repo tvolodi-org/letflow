@@ -1,30 +1,37 @@
-# T-2129 (BA): first acceptance run on the Qoimeks QA tenant. QA only, no real data.
-# Sources: the task text (language switch ru/kk); web/src/components/ui/LanguageSwitcher.tsx (globe with the current code; menu of languages with their own names; the choice is saved per user in the browser);
-# web/src/components/layout/AppShell.tsx (UI_LOCALES and UI_LOCALE_LABELS feed the switcher);
-# texts in three languages: web/src/modules/locations/locationsMessages.ts ("No locations yet" / "Локаций пока нет" / "Әзірге орын жоқ"),
-# web/src/modules/stock/documentsMessages.ts ("No stock documents found." / "Складских документов не найдено." / "Қойма құжаттары табылмады.").
-# The browser keeps the language choice for the account, so the last step puts the language back to English to leave the account as found.
+# T-2129 (BA), rewritten in T-2182 (issue #4687): the tenant holds data, so the empty-state texts of the first version are no longer judged. QA only, no real data.
+# Data: SYNTHETIC, Qoimeks-shaped dataset of scripts/pilot/qoimeks_gen.py, seed 42 (fictitious).
+# Sources: web/src/components/ui/LanguageSwitcher.tsx (globe with the current code; the choice is saved per user in the browser localStorage by saveLocale), web/src/i18n/uiLocaleStore.ts;
+# AppShell.tsx (UI_LOCALES, UI_LOCALE_LABELS); screen titles in three languages, copied from the catalogs:
+# locations/locationsMessages.ts 'locations.tree.title': Locations / Локации / Орындар;
+# stock/documents/documentsMessages.ts 'stock.doc.title': Stock documents / Складские документы / Қойма құжаттары;
+# stock/stockMessages.ts 'stock.balances.title': Balances / Остатки / Қалдықтар.
+# The language choice stays in the browser for the account, so the last step puts it back to English to leave the account as found.
+# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision).
 ---
 id: qoimeks-qa-4-language-switch-ru-kk
 scope: qoimeks-qa
-title: The Qoimeks QA administrator switches the screen language to Russian and Kazakh and back to English, and the empty-state messages of the locations and stock screens follow
-version: "1.0"
-tags: [smoke, qoimeks, i18n, ru, kk, en, empty_state]
+title: >-
+  The Qoimeks QA administrator switches the screen language to Russian and Kazakh and back to English, the screen titles follow, rows stay, and the choice persists across screens and a reload
+version: "2.0"
+tags: [smoke, qoimeks, i18n, ru, kk, en, synthetic_data]
 
 description: >
-  The administrator opens the locations screen in English, switches the language to Russian, reads it, then opens the stock documents screen and reads
-  that; switches to Kazakh and reads both screens again; then switches back to English. In each language the title, the empty message and the
-  hint of the screen are in that language, with no English words left over and no message shown as a raw key (for example a text like "locations.tree.emptyTitle").
-  Not exercised, with reasons: (a) the sign-in page language: the choice is made after sign-in, so this scenario starts at the workspace; (b) the languages of the catalog items screen:
-  covered on that screen's own scenarios in a later group, the two screens chosen here are enough to show that the switch reaches module screens.
+  The tenant holds a synthetic Qoimeks-shaped dataset (scripts/pilot/qoimeks_gen.py, seed 42). The administrator opens the locations screen in English,
+  switches the language to Russian and reads it, opens the stock documents and stock balances screens and reads them; switches to Kazakh and reads the
+  same screens again; reloads the page; then switches back to English. In each language the screen titles and the navigation are in that language, the rows
+  of the dataset are still shown (the data itself, such as item names, is not translated and is not judged), and no text is shown as a raw key (for example a text like "locations.tree.title").
+  Not exercised, with reasons: (a) the sign-in page language: the choice is made after sign-in, so this scenario starts at the workspace;
+  (b) the catalog items screen: its title is the same word in Russian and Kazakh catalogs of the product and shows nothing new here; the three screens chosen are enough to show that the switch reaches module screens;
+  (c) texts of empty states: the tenant holds data, they are not on screen.
 
 actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: The Qoimeks QA tenant has the modules locations and stock installed and active, and holds no location and no stock document.
+  - description: >-
+      The Qoimeks QA tenant has the modules locations and stock installed and active, and holds the synthetic dataset (places, balances and at least one posted stock document).
     check: system_seeded
-    detail: If a screen already holds rows, report BLOCKED for the steps that read that screen's empty message, and still check that the title and the navigation change language.
+    detail: If the tenant was reset and a screen is empty, report BLOCKED for the "rows are shown" part of that screen only, and still check its title language.
   - description: The administrator's browser language choice is English at the start (a fresh browser profile).
     check: system_seeded
     detail: If the screen opens in another language, switch to English first and carry on.
@@ -36,7 +43,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com) and opens the locations screen in English.
+      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) and opens the locations screen in English.
     via: ui
   - step: 2
     actor: admin
@@ -46,19 +53,24 @@ steps:
   - step: 3
     actor: admin
     action: >
-      The administrator opens the stock documents screen from the side navigation and reads it, still in Russian.
+      The administrator opens the stock documents screen from the side navigation and reads it, still in Russian, then opens the stock balances screen and reads it.
     via: ui
   - step: 4
     actor: admin
     action: >
-      The administrator opens the language menu and chooses Kazakh, then reads the stock documents screen.
+      The administrator opens the language menu and chooses Kazakh, then reads the stock balances screen.
     via: ui
   - step: 5
     actor: admin
     action: >
-      The administrator opens the locations screen from the side navigation and reads it, still in Kazakh.
+      The administrator opens the locations screen and then the stock documents screen from the side navigation and reads each, still in Kazakh.
     via: ui
   - step: 6
+    actor: admin
+    action: >
+      The administrator reloads the page in the browser and reads the screen that opens.
+    via: ui
+  - step: 7
     actor: admin
     action: >
       The administrator opens the language menu, chooses English, and reads the locations screen.
@@ -66,32 +78,32 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: In Russian the locations and stock documents screens speak Russian.
+    description: In Russian the screen titles are Russian and rows are still shown.
     verification:
       method: gui_screen
-      detail: Step 2 shows "Локаций пока нет" with the hint "Создайте первую локацию, затем добавляйте дочерние."; step 3 shows "Складских документов не найдено." with the hint "Создайте первый документ или измените фильтры."; the language code in the top bar reads RU; no raw message key and no leftover English sentence.
+      detail: Step 2 shows the title "Локации" with places in the tree; step 3 shows "Складские документы" with at least one row and then "Остатки" with balance rows; the language code in the top bar reads RU; no raw message key and no English screen title left.
       evidence: Screenshots of steps 2 and 3.
     on_fail:
       severity: MAJOR
-      business_impact: Russian-speaking users of the tenant get a half-English product.
+      business_impact: Russian-speaking users of the tenant get a half-English product, or lose their data view on switching.
       suggested_action: route_to_frontend_dev
   - id: EO-002
-    description: In Kazakh the stock documents and locations screens speak Kazakh.
+    description: In Kazakh the screen titles are Kazakh and rows are still shown.
     verification:
       method: gui_screen
-      detail: Step 4 shows "Қойма құжаттары табылмады." with the hint "Алғашқы құжатты жасаңыз немесе сүзгілерді өзгертіңіз."; step 5 shows "Әзірге орын жоқ" with the hint "Алғашқы орынды жасаңыз, содан кейін ішкі орындарды қосыңыз."; the language code reads KK; no raw message key.
+      detail: Step 4 shows the title "Қалдықтар" with balance rows; step 5 shows "Орындар" with places and then "Қойма құжаттары" with at least one row; the language code reads KK; no raw message key.
       evidence: Screenshots of steps 4 and 5.
     on_fail:
       severity: MAJOR
-      business_impact: Kazakh-speaking users of the tenant get a half-English product.
+      business_impact: Kazakh-speaking users of the tenant get a half-English product, or lose their data view on switching.
       suggested_action: route_to_frontend_dev
   - id: EO-003
-    description: Switching back to English restores the English texts and the choice holds across a screen change.
+    description: The language choice persists across screens and a page reload, and switching back to English restores the English titles.
     verification:
       method: gui_screen
-      detail: Step 6 shows "No locations yet" with the hint "Create the first location, then add its children."; the language code reads EN. Step 3 and step 5 show that the language chosen earlier stayed after moving to another screen (no jump back to English).
-      evidence: Screenshots of steps 3, 5 and 6.
+      detail: Steps 3 and 5 show that the chosen language stayed after moving to another screen (no jump back to English). Step 6, after the reload, still shows Kazakh titles and the code KK (the choice is saved in the browser for the account). Step 7 shows "Locations" with places and the code EN.
+      evidence: Screenshots of steps 3, 5, 6 and 7.
     on_fail:
       severity: MINOR
-      business_impact: The language jumps back by itself or does not return, so the user fights the screen on each move.
+      business_impact: The language jumps back by itself or does not return, so the user fights the screen on each move or each reload.
       suggested_action: route_to_frontend_dev
