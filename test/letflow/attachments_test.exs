@@ -318,7 +318,7 @@ defmodule Letflow.AttachmentsTest do
       assert {:error, :owner_kind_not_registered} =
                Attachments.add(
                  c.prefix,
-                 %{kind: "catalog_item", id: c.owner.id},
+                 %{kind: "catalog_counterparty", id: c.owner.id},
                  %{purpose: "photo", original: img()},
                  c.ctx
                )
@@ -588,6 +588,249 @@ defmodule Letflow.AttachmentsTest do
       assert {:ok, %Link{id: id}} = Attachments.get(c.prefix, c.owner, upper)
       assert id == other.id
       assert {link_count(c), length(audits(c))} == {2, 2}
+    end
+  end
+
+  # P4a — master-photo owners: catalog_item, catalog_lot, location_node
+
+  for kind <- ["catalog_item", "catalog_lot", "location_node"] do
+    describe "P4A-L #{kind} lifecycle" do
+      @kind kind
+
+      test "positions, main, list/get/content, replay, caption, reorder, main-move, delete", c do
+        owner = %{kind: @kind, id: Ecto.UUID.generate()}
+        thumb = Fx.png(width: 4, height: 4)
+
+        a =
+          case Attachments.add(
+                 c.prefix,
+                 owner,
+                 %{purpose: "photo", original: img(1), thumbnail: thumb},
+                 c.ctx
+               ) do
+            {:ok, link, :created} -> link
+          end
+
+        b =
+          case Attachments.add(c.prefix, owner, %{purpose: "photo", original: img(2)}, c.ctx) do
+            {:ok, link, :created} -> link
+          end
+
+        assert {a.position, a.is_main} == {1, true}
+        assert {b.position, b.is_main} == {2, false}
+
+        assert [%Link{id: id_a}, %Link{id: id_b}] = Attachments.list(c.prefix, owner, "photo")
+        assert {id_a, id_b} == {a.id, b.id}
+
+        assert {:ok, %Link{}} = Attachments.get(c.prefix, owner, a.id)
+
+        assert {:ok, %{content_type: "image/jpeg"}} =
+                 Attachments.content(c.prefix, owner, a.id, :original)
+
+        assert {:ok, %{content_type: "image/png"}} =
+                 Attachments.content(c.prefix, owner, a.id, :thumbnail)
+
+        assert {:error, :not_found} = Attachments.content(c.prefix, owner, b.id, :thumbnail)
+
+        # replay returns the same link without a new blob/audit
+        {links_before, audits_before} = {link_count(c), length(audits(c))}
+
+        assert {:ok, ^a, :replayed} =
+                 Attachments.add(
+                   c.prefix,
+                   owner,
+                   %{purpose: "photo", original: img(1), thumbnail: thumb},
+                   c.ctx
+                 )
+
+        assert {link_count(c), length(audits(c))} == {links_before, audits_before}
+
+        # caption
+        assert {:ok, %Link{caption: "P4a test"}} =
+                 Attachments.set_caption(c.prefix, owner, a.id, "P4a test", c.ctx)
+
+        assert {:ok, %Link{caption: nil}} =
+                 Attachments.set_caption(c.prefix, owner, a.id, "", c.ctx)
+
+        # reorder
+        assert {:ok, [%{id: id_b2, position: 1}, %{id: id_a2, position: 2}]} =
+                 Attachments.reorder(c.prefix, owner, "photo", [b.id, a.id], c.ctx)
+
+        assert {id_b2, id_a2} == {b.id, a.id}
+
+        # move main to b (now at position 1)
+        assert {:ok, %Link{is_main: true, id: ^id_b2}} =
+                 Attachments.set_main(c.prefix, owner, b.id, c.ctx)
+
+        assert [%{id: ^id_b2, is_main: true}, %{id: ^id_a2, is_main: false}] =
+                 Attachments.list(c.prefix, owner, "photo")
+
+        # delete the main; survivor becomes position 1/main
+        assert {:ok, _} = Attachments.delete(c.prefix, owner, b.id, c.ctx, false)
+
+        assert [%{id: ^id_a2, position: 1, is_main: true}] =
+                 Attachments.list(c.prefix, owner, "photo")
+      end
+    end
+
+    describe "P4A-C #{kind} cap" do
+      @kind kind
+
+      @tag timeout: 30_000
+      test "ten succeed, eleventh is :owner_cap_reached; separate owner still accepts", c do
+        owner = %{kind: @kind, id: Ecto.UUID.generate()}
+
+        for n <- 1..10,
+            do:
+              {:ok, _, :created} =
+                Attachments.add(c.prefix, owner, %{purpose: "photo", original: img(n)}, c.ctx)
+
+        {blobs_at_10, links_at_10, audits_at_10} =
+          {blob_count(c), link_count(c), length(audits(c))}
+
+        assert links_at_10 == 10
+
+        assert {:error, :owner_cap_reached} =
+                 Attachments.add(c.prefix, owner, %{purpose: "photo", original: img(11)}, c.ctx)
+
+        assert {blob_count(c), link_count(c), length(audits(c))} ==
+                 {blobs_at_10, links_at_10, audits_at_10}
+
+        assert length(Enum.filter(Attachments.list(c.prefix, owner, "photo"), & &1.is_main)) == 1
+
+        # another owner of the same kind still accepts
+        other = %{kind: @kind, id: Ecto.UUID.generate()}
+
+        assert {:ok, _, :created} =
+                 Attachments.add(c.prefix, other, %{purpose: "photo", original: img(20)}, c.ctx)
+      end
+    end
+
+    describe "P4A-P #{kind} purposes" do
+      @kind kind
+
+      test "unsupported purposes and nil are refused", c do
+        owner = %{kind: @kind, id: Ecto.UUID.generate()}
+
+        for purpose <- ["evidence", "file", "screenshot", nil] do
+          assert {:error, :purpose_not_allowed} =
+                   Attachments.add(c.prefix, owner, %{purpose: purpose, original: img()}, c.ctx)
+        end
+
+        assert {:error, :owner_kind_not_registered} =
+                 Attachments.add(
+                   c.prefix,
+                   %{kind: "catalog_counterparty", id: c.owner.id},
+                   %{purpose: "photo", original: img()},
+                   c.ctx
+                 )
+
+        assert link_count(c) == 0
+      end
+    end
+
+    describe "P4A-I #{kind} isolation" do
+      @kind kind
+
+      test "tenant B cannot see tenant A's link; kind/id cross-reference is :not_found", c do
+        owner_id = Ecto.UUID.generate()
+        owner_a = %{kind: @kind, id: owner_id}
+        fx_b = TenantFixture.provisioned_tenant!(slug_prefix: "t2044b#{@kind}")
+        prefix_b = fx_b.schema_name
+
+        {:ok, link_a, :created} =
+          Attachments.add(c.prefix, owner_a, %{purpose: "photo", original: img(1)}, c.ctx)
+
+        owner_b = %{kind: @kind, id: owner_id}
+        ctx_b = %{c.ctx | actor_id: Ecto.UUID.generate()}
+
+        {:ok, _, :created} =
+          Attachments.add(prefix_b, owner_b, %{purpose: "photo", original: img(2)}, ctx_b)
+
+        assert [%{id: id_b_link}] = Attachments.list(prefix_b, owner_b, "photo")
+        refute id_b_link == link_a.id
+
+        # B cannot access A's link
+        assert {:error, :not_found} = Attachments.get(prefix_b, owner_a, link_a.id)
+        assert {:error, :not_found} = Attachments.content(prefix_b, owner_a, link_a.id, :original)
+
+        assert {:error, :not_found} =
+                 Attachments.delete(prefix_b, owner_a, link_a.id, ctx_b, true)
+
+        assert {:error, :not_found} =
+                 Attachments.set_caption(prefix_b, owner_a, link_a.id, "x", ctx_b)
+
+        # A's data is unchanged
+        link_a_id = link_a.id
+        assert {:ok, %Link{id: ^link_a_id}} = Attachments.get(c.prefix, owner_a, link_a.id)
+
+        # Different owner id under same kind cannot get A's link
+        other_id_owner = %{kind: @kind, id: Ecto.UUID.generate()}
+        assert {:error, :not_found} = Attachments.get(c.prefix, other_id_owner, link_a.id)
+
+        # Different registered kind with same UUID cannot get A's link
+        alt_kind =
+          Enum.find(
+            ["assets_card", "catalog_item", "catalog_lot", "location_node"],
+            &(&1 != @kind)
+          )
+
+        alt_owner = %{kind: alt_kind, id: owner_id}
+        assert {:error, :not_found} = Attachments.get(c.prefix, alt_owner, link_a.id)
+
+        # Rejected cross-tenant/kind ops write no extra audit in A
+        assert length(audits(c)) == 1
+      end
+    end
+
+    describe "P4A-A #{kind} audit" do
+      @kind kind
+
+      test "attachment.added key set, no EXIF, actor/trace recorded; changed/removed shapes match",
+           c do
+        owner = %{kind: @kind, id: Ecto.UUID.generate()}
+        ctx = %{c.ctx | actor_id: Ecto.UUID.generate(), trace_id: "trace-p4a-#{@kind}"}
+        exif_jpg = Fx.jpeg(meta: [:exif, :xmp])
+
+        {:ok, link, :created} =
+          Attachments.add(
+            c.prefix,
+            owner,
+            %{purpose: "photo", original: exif_jpg, caption: "Secret"},
+            ctx
+          )
+
+        assert link.tenant_id == c.fx.tenant_id
+        assert link.uploaded_by == ctx.actor_id
+
+        {:ok, %{bytes: stored}} = Attachments.content(c.prefix, owner, link.id, :original)
+        refute stored =~ @sentinel
+        refute stored =~ "Exif"
+
+        [added] =
+          Repo.all(from(e in Entry, where: e.action == "attachment.added"), prefix: c.prefix)
+
+        expected_keys = ~w(byte_size content_type link_id owner_id owner_kind purpose sha256)
+        assert added.after_state |> Map.keys() |> Enum.sort() == expected_keys
+        assert added.after_state["owner_kind"] == @kind
+        assert added.after_state["owner_id"] == owner.id
+        assert added.after_state["purpose"] == "photo"
+        assert added.after_state["link_id"] == link.id
+        refute Map.has_key?(added.after_state, "caption")
+        assert added.actor_id == ctx.actor_id
+
+        {:ok, _} = Attachments.set_caption(c.prefix, owner, link.id, "Changed", ctx)
+        {:ok, _} = Attachments.delete(c.prefix, owner, link.id, ctx, false)
+
+        [_, changed, removed] =
+          Repo.all(from(e in Entry, order_by: e.timestamp), prefix: c.prefix)
+
+        assert changed.action == "attachment.changed"
+        assert changed.after_state["changed"] == ["caption"]
+        assert removed.action == "attachment.removed"
+        assert removed.before_state["link_id"] == link.id
+        assert removed.after_state == nil
+      end
     end
   end
 end
