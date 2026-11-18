@@ -88,7 +88,7 @@ function xlsxFile(name = 'stock.xlsx'): File {
   return new File(['content'], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
-function checkResult(opts: { remarks?: string[]; changes?: number; unchanged?: number; tooMany?: boolean } = {}) {
+function checkResult(opts: { remarks?: { row: number | null; text: string }[]; changes?: number; unchanged?: number; tooMany?: boolean } = {}) {
   return {
     sheet: 'Остатки 2026-11-18',
     rows_read: 50,
@@ -162,8 +162,8 @@ describe('C2 check', () => {
     await user.upload(screen.getByTestId('dropzone-input'), f)
     await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
 
-    const remark = 'Строка 3: артикул ART-X не найден в справочнике'
-    clientMock.postRaw.mockResolvedValueOnce(checkResult({ remarks: [remark], changes: 2 }))
+    const remarkText = 'Строка 3: артикул ART-X не найден в справочнике'
+    clientMock.postRaw.mockResolvedValueOnce(checkResult({ remarks: [{ row: 3, text: remarkText }], changes: 2 }))
     fireEvent.click(screen.getByTestId('wb-check'))
 
     await waitFor(() => expect(screen.getByTestId('wb-check-result')).toBeInTheDocument())
@@ -173,7 +173,7 @@ describe('C2 check', () => {
     // rows_read shown
     expect(screen.getByTestId('wb-sheet')).toHaveTextContent('50')
     // remark shown as-is (Russian server text)
-    expect(screen.getByTestId('wb-remarks')).toHaveTextContent(remark)
+    expect(screen.getByTestId('wb-remarks')).toHaveTextContent(remarkText)
     // unchanged_count shown
     expect(screen.getByTestId('wb-unchanged-count')).toHaveTextContent('5')
   })
@@ -212,10 +212,10 @@ describe('C2 check', () => {
     await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
     await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
 
-    const remark = 'Строка 7: единица измерения не найдена'
-    clientMock.postRaw.mockResolvedValueOnce(checkResult({ remarks: [remark] }))
+    const remarkText = 'Строка 7: единица измерения не найдена'
+    clientMock.postRaw.mockResolvedValueOnce(checkResult({ remarks: [{ row: 7, text: remarkText }] }))
     fireEvent.click(screen.getByTestId('wb-check'))
-    await waitFor(() => expect(screen.getByTestId('wb-remarks')).toHaveTextContent(remark))
+    await waitFor(() => expect(screen.getByTestId('wb-remarks')).toHaveTextContent(remarkText))
   })
 })
 
@@ -308,7 +308,7 @@ describe('C5 loads and cancel', () => {
     document_id: 'imp-1',
     number: 'QCI-2026-000010',
     created_at: '2026-11-18T04:00:00Z',
-    created_by: 'alice',
+    created_by: 'aaaaaaaa-0000-0000-0000-000000000001',
     file_name: 'stock.xlsx',
     sheet: 'Остатки',
     lines: 10,
@@ -322,7 +322,8 @@ describe('C5 loads and cancel', () => {
     await waitFor(() => expect(screen.getByTestId('wb-loads-section')).toBeInTheDocument())
     await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
     expect(screen.getByText('10')).toBeInTheDocument()
-    expect(screen.getByText('alice')).toBeInTheDocument()
+    // User column shows '—' (created_by is a UUID, not resolvable by the client)
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 
   it('shows Cancel button for StockReverse on an issued load', async () => {
@@ -330,8 +331,20 @@ describe('C5 loads and cancel', () => {
     await waitFor(() => expect(screen.getByTestId(`cancel-${importRow.document_id}`)).toBeInTheDocument())
   })
 
+  it('shows Cancel button for StockReverse on a posted load', async () => {
+    renderWB(withQCAndReverse, [{ ...importRow, state: 'posted' }])
+    await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
+    expect(screen.getByTestId(`cancel-${importRow.document_id}`)).toBeInTheDocument()
+  })
+
   it('does not show Cancel without StockReverse', async () => {
     renderWB(withQC, [importRow])
+    await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
+    expect(screen.queryByTestId(`cancel-${importRow.document_id}`)).not.toBeInTheDocument()
+  })
+
+  it('does not show Cancel for a reversed load', async () => {
+    renderWB(withQCAndReverse, [{ ...importRow, state: 'reversed' }])
     await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
     expect(screen.queryByTestId(`cancel-${importRow.document_id}`)).not.toBeInTheDocument()
   })

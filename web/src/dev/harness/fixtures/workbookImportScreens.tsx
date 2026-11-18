@@ -102,7 +102,7 @@ const IMPORT_ROWS: WorkbookImportRow[] = [
     document_id: 'd1',
     number: 'QCI-2026-000001',
     created_at: '2026-11-18T04:00:00Z',
-    created_by: 'operator',
+    created_by: '11111111-0000-0000-0000-000000000001',
     file_name: 'stock-2026-11-18.xlsx',
     sheet: 'Остатки 2026-11-18',
     lines: 42,
@@ -114,7 +114,7 @@ const IMPORT_ROWS: WorkbookImportRow[] = [
     document_id: 'd2',
     number: 'QCI-2026-000002',
     created_at: '2026-11-17T10:00:00Z',
-    created_by: 'bookkeeper',
+    created_by: '22222222-0000-0000-0000-000000000002',
     file_name: 'stock-2026-11-17.xlsx',
     sheet: 'Остатки 2026-11-17',
     lines: 100,
@@ -128,9 +128,9 @@ const CHECK_RESULT_REMARKS: WorkbookCheckResult = {
   sheet: 'Остатки 2026-11-18',
   rows_read: 143,
   remarks: [
-    'Строка 3: артикул ART-X не найден в справочнике номенклатуры',
-    'Строка 7: единица измерения кг не соответствует базовой единице шт',
-    'Строка 12: количество 0 не учитывается (позиция пропускается)',
+    { row: 3, text: 'Строка 3: артикул ART-X не найден в справочнике номенклатуры' },
+    { row: 7, text: 'Строка 7: единица измерения кг не соответствует базовой единице шт' },
+    { row: 12, text: 'Строка 12: количество 0 не учитывается (позиция пропускается)' },
   ],
   changes: [
     { row: 1, item_code: 'GLV-L', item_name: 'Перчатки защитные (L)', place_code: 'A-01', book_quantity: '100', file_quantity: '95', difference: '-5' },
@@ -153,7 +153,7 @@ const CHECK_RESULT_NO_CHANGES: WorkbookCheckResult = {
 const CHECK_RESULT_TOO_MANY: WorkbookCheckResult = {
   sheet: 'Остатки 2026-11-18',
   rows_read: 2000,
-  remarks: ['Строка 1: замечание к файлу'],
+  remarks: [{ row: 1, text: 'Строка 1: замечание к файлу' }],
   changes: Array.from({ length: 5 }, (_, i) => ({
     row: i + 1,
     item_code: `ART-${i + 1}`,

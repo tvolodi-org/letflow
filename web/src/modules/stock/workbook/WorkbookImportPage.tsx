@@ -47,7 +47,7 @@ const HARNESS_IMPORT_ROW: WorkbookImportRow = {
   document_id: 'd1',
   number: 'QCI-2026-000001',
   created_at: '2026-11-18T04:00:00Z',
-  created_by: 'operator',
+  created_by: '11111111-0000-0000-0000-000000000001',
   file_name: 'stock-2026-11-18.xlsx',
   sheet: 'Остатки 2026-11-18',
   lines: 42,
@@ -238,7 +238,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
       mono: true,
       render: (r) => formatStockDateTime(r.created_at, { locale: intl.locale }),
     },
-    { key: 'created_by', label: t('stock.wb.loads.col.user'), render: (r) => r.created_by ?? '—' },
+    { key: 'created_by', label: t('stock.wb.loads.col.user'), render: () => '—' },
     { key: 'file_name', label: t('stock.wb.loads.col.file'), render: (r) => r.file_name ?? '—' },
     { key: 'lines', label: t('stock.wb.loads.col.lines'), align: 'end', mono: true, render: (r) => String(r.lines) },
     {
@@ -261,7 +261,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
       key: 'cancel',
       label: '',
       render: (r) => {
-        const canCancel = canReverse && r.state === 'issued' && !r.reversal_pending
+        const canCancel = canReverse && r.state !== 'cancelled' && r.state !== 'reversed' && !r.reversal_pending
         return canCancel ? (
           <Button
             variant="secondary"
@@ -358,7 +358,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
                   <p className="caption">{t('stock.wb.result.remarksHint')}</p>
                   <ul className="lf-help">
                     {checkResult.remarks.map((r, i) => (
-                      <li key={i}>{r}</li>
+                      <li key={i}>{r.text}</li>
                     ))}
                   </ul>
                 </Banner>

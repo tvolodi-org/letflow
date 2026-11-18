@@ -15,10 +15,16 @@ export interface WorkbookChange {
   difference: string
 }
 
+/** A remark from the server: row number (or null for file-level remarks) and Russian text. */
+export interface WorkbookRemark {
+  row: number | null
+  text: string
+}
+
 export interface WorkbookCheckResult {
   sheet: string
   rows_read: number
-  remarks: string[]
+  remarks: WorkbookRemark[]
   changes: WorkbookChange[]
   unchanged_count: number
   too_many_changes: boolean
@@ -28,14 +34,14 @@ export interface WorkbookCheckResult {
 export interface WorkbookApplyNoChange {
   applied: false
   changes: number
-  remarks: string[]
+  remarks: WorkbookRemark[]
 }
 
 export interface WorkbookApplyCreated {
   document_id: string
   number: string
   lines: number
-  remarks: string[]
+  remarks: WorkbookRemark[]
   approve_task_id: string | null
 }
 
