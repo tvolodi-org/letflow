@@ -1,0 +1,130 @@
+# T-2164 (BA): Qoimeks QA walk scenarios — voice input: Russian and Kazakh letter names and zone words.
+# Covers REQ-862 criterion 3 (the Qoimeks kind words получил, отпустил, списал and по факту in the prompt;
+# VoicePrompt.kinds() == ["receipt","issue","transfer","count"] is unchanged).
+# Sources: docs/requirements.yaml REQ-862 (description: "(d) the Qoimeks kind words Letflow lacks: получил
+# (receipt), отпустил and списал (issue), по факту (count). The kind names stay receipt, issue, transfer,
+# count"); lib/letflow/modules/stock/voice_prompt.ex (rules/0: kind words list now includes получил, отпустил,
+# списал, по факту); docs/runbooks/stock-voice.md (Routes, the typed-text route body).
+#
+# PROVIDER DEPENDENCY: this scenario verifies that the language model maps the Qoimeks-specific kind words to
+# the correct draft kinds. This requires the language-model step to be on. If the model step is off every phrase
+# returns kind "unknown" and the whole scenario is BLOCKED; the provider-off path is covered by qoimeks-voice-1.
+#
+# NOT UAT-observable: the speech recognition step (requires real audio and provider keys set by the owner,
+# D-086); the prompt text itself (server-internal; tested by voice_prompt_test.exs VP-1); the mobile voice
+# panel (Flutter app is not driven by the UAT runner). Desktop (1440 px) and phone (390 px) produce the same
+# API response; this is an API-only scenario.
+---
+id: qoimeks-voice-4-qoimeks-kind-words-ru
+scope: qoimeks-qa
+title: When the language model is on, the Qoimeks kind words получил, отпустил, списал and по факту in a typed Russian phrase each produce the correct draft kind
+version: "1.0"
+tags: [qoimeks, voice, api, ru, kind-words, llm-on]
+
+description: >
+  Qoimeks operators say "получил" for a receipt, "отпустил" or "списал" for an issue, and "по факту" for a
+  count. These kind words were not in the voice prompt before REQ-862. Now they are. The administrator sends a
+  short typed phrase with each of these four Qoimeks kind words and verifies that the returned draft carries the
+  expected kind. The existing kind words приход and расход are not retested here; they are already covered by
+  the voice regression suite (voice_regression_test.exs R-1..R-9).
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: >
+      The language-model step of the platform is on (LETFLOW_VOICE_LLM_* settings are set for this environment).
+    check: system_seeded
+    detail: >
+      If the model step is off, every phrase returns kind "unknown" (not the kind under test) and the whole
+      scenario is BLOCKED. The provider-off path is covered by qoimeks-voice-1.
+  - description: >
+      The stock module is installed and the voice draft-text route is reachable by the administrator's token.
+    check: system_seeded
+    detail: If the route answers 404 for the stock module, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "получил сто единиц товара" with the language "ru". The answer
+      is noted as V1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "отпустил пятьдесят единиц товара" with the language "ru". The
+      answer is noted as V2.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "списал двадцать единиц товара" with the language "ru". The
+      answer is noted as V3.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "по факту тридцать единиц товара" with the language "ru". The
+      answer is noted as V4.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      "Получил" produces a receipt draft.
+    verification:
+      method: api_response
+      detail: >
+        V1 answers 200 with kind "receipt". The transcript equals the sent phrase. Items may be empty (no specific
+        item was said); dropped may list items_empty or similar. The kind "receipt" is the proof that the
+        language model recognised "получил" as the receipt word.
+      evidence: V1 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Qoimeks operators who say "получил" to report a receipt get the wrong kind or no kind, and the form
+        is not pre-filled for a receipt.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: >
+      "Отпустил" produces an issue draft.
+    verification:
+      method: api_response
+      detail: >
+        V2 answers 200 with kind "issue". The transcript equals the sent phrase.
+      evidence: V2 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Qoimeks operators who say "отпустил" to report an issue get the wrong kind, and the form is not
+        pre-filled for an issue.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: >
+      "Списал" produces an issue draft.
+    verification:
+      method: api_response
+      detail: >
+        V3 answers 200 with kind "issue". The transcript equals the sent phrase.
+        (Both "отпустил" and "списал" map to "issue"; this checks that "списал" specifically is recognised.)
+      evidence: V3 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Qoimeks operators who say "списал" to report an issue get the wrong kind.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: >
+      "По факту" produces a count draft.
+    verification:
+      method: api_response
+      detail: >
+        V4 answers 200 with kind "count". The transcript equals the sent phrase.
+      evidence: V4 body.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Qoimeks operators who say "по факту" for a stock count get the wrong kind, and the form is not
+        pre-filled for a count.
+      suggested_action: route_to_elixir_dev
