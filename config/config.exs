@@ -19,6 +19,11 @@ config :letflow, :public_read_kinds, %{
 # REQ-154: default instruction budget for tenant-supplied Lua scripts.
 # The 2-arity execute_with_manifest/2 reads this value; the 3-arity overload
 # accepts :max_instructions per call and does not use this config.
+# REQ-860 (decision 0091): the rule `Letflow.Ledger.Authority` applies to the credential kind
+# `:shared_access` (the old Qoimeks app's shared access), found by configuration because the ledger
+# names no module file. Without it that credential is refused.
+config :letflow, :shared_access_authority, {Letflow.SharedStockAccess, :may_post?}
+
 config :letflow, lua_max_instructions: 100_000
 
 # REQ-155: default host-enforced wall-clock timeout (milliseconds) for tenant-supplied

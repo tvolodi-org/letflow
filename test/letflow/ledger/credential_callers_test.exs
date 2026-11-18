@@ -1,8 +1,10 @@
 defmodule Letflow.Ledger.CredentialCallersTest do
   @moduledoc """
   REQ-686 criterion 4 (T-SEC-3): the credential kind of the request reaches `Engine.complete_task/3`.
-  An AST scan of `lib/` pins that the tasks router is the only caller of `complete_task` and that
-  it passes `:credential` taken from the request's auth context; the HTTP tests dispatch into
+  An AST scan of `lib/` pins the callers of `complete_task`: the tasks router passes `:credential`
+  taken from the request's auth context; the old-app write address (REQ-860,
+  `Letflow.Modules.Stock.OldAppWrites`) passes the literal `:shared_access`, pinned by T-SEC-3g;
+  the two opening postings complete only `submit` nodes. The HTTP tests dispatch into
   the real tasks router: an OIDC completion posts, an API token and an auth context without a
   credential are refused `write_not_permitted` and write nothing.
   """
@@ -19,6 +21,7 @@ defmodule Letflow.Ledger.CredentialCallersTest do
   # route has passed StockPost; that node has no module write, so it carries no credential.
   @allowed %{
     "lib/letflow/routers/tasks.ex" => :request_credential,
+    "lib/letflow/modules/stock/old_app_writes.ex" => :shared_access_credential,
     "lib/letflow/modules/stock/documents/posting.ex" => :submit_node_no_write,
     "lib/letflow/modules/assets/documents/posting.ex" => :submit_node_no_write
   }
@@ -44,7 +47,7 @@ defmodule Letflow.Ledger.CredentialCallersTest do
     calls
   end
 
-  test "T-SEC-3a only the tasks router calls Engine.complete_task, and it passes the credential" do
+  test "T-SEC-3a every caller of Engine.complete_task is classified, the tasks router passes the credential" do
     callers =
       for path <- Path.wildcard("lib/**/*.ex"),
           not String.starts_with?(path, "lib/letflow/design/"),
@@ -97,6 +100,54 @@ defmodule Letflow.Ledger.CredentialCallersTest do
 
     for {_key, node} <- submits,
         do: refute(Map.has_key?(node["attributes"] || %{}, "module_writes"))
+  end
+
+  # REQ-860: the old-app address completes the `post` / `reverse` task of a stock document with the
+  # literal credential kind `:shared_access` (no request value reaches it: the HTTP auth context holds
+  # only :oidc or :api_token). `Ledger.Authority` accepts that kind only through
+  # `SharedStockAccess.may_post?/4` (module stock, StockPost / StockReverse, a live credential actor).
+  test "T-SEC-3g old_app_writes.ex completes only the task of Posting.pending_task_id, with :shared_access" do
+    path = "lib/letflow/modules/stock/old_app_writes.ex"
+    source = File.read!(path)
+    {:ok, ast} = Code.string_to_quoted(source)
+
+    assert [call] = complete_calls(ast)
+    assert {{:., _, _}, _, [{:task_id, _, _}, {:attrs, _, _}, opts]} = call
+    assert Keyword.get(opts, :credential) == :shared_access
+    assert Keyword.keys(opts) |> Enum.sort() == [:credential, :prefix]
+
+    # the task id comes from the pending-task lookup, whose nodes are only post and reverse
+    assert source =~ "task_id ->"
+    assert source =~ "Posting.pending_task_id(prefix, document_id, node)"
+
+    posting = File.read!("lib/letflow/modules/stock/documents/posting.ex")
+    assert posting =~ ~s|def pending_task_id(prefix, id, node) when node in ["post", "reverse"]|
+
+    # :shared_access is minted in this one file, nowhere else in lib/
+    minters =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          not String.starts_with?(path, "lib/letflow/design/"),
+          File.read!(path) =~ "credential: :shared_access",
+          do: path
+
+    assert minters == [path]
+
+    # and its only callers are the catalog's two old-app functions, which only the old-app router calls
+    callers =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          path != "lib/letflow/modules/stock/old_app_writes.ex",
+          File.read!(path) =~ ~r/OldAppWrites\.(post_movement|reverse_movement)/,
+          do: path
+
+    assert callers == ["lib/letflow/modules/catalog.ex"]
+
+    catalog_callers =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          path != "lib/letflow/modules/catalog.ex",
+          File.read!(path) =~ ~r/Catalog\.old_app_(post|reverse)\(/,
+          do: path
+
+    assert catalog_callers == ["lib/letflow/routers/shared_stock_access.ex"]
   end
 
   # Same reason for the assets opening posting: it completes only `submit`, which has no module write.

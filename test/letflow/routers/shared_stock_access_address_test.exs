@@ -440,7 +440,8 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       assert conn.status == 401
     end
 
-    test "C5 POST, PUT and DELETE at the address answer 404 and change no stock row",
+    # REQ-860 serves POST /movements and POST /movements/:id/reverse (shared_stock_access_writes_test.exs).
+    test "C5 PUT, DELETE and the other writes at the address answer 404 and change no stock row",
          %{a: a, va: v} do
       count = fn ->
         Repo.aggregate("ledger_entry", :count, prefix: a.schema_name)
@@ -449,9 +450,9 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       before = count.()
 
       for {method, path} <- [
-            {:post, "/movements"},
-            {:post, "/movements/1/reverse"},
             {:put, "/movements"},
+            {:put, "/movements/1/reverse"},
+            {:get, "/movements/1/reverse"},
             {:delete, "/catalog"},
             {:post, "/catalog"}
           ] do

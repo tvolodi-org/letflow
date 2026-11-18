@@ -9,7 +9,9 @@ defmodule Letflow.Routers.SharedStockAccess do
   | `GET /catalog` | 200 JSON array: `id, name, article, unit, barcode` |
   | `GET /balances[?sku_id&location_id]` | 200 JSON array: `sku_id, location_id, quantity, sku_name, location_name` |
   | `GET /movements[?sku_id&location_id&limit]` | 200 JSON array, newest first, `limit` 50 when missing or outside 1..500: `id, kind, sku_id, location_id, quantity, operator, created_at` |
-  | any other method or path | 404 `{"error": ...}` (writes come in REQ-860; the codes, feedback, voice and parse calls are not served) |
+  | `POST /movements` | 201 one movement (the row of `GET /movements`) of the posted document; body `kind` (`receipt`, `issue`, `transfer`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (ignored) |
+  | `POST /movements/:id/reverse` | 201 the reversal's own movement row; body `operator` (or `X-Operator`) |
+  | any other method or path | 404 `{"error": ...}` (the codes, feedback, voice and parse calls are not served) |
 
   Order of work for every request, and nothing else runs before it:
 
@@ -32,6 +34,12 @@ defmodule Letflow.Routers.SharedStockAccess do
   4. While the tenant's scope enforcement is `on` or `shadow` the shared access answers 403
      `{"error": "scope_enforcement_active"}` (decision 0091 section 9; personal accounts are not
      affected: this router is not theirs).
+
+  Writes (REQ-860, `Letflow.Modules.Stock.OldAppWrites`): the body is read here, AFTER authentication,
+  capped at #{8192} bytes (413 over it, 400 when it is not a JSON object); an operator name that is
+  missing, blank or over 200 characters is 400 and nothing is written. The refusals are `{"error": text}`
+  with the status `OldAppWrites` gives. The shared access reaches nothing else of the platform: this
+  router serves five calls and no task, approval, count, import or user route.
 
   Reads use the tenant schema of the proved tenant only (INV-1): `Letflow.Ledger.authorize_shared_access/3`
   and `Letflow.Modules.Stock.OldAppReads` (through `Letflow.Modules.Catalog`). The router holds no `Repo` call. A crash in a read is a
@@ -76,6 +84,31 @@ defmodule Letflow.Routers.SharedStockAccess do
     read(conn, &Catalog.old_app_movements/2)
   end
 
+  post "/movements" do
+    write(conn, fn access, authorized, params ->
+      Catalog.old_app_post(
+        access.prefix,
+        access.actor_id,
+        authorized,
+        params,
+        operator_header(conn)
+      )
+    end)
+  end
+
+  post "/movements/:id/reverse" do
+    write(conn, fn access, authorized, params ->
+      Catalog.old_app_reverse(
+        access.prefix,
+        access.actor_id,
+        authorized,
+        id,
+        params,
+        operator_header(conn)
+      )
+    end)
+  end
+
   match _ do
     json(conn, 404, %{error: "not found"})
   end
@@ -117,6 +150,7 @@ defmodule Letflow.Routers.SharedStockAccess do
          prefix: prefix,
          tenant_id: tenant.id,
          credential_id: credential.id,
+         actor_id: credential.actor_id,
          scope_enforcement: tenant.scope_enforcement
        }}
     else
@@ -175,20 +209,76 @@ defmodule Letflow.Routers.SharedStockAccess do
   # -- reads --------------------------------------------------------------------------------------
 
   defp read(conn, fun) do
-    %{prefix: prefix, tenant_id: tenant_id} = conn.assigns.shared_access
     params = Plug.Conn.fetch_query_params(conn).query_params
 
-    with {:ok, authorized} <- Ledger.authorize_shared_access(prefix, tenant_id, @ledger),
-         {:ok, rows} <- fun.(authorized, params) do
-      json(conn, 200, rows)
-    else
-      {:error, :invalid_filter} -> json(conn, 400, %{error: "invalid filter"})
+    with_authorized(conn, fn conn, authorized ->
+      case fun.(authorized, params) do
+        {:ok, rows} -> json(conn, 200, rows)
+        {:error, :invalid_filter} -> json(conn, 400, %{error: "invalid filter"})
+        _unavailable -> json(conn, 500, %{error: "internal error"})
+      end
+    end)
+  end
+
+  # The ONE place the tenant-wide ledger authorization of the shared access is minted, from the proved
+  # tenant row's values (a scan test pins it); reads and writes both go through it.
+  defp with_authorized(conn, fun) do
+    %{prefix: prefix, tenant_id: tenant_id} = conn.assigns.shared_access
+
+    case Ledger.authorize_shared_access(prefix, tenant_id, @ledger) do
+      {:ok, authorized} -> fun.(conn, authorized)
       _unavailable -> json(conn, 500, %{error: "internal error"})
     end
   rescue
     exception ->
-      Logger.error("shared_stock_access_read_failed #{inspect(exception.__struct__)}")
+      Logger.error("shared_stock_access_failed #{inspect(exception.__struct__)}")
       json(conn, 500, %{error: "internal error"})
+  end
+
+  # -- writes -------------------------------------------------------------------------------------
+
+  @max_body 8192
+
+  defp write(conn, fun) do
+    with_authorized(conn, fn conn, authorized ->
+      case read_json(conn) do
+        {:ok, conn, params} ->
+          case fun.(conn.assigns.shared_access, authorized, params) do
+            {:ok, movement} -> json(conn, 201, movement)
+            {:error, {status, text}} -> json(conn, status, %{error: text})
+          end
+
+        {:error, conn, status, text} ->
+          json(conn, status, %{error: text})
+      end
+    end)
+  end
+
+  # The body is read only after the credential is proved, and never beyond @max_body bytes.
+  defp read_json(conn) do
+    case Plug.Conn.read_body(conn, length: @max_body, read_length: @max_body) do
+      {:ok, "", conn} ->
+        {:ok, conn, %{}}
+
+      {:ok, body, conn} ->
+        case Jason.decode(body) do
+          {:ok, %{} = params} -> {:ok, conn, params}
+          _other -> {:error, conn, 400, "invalid body"}
+        end
+
+      {:more, _partial, conn} ->
+        {:error, conn, 413, "body too large"}
+
+      {:error, _reason} ->
+        {:error, conn, 400, "invalid body"}
+    end
+  end
+
+  defp operator_header(conn) do
+    case Plug.Conn.get_req_header(conn, "x-operator") do
+      [value | _rest] -> value
+      [] -> nil
+    end
   end
 
   defp json(conn, status, body) do
