@@ -109,7 +109,9 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:count, "GET", "/counts/:id/posting-document", nil, :none},
     {:count, "GET", "/counts/:id/signatures", nil, :none},
     {:count, "GET", "/counts/:id/paperwork/:kind", nil, :call},
-    {:count, "GET", "/counts/:id/print/:kind", nil, :call}
+    {:count, "GET", "/counts/:id/print/:kind", nil, :call},
+    # REQ-886 (G8): cancel or start the reversal of a workbook load.
+    {:swb, "POST", "/stock-workbook/imports/:id/cancel", :cancel, :call}
   ]
 
   setup do
