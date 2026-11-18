@@ -1,0 +1,115 @@
+# T-2163 (BA): the old shared token, what a browser can see. The old-app address opened by hand without a value is refused the same way before the value exists, while it exists and after it is revoked; the administrator's Tokens page has no section for it, in Russian and Kazakh, at desktop and phone width. QA only.
+# REQ ids covered: REQ-859 (AC 2: same 401 for every unproven request), REQ-858 (no screen; its REWORDED paragraph), REQ-861 (cancelled: no Tokens section, recorded so the absence is checked), REQ-857 (decision 0091 section 6).
+# Sources opened: docs/requirements.yaml REQ-858..861; docs/migration/decisions/0091-shared-stock-access.md sections 6 and 8.1; web/src/router.tsx (admin/tokens guarded by the Tokens permission; TokensPage); docs/runbooks/pilot-rollout.md item 2 ("There is no screen for it").
+# Browser limits, stated: a browser address bar sends no Authorization header, so only the refusal without a value can be seen there; the create and revoke calls are via: api (see qoimeks-token-1). Screenshots: the 401 page is a plain text answer with no layout, so it is shot once at 1440 px and once at 390 px; the Tokens page is shot at 1440 and 390, in Russian and Kazakh.
+# NOT UAT-observable: any Russian or Kazakh text of the 401 answer: it is an English fixed text, not translated (a protocol answer for phones, not a screen).
+# Cleanup: creates the tenant's shared access once and revokes it at the end. No stock row is written.
+---
+id: qoimeks-token-4-browser-old-address-and-no-screen
+scope: qoimeks-qa
+title: In a browser the old-app address answers the same refusal before, during and after the shared access, and the administrator's Tokens page offers no screen for it (desktop and phone, Russian and Kazakh)
+version: "1.0"
+tags: [qoimeks, shared_stock_access, browser, phone_390, i18n, ru, kk, no_screen]
+
+description: >
+  The Qoimeks QA administrator signs in on the tenant address in a browser at 1440 px and again at 390 px. The administrator opens by hand the old-app catalog address of the tenant
+  (the tenant address followed by /qoimeks/qoimeks-qa/catalog) while no shared access exists: the browser shows a refusal (401, plain answer "invalid or expired bearer token") and no list of items.
+  The administrator creates the shared access through the API, opens the same address in the browser again (still no value presented, so the same refusal), then revokes it and opens it a third time: the same refusal again.
+  The three refusals look identical, so the page does not reveal whether a shared access exists. The administrator then opens the Tokens page in the side navigation (Tenant administration group), in Russian and in Kazakh, at 1440 px and 390 px.
+  The page lists the administrator's personal tokens and offers no section, button or text about a shared stock access or the old Qoimeks app: the feature is operated through the API only.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The tenant slug qoimeks-qa is listed in the deployment setting that allows a shared stock access, the tenant is active with the stock module, and the status says no shared access exists.
+    check: system_seeded
+    detail: If not enabled or one exists, report BLOCKED for steps 3 to 5 only (steps 1, 2, 6 and 7 do not need it) and say which.
+  - description: The run can drive a real browser at 1440 px and at 390 px width, and the interface can be switched to Russian and Kazakh.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED for the browser steps and say so; the API steps still stand.
+  - description: The administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+    check: system_seeded
+    detail: If sign-in fails, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on the tenant address in the browser at 1440 px width.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator types the old-app catalog address of the tenant by hand in the browser (no value is presented). The page is noted as B1.
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator creates the shared stock access through the API with an empty request (answer C1).
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator types the same old-app catalog address in the browser again. The page is noted as B2.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access through the API (answer D1) and types the same old-app catalog address in the browser a third time. The page is noted as B3.
+    expect_refusal: true
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator switches the interface to Russian, opens the Tokens page from the side navigation at 1440 px, and then repeats the same page at 390 px width. The pages are noted as T-ru-1440 and T-ru-390.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator switches the interface to Kazakh and opens the Tokens page at 1440 px and at 390 px. The pages are noted as T-kk-1440 and T-kk-390. The administrator also types the old-app catalog address at 390 px width once more (page B4).
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Sign-in works and the Tokens page opens for the administrator.
+    verification:
+      method: gui_screen
+      detail: After step 1 a workspace page with the tenant's top bar opens on the tenant address, no error banner; in steps 6 and 7 the Tokens page opens, with the page title in the chosen language.
+      evidence: Screenshots after sign-in and of T-ru-1440, T-ru-390, T-kk-1440, T-kk-390.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot work on the tenant at all.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The old-app address opened without a value gives the same refusal before, during and after the shared access, at both widths.
+    verification:
+      method: page_state
+      detail: B1, B2, B3 and B4 each show the status 401 and the plain text "invalid or expired bearer token" (as an error document), no item list, no tenant name, no hint that a shared access exists or was revoked; the text of B1, B2 and B3 is identical.
+      evidence: Screenshots of B1, B2, B3 at 1440 px and B4 at 390 px, with the address bar.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An outsider can tell whether the company has a shared access, or the catalog opens with no proof.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The Tokens page has no section for the shared stock access, in either language and at either width.
+    verification:
+      method: gui_screen
+      detail: T-ru-1440, T-ru-390, T-kk-1440 and T-kk-390 show the personal tokens list and its create action only; no heading, button, status line or text about a shared stock access, the old Qoimeks app or a "Qoimeks" address; no clipped or overlapping text at 390 px.
+      evidence: The four screenshots.
+    on_fail:
+      severity: MINOR
+      business_impact: A screen that the owner cancelled (no screen for this feature) appeared, or the Tokens page is broken at phone width.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The create and revoke calls work and leave the tenant with no shared access.
+    verification:
+      method: http_status
+      detail: C1 is 201; D1 is 204; a status read after D1 says exists false.
+      evidence: Status of C1 and D1 and the body of the status read.
+    on_fail:
+      severity: MAJOR
+      business_impact: A test value stays alive on the QA tenant, or the feature cannot be created.
+      suggested_action: route_to_wf03

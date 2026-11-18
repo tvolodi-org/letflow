@@ -1,0 +1,183 @@
+# T-2163 (BA): the old shared token. The Qoimeks QA administrator creates the tenant's shared stock access, the old-app address accepts it, the administrator revokes it through the API, then the same address refuses it. QA only, synthetic data, never the real tenant.
+# REQ ids covered: REQ-857 (decision 0091 sections 2 to 4, 8.1), REQ-858 (create, status, revoke; AC 1, 3, 6), REQ-859 (read at the old address, same 401 for every unproven request; AC 1, 2). REQ-861 (a screen for it) is cancelled: there is no screen.
+# Sources opened: docs/requirements.yaml REQ-857..861; docs/migration/decisions/0091-shared-stock-access.md sections 3, 4.3, 6, 8.1, 11a; docs/runbooks/pilot-rollout.md "Old Qoimeks app address" items 1 to 3; docs/runbooks/auth-rate-limits.md "The old-app address"; test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin).
+# NOT UAT-observable in a browser: the create, status and revoke calls and the old-app reads carry an Authorization header, which a browser address bar cannot send, and the product has no screen for them (REQ-861 cancelled). Every such step is via: api; the observable check is the HTTP status and body of each call. The browser-visible part (the address without a value, the Tokens page) is in qoimeks-token-4.
+# NOT UAT-observable: the audit entries shared_stock_access.created and shared_stock_access.revoked (REQ-858 AC 6): the roster has no actor that reads the audit view of this tenant. The posting of a movement with the revoked value is not walked: a defect would write a real stock document; the refusal for a revoked value is checked on reads (same 401 for every unproven request, REQ-859 AC 2).
+# Cleanup: the scenario creates the tenant's shared access and ends by revoking it, so the tenant ends as it began (no shared access). No stock row is written.
+---
+id: qoimeks-token-1-admin-revokes-then-old-address-refused
+scope: qoimeks-qa
+title: The Qoimeks QA administrator creates the shared stock access, the old-app address accepts it, the administrator revokes it, and the same address then refuses it
+version: "1.0"
+tags: [qoimeks, shared_stock_access, revoke, old_app_address, refusal, api]
+
+description: >
+  On the Qoimeks QA tenant (https://qoimeks-qa.letflow.qa.bizdala.com) the administrator creates the tenant's shared stock access with an empty request, so that the
+  system generates the value (noted as V1; it is shown once, in the answer to the create call). A status read shows that one exists, when it was created and by whom, and no value.
+  The old-app address of the tenant (the tenant address followed by /qoimeks/qoimeks-qa) answers a read of the item catalog when V1 is presented as a bearer value; the number of items is noted
+  (synthetic data: 666 items). The administrator then revokes the shared access: the answer is "no content" (204). The same catalog read with V1 is now refused with the one refusal every unproven request gets
+  (401, body text "invalid or expired bearer token"); it is the same answer, byte for byte, as for a made-up value (noted as W, a 64-character value of letters a to f that was never issued). A status read shows
+  that none exists. A second revoke is refused as "nothing to revoke" (404). A new create afterwards gives a different value V2 and is revoked again at the end, so the tenant ends with no shared access.
+  Not exercised, with reasons: a second company's administrator and the other roles (no roster actor for this realm besides the administrator; see qoimeks-token-3 for the other-address checks); a posting with the revoked value (see header).
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The tenant slug qoimeks-qa is listed in the deployment setting that allows a shared stock access (LETFLOW_SHARED_STOCK_ACCESS_TENANTS), the tenant is active and has the stock module installed.
+    check: system_seeded
+    detail: Read the status first. If it says "not enabled", report BLOCKED for the whole scenario and say the deployment setting does not list the tenant (the owner or the operator lists it; QA only).
+  - description: The tenant has NO shared stock access yet (the status read says none exists) and the tenant's scope enforcement is off.
+    check: system_seeded
+    detail: If one already exists, report BLOCKED for the whole scenario, because creating a new one would replace the value the pilot phones hold and the revoke at the end would remove it. Do not delete it to make the scenario run.
+  - description: The tenant holds the synthetic stock data (666 items, 142 places) and the administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+    check: system_seeded
+    detail: If sign-in is refused for a correct password or the credentials are missing, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator, signed in, reads the status of the tenant's shared stock access. The answer is noted as S0.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator creates the shared stock access with an empty request (the system generates the value). The answer is noted as C1; the value in it is noted as V1 and is kept only for this run.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the status again. The answer is noted as S1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The old-app address of the tenant is asked for the item catalog, presenting V1 as the bearer value. The answer is noted as R1 (status and number of items).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access. The answer is noted as D1.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The old-app address of the tenant is asked for the item catalog again, presenting V1. The answer is noted as R2 (status, body and headers).
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The old-app address of the tenant is asked for the item catalog, presenting the made-up value W. The answer is noted as R3 (status, body and headers).
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reads the status. The answer is noted as S2.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access a second time. The answer is noted as D2.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator creates the shared stock access again with an empty request (answer C2, value V2).
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The old-app address is asked for the catalog with V1 (answer R4).
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access (answer D3) and reads the status (answer S3), so that the tenant ends with none.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The status before creating says the tenant may have one and none exists.
+    verification:
+      method: api_response
+      detail: S0 is 200 and says enabled is true and exists is false.
+      evidence: Status and body of S0.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell whether the old phones may be pointed at the new address.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Creating gives a value once; the status never shows the value.
+    verification:
+      method: api_response
+      detail: C1 is 201 and carries a non-empty value V1. S1 is 200 with enabled true, exists true, a creation time and the creating user; no field of S1 holds V1 or any hash of it.
+      evidence: Status and bodies of C1 and S1 (V1 masked in the report).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Either the old app cannot be given a value, or the value can be read back by anyone who may read the status.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The old-app address accepts the value while the shared access exists.
+    verification:
+      method: http_status
+      detail: R1 is 200 and its body lists items of this tenant (synthetic catalog, 666 items or the count the status of the data shows); the fields are the old app's field names (id, name, article, unit, barcode).
+      evidence: Status of R1 and the number of items.
+    on_fail:
+      severity: MAJOR
+      business_impact: The old Qoimeks phones cannot read the catalog from Letflow.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The administrator can revoke the shared access and it is gone at once.
+    verification:
+      method: http_status
+      detail: D1 is 204. S2 is 200 with exists false.
+      evidence: Status of D1 and body of S2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A value that phones or a former employee still hold cannot be switched off; the stock stays open to whoever has it.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: After the revoke the old address refuses the old value, with the same answer as for any unproven request.
+    verification:
+      method: http_status
+      detail: R2 is 401 with detail "invalid or expired bearer token", on the very next request, with no wait. R3 (made-up value) is 401 with the same status, the same body (apart from any trace identifier, which is dropped before comparing) and the same headers as R2; neither answer names the tenant, the revoke or the reason.
+      evidence: Status, bodies and headers of R2 and R3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A revoked value still opens the stock of the company, or the refusal tells an outsider that the value was once valid.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: A second revoke is refused as nothing to revoke.
+    verification:
+      method: http_status
+      detail: D2 is 404 and S2 still says exists false.
+      evidence: Status of D2.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator gets a misleading answer when cleaning up twice.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: A new value replaces nothing that was revoked; the revoked value stays refused.
+    verification:
+      method: http_status
+      detail: C2 is 201 with a value V2 that differs from V1; R4 (V1 presented) is 401 as R2.
+      evidence: Status of C2 (V2 masked) and R4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A revoked value works again after a new one is created.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: The tenant ends as it began.
+    verification:
+      method: api_response
+      detail: D3 is 204 and S3 says exists false. The tenant's stock was only read; no document or balance changed.
+      evidence: Status of D3 and body of S3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A test value stays alive on the QA tenant and the next run is blocked.
+      suggested_action: route_to_wf03
