@@ -382,6 +382,249 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
+  @workbook_import_limit 50
+
+  @doc """
+  REQ-886 / GH #4605: the last #{@workbook_import_limit} workbook loads (stock_quick_count
+  documents from `workbook_apply/6`), newest first. `authorized` must be a tenant-wide ledger
+  read principal; a scoped reader gets `{:error, :not_found}`. Each item carries:
+  `document_id, number, created_at, created_by, file_name, sheet, lines, remarks_count,
+  state, reversal_pending`.
+  """
+  @spec workbook_imports(String.t(), map()) :: {:ok, [map()]} | {:error, :not_found}
+  def workbook_imports(prefix, authorized) do
+    with :ok <- authorized_read(authorized) do
+      spec = Kinds.get("quick_count")
+      doc_type = Repo.get(DocumentType, spec.type_key, prefix: prefix)
+
+      rows =
+        Repo.all(
+          from(d in Document,
+            join: v in DocumentVersion,
+            on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
+            where: d.type_key == ^spec.type_key,
+            where: fragment("?->'workbook_ext'->>'source' = 'workbook'", v.content),
+            order_by: [desc: d.inserted_at, desc: d.id],
+            limit: @workbook_import_limit,
+            select: %{
+              id: d.id,
+              inserted_at: d.inserted_at,
+              number: d.number,
+              period: d.period,
+              version_status: v.status,
+              issued_by: v.issued_by,
+              content: v.content
+            }
+          ),
+          prefix: prefix
+        )
+
+      ids = Enum.map(rows, & &1.id)
+      marks_map = Posting.marks(prefix, ids)
+      reversal_set = workbook_pending_reverses(prefix, ids)
+
+      # Header records carry the header_id used to count lines.
+      header_fvs =
+        if ids == [] do
+          %{}
+        else
+          Repo.all(
+            from(r in Latest,
+              where:
+                r.entity_type == ^spec.type_key and not r.deleted and
+                  fragment(
+                    "?->>'document_id' = ANY(?)",
+                    r.field_values,
+                    type(^ids, {:array, :string})
+                  ),
+              select: {fragment("?->>'document_id'", r.field_values), r.record_id}
+            ),
+            prefix: prefix
+          )
+          |> Map.new()
+        end
+
+      header_ids = Map.values(header_fvs)
+
+      line_counts =
+        if header_ids == [] do
+          %{}
+        else
+          Repo.all(
+            from(r in Latest,
+              where:
+                r.entity_type == ^spec.line_type and not r.deleted and
+                  fragment(
+                    "?->>'header_id' = ANY(?)",
+                    r.field_values,
+                    type(^header_ids, {:array, :string})
+                  ),
+              group_by: fragment("?->>'header_id'", r.field_values),
+              select: {fragment("?->>'header_id'", r.field_values), count(r.record_id)}
+            ),
+            prefix: prefix
+          )
+          |> Map.new()
+        end
+
+      result =
+        Enum.map(rows, fn row ->
+          marks = Map.get(marks_map, row.id, %{})
+          state = workbook_import_state(row.version_status, marks)
+          header_id = Map.get(header_fvs, row.id)
+          line_count = if header_id, do: Map.get(line_counts, header_id, 0), else: 0
+          ext = get_in(row.content, ["workbook_ext"]) || %{}
+
+          number =
+            if row.number && doc_type,
+              do: Letflow.Documents.number_label(doc_type, row.number, row.period)
+
+          %{
+            document_id: row.id,
+            number: number,
+            created_at: row.inserted_at |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+            created_by: row.issued_by,
+            file_name: ext["file_name"],
+            sheet: ext["sheet"],
+            lines: line_count,
+            remarks_count: ext["remarks_count"],
+            state: state,
+            reversal_pending: row.id in reversal_set
+          }
+        end)
+
+      {:ok, result}
+    end
+  end
+
+  defp workbook_import_state(:cancelled, _marks), do: "cancelled"
+
+  defp workbook_import_state(:issued, marks) do
+    cond do
+      Map.has_key?(marks, "reversed") -> "reversed"
+      Map.has_key?(marks, "posted") -> "posted"
+      true -> "issued"
+    end
+  end
+
+  defp workbook_import_state(:draft, _marks), do: "draft"
+
+  defp workbook_pending_reverses(_prefix, []), do: MapSet.new()
+
+  defp workbook_pending_reverses(prefix, ids) do
+    all_def_ids =
+      (Kinds.definition_names() ++ ["stock_reversal", "stock_quick_count"])
+      |> Enum.uniq()
+      |> Enum.flat_map(fn name ->
+        Repo.all(
+          from(d in Letflow.Definitions.ProcessDefinition,
+            where: d.name == ^name,
+            select: d.id
+          ),
+          prefix: prefix
+        )
+      end)
+
+    if all_def_ids == [] do
+      MapSet.new()
+    else
+      Repo.all(
+        from(t in Task,
+          join: p in InstanceProjection,
+          on: p.instance_id == t.instance_id,
+          where:
+            t.status == :pending and t.node_id == "reverse" and
+              p.status == :active and
+              p.definition_id in ^all_def_ids and
+              fragment(
+                "?->>'document_id' = ANY(?)",
+                p.variables,
+                type(^ids, {:array, :string})
+              ),
+          select: fragment("?->>'document_id'", p.variables),
+          distinct: true
+        ),
+        prefix: prefix
+      )
+      |> MapSet.new()
+    end
+  end
+
+  @doc """
+  REQ-886 / GH #4605: cancel or start the reversal of a workbook load.
+
+  Validates reason from `body["reason"]` first (422 `reason_required` / `reason_too_long`).
+  Then finds the document: an unknown id, a non-workbook-load and another tenant's document
+  are all `{:error, :not_found}`. Then:
+  - already cancelled or reversed → `{:error, :import_already_cancelled}`
+  - reversal already pending → `{:error, :reversal_pending}`
+  - issued (awaiting approval) → cancel via `Posting.cancel/5` → `{:ok, %{action: "cancelled", lines: N}}`
+  - posted → start reversal via `Posting.reverse/6` → `{:ok, %{action: "reverse_pending", lines: N}}`
+
+  The other refusals of `Posting.reverse/6` pass through unchanged.
+  """
+  @spec workbook_cancel(String.t(), term(), map(), String.t(), map(), term(), fun()) ::
+          {:ok, map()} | {:error, term()}
+  def workbook_cancel(prefix, raw_id, body, actor_id, authorized, activator, fetch) do
+    with {:ok, _reason} <- Documents.validate_cancel_reason(Map.get(body, "reason")),
+         {:ok, id} <- cast(raw_id),
+         :ok <- check_workbook_load(prefix, id) do
+      pending = Posting.pending(prefix, id)
+
+      case fetch.(prefix, id) do
+        {:error, _} ->
+          {:error, :not_found}
+
+        {:ok, view} ->
+          cond do
+            view.state in ["cancelled", "reversed"] ->
+              {:error, :import_already_cancelled}
+
+            pending.reverse ->
+              {:error, :reversal_pending}
+
+            view.state == "issued" ->
+              with {:ok, final_view} <-
+                     Posting.cancel(prefix, id, body, actor_id, fetch) do
+                {:ok, %{action: "cancelled", lines: length(final_view.lines)}}
+              end
+
+            view.state == "posted" ->
+              reason = Map.get(body, "reason")
+              reverse_body = %{"reason_code" => "other", "reason_text" => reason}
+              who = %{actor_id: actor_id, activator: activator}
+
+              with {:ok, _final_view} <-
+                     Posting.reverse(prefix, id, reverse_body, who, authorized, fetch) do
+                {:ok, %{action: "reverse_pending", lines: length(view.lines)}}
+              end
+
+            true ->
+              {:error, :not_found}
+          end
+      end
+    end
+  end
+
+  # Checks that `id` names a live stock_quick_count document with source "workbook".
+  # Returns :ok or {:error, :not_found}.
+  defp check_workbook_load(prefix, id) do
+    result =
+      Repo.one(
+        from(d in Document,
+          join: v in DocumentVersion,
+          on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
+          where: d.id == ^id and d.type_key == "stock_quick_count",
+          where: fragment("?->'workbook_ext'->>'source' = 'workbook'", v.content),
+          select: 1,
+          limit: 1
+        ),
+        prefix: prefix
+      )
+
+    if result == 1, do: :ok, else: {:error, :not_found}
+  end
+
   defp build_workbook_doc(unit, file_name, parsed, answer, enriched) do
     # Only entity-schema-valid fields go in header and lines (stock_quick_count enforces
     # additionalProperties: false). The workbook-specific fields go in :workbook_ext which

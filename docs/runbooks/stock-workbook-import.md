@@ -132,3 +132,56 @@ cancels the import (see REQ-886) and re-checks.
 
 **Four eyes OFF.** When the tenant has the `stock_quick_count / approve` approval rule set to
 `four_eyes: false`, the loader can complete the approve task alone.
+
+## List and cancel (REQ-886)
+
+### List
+
+`GET /api/v1/modules/stock/stock-workbook/imports`
+
+- Permission `StockRead`, tenant-wide only (a scoped reader gets 404).
+- No query parameters; any key returns 422 `invalid_filter`.
+- Returns up to 50 loads, newest first: `document_id, number, created_at, created_by, file_name,
+  sheet, lines, remarks_count, state, reversal_pending`.
+- `state` values: `issued` (awaiting approval), `posted` (approved, balances set), `reversed`
+  (reversal complete), `cancelled` (cancelled before approval).
+- `reversal_pending: true` while a reversal of a posted load has started but its reverse task is
+  not yet completed.
+
+### Cancel
+
+`POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel`
+
+- Permission `StockReverse`.
+- JSON body `{"reason": "<text>"}`. The reason is required (422 `reason_required`), trimmed
+  non-empty, at most 500 characters (422 `reason_too_long`). It is checked before anything changes.
+- Errors: 404 for an unknown id, a non-workbook document or a document of another tenant; 403
+  when the caller lacks `StockReverse`.
+
+**Before approval (`state: issued`).** The document is cancelled like `POST /documents/:id/cancel`.
+Answer `200 {"action": "cancelled", "lines": N}`. The approve task is withdrawn; the document reads
+`cancelled`; balances are unchanged.
+
+**After posting (`state: posted`).** A reversal is started like `POST /documents/:id/reverse`
+(reason code `other`, reason text the given reason). Answer
+`200 {"action": "reverse_pending", "lines": N}`. **Balances do not change at the cancel call.**
+The `state` of the load reads `reversal_pending` in the list until the reverse task is completed.
+
+**Completing the reverse task.** After the cancel the load has an open `reverse` task visible in
+the user's inbox and on the document screen. Any user holding `StockReverse` may complete it. After
+completion the ledger receives one reversal entry that negates every leg of the original posting,
+and each balance returns to its value before the load.
+
+**Reversal already running.** A second cancel while the reverse task is open returns
+409 `reversal_pending` and nothing is written.
+
+**Already finished.** A cancel of a load already cancelled or reversed returns
+422 `import_already_cancelled` and nothing is written. The same applies to a load reversed through
+`POST /documents/:id/reverse`.
+
+**Negative-balance guard (gap, row G4, REQ-833).** Qoimeks allows a reversal even when it would
+take a balance below zero. Letflow refuses it when the tenant's ledger has the
+`negative_balances_allowed: false` setting. The refusal happens at the completion of the reverse
+task, not at the cancel call, so `cancel` always answers `reverse_pending` for a posted load; the
+reverse task may then refuse `insufficient_balance` / `insufficient_stock` and stay pending until
+the gap is resolved (REQ-833, pending).

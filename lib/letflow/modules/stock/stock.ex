@@ -133,6 +133,17 @@ defmodule Letflow.Modules.Stock do
   422 `count_in_progress`. No changes → 200 `applied: false`. Created → 201 `document_id, number, lines, remarks,
   approve_task_id`. No new record type, migration or permission beyond `StockQuickCount`.
 
+  ## Workbook import list and cancel (REQ-886 / GH #4605; no version bump)
+
+  `GET /stock-workbook/imports` (`StockRead`, tenant-wide only, no query key): the last 50 workbook loads newest
+  first; each row carries `document_id, number, created_at, created_by, file_name, sheet, lines, remarks_count,
+  state, reversal_pending` (`Documents.workbook_imports/2`).
+  `POST /stock-workbook/imports/:id/cancel` (`StockReverse`; body `{reason: text}`): reason checked first
+  (422 `reason_required` / `reason_too_long`); issued document → cancelled (200 `{action: "cancelled", lines: N}`);
+  posted document → reversal started (200 `{action: "reverse_pending", lines: N}`); reversal already running →
+  409 `reversal_pending`; already cancelled or reversed → 422 `import_already_cancelled`; unknown / non-workbook /
+  cross-tenant → 404 (`Documents.workbook_cancel/7`). No new permission, record type or migration.
+
   ## Count worksheet (T-1905; no version bump)
 
   `GET /counts/:id/print/worksheet` (PDF) and `GET /counts/:id/paperwork/worksheet` (xlsx), `?lang`, `?expected=0|1`
@@ -463,6 +474,8 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-workbook", :StockRead},
       {"POST", "/stock-workbook/check", :StockRead},
       {"POST", "/stock-workbook/apply", :StockQuickCount},
+      {"GET", "/stock-workbook/imports", :StockRead},
+      {"POST", "/stock-workbook/imports/:id/cancel", :StockReverse},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},

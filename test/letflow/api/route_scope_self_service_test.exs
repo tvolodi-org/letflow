@@ -571,7 +571,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-854: POST /modules/stock/quick-counts (297 -> 298).
       # REQ-884 (GH #4607) added the stock workbook check route line (296 -> 297).
       # REQ-885 (GH #4606) added the stock workbook apply route line (298 -> 299).
-      assert length(snapshot) == 299
+      # REQ-886 (GH #4605) added the stock workbook imports and cancel routes (299 -> 301).
+      assert length(snapshot) == 301
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 

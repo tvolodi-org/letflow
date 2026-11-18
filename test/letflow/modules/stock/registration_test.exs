@@ -160,6 +160,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/stock-workbook", :StockRead},
              {"POST", "/stock-workbook/check", :StockRead},
              {"POST", "/stock-workbook/apply", :StockQuickCount},
+             {"GET", "/stock-workbook/imports", :StockRead},
+             {"POST", "/stock-workbook/imports/:id/cancel", :StockReverse},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
