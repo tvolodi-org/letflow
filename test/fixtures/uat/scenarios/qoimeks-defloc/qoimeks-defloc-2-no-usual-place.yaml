@@ -1,0 +1,91 @@
+# T-2162. QA only; synthetic records, no production.
+# Covers REQ-843 AC1 (absent place), AC2/3; REQ-841 AC4 only the visible validity of an
+# already imported item without a place, not the blank-cell re-import operation.
+# Sources opened: docs/requirements.yaml REQ-841..845; merged build a38927e09 (#4621);
+# web/src/modules/catalog_items/items/ItemDetails.tsx, itemsModel.ts, ItemsPage.tsx;
+# web/src/components/ui/registry/RegistryDetails.tsx (empty fields show an em dash);
+# web/src/modules/catalog_items/catalogItemsItemsMessages.ts and catalogItemsRoutes.tsx.
+# NOT UAT-observable here: blank-cell clearing through import, invalid-reference rollback,
+# converter counts and audit/manifest details. Their observable checks are admin import
+# results and converter/comparison files, not this screen. No import is run here.
+# Second place, stock-document prefill and voice use are withdrawn by REQ-841/844/845.
+# 390 px is a browser check, not native mobile/APK evidence.
+# No approval, pay/release, user change or real sensitive data; other-company refusal in scenario 3.
+---
+id: qoimeks-defloc-2-no-usual-place
+scope: qoimeks-qa
+title: An item without a usual place remains readable and shows a dash
+version: "1.0"
+tags: [qoimeks, default_location, empty_field, desktop, phone_390, ru, kk, read_only]
+description: >
+  Open an existing synthetic item known to have no usual place. Repeat the complete walk
+  at 1440 px and 390 px, in Russian and Kazakh, in light and dark appearance. Capture
+  each card, including the item code and empty-place field. No business record is created
+  or modified. Cleanup clears the search, closes the card and restores the initial language
+  and appearance. Do not clear an existing item's place just to provide this fixture.
+actors:
+  admin: actor-qoimeks-qa-admin
+preconditions:
+  - description: The synthetic Qoimeks QA tenant and administrator are available in a real browser.
+    check: system_seeded
+    detail: >
+      Use only https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, account
+      QOIMEKS_QA_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*. Record the initial
+      language and appearance. Missing credentials, tenant or browser means BLOCKED.
+  - description: An active synthetic item is known to have no usual place assigned.
+    check: system_seeded
+    detail: >
+      Identify its actual code and name from the synthetic import evidence or the
+      administrator's read-only item query, following all pages as needed; save the empty
+      assignment and item code in the run evidence. Do not infer emptiness from a blank
+      screen or an unresolved location name. If no suitable item exists, report BLOCKED
+      for this scenario; do not alter seeded items or invent a replacement.
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Sign in to QA, choose the current display combination, open Items and search by the
+      recorded article code. Open the matching item's card.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      Read Overview and capture the article code, name and usual-place field. Read the
+      view-only notice and the link to import; leave the item unchanged.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      Reload the selected card and read the usual-place field again. At 390 px return to
+      the list using the card's back control, then search and reopen the same article.
+      After the last display combination, clear the search, close the card and restore
+      the initial language and appearance.
+    via: ui
+expected_outcomes:
+  - id: EO-001
+    description: A missing usual place is shown explicitly without hiding the item.
+    verification:
+      method: gui_screen
+      detail: >
+        Overview shows the matching item's code and name and an em dash under Обычное место
+        in Russian or Әдеттегі орын in Kazakh. No place is invented, no internal identifier
+        appears, and no whole-card error replaces the item. Reload and reopen preserve the dash.
+      evidence: Empty-assignment evidence and initial/reopened card screenshots in every display combination.
+    on_fail:
+      severity: MAJOR
+      business_impact: A valid item appears broken or gives the warehouse user a false storage instruction.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The optional field does not require editing or a wider screen to read it.
+    verification:
+      method: gui_screen
+      detail: >
+        The view-only notice and import link are present; no item Edit action is offered.
+        The field label and dash are visible in all eight combinations, including on the
+        narrow card with no horizontal page scrolling and in dark appearance. No raw
+        translation key or English usual-place label replaces the Russian or Kazakh label.
+      evidence: Card screenshots at both widths in both languages and appearances, with missing variants marked BLOCKED.
+    on_fail:
+      severity: MAJOR
+      business_impact: The user cannot distinguish a missing assignment from an unusable item card.
+      suggested_action: route_to_frontend_dev
