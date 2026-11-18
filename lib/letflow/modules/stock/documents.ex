@@ -563,10 +563,12 @@ defmodule Letflow.Modules.Stock.Documents do
 
   The other refusals of `Posting.reverse/6` pass through unchanged.
   """
-  @spec workbook_cancel(String.t(), term(), map(), String.t(), map(), term(), fun()) ::
+  @spec workbook_cancel(String.t(), term(), term(), String.t(), map(), term(), fun()) ::
           {:ok, map()} | {:error, term()}
   def workbook_cancel(prefix, raw_id, body, actor_id, authorized, activator, fetch) do
-    with {:ok, _reason} <- Documents.validate_cancel_reason(Map.get(body, "reason")),
+    reason = if is_map(body), do: Map.get(body, "reason")
+
+    with {:ok, _reason} <- Documents.validate_cancel_reason(reason),
          {:ok, id} <- cast(raw_id),
          :ok <- check_workbook_load(prefix, id) do
       pending = Posting.pending(prefix, id)

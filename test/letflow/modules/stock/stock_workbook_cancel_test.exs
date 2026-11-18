@@ -363,6 +363,16 @@ defmodule Letflow.Modules.Stock.StockWorkbookCancelTest do
       assert c4.status == 422
       assert reason_of(c4) == "reason_too_long"
 
+      # JSON array body (not an object) — INV-8 regression
+      c5 = cancel_request(doc_id, ctx.tok_k, [1])
+      assert c5.status == 422
+      assert reason_of(c5) == "reason_required"
+
+      # JSON string body (not an object) — INV-8 regression
+      c6 = cancel_request(doc_id, ctx.tok_k, "x")
+      assert c6.status == 422
+      assert reason_of(c6) == "reason_required"
+
       # Document state unchanged, nothing written
       {:ok, doc} = Documents.fetch(ctx.schema, doc_id)
       assert doc.state == "issued"
