@@ -1,0 +1,116 @@
+# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# REQ ids covered: REQ-833 (decision 0090 section 6: the warning before saving), REQ-836 (the form learns from the module whether the tenant allows it), REQ-838 (the warning in the stock document form).
+# Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 6; docs/requirements.yaml REQ-838;
+#   web/src/modules/stock/documents/documentsMessages.ts (texts: en "The balance will become negative", ru "Остаток станет отрицательным", kk "Қалдық теріс болады"; kinds Issue / Расход, Receipt / Приход);
+#   web/src/modules/stock/documents/negativeBalance.ts (kinds that warn: issue, write off, transfer, hand over, return; the lowering side only).
+# The warning is not an error: Save stays available. The scenario never saves, so it creates no record and needs no cleanup. The form is left with "Back to the list" and the browser asks nothing, or the draft is discarded by leaving the page.
+# Not UAT-observable here, with reasons:
+#   (a) the voice draft on the phone app (decision 0090 section 6 item 4) and the Flutter form: APK only, no browser; observable check is the mobile tier's own test; not part of this walk;
+#   (b) the warning for write off, transfer, hand over and return: same code path as the issue (negativeBalance.ts); this walk uses the issue and the receipt, and component tests of REQ-838 cover the others;
+#   (c) the warning being absent when the tenant refuses negatives: needs the setting switched to Refused, which scenario 2 deliberately does not do; covered by component tests of REQ-838.
+# UAT assumption, to be confirmed by the process owner: the stock setting of the tenant is "Allowed" (see scenario 2). If it is "Refused" no warning is shown by design and EO-001 reports BLOCKED.
+---
+id: qoimeks-negative-3-issue-form-warns-balance-will-become-negative
+scope: qoimeks-qa
+title: The stock issue form warns that the balance will become negative, and a receipt and a smaller issue do not
+version: "1.0"
+tags: [qoimeks, negative_balance, stock_documents, warning, ru, kk, phone_390]
+
+description: >
+  The administrator starts a new stock document of the kind Issue, picks one item that has a positive balance at one place (read from the Balances screen first),
+  types a quantity larger than that balance and reads the warning "The balance will become negative" next to the line; Save stays enabled. Then types a quantity equal to the
+  balance and the warning goes away; then switches the kind to Receipt with the larger quantity and no warning shows. The same warning is read in Russian and Kazakh and at 390 px.
+  Nothing is saved or posted, so there is nothing to clean up. The sensitive action "post stock that drives a balance below zero" is not performed; the form only warns.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The stock setting of the tenant allows negative balances (see scenario 2) and the administrator may read balances.
+    check: system_seeded
+    detail: If the page "Negative balances" shows Refused, report BLOCKED for EO-001 and EO-002; the warning is not shown on a refusing tenant by design.
+  - description: At least one item has a positive balance at a named place and org unit on the Balances screen.
+    check: system_seeded
+    detail: Take the first positive row seen; if none exists, report BLOCKED.
+  - description: The run can drive a real browser at 1440 px and 390 px.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances and notes one row with a positive quantity (item, place, quantity), call it Q.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens Stock documents, presses "New document", chooses the kind Issue, fills the header with the place and org unit of the noted row, and adds one line with the noted item and a quantity of Q plus 1.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the line and the buttons of the form.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator changes the quantity of the line to exactly Q and reads the line again.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator sets the quantity back to Q plus 1 and switches the kind to Receipt, then reads the line.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator switches the kind back to Issue (quantity Q plus 1), switches the language to Russian and reads the warning, then to Kazakh and reads the warning.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator narrows the window to 390 px wide and reads the warning in the language chosen last; then leaves the form with "Back to the list" without saving, switches the language to English and widens the window.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: An issue larger than the balance shows the warning, in a form that can still be saved.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows "The balance will become negative" at the line; it is a warning, not an error (no red refusal banner), and the Save draft button is enabled.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The storekeeper issues more than is in stock without being told, and the balance goes below zero unnoticed.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A quantity equal to the balance and a receipt show no warning.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows no warning on the line (quantity Q does not go below zero); step 5 with kind Receipt shows no warning though the quantity is Q plus 1.
+      evidence: Screenshots of steps 4 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A false warning teaches storekeepers to ignore it, and the real one is lost.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The warning is worded in Russian and Kazakh.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows «Остаток станет отрицательным» in Russian and «Қалдық теріс болады» in Kazakh, with no raw message key and no English sentence left on the line.
+      evidence: Screenshots of step 6, one per language.
+    on_fail:
+      severity: MAJOR
+      business_impact: The Russian and Kazakh storekeepers, who are the Qoimeks users, do not get the warning they had in the old system.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The warning is readable at 390 px and nothing was saved.
+    verification:
+      method: gui_screen
+      detail: Step 7 shows the warning in full at 390 px with no clipping; after leaving the form the Stock documents list holds no new document made by this walk.
+      evidence: Screenshot of step 7 and the list after it.
+    on_fail:
+      severity: MINOR
+      business_impact: A phone user does not see the warning, or a test record is left in the tenant.
+      suggested_action: route_to_frontend_dev

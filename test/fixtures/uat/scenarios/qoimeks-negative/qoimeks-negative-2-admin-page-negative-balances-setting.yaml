@@ -1,0 +1,116 @@
+# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# REQ ids covered: REQ-833 (decision 0090 section 5: setting per registration, reason required), REQ-835 (route and permission to switch),
+#   REQ-839 (admin page "Negative balances": list, reason dialog, localized errors).
+# Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 5; docs/requirements.yaml REQ-839;
+#   web/src/pages/admin/ledger-settings/ledgerSettingsMessages.ts (all texts below); web/src/router.tsx (page guarded by the permission LedgerSettingsManage);
+#   docs/roles.md and the actor roster (actor-qoimeks-qa-admin is TENANT_ADMIN).
+# Not UAT-observable here, with reasons:
+#   (a) saving a change: the scenario never saves, because switching the setting changes how the whole QA tenant posts and the three negative rows were loaded under "Allowed"; a saved switch would need switching back, and the audit entry it writes cannot be removed. The saved path is covered by component tests of REQ-839 and backend tests of REQ-835;
+#   (b) the audit entry of a change: not shown on a screen of this page (the audit log screen exists, but nothing is saved here).
+# UAT assumption, to be confirmed by the process owner: the stock register of the tenant currently reads "Allowed" because the negative opening lines were loaded (runbook docs/runbooks/qoimeks-rehearsal.md step 5). If it reads "Refused" the steps still run; the dialog texts differ (refuse versus allow) and EO-002 is checked against the text of the opposite switch.
+---
+id: qoimeks-negative-2-admin-page-negative-balances-setting
+scope: qoimeks-qa
+title: The Qoimeks QA administrator reads the Negative balances page and cannot save a switch without a reason
+version: "1.0"
+tags: [qoimeks, negative_balance, admin, ru, kk, phone_390, refusal]
+
+description: >
+  The administrator opens the admin page "Negative balances" (side navigation, admin section), reads the list of registers (stock), its value, the last change and the reason,
+  opens the switch dialog, reads what it says will change, tries to save with an empty reason and is held back, then cancels. Repeated in Russian ("Отрицательные остатки"),
+  Kazakh ("Теріс қалдықтар") and at 390 px wide. Nothing is saved, so the tenant is left as found and there is nothing to clean up.
+  The sensitive action in this flow is "change a setting that alters posting rules": the empty-reason attempt is the refusal step.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The stock module is installed and declares the negative balance setting, so the list holds one row for the stock register.
+    check: system_seeded
+    detail: If the list is empty (the text "No register can be switched" shows), report BLOCKED for the steps that read the row.
+  - description: The administrator holds the permission that shows the page (TENANT_ADMIN does).
+    check: system_seeded
+    detail: If the "Negative balances" entry is missing from the navigation, report BLOCKED and say which role the account really holds.
+  - description: The run can drive a real browser at 1440 px and 390 px.
+    check: system_seeded
+    detail: If no browser can be started, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and opens the "Negative balances" page from the admin section of the side navigation.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the list "Registers" with the columns Register, Negative balance, Last change, Reason and Action.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator presses the action button of the stock row ("Refuse" when the value reads Allowed, "Allow" when it reads Refused) and reads the dialog, including the part "What changes".
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      With the reason field left empty, the administrator presses Save.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator presses Cancel and reads the list again.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator switches the language to Russian and reads the page title, the column headings and the value of the stock row, then to Kazakh and reads the same.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator narrows the window to 390 px wide, opens the dialog once more (button as in step 3) and presses Cancel; then switches the language back to English and widens the window.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The page lists the stock register with its value, the last change and the reason.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the title "Negative balances", one row for stock with a value pill "Allowed" or "Refused", the last change as "name, time" or "Never changed", and the reason text or empty; no raw message key.
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The owner cannot see whether the tenant lets balances go below zero, or who decided it.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The dialog states what the switch changes before anything is saved.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows a dialog titled "Refuse negative balance" or "Allow negative balance" with the register name; its "What changes" text says either "Issues larger than the balance will be refused again." or "Issues larger than the balance will then be posted, and the balance will be shown below zero."; a Reason field and the buttons Save and Cancel are shown.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator switches a posting rule without knowing what it does to stock figures.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: Saving without a reason is refused and nothing changes.
+    verification:
+      method: gui_screen
+      detail: Step 4 keeps the dialog open and shows "A reason is required."; no toast "The setting was saved." appears. After step 5 the list shows the same value and the same last change as in step 2.
+      evidence: Screenshots of steps 4 and 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A posting rule of the whole tenant can be changed with no stated reason and no trace of why.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The page speaks Russian and Kazakh and stays usable on a phone.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows the title "Отрицательные остатки" with the pills "Разрешено" or "Запрещено", and the title "Теріс қалдықтар" with "Рұқсат етілген" or "Тыйым салынған"; step 7 shows the dialog at 390 px with the reason field, Save and Cancel fully visible and no clipped text.
+      evidence: Screenshots of steps 6 and 7.
+    on_fail:
+      severity: MINOR
+      business_impact: Russian or Kazakh speaking administrators or phone users cannot read or reach the switch.
+      suggested_action: route_to_frontend_dev
