@@ -11,6 +11,7 @@ import type { AccessState } from '@/auth/access/types'
 import { clearAllToasts, getToastSnapshot } from '@/hooks/useToast'
 import { MASTERS, rec } from './stockTestKit'
 import { qcEn, qcKk, qcRu } from '../quickCount/quickCountMessages'
+import { docEn, docKk, docRu } from '../documents/documentsMessages'
 import { subtractDecimal, validateQuantity } from '../quickCount/quickCountModel'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
@@ -373,6 +374,7 @@ describe('C3 quantity validation', () => {
 
 // --- C4: Error codes ---
 const CATALOGS = { en: qcEn, ru: qcRu, kk: qcKk } as const
+const DOC_CATALOGS = { en: docEn, ru: docRu, kk: docKk } as const
 const HELD = 'CNT-2026-000017'
 /** The four refusal codes of AC4: the HTTP status the route answers, and whether the message carries held_by. */
 const CODES = [
@@ -555,6 +557,27 @@ describe('C5b no approve task', () => {
     expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
     expect(screen.queryByTestId('four-eyes-hint')).not.toBeInTheDocument()
   })
+
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`labels a confirmed count (zero difference) from the catalog in ${lang}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      const label = DOC_CATALOGS[lang]['stock.doc.state.confirmed']
+      expect(label).toBeTruthy()
+      setupGetMock({ balance: '7', tasks: [] })
+      setupCombinedPostMock({ doc: { state: 'confirmed' } })
+      renderQC()
+      await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+      await selectFields()
+      await waitFor(() => expect(screen.getByTestId('book-quantity')).toBeInTheDocument())
+      fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+      fireEvent.click(screen.getByTestId('submit-quick-count'))
+
+      const state = await screen.findByTestId('result-state')
+      expect(state).toHaveTextContent(label!)
+      expect(state.textContent).not.toContain('stock.doc.state')
+      expect(within(state).getByTestId('status-pill')).toHaveAttribute('data-tone', 'success')
+    })
+  }
 
   it('shows no approval hint for a confirmed count (zero difference starts no instance)', async () => {
     setupGetMock({ balance: '7', tasks: [] })

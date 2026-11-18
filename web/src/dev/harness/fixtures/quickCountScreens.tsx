@@ -42,6 +42,13 @@ const quickCountDoc = {
   posted_at: null, posted_by: null, reversed_at: null, reversed_by: null, posting_check: null,
 }
 
+/** REQ-854: a quick count whose counted quantity equals the book posts nothing and reads `confirmed`. */
+const confirmedDoc = {
+  ...quickCountDoc,
+  state: 'confirmed',
+  lines: [{ ...quickCountDoc.lines[0], quantity: '10', counted_quantity: '10', difference: '0' }],
+}
+
 const baseTask = {
   id: TASK_ID, instance_id: DOC_ID, token_id: 't1', node_id: 'approve', node_name: 'Approve',
   status: 'PENDING', assignee_type: 'USER', assignee_ref: 'u1', created_at: '2026-11-18T02:00:00Z',
@@ -298,5 +305,13 @@ export const quickCountScreens: HarnessScreen[] = [
     initialPath: '/admin/stock/quick-count',
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialSubmitError={{ reason: 'unknown_kind' }} />),
+  },
+  // 17. Result of a count equal to the book (difference 0): the server derives state 'confirmed', no approval
+  {
+    name: 'stock-quick-count-result-confirmed',
+    routes: [entitiesRoute(), tasksListRoute([])],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialResult={confirmedDoc} />),
   },
 ]
