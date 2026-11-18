@@ -557,19 +557,6 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
     end
   end
 
-  # -- C7 -----------------------------------------------------------------------------------------
-
-  describe "C7 runbook" do
-    test "C7 pilot-rollout names the setting, the address form and the owner's decision" do
-      text = File.read!("docs/runbooks/pilot-rollout.md")
-      [_, section] = String.split(text, "## Old Qoimeks app address", parts: 2)
-      section = section |> String.split("\n## ", parts: 2) |> hd()
-
-      assert section =~ "LETFLOW_SHARED_STOCK_ACCESS_TENANTS"
-      assert section =~ "/qoimeks/"
-      assert section =~ "owner"
-      assert section =~ "operator"
-      assert section =~ "X-Operator"
-    end
-  end
+  # C7 (runbook) is checked in test/letflow/pilot_rollout_runbook_test.exs, which already reads the
+  # runbook, so this file stays out of the bounded docs test list (ci_docs_only_test D6).
 end

@@ -272,4 +272,16 @@ defmodule Letflow.PilotRolloutRunbookTest do
       assert String.contains?(open, topic), "open questions miss #{topic}"
     end
   end
+
+  test "C7 (REQ-860) the old app section names the setting, the address form and the operator", %{
+    md: md
+  } do
+    section = section(md, "Old Qoimeks app address")
+
+    assert section =~ "LETFLOW_SHARED_STOCK_ACCESS_TENANTS"
+    assert section =~ "/qoimeks/"
+    assert section =~ "owner"
+    assert section =~ "operator"
+    assert section =~ "X-Operator"
+  end
 end
