@@ -7,3 +7,5 @@ export const STOCK_REVERSE = 'StockReverse'
 /** Write atoms of the count order (REQ-700) and the count sheet (REQ-701); screens REQ-702. */
 export const STOCK_COUNT_ORDER = 'StockCountOrder'
 export const STOCK_COUNT_RECORD = 'StockCountRecord'
+/** Submit and approve a quick count (REQ-854/REQ-855). */
+export const STOCK_QUICK_COUNT = 'StockQuickCount'

@@ -15,11 +15,14 @@ export interface ItemPickerProps {
   describedBy?: string
   onPick: (item: LeItem | null) => void
   onBlur?: () => void
+  /** Enter picks the item the text resolves to (a keyboard scanner types a code and Enter), else the active one of the
+   *  list. Off in the grids, where Enter on a resolved text is left to the grid and the pick happens on blur. */
+  pickOnEnter?: boolean
 }
 
 const label = (i: LeItem) => (i.code ? `${i.code} – ${i.title}` : i.title)
 
-export function ItemPicker({ id, value, catalog, label: aria, invalid, describedBy, onPick, onBlur }: ItemPickerProps) {
+export function ItemPicker({ id, value, catalog, label: aria, invalid, describedBy, onPick, onBlur, pickOnEnter }: ItemPickerProps) {
   const t = useLinesT()
   const listId = useId()
   const current = value ? catalog.byId(value) : null
@@ -71,7 +74,13 @@ export function ItemPicker({ id, value, catalog, label: aria, invalid, described
           if (e.target.value === '' && value !== '') onPick(null)
         }}
         onKeyDown={(e) => {
-          if (open && e.key === 'ArrowDown') {
+          if (pickOnEnter && e.key === 'Enter') {
+            const hit = catalog.resolve(text) ?? (open ? results[active] : undefined)
+            if (hit) {
+              e.preventDefault()
+              pick(hit)
+            }
+          } else if (open && e.key === 'ArrowDown') {
             e.preventDefault()
             setActive((a) => Math.min(a + 1, Math.max(0, results.length - 1)))
           } else if (open && e.key === 'ArrowUp') {
