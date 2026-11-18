@@ -55,7 +55,7 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["https://__TENANT_HOST__/*"],
+      "redirectUris": ["https://__TENANT_HOST__/auth/callback", "https://__TENANT_HOST__/auth/callback?realm=__TENANT_SLUG__"],
       "webOrigins": ["https://__TENANT_HOST__"],
       "attributes": {
         "pkce.code.challenge.method": "S256"

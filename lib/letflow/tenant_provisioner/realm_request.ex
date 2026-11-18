@@ -13,6 +13,8 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
     * the realm name, `Request.realm_for/1`: `t-` + the first 20 hex digits of the canonical
       tenant id, matching `^t-[0-9a-f]{20}$`; any other `tenant_id` gives
       `{:error, :invalid_realm_id}`;
+    * the full 32-hex tenant slug (`Request.slug/1`) in the query-bearing exact callback,
+      distinct from the 20-hex IdP realm name;
     * the tenant host in the client redirect URIs and web origins. `hostname` must already
       be validated against the suffix allow-list (`Request.hostname/2` at the route); the
       builder only refuses an empty value, a wildcard and anything that is not a host name;
@@ -56,7 +58,11 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
          {:ok, smtp} <- smtp(smtp) do
       body =
         @template
-        |> fill(%{"__REALM_ID__" => realm, "__TENANT_HOST__" => host})
+        |> fill(%{
+          "__REALM_ID__" => realm,
+          "__TENANT_HOST__" => host,
+          "__TENANT_SLUG__" => Request.slug(tenant_id)
+        })
         |> Map.update("attributes", %{}, &Map.put(&1, "tenant_id", tenant_id))
         |> Map.put("smtpServer", smtp)
         |> Map.put("users", [admin(realm, email)])

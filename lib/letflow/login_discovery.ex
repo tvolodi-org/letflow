@@ -12,7 +12,7 @@ defmodule Letflow.LoginDiscovery do
   also forces `:neutral` under any mode other than `:redirect_single`
   (defence in depth, the ceiling).
 
-  `disclose` is stripped here (`Map.take([:slug, :display_name])`) before any
+  `disclose` is stripped here (`Map.take([:slug, :display_name, :hostname])`) before any
   response body or notifier call is built: no tenant id, realm id or stored mode
   ever leaves this module.
 
@@ -69,7 +69,7 @@ defmodule Letflow.LoginDiscovery do
   @doc """
   `:none` for a failed or empty lookup and for a disclosed single match;
   otherwise `{:deliver, list}` of ALL matches stripped to `slug` and
-  `display_name`, query order preserved.
+  `display_name` plus the optional company `hostname`, query order preserved.
   """
   @spec delivery(mode(), result()) :: delivery()
   def delivery(_mode, {:error, :lookup_failed}), do: :none
@@ -84,5 +84,5 @@ defmodule Letflow.LoginDiscovery do
 
   def delivery(_mode, _other), do: :none
 
-  defp strip(match), do: Map.take(match, [:slug, :display_name])
+  defp strip(match), do: Map.take(match, [:slug, :display_name, :hostname])
 end

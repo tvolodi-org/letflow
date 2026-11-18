@@ -240,13 +240,13 @@ defmodule Letflow.LoginDirectoryTest do
       assert Enum.map(result, & &1.slug) == List.flatten(rows)
     end
 
-    test "returns only slug and display_name per row (closed projection)" do
+    test "returns the closed internal tenant projection" do
       a = Fx.tenant!()
       email = Fx.unique_email("proj")
       in_tx(fn -> LoginDirectory.upsert_entry(a.tenant_id, email) end)
 
       assert {:ok, [row]} = LoginDirectory.lookup_by_email(email)
-      assert Map.keys(row) |> Enum.sort() == [:disclose, :display_name, :slug]
+      assert Map.keys(row) |> Enum.sort() == [:disclose, :display_name, :hostname, :slug]
       refute is_struct(row)
     end
 
@@ -925,5 +925,44 @@ defmodule Letflow.LoginDirectoryTest do
       refute log =~ email
       refute log =~ "tenant_login_directory"
     end
+  end
+
+  test "M1 single query returns each company hostname or nil" do
+    a = Fx.tenant!(display_name: "A hosted")
+    b = Fx.tenant!(display_name: "B legacy")
+    tenant = Repo.get!(Tenant, a.tenant_id)
+    host = "acme.qa.ai-letflow.com"
+
+    assert {:ok, _} =
+             Letflow.Identity.create_onboarding(%{
+               tenant_id: a.tenant_id,
+               slug: tenant.slug,
+               hostname: host
+             })
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
+
+      Repo.delete_all(
+        from(o in Letflow.Identity.OnboardingRecord, where: o.tenant_id == ^a.tenant_id)
+      )
+
+      Letflow.Test.SandboxAutoMode.exit_auto_mode!(Repo)
+    end)
+
+    email = Fx.unique_email("hosts")
+
+    in_tx(fn ->
+      LoginDirectory.upsert_entry(a.tenant_id, email)
+      LoginDirectory.upsert_entry(b.tenant_id, email)
+    end)
+
+    {result, count} = count_queries(fn -> LoginDirectory.lookup_by_email(email) end)
+    assert count == 1
+    assert {:ok, [hosted, legacy]} = result
+    assert hosted.hostname == host
+    assert hosted.slug == tenant.slug
+    assert legacy.hostname == nil
+    assert legacy.display_name == "B legacy"
   end
 end

@@ -261,4 +261,24 @@ defmodule Letflow.Routers.OnboardingTest do
       assert conn.status == 404
     end
   end
+
+  test "R5 a reserved hostname refuses onboarding before any write" do
+    {token, caller} = mint_caller!("t2148-caller", ["PLATFORM_ADMIN"])
+    slug = unique_onboarding_slug("t2148")
+    host = "auth.qa.ai-letflow.com"
+
+    result =
+      authed_request(:post, "/api/v1/onboarding", token, caller, %{
+        "slug" => slug,
+        "display_name" => "Reserved host",
+        "hostname" => host
+      })
+      |> dispatch()
+
+    assert result.status == 422
+    assert result.resp_body =~ "hostname"
+    assert result.resp_body =~ "reserved"
+    assert {:error, :not_found} = Letflow.Identity.get_tenant_by_slug(slug)
+    refute Repo.exists?(from(o in OnboardingRecord, where: o.hostname == ^host))
+  end
 end

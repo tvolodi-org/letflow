@@ -30,7 +30,8 @@ defmodule Letflow.LoginDirectory do
 
   ## Per-tenant disclosure (REQ-442, decision 0043 D-A)
 
-  The lookup's internal match type is `tenant_match` (`slug`, `display_name` and a
+  The lookup's internal match type is `tenant_match` (`slug`, `display_name`,
+  onboarding `hostname` (or nil), and a
   boolean `disclose`, computed in the same single query: deployment mode is
   `:redirect_single` AND the tenant's `login_disclosure_mode` is NULL or
   `redirect_single`). `disclose` is consumed by the decision function and stripped
@@ -59,6 +60,7 @@ defmodule Letflow.LoginDirectory do
 
   import Ecto.Query
 
+  alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantLoginDirectoryEntry
   alias Letflow.Identity.TenantMembership
@@ -77,8 +79,17 @@ defmodule Letflow.LoginDirectory do
   @type email_key :: <<_::256>>
   @type candidate_keys :: [email_key(), ...]
   @type disclosure_mode :: :uniform_plus_email | :redirect_single
-  @type tenant_ref :: %{slug: String.t(), display_name: String.t()}
-  @type tenant_match :: %{slug: String.t(), display_name: String.t(), disclose: boolean()}
+  @type tenant_ref :: %{
+          required(:slug) => String.t(),
+          required(:display_name) => String.t(),
+          optional(:hostname) => String.t() | nil
+        }
+  @type tenant_match :: %{
+          slug: String.t(),
+          display_name: String.t(),
+          hostname: String.t() | nil,
+          disclose: boolean()
+        }
 
   @type plan_step ::
           {:upsert, email :: String.t()}
@@ -199,7 +210,7 @@ defmodule Letflow.LoginDirectory do
   keys), so a tenant is returned once even when a person holds a row under each
   key. Active tenants with a bound (non-empty) `idp_realm_id` only, ordered by
   `display_name` then `slug`, limited to 50. Returns plain maps holding only
-  `slug`, `display_name` and the internal `disclose` boolean (REQ-442; the `Tenant`
+  `slug`, `display_name`, onboarding `hostname` (or nil) and the internal `disclose` boolean (REQ-442; the `Tenant`
   struct is never loaded). Touches public tables only (no `:prefix`); one Repo
   round trip, `log: false`. Any other argument, or a failure, is
   `{:error, :lookup_failed}`.
@@ -227,12 +238,15 @@ defmodule Letflow.LoginDirectory do
       query =
         from(t in Tenant,
           as: :tenant,
+          left_join: onboarding in OnboardingRecord,
+          on: onboarding.tenant_id == t.id,
           where:
             exists(directory) and t.status == :active and not is_nil(t.idp_realm_id) and
               t.idp_realm_id != "",
           order_by: [asc: t.display_name, asc: t.slug],
           limit: @lookup_limit,
           select: %{
+            hostname: onboarding.hostname,
             slug: t.slug,
             display_name: t.display_name,
             disclose:

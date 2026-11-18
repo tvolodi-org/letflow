@@ -130,6 +130,16 @@ defmodule Letflow.TenantProvisioner.Config do
     end
   end
 
+  @doc "Guarded runtime company-host suffixes shared by provisioning, CORS and mail."
+  @spec allowed_hostname_suffixes() :: [String.t()]
+  def allowed_hostname_suffixes do
+    config = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+    value = if Keyword.keyword?(config), do: Keyword.get(config, :allowed_hostname_suffixes, [])
+    if is_list(value) and Enum.all?(value, &suffix?/1), do: value, else: []
+  end
+
+  defp suffix?(value) when not is_binary(value), do: false
+
   defp suffix?(value),
     do:
       byte_size(value) <= 200 and

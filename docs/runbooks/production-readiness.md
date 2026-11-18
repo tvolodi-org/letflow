@@ -38,6 +38,16 @@ Each customer company signs in through its own tenant and realm. Each statement 
    `docs/design/roles-stage0-slices.md`), because the IdP claim mapping changes then. The file check is
    `scripts/check_realm_roles.py`.
 
+### Company platform host (D-158)
+
+`app.ai-letflow.com` is needed as a stable non-tenant platform/API/health and administration
+host and possible PWA API base; the apex and `www` serve marketing. QA's equivalent is
+`qa.ai-letflow.com`. Both are reserved against company assignment. `LETFLOW_PUBLIC_BASE_URL`
+remains the no-host mail fallback. Company links use their own registered HTTPS hosts under
+the configured suffix list. QA Keycloak remains `auth.qa.bizdala.com`; future production uses
+`auth.ai-letflow.com` and `pwa.ai-letflow.com`. This records naming only: production, DNS,
+TLS and live Keycloak registration wait for infra and owner token O-016.
+
 ## What a backup must hold
 
 Three things, restored together. A restore of one without the others does not give a working company.
@@ -62,7 +72,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 
 | Setting | Required in :prod | When unset | Source |
 |---|---|---|---|
-| `CORS_ALLOWED_ORIGINS` | no (but without it no browser origin is trusted) | the list is empty: no cross-origin caller is trusted (prod block only) | `config/runtime.exs` (REQ-118) |
+| `CORS_ALLOWED_ORIGINS` | no (exact origins supplement the company suffix rule) | the exact list is empty; separately configured company suffixes still permit valid HTTPS company origins (prod block only) | `config/runtime.exs` (REQ-118) |
 | `DATABASE_URL` | yes | raises at boot (prod block) | `config/runtime.exs` |
 | `LETFLOW_AUTH_FAILURES_PER_MIN` | no | nothing written; the limiter keeps its built-in defaults; a non-positive-integer value raises | `config/runtime.exs`, `Letflow.Plugs.AuthAttemptLimit` |
 | `LETFLOW_BACKUP_STATUS_DIR` | no | nil: the readiness answer says backup status is "not configured here" | `config/runtime.exs`, `docs/runbooks/backup-restore.md` |
@@ -96,7 +106,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written (no read-only credential) | `config/runtime.exs`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 30 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 60 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
-| `LETFLOW_PUBLIC_BASE_URL` | only with the smtp adapter | nothing written; with the smtp adapter a missing value raises | `config/runtime.exs` (REQ-441) |
+| `LETFLOW_PUBLIC_BASE_URL` | only with the smtp adapter; mail fallback only for companies without a host | nothing written; with the smtp adapter a missing value raises | `config/runtime.exs` (REQ-441) |
 | `LETFLOW_REALM_USERS_ENABLED` | no | default value: off; only true or unset is accepted, anything else raises | `config/runtime.exs` (REQ-807) |
 | `LETFLOW_REALM_USERS_PROVISIONER_TOKEN` | only when realm users are enabled | nothing written; set together with the flag and the URL or not at all, otherwise raises | `config/runtime.exs` (REQ-807) |
 | `LETFLOW_REALM_USERS_PROVISIONER_URL` | only when realm users are enabled | nothing written; set together with the flag and the token or not at all, otherwise raises | `config/runtime.exs` (REQ-807) |

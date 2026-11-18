@@ -7,8 +7,9 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
   The only request-derived text is the recipient address (the `To` header,
   validated by an ALLOW-list). Tenant slugs and display names appear only in the
   plain-text body, defanged by `sanitize_text/2`; the only links are
-  `tenant_link/2`, built from the operator's validated base URL and the
-  URL-encoded slug. Subject and every non-tenant line are fixed strings.
+  `tenant_link/2`, built from each company's allowlisted HTTPS hostname and the
+  URL-encoded slug. Only a missing hostname uses the operator's validated base URL;
+  an invalid present hostname refuses the message. Subject and every non-tenant line are fixed strings.
   The body uses `\\n` line breaks; the transport converts them to CRLF.
   """
 
@@ -26,7 +27,11 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
   @max_slug_chars 64
 
   @type composed :: %{from: String.t(), to: String.t(), subject: String.t(), body: String.t()}
-  @type opts :: %{from: String.t(), base_url: String.t()}
+  @type opts :: %{
+          required(:from) => String.t(),
+          required(:base_url) => String.t(),
+          optional(:allowed_hostname_suffixes) => [String.t()]
+        }
 
   @doc "The fixed subject."
   @spec subject() :: String.t()
@@ -37,7 +42,7 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
   """
   @spec compose(String.t(), [LoginDirectory.tenant_ref(), ...], opts()) ::
           {:ok, composed()} | {:error, :invalid_recipient | :invalid_message}
-  def compose(recipient, tenants, %{from: from, base_url: base_url})
+  def compose(recipient, tenants, %{from: from, base_url: base_url} = opts)
       when is_binary(recipient) and is_list(tenants) and is_binary(from) and is_binary(base_url) do
     cond do
       not valid_address?(recipient) ->
@@ -47,7 +52,12 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
         {:error, :invalid_message}
 
       true ->
-        with {:ok, blocks} <- blocks(Enum.take(tenants, @max_tenants), base_url) do
+        with {:ok, blocks} <-
+               blocks(
+                 Enum.take(tenants, @max_tenants),
+                 base_url,
+                 Map.get(opts, :allowed_hostname_suffixes, [])
+               ) do
           overflow = if length(tenants) > @max_tenants, do: [@overflow], else: []
 
           body =
@@ -113,9 +123,9 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
     )
   end
 
-  defp blocks(tenants, base_url) do
+  defp blocks(tenants, base_url, suffixes) do
     Enum.reduce_while(tenants, {:ok, []}, fn tenant, {:ok, acc} ->
-      case block(tenant, base_url) do
+      case block(tenant, base_url, suffixes) do
         {:ok, block} -> {:cont, {:ok, [block | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -126,16 +136,26 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
     end
   end
 
-  defp block(%{slug: slug, display_name: name}, base_url)
+  defp block(%{slug: slug, display_name: name} = tenant, base_url, suffixes)
        when is_binary(slug) and is_binary(name) do
-    with {:ok, safe_name} <- sanitize_text(name, @max_name_chars),
+    with {:ok, base_url} <- company_base(Map.get(tenant, :hostname), base_url, suffixes),
+         {:ok, safe_name} <- sanitize_text(name, @max_name_chars),
          {:ok, safe_slug} <- sanitize_text(slug, @max_slug_chars) do
       {:ok,
        "Organisation: \"#{safe_name}\"\nSign in: #{tenant_link(base_url, slug)}\nCode: #{safe_slug}"}
     end
   end
 
-  defp block(_other, _base_url), do: {:error, :invalid_message}
+  defp block(_other, _base_url, _suffixes), do: {:error, :invalid_message}
+
+  defp company_base(nil, fallback, _suffixes), do: {:ok, fallback}
+
+  defp company_base(hostname, _fallback, suffixes) do
+    case Letflow.TenantProvisioner.Request.hostname(hostname, suffixes) do
+      {:ok, host} -> {:ok, "https://" <> host}
+      {:error, _} -> {:error, :invalid_message}
+    end
+  end
 
   @doc """
   Allow-list address check, used for the recipient AND for `LETFLOW_MAIL_FROM`:

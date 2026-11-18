@@ -23,11 +23,21 @@ database); the real check that Keycloak accepts the import is infra's sandbox im
 | `defaultLocale` | `"en"` | Keycloak's own fallback; a UAT assumption to be confirmed by the process owner |
 | `roles.realm` | v1's seven plus `STOREKEEPER` | decision 0081 / T-1432: the closed role list of the app (`Letflow.Api.Authorization.roles/0`) minus `PLATFORM_ADMIN`; a test pins the equality |
 
+The web client's `redirectUris` are exactly
+`https://__TENANT_HOST__/auth/callback` and
+`https://__TENANT_HOST__/auth/callback?realm=__TENANT_SLUG__`.
+Keycloak 26.2 exact matching includes the query: the first covers host-only sign-in and silent
+renewal, the second covers mail, URL and stored-realm entry. `webOrigins` remains exactly
+`https://__TENANT_HOST__`. No host, path or query wildcard is allowed. Existing realms need
+these two exact registrations applied by infra before using company-host links; this template
+change does not update already imported realms.
+
 ## Placeholders the provisioner replaces
 
 | Placeholder | Value |
 |---|---|
 | `__REALM_ID__` | the realm name, `t-` + first 20 hex characters of the tenant id |
+| `__TENANT_SLUG__` | the tenant's full slug; provisioned tenants use `Request.slug/1`: `t-` + all 32 hex characters of the tenant id, distinct from the IdP realm name |
 | `__TENANT_HOST__` | the tenant's validated host name (in `redirectUris` and `webOrigins`) |
 
 Replace every occurrence; refuse a result that still matches `__[A-Z_]+__`. Never put `*` as a

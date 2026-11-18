@@ -36,7 +36,7 @@ OIDC_CLIENT_ID=letflow-web                                     # backend: the au
 BPM_IDP_BASE_URL=https://auth-demo.letflow.ai-dala.com         # what GET /api/tenant-config tells browsers (optional if the line above is set)
 VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom   # web build fallback only, see O5
 VITE_OIDC_CLIENT_ID=letflow-web                                # web build fallback only
-CORS_ALLOWED_ORIGINS=https://demo.letflow.ai-dala.com          # comma list; empty means no cross-origin caller is allowed
+CORS_ALLOWED_ORIGINS=https://demo.letflow.ai-dala.com          # comma list; empty disables exact origins; company suffix policy is independent
 LETFLOW_DEFAULT_TENANT_SLUG=showroom                           # slug of the tenant the app lands on without ?realm= or a remembered slug, see O5
 LETFLOW_ENV_LABEL=                                             # banner text; empty = no TEST ENVIRONMENT banner, unset = default banner (QA), see O5
 LETFLOW_PLATFORM_TENANT_ID=<uuid printed by demo_platform_bootstrap.sh create>

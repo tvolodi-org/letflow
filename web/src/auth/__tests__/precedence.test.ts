@@ -26,6 +26,15 @@ afterEach(() => {
 })
 
 describe('resolveRealmFromUrl precedence', () => {
+  it('W1 mail-entry and stored full slug produce the same exact callback', () => {
+    const slug = 't-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d'
+    window.history.pushState({}, '', '/?realm=' + slug)
+    expect(buildRedirectArgs()?.redirect_uri).toBe(window.location.origin + '/auth/callback?realm=' + slug)
+    expect(sessionStorage.getItem('bpm_realm_slug')).toBe(slug)
+    window.history.pushState({}, '', '/')
+    expect(buildRedirectArgs()?.redirect_uri).toBe(window.location.origin + '/auth/callback?realm=' + slug)
+  })
+
   it('?realm=a with stored b returns a and overwrites the stored value', () => {
     sessionStorage.setItem('bpm_realm_slug', 'realm-b')
     window.history.pushState({}, '', '/?realm=realm-a')

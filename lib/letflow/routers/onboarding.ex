@@ -299,6 +299,7 @@ defmodule Letflow.Routers.Onboarding do
 
         with {:ok, realm, email_key} <- validate_create_extras(body, attrs),
              :ok <- hostname_present(hostname),
+             :ok <- hostname_not_reserved(hostname),
              :ok <- codepoint_fit(attrs),
              {:ok, extras} <- response_extras(body, email_key),
              {:ok, bind_opts} <- platform_write_opts(conn, realm, email_key),
@@ -497,6 +498,14 @@ defmodule Letflow.Routers.Onboarding do
        [%FieldError{field: "hostname", constraint: "required", message: "field is required"}]}
 
   defp hostname_present(_hostname), do: :ok
+
+  defp hostname_not_reserved(hostname) do
+    if Tenant.reserved_slug?(hostname |> String.split(".", parts: 2) |> hd()),
+      do:
+        {:errors,
+         [%FieldError{field: "hostname", constraint: "reserved", message: "is reserved"}]},
+      else: :ok
+  end
 
   defp insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
     create_attrs =

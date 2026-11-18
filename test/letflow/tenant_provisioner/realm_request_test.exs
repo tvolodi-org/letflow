@@ -69,7 +69,18 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
     assert {:ok, body} = build()
     refute Jason.encode!(Map.delete(body, "smtpServer")) =~ ~r/__[A-Z_]+__/
     [client] = body["clients"]
-    assert client["redirectUris"] == ["https://acme.demo.example.test/*"]
+
+    assert client["redirectUris"] == [
+             "https://acme.demo.example.test/auth/callback",
+             "https://acme.demo.example.test/auth/callback?realm=t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d"
+           ]
+
+    assert body["realm"] == @realm
+    refute Enum.any?(client["redirectUris"], &String.contains?(&1, "*"))
+
+    refute List.last(client["redirectUris"]) ==
+             "https://acme.demo.example.test/auth/callback?realm=" <> @realm
+
     assert client["webOrigins"] == ["https://acme.demo.example.test"]
     refute "*" in client["webOrigins"]
   end

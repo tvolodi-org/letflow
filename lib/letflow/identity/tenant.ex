@@ -126,10 +126,9 @@ defmodule Letflow.Identity.Tenant do
 
   @default_tenant_slug "bpm-default"
 
-  # GH T-1861: host names infra serves under the tenant wildcard `*.letflow.qa.bizdala.com` by an
-  # exact-name vhost. A tenant with such a slug would collide with that host. One list, one place;
-  # only names the code or runbooks already use are listed (`pwa`: the QA PWA).
-  @reserved_slugs ["pwa"]
+  # D-158: platform, infrastructure and mail hosts cannot be assigned to a company.
+  # Shared by tenant creation and both hostname-assignment paths; existing rows are unchanged.
+  @reserved_slugs ~w(auth app www pwa api qa staging mail send rsend demo admin status)
 
   @doc "The slugs no tenant may take (host names infra serves under the tenant wildcard)."
   @spec reserved_slugs() :: [String.t()]

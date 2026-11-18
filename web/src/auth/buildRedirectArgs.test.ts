@@ -26,6 +26,14 @@ import { buildRedirectArgs } from './oidcRedirectArgs'
 const mockResolveRealmFromUrl = resolveRealmFromUrl as ReturnType<typeof vi.fn>
 
 describe('buildRedirectArgs', () => {
+  it('W1 matches the exact full-slug callback registered by the provisioner', () => {
+    vi.stubGlobal('location', { origin: 'https://acme.demo.example.test', search: '' })
+    mockResolveRealmFromUrl.mockReturnValue('t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d')
+    expect(buildRedirectArgs()?.redirect_uri).toBe(
+      'https://acme.demo.example.test/auth/callback?realm=t-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+    )
+  })
+
   beforeEach(() => {
     vi.stubGlobal('location', {
       origin: 'https://app.example.com',
