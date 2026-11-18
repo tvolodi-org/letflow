@@ -76,6 +76,11 @@ import {
   formRu,
   formKk,
 } from '@/modules/stock/forms/officialFormMessages'
+import {
+  qcEn,
+  qcRu,
+  qcKk,
+} from '@/modules/stock/quickCount/quickCountMessages'
 import { linesMessages } from '@/components/ui/lines/linesMessages'
 import {
   documentsEn as assetsDocEn,
@@ -296,6 +301,14 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'stock:stock.col.item':
     'item: Kazakh screens already write позиция in running text',
   'stock:stock.col.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.item': 'item: Kazakh screens already write позиция in running text',
+  'stock:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
+  'stock.qc:stock.qc.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock.qc:stock.qc.item': 'item: Казах screens already write позиция in running text',
+  'stock.qc:stock.qc.result.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock.qc:stock.qc.result.item': 'item: Kazakh screens already write позиция in running text',
   'stock:stock.doc.field.counterparty': 'loanword, same spelling in Kazakh',
   'stock:stock.filter.lot':
     'lot: Kazakh screens already write Партия/Партиялар',
@@ -461,6 +474,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('stock.forms', fromSplit(formEn, formRu, formKk))
   })
 
+  it('quickCountMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('stock.qc', fromSplit(qcEn, qcRu, qcKk))
+  })
+
   // --- structured catalogs (TypeScript interface guarantees key presence; check empty values) ---
 
   it('formMessages (structured): no empty values in any locale', () => {
@@ -565,6 +582,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       // assets.register and stock.documents are merged into assets and stock above
       ['assets.documents', fromSplit(assetsDocEn, assetsDocRu, assetsDocKk)],
       ['stock.forms', fromSplit(formEn, formRu, formKk)],
+      ['stock.qc', fromSplit(qcEn, qcRu, qcKk)],
       ['formMessages', formMessages],
       ['layoutMessages', layoutMessages],
       ['nav', navMessages],

@@ -262,7 +262,11 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       # address, behind the per-tenant shared stock value (plug `authenticate`, before `match`).
       {"lib/letflow/routers/shared_stock_access.ex", "GET", "/catalog"},
       {"lib/letflow/routers/shared_stock_access.ex", "GET", "/balances"},
-      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/movements"}
+      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/movements"},
+      # REQ-860 (test C1..C6, W-1..W-7 of shared_stock_access_writes_test): the two writes of the
+      # same address, behind the same shared stock value and the ledger authority check.
+      {"lib/letflow/routers/shared_stock_access.ex", "POST", "/movements"},
+      {"lib/letflow/routers/shared_stock_access.ex", "POST", "/movements/:id/reverse"}
     ]
 
     defp scanned_files do
@@ -351,7 +355,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 12
+      assert length(@credential_allowlist) == 14
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do

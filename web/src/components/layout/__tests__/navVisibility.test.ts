@@ -63,7 +63,7 @@ describe('role-based sidebar (golden-backed)', () => {
     expect(v.labels).toEqual([
       'Instances', 'My Tasks', 'Business processes', 'Reports', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
       'Legal companies', 'Sites', 'Org units', 'Positions', 'Employees', 'Locations', 'Location links',
-      'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts',
+      'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Quick count',
       'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements', 'Asset counts',
       'Promotion Reviews', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Print Templates',
       'Official forms', 'Currencies', 'Approval rules', 'Negative balances', 'Import data', 'Metrics', 'Solution Packs',

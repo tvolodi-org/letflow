@@ -81,12 +81,14 @@ describe('N1 definition', () => {
       'admin/stock/counts',
       'admin/stock/counts/:id',
       'admin/stock/help/:topic',
+      'admin/stock/quick-count',
     ])
     expect(stockModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual([
       ['Stock documents', '/admin/stock/documents', 'StockRead'],
       ['Balances', '/admin/stock/balances', 'StockRead'],
       ['Movements', '/admin/stock/movements', 'StockRead'],
       ['Counts', '/admin/stock/counts', 'StockRead'],
+      ['Quick count', '/admin/stock/quick-count', 'StockQuickCount'],
     ])
   })
 })

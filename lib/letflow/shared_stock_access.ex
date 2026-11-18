@@ -150,6 +150,65 @@ defmodule Letflow.SharedStockAccess do
 
   def verify(_prefix, _value), do: :error
 
+  @doc """
+  REQ-860: true when `actor_id` is the actor of an ACTIVE (not revoked) credential of tenant schema
+  `prefix`. The ledger authority step asks it before it lets the shared access post (so a value
+  revoked between the request and the posting is refused). Anything that is not a uuid is `false`.
+  """
+  @spec active_actor?(String.t(), term()) :: boolean()
+  def active_actor?(prefix, actor_id) when is_binary(prefix) and is_binary(actor_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(actor_id) do
+      Repo.exists?(
+        from(c in Credential, where: c.actor_id == ^uuid and is_nil(c.revoked_at)),
+        prefix: prefix
+      )
+    else
+      _not_uuid -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  def active_actor?(_prefix, _actor_id), do: false
+
+  @doc """
+  REQ-860: the rule of `Letflow.Ledger.Authority` for the credential kind `:shared_access`: the
+  posting is of the `stock` module, the permission the ledger registration names is `StockPost` or
+  `StockReverse` (the credential holds those and `StockRead`, nothing else, decision 0091 section 2),
+  and `subject_id` is the actor of an active credential of tenant schema `prefix`.
+  """
+  @spec may_post?(String.t(), term(), term(), term()) :: boolean()
+  def may_post?(prefix, "stock", subject_id, permission)
+      when permission in [:StockPost, :StockReverse],
+      do: active_actor?(prefix, subject_id)
+
+  def may_post?(_prefix, _module_id, _subject_id, _permission), do: false
+
+  @doc """
+  REQ-860: the subset of `actor_ids` that belong to a credential of tenant schema `prefix`, revoked or
+  not (a stock read shows the typed operator name for them, never for a personal account).
+  """
+  @spec shared_actors(String.t(), [term()]) :: MapSet.t(String.t())
+  def shared_actors(prefix, actor_ids) when is_binary(prefix) and is_list(actor_ids) do
+    uuids =
+      actor_ids
+      |> Enum.flat_map(fn id ->
+        case is_binary(id) && Ecto.UUID.cast(id) do
+          {:ok, uuid} -> [uuid]
+          _other -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    if uuids == [] do
+      MapSet.new()
+    else
+      from(c in Credential, where: c.actor_id in ^uuids, select: c.actor_id)
+      |> Repo.all(prefix: prefix)
+      |> MapSet.new()
+    end
+  end
+
   # An empty body generates the value; a body with "value" must hold a valid string.
   defp value_from(body) when body in [nil, %{}], do: {:ok, generate()}
 

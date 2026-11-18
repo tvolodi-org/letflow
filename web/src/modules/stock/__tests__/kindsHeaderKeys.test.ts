@@ -6,8 +6,10 @@ import { DOC_KINDS, buildBody, emptyForm, type DocKind, type FormState } from '.
 
 const KINDS_EX = path.resolve(__dirname, '../../../../../lib/letflow/modules/stock/documents/kinds.ex')
 
-// Server kinds with no web form yet. quick_count (REQ-854) is created only through its own route; its web screen is a later part (REQ-855).
-const WEB_PENDING_KINDS: readonly string[] = ['quick_count']
+// Server kinds with no web form yet.
+const WEB_PENDING_KINDS: readonly string[] = []
+// Server kinds implemented via their own dedicated route rather than the standard document form (DOC_KINDS).
+const OWN_ROUTE_KINDS: readonly string[] = ['quick_count']
 
 /** Resolve a `~w(...)` word list, or a module attribute naming one, the way kinds.ex builds them. */
 function serverKinds(): Map<string, string[]> {
@@ -40,7 +42,7 @@ function webHeaderKeys(kind: DocKind): string[] {
 
 describe('T-1514 stock document kinds: server Kinds vs web model', () => {
   it('the kinds of the server table equal DOC_KINDS (less WEB_PENDING_KINDS), in order', () => {
-    const server = [...serverKinds().keys()].filter((k) => !WEB_PENDING_KINDS.includes(k))
+    const server = [...serverKinds().keys()].filter((k) => !WEB_PENDING_KINDS.includes(k) && !OWN_ROUTE_KINDS.includes(k))
     expect(server).toEqual([...DOC_KINDS])
   })
   it('the header keys of every kind equal the keys buildBody sends (everything filled)', () => {
