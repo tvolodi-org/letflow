@@ -1,72 +1,23 @@
 #!/usr/bin/env python3
-"""T-1297 (item L-24): choose the backend test files a pull request / merge-queue / push run needs.
+"""Bounded standard backend CI (T-2155); full suites only on schedule/dispatch.
 
-Consumer: .github/workflows/ci.yml, job `changes`, step "Select backend tests". Stdlib only
-(python3 is on every GitHub ubuntu runner); no Elixir toolchain, no compile, so the step takes
-seconds and stays off the critical path.
+stdin: changed paths. stdout: mode, reason, skip_shards, selected_count, deferred_count.
+--plan-out writes explicit partition/test lines; --deferred-out lists budget overflow.
+Standard runs keep the textual two-hop module map, source scans, conventional pairs,
+config-selected module tests and explicit sensitive-path families. Global pins are
+reserved, then direct tests, high-risk families, owner-module tests and at most three
+related families compete for 160 files / 120s measured time per partition. Unknown
+files cost 15s. Deferred tests still run in the full nightly; estimates are not a
+runtime guarantee. Job deadlines fail closed when execution exceeds the budget.
 
-Contract
-  stdin   the changed-file list (`git diff --name-only --no-renames`), one path per line.
-  stdout  `key=value` lines, written to $GITHUB_OUTPUT by the caller:
-            mode=selective|full
-            reason=<one line>
-            skip_shards=<space separated shard numbers that have nothing to run; empty = none>
-            selected_count=<number of test files; 0 in full mode>
-  --plan-out FILE   (selective only) lines `<global partition> <test path>` for scripts/test_parallel.sh
-                    (TEST_PARALLEL_PLAN). Partitions are numbered like the manifest's: shard K owns
-                    (K-1)*N+1 .. K*N.
-  exit    0 always for a decision; any internal error is reported as mode=full (fail safe) and,
-          when the process cannot even print, a non-zero exit, which the caller also turns into full.
-
-Why not `mix xref`: xref only sees compiled project sources (lib/), not test/*.exs, so the test
-side of the map would need text matching anyway; and it needs a compile (about 1.5 min cold) in a
-job every other job waits for. The map here is a textual module-reference graph, deliberately
-OVER-approximate (a false dependency only runs one test more; a missed one is the risk the owner
-accepted, bounded by the nightly run):
-  * a file F depends on module M (`Letflow.A.B`) when F contains the dotted token `Letflow.A.B`, or
-    contains the last segment `B` as a capitalised word AND a dotted prefix of M with >= 2
-    segments (`alias Letflow.A`, `alias Letflow.A.{B, C}`, `use Letflow.A.B`);
-  * the lib closure of a change is the dependents of the changed file and the dependents of those
-    (--depth 2). A full runtime-transitive closure is useless: hub modules (Help, Engine,
-    NumberSequences) reach 90% of lib/ within 4 hops, which would make every change a full run;
-  * a test is selected when it mentions a module of the closure, names a changed file by path or
-    base name (source-scanning tests), is the conventional `test/<path>_test.exs` of a closure
-    file, or is itself changed. Tests that scan the whole lib tree by glob ("scanners") run on any
-    lib change.
-Not visible to this map (hence the full-suite rules below): Postgres triggers, migrations, pins
-(permission matrix, route counts, table lists), config-selected modules, docs checks.
-
-Floor (T-1403): a change under lib/letflow/engine*, record_triggers* or entities/ also selects every
-test under test/letflow/engine/ and test/letflow/record_triggers/, on top of the closure.
-
-Single-module selective mode (T-2137): when every changed file lies in ONE module's directories
-(priv/modules/<m>/**, lib/letflow/modules/<m>/**, test/letflow/modules/<m>/**) plus module-neutral
-docs, the selector adds (a) the closure it already finds, (b) every test under
-test/letflow/modules/<m>/, and (c) the SINGLE_MODULE_PIN_TESTS global pin list (route scope,
-permission matrix, install boundaries, previous pack, ledger registration, engine and
-record_triggers floor). Other modules' tests are excluded. Reason line: "single module <m>".
-priv/modules/<m>/ files do not go through the lib closure (not Elixir modules) but do go through
-source-scanning. A diff spanning two modules falls back to the normal closure and does NOT apply the
-single-module exclusion; priv/modules/ spanning two modules raises Full (no closure path for them).
-Module-subdir lib files skip ROLE_GRANTS_RE checks (after T-2136, each module's
-permission_matrix_test reads only that module's rows, so a role_grants change in a module only
-requires that module's tests plus the global pin set, not the full suite).
-
-Global pins on any lib change (T-2141): SINGLE_MODULE_PIN_TESTS and SINGLE_MODULE_PIN_PREFIXES are
-added to every selective run that touches lib/ or priv/modules/, not just single-module mode. This
-replaces the SENSITIVE_LIB_NAME_RE full-suite rule; files with names like permission, authorization,
-scope_enforc*, ledger_registration now run selective with global pins.
-
-Full suite when: event is not pull_request/merge_group/push (nightly, workflow_dispatch), kill
-switch `off`, no changed files, more than --max-files files,
-a sensitive path (including, T-1403, the module-write authorization and module-install files: lib/letflow/engine.ex
-(Engine.authorize_module_writes), engine/entity_port*, modules/{install*,tenant_module*},
-entities/{handler_writes,entity_port*}, definitions/{module_writes,solution_pack_install}, routers/tenant_modules;
-other files under engine/ are floor-only: they do not hold the authorization), a deleted lib file, an unclassifiable file, a module named in config/, a lib
-file without a module, priv/modules/ spanning two modules, or the selection covers more than
---max-share of all tests. The nightly run (schedule/workflow_dispatch) covers the full suite.
+Former full-suite fallbacks (large diffs, config/identity/ledger, removed sources,
+missing manifest, kill switch, red-main repair) now use bounded safety coverage.
+An unrecoverable selector error exits nonzero; CI must never run without a plan.
+--nightly-log-dir compares real failure headings with a successful standard push
+plan at the same SHA and emits selector miss lines with the test name.
 """
 import argparse
+import glob
 import math
 import os
 import re
@@ -88,12 +39,8 @@ SENSITIVE_LIB_PATH_RE = re.compile(
     r"entities/(handler_writes|entity_port)|definitions/(module_writes|solution_pack_install)|"
     r"routers/tenant_modules)"
 )
-# T-1428: a new role or permission changes priv/permission_matrix/effective.golden, which other
-# modules' tests read (Storekeeper role PR, red main at c31490d0f). Identity role / permission seeding
-# and any lib file that defines role_grants (module manifests) therefore run the full suite.
-# Exception (T-2137): files under lib/letflow/modules/<m>/ skip ROLE_GRANTS_RE; after T-2136 each
-# module's permission_matrix_test reads only that module's rows, so a role_grants change inside a
-# module only requires that module's tests plus the global pin set.
+# Identity seeding and permission changes nominate high-risk tests plus global pins.
+# Module manifests have module-local permission tests after T-2136.
 SENSITIVE_IDENTITY_RE = re.compile(r"^lib/letflow/(identity(\.ex$|_migration\.ex$|/))")
 ROLE_GRANTS_RE = re.compile(r"\brole_grants\b")
 # Floor: a change under these lib paths always also runs these test directories.
@@ -116,6 +63,12 @@ SINGLE_MODULE_PIN_TESTS = [
     "test/letflow/engine/entity_port_boundary_test.exs",  # install boundaries
     "test/letflow/module_upgrade/previous_pack_test.exs", # pack backward compat
     "test/letflow/modules/ledger_registration_test.exs",  # ledger registration list
+]
+# Identity writer inventories run for EVERY standard change, including web-only diffs.
+# These are pure source scans; DB-heavy identity coverage remains change-directed.
+STANDARD_IDENTITY_PIN_TESTS = [
+    "test/letflow/identity/binding_writers_scan_test.exs",
+    "test/letflow/identity/tenant_update_changeset_removed_test.exs",
 ]
 # Directory prefixes whose full contents are always added in single-module mode (floor).
 SINGLE_MODULE_PIN_PREFIXES = ("test/letflow/engine/", "test/letflow/record_triggers/")
@@ -195,14 +148,15 @@ def decide(changed, root, args, manifest_weights):
     event = args.event
     if event not in ("pull_request", "merge_group", "push"):
         raise Full("event %s: nightly / manual runs always run the full suite" % event)
+    reasons = []
     if args.force_full:
-        raise Full(args.force_full)
+        reasons.append(args.force_full + " (bounded repair)")
     if args.kill_switch.strip().lower() == "off":
-        raise Full("kill switch CI_SELECTIVE=off")
+        reasons.append("kill switch CI_SELECTIVE=off (bounded safety set)")
     if not changed:
-        raise Full("empty change list")
+        reasons.append("empty change list; bounded safety set")
     if len(changed) > args.max_files:
-        raise Full("%d changed files (limit %d)" % (len(changed), args.max_files))
+        reasons.append("%d changed files (limit %d); bounded cross-module set" % (len(changed), args.max_files))
 
     files = tracked(root)
     fileset = set(files)
@@ -213,15 +167,17 @@ def decide(changed, root, args, manifest_weights):
     docs_backend = False
     for p in changed:
         if SENSITIVE_RE.search(p):
-            raise Full("sensitive path %s" % p)
+            reasons.append("sensitive path %s" % p)
         exists = p in fileset and os.path.exists(os.path.join(root, p))
         if p.startswith("lib/"):
             if not exists:
-                raise Full("lib file removed or renamed: %s" % p)
+                reasons.append("lib file removed or renamed: %s" % p)
+                other_changed.append(p)
+                continue
             if SENSITIVE_LIB_PATH_RE.search(p):
-                raise Full("sensitive lib path %s (module-write authorization / module installs)" % p)
+                reasons.append("module-write authorization / module installs: %s" % p)
             if SENSITIVE_IDENTITY_RE.search(p):
-                raise Full("sensitive lib path %s (identity role / permission seeding)" % p)
+                reasons.append("identity role / permission seeding: %s" % p)
             # T-2137: files under lib/letflow/modules/<m>/ skip ROLE_GRANTS_RE;
             # T-2141: top-level lib/letflow/modules/*.ex files also skip it (global pins cover their
             # cross-module effects, e.g. ledger_registration.ex defines role_grants but its
@@ -234,7 +190,7 @@ def decide(changed, root, args, manifest_weights):
                 if not p.startswith("lib/letflow/design/") and ROLE_GRANTS_RE.search(
                     read(os.path.join(root, p)) or ""
                 ):
-                    raise Full("sensitive lib path %s (defines role_grants)" % p)
+                    reasons.append("defines role_grants: %s" % p)
             lib_changed.append(p)
         elif p.startswith("test/"):
             if p.endswith("_test.exs"):
@@ -243,7 +199,8 @@ def decide(changed, root, args, manifest_weights):
             elif exists:
                 other_changed.append(p)  # fixture etc.: found by mention below
             elif not exists:
-                raise Full("test support file removed: %s" % p)
+                reasons.append("test support file removed: %s" % p)
+                other_changed.append(p)
         elif p.startswith("priv/modules/"):
             # T-2137: module-scoped priv files (pack.json, manifests, generate_pack.exs).
             # Classified by single-module detection below; priv/repo/, priv/permission_matrix/
@@ -253,7 +210,8 @@ def decide(changed, root, args, manifest_weights):
             if bre.search(p):
                 docs_backend = True
         elif bre.search(p):
-            raise Full("unclassified backend-relevant path %s" % p)
+            other_changed.append(p)
+            reasons.append("backend-relevant path %s" % p)
         # else: web/, apps/, other docs: not read by the backend suite
 
     all_tests = [p for p in files if p.startswith("test/") and p.endswith("_test.exs")]
@@ -265,7 +223,7 @@ def decide(changed, root, args, manifest_weights):
             ["bash", "scripts/ci_docs_only.sh", "files"], cwd=root, capture_output=True, text=True
         )
         if out.returncode != 0:
-            raise Full("scripts/ci_docs_only.sh files failed")
+            raise ValueError("scripts/ci_docs_only.sh files failed")
         selected.update(x for x in out.stdout.split() if x in test_set)
 
     # T-2137: single-module detection.
@@ -277,11 +235,11 @@ def decide(changed, root, args, manifest_weights):
 
     sole_module = None
     if priv_module_changed:
-        # priv/modules/ files have no Elixir closure; only valid in single-module mode.
+        # priv/modules/ files have no Elixir closure; nominate their own source scans.
         if len(_module_names) == 1 and not _no_module:
             sole_module = next(iter(_module_names))
         else:
-            raise Full(
+            reasons.append(
                 "priv/modules change spans multiple modules or includes non-module paths (%s)"
                 % ", ".join(priv_module_changed[:2])
             )
@@ -296,7 +254,7 @@ def decide(changed, root, args, manifest_weights):
             if t is not None:
                 lib_docs[p] = (Doc(p, t), DEFMODULE_RE.findall(t))
     test_docs = {}
-    if lib_changed or other_changed or priv_module_changed:
+    if lib_changed or other_changed or priv_module_changed or docs_backend:
         for p in all_tests:
             t = read(os.path.join(root, p))
             if t is not None:
@@ -330,13 +288,16 @@ def decide(changed, root, args, manifest_weights):
         closure, frontier = set(), []
         for p in lib_changed:
             if p not in lib_docs:
-                raise Full("lib file %s is not an .ex module file" % p)
+                reasons.append("lib file %s is not an .ex module file" % p)
+                continue
             if not lib_docs[p][1]:
-                raise Full("lib file %s defines no module" % p)
-            # T-2137: in single-module mode, config-atom invisibility is handled by exhaustive
-            # module test selection; skip this check for module-subdir files.
-            if not sole_module and any(m in config_tokens for m in lib_docs[p][1]):
-                raise Full("%s defines a module named in config/ (selected by atom, invisible)" % p)
+                reasons.append("lib file %s defines no module" % p)
+            # Config atoms nominate the module's tests even in a mixed diff.
+            if any(m in config_tokens for m in lib_docs[p][1]):
+                reasons.append("%s defines a module named in config/; include module tests" % p)
+                owner = module_of(p)
+                if owner:
+                    selected.update(t for t in all_tests if module_of(t) == owner)
             closure.add(p)
             frontier.append(p)
         depth = 0
@@ -350,7 +311,8 @@ def decide(changed, root, args, manifest_weights):
                         nxt.append(q)
             frontier = nxt
             if len(closure) > args.max_closure:
-                raise Full("lib dependents closure over %d files" % args.max_closure)
+                reasons.append("lib dependents closure over %d files; bounded" % args.max_closure)
+                break
 
         mods = [(m, p) for p in closure for m in lib_docs[p][1]]
         for p, doc in test_docs.items():
@@ -371,7 +333,7 @@ def decide(changed, root, args, manifest_weights):
             if pat.search(doc.text):
                 selected.add(t)
         if not any(pat.search(d.text) for d in test_docs.values()) and p in other_changed:
-            raise Full("fixture %s is read by no test we can find" % p)
+            reasons.append("fixture %s is read by no test we can find" % p)
 
     if any(FLOOR_LIB_RE.search(p) for p in lib_changed):
         selected.update(t for t in all_tests if t.startswith(FLOOR_TEST_PREFIXES))
@@ -396,28 +358,31 @@ def decide(changed, root, args, manifest_weights):
     # They cover cross-module constraints (permission matrix, route scope, ledger registration)
     # for changes to core or cross-cutting lib files, replacing the SENSITIVE_LIB_NAME_RE
     # full-suite rule.
-    if lib_changed or priv_module_changed:
+    if lib_changed or priv_module_changed or reasons:
         for pin in SINGLE_MODULE_PIN_TESTS:
             if pin in test_set:
                 selected.add(pin)
         selected.update(t for t in all_tests if t.startswith(SINGLE_MODULE_PIN_PREFIXES))
     if not selected:
-        # a pure web/ or docs change: nothing for the backend shards; one cheap test keeps a shard honest
-        return [], "no backend test is related to this change (web/apps/docs only)"
+        return [], "no change-related backend tests; fixed identity/global pins still required"
     if len(selected) > args.max_share * len(all_tests):
-        raise Full(
+        reasons.append(
             "selection covers %d of %d test files (over %d%%)"
             % (len(selected), len(all_tests), round(args.max_share * 100))
         )
-    if sole_module:
-        return sorted(selected), "single module %s; %d of %d test files" % (
-            sole_module, len(selected), len(all_tests)
-        )
-    return sorted(selected), "%d of %d test files related to %d changed file(s)" % (
+    # Config-selected modules and sensitive paths have explicit high-risk coverage even
+    # when no static caller exists. The budget below prioritises these over broad scanners.
+    selected.update(risk_tests(changed, all_tests, root))
+    if reasons:
+        selected.update(safety_tests(all_tests))
+    reason = "%d of %d test files related to %d changed file(s)" % (
         len(selected),
         len(all_tests),
         len(changed),
     )
+    if sole_module:
+        reason = "single module %s; " % sole_module + reason
+    return sorted(selected), reason + ("; " + "; ".join(reasons) if reasons else "")
 
 
 def read_manifest(path):
@@ -443,75 +408,193 @@ def read_manifest(path):
     return weights, total
 
 
-def plan(selected, weights, shards, per_shard, target_ms):
-    """LPT-bin the selected files into as few partitions as their weight needs (fewer shards)."""
-    known = sorted(w for w in weights.values() if w > 0)
-    median = known[len(known) // 2] if known else 1000.0
-    w = {f: (weights.get(f) or median) for f in selected}
-    total = sum(w.values())
-    parts = max(1, min(len(selected), shards * per_shard, math.ceil(total / target_ms)))
-    bins = [[0.0, []] for _ in range(parts)]
-    for f in sorted(selected, key=lambda x: (-w[x], x)):
+def safety_tests(all_tests):
+    return set(SINGLE_MODULE_PIN_TESTS + STANDARD_IDENTITY_PIN_TESTS) & set(all_tests)
+
+
+def risk_tests(changed, all_tests, root):
+    """Explicit high-risk families; config atoms also map through module mentions."""
+    groups = []
+    for p in changed:
+        if "identity" in p or p.startswith("priv/permission_matrix/"):
+            groups.extend(("identity", "api", "scope_enforcement"))
+        elif "ledger" in p or "event_store" in p or p.startswith("priv/repo/"):
+            groups.extend(("ledger", "event_store", "migrations"))
+        elif SENSITIVE_LIB_PATH_RE.search(p) or FLOOR_LIB_RE.search(p):
+            groups.extend(("engine", "record_triggers", "modules"))
+        elif p.startswith(("config/", "mix.", "test/support/")):
+            groups.extend(("identity", "engine", "ledger"))
+    selected = {t for t in all_tests if any(
+        t.startswith("test/letflow/%s/" % g) or t == "test/letflow/%s_test.exs" % g
+        for g in dict.fromkeys(groups)
+    )}
+    config_modules = set()
+    for p in changed:
+        if p.startswith("config/"):
+            config_modules.update(m for m in TOKEN_RE.findall(read(os.path.join(root, p)) or "")
+                                  if m.startswith("Letflow."))
+    if config_modules:
+        for t in all_tests:
+            doc = Doc(t, read(os.path.join(root, t)) or "")
+            if any(mentions(doc, m) for m in config_modules):
+                selected.add(t)
+    return selected
+
+
+def bounded_plan(selected, changed, weights, args, all_tests):
+    """Priority admission into fixed bins. Overflow is evidence, never a full-suite fallback.
+
+    Reserve global pins first, changed tests / conventional pairs next, high-risk tests
+    and the changed module next, then at most three related families. Unknown timings
+    cost 15 seconds rather than the old optimistic median. A mandatory pin that cannot
+    fit fails selection; CI must not silently omit its fixed checks.
+    """
+    required = safety_tests(all_tests)
+    if any(FLOOR_LIB_RE.search(p) for p in changed):
+        # Preserve the T-1403 regression floor even when broad, costly high-risk
+        # candidates exhaust admission before record-trigger files are reached.
+        required |= {"test/letflow/record_triggers/apply_test.exs"} & set(all_tests)
+    direct = {p for p in changed if p.endswith("_test.exs")}
+    direct.update("test/" + p[4:-3] + "_test.exs" for p in changed
+                  if p.startswith("lib/") and p.endswith(".ex"))
+    owners = {module_of(p) for p in changed} - {None}
+    high_risk = risk_tests(changed, all_tests, args.root)
+    selected = set(selected) | required
+
+    def priority(t):
+        if t in required:
+            return 0
+        if t in direct:
+            return 1
+        if t in high_risk:
+            return 2
+        if module_of(t) in owners:
+            return 3
+        return 4
+
+    bins = [[0.0, []] for _ in range(args.shards * args.per_shard)]
+    deferred, families, admitted = [], set(), 0
+    # Never admit the whole corpus, even in a small synthetic repository.
+    limit = min(args.standard_max_tests, max(0, len(all_tests) - 1))
+    for t in sorted(selected, key=lambda t: (priority(t), -(weights.get(t) or 15000), t)):
+        weight = max(1000.0, weights.get(t) or 15000.0)
         b = min(bins, key=lambda b: (b[0], len(b[1])))
-        b[0] += w[f]
-        b[1].append(f)
-    lines = []
-    for idx, (_, fs) in enumerate(bins, start=1):
-        for f in sorted(fs):
-            lines.append("%d %s" % (idx, f))
-    active = math.ceil(parts / per_shard)
-    skip = [str(k) for k in range(active + 1, shards + 1)]
-    return lines, skip, parts
+        family = module_of(t) or t.split("/")[2]
+        extra_family = priority(t) == 4 and family not in families and len(families) >= 3
+        if admitted >= limit or b[0] + weight > args.target_ms or extra_family:
+            if t in required:
+                raise ValueError("mandatory global check does not fit standard budget: " + t)
+            deferred.append(t)
+            continue
+        b[0] += weight
+        b[1].append(t)
+        admitted += 1
+        if priority(t) == 4:
+            families.add(family)
+    # Compact the active bins so idle shards remain the tail.
+    bins = [b for b in bins if b[1]]
+    lines = ["%d %s" % (i, t) for i, (_, fs) in enumerate(bins, 1) for t in sorted(fs)]
+    active = math.ceil(len(bins) / args.per_shard)
+    skip = [str(k) for k in range(active + 1, args.shards + 1)]
+    return lines, skip, sorted(deferred)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--event", default="")
     ap.add_argument("--kill-switch", default="")
-    ap.add_argument("--force-full", default="", help="reason string: run the full suite")
+    ap.add_argument("--force-full", default="", help="legacy repair reason; standard events stay bounded")
     ap.add_argument("--max-files", type=int, default=40)
     ap.add_argument("--max-closure", type=int, default=300)
     ap.add_argument("--depth", type=int, default=2)
     ap.add_argument("--max-share", type=float, default=0.55)
     ap.add_argument("--shards", type=int, default=8)
     ap.add_argument("--per-shard", type=int, default=4)
-    ap.add_argument("--target-ms", type=float, default=150000.0)
+    ap.add_argument("--target-ms", type=float, default=120000.0)
+    ap.add_argument("--standard-max-tests", type=int, default=160)
     ap.add_argument("--manifest", default="test/shard_manifest.txt")
     ap.add_argument("--root", default=".")
     ap.add_argument("--plan-out", default="")
+    ap.add_argument("--deferred-out", default="")
+    ap.add_argument("--nightly-log-dir", default="")
+    ap.add_argument("--standard-plan", default="")
+    ap.add_argument("--commit-range", default="unavailable")
     args = ap.parse_args()
+
+    if args.nightly_log_dir:
+        print(nightly_summary(args.nightly_log_dir, args.standard_plan, args.commit_range))
+        return 0
 
     changed = [l.strip() for l in sys.stdin.read().splitlines() if l.strip()]
     try:
-        weights, total = read_manifest(os.path.join(args.root, args.manifest))
-        if total != args.shards * args.per_shard:
-            raise Full("manifest has %d partitions, expected %d" % (total, args.shards * args.per_shard))
-        selected, reason = decide(changed, args.root, args, weights)
-        if selected:
-            lines, skip, parts = plan(selected, weights, args.shards, args.per_shard, args.target_ms)
-            if args.plan_out:
-                with open(args.plan_out, "w", encoding="utf-8") as fh:
-                    fh.write("\n".join(lines) + "\n")
-            reason += "; %d partition(s), shards %s idle" % (parts, ",".join(skip) or "none")
-        else:
-            skip = [str(k) for k in range(1, args.shards + 1)]
-            if args.plan_out:
-                open(args.plan_out, "w").close()
+        if args.event in ("schedule", "workflow_dispatch"):
+            raise Full("event %s: nightly / manual runs always run the full suite" % args.event)
+        if args.event not in ("pull_request", "merge_group", "push"):
+            raise ValueError("unsupported event " + args.event)
+        manifest_note = ""
+        try:
+            weights, total = read_manifest(os.path.join(args.root, args.manifest))
+            if total != args.shards * args.per_shard:
+                raise Full("manifest partition count mismatch")
+        except Full as e:
+            weights = {}
+            manifest_note = "; %s; conservative timing weights" % e
+        all_tests = [p for p in tracked(args.root) if p.startswith("test/") and p.endswith("_test.exs")]
+        try:
+            selected, reason = decide(changed, args.root, args, weights)
+        except Exception as e:
+            selected = safety_tests(all_tests) | risk_tests(changed, all_tests, args.root)
+            reason = "bounded safety set after selection error: %s: %s" % (type(e).__name__, e)
+        lines, skip, deferred = bounded_plan(selected, changed, weights, args, all_tests)
+        if selected and not lines:
+            raise ValueError("no tests fit standard budget")
+        for path, output in ((args.plan_out, lines), (args.deferred_out, deferred)):
+            if path:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(output) + ("\n" if output else ""))
+        reason += manifest_note + "; bounded %d tests; %d deferred to nightly" % (len(lines), len(deferred))
         print("mode=selective")
-        print("reason=" + reason)
+        print("reason=" + reason.replace("\n", " ")[:3000])
         print("skip_shards=" + " ".join(skip))
-        print("selected_count=%d" % len(selected))
+        print("selected_count=%d" % len(lines))
+        print("deferred_count=%d" % len(deferred))
     except Full as e:
         print("mode=full")
         print("reason=" + str(e))
         print("skip_shards=")
         print("selected_count=0")
-    except Exception as e:  # selection must never block a run: unsure means everything
-        print("mode=full")
+    except Exception as e:
+        # Fail closed. An absent/malformed plan must never start an unbounded test command.
+        print("mode=error")
         print("reason=selection error: %s: %s" % (type(e).__name__, str(e).replace("\n", " ")))
-        print("skip_shards=")
-        print("selected_count=0")
+        return 1
+    return 0
+
+
+def nightly_summary(log_dir, standard_plan, commit_range):
+    """Compare real ExUnit failure headings with the successful push plan at this SHA."""
+    plan_text = read(standard_plan)
+    if plan_text is None:
+        return ("Compared commit range: `%s`\n" % commit_range +
+                "Selector coverage unavailable: no successful standard push plan for this SHA.")
+    selected = {line.split()[-1] for line in plan_text.splitlines() if line.strip()}
+    failures = set()
+    for path in glob.glob(os.path.join(log_dir, "letflow_test_parallel.*", "partition-*.log")):
+        text = read(path) or ""
+        for name, test in re.findall(
+            r"^\s*\d+\) (test .+)\n\s+(test/[^\n]+?_test\.exs):\d+", text, re.M
+        ):
+            failures.add((test, name))
+    misses = sorted((test, name) for test, name in failures if test not in selected)
+    lines = ["### Nightly selector comparison", "Compared commit range: `%s`" % commit_range,
+             "selector miss count: %d" % len(misses)]
+    lines.extend("- selector miss: `%s` — %s" % (test, name) for test, name in misses)
+    if failures and not misses:
+        lines.append("Failing files were present in the standard plan; investigate runtime differences.")
+    if not failures:
+        lines.append("No ExUnit failure headings found; crashes/timeouts are not selector misses.")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

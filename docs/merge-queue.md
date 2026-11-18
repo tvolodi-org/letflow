@@ -22,44 +22,74 @@ The repository moved to `tvolodi-org/letflow` on 2026-10-14 (T-0165). The old
 If the queue itself is broken, a repository admin can disable the ruleset
 temporarily. See the infrastructure runbook for the procedure.
 
-## Selective backend tests (T-1297, item L-24)
+## Bounded standard CI (T-2155)
 
-A pull-request, merge-group or push run executes only the backend test files related to the
-change; the whole suite runs on sensitive changes and nightly (schedule or workflow_dispatch).
-The required check names (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`),
-the 8-shard matrix and the docs-only rule are unchanged; the run summary prints
-`Backend tests: selective|full` and the reason.
+`pull_request`, `merge_group` and push to `main` always use an explicit bounded backend
+test plan. Only the nightly schedule (01:17 UTC) and `workflow_dispatch` run the full
+suite, including exam and slow tests. Required check names stay
+`Backend gate (mix letflow.check)` and `Frontend gate (npm run check)`.
 
-- **Selection**: `scripts/ci_select_tests.py` (job `changes`, step "Select backend tests"). It maps
-  changed lib files to tests through a textual module-reference graph (dependents of the file and
-  their dependents), source-scanning tests by file name, and tests that scan all of `lib/`.
-  The plan is split over the shards with the manifest weights (`test/shard_manifest.txt`); shards
-  with nothing to do report success without work. `scripts/test_parallel.sh` reads the plan from
-  `TEST_PARALLEL_PLAN`. Floor (T-1403): a change under `lib/letflow/engine*`, `record_triggers*` or
-  `entities/` also selects all tests under `test/letflow/engine/` and `test/letflow/record_triggers/`.
-- **Global pins on any lib change** (T-2141): `SINGLE_MODULE_PIN_TESTS` (permission matrix, route
-  scope, ledger registration, engine floor) are added to every selective run that touches `lib/` or
-  `priv/modules/`. Files with names like `permission`, `authorization`, `scope_enforcement`,
-  `ledger_registration`, `migration`, or `storage` now run selective with global pins instead of
-  the full suite.
-- **Full suite** when: a sensitive path changes (migrations, `priv/`, `config/`, `mix.exs`,
-  `mix.lock`, `test/support`, `.github/`, `scripts/`, the shard manifest,
-  event-store and app-infrastructure code, and, T-1403, module-write authorization and module installs:
-  `lib/letflow/engine.ex`, `engine/entity_port*`, `modules/{install*,tenant_module*}`,
-  `entities/{handler_writes,entity_port*}`, `definitions/{module_writes,solution_pack_install}`,
-  `routers/tenant_modules`; other files under `engine/` get only the floor above), more than 40 files change, the lib closure is over 300 files or
-  the selection covers over 55% of the tests, a lib file is removed, the selection errors, the
-  repository variable `CI_SELECTIVE` is `off` (kill switch), or the event is the nightly schedule or
-  `workflow_dispatch`.
-- **Probe PR** (T-1311): a pull request whose head branch starts with `selective-probe/` ignores
-  the kill switch, so selective mode is allowed for it while `CI_SELECTIVE` is `off`. Open one with
-  a one-line `lib/` change to see a real selective run pass before turning the variable back on.
-  The step writes its outputs with `scripts/ci_emit_outputs.sh` (the multi-line `plan` value ends
-  with a newline before its delimiter, which the runner requires).
-- **Red main**: a failing backend run on main sets the tag `ci-main-red`. Merge-group runs then
-  fail fast with "main full CI red" until a fix lands. A queue entry whose commit subject starts
-  with `fix` (or carries `[main-fix]`) runs the full suite and may land; the next green run of a
-  descendant commit deletes the tag. Operator escape: `git push origin :refs/tags/ci-main-red`.
-- **Accepted risk**: two modules can break each other and stay hidden until the next nightly run.
-  Not visible to the map: Postgres triggers, migrations, pins, config-selected modules, docs checks,
-  hence the sensitive list and the nightly full run.
+- `scripts/ci_select_tests.py` maps changed files to conventional tests, the two-hop
+  module-reference graph, source scanners and tests mentioning config-selected modules.
+  Module changes also nominate that module's own tests. Identity/permission changes
+  nominate identity, API and scope-enforcement tests; ledger/event-store/migration
+  changes nominate ledger, event-store and migration tests. Config changes nominate
+  configured modules plus identity, engine and ledger coverage.
+- Admission priority is fixed global pins, directly changed tests and conventional
+  pairs, high-risk tests, the changed module's tests, then at most three related test
+  families. The plan holds at most 160 files and 120 seconds of manifest weight per
+  partition (32 partitions, four per shard). Unknown files cost 15 seconds. Overflow
+  is listed in `ci_deferred.txt`, never silently changed to a full suite. These are
+  estimates; runtime deadlines remain authoritative.
+- Every standard run, including web/mobile/docs-only changes, reserves the permission
+  golden, route inventories, install boundaries, previous-pack compatibility, ledger
+  registrations and two identity writer inventories (`binding_writers_scan_test` and
+  `tenant_update_changeset_removed_test`). Backend path filtering cannot skip them.
+  Static checks, boundary checks
+  and the production permission golden check still run in `backend_static`. A fixed
+  pin that cannot fit fails selection rather than disappearing from the gate.
+- Former full fallbacks (large diffs, sensitive paths, missing diff/manifest, deleted
+  sources, config atoms, selection errors) use bounded safety coverage. `CI_SELECTIVE=off`
+  now requests that safety coverage, not a full standard run. A selector process failure
+  or malformed output fails the gate; standard shards refuse to start without a plan.
+  Docs tests use the same planner and budget, with no separate long-running bypass.
+  The legacy `selective-probe/` PR prefix still ignores `CI_SELECTIVE=off`; both
+  ordinary and probe PRs remain bounded.
+- Rollout order: bounded selection ships with the previous job limits (changes 10,
+  static 30, shards 45, aggregator 15, marker 10, frontend 30, mobile 45 minutes).
+  Measure successful hosted stock-only, config-only and identity-only standard runs,
+  recording execution and queue times separately. Only after all three finish within
+  ten minutes, set repository variable `CI_TIMEOUT_MINUTES=10`. This activates
+  `timeout-minutes: 10` for **every** standard job. Unsetting the variable restores
+  the rollout defaults in one step; it never enables full standard selection.
+  Schedule/dispatch explicitly use 60 minutes, independently of the variable.
+- The four long jobs (static, shard, frontend, mobile) record a deadline in their first step.
+  Their long commands (mix, npm, flutter) run through `scripts/ci_job_deadline.py -- <command>`,
+  which stops the command 45 seconds before the job limit,
+  prints the job and unfinished shard files (running or pending without a partition
+  `Result:`), and fails with exit 124. The reserve allows diagnostics and cleanup;
+  GitHub's job timeout is the backstop, including for hung actions. Actions cancelled
+  before a wrapped command cannot emit the watchdog's diagnostic. A timeout stays red:
+  no retry or rerun-to-pass; shorten/split the selected tests or move overflow to nightly.
+  A failed/cancelled shard makes the required backend aggregator fail. A merge-group
+  failure ejects that entry and cannot write the main-only marker, so other queue
+  entries are not held by its timeout. Queue wait is measured separately from job
+  execution; a per-job cap does not cap total workflow wall time across dependencies.
+- Successful standard push plans are retained for 14 days as
+  `standard-backend-selection`. Each nightly shard compares its actual ExUnit failure
+  headings with the successful standard push plan at the **same SHA**. An omitted
+  failing file is reported as `selector miss` with its test name in the nightly
+  summary, with the compared push's base..head commit range from `ci_range.txt`.
+  Missing/expired evidence is reported as coverage unavailable, not zero
+  misses. Crashes and timeouts are not classified as missed tests. The operator counts
+  these findings as `selector miss` in the defect ledger and creates a p1 task traced
+  to the responsible change after a lighter day; fixes return through standard CI.
+- A failing backend run on main sets `ci-main-red`. The merge queue stops with
+  "main full CI red" until a `fix(...)` or `[main-fix]` entry lands. Repair entries also
+  use bounded high-risk coverage. Only successful schedule/dispatch verification
+  (backend, frontend and mobile) of a descendant clears the marker; a green bounded
+  push preserves it. A nightly failure and fix never force a full standard run.
+
+Accepted risk: bounded coverage can miss a cross-module regression until extended CI.
+No demo or production promotion is allowed while the last nightly is red. At
+promotion/phase gates run `workflow_dispatch` to verify the fix with extended coverage.

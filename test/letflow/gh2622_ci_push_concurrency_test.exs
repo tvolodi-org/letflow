@@ -192,7 +192,9 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
     test "no path-filter-outputs artifact is written or uploaded" do
       src = read(@ci_yml)
       refute src =~ "path-filter-outputs"
-      refute src =~ "upload-artifact"
+      # T-2155 preserves bounded selection evidence for the nightly comparison;
+      # CD still has no path-filter artifact contract.
+      assert src =~ "name: standard-backend-selection"
 
       names = ci() |> get_in(["jobs", "changes", "steps"]) |> Enum.map(& &1["name"])
       refute "Upload path-filter outputs" in names
