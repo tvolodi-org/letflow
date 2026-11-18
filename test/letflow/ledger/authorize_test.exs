@@ -158,6 +158,42 @@ defmodule Letflow.Ledger.AuthorizeTest do
     end
   end
 
+  describe "REQ-859 the credential-proved minting path has one caller" do
+    @minting ~r/authorize_shared_access/
+    @allowed_caller "lib/letflow/routers/shared_stock_access.ex"
+
+    test "the scan finds a synthetic offender" do
+      assert "Ledger.authorize_shared_access(p, t, l)" =~ @minting
+      assert "&Letflow.Ledger.authorize_shared_access/3" =~ @minting
+    end
+
+    test "only the shared stock access router calls it outside the ledger files" do
+      callers =
+        for file <- Path.wildcard("lib/**/*.ex"),
+            file != "lib/letflow/ledger.ex",
+            not String.starts_with?(file, "lib/letflow/ledger/"),
+            Enum.any?(code_lines(file), &(&1 =~ ~r/authorize_shared_access\s*[(\/]/)),
+            do: file
+
+      assert callers == [@allowed_caller]
+    end
+
+    test "the router calls it only with the proved tenant row's values" do
+      src = File.read!(@allowed_caller)
+      assert src =~ "%{prefix: prefix, tenant_id: tenant_id} = conn.assigns.shared_access"
+      assert length(Regex.scan(~r/Ledger\.authorize_shared_access\(/, src)) == 1
+    end
+  end
+
+  # Source lines without comment-only lines and without backtick-quoted doc mentions.
+  defp code_lines(file) do
+    file
+    |> File.read!()
+    |> String.replace(~r/`[^`\n]*`/, "")
+    |> String.split("\n")
+    |> Enum.reject(&String.starts_with?(String.trim_leading(&1), "#"))
+  end
+
   defp update_ctx(conn, fun),
     do: Plug.Conn.assign(conn, :auth_context, fun.(conn.assigns.auth_context))
 end

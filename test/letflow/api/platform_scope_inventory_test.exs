@@ -257,7 +257,12 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/maintenance_v1.ex", "GET", "/problem-reports"},
       {"lib/letflow/routers/maintenance_v1.ex", "GET", "/error-groups"},
       # T-1963 (test CS3): the owner-list import, behind the second credential class (`:owner_list`)
-      {"lib/letflow/routers/maintenance_owner_list_v1.ex", "POST", "/import"}
+      {"lib/letflow/routers/maintenance_owner_list_v1.ex", "POST", "/import"},
+      # REQ-859 (test C1..C6 of shared_stock_access_address_test): the three reads of the old-app
+      # address, behind the per-tenant shared stock value (plug `authenticate`, before `match`).
+      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/catalog"},
+      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/balances"},
+      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/movements"}
     ]
 
     defp scanned_files do
@@ -346,7 +351,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 9
+      assert length(@credential_allowlist) == 12
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do

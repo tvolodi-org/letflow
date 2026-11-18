@@ -10,12 +10,12 @@ defmodule Letflow.CreateSharedStockAccessTest do
   defp q(schema, sql, params \\ []),
     do: Repo.query(String.replace(sql, "S.", ~s("#{schema}".)), params)
 
-  test "MG-1 registered last, down and up on a fresh tenant, table exists after up and starts empty" do
+  test "MG-1 registered second to last (REQ-859 is last), down and up on a fresh tenant, table exists after up and starts empty" do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "t2088-mig")
     schema = fx.schema_name
 
     assert {@version, CreateSharedStockAccess} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -1)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     assert {:ok, %{rows: [[0]]}} = q(schema, "SELECT count(*) FROM S.shared_stock_access")
 

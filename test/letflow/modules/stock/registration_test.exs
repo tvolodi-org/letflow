@@ -289,7 +289,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-2077 (REQ-847): action_idempotency.ex (Repo.get/insert! on the CreateIdempotency binding, no ledger name) makes 50.
     # REQ-854: count_hold.ex (reads count orders), documents/quick_count_shape.ex and
     # documents/quick_count_posting.ex (pure) make 53.
-    assert length(files) == 53
+    # REQ-859: old_app_reads.ex (reads through Ledger and the master read APIs, no Repo) makes 54.
+    assert length(files) == 54
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
