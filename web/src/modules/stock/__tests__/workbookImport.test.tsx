@@ -124,7 +124,7 @@ async function setupAndCheck(opts: Parameters<typeof checkResult>[0] = {}, acces
   fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
   // Upload file
   const f = xlsxFile()
-  await user.upload(screen.getByTestId('wb-file'), f)
+  await user.upload(screen.getByTestId('dropzone-input'), f)
   // Wait for button to be enabled
   await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
   // Click Check
@@ -159,7 +159,7 @@ describe('C2 check', () => {
     fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
 
     const f = xlsxFile('my-stock.xlsx')
-    await user.upload(screen.getByTestId('wb-file'), f)
+    await user.upload(screen.getByTestId('dropzone-input'), f)
     await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
 
     const remark = 'Строка 3: артикул ART-X не найден в справочнике'
@@ -186,7 +186,7 @@ describe('C2 check', () => {
     const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
     await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
     fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
-    await user.upload(screen.getByTestId('wb-file'), xlsxFile())
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
     await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
 
     clientMock.postRaw.mockResolvedValueOnce({
@@ -209,7 +209,7 @@ describe('C2 check', () => {
     const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
     await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
     fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
-    await user.upload(screen.getByTestId('wb-file'), xlsxFile())
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
     await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
 
     const remark = 'Строка 7: единица измерения не найдена'

@@ -11,16 +11,19 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { Dialog } from '@/components/ui/Dialog'
+import { DropZone } from '@/components/ui/DropZone'
 import { Field } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
+import { StatusPill, type StatusTone, type StatusGlyph } from '@/components/ui/StatusPill'
+import { Tally } from '@/components/ui/Tally'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError } from '@/utils/classifyError'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { workbookApi, type WorkbookChange, type WorkbookCheckResult, type WorkbookImportRow } from './workbook.api'
-import { formatState, workbookCheckErrorId, workbookCancelErrorId, type CancelDialogState } from './workbookImportModel'
+import { workbookCheckErrorId, workbookCancelErrorId, type CancelDialogState } from './workbookImportModel'
 import { formatStockDateTime } from '../register/stockRegisterModel'
 
 const ACTIVE_ONLY: never[] = []
@@ -37,6 +40,7 @@ export interface WorkbookImportHarnessProps {
   cancelError?: string | null
   orgUnitId?: string
   importRows?: WorkbookImportRow[]
+  harnessChecked?: boolean
 }
 
 const HARNESS_IMPORT_ROW: WorkbookImportRow = {
@@ -103,10 +107,12 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
 
   /** True when the current form state matches the last successful check: load is eligible. */
   const isChecked =
-    checkResult !== null && checkedOrgUnitId === orgUnitId && checkedFile !== null && checkedFile === file
+    harness?.harnessChecked !== undefined
+      ? harness.harnessChecked
+      : checkResult !== null && checkedOrgUnitId === orgUnitId && checkedFile !== null && checkedFile === file
 
   const loadEnabled =
-    isChecked && checkResult.changes.length > 0 && !checkResult.too_many_changes && loadResult === null
+    isChecked && checkResult !== null && checkResult.changes.length > 0 && !checkResult.too_many_changes && loadResult === null
 
   const checkMutation = useMutation({
     mutationFn: async () => {
@@ -181,8 +187,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
     }
   }
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] ?? null
+  const onFile = (f: File) => {
     setFile(f)
     if (f !== checkedFile) {
       setCheckResult(null)
@@ -191,6 +196,15 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
       setLoadError(null)
     }
   }
+
+const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
+    draft: { tone: 'neutral', glyph: 'ring' },
+    issued: { tone: 'neutral', glyph: 'half' },
+    posted: { tone: 'success', glyph: 'dot' },
+    reversed: { tone: 'info', glyph: 'ring' },
+    cancelled: { tone: 'neutral', glyph: 'dash' },
+  }
+  const REVERSAL_PILL = { tone: 'warning' as const, glyph: 'half' as const }
 
   const changeColumns: DataTableColumn<WorkbookChange>[] = [
     {
@@ -221,6 +235,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
     {
       key: 'created_at',
       label: t('stock.wb.loads.col.date'),
+      mono: true,
       render: (r) => formatStockDateTime(r.created_at, { locale: intl.locale }),
     },
     { key: 'created_by', label: t('stock.wb.loads.col.user'), render: (r) => r.created_by ?? '—' },
@@ -236,7 +251,11 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
     {
       key: 'state',
       label: t('stock.wb.loads.col.state'),
-      render: (r) => formatState(r, t),
+      render: (r) => {
+        const pill = r.reversal_pending ? REVERSAL_PILL : (STATE_PILL[r.state] ?? { tone: 'neutral' as const, glyph: 'ring' as const })
+        const label = r.reversal_pending ? t('stock.wb.loads.reversalPending') : t(`stock.wb.loads.state.${r.state}`)
+        return <StatusPill tone={pill.tone} glyph={pill.glyph}>{label}</StatusPill>
+      },
     },
     {
       key: 'cancel',
@@ -254,8 +273,6 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
           >
             {t('stock.wb.loads.cancel')}
           </Button>
-        ) : r.reversal_pending ? (
-          <span className="caption">{t('stock.wb.loads.reversalPending')}</span>
         ) : null
       },
     },
@@ -268,136 +285,155 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
   }
 
   return (
-    <>
+    <div className="lf-form">
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.wb.title')} lede={t('stock.wb.lede')} />
 
-      <section aria-label={t('stock.wb.check')} data-testid="wb-check-section">
-        <Select
-          label={t('stock.wb.orgUnit')}
-          value={orgUnitId}
-          onChange={onOrgUnitChange}
-          options={orgUnits}
-          placeholder={t('stock.common.all')}
-          data-testid="wb-org-unit"
-          width="l"
-        />
-        <Field label={t('stock.wb.file')} width="l">
-          <input type="file" accept=".xlsx" data-testid="wb-file" onChange={onFileChange} />
-        </Field>
-        <div className="lf-form__actions">
-          <Button
-            variant="secondary"
-            data-testid="wb-check"
-            loading={checkMutation.isPending}
-            disabled={!orgUnitId || !file}
-            onClick={() => checkMutation.mutate()}
-          >
-            {checkMutation.isPending ? t('stock.wb.check.checking') : t('stock.wb.check')}
-          </Button>
+      <section className="lf-card" aria-labelledby="wb-check-h" data-testid="wb-check-section">
+        <div className="lf-card__head">
+          <h2 className="lf-card__title" id="wb-check-h">{t('stock.wb.card.check')}</h2>
         </div>
-        {checkError !== null && (
-          <div data-testid="wb-check-error">
-            <Banner tone="danger">{t(checkError)}</Banner>
+        <div className="lf-card__body lf-form">
+          <Select
+            label={t('stock.wb.orgUnit')}
+            value={orgUnitId}
+            onChange={onOrgUnitChange}
+            options={orgUnits}
+            placeholder={t('stock.wb.orgUnit.placeholder')}
+            data-testid="wb-org-unit"
+            width="l"
+          />
+          <DropZone
+            accept=".xlsx"
+            title={t('stock.wb.dropzone.title')}
+            limits={t('stock.wb.dropzone.limits')}
+            invalidText={t('stock.wb.dropzone.invalid')}
+            chosen={file ? { file } : null}
+            onFile={onFile}
+          />
+          <div className="lf-form__actions">
+            <Button
+              variant="secondary"
+              data-testid="wb-check"
+              loading={checkMutation.isPending}
+              disabled={!orgUnitId || !file}
+              onClick={() => checkMutation.mutate()}
+            >
+              {checkMutation.isPending ? t('stock.wb.check.checking') : t('stock.wb.check')}
+            </Button>
           </div>
-        )}
+          {checkError !== null && (
+            <div data-testid="wb-check-error">
+              <Banner tone="danger">{t(checkError)}</Banner>
+            </div>
+          )}
+        </div>
       </section>
 
       {checkResult !== null && (
-        <section aria-label={t('stock.wb.result.changes')} data-testid="wb-check-result">
-          <p className="caption" data-testid="wb-sheet">
-            {t('stock.wb.result.sheet')}: <strong>{checkResult.sheet}</strong>
-            {' · '}
-            {t('stock.wb.result.rowsRead', { n: checkResult.rows_read })}
-          </p>
+        <section className="lf-card" aria-labelledby="wb-result-h" data-testid="wb-check-result">
+          <div className="lf-card__head">
+            <h2 className="lf-card__title" id="wb-result-h">{t('stock.wb.card.result')}</h2>
+          </div>
+          <div className="lf-card__body lf-form">
+            <p className="lf-muted" data-testid="wb-sheet">
+              {t('stock.wb.result.sheet')}: <strong>{checkResult.sheet}</strong>
+              {' · '}
+              {t('stock.wb.result.rowsRead', { n: checkResult.rows_read })}
+            </p>
 
-          {checkResult.remarks.length > 0 && (
-            <details open data-testid="wb-remarks">
-              <summary>
-                <strong>
-                  {t('stock.wb.result.remarks')} ({checkResult.remarks.length})
-                </strong>
-              </summary>
-              <p className="caption">{t('stock.wb.result.remarksHint')}</p>
-              <ul>
-                {checkResult.remarks.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </details>
-          )}
+            <Tally
+              aria-label={t('stock.wb.tally.label')}
+              items={[
+                { label: t('stock.wb.tally.read'), value: checkResult.rows_read },
+                { label: t('stock.wb.tally.changes'), value: checkResult.changes.length },
+                { label: t('stock.wb.tally.unchanged'), value: checkResult.unchanged_count },
+                { label: t('stock.wb.tally.remarks'), value: checkResult.remarks.length },
+              ]}
+            />
 
-          {checkResult.too_many_changes && (
-            <div data-testid="wb-too-many-changes">
-              <Banner tone="warning">{t('stock.wb.result.tooManyChanges')}</Banner>
-            </div>
-          )}
+            {checkResult.remarks.length > 0 && (
+              <div data-testid="wb-remarks">
+                <Banner tone="warning">
+                  <strong>{t('stock.wb.result.remarks')}</strong>
+                  <p className="caption">{t('stock.wb.result.remarksHint')}</p>
+                  <ul className="lf-help">
+                    {checkResult.remarks.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                </Banner>
+              </div>
+            )}
 
-          {checkResult.changes.length === 0 && !checkResult.too_many_changes && (
-            <p data-testid="wb-no-changes">{t('stock.wb.result.noChanges')}</p>
-          )}
+            {checkResult.too_many_changes && (
+              <div data-testid="wb-too-many-changes">
+                <Banner tone="warning">{t('stock.wb.result.tooManyChanges')}</Banner>
+              </div>
+            )}
 
-          {checkResult.changes.length > 0 && (
-            <>
-              <p className="caption" data-testid="wb-unchanged-count">
-                {t('stock.wb.result.unchangedCount', { n: checkResult.unchanged_count })}
-              </p>
-              <DataTable
-                columns={changeColumns}
-                data={checkResult.changes}
-                isLoading={false}
-                emptyMessage={t('stock.wb.result.noChanges')}
-                getRowId={(r) => `${r.item_code}|${r.place_code}`}
-                labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-              />
-            </>
-          )}
+            {checkResult.changes.length === 0 && !checkResult.too_many_changes && (
+              <p data-testid="wb-no-changes">{t('stock.wb.result.noChanges')}</p>
+            )}
 
-          {loadResult === null && (
-            <div className="lf-form__actions">
-              <Button
-                variant="primary"
-                data-testid="wb-load"
-                loading={loadMutation.isPending}
-                disabled={!loadEnabled}
-                onClick={() => loadMutation.mutate()}
-                title={
-                  !isChecked
-                    ? t('stock.wb.err.checkFirst')
-                    : checkResult.changes.length === 0
-                      ? t('stock.wb.result.noChanges')
-                      : checkResult.too_many_changes
-                        ? t('stock.wb.result.tooManyChanges')
-                        : undefined
-                }
-              >
-                {loadMutation.isPending ? t('stock.wb.load.loading') : t('stock.wb.load')}
-              </Button>
-            </div>
-          )}
+            {checkResult.changes.length > 0 && (
+              <>
+                <p className="caption lf-muted" data-testid="wb-unchanged-count">
+                  {t('stock.wb.result.unchangedCount', { n: checkResult.unchanged_count })}
+                </p>
+                <DataTable
+                  columns={changeColumns}
+                  data={checkResult.changes}
+                  isLoading={false}
+                  emptyMessage={t('stock.wb.result.noChanges')}
+                  getRowId={(r) => `${r.item_code}|${r.place_code}`}
+                  labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+                />
+              </>
+            )}
 
-          {loadError !== null && (
-            <div data-testid="wb-load-error">
-              <Banner tone="danger">{t(loadError)}</Banner>
-            </div>
-          )}
+            {loadResult === null && (
+              <div className="lf-form__actions">
+                <Button
+                  variant="primary"
+                  data-testid="wb-load"
+                  loading={loadMutation.isPending}
+                  disabled={!loadEnabled}
+                  onClick={() => loadMutation.mutate()}
+                >
+                  {loadMutation.isPending ? t('stock.wb.load.loading') : t('stock.wb.load')}
+                </Button>
+                {!isChecked && (
+                  <span className="lf-hint" data-testid="wb-load-hint">
+                    {t('stock.wb.err.checkFirst')}
+                  </span>
+                )}
+              </div>
+            )}
 
-          {loadResult !== null && 'noChange' in loadResult && (
-            <div data-testid="wb-load-no-change">
-              <Banner tone="info">{t('stock.wb.load.noChange')}</Banner>
-            </div>
-          )}
+            {loadError !== null && (
+              <div data-testid="wb-load-error">
+                <Banner tone="danger">{t(loadError)}</Banner>
+              </div>
+            )}
 
-          {loadResult !== null && 'documentId' in loadResult && (
-            <div data-testid="wb-load-success">
-              <Banner tone="success">
-                {t('stock.wb.load.success', { number: loadResult.number })}
-                {' '}
-                <Link to={`/admin/stock/documents/${loadResult.documentId}`} data-testid="wb-doc-link">
-                  {t('stock.wb.load.docLink')}
-                </Link>
-              </Banner>
-            </div>
-          )}
+            {loadResult !== null && 'noChange' in loadResult && (
+              <div data-testid="wb-load-no-change">
+                <Banner tone="info">{t('stock.wb.load.noChange')}</Banner>
+              </div>
+            )}
+
+            {loadResult !== null && 'documentId' in loadResult && (
+              <div data-testid="wb-load-success">
+                <Banner tone="success">
+                  {t('stock.wb.load.success', { number: loadResult.number })}
+                  {' '}
+                  <Link to={`/admin/stock/documents/${loadResult.documentId}`} data-testid="wb-doc-link">
+                    {t('stock.wb.load.docLink')}
+                  </Link>
+                </Banner>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -419,21 +455,25 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
         </div>
       )}
 
-      <section aria-label={t('stock.wb.loads.title')} data-testid="wb-loads-section">
-        <h2>{t('stock.wb.loads.title')}</h2>
-        <QueryStateBoundary
-          state={importsRendererState}
-          onRetry={() => void importsQuery.refetch()}
-        >
-          <DataTable
-            columns={loadColumns}
-            data={importRows}
-            isLoading={false}
-            emptyMessage={t('stock.wb.loads.empty')}
-            getRowId={(r) => r.document_id}
-            labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-          />
-        </QueryStateBoundary>
+      <section className="lf-card" aria-labelledby="wb-loads-h" data-testid="wb-loads-section">
+        <div className="lf-card__head">
+          <h2 className="lf-card__title" id="wb-loads-h">{t('stock.wb.loads.title')}</h2>
+        </div>
+        <div className="lf-card__body">
+          <QueryStateBoundary
+            state={importsRendererState}
+            onRetry={() => void importsQuery.refetch()}
+          >
+            <DataTable
+              columns={loadColumns}
+              data={importRows}
+              isLoading={false}
+              emptyMessage={t('stock.wb.loads.empty')}
+              getRowId={(r) => r.document_id}
+              labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+            />
+          </QueryStateBoundary>
+        </div>
       </section>
 
       {cancelDialog !== null && (
@@ -460,7 +500,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
           </Field>
         </Dialog>
       )}
-    </>
+    </div>
   )
 }
 

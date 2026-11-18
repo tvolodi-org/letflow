@@ -4,6 +4,7 @@
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { WorkbookImportPageHarness } from '@/modules/stock/workbook/WorkbookImportPage'
+import BalancesPage from '@/modules/stock/register/BalancesPage'
 import type { WorkbookCheckResult, WorkbookImportRow } from '@/modules/stock/workbook/workbook.api'
 import type { UserSession } from '@/types/api'
 import type { EntityRecord } from '@/types/api'
@@ -79,6 +80,20 @@ function importsLoadingRoute(): FixtureRoute {
     match: (p, m) => p === '/api/v1/modules/stock/stock-workbook/imports' && m === 'GET',
     pending: true,
     reply: () => ({ status: 200, body: { rows: [] } }),
+  }
+}
+
+function importsErrorRoute(): FixtureRoute {
+  return {
+    match: (p, m) => p === '/api/v1/modules/stock/stock-workbook/imports' && m === 'GET',
+    reply: () => ({ status: 500, body: { type: 'about:blank', title: 'Server error', status: 500 } }),
+  }
+}
+
+function balancesRoute(): FixtureRoute {
+  return {
+    match: (p, m) => p === '/api/v1/modules/stock/balances' && m === 'GET',
+    reply: () => ({ status: 200, body: { ledger_seq: 1, next_cursor: null, rows: [] } }),
   }
 }
 
@@ -197,6 +212,7 @@ export const workbookImportScreens: HarnessScreen[] = [
           harness={{
             checkResult: CHECK_RESULT_REMARKS,
             orgUnitId: 'ou1',
+            harnessChecked: true,
             importRows: IMPORT_ROWS,
           }}
         />,
@@ -254,7 +270,7 @@ export const workbookImportScreens: HarnessScreen[] = [
         />,
       ),
   },
-  // 8. File changed: form has org unit but no check result (user changed file or org unit after check)
+  // 8. File changed: check result shown but harnessChecked:false to show stale state
   {
     name: 'wb-import-file-changed',
     routes: [entitiesRoute(), importsRoute(IMPORT_ROWS)],
@@ -264,7 +280,9 @@ export const workbookImportScreens: HarnessScreen[] = [
       withAuth(
         <WorkbookImportPageHarness
           harness={{
+            checkResult: CHECK_RESULT_REMARKS,
             orgUnitId: 'ou1',
+            harnessChecked: false,
             importRows: IMPORT_ROWS,
           }}
         />,
@@ -285,5 +303,21 @@ export const workbookImportScreens: HarnessScreen[] = [
           }}
         />,
       ),
+  },
+  // 10. Load list error
+  {
+    name: 'wb-import-load-list-error',
+    routes: [entitiesRoute(), importsErrorRoute()],
+    initialPath: '/admin/stock/workbook-import',
+    routePattern: '/admin/stock/workbook-import',
+    render: () => withAuth(<WorkbookImportPageHarness />),
+  },
+  // 11. Balances page header
+  {
+    name: 'wb-import-balances-header',
+    routes: [entitiesRoute(), balancesRoute()],
+    initialPath: '/admin/stock/balances',
+    routePattern: 'admin/stock/balances',
+    render: () => withAuth(<BalancesPage />),
   },
 ]
