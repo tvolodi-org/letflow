@@ -393,16 +393,16 @@ defmodule Letflow.Ledger.Validate do
 
   defp check_quantity(_other, n), do: invalid(:quantity_invalid, n)
 
-  # REQ-853: the optional compare-and-set value of a leg, a decimal >= 0 with at most 9 decimals.
+  # REQ-853: the optional compare-and-set value of a leg, a decimal with at most 9 decimals. Decision
+  # 0090 (T-2288): it may be negative, the book of a key on an allow tenant (book -2 counted 3 posts +5).
   defp check_expected(nil, _n), do: {:ok, nil}
 
   defp check_expected(%Decimal{coef: coef} = q, n) when is_integer(coef) do
     normal = Decimal.normalize(q)
 
     cond do
-      Decimal.lt?(q, 0) -> invalid(:expected_on_hand_invalid, n)
       normal.exp < -9 -> invalid(:expected_on_hand_invalid, n)
-      Decimal.compare(q, @max_abs) != :lt -> invalid(:expected_on_hand_invalid, n)
+      Decimal.compare(Decimal.abs(q), @max_abs) != :lt -> invalid(:expected_on_hand_invalid, n)
       true -> {:ok, Decimal.round(q, 9)}
     end
   end

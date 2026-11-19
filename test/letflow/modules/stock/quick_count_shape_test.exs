@@ -212,12 +212,15 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
 
     assert {:ok, %{legs: [zero_book]}} = declare([policy_line(%{expected_on_hand: "0"})])
     assert Decimal.eq?(zero_book.expected_on_hand, 0)
+
+    # decision 0090 (T-2288): a negative book is counted; the posting carries it as expected.
+    assert {:ok, %{legs: [neg_book]}} = declare([policy_line(%{expected_on_hand: "-1"})])
+    assert Decimal.eq?(neg_book.expected_on_hand, -1)
   end
 
   test "QS-9 the policy refuses a missing or bad expected, over 1000 lines, both sides and client time" do
     bad = fn line -> assert {:error, {:invalid_posting, %{leg_no: 1}}} = declare([line]) end
     bad.(Map.delete(policy_line(%{}), :expected_on_hand))
-    bad.(policy_line(%{expected_on_hand: "-1"}))
     bad.(policy_line(%{expected_on_hand: "1.0000000001"}))
     bad.(policy_line(%{expected_on_hand: 10}))
     bad.(policy_line(%{to: %{org_unit: @id, location: @id2}}))
