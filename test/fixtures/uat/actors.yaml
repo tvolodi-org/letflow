@@ -7,7 +7,7 @@
 # scripts/uat_preflight.sh (actor-platform-admin needs a seeded PLATFORM_ADMIN user),
 # priv/keycloak/realms/bpm-default.json (only users: admin-user, designer-user, operator-user,
 # worker-user; no actor-* accounts). Anything not established is under `unresolved`.
-# Since roles stage 0 S0-5 (TasksReadAll, T-1857): a storekeeper-only user sees only own and group tasks in My Tasks; no actor below is a storekeeper.
+# Since roles stage 0 S0-5 (TasksReadAll, T-1857): a storekeeper-only user sees only own and group tasks in My Tasks; the only storekeeper actor below is actor-qoimeks-qa-storekeeper (T-2191).
 actors:
   actor-platform-admin:
     tenant: platform
@@ -152,6 +152,11 @@ actors:
     routing_roles: []
     note: "T-2129 (owner task text, PM 2026-11-16): QOIMEKS_QA_ADMIN, the tenant administrator of the Qoimeks QA tenant (slug qoimeks-qa, realm qoimeks-qa); credentials come from the UAT credential source variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*, never from this file. UAT assumption, to be confirmed by the process owner: the account holds TENANT_ADMIN only (the task calls it the tenant admin; the seed was not opened). If the account turns out to hold PLATFORM_ADMIN, SCHEMA-9 and the refusal step of qoimeks-qa-1 must be revisited."
 
+  actor-qoimeks-qa-storekeeper:
+    tenant: qoimeks-qa
+    builtin_roles: [STOREKEEPER]
+    routing_roles: []
+    note: "T-2191 task text (PM 2026-11-19): the lower-role account of the Qoimeks QA tenant now exists (username qoimeks-qa-storekeeper, role STOREKEEPER, realm qoimeks-qa); credentials come from the UAT credential source variables UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, never from this file. Per the task text it sees the stock read, post, reverse and count permissions (17 in all), holds no administration right, and GET /api/v1/tenants is refused for it. Closed issues #4702 and #4709 asked for it. Role grants per docs/roles.md and decision 0081."
   actor-vortex-dirk:
     tenant: vortex
     builtin_roles: [TASK_WORKER]

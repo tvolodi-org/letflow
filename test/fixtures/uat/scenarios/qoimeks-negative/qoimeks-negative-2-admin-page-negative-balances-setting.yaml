@@ -7,8 +7,11 @@
 # Not UAT-observable here, with reasons:
 #   (a) saving a change: the scenario never saves, because switching the setting changes how the whole QA tenant posts and the three negative rows were loaded under "Allowed"; a saved switch would need switching back, and the audit entry it writes cannot be removed. The saved path is covered by component tests of REQ-839 and backend tests of REQ-835;
 #   (b) the audit entry of a change: not shown on a screen of this page (the audit log screen exists, but nothing is saved here);
-#   (c) a non-administrator being refused this page: the roster has no actor below TENANT_ADMIN for this tenant, so the refusal walk cannot be written;
-#     that coverage is BLOCKED-by-environment, see the preconditions (folded minor of issue #4702).
+#   (c) a scoped grant of the administrator role and a non-interactive credential are refused by the handler (router test LS-5 of the backend); no roster actor holds such a grant.
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and walks the refusals (steps 8 to 10).
+#   Sources for the refusals: web/src/router.tsx (the page sits under RequirePermission with LedgerSettingsManage; a user without it sees PermissionDenied), web/src/components/ui/feedbackMessages.ts
+#   (texts, en/ru/kk), web/src/components/layout/AppShell.tsx (the navigation entry carries the same permission), lib/letflow/routers/ledger_settings.ex (GET / needs LedgerSettingsManage tenant-wide),
+#   test/letflow/routers/ledger_settings_test.exs LS-4 (a STOREKEEPER gets 403 on both routes), docs/roles.md STOREKEEPER ("Must not: ... administer ... settings"; LedgerSettingsManage is TENANT_ADMIN only).
 # UAT assumption, to be confirmed by the process owner: the stock register of the tenant currently reads "Allowed" because the negative opening lines were loaded (runbook docs/runbooks/qoimeks-rehearsal.md step 5). If it reads "Refused" the steps still run; the dialog texts differ (refuse versus allow) and EO-002 is checked against the text of the opposite switch.
 ---
 id: qoimeks-negative-2-admin-page-negative-balances-setting
@@ -21,10 +24,12 @@ description: >
   The administrator opens the admin page "Negative balances" (side navigation, admin section), reads the list of registers (stock), its value, the last change and the reason,
   opens the switch dialog, reads what it says will change, tries to save with an empty reason and is held back, then cancels. Repeated in Russian ("Отрицательные остатки"),
   Kazakh ("Теріс қалдықтар") and at 390 px wide. Nothing is saved, so the tenant is left as found and there is nothing to clean up.
-  The sensitive action in this flow is "change a setting that alters posting rules": the empty-reason attempt is the refusal step.
+  The sensitive action in this flow is "change a setting that alters posting rules": the empty-reason attempt (step 4) is a refusal step, and the storekeeper (a clerk with stock rights only)
+  is refused the page and the read behind it (steps 9 and 10).
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
   - description: The stock module is installed and declares the negative balance setting, so the list holds one row for the stock register.
@@ -36,12 +41,11 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
-  - description: The roster has no actor below TENANT_ADMIN for this tenant; a storekeeper account does not exist.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in.
     check: system_seeded
     detail: >
-      The refusal of this page for a non-administrator (a tenant user without the permission that guards it)
-      cannot be walked: report that coverage as BLOCKED-by-environment, not as a product result, and name the
-      missing account. The administrator steps of this scenario still run.
+      If the sign-in of this account fails, report steps 8 to 10 as BLOCKED-by-environment (account missing or
+      password not set in the credential source) and name the account; the administrator steps still run.
 
 steps:
   - step: 1
@@ -80,6 +84,23 @@ steps:
     action: >
       The administrator narrows the window to 390 px wide, opens the dialog once more (button as in step 3) and presses Cancel; then switches the language back to English and widens the window.
     via: ui
+  - step: 8
+    actor: storekeeper
+    action: >
+      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and looks through the side navigation, admin section included, for the entry "Negative balances".
+    via: ui
+  - step: 9
+    actor: storekeeper
+    action: >
+      The storekeeper types the address of the admin page "Negative balances" (the path /admin/ledger-settings of the tenant host) into the browser.
+    expect_refusal: true
+    via: ui
+  - step: 10
+    actor: storekeeper
+    action: >
+      The storekeeper's session asks the server for the list of negative balance registers (the read behind the page, no change is made).
+    expect_refusal: true
+    via: api
 
 expected_outcomes:
   - id: EO-001
@@ -122,3 +143,15 @@ expected_outcomes:
       severity: MINOR
       business_impact: Russian or Kazakh speaking administrators or phone users cannot read or reach the switch.
       suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: A storekeeper, who holds no right to change settings, neither finds nor opens the page, and the server refuses the read behind it.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 8 shows no "Negative balances" entry in the side navigation. Step 9 shows the message "You do not have access to this area. Contact your tenant administrator." with a link
+        "My Tasks"; no list of registers is shown. Step 10 answers 403 and no register row or value is in the body (the refusal body carries no setting data).
+      evidence: Screenshots of steps 8 and 9; status and body of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A warehouse clerk could read or switch the rule that lets stock go below zero for the whole tenant.
+      suggested_action: route_to_elixir_dev

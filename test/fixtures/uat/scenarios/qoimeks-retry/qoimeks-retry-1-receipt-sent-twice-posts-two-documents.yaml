@@ -32,6 +32,10 @@
 # - The race condition where two copies of the app send the same client id simultaneously:
 #   this scenario covers a sequential retry, not a concurrent one.
 # - The token value: created by the walk at step 2, kept in the run's environment only, never recorded.
+# Role-based refusal (T-2191 rework, gate finding): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) is refused the admin API of the shared stock access
+# (step 13): the three routes need the permission TokensManage (lib/letflow/routers/identity.ex, authz_get/authz_post/authz_delete "/shared-stock-access"), which only TENANT_ADMIN and
+# PLATFORM_ADMIN hold (docs/roles.md, matrix row TokensManage; STOREKEEPER: no), and the handler answers 403 "insufficient permissions" otherwise (shared_access_guarded). The refusal is walked on the
+# READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
 ---
 id: qoimeks-retry-1-receipt-sent-twice-posts-two-documents
 scope: qoimeks-qa
@@ -56,6 +60,7 @@ description: >
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
   - description: The tenant's scope enforcement is off.
@@ -86,6 +91,11 @@ preconditions:
   - description: The run can drive a real browser.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the balance and document steps.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in.
+    check: system_seeded
+    detail: >
+      Needed only for the last step. If the sign-in of this account fails, report that step as BLOCKED-by-environment
+      and name the account; every other step still runs.
 
 steps:
   - step: 1
@@ -165,6 +175,13 @@ steps:
     action: >
       The administrator revokes the shared stock access created in step 2 (the answer is noted as
       D3) and reads the status again (noted as S3), so that the tenant ends with none.
+    via: api
+  - step: 13
+    actor: storekeeper
+    action: >
+      The storekeeper, signed in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), asks the admin API for the status of the tenant's shared stock access
+      (the read; nothing is created or changed). The answer is noted as R-SK.
+    expect_refusal: true
     via: api
 
 expected_outcomes:
@@ -273,3 +290,17 @@ expected_outcomes:
         A live shared credential is left on the QA tenant after the run, with a value that sat in
         the run's environment; the old-app address stays open until the operator revokes it.
       suggested_action: route_to_wf03
+
+  - id: EO-008
+    description: A storekeeper, who holds no right to manage tokens, is refused the shared stock access routes of the admin API.
+    verification:
+      method: api_response
+      detail: >
+        R-SK has HTTP status 403, and its body carries no "exists", "created_at" or other status field of the shared access (only the refusal). The permission is TokensManage, held by the
+        tenant administrator only among the tenant roles.
+      evidence: "HTTP status and body of R-SK."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A warehouse clerk could learn about, replace or revoke the credential the old app uses to post stock, and so cut off the warehouse or open the tenant's stock to others.
+      suggested_action: route_to_elixir_dev

@@ -10,12 +10,13 @@
 # The warning is not an error: Save stays available. The scenario never saves, so it creates no record and needs no cleanup. Each form is left with "Back to the list" and the browser asks nothing.
 # Fix of #4699: steps 5 to 7 of version 1 switched the kind of one started form; as the kind switch resets the form, those steps read an empty form. The Receipt is now filled on its own fresh document, and the Issue is re-entered on a fresh document before the language and phone reads.
 # Fix of #4700: steps 1 to 2 of version 1 pinned only item, place and quantity, so a different responsible, lot or unit than the Balances row made the warning compare against a balance of 0. Step 1 now notes org unit, responsible, lot and unit from the chosen row, and step 2 copies all of them.
-# Fix of #4702: the roster's only qoimeks-qa actor is the tenant administrator; a storekeeper account does not exist. The administrator runs the steps; the storekeeper-role coverage is BLOCKED-by-environment (see the preconditions).
+# Fix of #4702: the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster; the administrator runs steps 1 to 7 and the storekeeper repeats the warning on its own fresh Issue document (steps 8 and 9).
+#   Sources: docs/roles.md STOREKEEPER (StockRead, StockPost, StockReverse, reads of reference data EntitiesDefinitionsRead and EntitiesQuery: the form pickers need them).
 # Not UAT-observable here, with reasons:
 #   (a) the voice draft on the phone app (decision 0090 section 6 item 4) and the Flutter form: APK only, no browser; observable check is the mobile tier's own test; not part of this walk;
 #   (b) the warning for write off, transfer, hand over and return: same code path as the issue (negativeBalance.ts); this walk uses the issue and the receipt, and component tests of REQ-838 cover the others;
 #   (c) the warning being absent when the tenant refuses negatives: needs the setting switched to Refused, which scenario 2 deliberately does not do; covered by component tests of REQ-838;
-#   (d) the same walk done by a storekeeper account (a tenant user holding only stock read and stock post): no such actor exists in the roster for this tenant; see the preconditions.
+#   (d) the full receipt, language and phone reads by the storekeeper: the code path is the same as for the administrator; the storekeeper repeats only the warning of the Issue form (steps 8 and 9).
 # UAT assumption, to be confirmed by the process owner: the stock setting of the tenant is "Allowed" (see scenario 2). If it is "Refused" no warning is shown by design and EO-001 reports BLOCKED.
 ---
 id: qoimeks-negative-3-issue-form-warns-balance-will-become-negative
@@ -34,6 +35,7 @@ description: >
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
   - description: The stock setting of the tenant allows negative balances (see scenario 2) and the administrator may read balances.
@@ -46,11 +48,12 @@ preconditions:
       the responsible (the Responsible column), the lot (the Lot column; prefer a row whose Lot reads empty, and note "none" when it does), the unit (the Unit column) and the
       quantity, called Q. The warning compares the line against the balance of exactly this item, place, org unit, responsible, lot and unit; the lot and the responsible of the
       form must be the noted ones, otherwise the balance read is 0 and EO-001 fails falsely.
-  - description: The roster's only actor for this tenant is the tenant administrator (TENANT_ADMIN); no storekeeper account exists.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read and stock post tenant-wide.
     check: system_seeded
     detail: >
-      Run the steps with the administrator. The storekeeper view of this walk (the same steps by a tenant user holding only stock read and stock post) is
-      BLOCKED-by-environment, not a product result: report it as BLOCKED-by-environment, name the missing account, and still read EO-001 to EO-004 with the administrator.
+      If the sign-in fails, report steps 8 and 9 as BLOCKED-by-environment and name the account; the administrator steps still run. If the header pickers of the storekeeper do not offer
+      the noted place, org unit or responsible (a node-limited grant), report steps 8 and 9 as BLOCKED-by-environment and say which picker was empty.
+
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
@@ -99,6 +102,17 @@ steps:
       The administrator narrows the window to 390 px wide and reads the warning in the language chosen last; then leaves the form with "Back to the list" without saving,
       switches the language to English and widens the window.
     via: ui
+  - step: 8
+    actor: storekeeper
+    action: >
+      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, presses "New document", chooses the kind Issue, fills the same header
+      (the noted place, org unit and responsible) and one line with the noted item, the same lot handling and a quantity of Q plus 1.
+    via: ui
+  - step: 9
+    actor: storekeeper
+    action: >
+      The storekeeper reads the line and the buttons of the form, then leaves the form with "Back to the list" without saving.
+    via: ui
 
 expected_outcomes:
   - id: EO-001
@@ -142,4 +156,14 @@ expected_outcomes:
     on_fail:
       severity: MINOR
       business_impact: A phone user does not see the warning, or a test record is left in the tenant.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: The storekeeper, who will make the issue in daily work, gets the same warning and no document is saved.
+    verification:
+      method: gui_screen
+      detail: Step 9 shows "The balance will become negative" at the line, no red refusal banner, the Save draft button enabled; after leaving the form the Stock documents list holds no new document made by this walk.
+      evidence: Screenshot of step 9 and the list after it.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk who actually issues goods is not warned that stock goes below zero.
       suggested_action: route_to_frontend_dev

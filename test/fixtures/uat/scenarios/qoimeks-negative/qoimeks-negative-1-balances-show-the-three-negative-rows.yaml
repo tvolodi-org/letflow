@@ -6,8 +6,9 @@
 # Not UAT-observable here, with reasons:
 #   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
 #   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests;
-#   (c) the same read by a storekeeper account (a tenant user holding only stock read): no such actor exists in the roster for this tenant (the only qoimeks-qa actor is the
-#     tenant administrator); that coverage is BLOCKED-by-environment, see the preconditions.
+#   (c) a scoped grant (node-limited STOREKEEPER): the storekeeper account is read as tenant-wide; if its balances differ from the administrator's for that reason the walk reports BLOCKED-by-environment (see the preconditions).
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and reads the same screen (steps 7 and 8).
+#   Sources: docs/roles.md (STOREKEEPER does StockRead: balances), web/src/router.tsx and web/src/components/layout/AppShell.tsx (Balances guarded by the stock read permission, the same entry as for the administrator).
 ---
 id: qoimeks-negative-1-balances-show-the-three-negative-rows
 scope: qoimeks-qa
@@ -24,6 +25,7 @@ description: >
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
   - description: The tenant's 603 opening balances are posted and 3 of them are negative (synthetic data, as the task states).
@@ -35,12 +37,12 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and at 390 px wide.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the whole scenario.
-  - description: The roster's only actor for this tenant is the tenant administrator (TENANT_ADMIN); no storekeeper account exists.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
     check: system_seeded
     detail: >
-      Run the steps with the administrator, who may read balances. The same read by a storekeeper account is
-      BLOCKED-by-environment, not a product result: report it as BLOCKED-by-environment and name the missing
-      account; still read EO-001 to EO-003 with the administrator.
+      If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the administrator
+      steps still run. If the storekeeper's Balances list is empty or shows another count of negative rows than
+      the administrator's, report BLOCKED-by-environment (a node-limited grant) and quote both counts.
 
 steps:
   - step: 1
@@ -73,6 +75,16 @@ steps:
     action: >
       The administrator switches the language back to English and widens the window again, to leave the account as found.
     via: ui
+  - step: 7
+    actor: storekeeper
+    action: >
+      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and finds the rows whose quantity starts with a minus sign.
+    via: ui
+  - step: 8
+    actor: storekeeper
+    action: >
+      The storekeeper counts those rows and notes, for each, the item, the place and the quantity, to compare them with step 2.
+    via: ui
 
 expected_outcomes:
   - id: EO-001
@@ -104,4 +116,14 @@ expected_outcomes:
     on_fail:
       severity: MINOR
       business_impact: A storekeeper on a phone cannot tell a negative balance from a positive one.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A storekeeper, the clerk who works with stock every day, sees the same three negative rows as the administrator.
+    verification:
+      method: gui_screen
+      detail: Step 8 lists exactly three rows with a minus sign and the same items, places and quantities as step 2; the Balances entry is present in the navigation of the storekeeper.
+      evidence: Screenshot of step 7 and the three noted rows of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk who has to correct or work off the negative stock cannot see it, or sees other figures than the owner.
       suggested_action: route_to_frontend_dev
