@@ -1220,6 +1220,8 @@ defmodule Letflow.Modules.Stock.Documents do
   defp draft_error(reason) when reason in [:org_unit_not_found, :org_unit_required],
     do: {"org_unit_invalid", %{}}
 
+  # An older tenant pack may have the process but not its document type yet.
+  defp draft_error(:type_not_found), do: :definition_not_active
   defp draft_error(:not_found), do: :not_found
   defp draft_error(:no_draft), do: :document_not_draft
   defp draft_error(:busy), do: :busy

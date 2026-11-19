@@ -26,6 +26,7 @@ const MASTERS: Record<string, EntityRecord[]> = {
     rec('lot1', 'catalog_lot', { code: 'LOT-2026-001', item_id: 'i2' }),
     rec('lot2', 'catalog_lot', { code: 'LOT-2026-002', item_id: 'i2' }),
   ],
+  org_employee: [rec('e1', 'org_employee', { code: 'EMP-1', full_name: 'Aigul B.' })],
   catalog_uom: [rec('m1', 'catalog_uom', { name: 'pcs' })],
 }
 
@@ -70,12 +71,12 @@ function entitiesRoute(): FixtureRoute {
 }
 
 // The fixture router sees no query string, so the screen's slot (item, lot) is given here.
-function balanceRoute(quantity: string, sku = 'i1', lot: string | null = null): FixtureRoute {
+function balanceRoute(quantity: string, sku = 'i1', lot: string | null = null, responsible: string | null = null): FixtureRoute {
   return {
     match: (p, m) => p === '/api/v1/modules/stock/balances' && m === 'GET',
     reply: () => ({
       status: 200,
-      body: { rows: [{ sku, location: 'l1', org_unit: 'u1', responsible: null, lot, unit_ref: 'm1', quantity }], next_cursor: null },
+      body: { rows: [{ sku, location: 'l1', org_unit: 'u1', responsible, lot, unit_ref: 'm1', quantity }], next_cursor: null },
     }),
   }
 }
@@ -172,6 +173,21 @@ function tasksListErrorRoute(): FixtureRoute {
 }
 
 export const quickCountScreens: HarnessScreen[] = [
+  {
+    name: 'stock-quick-count-responsible',
+    routes: [entitiesRoute(), balanceRoute('96.500000000', 'i1', null, 'e1')],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={{ ...FILLED_FORM, responsibleId: 'e1', countedQuantity: '97.5' }} />),
+  },
+
+  {
+    name: 'stock-quick-count-upgrade-required',
+    routes: [entitiesRoute()],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialSubmitError={{ reason: 'definition_not_active' }} />),
+  },
   // 1. Empty form (default state, no selections)
   {
     name: 'stock-quick-count-empty',

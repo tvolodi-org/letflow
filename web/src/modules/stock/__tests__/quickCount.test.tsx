@@ -170,6 +170,25 @@ afterEach(() => {
   useUiLocaleStore.getState().reloadFromEnvironment()
 })
 
+it('counts the selected responsible employee exact key', async () => {
+  setupGetMock({ balance: '0', extraRows: [
+    { responsible: 'e1', lot: null, unit_ref: 'm1', quantity: '96.500000000' },
+    { responsible: 'e2', lot: null, unit_ref: 'm1', quantity: '12' },
+  ] })
+  setupCombinedPostMock()
+  renderQC()
+  await selectFields()
+  await pickSelect('responsible_id', 'e1')
+  expect(await screen.findByTestId('book-quantity')).toHaveTextContent('96.500000000')
+  fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '97.5' } })
+  expect(screen.getByTestId('difference-display').textContent).toBe('1')
+  expect(clientMock.get).toHaveBeenCalledWith('/api/v1/modules/stock/balances', { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1' })
+  fireEvent.click(screen.getByTestId('submit-quick-count'))
+  await waitFor(() => expect(clientMock.post).toHaveBeenCalledWith(
+    '/api/v1/modules/stock/quick-counts', expect.objectContaining({ responsible_id: 'e1' }),
+  ))
+})
+
 // --- C1: Navigation guard ---
 describe('C1 navigation guard', () => {
   it('shows forbidden page without StockQuickCount', async () => {
@@ -376,8 +395,9 @@ describe('C3 quantity validation', () => {
 const CATALOGS = { en: qcEn, ru: qcRu, kk: qcKk } as const
 const DOC_CATALOGS = { en: docEn, ru: docRu, kk: docKk } as const
 const HELD = 'CNT-2026-000017'
-/** The four refusal codes of AC4: the HTTP status the route answers, and whether the message carries held_by. */
+/** Refusal codes: the HTTP status the route answers, and whether the message carries held_by. */
 const CODES = [
+  { reason: 'definition_not_active', status: 409, heldBy: false },
   { reason: 'count_in_progress', status: 422, heldBy: true },
   { reason: 'location_frozen', status: 409, heldBy: true },
   { reason: 'quick_count_stale', status: 422, heldBy: false },
@@ -410,7 +430,7 @@ describe('C4 error codes', () => {
     }
   }
 
-  it('the four messages differ from each other and from the generic one in every language', () => {
+  it('the refusal messages differ from each other and from the generic one in every language', () => {
     for (const cat of Object.values(CATALOGS)) {
       const texts = [...CODES.map((c) => cat[`stock.qc.error.${c.reason}`]), cat['stock.qc.error.generic']]
       expect(new Set(texts).size).toBe(texts.length)

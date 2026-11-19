@@ -19,6 +19,7 @@ export interface QuickCountBody {
   catalog_uom_id: string
   location_id: string
   org_unit_id: string
+  responsible_id?: string
   catalog_lot_id?: string
   counted_quantity: string
   reason_code: string
