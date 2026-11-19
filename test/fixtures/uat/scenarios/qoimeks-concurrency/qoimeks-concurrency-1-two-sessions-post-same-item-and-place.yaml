@@ -147,11 +147,11 @@ expected_outcomes:
       suggested_action: route_to_elixir_dev
 
   - id: EO-004
-    description: An issue request without a credential or with a wrong credential is refused, identical answers, nothing created.
+    description: An issue request without a credential or with a wrong credential is refused (401), nothing created.
     verification:
       method: api_response
       detail: >-
-        Step 8: both answers have status 401 and, after the trace_id field is removed, identical bodies. The count of documents is still D0 plus 2 (nothing created) when read again.
+        Step 8: both answers have status 401, each a plain refusal with no document data; the text for a missing credential and the text for a wrong one may differ (PM 2026-11-19/20: on /api/v1 with bearer tokens identical bodies are not required). The count of documents is still D0 plus 2 (nothing created) when read again.
       evidence: "Status and body of the two requests; the count of documents."
     on_fail:
       severity: BLOCKER
