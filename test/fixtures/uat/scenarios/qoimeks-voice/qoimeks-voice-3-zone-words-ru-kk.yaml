@@ -13,8 +13,9 @@
 # tested by voice_prompt_test.exs VP-1..VP-5); the mobile voice panel (Flutter app is not driven by the UAT runner).
 # Desktop (1440 px) and phone (390 px) produce the same API response; this is an API-only scenario.
 # T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API route only (docs/runbooks/stock-voice.md);
-# 4 data: needs the places LA3 and RA3 (the generator writes racks R+zone letter+number, so RA3 exists; no place starts with L, issue 4718):
-# BLOCKED-by-environment until a generator task adds the L-zone rack LA3 (to queue: "qoimeks_gen: add the left-zone rack LA3"; T-2189 option "voice demo" may add it, check its merged result first);
+# 4 data (T-2206, P17): the seed has the places A-01 A-02 A-03 B-01 B-02 C-01 RAMP LA3 (zone-coded place named «Слева A 3») and the demo items; it has NO place RA3.
+# The scenario uses LA3 only; step 1 reads the locations list and the scenario is BLOCKED-by-environment if LA3 is missing. Right-zone phrases were removed, because no place exists to resolve them to;
+# the second Russian step uses the other spoken form of the same place (эл а три);
 # the language model must be on, BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect). One literal phrase per step, so the zone word is the only difference between the L and R steps.
 # 5 HTTP steps only; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
@@ -26,8 +27,8 @@ tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on, blocked-by-keys]
 
 description: >
   Place codes may start with a zone letter: L for left (слева, сол жақ), R for right (справа, оң жақ), D for straight ahead (прямо, тура) (REQ-862).
-  The administrator sends four pinned typed phrases that differ only by the zone word: "слева а три" must give the place LA3 and "справа а три" the place RA3;
-  in Kazakh "сол жақ а үш" gives LA3 and "оң жақ а үш" gives RA3. Because both LA3 and RA3 exist, the zone word is the only way to tell them apart.
+  The administrator sends three pinned typed phrases for the place LA3 (the seeded place named «Слева A 3»): "слева а три" and "эл а три" in Russian, "сол жақ а үш" in Kazakh; each must give LA3.
+  The place RA3 does not exist in the seed, so the right-zone words are not exercised here.
   The expected result is the validated draft, not model accuracy.
 
 actors:
@@ -39,11 +40,11 @@ preconditions:
     detail: >
       Check first: send the phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-keys
       (not a defect, not counted against the group). Do not change settings.
-  - description: The tenant has both the place LA3 and the place RA3 (BLOCKED-by-environment until a generator task adds LA3, issue 4718).
+  - description: The tenant has the place LA3 (BLOCKED-by-environment if the locations list lacks it).
     check: system_seeded
     detail: >
-      Read-only check: the locations list of the tenant, all pages, holds the codes LA3 and RA3. The synthetic generator writes RA3 (a rack of zone A) and no code that starts with L.
-      If LA3 is absent report the whole scenario BLOCKED-by-environment (a run with R places only cannot tell the zone rule from an arbitrary pick) and name the generator task. Do not create places.
+      Read-only check: the locations list of the tenant, all pages, holds the code LA3 (the seed places are A-01 A-02 A-03 B-01 B-02 C-01 RAMP LA3; read the list, do not rely on this text).
+      If LA3 is absent report the whole scenario BLOCKED-by-environment. Do not create places.
   - description: The stock module is installed and the voice typed-phrase route answers the administrator.
     check: system_seeded
     detail: If the route answers 404 for the stock module, report BLOCKED.
@@ -52,7 +53,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator reads the locations list (all pages) and notes that the codes LA3 and RA3 exist.
+      The administrator reads the locations list of the tenant (all pages, read first) and notes that the code LA3 exists; if it is missing, stop and report BLOCKED-by-environment.
     via: api
   - step: 2
     actor: admin
@@ -62,17 +63,12 @@ steps:
   - step: 3
     actor: admin
     action: >
-      The administrator sends the typed phrase «принял товар справа а три сто единиц» with the language "ru". The answer is noted as V2.
+      The administrator sends the typed phrase «принял товар эл а три сто единиц» with the language "ru". The answer is noted as V2.
     via: api
   - step: 4
     actor: admin
     action: >
       The administrator sends the typed phrase «қабылдадым сол жақ а үш жүз дана» with the language "kk". The answer is noted as V3.
-    via: api
-  - step: 5
-    actor: admin
-    action: >
-      The administrator sends the typed phrase «қабылдадым оң жақ а үш жүз дана» with the language "kk". The answer is noted as V4.
     via: api
 
 expected_outcomes:
@@ -87,14 +83,14 @@ expected_outcomes:
       business_impact: Operators who say "слева" get a wrong or empty place.
       suggested_action: route_to_elixir_dev
   - id: EO-002
-    description: The Russian zone word справа gives the place RA3, not LA3.
+    description: The Russian spoken form эл а три gives the place LA3.
     verification:
       method: api_response
-      detail: V2 answers 200; the transcript equals the sent phrase; the location is the place RA3.
+      detail: V2 answers 200; the transcript equals the sent phrase; the location is the place LA3.
       evidence: V2 body.
     on_fail:
       severity: MAJOR
-      business_impact: Operators who say "справа" get a wrong or empty place.
+      business_impact: Operators who say "эл а три" get a wrong or empty place.
       suggested_action: route_to_elixir_dev
   - id: EO-003
     description: The Kazakh zone word сол жақ gives the place LA3.
@@ -105,14 +101,4 @@ expected_outcomes:
     on_fail:
       severity: MAJOR
       business_impact: Kazakh-speaking operators who say "сол жақ" get a wrong or empty place.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: The Kazakh zone word оң жақ gives the place RA3, not LA3.
-    verification:
-      method: api_response
-      detail: V4 answers 200; the transcript equals the sent phrase; the location is the place RA3.
-      evidence: V4 body.
-    on_fail:
-      severity: MAJOR
-      business_impact: Kazakh-speaking operators who say "оң жақ" get a wrong or empty place.
       suggested_action: route_to_elixir_dev

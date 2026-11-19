@@ -2,7 +2,7 @@
 # 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-export. Live authenticated tenant enumeration not repeated.
 # 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, movement operations and legs, document filter and selected balance/page baselines: listed in scenario preconditions. Usual-place-only and no-stock rows are conditional checks, not invented seeded fixtures; missing data blocks only the affected outcomes. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, movement operations and legs, document filter and selected balance/page baselines: listed in scenario preconditions. Usual-place-only and no-stock rows are conditional checks, not invented seeded fixtures; missing data blocks only the affected outcomes. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
 # 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-export.
 # T-2190: run title UAT qoimeks-export; tenant and realm qoimeks-qa only. QA only; synthetic data.
@@ -22,7 +22,7 @@
 #   (c) the single cutoff across balance pages and the tenant isolation of the file: code reading and test setup with two tenants; not observable in a browser.
 #   (d) the exact row count of the file: it depends on the seeded data (one row per item and place with a non-zero balance, a usual-place row with zero, one row for an item with neither); this scenario checks the count against the screen instead of a fixed number.
 # Cleanup: none needed, the download writes nothing in the tenant. The downloaded file is kept only in the run's own folder.
-# NOT UAT-observable on the supplied baseline: lettered article-code and configured usual-place variants need fixtures the task does not supply; check preconditions first and report BLOCKED-by-environment, never manufacture them.
+# NOT UAT-observable on the supplied baseline: the lettered article-code variant needs a fixture the seed does not supply (usual places exist after the seed: 216 items, counted at the start of the run); check preconditions first and report BLOCKED-by-environment, never manufacture them.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-1-stock-workbook-desktop
@@ -83,11 +83,12 @@ preconditions:
 - description: >-
     For the zero-stock row check, identify an existing catalog item without stock by reading its balances and record
     its code before downloading. If a usual-place row is checked, read and record its configured usual place first.
-    No usual place or lettered article code is supplied by the synthetic setup.
+    The seeded data gives usual places to some items (216 after the seed; read the number at the start of the run); a lettered article code is not supplied.
   check: runner_prepared
   detail: >-
-    No zero-stock article means BLOCKED-by-environment for that outcome. Usual-place and lettered-article cases
-    are BLOCKED-by-environment unless those real records already exist; do not invent or create them. The ordinary
+    No zero-stock article means BLOCKED-by-environment for that outcome. The usual-place case uses an item that
+    has a usual place and no stock, read from the Balances and item screens; the lettered-article case is
+    BLOCKED-by-environment unless such an article already exists; do not invent or create records. The ordinary
     zero-stock check may use an item with an empty place instead.
 - description: >-
     For any before/after count comparison, record the same full traversal of the balance or document list, loading
@@ -193,8 +194,9 @@ expected_outcomes:
     detail: >-
       Data rows start in row 2 and are sorted by the item code in column A in ascending order; column C holds numbers
       (not text) with the three negative quantities of the synthetic data written as negative numbers; column I
-      holds a unit code on every row; a place code such as three letters and digits is split over columns D, E and
-      F and written whole in column H; an item with no stock has a row with quantity 0 and no price or value column
+      holds a unit code on every row; a place code made of a letter, an optional second letter and digits (for example RA3, which gives R, A and 3) is split
+      over columns D, E and F and written whole in column H; codes that do not fit that pattern (for example A-01 and RAMP) are
+      left whole in column H with D, E and F empty; an item with no stock has a row with quantity 0 and no price or value column
       anywhere in the file. The number of rows is not fixed by this scenario (UAT assumption, to be confirmed by
       the process owner), the run records it, and it is at least as large as the number of different items that
       hold stock.

@@ -12,15 +12,15 @@
 # Sensitive actions: only other-company visibility is attempted below, as a refusal.
 # No approving, paying/releasing or user changes in these read-only synthetic-data walks.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
 #   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
-# 3 Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
+# 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
-# 4 Data: needs an item WITH a usual place (none exists, issue 4708): BLOCKED-by-environment until the generator task merges.
-# 5 Executable: browser steps only; the refusal step now runs as the storekeeper (least role).
-# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
+# 4. Data: needs an item WITH a usual place (216 have one after the seed; read the count at the start of the run) and one without; if none is found: BLOCKED-by-environment.
+# 5. Executable: browser steps only; the refusal step now runs as the storekeeper (least role).
+# 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-3-selection-and-stock
 scope: qoimeks-qa
@@ -52,7 +52,7 @@ preconditions:
       from synthetic import evidence or this administrator's read-only item query. Record the
       populated item's place code/name and its actual stock rows from the read-only stock
       query, following any pages. Choose a populated item with stock at a different place
-      when one exists. Known state on 2026-11-19 (issue 4708): no synthetic item has a usual place (scripts/pilot/qoimeks_gen.py never writes home_loc). Generator task to queue first: "qoimeks_gen: give a subset of the items a usual place (home_loc), including a few of the two-place items, regenerate and reload qoimeks-qa". If no item has a usual place, this scenario is BLOCKED-by-environment until that task has merged. If none exists, still compare the actual rows but mark the different-place
+      when one exists. Pick an item that has a usual place (216 did at the last seed; the count is read at the start of the run); use another item for the empty case. If no item has a usual place, this scenario is BLOCKED-by-environment. If none exists, still compare the actual rows but mark the different-place
       contrast BLOCKED, not PASS. Missing either item blocks the selection comparison. Do not
       move stock, edit a place or create records to force this case.
 steps:
