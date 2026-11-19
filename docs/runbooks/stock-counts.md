@@ -281,8 +281,8 @@ deactivated internal activator is not repaired automatically: activation is refu
 `definition_not_active` before taking a number. An already-active process whose signer is later
 deactivated follows the engine's normal reactivation checks at task completion.
 Review that tenant's process with its administrator; never overwrite it or reactivate it by raw SQL.
-The onboarding product check reports each process as `active` or `draft auto-activation`; a process
-that fails the ownership/status checks is `process_definition_not_ready`.
+The onboarding product check reports each process as `active` or `active=false auto_activation=ready`;
+a process that fails the ownership/status checks is `process_not_active`.
 
 ## The count worksheet (T-1905; no version bump)
 

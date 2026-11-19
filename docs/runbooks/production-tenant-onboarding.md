@@ -178,21 +178,50 @@ activation entry. Tenant-created or changed definitions must remain untouched an
 **Do:**
 `bin/letflow eval 'Letflow.Release.tenant_onboarding_check("<slug>", host: "<host>", tenant_type: "production")'`
 (QA: `tenant_type: "test"`; add `modules: ~w(org locations catalog_items codes stock assets)` when assets is
-installed). It is read-only and checks the tenant, realm, host row, the modules at the build's versions, the
-document types `stock_opening` and `stock_quick_count`, and the tables `entity_stock_quick_count` and
+installed). For a readiness script, append `format: :json`: stdout is then one JSON object with the same header,
+checks and `status` (`ready` or `red`). Both forms are read-only.
+
+The report covers the tenant, realm, host row, modules at the build's versions, all ten stock process definitions
+(ACTIVE and not needing reactivation), platform role groups including STOREKEEPER, active STOREKEEPER users and
+their employee links, every stock document type and entity table, place-to-org-unit links, org units' legal entity
+name and BIN, exactly one active employee and its active user link, `app_name`, shared stock access and scope
+enforcement. Shared access is information; when it is enabled, scope enforcement must be `off`. Negative balances
+and four-eyes are information, not readiness gates.
+
+Document types: `stock_receipt`, `stock_opening`, `stock_quick_count`, `stock_issue`, `stock_writeoff`,
+`stock_transfer`, `stock_handover`, `stock_return`, `count.order`, `count.sheet`, `count.differences`,
+`count.posting`.
+
+Entity tables: `entity_stock_receipt`, `entity_stock_receipt_line`, `entity_stock_issue`,
+`entity_stock_issue_line`, `entity_stock_writeoff`, `entity_stock_writeoff_line`, `entity_stock_transfer`,
+`entity_stock_transfer_line`, `entity_stock_handover`, `entity_stock_handover_line`, `entity_stock_return`,
+`entity_stock_return_line`, `entity_count_order`, `entity_count_order_scope`, `entity_count_commission_member`,
+`entity_count_sheet_line`, `entity_count_entry`, `entity_count_signature`, `entity_count_freeze_location`,
+`entity_stock_posting_mark`, `entity_stock_opening`, `entity_stock_opening_line`, `entity_stock_quick_count`,
 `entity_stock_quick_count_line`.
 
-The check also reports all ten stock processes: `active` or `draft auto-activation` are ready; the
-latter activates on first use. `process_definition_not_ready` means a missing, tenant-created, changed,
-deprecated or archived process: stop and review the tenant's definitions; never replace them by hand.
+A stock process is ready when it is `active` and needs no reactivation, or when it is still an untouched
+module-owned draft that the first use activates (`active=false auto_activation=ready`). A missing,
+tenant-created, changed, deprecated or archived process is `process_not_active`: stop and review the tenant's
+definitions; never replace them by hand.
 
-**Check:** the last line is `tenant_onboarding_check <slug>: PASS`. A failing token means:
+**Check:** the header names tenant slug, build SHA and date; each check is one `OK`, `RED` or `INFO` line with a
+count or name and no personal data. The last line is `READY`, or `RED` followed by every failed check name. A
+failing token means:
 
 | Token | What to do |
 |---|---|
 | `module_missing` | step 7 |
 | `module_version_differs` | the module upgrade route, never by hand |
-| `document_type_missing`, `table_missing` | stop and report; never create by hand |
+| `process_not_active` | activate the shipped definition through its normal first-use path; do not edit rows |
+| `reactivation_required` | reactivate the definition through the normal definition path |
+| `document_type_missing`, `document_type_not_stock`, `table_missing` | stop and report; never create by hand |
+| `role_groups_missing` | run the platform role-group check/backfill, then repeat this report |
+| `storekeeper_missing`, `storekeeper_link_missing` | give the storekeeper the STOREKEEPER group and an active employee link |
+| `place_link_missing`, `legal_entity_incomplete` | complete the named place/org-unit master data |
+| `active_employee_count`, `employee_user_link_missing` | leave exactly one active employee, linked to an active user |
+| `app_name_missing` | set the tenant's application name in tenant settings |
+| `scope_enforcement_active` | when shared access is enabled, follow the scope-off procedure; never edit the row |
 | `host_missing`, `host_differs`, `host_multiple` | step 5 |
 | `realm_differs`, `tenant_type_differs` | stop and escalate: the realm cannot be changed after the create |
 | `tenant_not_found`, `tenant_not_active`, `schema_not_registered`, `read_failed` | stop and report |
@@ -273,19 +302,30 @@ page. Each has a **Check**. Where a check names a screen and not a route, the sc
 
 ### Step 14. Stock process definitions
 
-**Who:** a SYSTEM actor or the LONG-TERM COMPANY ADMIN. NEVER the `<slug>-setup` account.
+**Who:** nobody for a fresh tenant: the product does it. The LONG-TERM COMPANY ADMIN only for the exception below.
+NEVER the `<slug>-setup` account.
 
-**Do:** activate ALL 10 stock process definitions: receipt, issue, transfer, return, handover, writeoff,
-reversal and count_posting by hand; opening and quick_count activate themselves on the first issue or count.
-Use `POST /api/v1/definitions/<id>/activate` (or `.../reactivate`) with the actor's own token. A definition is
-tied to the user who activated it: if that account is deactivated at handover (step 13), every definition it
-activated is flagged `needs_reactivation` and every post fails. Repeat the step after EVERY stock module
-upgrade (the upgrade brings new DRAFT definitions). Until T-2253 merges this is a manual step.
+**Do:** nothing for the ten stock process definitions (receipt, issue, transfer, return, handover, writeoff,
+reversal, count_posting, opening, quick_count). The first use of each activates its untouched module-owned draft
+through a tenant-local system activator that never expires, so the handover in step 13 does not flag it
+`needs_reactivation`; the activation is audited (`definition.activate`) and runs once. The same holds after
+every stock module upgrade (the new DRAFT versions activate on first use). A definition the tenant created or
+changed, or a deprecated one, is never touched: the post answers 409 `definition_not_active`; the company admin
+reviews it and activates it by `POST /api/v1/definitions/<id>/activate`. Details: `stock-counts.md`, "Stock
+process activation".
+
+**Existing tenant (for example one installed before T-2253, no walk yet):** run nothing by hand either: the
+first post activates the drafts. To have them active earlier, post one receipt and one issue with a
+STOREKEEPER token after the dump. Verify with `GET /api/v1/definitions` (status `active`, `needs_reactivation_at`
+null) and with the step 8 report (`OK process ...`). A definition that an admin activated by hand and that was
+flagged `needs_reactivation` stays that way: reactivate it with `POST /api/v1/definitions/<id>/reactivate`.
 
 **Check:** `GET /api/v1/definitions` lists the 10 stock definitions as active, and `needs_reactivation_at` is
-null on each; one known-item post succeeds.
+null on each; one known-item post succeeds. `stock_opening` and `stock_quick_count` stay DRAFT until their first
+use, so the four-eyes `PUT` for them answers 422 `not_a_four_eyes_step` before that first use: post one
+opening and one quick count first (before step 20).
 
-**Rollback:** none needed (reactivate by the same route).
+**Rollback:** none needed.
 
 ### Step 15. Storekeeper role in Keycloak
 
