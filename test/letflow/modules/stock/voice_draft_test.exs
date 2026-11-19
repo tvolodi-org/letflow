@@ -40,6 +40,25 @@ defmodule Letflow.Modules.Stock.VoiceDraftTest do
 
   defp reasons(draft), do: Enum.map(draft.dropped, &{&1.field, &1.value, &1.reason})
 
+  describe "spelled letters (GH 4828)" do
+    test "VD-S1 a changed letter does not resolve to the original article" do
+      d = run([item_codes: ["BLT-M8-40"]], "бэ эл тэ эс восемь сорок")
+      assert d.items == []
+      assert [{"item_codes", "BLT-M8-40", "spelling_mismatch"}] = reasons(d)
+    end
+
+    test "VD-S2 the exact spelling keeps the article" do
+      d = run([item_codes: ["BLT-M8-40"]], "бэ эл тэ эм восемь сорок")
+      assert [%{code: "BLT-M8-40"}] = d.items
+      assert d.dropped == []
+    end
+
+    test "VD-S3 a name phrase is not a spelling" do
+      d = run([item_codes: ["BLT-M8-40"]], "приход болт восемь на сорок")
+      assert [%{code: "BLT-M8-40"}] = d.items
+    end
+  end
+
   describe "typed phrases" do
     test "VD-P1 receipt with location and quantity" do
       d =
