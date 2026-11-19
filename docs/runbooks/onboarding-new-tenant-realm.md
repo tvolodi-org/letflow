@@ -25,8 +25,8 @@ values belong in this file or in any evidence field.
   power inside a customer tenant; `TENANT_ADMIN` is the tenant's owner role).
 - `lib/letflow/design/req447-infra-realm-mapping.md`, sections 1 and 3b (every new realm must
   issue `TENANT_ADMIN`).
-- The current provisioner template is `priv/keycloak/provisioner/v2/tenant-realm.json`; its README lists the exact callbacks and all three substitutions.
-- The historical tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is retained as a historical reference; new provisioning uses v2.
+- The current provisioner template is `priv/keycloak/provisioner/v3/tenant-realm.json` (v2 plus the `letflow-mobile` client, T-2207); its README lists the mobile client and the PWA substitutions, and `../v2/README.md` the exact callbacks and the three tenant substitutions. v2 is frozen.
+- The historical tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is retained as a historical reference; new provisioning uses v3.
 
 ## Realm roles a tenant realm must carry
 
@@ -54,8 +54,9 @@ single list, compared trimmed and case-insensitively. Tenant creation and the pr
 refuse these slugs; both the provisioner and `POST /api/v1/onboarding` also refuse them as the
 first hostname label before any write (422 on `hostname`). Existing rows are not rewritten.
 
-1. **R1 Create the realm.** Use `priv/keycloak/provisioner/v2/tenant-realm.json`, filling
-   its three placeholders and the SMTP/first-administrator configuration described in its README.
+1. **R1 Create the realm.** Use `priv/keycloak/provisioner/v3/tenant-realm.json`, filling
+   its placeholders (the three tenant ones, plus `__PWA_URI__` and `__PWA_ORIGIN__` for the `letflow-mobile`
+   client the template now creates; `RealmRequest.build/5`, `:pwa_uri`) and the SMTP/first-administrator configuration described in its README.
    Do not clone the development seed `priv/keycloak/realms/bpm-default.json` with its demo users
    and wildcard redirects. The template includes `TENANT_ADMIN`. The company URL is
    `https://<company>.ai-letflow.com` (for example `https://sss.ai-letflow.com`). Set the
