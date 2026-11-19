@@ -239,6 +239,14 @@ The real extract is converted and loaded only at the move, onto the Letflow prod
 
 ### 2.4 Reconciliation checks (all must pass, at rehearsal and at the move)
 
+Fresh-tenant activation check (T-2253): before any administrator activates a process, post a receipt
+and an issue through the shared stock token and a receipt as STOREKEEPER. Check created documents,
+posted movements and one `definition.activate` audit entry per first activation; a second use adds no
+activation entry. A tenant-created process version must stay untouched and be refused. The product
+onboarding check must report all ten stock processes as `active` or `draft auto-activation`.
+Automated regression coverage exists; this fresh-tenant QA walk remains **not ready until walked**.
+
+
 1. Record counts: places, units, items and opening lines equal `expected_counts.txt` (`qoimeks_compare.sh` exit 0).
 2. Quantity per (item, place) equals the frozen Qoimeks balance. Negative and zero rows follow the T-2027 design; withdrawn R-2 is not permission to drop them.
 3. The hash of the sorted (item, place, quantity) list is equal on both sides [A].

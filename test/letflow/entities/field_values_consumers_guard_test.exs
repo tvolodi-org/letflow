@@ -19,7 +19,8 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # before_state/after_state (entities.ex: field NAMES of an export; exam/snapshot.ex:
   # origin, timestamps and ids; instances.ex: moduledoc text only; stock/counts.ex and
   # stock/count_differences.ex and stock/count_sheet.ex and stock/freeze_state.ex: field_values appears only in list/filter query fragments, audit state holds ids,
-  # statuses and a line number; record_triggers/apply.ex: field_values is the line write path, the dead-row
+  # statuses and a line number; stock/documents/posting.ex: the one audit entry is the process-activator
+  # user creation (username, empty roles), field_values is a document-lookup query fragment; record_triggers/apply.ex: field_values is the line write path, the dead-row
   # audit holds only ids, closed codes and run metadata).
   @audit_writers_mentioning_field_values [
     "letflow/modules/assets/cards.ex",
@@ -38,6 +39,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     "letflow/modules/stock/count_differences.ex",
     "letflow/modules/stock/count_sheet.ex",
     "letflow/modules/stock/counts.ex",
+    "letflow/modules/stock/documents/posting.ex",
     "letflow/modules/stock/freeze_state.ex",
     "letflow/record_triggers/apply.ex",
     "letflow/routers/entities.ex",

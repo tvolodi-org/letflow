@@ -231,6 +231,45 @@ defmodule Letflow.Release.TenantOnboardingCheckTest do
     assert Repo.aggregate(Letflow.Audit.Entry, :count, prefix: tenant.schema_name) == audit_count
   end
 
+  test "SYS-READY a stock draft is ready for automatic activation; a tenant version is not" do
+    {tenant, realm} = tenant!()
+    {_, report} = Check.run(tenant.slug, realm: realm)
+    names = Check.process_definitions()
+    assert length(names) == 10
+
+    for name <- names,
+        do:
+          assert(
+            results(report)["process #{name}"] == {:ok, "active=false auto_activation=ready"}
+          )
+
+    assert :ok = Posting.ensure_active(tenant.schema_name, "stock_issue", nil)
+    {_, active_report} = Check.run(tenant.slug, realm: realm)
+    assert results(active_report)["process stock_issue"] == {:ok, "active=true"}
+
+    assert {:ok, _} =
+             Letflow.Definitions.create(
+               %{
+                 name: "stock_receipt",
+                 version: "9.0.0",
+                 created_by: Ecto.UUID.generate(),
+                 graph: %{
+                   "nodes" => [
+                     %{"id" => "s", "node_type" => "START"},
+                     %{"id" => "e", "node_type" => "END"}
+                   ],
+                   "edges" => [%{"id" => "se", "source" => "s", "target" => "e"}]
+                 }
+               },
+               prefix: tenant.schema_name
+             )
+
+    {_, changed} = Check.run(tenant.slug, realm: realm)
+
+    assert results(changed)["process stock_receipt"] ==
+             {{:fail, :process_not_active}, "active=false"}
+  end
+
   test "C2: an unknown slug fails with one tenant check and a RED final line" do
     assert {:error, r} = Check.run("no-such-slug-" <> Ecto.UUID.generate())
     assert [%{name: "tenant", result: {:fail, :tenant_not_found}}] = r.checks
