@@ -9,10 +9,10 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
       and review read, definition rollback), dispatched directly into the owning router with a
       hand-assigned `auth_context` (the style of the whole router suite), plus the same decision
       through the FULL `Letflow.Router` pipeline with a real API token.
-    * 403: EVERY platform-scope route (the 21-row inventory of
+    * 403: EVERY platform-scope route (the 41-row inventory of
       `platform_scope_inventory_test.exs`, enumerated here from the routers' own route tables and
-      classified by `permission_scope/1`, with the count pinned at 21), covering `/tenants`,
-      `/onboarding`, `/platform-migrations`, `/event-retention` and `/admin/services`; the
+      classified by `permission_scope/1`, with the count pinned at 41), covering all eight
+      platform prefixes below; the
       tenant registry and service catalogue are unchanged after the denied requests.
     * A TENANT_ADMIN of a tenant gets 403 (not the router 404) on an unmatched ordinary path.
 
@@ -271,9 +271,15 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   end
 
   describe "AC2: every platform-scope route answers 403 to a TENANT_ADMIN" do
-    test "the inventory is the 39 platform routes (REQ-580 added purge, T-1607 the backup line) and spans exactly the eight platform prefixes" do
+    # T-2184 (PR 4711) added PUT/DELETE /tenants/:slug/hostname. Both manage the
+    # global tenant host registry through :TenantsManage and must stay platform-only.
+    test "the inventory is the 41 platform routes and spans exactly the eight platform prefixes" do
       routes = platform_routes()
-      assert length(routes) == 39
+      assert length(routes) == 41
+
+      for method <- ["PUT", "DELETE"] do
+        assert {Letflow.Routers.Tenants, method, "/:slug/hostname", "/tenants/:slug/hostname"} in routes
+      end
 
       prefixes =
         routes
@@ -296,11 +302,11 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
                ])
     end
 
-    test "all 39 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
+    test "all 41 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
          ctx do
       before = state_snapshot()
       routes = platform_routes()
-      assert length(routes) == 39
+      assert length(routes) == 41
 
       for {fixture, label} <- [{ctx.a, "ordinary tenant"}, {ctx.p, "platform tenant"}],
           {router, method, local, full} <- routes do
