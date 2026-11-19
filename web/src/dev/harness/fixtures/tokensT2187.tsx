@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { ROLES, TENANT_ADMIN_ROLE } from '@/auth/access'
 import type { AccessState } from '@/auth/access/types'
 import TokensPage from '@/pages/admin/TokensPage'
 import type { UserSession } from '@/types/api'
@@ -31,11 +32,13 @@ const ACCESS: AccessState = {
 }
 
 const USER = { id: 'u-1', username: 'ainur', display_name: 'Ainur S.', email: 'ainur@example.com', status: 'active', auth_source: 'internal' }
+/** A second built-in role, taken from the access module (role names may not be written outside it). */
+const SECOND_ROLE = ROLES[ROLES.length - 1]
 const TOKENS = [
-  { id: 't-1', user_id: 'u-1', issuer_user_id: 'u-1', roles: ['TENANT_ADMIN'], status: 'active', created_at: '2026-10-01T00:00:00Z', expires_at: null, revoked_at: null },
-  { id: 't-2', user_id: 'u-1', issuer_user_id: null, roles: ['STOREKEEPER'], status: 'revoked', created_at: '2026-09-01T00:00:00Z', expires_at: '2026-12-01T00:00:00Z', revoked_at: '2026-09-02T00:00:00Z' },
-  { id: 't-3', user_id: 'u-1', issuer_user_id: null, roles: ['STOREKEEPER'], status: 'expired', created_at: '2026-01-01T00:00:00Z', expires_at: '2026-02-01T00:00:00Z', revoked_at: null },
-  { id: 't-4', user_id: 'u-1', issuer_user_id: null, roles: ['STOREKEEPER'], status: 'owner_inactive', created_at: '2026-10-01T00:00:00Z', expires_at: null, revoked_at: null },
+  { id: 't-1', user_id: 'u-1', issuer_user_id: 'u-1', roles: [TENANT_ADMIN_ROLE], status: 'active', created_at: '2026-10-01T00:00:00Z', expires_at: null, revoked_at: null },
+  { id: 't-2', user_id: 'u-1', issuer_user_id: null, roles: [SECOND_ROLE], status: 'revoked', created_at: '2026-09-01T00:00:00Z', expires_at: '2026-12-01T00:00:00Z', revoked_at: '2026-09-02T00:00:00Z' },
+  { id: 't-3', user_id: 'u-1', issuer_user_id: null, roles: [SECOND_ROLE], status: 'expired', created_at: '2026-01-01T00:00:00Z', expires_at: '2026-02-01T00:00:00Z', revoked_at: null },
+  { id: 't-4', user_id: 'u-1', issuer_user_id: null, roles: [SECOND_ROLE], status: 'owner_inactive', created_at: '2026-10-01T00:00:00Z', expires_at: null, revoked_at: null },
 ]
 
 const ROUTES: FixtureRoute[] = [
