@@ -137,6 +137,36 @@ defmodule Letflow.Routers.MeAccessTest do
     end
   end
 
+  describe "T-2195: bare GET /me answers like GET /me/access" do
+    setup do
+      Fixture.unpin!()
+      %{a: tenant} = Fixture.two_tenants!()
+      {:ok, tenant: tenant}
+    end
+
+    defp bare_me(ctx) do
+      conn(:get, "/")
+      |> assign(:auth_context, ctx)
+      |> assign(:trace_id, "t2195-me-bare-trace-id")
+      |> then(&Letflow.Routers.Me.call(&1, @opts))
+    end
+
+    for role <- ["TENANT_ADMIN", "TASK_WORKER", "TENANT_AUDITOR"] do
+      test "#{role}: 200 with the same body as /me/access", %{tenant: tenant} do
+        ctx = Fixture.auth_context(tenant, [unquote(role)])
+        conn = bare_me(ctx)
+
+        assert conn.status == 200
+        assert json(conn) == json(access(ctx))
+        assert json(conn)["roles"] == [unquote(role)]
+      end
+    end
+
+    test "an empty role list is still 200 (any signed-in user)", %{tenant: tenant} do
+      assert bare_me(Fixture.auth_context(tenant, [])).status == 200
+    end
+  end
+
   describe "AC2: platform tenant" do
     test "a platform-tenant PLATFORM_ADMIN has every permission and platform_tenant true" do
       %{p: platform} = Fixture.three_tenants!()

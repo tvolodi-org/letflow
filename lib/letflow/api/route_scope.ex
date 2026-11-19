@@ -262,6 +262,13 @@ defmodule Letflow.Api.RouteScope do
   # AC 9). A route joins or leaves the class by editing this list AND its `scope:` declaration.
   # T-1389: `PUT /me/preferences` is the first non-GET entry (rows keyed by the caller's own user id).
   @self_service_routes [
+    # T-2195: the bare GET /me, the same answer and ruling as GET /me/access.
+    %{
+      route: "GET /me",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-REQ-449-access"
+    },
     %{
       route: "GET /me/memberships",
       key: :MembershipsRead,

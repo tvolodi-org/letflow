@@ -1618,6 +1618,9 @@ defmodule Letflow.Api.Authorization do
   # /api/v1/me/access). See this module's moduledoc "MyAccessRead" section.
   def endpoint_policy_key("GET", "/me/access"), do: :MyAccessRead
 
+  # T-2195: the bare GET /me answers the same as /me/access (it was :Unknown, hence a 403 for every role).
+  def endpoint_policy_key("GET", "/me"), do: :MyAccessRead
+
   # T-1389: per-user preferences store (Letflow.Routers.Me). The read reuses the role-agnostic
   # :MyAccessRead; the write is the role-agnostic :MyPreferencesSet (own rows only).
   def endpoint_policy_key("GET", "/me/preferences"), do: :MyAccessRead

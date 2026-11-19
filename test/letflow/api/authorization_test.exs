@@ -2192,6 +2192,19 @@ defmodule Letflow.Api.AuthorizationTest do
       end
     end
 
+    test "T-2195: GET /me resolves to :MyAccessRead and every role is allowed (was :Unknown, a 403)" do
+      assert Authorization.endpoint_policy_key("GET", "/me") == :MyAccessRead
+
+      for role <- Authorization.roles(), role != :PLATFORM_ADMIN do
+        ctx = %AccessContext{user_id: "u", roles: [role]}
+        key = Authorization.endpoint_policy_key("GET", "/me")
+
+        assert %Authorization.AccessDecision{kind: :Allow} =
+                 Authorization.evaluate_access(ctx, key),
+               "#{role} must read GET /me"
+      end
+    end
+
     test "GET /me/access resolves to :MyAccessRead, a tenant-scope core permission" do
       assert Authorization.endpoint_policy_key("GET", "/me/access") == :MyAccessRead
       assert Authorization.required_permission(:MyAccessRead) == :MyAccessRead

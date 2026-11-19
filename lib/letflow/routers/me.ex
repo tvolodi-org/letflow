@@ -107,6 +107,13 @@ defmodule Letflow.Routers.Me do
   alias Letflow.UserNotifications
   alias Letflow.UserPreferences
 
+  # T-2195: the bare `GET /me` (what a QA helper and any client probing "who am I" calls) used to
+  # fall through to `authz_unmatched`, which answers 403 for every caller, TENANT_ADMIN included.
+  # It is the same answer as `GET /me/access`, under the same permission and ruling.
+  authz_get "/", :MyAccessRead, scope: :self_service do
+    handle_get_access(conn)
+  end
+
   authz_get "/memberships", :MembershipsRead, scope: :self_service do
     handle_list_memberships(conn)
   end
