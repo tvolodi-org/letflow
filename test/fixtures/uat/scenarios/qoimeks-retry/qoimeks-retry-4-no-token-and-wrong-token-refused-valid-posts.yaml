@@ -1,3 +1,4 @@
+# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2161 (BA), rework T-2191 (issues #4703, #4705, #4706, #4707): qoimeks-retry group, scenario 4. QA only, no real data.
 # Covers REQ-857 (decision record), REQ-858 (token lifecycle), REQ-859 (old-app address reads).
 # Access refusal tests for the old-app address before the retry function can be used.
@@ -84,6 +85,10 @@ preconditions:
       The tenant has an item ITEM-RETRY-A4 with a posted balance in at least one place.
     check: system_seeded
     detail: If no such item exists, choose any item from the synthetic catalog.
+  - description: No shared stock access exists on the tenant when the walk starts.
+    check: system_seeded
+    detail: >
+      Step 3 reads the status first (S0). If a shared access already exists, report BLOCKED (a shared access already exists, so BLOCKED-by-environment): the walk neither replaces nor revokes it, as the header says.
   - description: No movement with client id A-RETRY-4 has been posted in this tenant.
     check: test_setup
     detail: If a movement with client id A-RETRY-4 exists, use a different client id.
@@ -127,20 +132,19 @@ steps:
     action: >
       The test runner reads the balance of ITEM-RETRY-A4 from the old-app address balances call,
       presenting V1 as the bearer credential. This is the balance before any posting of this walk;
-      it is noted as B0.
+      it is noted as B0. This reading is made after the value V1 exists (step 3) and before the posting of step 5, and it is kept: the balance of step 5 and the final balance are compared with it.
     via: api
   - step: 5
     actor: admin
     action: >
-      The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
+      Before the first send the test runner maps the item and the place to the integer ids the old-app address needs: it reads the catalog call (GET /catalog) and the balances call (GET /balances) of the old-app address with Authorization: Bearer V1 and takes the integer sku_id of the item and the integer location_id of the place from them. The old-app post puts the stock under the place's first linked org unit and under the first active employee of the tenant as responsible, while every seeded balance carries its own responsible; so the runner picks an item and a place whose balance row has that first active employee as responsible, and the place must be linked to the org unit QOI-OU-1 (otherwise the post is refused 422 location_not_linked: then pick another place). If no such row exists, the runner compares totals per item and place (all responsible rows of that item at that place added together) before and after, never a single row.  Every balance named B0, B1 or BFINAL in this walk is the total per item and place (all responsible rows added), read the same way each time. The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
       operator name "Тест-доступ", client id A-RETRY-4 (the `id` field in the JSON body), using V1
       as the bearer credential. The answer is noted as A1.
     via: api
   - step: 6
     actor: admin
     action: >
-      The test runner sends the catalog call to the standard admin API path at the tenant address
-      (/api/v1 route), presenting V1 as the bearer credential. The answer is noted as R3.
+      The test runner sends GET /api/v1/modules/stock/balances at the tenant address with the header Authorization: Bearer V1 and expects 401. The answer is noted as R3.
     expect_refusal: true
     via: api
   - step: 7
