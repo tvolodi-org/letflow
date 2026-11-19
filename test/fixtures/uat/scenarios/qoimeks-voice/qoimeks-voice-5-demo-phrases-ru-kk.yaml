@@ -36,7 +36,7 @@ steps:
   - step: 1
     actor: admin
     action: >-
-      The administrator reads the stock documents list and the count records list and notes the counts as D0 and C0.
+      The administrator reads the stock documents list (GET /api/v1/modules/stock/documents) and the count records list (GET /api/v1/modules/stock/counts), following all pages, and notes the counts as D0 and C0; the counts are read at the start of the run, never hard-coded.
     via: api
   - step: 2
     actor: admin

@@ -2,7 +2,7 @@
 # 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-import. Live authenticated tenant enumeration not repeated.
 # 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
 # 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-import.
 # T-2190: run title UAT qoimeks-import; tenant and realm qoimeks-qa only. QA only; synthetic data.
@@ -107,7 +107,9 @@ steps:
 - step: 2
   actor: admin
   action: >-
-    The administrator opens "Load balances from Excel", selects QOI-OU-1, uploads the prepared single-row uat-wb-one-change.xlsx
+    Before any load, the administrator opens Balances, filters by the article code and the place of the prepared
+    workbook (org unit QOI-OU-1, empty responsible slot), and records the balance reading: no row, or quantity 0
+    (screenshot kept). Then the administrator opens "Load balances from Excel", selects QOI-OU-1, uploads the prepared single-row uat-wb-one-change.xlsx
     and presses "Check". They record book 0, file 1, difference 1 and zero remarks before proceeding.
   via: ui
 - step: 3
