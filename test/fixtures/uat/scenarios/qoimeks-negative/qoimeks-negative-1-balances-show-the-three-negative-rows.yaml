@@ -1,16 +1,19 @@
-# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issue #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090: a ledger registration may carry negative balances, set per tenant), REQ-834 (the ledger honours the setting),
 #   REQ-836 (the stock registration opts in), REQ-837 (negative opening lines move with their sign; the tenant data holds 3 of them).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md (sections 1, 3, 7); docs/requirements.yaml REQ-833..839;
 #   web/src/components/layout/navMessages.ts (screen names Balances / Остатки / Қалдықтар); task text (142 places, 666 items, 603 posted opening balances incl. 3 negative).
 # Not UAT-observable here, with reasons:
 #   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
-#   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests.
+#   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests;
+#   (c) a scoped grant (node-limited STOREKEEPER): the storekeeper account is read as tenant-wide; if its balances differ from the administrator's for that reason the walk reports BLOCKED-by-environment (see the preconditions).
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and reads the same screen (steps 7 and 8).
+#   Sources: docs/roles.md (STOREKEEPER does StockRead: balances), web/src/router.tsx and web/src/components/layout/AppShell.tsx (Balances guarded by the stock read permission, the same entry as for the administrator).
 ---
 id: qoimeks-negative-1-balances-show-the-three-negative-rows
 scope: qoimeks-qa
 title: The Qoimeks QA administrator finds the three negative opening balances on the Balances screen, in three languages and on a phone
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, negative_balance, balances, ru, kk, phone_390]
 
 description: >
@@ -22,6 +25,7 @@ description: >
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
   - description: The tenant's 603 opening balances are posted and 3 of them are negative (synthetic data, as the task states).
@@ -33,6 +37,12 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and at 390 px wide.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the whole scenario.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
+    check: system_seeded
+    detail: >
+      If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the administrator
+      steps still run. If the storekeeper's Balances list is empty or shows another count of negative rows than
+      the administrator's, report BLOCKED-by-environment (a node-limited grant) and quote both counts.
 
 steps:
   - step: 1
@@ -65,6 +75,16 @@ steps:
     action: >
       The administrator switches the language back to English and widens the window again, to leave the account as found.
     via: ui
+  - step: 7
+    actor: storekeeper
+    action: >
+      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and finds the rows whose quantity starts with a minus sign.
+    via: ui
+  - step: 8
+    actor: storekeeper
+    action: >
+      The storekeeper counts those rows and notes, for each, the item, the place and the quantity, to compare them with step 2.
+    via: ui
 
 expected_outcomes:
   - id: EO-001
@@ -96,4 +116,14 @@ expected_outcomes:
     on_fail:
       severity: MINOR
       business_impact: A storekeeper on a phone cannot tell a negative balance from a positive one.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A storekeeper, the clerk who works with stock every day, sees the same three negative rows as the administrator.
+    verification:
+      method: gui_screen
+      detail: Step 8 lists exactly three rows with a minus sign and the same items, places and quantities as step 2; the Balances entry is present in the navigation of the storekeeper.
+      evidence: Screenshot of step 7 and the three noted rows of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk who has to correct or work off the negative stock cannot see it, or sees other figures than the owner.
       suggested_action: route_to_frontend_dev
