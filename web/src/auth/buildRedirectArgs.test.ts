@@ -133,3 +133,25 @@ describe('buildRedirectArgs', () => {
     expect('state' in result!).toBe(false)
   })
 })
+
+describe('buildRedirectArgs without a realm slug (T-2241)', () => {
+  beforeEach(() => {
+    mockResolveRealmFromUrl.mockReturnValue(null)
+  })
+
+  it('carries a safe inner path with query as state, no redirect_uri', () => {
+    expect(buildRedirectArgs('/admin/catalog/items?item=abc-123')).toEqual({
+      state: '/admin/catalog/items?item=abc-123',
+    })
+  })
+
+  it('refuses external or protocol-relative targets', () => {
+    expect(buildRedirectArgs('//evil.com')).toBeUndefined()
+    expect(buildRedirectArgs('https://evil.com/x')).toBeUndefined()
+    expect(buildRedirectArgs('/\\evil.com')).toBeUndefined()
+  })
+
+  it('keeps the root path as no args', () => {
+    expect(buildRedirectArgs('/')).toBeUndefined()
+  })
+})

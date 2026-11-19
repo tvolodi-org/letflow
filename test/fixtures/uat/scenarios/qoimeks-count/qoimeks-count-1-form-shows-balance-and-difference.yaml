@@ -22,7 +22,7 @@
 #  (a) the phone APK count screens and voice entry (REQ-856, REQ-731): an app on a handset and a microphone cannot be driven by the browser run; the phone is walked here only as a 390 px browser window (qoimeks-count-5).
 #  (b) refusal count_in_progress / location_frozen (a formal count order opened over the key): an open count order is a required fixture not supplied by this walk; both administrator and STOREKEEPER are rostered, so actor absence is not the blocker. Not walked; covered by REQ-854 criterion 7 tests.
 #  (c) refusal quick_count_stale (the balance moved between count and approval): needs a second posting in the gap; not exercised by this sequential administrator walk; STOREKEEPER is available for a coordinated posting check. Covered by REQ-854 criterion 5 tests.
-#  (d) four-eyes refusal (counter approves own count): the tenant switch for this step is not known to the BA; see the precondition and the branch in qoimeks-count-3. actor-qoimeks-qa2-storekeeper is available; the four-eyes setting and approval-task eligibility must be confirmed before a coordinated check.
+#  (d) four-eyes refusal (counter approves own count): now a step of qoimeks-count-3 (step 4, T-2240); the quick count is four-eyes ON on qoimeks-qa2.
 # Responsible rule (task 4740): the quick count form has a 'Responsible employee' selector (default 'Unassigned stock'); every step that compares a book quantity chooses the Responsible employee of the Balances row it noted. No stock without a responsible is needed.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
@@ -70,8 +70,7 @@ preconditions:
 - description: >-
     Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Read the counts of items, places and posted balances at the start of the run (the seed changes them); every seeded
-    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
-    only; read the quick-count rule separately.
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes for opening approval is OFF; the quick-count rule is ON (a second person approves, issue 4765).
   check: runner_prepared
   detail: >-
     Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
