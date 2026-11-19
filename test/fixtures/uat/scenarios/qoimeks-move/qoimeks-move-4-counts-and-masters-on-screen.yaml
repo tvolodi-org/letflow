@@ -8,10 +8,13 @@
 # Requirements covered: REQ-880 (the move rules check list: "counts and hashes per table", "current balances equal"), REQ-881 (master data compare: places, units, items by code and name; the hash tool itself is offline, see below).
 # Sources opened: docs/runbooks/qoimeks-rehearsal.md sections "Move rules (Qoimeks inventory §8.10)" and "Synthetic QA dataset" (134 rack places plus a warehouse and zones = 142 nodes; 666 SKUs, unit pcs; 600 positive rows, 3 negative, 603 accepted balances);
 # scripts/pilot/qoimeks_gen.py (place names "Склад", "Зона <letter>", "Справа <letter> <n>"; item names "<type>-<number>", every 100th with a Cyrillic look-alike letter); scripts/pilot/qoimeks_masters_compare.py (prints ROWS, one sha256 HASH per side and DIFF lines per table).
-# NOT UAT-OBSERVABLE (also recorded in the sidecar test/fixtures/uat/scenario-env-limitations/qoimeks-move-4-counts-and-masters-on-screen.yaml): the three compare tools qoimeks_compare.sh (record counts), qoimeks_balances_compare.py (quantity hash) and qoimeks_masters_compare.py
+# NOT UAT-OBSERVABLE (origin T-2167): the three compare tools qoimeks_compare.sh (record counts), qoimeks_balances_compare.py (quantity hash) and qoimeks_masters_compare.py
 #   (hash per table of places, units and items) are offline command line scripts run by the operator on files; the Qoimeks extract they compare with is outside the QA tenant and outside the browser, and no screen shows a hash.
 #   The observable stand-in is what the administrator sees on screen: the number of places, items and balances, and a few names read by code, which are the same facts the tools compare. Matching hashes cannot be shown here.
 #   Also not walked: the write freeze, ANALYZE after the load, rollback, the working-hours rule, the 30-day copy (operator and infrastructure rules, no screen).
+#   Master and balance comparisons have automated checks in test/scripts/qoimeks_masters_compare_test.exs and test/scripts/qoimeks_balances_compare_test.exs; these do not verify operator rules.
+#   T-2190 rework: removed the whole-scenario GAP sidecar because none of EO-001..EO-005 checks hashes or operator rules; it blocked walkable screen outcomes.
+#   Revisit when an operator-run compare against the generated extract becomes part of the acceptance run.
 # Cleanup: read-only, nothing is written.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
