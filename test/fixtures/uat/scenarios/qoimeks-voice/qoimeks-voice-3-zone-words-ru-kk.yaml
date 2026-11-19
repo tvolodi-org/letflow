@@ -12,43 +12,39 @@
 # NOT UAT-observable: the speech recognition step (requires real audio); the prompt text itself (server-internal;
 # tested by voice_prompt_test.exs VP-1..VP-5); the mobile voice panel (Flutter app is not driven by the UAT runner).
 # Desktop (1440 px) and phone (390 px) produce the same API response; this is an API-only scenario.
+# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API route only (docs/runbooks/stock-voice.md);
+# 4 data: needs the places LA3 and RA3 (the generator writes racks R+zone letter+number, so RA3 exists; no place starts with L, issue 4718):
+# BLOCKED-by-environment until a generator task adds the L-zone rack LA3 (to queue: "qoimeks_gen: add the left-zone rack LA3"; T-2189 option "voice demo" may add it, check its merged result first);
+# the language model must be on, BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect). One literal phrase per step, so the zone word is the only difference between the L and R steps.
+# 5 HTTP steps only; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-voice-3-zone-words-ru-kk
 scope: qoimeks-qa
-title: When the language model is on, Russian and Kazakh zone words in a typed phrase resolve to location codes starting with the matching zone letter
-version: "1.0"
-tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on]
+title: When the language model is on, Russian and Kazakh zone words in a typed phrase resolve to the place with the matching zone letter
+version: "1.1"
+tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on, blocked-by-keys]
 
 description: >
-  Location codes in the Qoimeks warehouse often start with a zone letter: L for left (слева / сол жақ),
-  R for right (справа / оң жақ), D for straight ahead (прямо / тура). The voice prompt now carries this zone rule
-  (REQ-862). The administrator finds locations in the Qoimeks QA catalog whose codes start with L and R, and sends
-  typed phrases in Russian and Kazakh using the matching zone words. The route must resolve the zone word to a
-  location code starting with the expected letter. The same test is repeated for the Kazakh zone words сол жақ
-  and оң жақ.
+  Place codes may start with a zone letter: L for left (слева, сол жақ), R for right (справа, оң жақ), D for straight ahead (прямо, тура) (REQ-862).
+  The administrator sends four pinned typed phrases that differ only by the zone word: "слева а три" must give the place LA3 and "справа а три" the place RA3;
+  in Kazakh "сол жақ а үш" gives LA3 and "оң жақ а үш" gives RA3. Because both LA3 and RA3 exist, the zone word is the only way to tell them apart.
+  The expected result is the validated draft, not model accuracy.
 
 actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: >
-      The language-model step of the platform is on (LETFLOW_VOICE_LLM_* settings are set for this environment).
+  - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
     check: system_seeded
     detail: >
-      If the model step is off, every step that sends a phrase returns kind "unknown" with no location
-      (the provider-off notice). Report BLOCKED for the whole scenario; the provider-off path is covered
-      by qoimeks-voice-1.
-  - description: >
-      The Qoimeks QA catalog has at least one active location whose code starts with L (zone-L/слева/сол жақ)
-      and at least one whose code starts with R (zone-R/справа/оң жақ). Note the L-location as LOC_L and the
-      R-location as LOC_R (and their readable names, if any).
+      Check first: send the phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-keys
+      (not a defect, not counted against the group). Do not change settings.
+  - description: The tenant has both the place LA3 and the place RA3 (BLOCKED-by-environment until a generator task adds LA3, issue 4718).
     check: system_seeded
     detail: >
-      If the catalog has no L-location, skip the L-zone steps (steps 2 and 4) and mark them BLOCKED. If it has
-      no R-location, skip the R-zone steps (steps 3 and 5). If neither exists, report BLOCKED for the whole
-      scenario.
-  - description: >
-      The stock module is installed and the voice draft-text route is reachable by the administrator's token.
+      Read-only check: the locations list of the tenant, all pages, holds the codes LA3 and RA3. The synthetic generator writes RA3 (a rack of zone A) and no code that starts with L.
+      If LA3 is absent report the whole scenario BLOCKED-by-environment (a run with R places only cannot tell the zone rule from an arbitrary pick) and name the generator task. Do not create places.
+  - description: The stock module is installed and the voice typed-phrase route answers the administrator.
     check: system_seeded
     detail: If the route answers 404 for the stock module, report BLOCKED.
 
@@ -56,93 +52,67 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator reads the locations list of the Qoimeks QA tenant and identifies LOC_L (a location whose
-      code starts with L) and LOC_R (a location whose code starts with R). The result is noted as LOC_L and LOC_R
-      with their codes.
+      The administrator reads the locations list (all pages) and notes that the codes LA3 and RA3 exist.
     via: api
   - step: 2
     actor: admin
     action: >
-      The administrator sends the Russian typed phrase "принял товар слева сто единиц" (or, if LOC_L has a letter
-      and shelf number, "принял товар слева RACK_LETTER SHELF_NUMBER сто единиц") with the language "ru". The answer
-      is noted as V1.
+      The administrator sends the typed phrase «принял товар слева а три сто единиц» with the language "ru". The answer is noted as V1.
     via: api
   - step: 3
     actor: admin
     action: >
-      The administrator sends the Russian typed phrase "принял товар справа сто единиц" (or with the rack and shelf
-      of LOC_R) with the language "ru". The answer is noted as V2.
+      The administrator sends the typed phrase «принял товар справа а три сто единиц» with the language "ru". The answer is noted as V2.
     via: api
   - step: 4
     actor: admin
     action: >
-      The administrator sends the same L-zone phrase in Kazakh: "алды сол жақ тауарды жүз бірлік" (or the natural
-      Kazakh phrasing with "сол жақ" naming the LOC_L rack and shelf) with the language "kk". The answer is noted as V3.
+      The administrator sends the typed phrase «қабылдадым сол жақ а үш жүз дана» with the language "kk". The answer is noted as V3.
     via: api
   - step: 5
     actor: admin
     action: >
-      The administrator sends the same R-zone phrase in Kazakh using "оң жақ" with the language "kk". The answer is
-      noted as V4.
+      The administrator sends the typed phrase «қабылдадым оң жақ а үш жүз дана» with the language "kk". The answer is noted as V4.
     via: api
 
 expected_outcomes:
   - id: EO-001
-    description: >
-      The Russian zone word "слева" resolves to a location whose code starts with L.
+    description: The Russian zone word слева gives the place LA3.
     verification:
       method: api_response
-      detail: >
-        V1 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter L.
-        The "transcript" field equals the sent phrase and contains the word "слева", confirming the zone word
-        was present in the phrase. Items may be empty if no specific item was named; that is acceptable for this check.
+      detail: V1 answers 200; the transcript equals the sent phrase; the location is the place LA3.
       evidence: V1 body.
     on_fail:
       severity: MAJOR
-      business_impact: >
-        Operators who say "слева" to identify a left-zone location get a wrong or null location, and the voice
-        input cannot fill the location field for zone-L places.
+      business_impact: Operators who say "слева" get a wrong or empty place.
       suggested_action: route_to_elixir_dev
   - id: EO-002
-    description: >
-      The Russian zone word "справа" resolves to a location whose code starts with R.
+    description: The Russian zone word справа gives the place RA3, not LA3.
     verification:
       method: api_response
-      detail: >
-        V2 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter R.
-        The "transcript" field equals the sent phrase and contains the word "справа".
+      detail: V2 answers 200; the transcript equals the sent phrase; the location is the place RA3.
       evidence: V2 body.
     on_fail:
       severity: MAJOR
-      business_impact: >
-        Right-zone locations are not filled from voice phrases using the Russian zone word "справа".
+      business_impact: Operators who say "справа" get a wrong or empty place.
       suggested_action: route_to_elixir_dev
   - id: EO-003
-    description: >
-      The Kazakh zone word "сол жақ" resolves to a location whose code starts with L.
+    description: The Kazakh zone word сол жақ gives the place LA3.
     verification:
       method: api_response
-      detail: >
-        V3 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter L.
-        The "transcript" field equals the sent phrase and contains the words "сол жақ", confirming the Kazakh zone
-        word was present in the phrase.
+      detail: V3 answers 200; the transcript equals the sent phrase; the location is the place LA3.
       evidence: V3 body.
     on_fail:
       severity: MAJOR
-      business_impact: >
-        Kazakh-speaking operators who say "сол жақ" (left) cannot have the location filled from voice input.
+      business_impact: Kazakh-speaking operators who say "сол жақ" get a wrong or empty place.
       suggested_action: route_to_elixir_dev
   - id: EO-004
-    description: >
-      The Kazakh zone word "оң жақ" resolves to a location whose code starts with R.
+    description: The Kazakh zone word оң жақ gives the place RA3, not LA3.
     verification:
       method: api_response
-      detail: >
-        V4 answers 200. The "location" field is an object (not null) and "location.code" starts with the letter R.
-        The "transcript" field equals the sent phrase and contains the words "оң жақ".
+      detail: V4 answers 200; the transcript equals the sent phrase; the location is the place RA3.
       evidence: V4 body.
     on_fail:
       severity: MAJOR
-      business_impact: >
-        Kazakh-speaking operators who say "оң жақ" (right) cannot have the location filled from voice input.
+      business_impact: Kazakh-speaking operators who say "оң жақ" get a wrong or empty place.
       suggested_action: route_to_elixir_dev

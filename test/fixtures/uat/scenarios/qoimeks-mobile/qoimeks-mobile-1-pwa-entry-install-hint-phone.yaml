@@ -7,6 +7,10 @@
 #   (b) Safari on iPhone: no iPhone is in the run. Chrome at a 390 px window does not prove Safari.
 #   (c) Offline work and the 7-day storage rule: needs a real device switched to airplane mode (docs/runbooks/mobile-web-pwa-ready-check.md device pass).
 # The PWA address is not in the repository: it is given to the run by the operator (see the precondition). The PWA is the web build of the same Flutter code as the Android app.
+# T-2192 rework (issue 4721; PM/infra 2026-11-19): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist). 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); no lower-role claim is made for the phone screens.
+# 3 Host and screens: the phone PWA lives at https://pwa.letflow.qa.bizdala.com/ ; the tenant host serves only the web SPA and is not installable, so it is used only for the web screens; the Android app and PWA have no quick count screen (REQ-856 cancelled).
+# 4 Data: the synthetic tenant holds the data these steps read; no data precondition beyond the PWA address. 5 Executable: browser steps with the runner's own script. 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-mobile-1-pwa-entry-install-hint-phone
 scope: qoimeks-qa
@@ -27,9 +31,12 @@ actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: The operator gives the run the address of the phone web app (PWA) that serves the Qoimeks QA tenant, over https, and the QA identity provider has that exact address registered for the company's mobile sign-in client.
+  - description: The Flutter phone web app (PWA) is served at https://pwa.letflow.qa.bizdala.com/ (infrastructure fact of 2026-11-19) and the QA identity provider accepts that address for the qoimeks-qa mobile sign-in client.
     check: system_seeded
-    detail: Source docs/runbooks/mobile-web-pwa-signin.md steps 1 and 2 (infra registers the address by hand). UAT assumption, to be confirmed by the process owner - no PWA address for qoimeks-qa is recorded in the repository. If no PWA address is given, report BLOCKED for the whole scenario and say so; do not use the web administration address instead.
+    detail: >-
+      Precondition check, read-only: the entry address answers 200 with the web app (not the administration site), its manifest.json answers 200, and the manifest names the app "Letflow".
+      The tenant host https://qoimeks-qa.letflow.qa.bizdala.com serves only the web SPA and is NOT installable: it is never used as the PWA address, and qoimeks-client1-qa is never used.
+       If the entry address does not answer, report BLOCKED-by-environment and name issue 4721.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px, with the browser language set to English at the start.
     check: system_seeded
     detail: If no browser can be started or the width cannot be set, report BLOCKED for the whole scenario.
@@ -61,7 +68,7 @@ steps:
   - step: 5
     actor: admin
     action: >
-      In a new browser tab the administrator opens the file manifest.json that sits next to the PWA entry page (the PWA address followed by manifest.json) and reads its text.
+      In a new browser tab the administrator opens the file manifest.json that sits next to the PWA entry page (https://pwa.letflow.qa.bizdala.com/manifest.json) and reads its text.
     via: ui
   - step: 6
     actor: admin

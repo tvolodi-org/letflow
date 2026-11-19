@@ -4,12 +4,27 @@
 Writes locations.csv, items.csv and balances.csv in the format qoimeks_convert.py reads.
 All data is entirely fictitious; no real Qoimeks client information is included (D-050).
 
-  python3 -I scripts/pilot/qoimeks_gen.py --out DIR [--seed N]
+  python3 -I scripts/pilot/qoimeks_gen.py --out DIR [--seed N] [--with-places] [--voice-demo]
 
 Sizes (default): 666 SKUs (unit pcs, quantities up to 3 decimal places), 134 rack locations
 plus 8 hierarchy nodes (1 warehouse, 7 zones), 600 positive balance rows, 3 negative opening rows,
 3 zero rows skipped by the converter and 4 comma-decimal rows it drops, to exercise the G4 and G8
 rules. A few item names embed Cyrillic look-alike letters to test Unicode handling.
+
+--with-places (off by default; the default output stays byte-identical to the original) adds
+home_loc and alt_loc columns to items.csv (a usual and a second place for a share of the items)
+and gives a set of items a lettered article code (Latin and Cyrillic letters, as the voice
+scenarios spell them). It uses its own random stream, so locations.csv is identical and the
+balances differ only in the sku value of the lettered items.
+
+--voice-demo (off by default; the default output stays byte-identical) appends a small fixed
+demo catalog for the voice scenarios: 12 items with lettered codes (BLT-M8-40, NUT-M8, CBL-3x2.5,
+GLV-L ...) with Russian names and the units kg, m and pair, and 8 places (A-01, A-02, A-03, B-01,
+B-02, C-01, RAMP and the zone-coded place LA3 named "Слева A 3") under the warehouse root. C-02 and
+D-03 are left out on purpose, so a scenario can name a place that does not exist. The usual places
+are PNT-WH-10 -> C-01 and GLV-L -> A-01. items.csv then also carries home_loc/alt_loc (empty for
+the generated items). No balances are added. It does not touch the random streams and combines
+with --with-places. The data is synthetic; the item list is the Qoimeks demo catalog, no customer data.
 """
 
 import argparse
@@ -44,6 +59,35 @@ CYRILLIC_LOOKALIKES = [
     "\u0415",  # Е looks like E
     "\u0420",  # Р looks like P
     "\u0425",  # Х looks like X
+]
+
+# --with-places
+N_HOME_EVERY = 3      # every 3rd item has a usual place (home_loc)
+N_ALT_EVERY = 9       # every 9th item also has a second place (alt_loc)
+LETTER_EVERY = 25     # every 25th item gets a lettered article code
+LATIN_PREFIXES = ["AB", "KS", "MT", "DR", "PL", "VK"]
+CYRILLIC_PREFIXES = ["\u0410\u0411", "\u041a\u0421", "\u041c\u0422", "\u0414\u0420", "\u041f\u041b", "\u0412\u041a"]
+
+# --voice-demo: (sku, name, unit, usual place)
+VOICE_ITEMS = [
+    ("BLT-M8-40", "Болт М8х40", "шт", ""),
+    ("BLT-M10-60", "Болт М10х60", "шт", ""),
+    ("NUT-M8", "Гайка М8", "шт", ""),
+    ("NUT-M10", "Гайка М10", "шт", ""),
+    ("WSH-8", "Шайба плоская 8", "шт", ""),
+    ("SCR-4-40", "Саморез 4х40", "кг", ""),
+    ("PNT-WH-10", "Краска белая 10", "шт", "C-01"),
+    ("PNT-GR-3", "Краска серая 3", "шт", ""),
+    ("CBL-3x2.5", "Кабель 3х2.5", "м", ""),
+    ("CBL-3x1.5", "Кабель 3х1.5", "м", ""),
+    ("GLV-L", "Перчатки L", "пар", "A-01"),
+    ("TAPE-48", "Скотч 48", "шт", ""),
+]
+# C-02 and D-03 are absent on purpose
+VOICE_PLACES = [
+    ("A-01", "Место A-01"), ("A-02", "Место A-02"), ("A-03", "Место A-03"),
+    ("B-01", "Место B-01"), ("B-02", "Место B-02"), ("C-01", "Место C-01"),
+    ("RAMP", "Рампа"), ("LA3", "Слева A 3"),
 ]
 
 ITEM_TYPES = [
@@ -102,6 +146,41 @@ def gen_items(rng):
             name = name + la
         rows.append({"sku": str(i).zfill(4), "sku_name": name, "unit": "pcs"})
     return rows
+
+
+def apply_places(item_rows, leaf_codes, seed):
+    """Add home_loc/alt_loc and lettered codes in place. Own rng: other streams are untouched."""
+    prng = random.Random("places-%s" % seed)
+    n_letter = 0
+    for i, row in enumerate(item_rows, start=1):
+        home = ""
+        alt = ""
+        if i % N_HOME_EVERY == 0:
+            home = prng.choice(leaf_codes)
+            if i % N_ALT_EVERY == 0:
+                alt = prng.choice([c for c in leaf_codes if c != home])
+        row["home_loc"] = home
+        row["alt_loc"] = alt
+        if i % LETTER_EVERY == 0:
+            # alternate Latin and Cyrillic prefixes; digits keep the code unique
+            prefixes = LATIN_PREFIXES if n_letter % 2 == 0 else CYRILLIC_PREFIXES
+            row["sku"] = prefixes[(n_letter // 2) % len(prefixes)] + str(i).zfill(4)
+            n_letter += 1
+    return item_rows
+
+
+def apply_voice_demo(loc_rows, leaf_codes, item_rows):
+    """Append the voice demo places and items in place (parents precede children)."""
+    taken = {r["loc_code"] for r in loc_rows}
+    for code, name in VOICE_PLACES:
+        assert code not in taken, code
+        loc_rows.append({"loc_code": code, "loc_name": name, "loc_parent": "WH"})
+        leaf_codes.append(code)
+    taken = {r["sku"] for r in item_rows}
+    for sku, name, unit, home in VOICE_ITEMS:
+        assert sku not in taken, sku
+        item_rows.append({"sku": sku, "sku_name": name, "unit": unit,
+                          "home_loc": home, "alt_loc": ""})
 
 
 def gen_qty(rng, decimals):
@@ -202,6 +281,10 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
                     help="random seed for reproducibility (default: %(default)s)")
+    ap.add_argument("--with-places", action="store_true",
+                    help="add home_loc/alt_loc and lettered article codes to items.csv")
+    ap.add_argument("--voice-demo", action="store_true",
+                    help="append the voice demo items and places (separate dataset)")
     a = ap.parse_args(argv)
 
     out = check_out(a.out)
@@ -213,14 +296,32 @@ def main(argv=None):
     item_rows = gen_items(rng)
     item_codes = [r["sku"] for r in item_rows]
     bal_rows = gen_balances(item_codes, leaf_codes, rng)
+    item_fields = ["sku", "sku_name", "unit"]
+    if a.with_places:
+        # after balances: balances.csv is built from the plain codes, then lettered codes
+        # replace some skus in both files so the files stay consistent
+        apply_places(item_rows, leaf_codes, a.seed)
+        renamed = {old: r["sku"] for old, r in zip(item_codes, item_rows)}
+        for b in bal_rows:
+            b["sku"] = renamed[b["sku"]]
+        item_fields += ["home_loc", "alt_loc"]
+    if a.voice_demo:
+        # after balances and places: balances only use the generated leaves and items
+        n_gen_items = len(item_rows)
+        apply_voice_demo(loc_rows, leaf_codes, item_rows)
+        for r in item_rows[:n_gen_items]:
+            r.setdefault("home_loc", "")
+            r.setdefault("alt_loc", "")
+        if "home_loc" not in item_fields:
+            item_fields += ["home_loc", "alt_loc"]
 
     write_csv(out / "locations.csv", ["loc_code", "loc_name", "loc_parent"], loc_rows)
-    write_csv(out / "items.csv", ["sku", "sku_name", "unit"], item_rows)
+    write_csv(out / "items.csv", item_fields, item_rows)
     write_csv(out / "balances.csv", ["sku", "loc", "qty"], bal_rows)
 
     n_bad = N_ZERO_ROWS + N_NEG_ROWS + N_COMMA_ROWS
-    n_leaf = N_LOCS_ZONE_A + N_LOCS_OTHER * (N_ZONES - 1)
-    n_total_locs = 1 + N_ZONES + n_leaf
+    n_leaf = len(leaf_codes)
+    n_total_locs = len(loc_rows)
 
     print(
         "qoimeks_gen: wrote %d locations (%d leaves), %d items, %d balance rows "

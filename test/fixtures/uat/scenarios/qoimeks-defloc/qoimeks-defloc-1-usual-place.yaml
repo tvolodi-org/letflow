@@ -14,6 +14,18 @@
 # Phone below means the web screen at 390 px, not an APK or a Flutter screen.
 # Sensitive actions: no approve, pay/release or user changes; all stock here is synthetic.
 # The other-company data refusal is in qoimeks-defloc-3. No other-tenant stock actor is supplied.
+# T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 3 Host and screens: the Items screen and card sections exist in web/src/modules/catalog_items/items/ItemDetails.tsx;
+#   section titles follow catalogItemsItemsMessages.ts (sec.overview: Обзор / Шолу; sec.related: Остатки по местам
+#   хранения / Сақтау орындары бойынша қалдық; field.defaultLocation: Обычное место / Әдеттегі орын). The English
+#   word "Related" is not shown on the screen in ru/kk and is no longer used in the steps.
+# 4 Data: items with a usual place do not exist yet (issue 4708); the scenario carries a data check as a precondition and
+#   is BLOCKED-by-environment until the generator task below merges and the data is reloaded.
+# 5 Executable: every step is a browser step; the data check is read-only.
+# 6 Dry run: uat.sh preflight was not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-1-usual-place
 scope: qoimeks-qa
@@ -29,6 +41,7 @@ description: >
   clears the search and closes the card. Do not replace browser evidence with a query result.
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 preconditions:
   - description: The run uses only the synthetic Qoimeks QA tenant and its administrator.
     check: system_seeded
@@ -45,7 +58,9 @@ preconditions:
       the synthetic import evidence or the administrator's read-only item and location query
       results. Use only this tenant's data, follow all result pages and keep the chosen values
       in the run evidence. Do not invent an article or infer its usual place from a stock balance.
-      If no such item can be identified, report BLOCKED for this scenario, not PASS.
+      If no such item can be identified, report BLOCKED-by-environment for this scenario, not PASS.
+      Known state on 2026-11-19 (issue 4708): none exists. The generator task that adds usual places is not on main yet: scripts/pilot/qoimeks_gen.py never writes a usual place (home_loc), so no synthetic item has one (issue 4708: 0 of 666 items). Generator task to queue first: "qoimeks_gen: give a subset of the items a usual place (home_loc), including a few of the two-place items, regenerate and reload qoimeks-qa".
+      The scenario stays BLOCKED-by-environment until that task has merged and the data is reloaded.
   - description: A real browser can show every required width, language and appearance.
     check: system_seeded
     detail: >
@@ -61,7 +76,7 @@ steps:
   - step: 2
     actor: admin
     action: >
-      Read the usual place in Overview. Capture the item code, the field label and its value
+      Read the usual place in the section «Обзор» (Russian) or «Шолу» (Kazakh). Capture the item code, the field label and its value
       together. At phone width, scroll the card to show the full field without zooming out.
     via: ui
   - step: 3
@@ -77,6 +92,13 @@ steps:
       reopened card. After all display combinations, clear the search, close the card and
       restore the starting language and appearance.
     via: ui
+  - step: 5
+    actor: storekeeper
+    action: >
+      Sign out, sign in as the storekeeper at the same QA tenant, open Items, search for the same
+      article code and open its card. Read the usual place in the same section and the place name
+      in Locations, without changing anything. Repeat in Russian and Kazakh at 1440 px.
+    via: ui
 expected_outcomes:
   - id: EO-001
     description: The usual place is the assigned location's code and name.
@@ -84,13 +106,25 @@ expected_outcomes:
       method: gui_screen
       detail: >
         The card shows the recorded place as code - name, matching the Locations screen and
-        the recorded assignment. Overview has one usual-place field and no second-place field.
+        the recorded assignment. The card section «Обзор» / «Шолу» has one usual-place field and no second-place field.
         No internal identifier, raw message key or loading placeholder
         remains after loading finishes. It is the same place after navigation and reload.
       evidence: Assignment evidence and screenshots of the card, location and reloaded card for all eight display combinations.
     on_fail:
       severity: MAJOR
       business_impact: The warehouse user cannot identify where the item normally belongs.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: An ordinary warehouse user reads the same usual place as the administrator.
+    verification:
+      method: gui_screen
+      detail: >
+        The storekeeper's card shows the same place code and name as the administrator's card
+        (Обычное место in Russian, Әдеттегі орын in Kazakh), with no access-denied page.
+      evidence: Storekeeper card screenshots in Russian and Kazakh.
+    on_fail:
+      severity: MAJOR
+      business_impact: Warehouse staff cannot read where an item normally belongs.
       suggested_action: route_to_frontend_dev
   - id: EO-002
     description: Both languages and both widths keep the usual-place information readable.
