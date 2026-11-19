@@ -392,9 +392,13 @@ the unit list is non-empty after the load; the first document of the year has nu
 
 **Do:** choose one of two ways and write the choice in the go record:
 
-- Two administrators with four eyes ON: the second one approves the opening balance and the counts.
-- One administrator with four eyes OFF for the opening approval, with the reason text (the Approval rules
-  screen); the audit still records the self-approval. Use it only for a one-person company.
+- Two administrators with four eyes ON: the second one approves the opening balance and the counts
+  (`stock_opening` and `stock_quick_count`, the latter also for an Excel load that creates a count).
+- One administrator with four eyes OFF, with the reason text (the Approval rules screen); the audit still
+  records the self-approval. Use it only for a one-person company. Choose **per rule**:
+  - four eyes on the opening approval (`stock_opening / approve`): on / off;
+  - four eyes on the count (`stock_quick_count / approve`): on / off. If it stays ON, a one-person company
+    **cannot confirm a count (or an Excel load) alone**: the approve step is refused as the same person.
 
 **Check:** the Approval rules screen shows the chosen state; with two administrators, the opening is approved by
 the second one in My Tasks.
