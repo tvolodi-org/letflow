@@ -50,7 +50,7 @@ actors:
   admin: actor-qoimeks-qa-admin
 preconditions:
 - description: >-
-    The Qoimeks QA tenant holds the synthetic stock (603 posted opening balances) and the stock module is active;
+    The Qoimeks QA tenant holds the synthetic stock (posted opening balances, counted at the start of the run) and the stock module is active;
     the administrator holds the right to quick counts (the tenant administrator does).
   check: system_seeded
   detail: >-

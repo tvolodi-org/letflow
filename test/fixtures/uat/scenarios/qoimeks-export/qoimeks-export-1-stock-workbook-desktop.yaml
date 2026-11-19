@@ -11,7 +11,7 @@
 # Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
 # Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
 # Do not substitute a platform or another tenant actor. No real data or production.
-# T-2166 (BA): Qoimeks QA walk, export of the whole stock in the Qoimeks import layout. QA only, synthetic data (142 places, 666 items, 603 posted opening balances, 3 of them negative). No real data, no production.
+# T-2166 (BA): Qoimeks QA walk, export of the whole stock in the Qoimeks import layout. QA only, synthetic data (item, place and balance counts recorded at the start of the run; some opening balances negative). No real data, no production.
 # Requirements covered: REQ-865 (the workbook on the server: one sheet, headers, rows, file name), REQ-866 (the button on the web Balances screen).
 # Sources: docs/requirements.yaml REQ-865 and REQ-866 (criteria 1 to 3 of REQ-865, 1 and 3 of REQ-866); web/src/modules/stock/register/BalancesPage.tsx (the button, the caption, the saved file name taken from the answer);
 # web/src/modules/stock/stockMessages.ts (en, ru, kk texts); web/src/modules/stock/stockRoutes.tsx (the Balances screen).
@@ -22,7 +22,7 @@
 #   (c) the single cutoff across balance pages and the tenant isolation of the file: code reading and test setup with two tenants; not observable in a browser.
 #   (d) the exact row count of the file: it depends on the seeded data (one row per item and place with a non-zero balance, a usual-place row with zero, one row for an item with neither); this scenario checks the count against the screen instead of a fixed number.
 # Cleanup: none needed, the download writes nothing in the tenant. The downloaded file is kept only in the run's own folder.
-# NOT UAT-observable on the supplied baseline: the lettered article-code variant needs a fixture the seed does not supply (usual places exist after the seed: 216 items, counted at the start of the run); check preconditions first and report BLOCKED-by-environment, never manufacture them.
+# NOT UAT-observable on the supplied baseline: the lettered article-code variant needs a fixture the seed does not supply (usual places exist after the seed: counted at the start of the run); check preconditions first and report BLOCKED-by-environment, never manufacture them.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-1-stock-workbook-desktop
@@ -50,8 +50,9 @@ actors:
   admin: actor-qoimeks-qa-admin
 preconditions:
 - description: >-
-    The Qoimeks QA tenant has the stock module active, and its synthetic data is loaded (142 places, 666 items,
-    603 posted opening balances, three of them negative).
+    The Qoimeks QA tenant has the stock module active, and its synthetic data is loaded; record the item, place
+    and balance counts at the start of the run (Items screen total, Locations total, Balances rows), and some
+    opening balances are negative.
   check: system_seeded
   detail: >-
     If the Balances screen is empty, report BLOCKED for the rows outcomes and still check the button, the caption
@@ -64,7 +65,8 @@ preconditions:
     If the downloaded file cannot be read, report BLOCKED for EO-002 to EO-004 and keep the screenshots.
 - description: >-
     Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
-    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
+    (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
   check: runner_prepared
@@ -83,7 +85,7 @@ preconditions:
 - description: >-
     For the zero-stock row check, identify an existing catalog item without stock by reading its balances and record
     its code before downloading. If a usual-place row is checked, read and record its configured usual place first.
-    The seeded data gives usual places to some items (216 after the seed; read the number at the start of the run); a lettered article code is not supplied.
+    The seeded data gives usual places to some items (read the number of such items at the start of the run and record it); a lettered article code is not supplied.
   check: runner_prepared
   detail: >-
     No zero-stock article means BLOCKED-by-environment for that outcome. The usual-place case uses an item that

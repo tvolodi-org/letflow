@@ -18,4 +18,16 @@ const screen = (role: NavRole): HarnessScreen => {
   return { name, routes, render: ({ state }) => <Suspense fallback={null}><Shell screen={name} role={role} state={state} /></Suspense> }
 }
 
-export const navRoleScreens: HarnessScreen[] = (['admin', 'storekeeper', 'worker', 'scoped'] as const).map(screen)
+/** T-2216: phone drawer on the page that is already shown (Instances). `nav-drawer-open` = menu opened; `nav-drawer-tapped` =
+ *  the entry of the shown page tapped afterwards, the drawer closed and the page visible. Same real AppShell and route tree. */
+const drawerScreen = (name: string, drawer: 'open' | 'tapped'): HarnessScreen => ({
+  name,
+  routes,
+  render: ({ state }) => <Suspense fallback={null}><Shell screen={name} role="admin" state={state} at="/instances" drawer={drawer} /></Suspense>,
+})
+
+export const navRoleScreens: HarnessScreen[] = [
+  ...(['admin', 'storekeeper', 'worker', 'scoped'] as const).map(screen),
+  drawerScreen('nav-drawer-open', 'open'),
+  drawerScreen('nav-drawer-tapped', 'tapped'),
+]

@@ -48,6 +48,15 @@ suite, including exam and slow tests. Required check names stay
   Static checks, boundary checks
   and the production permission golden check still run in `backend_static`. A fixed
   pin that cannot fit fails selection rather than disappearing from the gate.
+- Route/router, plug, authorization, permission and scope source changes also reserve
+  the tenant-admin/platform inventories, scope route walks and their route-class
+  siblings. Route snapshot changes and module permission/policy declarations use the
+  same file map in `scripts/ci_select_tests.py`. The flag-authority scan (including
+  AC 24) is reserved for every change to its inputs: Elixir sources under `lib/`,
+  `priv/` (including seeds and solution packs), `config/`, `scripts/`, `.github/`,
+  `deploy/`, `rel/` and `mix.exs`. These checks precede optional related tests and
+  stay within the existing 160-file and per-partition time budgets; they cannot be
+  deferred to the nightly run.
 - Former full fallbacks (large diffs, sensitive paths, missing diff/manifest, deleted
   sources, config atoms, selection errors) use bounded safety coverage. `CI_SELECTIVE=off`
   now requests that safety coverage, not a full standard run. A selector process failure

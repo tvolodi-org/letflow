@@ -14,6 +14,123 @@ defmodule Letflow.CiSelectTestsTest do
   @ci_yml Path.join(@root, ".github/workflows/ci.yml")
   @leaf "lib/letflow/modules/locations/tree.ex"
 
+  @inventory_tests ~w(
+    test/letflow/routers/tenant_admin_routes_test.exs
+    test/letflow/routers/platform_scope_routes_test.exs
+    test/letflow/api/platform_scope_inventory_test.exs
+    test/letflow/scope_enforcement_on_e2e_test.exs
+    test/letflow/scope_enforcement_flip_authority_test.exs
+  )
+
+  for {rule, path} <- [
+        {"router", "lib/letflow/routers/me.ex"},
+        {"module router", "lib/letflow/modules/stock/router.ex"},
+        {"root router", "lib/letflow/router.ex"},
+        {"route table", "lib/letflow/api/route_scope.ex"},
+        {"route fixture", "test/fixtures/route_scope/tenant_wide_default_routes.txt"},
+        {"plug", "lib/letflow/plugs/api_pipeline.ex"},
+        {"authorization", "lib/letflow/api/authorization.ex"},
+        {"permission", "lib/letflow/api/permission_matrix.ex"},
+        {"scope", "lib/letflow/scope_enforcement/on_gate.ex"},
+        {"module policies", "lib/letflow/modules/stock/stock.ex"},
+        {"deleted router", "lib/letflow/routers/removed_t2223.ex"}
+      ] do
+    @tag timeout: 30_000
+    test "I1 #{rule}: inventory checks survive bounded admission" do
+      {kv, plan} = select([unquote(path)])
+      assert kv["mode"] == "selective"
+      assert length(plan) <= 160
+
+      for test <- @inventory_tests do
+        assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)),
+               "#{unquote(path)}: missing #{test}"
+      end
+    end
+  end
+
+  for path <- [
+        "lib/letflow/engine/join_counter.ex",
+        "priv/modules/stock/pack.json",
+        "priv/repo/migrations/deleted_t2223.exs",
+        "config/runtime.exs",
+        "scripts/ci_select_tests.py",
+        "scripts/new_t2223.py",
+        ".github/workflows/ci.yml",
+        ".github/actions/new_t2223/action.yml",
+        "deploy/new_t2223.conf",
+        "rel/overlays/new_t2223.sh",
+        "mix.exs"
+      ] do
+    @tag timeout: 30_000
+    test "I2 flag scan input #{path}: AC24 is in the final plan" do
+      {kv, plan} = select([unquote(path)])
+      assert kv["mode"] == "selective"
+
+      assert Enum.any?(
+               plan,
+               &String.ends_with?(&1, " test/letflow/scope_enforcement_flip_authority_test.exs")
+             )
+    end
+  end
+
+  test "I3: unrelated web changes do not reserve conditional inventories" do
+    {_, plan} = select(["web/src/x.tsx"])
+
+    for test <- @inventory_tests do
+      refute Enum.any?(plan, &String.ends_with?(&1, " " <> test))
+    end
+  end
+
+  test "I4: every audit-route and platform-scope sibling is reserved" do
+    siblings =
+      Path.wildcard(Path.join(@root, "test/**/*_test.exs"))
+      |> Enum.filter(fn path ->
+        text = File.read!(path)
+        String.contains?(text, "audit_routes") or String.contains?(text, "platform-scope route")
+      end)
+      |> Enum.map(&Path.relative_to(&1, @root))
+
+    {_, plan} = select(["lib/letflow/routers/me.ex"])
+
+    for test <- siblings -- ["test/letflow/ci_select_tests_test.exs"] do
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "missing sibling #{test}"
+    end
+  end
+
+  test "I5: inventories precede overflow and fail closed if the budget cannot hold them" do
+    code = """
+    import importlib.util, types
+    spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+    s = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s)
+    files = [p for p in s.tracked('.') if p.startswith('test/') and p.endswith('_test.exs')]
+    changed = ['lib/letflow/routers/me.ex']
+    args = types.SimpleNamespace(root='.', shards=8, per_shard=4, target_ms=120000, standard_max_tests=160)
+    weights, _ = s.read_manifest('test/shard_manifest.txt')
+    lines, _, deferred = s.bounded_plan(files, changed, weights, args, files)
+    required = s.inventory_tests(changed, files, '.')
+    assert required <= {line.split()[1] for line in lines}
+    assert required.isdisjoint(deferred)
+    assert deferred and len(lines) <= 160
+    totals = {}
+    for line in lines:
+        part, test = line.split()
+        totals[part] = totals.get(part, 0) + max(1000, weights.get(test) or 15000)
+    assert max(totals.values()) <= args.target_ms
+    args.target_ms = 1
+    try:
+        s.bounded_plan(files, changed, weights, args, files)
+    except ValueError as error:
+        assert 'mandatory global check does not fit' in str(error)
+    else:
+        raise AssertionError('required checks must never be silently deferred')
+    print('inventory budget PASS')
+    """
+
+    assert {"inventory budget PASS\n", 0} =
+             System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+  end
+
   test "B7: identity risk coverage includes the enforcement family of root-level tests" do
     code = """
     import importlib.util

@@ -24,6 +24,9 @@ defmodule Letflow.Release do
   T-1568 adds `restore_smoke/1`, the app-side check of the backup restore test
   (`Letflow.Release.RestoreSmoke`, `docs/runbooks/backup-restore.md`).
 
+  T-2220 adds `tenant_onboarding_check/2`, the read-only check of one onboarded tenant
+  (`Letflow.Release.TenantOnboardingCheck`, `docs/runbooks/production-tenant-onboarding.md`).
+
   REQ-792 adds `backfill_event_types/1`, which registers the NODE_ENTERED event type for
   tenants that predate it.
 
@@ -337,6 +340,20 @@ defmodule Letflow.Release do
     maybe_start(opts)
     result = Letflow.Release.RestoreSmoke.run(Keyword.take(opts, [:registrations]))
     IO.puts(Letflow.Release.RestoreSmoke.format_line(result))
+    halt_or_return(result, opts)
+  end
+
+  @doc """
+  T-2220 -- read-only check of one onboarded tenant (tenant, realm, host, modules at the build
+  version, stock document types and tables); prints one line per check and a verdict line and
+  halts non-zero on failure. See `Letflow.Release.TenantOnboardingCheck` for the options.
+  Test options: `:halt`, `:start` (both default `true`).
+  """
+  @spec tenant_onboarding_check(term(), keyword()) :: {:ok | :error, map()}
+  def tenant_onboarding_check(slug, opts \\ []) do
+    maybe_start(opts)
+    result = Letflow.Release.TenantOnboardingCheck.run(slug, Keyword.drop(opts, [:start, :halt]))
+    Enum.each(Letflow.Release.TenantOnboardingCheck.format_lines(elem(result, 1)), &IO.puts/1)
     halt_or_return(result, opts)
   end
 
