@@ -1,0 +1,93 @@
+# T-2267 (BA, PM code-reading pass 2026-11-19): read-only walk of the rule order of the check. REQ-884 (GH #4607): per article, in file order, the first rule that applies wins; the quantity rule (R1, "not a quantity") is tested before the rule for stock tracked separately (R7).
+# Sources opened: docs/runbooks/stock-workbook-import.md ("What counts as a change", remarks R1 and R7); lib/letflow/modules/stock/stock_workbook_import.ex (process/4: tracking policy, then bad quantity, then placed/4 which holds the R7 test) and its remark texts; web/src/modules/stock/workbook/WorkbookImportPage.tsx (remarks banner lists the server texts as they are); workbookMessages.ts (labels).
+# Preparation (runner): download the whole-stock workbook with the Balances button 'Stock workbook (Qoimeks layout)' and read it at the start of the run. Pick one data row whose article is held by a responsible employee (it gets the R7 remark when checked unchanged) and whose article is not tracked by lot (if the unchanged check gives the lot remark for it, pick another article). Build uat-wb-rule-order.xlsx: the header row and that one row copied unchanged, except cell C (the quantity), which becomes the text abc. Record the article code, the row number in the new file (2) and the org unit QOI-OU-1.
+# 1. Scope: qoimeks-qa2, the existing synthetic tenant and realm (same as the other scenarios of this group).
+# 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN only (the check screen is guarded by the quick count right that TENANT_ADMIN holds); the roster has the login; live login is verified by acceptance, credentials from the acceptance credential source.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2; route admin/stock/workbook-import in stockRoutes.tsx and the Balances page buttons read on main.
+# 4. Data: one stocked article with a responsible-employee balance, read from the downloaded workbook at run time; no count is fixed in this file; missing fixture means BLOCKED-by-environment before the check.
+# 5. Executable: a real-browser script with a file upload; the workbook is made by the runner (no pipeline_test).
+# 6. Dry run: live preflight not run in this writing step (needs the acceptance credentials); static parse and schema checks run in the writing step.
+---
+id: qoimeks-import-7-check-rule-order-not-a-quantity
+scope: qoimeks-qa2
+title: >-
+  The administrator checks a row of a stocked article whose quantity is text and sees the not-a-quantity remark and not the tracked-separately remark
+version: '1.0'
+tags:
+- qoimeks
+- import
+- check
+- remarks
+- rule_order
+- desktop
+- en
+- read_only
+description: >-
+  On desktop in English the administrator takes one stocked article from the downloaded whole-stock workbook, replaces its
+  quantity by the text abc, and checks the one-row file for QOI-OU-1. The article is held by a responsible employee, which
+  alone would give the Russian remark that the article is tracked separately. The quantity rule is tested first, so the
+  check shows one Russian remark that the remainder abc is not a quantity and that the stock of this article is not
+  changed, shows no change, and does not show the tracked-separately remark for this article. Nothing is written.
+actors:
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: >-
+    The Qoimeks QA tenant is reachable, the stock module is active and the administrator can sign in.
+  check: system_seeded
+  detail: >-
+    If the tenant is not reachable or credentials are missing, report BLOCKED-by-environment.
+- description: >-
+    The runner has downloaded the whole-stock workbook, chosen a stocked non-lot article and built uat-wb-rule-order.xlsx as in the header.
+  check: runner_prepared
+  detail: >-
+    If no suitable row exists, or file creation or upload is unavailable, report BLOCKED-by-environment before the check.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on the tenant's own address in a window 1440 px wide, in English, opens Balances and
+    clicks "Load balances from Excel".
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator chooses the org unit QOI-OU-1, uploads uat-wb-rule-order.xlsx and presses "Check".
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator reads the summary, the remarks banner and the changes area.
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The quantity rule wins over the stock-tracked-separately rule for the same article (rule order R1 before R7).
+  verification:
+    method: gui_screen
+    detail: >-
+      After step 2 the summary shows 1 row read and 1 remark; the remarks banner has one entry that begins with the row
+      prefix for row 2, names the chosen article code and says in Russian that the remainder "abc" is not a quantity and that
+      the stock of this article in the system is not changed. No entry for this article says that the article is tracked
+      separately by org units, responsible employees, lots or units.
+    evidence: >-
+      Screenshot of the remarks banner with the one entry and the article code read at the start.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The bookkeeper is told the wrong reason for the skipped row and may fix the wrong thing in the file.
+    suggested_action: route_to_wf03
+- id: EO-002
+  description: >-
+    The row with the bad quantity changes nothing.
+  verification:
+    method: gui_screen
+    detail: >-
+      In step 3 the changes area shows the message "No balance differs from the file." and no changes table; the button
+      "Write balances from the file" is disabled. Nothing was loaded, so no document is added to Previous loads.
+    evidence: >-
+      Screenshot of the check result and of the unchanged Previous loads list.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A row that is not a quantity could change a balance, or the screen offers to load a file with nothing to load.
+    suggested_action: route_to_wf03

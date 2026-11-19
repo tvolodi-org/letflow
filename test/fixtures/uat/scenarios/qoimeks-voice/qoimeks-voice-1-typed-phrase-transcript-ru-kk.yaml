@@ -106,7 +106,8 @@ expected_outcomes:
         If the language-model step is off: kind is "unknown", items is empty, location and to_location are null,
         quantity is null, dropped is empty, and the "notice" field equals "llm_off".
         If the model is on: kind is "receipt" (since "получил" is the receipt kind word added by REQ-862), items may
-        be empty if no item matched, and the other fields hold the model's answer.
+        be empty if no item matched, quantity if present is decimal text ("5"), and the other fields hold the model's answer
+        after the server check (items are objects with id, code and name; "dropped" lists what the check removed).
       evidence: V1 body.
     on_fail:
       severity: MAJOR
@@ -121,8 +122,9 @@ expected_outcomes:
       method: api_response
       detail: >
         V2 answers 200. The "transcript" equals the sent phrase. The structure is the same as V1; the language hint
-        kk was accepted. If the model is on and "получил" is not in the Kazakh kind list, kind may be "unknown";
-        the transcript being present confirms the route accepted the kk language hint.
+        kk was accepted. The typed route accepts the hint but does not use it to choose the kind words: the prompt holds one list
+        of kind words for both languages (REQ-862, receipt: приход, принял, кіріс, қабылдадым, получил), so with the model on
+        kind is "receipt" in V2 as in V1 (a different kind is judged MISS and reported; the model-off answer is as in V1).
       evidence: V2 body.
     on_fail:
       severity: MAJOR

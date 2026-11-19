@@ -11,8 +11,14 @@
 #   (d) A quick count refused count_in_progress or location_frozen: needs a formal count order opened on the synthetic data; not created by this scenario (it must not change counts of the tenant).
 # Cleanup: every run of this scenario issues exactly one quick count document and ends by cancelling it with the reason "UAT T-2165 cleanup". Cancelled documents cannot be deleted by the product: the document number and the cancel reason are written in the run's report. The balance of the key is never changed.
 # T-2204 rework (issue 4720, task #4740): the Quick count form has a 'Responsible employee' selector (default 'Unassigned stock'). Every seeded balance carries a responsible employee, so the run chooses the responsible of the Balances row it noted and compares B for that same key; there is no B = 0 fallback and no plain-key precondition.
-# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (STOREKEEPER; holds no StockQuickCount, so the Quick count screen is expected to be refused: a product defect to report); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
-# 4 data: the synthetic balances all carry a responsible employee, handled by precondition 1 (the form's Responsible employee selector is set to that employee); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
+# T-2264 code-reading pass (group check lines are in file 1 of this group). EXPECTATION CORRECTIONS in this file: 5.
+#   (1) the storekeeper holds StockQuickCount (and CodesRead) after T-2239: the scenario is written for that TARGET behaviour, the old "expected to be refused" expectation is removed (open defect issue 4764);
+#   (2) four-eyes is ON for the quick count in the tenant (tenant state), so the old "if an Approve button appears the switch is off, report BLOCKED" branch is removed: the counter is never offered Approve, an offered Approve is the defect of EO-004;
+#   (3) a recorded quick count is in state Issued (waiting for the approval task) and the storekeeper can cancel it (cancel needs StockReverse and a reason TEXT only; the cancel dialog has no reason list), the steps and EO-006 say so;
+#   (4) the "QOI-OU-1 is the only org unit" claim is removed: the org unit is read from the chosen Balances row at run time;
+#   (5) no balance number is fixed: B is read from the Balances row at the start (Balances screen, Responsible column).
+# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (STOREKEEPER, with StockQuickCount after T-2239); 3 the tenant host and the web Quick count screen exist (route admin/stock/quick-count), the Responsible column exists on the balances screen (stock.col.responsible);
+# 4 data: read at the start, handled by precondition 1 (the form's Responsible employee selector is set to the employee of the chosen row); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
 ---
 id: qoimeks-mobile-3-quick-count-on-phone-width
 scope: qoimeks-qa2
@@ -36,11 +42,12 @@ preconditions:
   - description: The Qoimeks QA tenant holds the synthetic stock data (read the item, place and balance counts at the start of the run and record them; the seed changes them), the stock module is active, and one balance row that is not lot-tracked or serial-tracked and has a positive quantity can be chosen.
     check: system_seeded
     detail: >
-      Every opening balance carries a responsible employee (QOI-OU-1 is the only org unit). The run reads the balances screen (Responsible column) and chooses one positive row of an item that is not lot-tracked or serial-tracked; B is that row's quantity and its Responsible employee is chosen in the form's "Responsible employee" selector, so the form submits the key of that row (issue 4720, task 4740).
+      Every posted balance of the baseline carries a responsible employee. The run reads the balances screen (Responsible column) and chooses one positive row of an item that is not lot-tracked or serial-tracked; B is that row's quantity and its Responsible employee is chosen in the form's "Responsible employee" selector, so the form submits the key of that row (issue 4720, task 4740).
       The run records the combination, its Responsible employee, B, and every other row of the item at that place with its Responsible value. The quick count refuses serial-tracked items and needs a lot for lot-tracked ones; pick another row in that case. If no positive row of such an item exists, report BLOCKED-by-environment; never use a row without a responsible, never set B to 0.
-  - description: The storekeeper's account should have the stock quick count permission (the detail says what the source grants) and the quick count is on its four-eyes default (no approval rule switched off for the quick count approval step).
+  - description: The storekeeper's account holds the stock quick count permission (after the merge of T-2239) and the quick count has four-eyes ON in this tenant (tenant state of the acceptance environment).
     check: system_seeded
-    detail: The permission StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule but is not in the STOREKEEPER role_grants of the stock module (lib/letflow/modules/stock/stock.ex); if the Quick count entry or screen is refused for the storekeeper, report a PRODUCT defect (the PM decision of 2026-11-19), do not move the step to the administrator. UAT assumption, to be confirmed by the process owner - the four-eyes switch of the quick count in this tenant was not read; the opening approval is known to be off. If the result screen in step 5 offers an "Approve" button instead of the second-person hint, the switch is off, so do NOT press it, report BLOCKED for step 6 and carry on with the cancel in step 8.
+    detail: >-
+      The permission StockQuickCount is not in the STOREKEEPER role_grants of the stock module on main today (lib/letflow/modules/stock/stock.ex; open defect issue 4764, task T-2239 adds it). The scenario is written for the target: the storekeeper sees "Quick count" in the navigation. If the entry or screen is missing or refused for the storekeeper, report that PRODUCT defect and do not move the step to the administrator. Four-eyes is ON for the quick count in this tenant (the opening approval is OFF); the result screen of step 5 therefore shows the second-person hint, never an Approve button for the counter; an Approve button for the counter is the defect of EO-004: do not press it, report it, and carry on with the cancel in step 8.
   - description: No formal count order is open on the chosen item's place and org unit, and the place is not frozen.
     check: system_seeded
     detail: If the submit is refused with a message about a count in progress or a frozen place, choose another place and report the refusal as a finding.
@@ -88,7 +95,7 @@ steps:
   - step: 8
     actor: storekeeper
     action: >
-      The storekeeper opens the stock documents screen, opens the quick count document by its number, presses "Cancel document", types the reason "UAT T-2165 cleanup" and confirms.
+      The storekeeper opens the stock documents screen, opens the quick count document by its number (it reads Issued), presses "Cancel document", types the reason text "UAT T-2165 cleanup" (the cancel dialog asks for a reason text only; an empty text is refused) and confirms.
     via: ui
   - step: 9
     actor: storekeeper

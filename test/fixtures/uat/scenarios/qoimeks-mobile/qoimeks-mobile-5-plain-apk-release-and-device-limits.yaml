@@ -8,9 +8,14 @@
 #   (d) Camera scan and voice in the app: need a device camera and microphone.
 #   (e) Which key signed the APK: the apksigner check is run by the release script on the build machine (docs/runbooks/mobile-android-release.md section 2); it is not visible in a browser. This scenario checks only the published files.
 #   The observable check for (a) to (d) is a person with an Android phone following docs/runbooks/mobile-android-release.md section 4 (install on a phone) by hand; the team does not run it, and this scenario does not claim it passed.
-# The download address is not in the repository: the operator (infra) gives it to the run. If none is given, the whole scenario is BLOCKED, not passed.
+# The download address is given by the operator (infra): https://pwa.letflow.qa.bizdala.com/android/. If it does not answer, the whole scenario is BLOCKED, not passed.
 # T-2192 rework (issue 4722; PM/infra 2026-11-19): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (browser/HTTP client only; no sign-in is needed for the release page); 3 host https://pwa.letflow.qa.bizdala.com/android/ ;
-# 4 data: no tenant data; the release files do not exist yet, so the scenario is BLOCKED-by-environment until the owner builds and publishes them; 5 browser and download steps; 6 uat.sh preflight not run by the writer (no QA credentials).
+# 4 data: no tenant data; the release files are published (read 2026-11-19), the scenario is BLOCKED-by-environment only if they stop answering; 5 browser and download steps; 6 uat.sh preflight not run by the writer (no QA credentials).
+# T-2264 code-reading pass (group check lines are in file 1 of this group). EXPECTATION CORRECTIONS in this file: 4.
+#   (1) the APK file name is no longer hard-coded: it is read from the url of latest.json and must have the form <prefix>-<versionName>-<versionCode>.apk with the record's own values (docs/runbooks/mobile-android-release.md, --name-prefix);
+#   (2) the release is published (latest.json, the APK and its checksum file answered 200 on 2026-11-19), so the "BLOCKED-by-environment until the owner builds it" statement is replaced by: BLOCKED only if latest.json or the APK does not answer;
+#   (3) the release notes are all empty strings today (issue 4772, next rebuild), so the notes check applies only when a note is not empty; empty notes are recorded, never failed;
+#   (4) the checksum file holds the hexadecimal value alone, the record's sha256 equals it: both read at run time.
 ---
 id: qoimeks-mobile-5-plain-apk-release-and-device-limits
 scope: qoimeks-qa2
@@ -21,7 +26,7 @@ tags: [qoimeks, mobile, apk, android, release, download, not_uat_observable]
 description: >
   A person opens the QA download location of the Letflow Android app in a browser (window 390 px wide, then 1440 px) and reads the release record file latest.json:
   the version code and version name, the address of the APK, its checksum, the minimum version code, the release notes in Russian, Kazakh and English, and the publish time (UTC).
-  They then download the APK that the record points to, compute its SHA-256 checksum, and compare it with the checksum in the record and in the file next to the APK (the file with the same name and the ending .sha256).
+  They then download the APK that the record points to (the file name is read from the record), compute its SHA-256 checksum, and compare it with the checksum in the record and in the file next to the APK (the file with the same name and the ending .sha256).
   They check that the address of the APK is https, that the file name carries the version name and version code of the record, and that the release record's notes read in the three languages without cut-off at the narrow window.
   Nothing is installed and nobody signs in: see the list in the header. Cleanup: the downloaded APK is deleted from the run's folder at the end; nothing on the tenant is changed.
 
@@ -29,12 +34,12 @@ actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
-  - description: The plain Android release is published at https://pwa.letflow.qa.bizdala.com/android/ (files qoimeks-qa-1.0.0-1.apk, qoimeks-qa-1.0.0-1.apk.sha256 and latest.json; the PWA itself is at https://pwa.letflow.qa.bizdala.com/) and is a build made after the G16 change (BLOCKED-by-environment until the owner builds and publishes it, issue 4722).
+  - description: The plain Android release is published at https://pwa.letflow.qa.bizdala.com/android/ (latest.json, the APK file whose name latest.json gives, and the same name with .sha256; the PWA itself is at https://pwa.letflow.qa.bizdala.com/) and is a build made after the G16 change (published on 2026-11-19; BLOCKED-by-environment only if the files do not answer, issue 4722).
     check: system_seeded
     detail: >-
       Precondition check, read-only: latest.json at https://pwa.letflow.qa.bizdala.com/android/latest.json answers 200, and the APK file name it gives answers 200.
       The files in release-out/ dated 2026-10-29 and 2026-10-30 are older than G16 and were built for the base address qoimeks-qa2.ai-dala.com: they are not a valid release for this scenario; a latest.json that names such a build, or one that does not answer, means BLOCKED-by-environment (name issue 4722).
-      The owner builds it by docs/runbooks/mobile-android-release.md section 2 with --base-url https://pwa.letflow.qa.bizdala.com/android/ --api-base-url https://qa.bizdala.com --platform-host qa.bizdala.com --first-release. Do not substitute another location and do not build the app in the run.
+      The owner builds a release by docs/runbooks/mobile-android-release.md section 2 with --base-url https://pwa.letflow.qa.bizdala.com/android/ --api-base-url https://qa.bizdala.com --platform-host qa.bizdala.com --first-release. Do not substitute another location and do not build the app in the run.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px, can download a file, and can compute a SHA-256 checksum of a downloaded file.
     check: system_seeded
     detail: If a file cannot be downloaded, report BLOCKED for steps 3 and 4.
@@ -76,7 +81,7 @@ expected_outcomes:
     description: The APK file name matches the record and the checksum matches the file.
     verification:
       method: file_content
-      detail: The file name in url is qoimeks-qa-1.0.0-1.apk (versionName 1.0.0, versionCode 1 of the first release; a later release changes the name to qoimeks-qa-<versionName>-<versionCode>.apk with the values of its record); the checksum file holds the same hexadecimal value as the record's sha256; the SHA-256 computed in step 3 equals that value.
+      detail: The file name is read from url (never hard-coded in the run) and has the form <prefix>-<versionName>-<versionCode>.apk with the versionName and versionCode of the same record, and the file answers 200; the checksum file holds the same hexadecimal value as the record's sha256; the SHA-256 computed in step 3 equals that value.
       evidence: The three checksum values side by side in the run's report.
     on_fail:
       severity: BLOCKER
@@ -86,7 +91,8 @@ expected_outcomes:
     description: The release notes read in three languages.
     verification:
       method: file_content
-      detail: The ru, kk and en notes are each non-empty text in their own language (the run reads them; the wording is not asserted); none holds a raw placeholder.
+      detail: >-
+        The run reads the ru, kk and en notes. A note that is not empty is text in its own language (the wording is not asserted) and holds no raw placeholder. A note that is empty is recorded as "no notes published" and is not a failure (the notes come with the next rebuild, issue 4772); the check applies only to notes that exist.
       evidence: The notes text in the run's report.
     on_fail:
       severity: MINOR
