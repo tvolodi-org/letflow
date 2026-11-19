@@ -1,0 +1,399 @@
+# T-2192 (PM 2026-11-19): the Qoimeks team's voice phrases (a draft, nothing recorded; demo catalog, no customer data).
+# Checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API typed-phrase route only (docs/runbooks/stock-voice.md);
+# 4 data: needs the demo catalog and places of the generator task T-2189 (option "voice demo"): BLOCKED-by-environment until merged and loaded;
+# the language model must be on: BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect, not counted against the group);
+# 5 HTTP steps only, every phrase literal; 6 uat.sh preflight not run by the writer (no QA credentials).
+# NOT UAT-observable: speech recognition (audio and keys). The expected result is the validated draft, not model accuracy.
+---
+id: qoimeks-voice-5-demo-phrases-ru-kk
+scope: qoimeks-qa
+title: The twenty demo phrases of the Qoimeks team in Russian and Kazakh give validated drafts and store nothing
+version: "1.0"
+tags: [qoimeks, voice, api, ru, kk, llm-on, blocked-by-keys, demo-catalog]
+
+description: >-
+  The administrator sends the twenty typed demo phrases of the Qoimeks team (ten Russian, ten Kazakh) to the typed-phrase route one by one and checks the kind, the item,
+  the quantity and the place of each draft against the demo catalog. No document or count is stored by any call.
+
+actors:
+  admin: actor-qoimeks-qa-admin
+
+preconditions:
+  - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
+    check: system_seeded
+    detail: >-
+      Check first: the answer of phrase ru-01 carries the notice llm_off when the model is off. Then report the whole scenario BLOCKED-by-keys (not a defect). Do not change settings.
+  - description: The demo catalog and places of the generator task T-2189 (option "voice demo") are loaded into qoimeks-qa.
+    check: system_seeded
+    detail: >-
+      Read-only check: the active items (all pages) include BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3 and CBL-3x2.5,
+      and the places include A-01, A-02, A-03, B-01, B-02, C-01 and RAMP, and do not include C-02 and D-03. Anything missing: report BLOCKED-by-environment and name T-2189. Do not create data.
+  - description: The stock module is installed and the voice typed-phrase route answers the administrator.
+    check: system_seeded
+    detail: If the route answers 404 for the stock module, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >-
+      The administrator reads the stock documents list and the count records list and notes the counts as D0 and C0.
+    via: api
+  - step: 2
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «приход, болт эм восемь на сорок, сто штук, на а один» with the language "ru". The answer is noted as ru-01.
+    via: api
+  - step: 3
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «выдал краску белую десять литров, две штуки» with the language "ru". The answer is noted as ru-02.
+    via: api
+  - step: 4
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «переместил шайбы плоские восемь, тридцать штук, из бэ два в цэ один» with the language "ru". The answer is noted as ru-03.
+    via: api
+  - step: 5
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «инвентаризация, кабель три на полтора, по факту сто двадцать метров, бэ один» with the language "ru". The answer is noted as ru-04.
+    via: api
+  - step: 6
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «приход гайки, пятьдесят штук, на а три» with the language "ru". The answer is noted as ru-05.
+    via: api
+  - step: 7
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «расход, бэ эл тэ эм десять шестьдесят, двенадцать штук, с а два» with the language "ru". The answer is noted as ru-06.
+    via: api
+  - step: 8
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «приход скотч упаковочный, двадцать четыре штуки, на цэ два» with the language "ru". The answer is noted as ru-07.
+    via: api
+  - step: 9
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «расход, перчатки рабочие, сорок пар, нет, не сорок, а четырнадцать, с а один» with the language "ru". The answer is noted as ru-08.
+    via: api
+  - step: 10
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «посмотри, сколько осталось саморезов» with the language "ru". The answer is noted as ru-09.
+    via: api
+  - step: 11
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «пересчитал саморезы по дереву, два с половиной килограмма, цэ один» with the language "ru". The answer is noted as ru-10.
+    via: api
+  - step: 12
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «кіріс, гайка эм сегіз, жүз дана, а бір» with the language "kk". The answer is noted as kk-01.
+    via: api
+  - step: 13
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «шығыс, болт эм сегіз қырық, жиырма дана, а бірден» with the language "kk". The answer is noted as kk-02.
+    via: api
+  - step: 14
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «ауыстырдым, шайба сегіз, елу дана, бэ екіден цэ бірге» with the language "kk". The answer is noted as kk-03.
+    via: api
+  - step: 15
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «түгендеу, сұр бояу, нөл, цэ бір» with the language "kk". The answer is noted as kk-04.
+    via: api
+  - step: 16
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «қабылдадым, кабель, жүз метр, бэ бір» with the language "kk". The answer is noted as kk-05.
+    via: api
+  - step: 17
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «бердім, қолғап, он жұп» with the language "kk". The answer is noted as kk-06.
+    via: api
+  - step: 18
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «кіріс, тэ а пэ е қырық сегіз, отыз дана, рампа» with the language "kk". The answer is noted as kk-07.
+    via: api
+  - step: 19
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «шығыс, шайба сегіз, он бес дана, дэ үш» with the language "kk". The answer is noted as kk-08.
+    via: api
+  - step: 20
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «санадым, гайка эм он, по факту қырық дана, бэ бір» with the language "kk". The answer is noted as kk-09.
+    via: api
+  - step: 21
+    actor: admin
+    action: >-
+      The administrator sends the typed phrase «гайка қанша қалды» with the language "kk". The answer is noted as kk-10.
+    via: api
+  - step: 22
+    actor: admin
+    action: >-
+      The administrator reads the stock documents list and the count records list again and notes the counts as D1 and C1.
+    via: api
+
+expected_outcomes:
+  - id: EO-002
+    description: >-
+      The phrase ru-01 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-01 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is BLT-M8-40; quantity is 100; the place is A-01.
+      evidence: Body of the answer ru-01.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: >-
+      The phrase ru-02 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-02 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is PNT-WH-10; quantity is 2; the place is empty (a place said that does not fit, or none said, is dropped).
+      evidence: Body of the answer ru-02.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: >-
+      The phrase ru-03 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-03 answers 200; the transcript equals the sent phrase; kind is "transfer"; the item is WSH-8; quantity is 30; the source place is B-02 and the target place is C-01.
+      evidence: Body of the answer ru-03.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: >-
+      The phrase ru-04 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-04 answers 200; the transcript equals the sent phrase; kind is "count"; the item is CBL-3x1.5; quantity is 120; the place is B-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer ru-04.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: >-
+      The phrase ru-05 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-05 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is NUT-M8 and NUT-M10 (the operator chooses); quantity is 50; the place is A-03.
+      evidence: Body of the answer ru-05.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: >-
+      The phrase ru-06 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-06 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is BLT-M10-60; quantity is 12; the place is A-02. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer ru-06.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: >-
+      The phrase ru-07 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-07 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is TAPE-48; quantity is 24; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer ru-07.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: >-
+      The phrase ru-08 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-08 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is GLV-L; quantity is 14; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome. The spoken correction (not forty but fourteen) is a known gap of the prompt: 14 is expected, 40 is recorded as the known gap.
+      evidence: Body of the answer ru-08.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-010
+    description: >-
+      The phrase ru-09 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-09 answers 200; the transcript equals the sent phrase; kind is "unknown"; the items list is empty; quantity is empty; the place is empty (a place said that does not fit, or none said, is dropped).
+      evidence: Body of the answer ru-09.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-011
+    description: >-
+      The phrase ru-10 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        ru-10 answers 200; the transcript equals the sent phrase; kind is "count"; the item is SCR-4-40; quantity is 2.5; the place is C-01.
+      evidence: Body of the answer ru-10.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-012
+    description: >-
+      The phrase kk-01 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-01 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is NUT-M8; quantity is 100; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-01.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-013
+    description: >-
+      The phrase kk-02 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-02 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is BLT-M8-40; quantity is 20; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-02.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-014
+    description: >-
+      The phrase kk-03 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-03 answers 200; the transcript equals the sent phrase; kind is "transfer"; the item is WSH-8; quantity is 50; the source place is B-02 and the target place is C-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-03.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-015
+    description: >-
+      The phrase kk-04 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-04 answers 200; the transcript equals the sent phrase; kind is "count"; the item is PNT-GR-3; quantity is 0; the place is C-01.
+      evidence: Body of the answer kk-04.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-016
+    description: >-
+      The phrase kk-05 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-05 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is CBL-3x2.5 and CBL-3x1.5 (the operator chooses); quantity is 100; the place is B-01.
+      evidence: Body of the answer kk-05.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-017
+    description: >-
+      The phrase kk-06 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-06 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is GLV-L; quantity is 10; the place is empty (a place said that does not fit, or none said, is dropped).
+      evidence: Body of the answer kk-06.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-018
+    description: >-
+      The phrase kk-07 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-07 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is TAPE-48; quantity is 30; the place is RAMP. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-07.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-019
+    description: >-
+      The phrase kk-08 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-08 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is WSH-8; quantity is 15; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-08.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-020
+    description: >-
+      The phrase kk-09 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-09 answers 200; the transcript equals the sent phrase; kind is "count"; the item is NUT-M10; quantity is 40; the place is B-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-09.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-021
+    description: >-
+      The phrase kk-10 gives the validated draft.
+    verification:
+      method: api_response
+      detail: >-
+        kk-10 answers 200; the transcript equals the sent phrase; kind is "unknown"; the items list is empty; quantity is empty; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
+      evidence: Body of the answer kk-10.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-022
+    description: >-
+      No phrase stores anything.
+    verification:
+      method: api_response
+      detail: >-
+        D1 equals D0 and C1 equals C0.
+      evidence: D0, D1, C0 and C1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A spoken phrase creates a document or count without the operator confirming it.
+      suggested_action: route_to_elixir_dev

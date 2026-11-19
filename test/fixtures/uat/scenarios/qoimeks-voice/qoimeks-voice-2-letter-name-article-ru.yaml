@@ -15,44 +15,39 @@
 # D-086); the prompt text itself (server-internal; tested in voice_prompt_test.exs VP-1..VP-5);
 # the mobile voice panel UI (Flutter app is not driven by the UAT runner). Desktop (1440 px) and phone (390 px)
 # widths produce the same API response; this is an API-only scenario.
+# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API route only (docs/runbooks/stock-voice.md);
+# 4 data: needs the demo catalog of T-2189 (code BLT-M10-60), BLOCKED-by-environment until loaded; the language model must be on, BLOCKED-by-keys until the owner
+# supplies the keys at O-015 (not a defect); 5 HTTP steps only, the phrase is pinned literally; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-voice-2-letter-name-article-ru
 scope: qoimeks-qa
-title: When the language model is on, a typed Russian phrase spelling a catalog article code letter by letter resolves to that article
-version: "1.0"
-tags: [qoimeks, voice, api, ru, letter-name, llm-on]
+title: When the language model is on, a typed Russian phrase that spells a catalog article code by letter names resolves to that article
+version: "1.1"
+tags: [qoimeks, voice, api, ru, letter-name, llm-on, blocked-by-keys]
 
 description: >
-  Qoimeks operators say an article code like "ST-EL350" letter by letter using Russian names of Latin letters:
-  "эс тэ е эл триста пятьдесят". The voice prompt now carries the letter-name table (REQ-862). The administrator
-  finds a catalog item whose article code uses only Latin uppercase letters, notes its code and its Russian
-  letter-name spelling, and sends that spelling as a typed phrase with the language hint "ru". The route resolves
-  it to the matching item. The same code with a small deliberate misspelling (one wrong letter) produces a
-  different or empty items list, showing that the match is based on the spelled code, not a loose name match.
+  Qoimeks operators say an article code letter by letter, using the Russian names of Latin letters. The voice prompt carries the
+  letter-name table (REQ-862). The administrator sends the pinned phrase below, which spells the article code BLT-M10-60 of the demo catalog
+  (бэ эл тэ эм десять шестьдесят), and the route resolves it to that article with the issue kind. The same phrase with one letter name changed
+  (тэ replaced by эс, giving the code BLS-M10-60) must not resolve to BLT-M10-60. The expected result is the validated draft, not model accuracy.
+  Needs the demo catalog of the generator task T-2189 (option "voice demo") and the language model.
 
 actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: >
-      The language-model step of the platform is on (LETFLOW_VOICE_LLM_* settings are set for this environment).
+  - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
     check: system_seeded
     detail: >
-      If the model step is off, every step that sends a phrase returns kind "unknown" with empty items (the
-      provider-off notice). Report BLOCKED for the whole scenario if the model step is off; the provider-off
-      path is covered by qoimeks-voice-1.
-  - description: >
-      The Qoimeks QA catalog has at least one active item (a catalog item or a SKU) whose article code is made up
-      of Latin uppercase letters and digits only, is at least 3 characters long, and can be spelled in Russian using
-      the letter-name table (а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M,
-      эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, икс X, зэт Z). Note this code as ITEM_CODE and
-      its full Russian letter-name spelling as ITEM_SPELLED.
+      Check first: send the pinned phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-keys
+      (not a defect, not counted against the group). Do not change settings.
+  - description: The demo catalog of the generator task T-2189 (option "voice demo") is loaded into qoimeks-qa (BLOCKED-by-environment until that task has merged and the data is loaded, issue 4718).
     check: system_seeded
     detail: >
-      If no such item exists in the active catalog, report BLOCKED; the letter-name test requires at least one
-      such article.
-  - description: >
-      The stock module is installed and the voice draft-text route is reachable by the administrator's token.
+      Read-only check: the active items of the tenant, all pages, include an item with the code BLT-M10-60 (a code with Latin letters, digits and hyphens;
+      the synthetic generator alone writes digits-only codes 0001 to 0666 and cannot serve this scenario) and no item with the code BLS-M10-60.
+      If BLT-M10-60 is absent report BLOCKED-by-environment and name T-2189. Do not create the item.
+  - description: The stock module is installed and the voice typed-phrase route answers the administrator.
     check: system_seeded
     detail: If the route answers 404 for the stock module, report BLOCKED.
 
@@ -60,55 +55,40 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator looks up the active catalog of the Qoimeks QA tenant and identifies ITEM_CODE (an article
-      code made of Latin uppercase letters and digits) and ITEM_SPELLED (the Russian letter-name spelling of ITEM_CODE:
-      each letter replaced by its Russian name from the table а A, бэ B, цэ C / си C, дэ D, е E, эф F, гэ/жэ G,
-      аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у У, вэ V, икс X, зэт Z; digits
-      spoken in full Russian words). The result is noted as ITEM_CODE and ITEM_SPELLED.
+      The administrator reads the active catalog of the tenant (all pages) and notes that the item BLT-M10-60 exists and that BLS-M10-60 does not.
     via: api
   - step: 2
     actor: admin
     action: >
-      The administrator sends the typed phrase "получил ITEM_SPELLED сто штук" (replacing ITEM_SPELLED with the
-      actual spelling) with the language "ru". The answer is noted as V1.
+      The administrator sends the typed phrase «расход, бэ эл тэ эм десять шестьдесят, двенадцать штук, с а два» with the language "ru". The answer is noted as V1.
     via: api
   - step: 3
     actor: admin
     action: >
-      The administrator constructs ITEM_MISSPELLED by replacing one letter of ITEM_SPELLED with a name from the table
-      that does not appear in ITEM_CODE (for example replacing "эс" with "эм" if ITEM_CODE has S but not M), and sends
-      the phrase "получил ITEM_MISSPELLED сто штук" with the language "ru". The answer is noted as V2.
+      The administrator sends the typed phrase «расход, бэ эл эс эм десять шестьдесят, двенадцать штук, с а два» (one letter name changed) with the language "ru". The answer is noted as V2.
     via: api
 
 expected_outcomes:
   - id: EO-001
-    description: The letter-name spelling of the article code resolves to the catalog item.
+    description: The letter-name spelling resolves to the catalog article.
     verification:
       method: api_response
       detail: >
-        V1 answers 200 with kind "receipt" (получил is the receipt kind word from REQ-862) and the items list
-        contains ITEM_CODE. The transcript equals the sent phrase. The location fields may be null (no location
-        was said); dropped is empty.
-      evidence: V1 body, with ITEM_CODE and the Russian spelling shown.
+        V1 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the items list holds exactly the item BLT-M10-60 with quantity 12.
+        The location is expected to be A-02 (marked "verify" by the Qoimeks team: a different or empty location is recorded as an observation and is not a failure of this outcome).
+      evidence: V1 body.
     on_fail:
       severity: MAJOR
-      business_impact: >
-        Qoimeks operators who say an article letter by letter get no match, and the voice input does not fill
-        the form, forcing manual entry for every spelled code.
+      business_impact: Operators who say an article letter by letter get no match, and the voice input does not fill the form.
       suggested_action: route_to_elixir_dev
   - id: EO-002
-    description: >
-      A phrase with one letter substituted that makes the code no longer match any catalog item does not return
-      ITEM_CODE in the items list.
+    description: A phrase with one changed letter name does not resolve to the original article.
     verification:
       method: api_response
       detail: >
-        V2 answers 200; the items list does not contain ITEM_CODE. (It may contain a different item if the
-        misspelled code matches one; that is acceptable.) This confirms that the model uses the spelled code, not
-        a loose name match that ignores letter names.
+        V2 answers 200; the items list does not contain BLT-M10-60 (it may be empty or hold another item, and no item BLS-M10-60 exists to match).
       evidence: V2 body.
     on_fail:
       severity: MINOR
-      business_impact: >
-        A misspelled article is returned as a match, and the operator gets the wrong item pre-filled.
+      business_impact: A misspelled article is pre-filled as another article.
       suggested_action: route_to_elixir_dev

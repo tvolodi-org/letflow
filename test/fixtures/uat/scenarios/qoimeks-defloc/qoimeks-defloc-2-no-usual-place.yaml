@@ -11,6 +11,16 @@
 # Second place, stock-document prefill and voice use are withdrawn by REQ-841/844/845.
 # 390 px is a browser check, not native mobile/APK evidence.
 # No approval, pay/release, user change or real sensitive data; other-company refusal in scenario 3.
+# T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 3 Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
+#   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
+#   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
+# 4 Data: all 666 synthetic items have no usual place, so the item this scenario needs exists; the precondition checks it.
+# 5 Executable: browser steps only; the data check is read-only.
+# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-2-no-usual-place
 scope: qoimeks-qa
@@ -50,7 +60,7 @@ steps:
   - step: 2
     actor: admin
     action: >
-      Read Overview and capture the article code, name and usual-place field. Read the
+      Read the section «Обзор» (Russian) or «Шолу» (Kazakh) and capture the article code, name and usual-place field. Read the
       view-only notice and the link to import; leave the item unchanged.
     via: ui
   - step: 3
@@ -67,7 +77,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Overview shows the matching item's code and name and an em dash under Обычное место
+        The section «Обзор» (Russian) or «Шолу» (Kazakh) shows the matching item's code and name and an em dash under Обычное место
         in Russian or Әдеттегі орын in Kazakh. No place is invented, no internal identifier
         appears, and no whole-card error replaces the item. Reload and reopen preserve the dash.
       evidence: Empty-assignment evidence and initial/reopened card screenshots in every display combination.
