@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | issue, write_off, kind_change_out | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
   | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
-  | count_set (REQ-854) | exactly one of the two | exactly one of the two | 1 to 1000 lines, `+q` at `to` or `-q` at `from`; each line carries `expected_on_hand` (text, at least 0, 9 decimals), which the leg keeps (REQ-853). REQ-854 uses one line; REQ-885 (workbook load) uses one line per change, up to 1000 |
+  | count_set (REQ-854) | exactly one of the two | exactly one of the two | 1 to 1000 lines, `+q` at `to` or `-q` at `from`; each line carries `expected_on_hand` (text, 9 decimals, may be negative: decision 0090), which the leg keeps (REQ-853). REQ-854 uses one line; REQ-885 (workbook load) uses one line per change, up to 1000 |
 
   The two legs of a line come from one `sku`, `lot`, `unit` and `quantity`: that keeps the lot and unit
   conservation that the sign rule `zero_sum_by_slot_1` (per sku) does not check. The key is
@@ -208,10 +208,9 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   # REQ-854: a `count_set` line carries the book quantity it was counted against (REQ-853 compare
   # and set); every other cause carries none (a key there is a malformed line).
   defp expected_on_hand("count_set", text) do
-    with {:ok, value} <- ok(Policy.decimal(text, 9)),
-         true <- not Decimal.lt?(value, 0) do
-      {:ok, value}
-    else
+    # the book may be negative (decision 0090, T-2288)
+    case ok(Policy.decimal(text, 9)) do
+      {:ok, value} -> {:ok, value}
       _ -> :error
     end
   end
