@@ -9,6 +9,7 @@ import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
+import { accessState } from '@/auth/access/fixtures'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { wbEn, wbRu, wbKk } from '../workbook/workbookMessages'
 import { stockRouteObjects } from '../stockRoutes'
@@ -26,16 +27,19 @@ vi.mock('@/api/client', async (importOriginal) => ({
 
 const withQC: AccessState = {
   status: 'ready',
-  info: { roles: [], platform_tenant: false, permissions: ['StockQuickCount', 'StockRead'] },
+  info: { roles: [], platform_tenant: false, permissions: ['StockWorkbookApply', 'StockRead'] },
 }
 const withQCAndReverse: AccessState = {
   status: 'ready',
-  info: { roles: [], platform_tenant: false, permissions: ['StockQuickCount', 'StockRead', 'StockReverse'] },
+  info: { roles: [], platform_tenant: false, permissions: ['StockWorkbookApply', 'StockRead', 'StockReverse'] },
 }
 const withoutQC: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['StockRead'] },
 }
+
+/** The storekeeper fixture (T-2239): counts (StockQuickCount) but does not load the Excel balances. */
+const storekeeper: AccessState = accessState('storekeeper')
 
 const WB_PATH = '/admin/stock/workbook-import'
 const DOC_ID = 'wb-doc-1'
@@ -172,25 +176,36 @@ async function setupAndCheck(opts: Parameters<typeof checkResult>[0] = {}, acces
 
 /** C1: access guard. */
 describe('C1 access', () => {
-  it('shows the workbook import screen with StockQuickCount', async () => {
+  it('shows the workbook import screen with StockWorkbookApply', async () => {
     renderWB(withQC)
     await waitFor(() => expect(screen.getByText(wbEn['stock.wb.title'])).toBeInTheDocument())
   })
 
-  it('shows forbidden page without StockQuickCount', async () => {
+  it('shows forbidden page without StockWorkbookApply', async () => {
     renderWB(withoutQC)
+    await waitFor(() => expect(screen.queryByText(wbEn['stock.wb.title'])).not.toBeInTheDocument())
+  })
+
+  it('T-2239 a storekeeper (StockQuickCount, no StockWorkbookApply) is refused the load screen', async () => {
+    renderWB(storekeeper)
     await waitFor(() => expect(screen.queryByText(wbEn['stock.wb.title'])).not.toBeInTheDocument())
   })
 })
 
-/** C1 BalancesPage: the Load from Excel button is shown to StockQuickCount users and hidden otherwise. */
+/** C1 BalancesPage: the Load from Excel button is shown to StockWorkbookApply users and hidden otherwise. */
 describe('C1 BalancesPage link', () => {
-  it('shows wb-import-link with StockQuickCount', async () => {
+  it('shows wb-import-link with StockWorkbookApply', async () => {
     renderBAL(withQC)
     await waitFor(() => expect(screen.getByTestId('wb-import-link')).toBeInTheDocument())
   })
 
-  it('hides wb-import-link without StockQuickCount', async () => {
+  it('T-2239 hides wb-import-link for a storekeeper who holds StockQuickCount only', async () => {
+    renderBAL(storekeeper)
+    await waitFor(() => expect(screen.getByText('Balances')).toBeInTheDocument())
+    expect(screen.queryByTestId('wb-import-link')).not.toBeInTheDocument()
+  })
+
+  it('hides wb-import-link without StockWorkbookApply', async () => {
     renderBAL(withoutQC)
     // Wait for the page title to confirm the page has mounted, then check the button is absent
     await waitFor(() => expect(screen.getByText('Balances')).toBeInTheDocument())

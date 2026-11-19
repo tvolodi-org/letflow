@@ -26,7 +26,7 @@ defmodule Letflow.Modules.Codes do
 
   The types are declared in `manages_entity_types`, so after install the generic entity routes answer
   403 `entity_type_managed`. The write routes (GH #3611 / REQ-667, version 0.2.0, `Letflow.Modules.Codes.Router`) are gated by the module
-  permission `:CodesWrite`; no role grants (only TENANT_ADMIN and PLATFORM_ADMIN hold it). The write functions are in
+  permission `:CodesWrite`; only TENANT_ADMIN and PLATFORM_ADMIN hold it. The write functions are in
   `Letflow.Modules.Codes.Writes` (GH #3615 / REQ-663): `receive_codes/3` (bulk, at most 1000 entries,
   UAT assumption), `assign_code/5` (targets `location_node`, `catalog_item`, `catalog_lot`),
   `release_code/3`, `retire_code/3` and `change_code_value/4`. The routes call them.
@@ -39,6 +39,15 @@ defmodule Letflow.Modules.Codes do
   `not_assigned` code and one `code.received` audit entry as `receive_codes/3` does; the same value with the
   same kind is unchanged; the same value with another kind is `value_taken`; a `status` cell is
   `field_not_allowed`. `code_value_change` has no import.
+
+  ## Scan on the phone (T-2239, GH #4764, version 0.7.0)
+
+  `:CodesRead` (the scan resolve `POST /resolve` and the label print `POST /labels`) is granted to STOREKEEPER:
+  the mobile count and document forms resolve every scan through it, and a storekeeper got 403 on each. PM
+  decision D-161 (it follows the owner's parity rule D-150); a baseline-role widening is refused by
+  `mix letflow.permission_matrix` (decision 0055 D7) except the signed `grants_widening` entry below, exactly
+  `{STOREKEEPER, CodesRead}` at 0.7.0. `:CodesWrite` stays with the administrators. The storekeeper may therefore
+  also print labels (`POST /labels`); that is accepted.
 
   ## Assignment import (G12 part 2, GH #4568 / REQ-851, version 0.6.0)
 
@@ -91,14 +100,16 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.6.0",
+    version: "0.7.0",
     # REQ-770: step-less module, every version since 0.1.0 differs only in permissions and routes
-    # (entity types and pack.json are unchanged), so any 0.1.0..0.6.0 install upgrades in place (T-1485).
+    # (entity types and pack.json are unchanged), so any 0.1.0..0.7.0 install upgrades in place (T-1485).
     min_upgradable_from: "0.1.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
     permissions: [:CodesWrite, :CodesRead],
-    role_grants: %{},
+    role_grants: %{STOREKEEPER: [:CodesRead]},
+    # T-2239 / D-161 (decision 0055 D7 amendment): the one signed widening of a baseline role in this version.
+    grants_widening: [{:STOREKEEPER, :CodesRead, "0.7.0", "D-161"}],
     required_roles: [],
     settings_schema: nil,
     route_policies: [

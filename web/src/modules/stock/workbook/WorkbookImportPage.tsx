@@ -1,6 +1,6 @@
 /** WorkbookImportPage — REQ-887. Screen 'Загрузка остатков из Excel': check a Qoimeks-layout workbook,
  *  show the Russian remarks and the differences, write the balances from the file, list the loads and cancel one.
- *  Route: admin/stock/workbook-import. Permission guard: StockQuickCount. */
+ *  Route: admin/stock/workbook-import. Permission guard: StockWorkbookApply (T-2239). */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'

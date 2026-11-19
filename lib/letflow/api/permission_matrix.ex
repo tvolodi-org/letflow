@@ -21,6 +21,11 @@ defmodule Letflow.Api.PermissionMatrix do
       against the computed matrix. A widening contributed by a module
       manifest fails with no override; a narrowing must be matched exactly by
       a `widens_grants` declaration; a core change is reported for review.
+      The one exception to the refusal of a widening of a role already in the
+      baseline is a signed widening (`signed_widening/6`, manifest key
+      `grants_widening`, decision 0055 D7 amendment, D-161): an exact
+      `{role, permission, module version, decision}` entry in the owner's
+      manifest; it is reported as a core change (SECURITY-REVIEWER banner).
 
   A row's `via` is `:core` when it is true without any `Catalog.role_grants/1`
   contribution (`Authorization.role_allows_without_module_grants?/2`),
@@ -87,6 +92,11 @@ defmodule Letflow.Api.PermissionMatrix do
           core_policy_atoms: MapSet.t(perm_name()),
           route_refs: %{perm_name() => [module_id()]},
           declarations: %{module_id() => [{role_name(), perm_name()}]},
+          signed_widenings: %{
+            module_id() => [
+              {role_name(), perm_name(), version :: String.t(), decision :: String.t()}
+            ]
+          },
           module_dirs_present: MapSet.t(module_id())
         }
   @type row_ref :: {role_name(), perm_name()}
@@ -104,8 +114,10 @@ defmodule Letflow.Api.PermissionMatrix do
           | {:module_unregistered_but_present, module_id()}
           | {:unmatched_declaration, module_id(), role_name(), perm_name()}
           | {:declaration_authorises_widening, module_id(), role_name(), perm_name()}
+          | {:unmatched_signed_widening, module_id(), role_name(), perm_name()}
   @type core_change ::
           {:added, role_name(), perm_name()}
+          | {:signed_widening, role_name(), perm_name(), module_id(), decision :: String.t()}
           | {:removed, role_name(), perm_name()}
           | {:owner_changed, perm_name(), owner(), owner()}
           | {:module_removed, module_id()}
@@ -255,10 +267,26 @@ defmodule Letflow.Api.PermissionMatrix do
         {manifest.id, entries}
       end)
 
+    # T-2239 / D-161: the signed exceptions to the baseline-role widening refusal (`grants_widening`).
+    # Only well-formed `{role, permission, version, decision}` entries count (Catalog.validate/1
+    # reports the rest); anything else stays a plain refused widening.
+    signed_widenings =
+      Map.new(manifests, fn manifest ->
+        entries =
+          for {role, permission, version, decision} <-
+                declared_list(Map.get(manifest, :grants_widening, [])),
+              is_atom(role) and is_atom(permission) and is_binary(version) and
+                is_binary(decision),
+              do: {Atom.to_string(role), Atom.to_string(permission), version, decision}
+
+        {manifest.id, entries}
+      end)
+
     %{
       core_policy_atoms: MapSet.new(Authorization.core_permissions(), &Atom.to_string/1),
       route_refs: route_refs,
       declarations: declarations,
+      signed_widenings: signed_widenings,
       module_dirs_present: module_dirs_present
     }
   end
@@ -635,10 +663,15 @@ defmodule Letflow.Api.PermissionMatrix do
         # "widened"; every row it gains is reported as a core change for the
         # mandatory security review. A role already in the baseline keeps every rule.
         classified =
-          if role in baseline.roles do
-            classify_added(role, perm, row, baseline_atoms, ctx)
-          else
-            {:core_change, {:added_new_role, role, perm}}
+          cond do
+            role not in baseline.roles ->
+              {:core_change, {:added_new_role, role, perm}}
+
+            signed = signed_widening(role, perm, row, evaluated, computed, ctx) ->
+              {:core_change, signed}
+
+            true ->
+              classify_added(role, perm, row, baseline_atoms, ctx)
           end
 
         case classified do
@@ -703,6 +736,21 @@ defmodule Letflow.Api.PermissionMatrix do
         end
       end)
 
+    # Step 6b (T-2239 / D-161): a signed widening (`grants_widening`) of an evaluated module at its
+    # declared version that matches no added row is a stale or wrong declaration: it fails.
+    signed_matched =
+      for {:signed_widening, role, perm, id, _decision} <- step3.core_changes,
+          into: MapSet.new(),
+          do: {id, role, perm}
+
+    unmatched_signed =
+      for {id, entries} <- Enum.sort(ctx_signed_widenings(ctx)),
+          MapSet.member?(evaluated, id),
+          {role, perm, version, _decision} <- entries,
+          Map.get(computed.modules, id) == version,
+          not MapSet.member?(signed_matched, {id, role, perm}),
+          do: {:unmatched_signed_widening, id, role, perm}
+
     # Step 7: every module narrowing not matched by a declaration fails.
     matched_set = MapSet.new(step6.matched)
 
@@ -735,9 +783,38 @@ defmodule Letflow.Api.PermissionMatrix do
       narrowings: narrowings,
       core_changes: core_changes,
       inert_declarations: sorted_unique(step6.inert),
-      failures: sorted_unique(step3.failures ++ step4.failures ++ step6.failures ++ unmatched)
+      failures:
+        sorted_unique(
+          step3.failures ++ step4.failures ++ step6.failures ++ unmatched ++ unmatched_signed
+        )
     }
   end
+
+  defp ctx_signed_widenings(ctx), do: Map.get(ctx, :signed_widenings, %{})
+
+  # T-2239 / D-161, the ONLY exception to the refusal of a role_grants widening of a role already in the
+  # baseline (decision 0055 D7, amended): an exact {role, permission} pair, declared in the manifest key
+  # `grants_widening` of the module that OWNS the permission, at that module's current version, with the
+  # decision number. Anything else (another pair, another version, a core-policy atom, a grant by a module
+  # that does not own the atom) stays refused by `classify_added/5`. Reported as a core change, so the
+  # SECURITY-REVIEWER banner still fires.
+  defp signed_widening(role, perm, %{via: :grant, owner: {:module, id}}, evaluated, computed, ctx) do
+    version = Map.get(computed.modules, id)
+
+    with true <- MapSet.member?(evaluated, id),
+         false <- MapSet.member?(ctx.core_policy_atoms, perm),
+         {_role, _perm, _version, decision} <-
+           Enum.find(
+             Map.get(ctx_signed_widenings(ctx), id, []),
+             &match?({^role, ^perm, ^version, _decision}, &1)
+           ) do
+      {:signed_widening, role, perm, id, decision}
+    else
+      _ -> nil
+    end
+  end
+
+  defp signed_widening(_role, _perm, _row, _evaluated, _computed, _ctx), do: nil
 
   defp empty_report do
     %{
@@ -1140,6 +1217,10 @@ defmodule Letflow.Api.PermissionMatrix do
   end
 
   defp format_core_change({:added, r, p}), do: "added #{r} #{p}"
+
+  defp format_core_change({:signed_widening, r, p, id, decision}),
+    do: "added #{r} #{p} by a signed widening (module #{id} grants_widening, #{decision})"
+
   defp format_core_change({:removed, r, p}), do: "removed #{r} #{p}"
   defp format_core_change({:added_new_role, r, p}), do: "added (new role) #{r} #{p}"
 
@@ -1185,7 +1266,7 @@ defmodule Letflow.Api.PermissionMatrix do
 
   def describe({:widening, r, p, reason}),
     do:
-      "widening refused (#{reason}): #{r} gains #{p}; no override until per-tenant grant snapshots exist"
+      "widening refused (#{reason}): #{r} gains #{p}; no override until per-tenant grant snapshots exist, except a signed grants_widening entry (0055 D7, D-161)"
 
   def describe({:unmatched_narrowing, r, p, id}),
     do: "unmatched narrowing: #{r} loses #{p} (module #{id}) without an exact widens_grants entry"
@@ -1202,6 +1283,11 @@ defmodule Letflow.Api.PermissionMatrix do
   def describe({:declaration_authorises_widening, id, r, p}),
     do:
       "widens_grants entry {#{r}, #{p}} of module #{id} names a WIDENING row; widening is refused, not signed off"
+
+  def describe({:unmatched_signed_widening, id, r, p}),
+    do:
+      "grants_widening entry {#{r}, #{p}} of module #{id} matches no widening row of this version " <>
+        "(clear it, or fix the role, permission or version)"
 
   def describe({:golden_stale, %{added: added, removed: removed, header: header}}) do
     lines =

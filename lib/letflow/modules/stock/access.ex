@@ -21,18 +21,19 @@ defmodule Letflow.Modules.Stock.Access do
   alias Letflow.Modules.Stock.Documents.Kinds
 
   @doc "The permission each purpose needs (the ledger registration names the same atoms)."
-  @spec permission(:read | :post | :reverse | :quick_count) :: atom()
+  @spec permission(:read | :post | :reverse | :quick_count | :workbook_apply) :: atom()
   def permission(:read), do: :StockRead
   def permission(:post), do: :StockPost
   def permission(:reverse), do: :StockReverse
   def permission(:quick_count), do: :StockQuickCount
+  def permission(:workbook_apply), do: :StockWorkbookApply
 
   @doc """
   `:read` is tenant-wide only. `:post` and `:reverse` (REQ-831) also accept a scoped principal: the
   answer then carries `scope: {:nodes, ids}` and the router checks every org unit of the document
   against it; a tenant-wide principal gets `scope: :all`.
   """
-  @spec check(Plug.Conn.t(), :read | :post | :reverse | :quick_count) ::
+  @spec check(Plug.Conn.t(), :read | :post | :reverse | :quick_count | :workbook_apply) ::
           {:ok,
            %{
              required(:prefix) => String.t(),
@@ -46,6 +47,10 @@ defmodule Letflow.Modules.Stock.Access do
   # principal or an API token gets the same 404 as a tenant without the module).
   def check(%Plug.Conn{} = conn, :quick_count),
     do: ModuleGuard.check(conn, permission(:quick_count))
+
+  # T-2239: the Excel load is a quick count written from a workbook; same tenant-wide rule, its own permission.
+  def check(%Plug.Conn{} = conn, :workbook_apply),
+    do: ModuleGuard.check(conn, permission(:workbook_apply))
 
   def check(%Plug.Conn{} = conn, purpose) when purpose in [:post, :reverse],
     do: ModuleGuard.check_scoped(conn, permission(purpose))

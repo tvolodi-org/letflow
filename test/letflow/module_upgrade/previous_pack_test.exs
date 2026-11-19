@@ -43,9 +43,9 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
     {"assets", "0.28.0", "assets_0_28_0.json", "0.30.0"},
     {"catalog_items", "0.2.0", "catalog_items_0_2_0.json", "0.5.0"},
     {"locations", "0.4.0", "locations_0_4_0.json", "0.5.0"},
-    {"stock", "0.10.0", "stock_0_10_0.json", "0.21.0"},
-    {"stock", "0.14.0", "stock_0_14_0.json", "0.21.0"},
-    {"codes", "0.3.0", "codes_0_3_0.json", "0.6.0"},
+    {"stock", "0.10.0", "stock_0_10_0.json", "0.22.0"},
+    {"stock", "0.14.0", "stock_0_14_0.json", "0.22.0"},
+    {"codes", "0.3.0", "codes_0_3_0.json", "0.7.0"},
     {"org", "0.2.0", "org_0_2_0.json", "0.3.0"}
   ]
 
@@ -54,10 +54,10 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   @tested %{
     "assets" => "0.30.0",
     "catalog_items" => "0.5.0",
-    "codes" => "0.6.0",
+    "codes" => "0.7.0",
     "locations" => "0.5.0",
     "org" => "0.3.0",
-    "stock" => "0.21.0",
+    "stock" => "0.22.0",
     "exam" => "0.1.0",
     "mes_core" => "0.1.0",
     "procurement" => "0.1.0"

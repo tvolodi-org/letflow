@@ -160,7 +160,7 @@ defmodule Letflow.Modules.Codes.ImportAssignmentTest do
   describe "A1 registration" do
     test "code_assignment has an import function; pack.json is the generated one" do
       assert Catalog.import_function("codes", "code_assignment") == :ok
-      assert Codes.manifest().version == "0.6.0"
+      assert Codes.manifest().version == "0.7.0"
 
       assert {"codes", "code_assignment"} in Enum.map(
                Codes.manifest().import_functions,

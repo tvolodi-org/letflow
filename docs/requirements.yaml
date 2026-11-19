@@ -57767,3 +57767,391 @@ requirements:
       - "5. i18n: every new message id exists in en, ru and kk in web/src/modules/stock/stockMessages.ts and npm run check passes."
       - "6. Screenshots: the full matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) for the states 'checked with masters lists', 'masters not writable' and 'items and places loaded', with STATE-TABLE.md in the task folder and a harness fixture per state."
     depends_on: [REQ-891, REQ-889]
+  - id: REQ-893
+    title: "CMMS slice 1 part 1: module maintenance skeleton behind a release flag that is off by default, with the work request and work order record types linked to one asset card and the document types WR and WO, no permission and no role grant"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4807
+    # Source: task T-2280 (PM go 2026-11-19, D-162) and docs/cmms/scope-draft.md (sections 3, 4, 7 slice 1, 8, 9), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/mes_core/mes_core.ex (an empty module shell, the skeleton precedent), lib/letflow/modules/assets/assets.ex (depends_on, @document_types with numbering_scope :year and number_pad 6, scope_declarations {:column, "org_unit_id"} for assets_card, on_install calling Letflow.Documents.register_type/3), lib/letflow/modules/codes/codes.ex (on_install through Letflow.Modules.EntityActivation), lib/letflow/modules/installs.ex (install/3, {:error, :unknown_module}), lib/letflow/routers/tenant_modules.ex (unknown_module -> 404), lib/letflow/documents.ex (register_type/3, number_label/3), lib/letflow/modules/read_api.ex (lookup/3), config/config.exs (:modules list, flags such as :modules_uninstall_enabled false), docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D7 (a new module atom adds only the PLATFORM_ADMIN and TENANT_ADMIN rows; a role_grants widening is refused until per-tenant grant snapshots exist), docs/design/per-tenant-grant-snapshots.md, docs/roles.md, test/letflow/modules/mes_core/registration_test.exs.
+    description: >
+      Why. CMMS slice 1 of docs/cmms/scope-draft.md (size M; PM go D-162, task T-2280): a work request
+      reports a fault on one asset card, a work order is made from it (or directly) for one asset card, and
+      the order has a short life (open, in work, done, closed). Slice 1 is split into eight parts, smallest
+      first, each one change: REQ-893 this skeleton (S); REQ-894 work requests (S); REQ-895 photos on a work
+      request (S); REQ-896 work orders and their process (M); REQ-897 the done and close record of an order
+      (S); REQ-898 web work request screens (M); REQ-899 web work order screens and My work orders (M);
+      REQ-900 My work orders on the phone app and its PWA (S). Who benefits from this part: nobody directly;
+      it is the base of the seven others.
+      What. (1) Module maintenance, Letflow.Modules.Maintenance in
+      lib/letflow/modules/maintenance/maintenance.ex (planned, not yet on main), version 0.1.0, depends_on
+      ["assets"], pack priv/modules/maintenance/pack.json (planned, not yet on main) generated from its
+      entity_definitions the way priv/modules/assets/generate_pack.exs generates the assets pack,
+      permissions [], role_grants %{}, required_roles [], route_policies [] (no route in this part), listed in
+      the :modules list of config/config.exs and of config/test.exs right after Letflow.Modules.MesCore.
+      (2) Release flag. config :letflow, :maintenance_enabled, false in config/config.exs; true only in
+      config/test.exs; read only by Letflow.Modules.Maintenance.enabled?/0; no environment variable and no
+      runtime.exs line. While it is false, Letflow.Modules.Installs.install/3 of "maintenance" answers
+      {:error, :unknown_module} before anything is written, so POST /api/v1/tenant/modules answers the same
+      404 as for an unknown module id; every route the later parts add answers 404 in every tenant, an
+      installed one included. Turning it on installs nothing anywhere: the module is installed per tenant
+      only on request, by a holder of ModulesManage, as every module.
+      (3) Two module-managed record types (manages_entity_types), field types from the closed list of
+      lib/letflow/entities/definition/validator.ex. maintenance_work_request: asset_card_id (string,
+      required), org_unit_id (string, required, the card's org unit copied at create), description (string,
+      required, 1 to 2000 characters, UAT assumption, to be confirmed by the process owner), urgency (enum
+      low, normal, urgent, required; UAT assumption, to be confirmed by the process owner), status (enum new,
+      ordered, rejected, required), reported_by (string, required, a user id), reject_reason (string,
+      optional), order_id (string, optional), document_id (string, required). maintenance_work_order:
+      asset_card_id, org_unit_id, description and urgency as above, request_id (string, optional, a foreign
+      key onto maintenance_work_request promoted at install, as a line's header_id in
+      docs/assets/asset-workflow-documents.md section 1.3), document_id (string, required), instance_id
+      (string, required), work_done (string, optional), done_by (string, optional), done_at (datetime,
+      optional), closed_by (string, optional), closed_at (datetime, optional). The order has no stored status
+      field: its status is derived from its process tasks (REQ-896). asset_card_id is a declarative record
+      id checked in code through Letflow.Modules.ReadApi.lookup/3 with the type list ["assets_card"], never a
+      foreign key (decision 0076; the rule as quoted in docs/assets/asset-workflow-documents.md section 1.3).
+      scope_declarations {:column, "org_unit_id"} for both types, as for assets_card in
+      lib/letflow/modules/assets/assets.ex.
+      (4) Two document types, declared like the @document_types of lib/letflow/modules/assets/assets.ex and
+      registered at install through Letflow.Documents.register_type/3: maintenance_request (number_prefix WR)
+      and maintenance_order (number_prefix WO), owner_module maintenance, numbering_scope :year, number_pad
+      6, legal_entity_required false, declared_fields %{}. The printed number is
+      Letflow.Documents.number_label/3, for example WR-2026-000001. The prefixes WR and WO are the PM's
+      (task T-2280); the pad 6 and the yearly scope copy the asset document types.
+      (5) on_install activates the two types through Letflow.Modules.EntityActivation inside the install
+      transaction, maintenance_work_request first (the order's foreign key needs its table), then registers
+      the two document types. (6) docs/roles.md gets a section for module maintenance: no permission and no
+      role grant in this part.
+      Open points of the scope draft, answered or parked for slice 1. (O1, Q1) First user: not known; slice 1
+      is built for any tenant that has the assets module and asks for it; slices 6 to 9 wait for a real
+      maintenance team (parked to the owner). (O2, Q5) Technician role: slice 1 creates no role and grants no
+      maintenance permission to any role; only the two administrator catch-alls hold the atoms of REQ-894
+      (decision 0055 D7: those two rows are the pre-approved diff; any other grant of a new module atom is a
+      widening refused until per-tenant grant snapshots exist, docs/design/per-tenant-grant-snapshots.md). A
+      technician is any user of the tenant holding TASK_WORKER: the work is a process task addressed to that
+      user (REQ-896), which TASK_WORKER reads and completes with the core task permissions it already holds
+      (docs/roles.md, TASK_WORKER), so no new grant is needed in slice 1. Proposal for a later requirement,
+      not built here and to be confirmed by the owner: TASK_WORKER gets MaintenanceRequestCreate (report a
+      fault); PROCESS_OPERATOR gets MaintenanceRead and MaintenanceOrderManage (the planner); TENANT_AUDITOR
+      gets MaintenanceRead; STOREKEEPER gets nothing until spare parts (slice 4); delivered per tenant,
+      through the per-tenant snapshots of docs/design/per-tenant-grant-snapshots.md or an overlay switched on
+      by the tenant administrator like the storekeeper asset grant (decision 0084), never as a role_grants
+      widening. Until then the planner and the requester of slice 1 are users holding TENANT_ADMIN. (O3, Q4)
+      Offline: slice 1 is online only; the phone's offline queue (apps/mobile/lib/offline/offline_queue.dart)
+      is not used. (O4, Q8) Module ownership against mes_core: not decided here; the architect's draft
+      docs/migration/decisions/0092-maintenance-vs-mes-core-equipment-state.md (DRAFT, owner to decide)
+      recommends one shared owner of equipment state and downtime, built when CMMS slice 5 needs it. Slice 1
+      uses no equipment state: the work order refers only to the asset card and owns no equipment record, so
+      every option of 0092 leaves slice 1 unchanged. The type names carry the maintenance_ prefix and the
+      screens say maintenance order, never production work order (0092 recommendation 6), so nothing clashes
+      with the MES work orders of docs/design/mes/05-platform-options.md. (O5, Q3) Languages: every screen of
+      slice 1 in en, ru and kk, as the assets module (UAT assumption, to be confirmed by the process owner).
+      (O6, Q12) Approval and four-eyes: not in slice 1.
+      Not in slice 1 (the later slices of docs/cmms/scope-draft.md section 7 and its section 8): spare parts
+      and the stock issue, preventive plans, checklists, meters, downtime and failure causes, KPIs and
+      reports beyond the lists, labour, costs and money, approval and four-eyes, priority planning, planned
+      dates and escalation, a reopen of a done order (not fixed), a cancel route of the module, the
+      verification by the requester, contractors, offline work, sub-machines, printed orders, a new role, a
+      role editor or any role grant, a QA tenant, a seed or a deploy, and any change to the Qoimeks scenario
+      files test/fixtures/uat/scenarios/qoimeks-*. No migration of core tables, no new permission.
+    acceptance_criteria:
+      - "1. Registration (a test like test/letflow/modules/mes_core/registration_test.exs): Letflow.Modules.Catalog.validate/1 accepts the manifest; it declares id maintenance, version 0.1.0, depends_on ['assets'], permissions [], role_grants %{}, route_policies [], manages_entity_types ['maintenance_work_request', 'maintenance_work_order'] and scope_declarations {:column, 'org_unit_id'} for both; config/config.exs and config/test.exs list Letflow.Modules.Maintenance right after Letflow.Modules.MesCore."
+      - "2. Flag off: in a test that sets :maintenance_enabled to false, a TENANT_ADMIN's POST /api/v1/tenant/modules with module_id maintenance answers 404 with the same body as module_id no_such_module, and the counts of tenant_modules rows, entity definitions and document types of the tenant are unchanged; config/config.exs holds false for the key and no file under config/ other than config/test.exs sets it (a source test)."
+      - "3. Flag on: with assets and its dependencies installed, the install answers 201 and both types are active; without assets it answers 422 'missing dependency: assets' and installs nothing; installing in tenant A leaves tenant B without the module (INV-1)."
+      - "4. Numbering: after the install the tenant has the document types maintenance_request (WR) and maintenance_order (WO) with numbering_scope year and number_pad 6, and Letflow.Documents.number_label/3 of the first WR number of the current year gives WR-<year>-000001."
+      - "5. Types: a maintenance_work_request with urgency 'high' or with a 2001-character description is refused by the type's validation; a maintenance_work_order whose request_id names no maintenance_work_request is refused by the foreign key; the maintenance_work_order type has no status field."
+      - "6. No grant: mix letflow.permission_matrix --check passes with no diff row for module maintenance (it declares no atom), and docs/roles.md has a maintenance section saying that the module has no permission and no role grant."
+    depends_on: [REQ-748, REQ-751]
+  - id: REQ-894
+    title: "CMMS slice 1 part 2: module maintenance work requests: report a fault on one asset card with a text and an urgency, numbered WR, list, read and reject, held only by the two administrator catch-alls"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4806
+    # Source: task T-2280 and docs/cmms/scope-draft.md (sections 1, 2, 4, 7 slice 1), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/read_api.ex (lookup/3 answers {:error, :not_found} for an unknown, malformed or other tenant's id), lib/letflow/modules/assets/card_photos.ex (the tenant-wide guard, a scoped or API principal answered with the same 404), lib/letflow/modules/stock/count_differences.ex (Documents.create_draft then Documents.issue then Documents.issued_summary), lib/letflow/documents.ex (create_draft/3, issue/2), lib/letflow/api/error.ex (idempotency_key_reuse), lib/letflow/api/pagination.ex (max page size 200), REQ-750 (the idempotency rule of the asset card routes), docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D7.1, priv/permission_matrix/effective.golden.
+    description: >
+      Why. Anyone who sees a fault on a machine reports it on the machine's asset card (docs/cmms/scope-draft.md
+      section 1); the planner reads the reports and rejects the ones that are not a job. Who benefits: the
+      requester and the planner (in slice 1 both are users holding TENANT_ADMIN, REQ-893 open point O2).
+      Permissions. The manifest gains three tenant-scope atoms with no role grant: MaintenanceRequestCreate,
+      MaintenanceRead and MaintenanceOrderManage; route_policies name each of them. Only PLATFORM_ADMIN and
+      TENANT_ADMIN hold them, through their computed catch-alls (decision 0055 D7.1, the pre-approved diff);
+      mix letflow.permission_matrix --write regenerates priv/permission_matrix/effective.golden. Every other
+      role is refused 403.
+      Routes under /api/v1/modules/maintenance, all answering 404 while the release flag of REQ-893 is off.
+      Every route admits only a principal who holds its atom tenant-wide; a principal holding it only through
+      an org-scoped grant (decision 0051) or an API principal gets the same 404 as an unknown request on a
+      read by id or a write, and an empty list on a list (fail closed; org-scoped access is a later slice).
+      (1) POST /requests, MaintenanceRequestCreate, body {asset_card_id, description, urgency,
+      idempotency_key}. The card is looked up with Letflow.Modules.ReadApi.lookup/3 and ["assets_card"]: an
+      unknown, malformed or other tenant's id is 422 asset_card_not_found, a card with active false is 422
+      asset_card_inactive; a blank description is 422 description_required, one over 2000 characters 422
+      description_too_long; an urgency other than low, normal or urgent is 422 invalid_urgency. It writes in
+      one transaction the maintenance_work_request (status new, reported_by the caller's user id,
+      org_unit_id copied from the card) and an issued maintenance_request document (Letflow.Documents
+      create_draft/3 then issue/2, as lib/letflow/modules/stock/count_differences.ex does), and answers 201
+      with the request view. idempotency_key as for the asset card routes (REQ-750): a replay with the same
+      key and body returns the first answer and writes nothing; the same key with another body is 409
+      idempotency_key_reuse. (2) GET /requests, MaintenanceRead: the requests newest first, optional status
+      filter (new, ordered, rejected; another value 422 invalid_filter), paged with the core pagination
+      (lib/letflow/api/pagination.ex). (3) GET /requests/:id, MaintenanceRead: the request view; an unknown,
+      malformed or other tenant's id is 404 (INV-5, INV-10). (4) POST /requests/:id/reject,
+      MaintenanceOrderManage, body {reason}: only a request with status new; another status is 409
+      request_not_new; a blank reason or one over 500 characters (UAT assumption) is 422 reason_required;
+      sets status rejected and reject_reason.
+      The request view: id, number (the WR document's label), status, asset {id, inventory_number, name},
+      description, urgency, reported_by, reject_reason, order (null in this part), created_at. Of the card
+      only inventory_number and name are shown: never its cost, depreciation or other fields (the card is
+      read through a link, not copied). Docs: docs/roles.md maintenance section lists the three atoms and
+      their routes. Version one minor step above origin/main at implement time. No migration of core tables.
+    acceptance_criteria:
+      - "1. Create (router test through Letflow.Router with real OIDC bearer tokens, test/letflow/modules/maintenance/requests_router_test.exs, planned, not yet on main): a TENANT_ADMIN's POST /api/v1/modules/maintenance/requests for an active card answers 201 with status new, a number of the form WR-<year>-<6 digits>, asset with exactly the keys id, inventory_number and name, and reported_by the caller; a second request gets the next number."
+      - "2. Card and input refusals: an unknown card id, another tenant's card id and a non-uuid answer 422 asset_card_not_found; a retired card (active false) 422 asset_card_inactive; a blank description 422 description_required; urgency 'high' 422 invalid_urgency; each writes no request and no document (counts unchanged)."
+      - "3. Idempotency: the same idempotency_key and body twice gives one request and the same answer; the same key with another description is 409 idempotency_key_reuse."
+      - "4. Read: GET /requests lists newest first and status=rejected keeps only rejected ones; status=closed is 422 invalid_filter; GET /requests/:id of another tenant's request or an unknown id answers 404 with the same body (INV-5, INV-10)."
+      - "5. Reject: POST /requests/:id/reject with a reason sets status rejected and reject_reason; a second reject is 409 request_not_new; a blank reason is 422 reason_required and the status stays new."
+      - "6. Access: TASK_WORKER, PROCESS_OPERATOR, STOREKEEPER and TENANT_AUDITOR are refused 403 on each of the four routes and nothing is written; a TENANT_ADMIN holding only an org-scoped grant gets 404 on POST /requests and an empty list on GET /requests; with the release flag off every route answers 404."
+      - "7. Matrix: priv/permission_matrix/effective.golden gains for each of the three atoms exactly the PLATFORM_ADMIN and TENANT_ADMIN rows as true and every other role false; mix letflow.permission_matrix --check passes; the manifest's role_grants stays %{}."
+    depends_on: [REQ-893]
+  - id: REQ-895
+    title: "CMMS slice 1 part 3: photos on a work request, added while it is new and shown to readers, through the shared attachment service"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4805
+    # Source: task T-2280 (reuse photos and attachments) and docs/cmms/scope-draft.md (sections 3 and 6), read on origin/main 7c38eeabe. Code read there: lib/letflow/attachments/owners.ex (the owner-kind registry: purposes, max per owner, main rule; assets_card has photo max 10 main true), lib/letflow/attachments.ex (add/4, list/3, content/4), lib/letflow/modules/assets/card_photos.ex (multipart original, optional thumbnail and caption; the refusal classes 422, 409, 429, 503, 404 and the byte response headers nosniff, inline, cache-control private max-age=86400), docs/design/photos.md.
+    description: >
+      Why. A photo of the fault tells the planner and the technician more than a text (docs/cmms/scope-draft.md
+      sections 1 and 6). Who benefits: the requester and the planner.
+      What. (1) Letflow.Attachments.Owners gains the owner kind maintenance_work_request with the one purpose
+      photo, max 5 per request (UAT assumption, to be confirmed by the process owner), main false.
+      (2) Routes under /api/v1/modules/maintenance, with the tenant-wide and release-flag rules of REQ-894:
+      POST /requests/:id/photos (MaintenanceRequestCreate; multipart original, optional thumbnail and caption,
+      as the card photo upload of lib/letflow/modules/assets/card_photos.ex); GET /requests/:id/photos,
+      GET /requests/:id/photos/:photo_id/original and GET /requests/:id/photos/:photo_id/thumbnail
+      (MaintenanceRead). The request is looked up first: an unknown, malformed or other tenant's request is
+      404, and a photo id is resolved by Letflow.Attachments under that request, so another request's or
+      tenant's photo is the same 404. A photo is added only while the request's status is new; otherwise 409
+      request_not_new. Letflow.Attachments does the one byte parse, metadata strip, scan, caps, quota, rate,
+      replay and audit; the route answers its refusals with the classes CardPhotos uses (422 for image and
+      cap refusals, 409 for the storage quota, 429 for the upload rate, 503 when the scanner is unavailable),
+      and byte answers carry the stored type, nosniff, inline and cache-control private, max-age=86400. A
+      photo view carries its id and caption, never the uploader's id. No delete, reorder or caption change
+      in slice 1. (3) The request view of REQ-894 gains photo_count. Docs: docs/roles.md maintenance section
+      lists the photo routes. Version one minor step above origin/main at implement time.
+    acceptance_criteria:
+      - "1. Add and read (test/letflow/modules/maintenance/request_photos_router_test.exs, planned, not yet on main, through Letflow.Router with real tokens): a TENANT_ADMIN's POST /requests/:id/photos with a JPEG answers 201 with id and caption and no uploader key; GET /requests/:id/photos lists it; GET .../original answers 200 with the stored content type and the headers x-content-type-options nosniff and cache-control 'private, max-age=86400'; the request view shows photo_count 1."
+      - "2. Cap: the sixth photo of one request is refused 422 with the attachment service's cap reason and the list keeps five."
+      - "3. State: after the request is rejected, POST /requests/:id/photos answers 409 request_not_new and adds nothing; reads still answer 200."
+      - "4. Isolation: a photo id of request A read under request B, and request A's photo read from tenant B, answer 404 with the same body as an unknown photo id (INV-5, INV-10)."
+      - "5. Access: TASK_WORKER and TENANT_AUDITOR get 403 on the upload and on the list; with the release flag off every photo route answers 404."
+    depends_on: [REQ-894]
+  - id: REQ-896
+    title: "CMMS slice 1 part 4: module maintenance work orders for one asset card, made from a work request or directly, numbered WO, assigned to a person through a process task with the task_assigned mail, with the status open, in work, done or closed read from that process"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4804
+    # Source: task T-2280 (reuse the process engine for the life and the task_assigned mail) and docs/cmms/scope-draft.md (section 4 and slice 1), read on origin/main 7c38eeabe. Code read there: priv/modules/assets/generate_pack.exs (pack process definitions with HUMAN_TASK nodes and a role label), lib/letflow/modules/assets/documents/posting.ex (Letflow.Engine.create/2 from a module; lazy activation ensure_active/3, 409 definition_not_active), lib/letflow/engine/task_activation.ex (resolve_assignee/1: a task is routed to the node's role label), lib/letflow/tasks.ex (reassign_task/3 with actor_id, TasksReassignRouted; notify_assigned after the commit calls Letflow.Notifications.after_assignment/3 and the bell; authorize_completion/3: a task addressed to a USER is completed only by that user, else assigned_to_other_user), lib/letflow/routers/tasks.ex (403 'task is assigned to a different user'), lib/letflow/routers/instances.ex (GET /instances/:id answers variables), docs/roles.md (TASK_WORKER completes own tasks and reads the instances of its tasks), lib/letflow/routers/identity.ex (GET /users, policy key UsersManage).
+    description: >
+      Why. A real report becomes a work order that one person does (docs/cmms/scope-draft.md section 4). The
+      life runs on the process engine, so the technician gets the task in the task inbox, the task_assigned
+      mail and the bell with no new permission. Who benefits: the planner (in slice 1 a TENANT_ADMIN) and the
+      technician (any user of the tenant, a TASK_WORKER included).
+      Process. The pack ships the process definition maintenance_work_order (version 1.0.0): START, HUMAN_TASK
+      maintenance_work (role label TENANT_ADMIN; form_schema with one required string field work_done, 1 to
+      2000 characters), HUMAN_TASK maintenance_close (role label TENANT_ADMIN), END. No distinct_from: four-eyes
+      is not in slice 1. It is installed as a module-stamped draft and activated lazily with the request's
+      activator, as lib/letflow/modules/assets/documents/posting.ex ensure_active/3 does (409
+      definition_not_active when that fails).
+      Routes under /api/v1/modules/maintenance, with the tenant-wide and release-flag rules of REQ-894.
+      (1) POST /orders, MaintenanceOrderManage, body {request_id} or {asset_card_id, description, urgency},
+      plus optional assignee_user_id and idempotency_key as in REQ-894. Both forms or neither is 422
+      order_source_invalid. From a request: the request must have status new (else 409 request_not_new); the
+      order copies its asset_card_id, org_unit_id, description and urgency, and the request becomes ordered
+      with order_id set. Direct: the card and input rules of REQ-894 point 1. An assignee_user_id that is not
+      an active user of the tenant is 422 assignee_not_found. One transaction writes the order, its issued
+      maintenance_order document (WO), the request's change when there is one, and the instance of
+      maintenance_work_order (Letflow.Engine.create/2) with the variables maintenance_order_id,
+      maintenance_order_number, asset_inventory_number, asset_name, description and urgency; a failure of any
+      of them leaves none. After the commit, with an assignee, the maintenance_work task is addressed to that
+      user through Letflow.Tasks.reassign_task/3 with the caller as actor, which sends the task_assigned mail
+      and bell (Letflow.Tasks notify_assigned). (2) POST /orders/:id/assign, MaintenanceOrderManage, body
+      {user_id}: readdresses the maintenance_work task the same way while the order is open or in work; done,
+      closed or cancelled is 409 order_not_assignable; an unknown or inactive user is 422 assignee_not_found.
+      (3) GET /orders, MaintenanceRead: newest first, optional filters status and asset_card_id (another
+      status value is 422 invalid_filter), core pagination. (4) GET /orders/:id, MaintenanceRead; unknown,
+      malformed or other tenant's id is 404.
+      Status, read from the order's instance and never stored: open when maintenance_work is pending and
+      addressed to a role; in_work when it is pending and addressed to a user (that user is assignee_user_id);
+      done when maintenance_work is completed and maintenance_close is pending; closed when
+      maintenance_close is completed; cancelled when the instance was cancelled through the core cancel
+      route; unknown for any other state, never a crash (INV-8). Who moves it (slice 1): open to in work, a
+      MaintenanceOrderManage holder through create or assign, or a TENANT_ADMIN readdressing the task through
+      the core task routes (the status follows the task either way); in work to done, only the addressed user,
+      by completing maintenance_work through the core POST /tasks/:id/complete with work_done (any other
+      caller gets the core 403 'task is assigned to a different user'); done to closed, a user holding the
+      TENANT_ADMIN role, by completing maintenance_close. While an order is open its maintenance_work task is
+      in the inbox of every TENANT_ADMIN of the tenant: that inbox is the planner's list of orders to assign.
+      The order view: id, number (the WO label), status, assignee_user_id (null unless in work, done or
+      closed), asset {id, inventory_number, name}, request {id, number} or null, description, urgency,
+      created_at. The request view of REQ-894 shows order {id, number} once ordered. The assigned person reads
+      the instance of the task (docs/roles.md, TASK_WORKER instance reads) and so sees the six variables:
+      they carry only the card's inventory number and name, never a cost field. Docs: docs/roles.md
+      maintenance section (routes, who moves the status, the core task routes the technician uses). Version
+      one minor step above origin/main at implement time.
+    acceptance_criteria:
+      - "1. From a request (test/letflow/modules/maintenance/orders_router_test.exs, planned, not yet on main, through Letflow.Router with real tokens): a TENANT_ADMIN's POST /orders with a new request's request_id answers 201 with status open, a number WO-<year>-<6 digits>, the request's asset, description and urgency, and request {id, number}; GET /requests/:id then shows status ordered and the order; a second order from that request is 409 request_not_new."
+      - "2. Direct and refusals: POST /orders with asset_card_id, description and urgency answers 201 with request null; a body with both request_id and asset_card_id, or with neither, is 422 order_source_invalid; a retired card is 422 asset_card_inactive; an assignee_user_id of no active user of the tenant (a user of tenant B included) is 422 assignee_not_found; each refusal writes no order, no document and no instance."
+      - "3. One transaction: a test that makes the instance start fail leaves no order, no WO document and the request still new."
+      - "4. Assignment and mail: POST /orders with the user id of a TASK_WORKER as assignee_user_id answers status in_work and assignee_user_id that user; the user's GET /tasks/inbox lists the maintenance_work task; one task_assigned delivery row and one task_assigned bell notification exist for that user."
+      - "5. Technician completes without a maintenance permission: that TASK_WORKER (no maintenance atom) completes maintenance_work through POST /tasks/:id/complete with work_done; GET /orders/:id then shows status done; another TASK_WORKER's completion attempt before it is refused 403 'task is assigned to a different user' and the status stays in_work; the TASK_WORKER's own GET /modules/maintenance/orders/:id is 403."
+      - "6. Close: a TENANT_ADMIN completes maintenance_close and the order shows closed; POST /orders/:id/assign on the closed order is 409 order_not_assignable."
+      - "7. Reassign and cancel: POST /orders/:id/assign moves an in-work order to another user (the new user gets a task_assigned delivery); an instance cancelled through the core cancel route shows status cancelled; GET /orders?status=in_work lists only in-work orders; status=active is 422 invalid_filter."
+      - "8. Isolation and access: GET /orders/:id of another tenant's order and an unknown id answer 404 with the same body (INV-5, INV-10); PROCESS_OPERATOR and TENANT_AUDITOR get 403 on POST /orders and GET /orders; with the release flag off the four routes answer 404."
+    depends_on: [REQ-894]
+  - id: REQ-897
+    title: "CMMS slice 1 part 5: the work order keeps what was done: completing the work task stores the work done text and who and when, completing the close task stores who closed it and when, and a closed order is not changed"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4803
+    # Source: task T-2280 (what a closed order keeps) and docs/cmms/scope-draft.md section 4 ("A closed order is not edited; a correction is a new order"), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/write_handler_spec.ex (the optional key updates: the fields of a target type a handler may change through Letflow.Entities.HandlerWrites.update/3), lib/letflow/entities/handler_writes.ex (update/3), lib/letflow/definitions/module_writes.ex (module_writes lines on a HUMAN_TASK; only posting lines carry a run-time permission), priv/modules/assets/generate_pack.exs (a HUMAN_TASK node with a module_writes line).
+    description: >
+      Why. The manager and the next technician need to see what was done and who closed the order, on the
+      order itself (docs/cmms/scope-draft.md section 4). Who benefits: the planner and the manager.
+      What. (1) Two write handlers of module maintenance (write_handlers in the manifest, targets
+      ["maintenance_work_order"], updates {"maintenance_work_order": [the fields below]}): record_done sets
+      work_done (the task's work_done output), done_by (the completer) and done_at; record_closed sets
+      closed_by and closed_at. Each changes only its own fields through
+      Letflow.Entities.HandlerWrites.update/3. (2) The pack's process maintenance_work_order gets a
+      module_writes line calling record_done on maintenance_work and one calling record_closed on
+      maintenance_close, with the order id from the instance variable maintenance_order_id; the write commits
+      with the task completion or not at all. Neither handler posts to a ledger, so the completion needs no
+      maintenance permission (lib/letflow/definitions/module_writes.ex: only a posting line is authorized at
+      run time by its registration's permission). The process definition's version becomes 1.1.0. Because the
+      release flag of REQ-893 is off by default, no tenant outside tests has the module installed, so no
+      upgrade step is written; the implement step states this and checks it against the module rollout list
+      it can see. (3) What a closed order keeps: every field of the order record, its WO number, its request
+      link and its process history stay; no route of module maintenance changes or deletes an order
+      (assign is 409 order_not_assignable, REQ-896), and the record has no update route in slice 1. A
+      correction is a new order. (4) GET /orders/:id gains work_done, done_by, done_at, closed_by and
+      closed_at (null until set). Docs: docs/roles.md maintenance section. Version one minor step above
+      origin/main at implement time.
+    acceptance_criteria:
+      - "1. Done (test/letflow/modules/maintenance/order_life_test.exs, planned, not yet on main): a TASK_WORKER addressed by an order completes maintenance_work with work_done 'Seal replaced'; GET /orders/:id shows work_done 'Seal replaced', done_by that user and done_at set, closed_by null."
+      - "2. Closed: a TENANT_ADMIN completes maintenance_close; GET /orders/:id shows closed_by that admin and closed_at set, and work_done, done_by and the number unchanged."
+      - "3. All or nothing: a test that forces record_done to return an error leaves the task pending and the order view without work_done; the completion answers an error, not a crash (INV-8)."
+      - "4. Closed order unchanged: after close, POST /orders/:id/assign is 409 order_not_assignable and the order's field values and its event count are unchanged; the router has no PATCH, PUT or DELETE route on /orders (a route-table test)."
+      - "5. Manifest: Letflow.Modules.Catalog.validate/1 accepts the two handlers with their updates keys; the pack's process maintenance_work_order is version 1.1.0 with exactly the two module_writes lines; mix letflow.permission_matrix --check passes with no new row."
+    depends_on: [REQ-896]
+  - id: REQ-898
+    title: "CMMS slice 1 part 6: web screens of module maintenance for work requests: Report a problem from the asset card, the new request form with photos, the request list and the request page with Reject"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4802
+    # Source: task T-2280 (report a fault on one asset card) and docs/cmms/scope-draft.md (sections 1, 6, 7 slice 1), read on origin/main 7c38eeabe. Code read there: web/src/modules/registry.ts (REGISTERED_MODULES; each module's routes wrapped in ModuleGuard, an uninstalled module renders NotFoundPage), web/src/modules/types.ts (ModuleNavItem.permission, an atom of /me/access), web/src/modules/assets/cardActions.ts (CARD_ACTIONS; an action of another module sets href instead of kind), web/src/modules/assets/assetsRoutes.tsx (admin/ paths guarded by a permission), web/src/modules/codes/ (a small module folder: api, IntlProvider, messages, permissions, query keys, routes, shell).
+    description: >
+      Why. The requester reports a fault from the machine's card in a few taps, and the planner sees and
+      rejects requests on the web. Who benefits: requester and planner (in slice 1 users holding
+      TENANT_ADMIN, REQ-893 open point O2).
+      What. (1) A web module folder web/src/modules/maintenance/ (planned, not yet on main) shaped like
+      web/src/modules/codes/ and added to REGISTERED_MODULES in web/src/modules/registry.ts, so its screens
+      render only where the module is installed. A nav item Maintenance requests with permission
+      MaintenanceRead. (2) A card action Report a problem in CARD_ACTIONS of
+      web/src/modules/assets/cardActions.ts as an href entry, shown only when module maintenance is installed
+      and the caller holds MaintenanceRequestCreate, and only on an active card; it opens the new request
+      form with the card set. (3) The new request form (admin/maintenance/requests/new): the card (set from
+      the card action, or chosen), description (required, at most 2000 characters, counted), urgency (low,
+      normal, urgent; normal preselected, UAT assumption) and up to five photos. Save creates the request
+      with an idempotency_key, then uploads each photo; a refused photo shows the server's reason next to it,
+      the created request stays and the screen opens it. A server refusal of the request (asset card
+      inactive, description, urgency) is shown in words, not as a code. (4) The request list
+      (admin/maintenance/requests, MaintenanceRead): number, card inventory number and name, urgency,
+      status, created; a status filter (all, new, ordered, rejected); empty, loading and error states.
+      (5) The request page (admin/maintenance/requests/:id, MaintenanceRead): the fields, the photos as
+      thumbnails that open the original, the order link when ordered, the reject reason when rejected; for a
+      MaintenanceOrderManage holder and a new request, Reject (a reason is required) and Make work order (it
+      opens the order form of REQ-899; until REQ-899 lands, the button is not shown). (6) Every label in en,
+      ru and kk in the module's message catalog (kk text a UAT assumption, to be confirmed by a Kazakh
+      reader); no horizontal scroll at 390 px. Screenshots of every state at 1440 and 390, light and dark,
+      en and ru (kk for the longest labels) in the implement step.
+    acceptance_criteria:
+      - "1. Card action (vitest, planned web/src/modules/maintenance/__tests__/): Report a problem appears on an active card for a user holding MaintenanceRequestCreate with maintenance installed, and is absent when the module is not installed, when the user lacks the permission and on a retired card; it opens the new request form with that card set."
+      - "2. Create: the form refuses Save with an empty description and with 2001 characters (no request sent); a valid Save sends one POST /requests with an idempotency_key and then one upload per photo; a 422 asset_card_inactive answer is shown as a sentence, not the code."
+      - "3. Photo refusal: when the third of three photo uploads is refused 422, the request page opens with two photos and the refused file is named with the server's reason."
+      - "4. List and page: the list shows number, inventory number and name, urgency and status, and the status filter sends status=rejected; the request page shows Reject and Make work order only to a MaintenanceOrderManage holder and only while the request is new; Reject without a reason sends nothing."
+      - "5. Guards and languages: the routes render NotFoundPage where maintenance is not installed; every new label exists in the en, ru and kk catalogs (a catalog parity test); the frontend gate (npm run check) passes."
+    depends_on: [REQ-895]
+  - id: REQ-899
+    title: "CMMS slice 1 part 7: web screens of module maintenance for work orders: the order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4801
+    # Source: task T-2280 (a My work orders list on the web for the assigned person) and docs/cmms/scope-draft.md (sections 4 and 6), read on origin/main 7c38eeabe. Code read there: web/src/router.tsx (the tasks path, TaskInboxPage), web/src/api/tasks.ts (the task client), lib/letflow/routers/tasks.ex (task_list_item_map: id, instance_id, node_id, node_name, status, assignee_type, assignee_ref), lib/letflow/routers/instances.ex (GET /instances/:id answers variables), lib/letflow/api/pagination.ex (max page size 200), web/src/api/identity.ts (GET /identity/users), lib/letflow/routers/identity.ex (GET /users, policy key UsersManage), web/src/modules/registry.ts.
+    description: >
+      Why. The planner makes and assigns orders on the web; the technician needs one list of the work orders
+      assigned to them. Who benefits: the planner and the technician.
+      What. (1) The order form (admin/maintenance/orders/new, MaintenanceOrderManage): from a request
+      (opened by Make work order of REQ-898; the card, description and urgency shown read-only) or direct
+      (card, description, urgency as in REQ-898); an optional assignee picked from GET /api/v1/identity/users
+      (active users only). Save sends one POST /orders with an idempotency_key and opens the order page;
+      refusals in words. REQ-898's Make work order button is shown from this part on. (2) The order list
+      (admin/maintenance/orders, MaintenanceRead, nav item Maintenance orders): number, card inventory number and
+      name, status (open, in work, done, closed, cancelled), assignee name, urgency, created; filters status
+      and card. (3) The order page (admin/maintenance/orders/:id, MaintenanceRead): the fields, the request
+      link, the assignee, work done with who and when, closed by and when; for a MaintenanceOrderManage
+      holder and an open or in-work order, Assign or Reassign (the same user picker, POST /orders/:id/assign).
+      (4) My work orders (maintenance/my-orders; en label My maintenance orders, ru and kk to match, the word
+      maintenance order of decision draft 0092 recommendation 6), for any signed-in user of a tenant with the module
+      installed, no maintenance permission needed (nav item permission TasksRead, held by TASK_WORKER): it
+      reads the caller's GET /api/v1/tasks/inbox page by page (page size 200, at most 5 pages; when more
+      exist the screen says that the list is cut, UAT assumption), keeps the pending tasks whose node_id is
+      maintenance_work, reads each task's instance (GET /api/v1/instances/:id) and shows the variables
+      maintenance_order_number, asset_inventory_number, asset_name, urgency and description, urgent first,
+      then oldest first. A row opens the existing task screen of web/src/router.tsx, where the technician
+      enters work_done and completes the task; the row then leaves the list. A failed instance read shows the
+      row with the task name and a note, not an error page. Empty, loading and error states. (5) Labels in
+      en, ru and kk (kk text a UAT assumption); no horizontal scroll at 390 px; screenshots of every state
+      at 1440 and 390, light and dark, en and ru (kk for the longest labels) in the implement step.
+    acceptance_criteria:
+      - "1. Order form (vitest, planned web/src/modules/maintenance/__tests__/): opened from a request it shows the request's card, description and urgency read-only and sends POST /orders with request_id only; direct it sends asset_card_id, description and urgency; the assignee picker lists only active users; a 409 request_not_new answer is shown as a sentence."
+      - "2. List and page: the order list shows the five status values in words and the status filter sends status=in_work; the order page shows work done, done by and closed by when the server sends them, and Assign only to a MaintenanceOrderManage holder and only for an open or in-work order."
+      - "3. My work orders: with an inbox fixture of three tasks, two with node_id maintenance_work and one of another process, the screen lists the two, urgent first, with the order number, inventory number and asset name from the instance variables; a fixture of six full pages shows the cut-list note after five pages; a failed instance read shows that row with a note."
+      - "4. My work orders needs no maintenance permission: for a user holding TasksRead and no maintenance atom, the nav item and the screen are shown and the screen sends no request to /api/v1/modules/maintenance."
+      - "5. Guards and languages: every new label exists in the en, ru and kk catalogs; the routes render NotFoundPage where maintenance is not installed; the frontend gate (npm run check) passes."
+    depends_on: [REQ-897, REQ-898]
+  - id: REQ-900
+    title: "CMMS slice 1 part 8: My work orders on the phone app and its PWA for the assigned person, built on the task inbox, opening the existing task screen to report the work done"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4800
+    # Source: task T-2280 (a My work orders list on the phone, PWA) and docs/cmms/scope-draft.md section 6, read on origin/main 7c38eeabe. Code read there: docs/mobile/pwa-parity.md (the PWA is the web build of the same Flutter code in apps/mobile), apps/mobile/lib/features/module_manifest.json (features codes and stock), apps/mobile/lib/features/features.dart, apps/mobile/lib/features/stock/stock_routes.dart (a feature's GoRoute list), apps/mobile/lib/renderers/task/task.dart (the generic task inbox on GET /api/v1/tasks/inbox and the task screen), lib/letflow/routers/tasks.ex (task_list_item_map), lib/letflow/routers/instances.ex (GET /instances/:id answers variables).
+    description: >
+      Why. A technician works at the machine, not at a desk: the list of their work orders and the way to
+      report the work done must be on the phone (docs/cmms/scope-draft.md section 6). Who benefits: the
+      technician (any user of the tenant, a TASK_WORKER included; no maintenance permission needed).
+      What. (1) A feature maintenance in apps/mobile/lib/features/ (planned, not yet on main), declared in
+      apps/mobile/lib/features/module_manifest.json with depends_on [], shown only when the tenant has module
+      maintenance installed. (2) A My work orders screen (en label My maintenance orders, as REQ-899) with the list rule of REQ-899 point 4: the caller's
+      GET /api/v1/tasks/inbox page by page (page size 200, at most 5 pages, a cut-list note beyond that, UAT
+      assumption), pending tasks with node_id maintenance_work, each task's instance read for
+      maintenance_order_number, asset_inventory_number, asset_name, urgency and description, urgent first,
+      then oldest first. (3) A row opens the existing generic task screen of
+      apps/mobile/lib/renderers/task/task.dart, where the technician enters work_done and completes the task;
+      back on the list the row is gone after a refresh. (4) Online only: no offline queue and no cached list
+      (REQ-893 open point O3); without network the screen shows the existing no-network state. (5) The same
+      code serves the Android app and the PWA (docs/mobile/pwa-parity.md); no platform branch is added.
+      Labels in en, ru and kk in the app's localization (kk text a UAT assumption, to be confirmed by a Kazakh
+      reader).
+    acceptance_criteria:
+      - "1. List (widget test with a fake HTTP gateway, planned under apps/mobile/test/features/maintenance/): with an inbox of three tasks, two with node_id maintenance_work, the screen lists the two, urgent first, with the order number, inventory number and asset name from the instance variables; six full pages show the cut-list note after five."
+      - "2. Open and complete: tapping a row opens the generic task screen for that task id; after a successful completion and a refresh the row is gone."
+      - "3. Visibility: the feature's entry is absent when the tenant's installed modules lack maintenance, and present for a user with no maintenance permission when it is installed."
+      - "4. No offline and no platform branch: the feature writes nothing to the offline queue or the definition cache, and grep finds no kIsWeb and no dart.library import under apps/mobile/lib/features/maintenance/."
+      - "5. Checks: flutter analyze is clean and flutter test passes; every new label exists in en, ru and kk."
+    depends_on: [REQ-897]

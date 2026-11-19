@@ -22,7 +22,7 @@
 #     list route GET /stock-workbook/imports, states: issued/cancelled, cancel-before-approval answer)
 #   web/src/modules/stock/workbook/workbookMessages.ts (en: load.success, loads.state.issued,
 #     loads.state.cancelled, cancel.cancelled, err.import_already_cancelled)
-#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin: TENANT_ADMIN; holds StockQuickCount and StockReverse)
+#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin: TENANT_ADMIN; holds StockWorkbookApply and StockReverse)
 # Cleanup: this scenario cancels the load before approval, so no balance changes and no cleanup is needed.
 #   The quick_count document created is left in state "cancelled".
 # Preparation: choose an existing unstocked article and an existing shelf place from the downloaded workbook and catalog; prepare only that article, as detailed in preconditions. Do not edit a responsible-stock article.

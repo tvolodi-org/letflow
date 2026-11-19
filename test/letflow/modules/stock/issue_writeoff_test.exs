@@ -145,7 +145,8 @@ defmodule Letflow.Modules.Stock.IssueWriteoffTest do
              :StockReconcile,
              :StockCountOrder,
              :StockCountRecord,
-             :StockQuickCount
+             :StockQuickCount,
+             :StockWorkbookApply
            ]
   end
 

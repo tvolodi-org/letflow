@@ -573,6 +573,12 @@ defmodule Letflow.Modules.Catalog do
       duplicates. The declaration is informational only: it can match a
       narrowing in `mix letflow.permission_matrix --check`, never authorise a
       widening (`Letflow.Api.PermissionMatrix`).
+    * `{:invalid_grants_widening, value}` — rule 8b (T-2239 / D-161, decision 0055 D7 amendment): the
+      optional `:grants_widening` key, a list of `{role, permission, version, decision}` signed exceptions
+      to the refusal of a `role_grants` widening of a baseline role, is malformed: not a list of distinct
+      4-tuples of a known role, a permission this manifest declares and grants that role, a version
+      binary and a decision id `D-<n>`. Absent is valid. Honoured only by
+      `mix letflow.permission_matrix --check` (`Letflow.Api.PermissionMatrix`), never at request time.
     * `{:permission_declared_by_other_module, permission, other_id}` — rule 9
       (GH #2586 F4): an atom in this manifest's `:permissions` that another
       manifest of the known set (a different `id`) also declares. Checked
@@ -679,6 +685,7 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_route_policy_permissions_declared(manifest),
          :ok <- validate_manages_entity_types(manifest),
          :ok <- validate_widens_grants(manifest),
+         :ok <- validate_grants_widening(manifest),
          :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
          :ok <- validate_write_handlers(manifest, entry_module, known_manifests),
          :ok <- validate_scope_declarations(manifest, known_manifests),
@@ -881,6 +888,37 @@ defmodule Letflow.Modules.Catalog do
         :ok
     end
   end
+
+  # T-2239 / D-161: the optional `:grants_widening` key, a list of signed exceptions to the refusal of a
+  # role_grants widening of a baseline role (decision 0055 D7 amendment). Each entry is
+  # `{role, permission, version, decision}`: a known role, a permission this manifest declares AND grants
+  # to that role in `role_grants`, a version string and a decision id `D-<n>`. Anything else (and a
+  # duplicate) is `{:invalid_grants_widening, value}` (the whole key value). Absent is valid. The matrix
+  # check honours an entry only while its version equals the module's version, so a stale entry is inert.
+  defp validate_grants_widening(manifest) do
+    case Map.fetch(manifest, :grants_widening) do
+      :error ->
+        :ok
+
+      {:ok, entries} ->
+        if is_list(entries) and Enum.all?(entries, &grants_widening_entry?(manifest, &1)) and
+             length(Enum.uniq(entries)) == length(entries) do
+          :ok
+        else
+          {:error, {:invalid_grants_widening, entries}}
+        end
+    end
+  end
+
+  defp grants_widening_entry?(manifest, {role, permission, version, decision})
+       when is_atom(role) and is_atom(permission) and is_binary(version) and is_binary(decision) do
+    role in Authorization.roles() and
+      permission in Map.get(manifest, :permissions, []) and
+      permission in Map.get(Map.get(manifest, :role_grants, %{}), role, []) and
+      Regex.match?(~r/\AD-[0-9]{1,5}\z/, decision)
+  end
+
+  defp grants_widening_entry?(_manifest, _other), do: false
 
   # Rule 9 (GH #2586 F4): raw per-manifest lists, never permissions/0 (Enum.uniq/1).
   defp validate_permissions_not_declared_elsewhere(manifest, known_manifests) do
