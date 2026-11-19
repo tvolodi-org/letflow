@@ -26,6 +26,10 @@ export interface DocumentLine {
   catalog_uom_id: string
   catalog_lot_id?: string | null
   quantity: string
+  /** Quick count (REQ-854): the book quantity, the counted quantity and their difference. */
+  book_quantity?: string | null
+  counted_quantity?: string | null
+  difference?: string | null
   unit_price?: string | null
   line_value?: string | null
   /** Opening balance (REQ-725). */

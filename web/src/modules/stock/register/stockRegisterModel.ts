@@ -18,7 +18,7 @@ export function formatStockDateTime(
   return formatDateTimeInZone(iso, { timeZone: STOCK_TIME_ZONE, locale: o.locale ?? getUiLocale(), seconds: o.seconds })
 }
 
-export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal', 'opening', 'count_difference'] as const
+export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal', 'opening', 'opening_negative', 'count_difference', 'count_set', 'kind_change_out'] as const
 export const DOCUMENT_TYPES = [
   'stock_receipt',
   'stock_issue',
@@ -28,6 +28,7 @@ export const DOCUMENT_TYPES = [
   'stock_return',
   'stock_reversal',
   'stock_opening',
+  'stock_quick_count',
   'count.differences',
 ] as const
 

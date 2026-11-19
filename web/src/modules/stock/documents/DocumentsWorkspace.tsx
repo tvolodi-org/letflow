@@ -137,7 +137,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
       </>
     )
   }
-  const kindName = known(DOC_KINDS, 'stock.doc.kind', doc.kind)
+  const kindName = known([...DOC_KINDS, 'quick_count'], 'stock.doc.kind', doc.kind)
   const lines = [...doc.lines].sort((a, b) => a.line_no - b.line_no)
   const tone = stateTone(doc.state)
   const isReceipt = doc.kind === 'receipt'
@@ -238,7 +238,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id), false, false)}
           {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true, false)}
           {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true, false)}
-          {doc.reason_code && row(t('stock.doc.field.reasonCode'), known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
+          {doc.reason_code && row(t('stock.doc.field.reasonCode'), doc.kind === 'quick_count' ? known(['recount', 'found', 'missing', 'damaged', 'other'], 'stock.qc.reason', doc.reason_code) : known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
           {doc.reason_text && row(t('stock.doc.field.reasonText'), doc.reason_text)}
           {row(t('stock.doc.field.note'), doc.note, false, false)}
           {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefSystem'), doc.external_ref_system, true)}
