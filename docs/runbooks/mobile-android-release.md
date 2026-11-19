@@ -44,12 +44,16 @@ bash scripts/android_release_build.sh --out ~/letflow-android-out \
 Options: `--out DIR` (required, must be outside the repository), `--base-url URL` (required, https; where the
 files will be published), `--api-base-url URL` (https), `--platform-host HOST`, `--min-version-code N`
 (default: the value in `<out>/latest.json`, else 1), `--notes-file FILE` (lines `ru: `, `kk: `, `en: `),
-`--dry-run` (runs every check, prints the build commands, builds nothing).
+`--name-prefix PREFIX` (default `letflow`; letters, digits, `.`, `_`, `-`; names the files and the `latest.json`
+`url` consistently, for example `--name-prefix qoimeks-qa` gives `qoimeks-qa-<versionName>-<versionCode>.apk`),
+`--key-properties FILE` (default: `apps/mobile/android/key.properties`; the file is checked like the default one,
+copied to that path only for the build and removed afterwards, an existing default file is put back; its values
+are never printed), `--dry-run` (runs every check, prints the build commands, builds nothing).
 
 The script exits 2 without building when `key.properties` is missing, a URL is not https, or the version
 code is not higher than the last published one. It builds the APK and the AAB, runs `apksigner verify
 --print-certs` and exits 1 when verification fails or the certificate is the Android debug certificate. It
-never prints a `key.properties` value. Output in `--out`: `letflow-<versionName>-<versionCode>.apk`, the
+never prints a `key.properties` value. Output in `--out` (with the default prefix): `letflow-<versionName>-<versionCode>.apk`, the
 same name with `.apk.sha256`, `letflow-<versionName>-<versionCode>.aab`, and `latest.json`
 (`versionCode`, `versionName`, `url`, `sha256`, `minVersionCode`, `notes` with `ru`, `kk`, `en`,
 `published` in UTC). `latest.json` is the release record the next run reads to refuse a version code that

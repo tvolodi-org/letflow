@@ -29,6 +29,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
 
   @prefixes ["/me", "/help"]
   @expected_rulings %{
+    "GET /me" => "SEC-REQ-449-access",
     "GET /me/memberships" => "0051-A7",
     "GET /me/modules" => "SEC-518-R2-modules",
     "GET /me/access" => "SEC-REQ-449-access",
@@ -77,7 +78,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
       assert mine |> Enum.map(&"#{&1.method} #{&1.path}") |> Enum.sort() ==
                @expected_rulings
                |> Map.keys()
-               |> Enum.filter(&String.contains?(&1, ["/me/", "/help/"]))
+               |> Enum.filter(&(&1 == "GET /me" or String.contains?(&1, ["/me/", "/help/"])))
                |> Enum.sort()
 
       assert default_sourced_self_service(routes) == []
@@ -116,7 +117,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     test "the committed list has no :pending_sec_ruling entry and no blank ruling" do
       list = RouteScope.self_service_routes()
 
-      assert length(list) == 16
+      assert length(list) == 17
       assert pending(list) == []
       assert unruled(list) == []
       assert Enum.all?(list, &is_binary(&1.ruling))

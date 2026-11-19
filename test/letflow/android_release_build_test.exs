@@ -185,6 +185,73 @@ defmodule Letflow.AndroidReleaseBuildTest do
     refute out =~ @secret
   end
 
+  test "7 --name-prefix names the files and the latest.json url; default stays letflow", ctx do
+    env = setup_env(ctx)
+    {out, code} = run(env, good_args(env, ["--first-release", "--name-prefix", "qoimeks-qa"]))
+    assert code == 0, out
+    assert File.exists?(Path.join(env.out, "qoimeks-qa-1.2.3-7.apk"))
+    assert File.exists?(Path.join(env.out, "qoimeks-qa-1.2.3-7.apk.sha256"))
+    assert File.exists?(Path.join(env.out, "qoimeks-qa-1.2.3-7.aab"))
+    refute File.exists?(Path.join(env.out, "letflow-1.2.3-7.apk"))
+    json = env.out |> Path.join("latest.json") |> File.read!() |> Jason.decode!()
+    assert json["url"] == "https://dl.example.org/android/qoimeks-qa-1.2.3-7.apk"
+  end
+
+  test "7b a bad --name-prefix exits 2 without flutter", ctx do
+    env = setup_env(ctx)
+
+    for bad <- ["", "a/b", "../x", "-x", "a b"] do
+      {_o, code} = run(env, good_args(env, ["--first-release", "--name-prefix", bad]))
+      assert code == 2, "prefix #{inspect(bad)}"
+    end
+
+    refute called?(env)
+  end
+
+  test "8 --key-properties is used for the build, then removed; default key restored", ctx do
+    env = setup_env(ctx, no_key: true)
+    custom = Path.join(ctx.tmp_dir, "qa-key.properties")
+    key_path = Path.join(env.mobile, "android/key.properties")
+
+    File.write!(
+      custom,
+      "storeFile=/x/q.jks\nstorePassword=#{@secret}\nkeyAlias=qa\nkeyPassword=#{@secret}2\n"
+    )
+
+    # the fake flutter records whether the key sat at the build path during the build
+    flutter = Path.join(env.bin, "flutter")
+
+    File.write!(
+      flutter,
+      File.read!(flutter) <>
+        "grep -q 'keyAlias=qa' android/key.properties && echo KEYSEEN >> \"#{env.calls}\"\n"
+    )
+
+    {out, code} = run(env, good_args(env, ["--first-release", "--key-properties", custom]))
+    assert code == 0, out
+    assert File.read!(env.calls) =~ "KEYSEEN"
+    refute File.exists?(key_path)
+    refute out =~ @secret
+
+    # an existing default key is put back afterwards
+    File.write!(key_path, "storeFile=/d\nstorePassword=d\nkeyAlias=dflt\nkeyPassword=d\n")
+    File.rm!(Path.join(env.out, "latest.json"))
+    {out, code} = run(env, good_args(env, ["--first-release", "--key-properties", custom]))
+    assert code == 0, out
+    assert File.read!(key_path) =~ "keyAlias=dflt"
+  end
+
+  test "8b a --key-properties file that is missing or incomplete exits 2", ctx do
+    env = setup_env(ctx)
+    bad = Path.join(ctx.tmp_dir, "bad.properties")
+    File.write!(bad, "storeFile=/x\n")
+    {o1, c1} = run(env, good_args(env, ["--first-release", "--key-properties", bad]))
+    {_o, c2} = run(env, good_args(env, ["--first-release", "--key-properties", bad <> ".none"]))
+    assert {c1, c2} == {2, 2}
+    refute o1 =~ "/x"
+    refute called?(env)
+  end
+
   test "5 gradle release signing reads key.properties and has no debug key" do
     gradle = File.read!(@gradle)
     assert gradle =~ "key.properties"

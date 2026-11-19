@@ -105,7 +105,8 @@ run again inside the transaction before anything is written.
 - Permission `StockQuickCount` (held by TENANT_ADMIN and PLATFORM_ADMIN as of REQ-854; STOREKEEPER does not hold it); tenant-wide readers only (a scoped reader gets 404).
 - `file_name`: optional, 1 to 255 characters, default `workbook.xlsx`.
 - `org_unit_id` and format errors: same as the check.
-- 409 `definition_not_active` if the `stock_quick_count` process definition is not active.
+- 409 `definition_not_active` if the `stock_quick_count` process definition is not active, or its document type
+  is absent on an install older than 0.20.0 (reinstall the stock module, QA only; nothing is activated or written).
 - 422 `too_many_changes`: the file has more than 1 000 differences; nothing written.
 - 422 `count_in_progress` with `held_by` the order number: a count order whose scope covers a
   key in the file is opened; nothing written.

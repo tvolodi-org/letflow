@@ -262,12 +262,15 @@ defmodule Letflow.Routers.MeTest do
   # REQ-403 AC9 — no GET /api/v1/me root route added
   # ═══════════════════════════════════════════════════════════════════════
 
-  describe "REQ-403 AC9 -- no root route (grep contract)" do
-    test "lib/letflow/routers/me.ex declares no authz_get \"/\" root route" do
+  # T-2195 supersedes the REQ-403 AC9 "no root route" grep: that was a scope guard of the REQ-403
+  # slice. The bare `GET /me` now exists (a 403 for a TENANT_ADMIN probing it was a defect), and is
+  # pinned to the role-agnostic :MyAccessRead permission so it cannot be gated on a role.
+  describe "T-2195 -- the root route is the role-agnostic access read" do
+    test "lib/letflow/routers/me.ex declares authz_get \"/\" with :MyAccessRead only" do
       source = File.read!(Path.join([File.cwd!(), "lib", "letflow", "routers", "me.ex"]))
 
-      refute source =~ ~r/authz_get\s+"\/"/,
-             "expected no `authz_get \"/\"` root route in lib/letflow/routers/me.ex (REQ-403 AC9)"
+      assert [_one] = Regex.scan(~r/authz_get\s+"\/"/, source)
+      assert source =~ ~r/authz_get\s+"\/",\s*:MyAccessRead,\s*scope: :self_service/
     end
   end
 end

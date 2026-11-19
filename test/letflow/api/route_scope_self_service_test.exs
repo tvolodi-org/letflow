@@ -38,6 +38,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
   ]
   @removed_lines [
     "GET /help/resolved HelpRead",
+    "GET /me MyAccessRead",
     "GET /me/memberships MembershipsRead",
     "GET /me/modules MyModulesRead",
     "GET /me/access MyAccessRead",
@@ -390,6 +391,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :MyAccessRead,
                    class: :self_service,
                    ruling: "SEC-551-labels"
+                 },
+                 %{
+                   route: "GET /me",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-REQ-449-access"
                  },
                  %{
                    route: "GET /me/memberships",

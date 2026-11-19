@@ -1,4 +1,4 @@
-# T-2161 (BA): qoimeks-retry group, scenario 3. QA only, no real data.
+# T-2161 (BA), rework T-2191 (issues #4703, #4707): qoimeks-retry group, scenario 3. QA only, no real data.
 # Covers REQ-859 (old-app address reads, build #4664) and REQ-860 (old-app address writes, build #4666).
 # Decision 0091 section 9 notes that retry deduplication by client id on the old-app address is
 # deferred to T-2029; the client `id` field in the POST body is currently accepted and ignored.
@@ -6,14 +6,35 @@
 # (409 idempotency_key_reuse is not returned, because the deduplication is not yet wired to the body
 # `id` field). This scenario documents that current behavior so QA can surface the gap.
 #
+# Fix of #4703 (the blocker of the group's audit): no seed, variable or preflight check provides the
+# shared stock token value; the value is shown only once, at creation (decision 0091 section 4.3).
+# The walk now creates the tenant's shared access itself through the admin API at the start, keeps the
+# one-time value in the run's own environment only (never in a file, a screenshot or the report), and
+# revokes it at the end, so the tenant is left with none, exactly as it began. If a shared access
+# already exists when the walk starts, the walk does not replace or revoke it (it may belong to a
+# concurrent run) and reports BLOCKED-by-environment instead.
+# Ordering rule (decision 0091 section 4.3; the sibling group qoimeks-token manages the same credential):
+# this group and the qoimeks-token group must not run at the same time; either order is fine, because
+# both restore the tenant to "no shared access". qoimeks-token-1 requires the tenant to start with none,
+# which this walk's cleanup guarantees.
+#
+# Fix of #4707: the precondition that the tenant's scope enforcement is off, now stated in all four
+# scenarios of the group (while it is "on" or "shadow", every old-app request is answered 403
+# scope_enforcement_active: SharedStockAccess.accept/2, decision 0091 sections 9 and 11b).
+#
 # NOT UAT-observable (stated, not invented):
 # - The actual Qoimeks mobile application; the runner acts at the HTTP level.
 # - Concurrent sends: this scenario covers a sequential send.
+# - The token value: created by the walk at step 2, kept in the run's environment only, never recorded.
+# Role-based refusal (T-2191 rework, gate finding): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) is refused the admin API of the shared stock access
+# (step 12): the three routes need the permission TokensManage (lib/letflow/routers/identity.ex, authz_get/authz_post/authz_delete "/shared-stock-access"), which only TENANT_ADMIN and
+# PLATFORM_ADMIN hold (docs/roles.md, matrix row TokensManage; STOREKEEPER: no), and the handler answers 403 "insufficient permissions" otherwise (shared_access_guarded). The refusal is walked on the
+# READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
 ---
 id: qoimeks-retry-3-same-client-id-different-data-also-accepted
 scope: qoimeks-qa
 title: Same client id with different quantity is currently accepted as a second document, not refused (retry deduplication pending T-2029)
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, retry, idempotency-gap, old-app, conflict, balance, ru]
 
 description: >
@@ -24,24 +45,36 @@ description: >
   idempotency_key_reuse. The 409 idempotency_key_reuse refusal is defined in
   Letflow.Modules.Stock.OldAppWrites for use once the deduplication is wired, but it is not reachable
   via the body `id` field today. This scenario documents that current behavior as a known gap.
-  The test runner sends a receipt for 10 units, then a receipt for 15 units, both with the same
-  client id C-RETRY-3. The expected current behavior: both are accepted (201 each with different
-  movement ids) and the balance increases by 25 (not by 10). When T-2029 is delivered and the
-  second send returns 409, this scenario should be retired.
-  Cleanup: both posted receipts are reversed. The balance screen is verified in Russian.
+  The walk first creates the tenant's shared stock access through the admin API and keeps the
+  one-time value in the run's own environment only. The test runner then sends a receipt for 10
+  units, then a receipt for 15 units, both with the same client id C-RETRY-3. The expected current
+  behavior: both are accepted (201 each with different movement ids) and the balance increases by 25
+  (not by 10). When T-2029 is delivered and the second send returns 409, this scenario should be
+  retired.
+  Cleanup: both posted receipts are reversed and the shared access created at the start is revoked,
+  so the tenant is left as it began.
   Not exercised, with reasons: (a) the actual phone screen; (b) concurrent sends.
 
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
-  - description: >
-      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
-      REQ-858 build #4662), a shared stock token exists for the tenant, and the old-app address
-      (decision 0091 section 6, REQ-859 build #4664) answers for the tenant slug qoimeks-qa.
+  - description: The tenant's scope enforcement is off.
     check: system_seeded
     detail: >
-      If the old-app address is not reachable or the tenant has no shared token, report BLOCKED
+      While the scope enforcement is "on" or "shadow", every old-app request is answered 403
+      scope_enforcement_active (decision 0091 sections 9 and 11b) and no step of this walk can run.
+      If it is not off, report BLOCKED for the whole scenario; switching it is the platform
+      operator's act, not the walk's.
+  - description: >
+      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      REQ-858 build #4662), and the old-app address (decision 0091 section 6, REQ-859 build #4664)
+      answers for the tenant slug qoimeks-qa.
+    check: system_seeded
+    detail: >
+      The walk creates the shared access itself at step 2, so none needs to exist. If the old-app
+      address is not reachable or the deployment setting does not list the tenant, report BLOCKED
       for the whole scenario and name which precondition is missing.
   - description: >
       The tenant has an item ITEM-RETRY-C3 with a posted balance of at least 25 units in one place
@@ -53,64 +86,91 @@ preconditions:
     detail: If a movement with client id C-RETRY-3 exists, use a different client id.
   - description: The run can drive a real browser.
     check: system_seeded
-    detail: If no browser can be started, report BLOCKED for steps 1 and 5 to 6.
+    detail: If no browser can be started, report BLOCKED for the balance steps.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in.
+    check: system_seeded
+    detail: >
+      Needed only for the last step. If the sign-in of this account fails, report that step as BLOCKED-by-environment
+      and name the account; every other step still runs.
 
 steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on the tenant address and opens the balance screen in Russian
-      at 1440 px. The balance of ITEM-RETRY-C3 is noted as B0.
-    via: ui
-
+      The administrator, signed in on the tenant's own address
+      (https://qoimeks-qa.letflow.qa.bizdala.com), reads the status of the tenant's shared stock
+      access through the admin API. The answer is noted as S0.
+    via: api
   - step: 2
     actor: admin
     action: >
-      The test runner sends a receipt for ITEM-RETRY-C3, quantity 10, operator name
-      "Тест-конфликт", client id C-RETRY-3 (the `id` field in the JSON body). The answer is
-      noted as A1.
+      The administrator creates the shared stock access with an empty request (the system generates
+      the value). The answer is noted as C1; the value in it is noted as V1 and is kept only in the
+      run's own environment, never in a file, a screenshot or the report. The status is read again
+      and noted as S1.
     via: api
-
   - step: 3
     actor: admin
     action: >
-      The test runner sends a receipt for ITEM-RETRY-C3, quantity 15 (different from step 2),
-      operator name "Тест-конфликт", same client id C-RETRY-3. The answer is noted as A2.
-    via: api
-
+      The administrator opens the balance screen in Russian at 1440 px. The balance of
+      ITEM-RETRY-C3 is noted as B0.
+    via: ui
   - step: 4
+    actor: admin
+    action: >
+      The test runner sends a receipt to the old-app address for ITEM-RETRY-C3, quantity 10,
+      operator name "Тест-конфликт", client id C-RETRY-3 (the `id` field in the JSON body),
+      presenting V1 as the bearer credential (the word Bearer followed by the value). The answer
+      is noted as A1.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The test runner sends a receipt to the old-app address for ITEM-RETRY-C3, quantity 15
+      (different from step 4), operator name "Тест-конфликт", same client id C-RETRY-3. The answer
+      is noted as A2.
+    via: api
+  - step: 6
     actor: admin
     action: >
       The test runner reads the balance of ITEM-RETRY-C3 from the old-app address balances call.
       The answer is noted as B1-api.
     via: api
-
-  - step: 5
+  - step: 7
     actor: admin
     action: >
-      The administrator refreshes the balance screen in Russian at 1440 px.
-      The balance of ITEM-RETRY-C3 is noted as B1-ui.
+      The administrator refreshes the balance screen in Russian at 1440 px. The balance of
+      ITEM-RETRY-C3 is noted as B1-ui.
     via: ui
-
-  - step: 6
+  - step: 8
     actor: admin
     action: >
       The administrator opens the balance screen at 390 px. The balance is noted as B1-phone.
     via: ui
-
-  - step: 7
+  - step: 9
     actor: admin
     action: >
-      The administrator reverses the first receipt (movement id from A1) at the old-app address
-      with operator name "Тест-откат". The answer is noted as REV1.
+      The test runner reverses the first receipt (movement id from A1) at the old-app address with
+      operator name "Тест-откат". The answer is noted as REV1.
     via: api
-
-  - step: 8
+  - step: 10
     actor: admin
     action: >
-      The administrator reverses the second receipt (movement id from A2) at the old-app address
-      with operator name "Тест-откат". The answer is noted as REV2 and the balance is noted as
-      BFINAL.
+      The test runner reverses the second receipt (movement id from A2) at the old-app address with
+      operator name "Тест-откат". The answer is noted as REV2 and the balance is noted as BFINAL.
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access created in step 2 (the answer is noted as
+      D3) and reads the status again (noted as S3), so that the tenant ends with none.
+    via: api
+  - step: 12
+    actor: storekeeper
+    action: >
+      The storekeeper, signed in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), asks the admin API for the status of the tenant's shared stock access
+      (the read; nothing is created or changed). The answer is noted as R-SK.
+    expect_refusal: true
     via: api
 
 expected_outcomes:
@@ -188,3 +248,33 @@ expected_outcomes:
       severity: MINOR
       business_impact: The synthetic balance is left changed; later runs may start from a wrong value.
       suggested_action: route_to_wf03
+
+  - id: EO-006
+    description: The shared access created at the start is revoked, leaving the tenant as it began.
+    verification:
+      method: api_response
+      detail: >
+        S0 said exists is false before the walk. D3 has HTTP status 204 (no content). S3 is 200
+        with exists is false: the tenant holds no shared stock access after the walk, so the
+        sibling group qoimeks-token can run its own create-revoke walk on the same tenant.
+      evidence: "The exists flags of S0 and S3 and the status of D3."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A live shared credential is left on the QA tenant after the run, with a value that sat in
+        the run's environment; the old-app address stays open until the operator revokes it.
+      suggested_action: route_to_wf03
+
+  - id: EO-007
+    description: A storekeeper, who holds no right to manage tokens, is refused the shared stock access routes of the admin API.
+    verification:
+      method: api_response
+      detail: >
+        R-SK has HTTP status 403, and its body carries no "exists", "created_at" or other status field of the shared access (only the refusal). The permission is TokensManage, held by the
+        tenant administrator only among the tenant roles.
+      evidence: "HTTP status and body of R-SK."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A warehouse clerk could learn about, replace or revoke the credential the old app uses to post stock, and so cut off the warehouse or open the tenant's stock to others.
+      suggested_action: route_to_elixir_dev

@@ -258,7 +258,9 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   adjustments (G8), a client retry id (G7: a retried create makes a second document, whose approval is refused
   `quick_count_stale` once the first posted).
 
-An install older than 0.20.0 needs a reinstall for the new document type and process (QA only).
+An install older than 0.20.0 needs a reinstall for the new document type and process (QA only). Until then
+quick-count and workbook-apply requests answer 409 `definition_not_active`; no definition is activated and no
+document is written.
 
 ## The count worksheet (T-1905; no version bump)
 

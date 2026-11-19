@@ -241,7 +241,8 @@ defmodule Letflow.Modules.Stock.Documents do
   REQ-854 / GH #4564: the quick count. `body` is the flat map `QuickCountShape` parses. Order of refusals:
   the shape (422), the read authority (`opts[:authorized]` nil: `{:error, :not_found}`, the unknown-document
   answer, before any master is looked at), the master checks (`Checks.quick_count/3`, 422), the kind's
-  process definition made active with `opts[:activator]` (`{:error, :definition_not_active}`), then in ONE
+  document type presence and process definition made active with `opts[:activator]`
+  (`{:error, :definition_not_active}` otherwise), then in ONE
   transaction: the formal
   count rule (`CountHold`, 422 `count_in_progress` with `held_by` the order number), the book quantity of
   the key read through `Ledger.balances/4` with `opts[:authorized]` (nil: `{:error, :not_found}`, the
@@ -276,7 +277,7 @@ defmodule Letflow.Modules.Stock.Documents do
   document. `authorized` is the tenant-wide ledger read authorization; `unit` is the org_unit_id;
   `bytes` are the xlsx body; `file_name` is the workbook name (1–255 chars, default "workbook.xlsx").
 
-  Order: parse (422), no ledger auth (404), definition not active (409), then in one transaction:
+  Order: parse (422), no ledger auth (404), definition not active or its document type absent (409), then in one transaction:
   re-check the bytes (422 on parse/check errors), no changes → 200 `{applied: false, changes: 0,
   remarks: [...]}`, too many changes (> `max_lines` seam) → 422 `too_many_changes`, count order
   blocking a key → 422 `count_in_progress`, otherwise create+issue the document → 201 response
@@ -977,9 +978,15 @@ defmodule Letflow.Modules.Stock.Documents do
   defp opening?(_view), do: {:error, {"unknown_kind", %{}}}
 
   defp activate(prefix, spec, activator) do
-    case Posting.ensure_active(prefix, spec.definition, activator) do
-      :ok -> :ok
-      :error -> {:error, :definition_not_active}
+    # A pre-quick-count install upgraded in place has the process definition but no document type.
+    # Refuse before activating anything: the documented repair is a module reinstall (QA only).
+    if Repo.get(DocumentType, spec.type_key, prefix: prefix) do
+      case Posting.ensure_active(prefix, spec.definition, activator) do
+        :ok -> :ok
+        :error -> {:error, :definition_not_active}
+      end
+    else
+      {:error, :definition_not_active}
     end
   end
 
