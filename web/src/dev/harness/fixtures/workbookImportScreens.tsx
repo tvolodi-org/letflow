@@ -202,6 +202,22 @@ export const workbookImportScreens: HarnessScreen[] = [
         />,
       ),
   },
+  // T-2328: check refused because the file is over the size limit (app's own 413)
+  {
+    name: 'wb-import-too-large',
+    routes: [entitiesRoute(), importsRoute(IMPORT_ROWS)],
+    initialPath: '/admin/stock/workbook-import',
+    routePattern: '/admin/stock/workbook-import',
+    render: () =>
+      withAuth(
+        <WorkbookImportPageHarness
+          harness={{
+            checkError: 'stock.wb.err.request_too_large',
+            importRows: IMPORT_ROWS,
+          }}
+        />,
+      ),
+  },
   // 4. Checked with remarks, changes and emptied row
   {
     name: 'wb-import-checked-remarks',

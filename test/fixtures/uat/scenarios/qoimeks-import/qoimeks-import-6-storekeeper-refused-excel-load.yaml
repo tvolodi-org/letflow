@@ -19,7 +19,7 @@ tags:
 - desktop
 - read_only
 description: >-
-  The storekeeper (a role without the right to load balances from Excel; today the quick count right guards the load, after T-2239 the load has its own permission) signs in at 1440 px in English and opens Balances. The button "Load balances from Excel" is not there for
+  The storekeeper (a role without the right to load balances from Excel; the load has its own permission, StockWorkbookApply, which the router checks on the load route, since stock 0.22.0) signs in at 1440 px in English and opens Balances. The button "Load balances from Excel" is not there for
   a user who does not hold the quick count right. The storekeeper then types the address of the load screen
   (the path /admin/stock/workbook-import) and gets the message "You do not have access to this area. Contact your tenant administrator."
   with no upload field. Nothing is loaded or changed.

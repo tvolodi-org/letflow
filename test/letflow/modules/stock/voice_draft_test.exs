@@ -214,12 +214,58 @@ defmodule Letflow.Modules.Stock.VoiceDraftTest do
     test "VD-R6 to_location_not_transfer" do
       d =
         run(
-          [kind: "receipt", to_location_words: "бэ два", to_location_code: "B-02"],
-          "приход на бэ два"
+          [
+            kind: "receipt",
+            location_words: "а один",
+            location_code: "A-01",
+            to_location_words: "бэ два",
+            to_location_code: "B-02"
+          ],
+          "приход а один бэ два"
         )
 
       assert d.to_location == nil
+      assert d.location.code == "A-01"
+      refute Map.has_key?(d, :notice)
       assert reasons(d) == [{"to_location", "B-02", "to_location_not_transfer"}]
+    end
+
+    test "VD-R6b non-transfer place only in to_location moves to location (GH 4830)" do
+      for kind <- ["receipt", "issue", "count"] do
+        d =
+          run(
+            [kind: kind, to_location_words: "бэ два", to_location_code: "B-02"],
+            "приход на бэ два"
+          )
+
+        assert d.location.code == "B-02"
+        assert d.to_location == nil
+        assert d.dropped == []
+        assert d.notice == "to_location_moved"
+      end
+    end
+
+    test "VD-R6c moved place still goes through the words-in-transcript check" do
+      d = run([kind: "issue", to_location_words: "бэ два", to_location_code: "B-02"], "расход")
+      assert d.location == nil
+      assert reasons(d) == [{"location", "B-02", "location_not_said"}]
+    end
+
+    test "VD-R6d a transfer keeps both places and no notice" do
+      d =
+        run(
+          [
+            kind: "transfer",
+            location_words: "а один",
+            location_code: "A-01",
+            to_location_words: "бэ два",
+            to_location_code: "B-02"
+          ],
+          "из а один в бэ два"
+        )
+
+      assert {d.location.code, d.to_location.code} == {"A-01", "B-02"}
+      refute Map.has_key?(d, :notice)
     end
 
     test "VD-R7 negative_quantity" do

@@ -6,7 +6,7 @@
 # stock/documents/documentsMessages.ts 'stock.doc.title': Stock documents / Складские документы / Қойма құжаттары;
 # stock/stockMessages.ts 'stock.balances.title': Balances / Остатки / Қалдықтар.
 # The language choice stays in the browser for the account, so the last step puts it back to English to leave the account as found.
-# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision).
+# T-2292: the top bar shows the tenant display name (read at run time from the signed-in administrator's own membership entry), not the bare slug qoimeks-qa2.
 ---
 id: qoimeks-qa-4-language-switch-ru-kk
 scope: qoimeks-qa2

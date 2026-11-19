@@ -1,30 +1,31 @@
-# T-2310 (BA, PM 2026-11-19), batch 3, group qoimeks-signin: GO GATE 1 of 4 (sign-in, decision 0072). QA only, no real data.
-# Source: docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (D1 one realm per tenant, D5(b) host-based tenant resolution),
-# lib/letflow/routers/tenant_config.ex (moduledoc: unknown host and miss answer one uniform default body, INV-5), lib/letflow/plugs/auth_pipeline.ex
-# (respond_auth_error: realm_tenant_mismatch is 401), web/src/auth/tenantConfig.ts (realm from the tenant host).
+# T-2310 (BA, PM 2026-11-19), reworked in T-2337 (PM 2026-11-20): group qoimeks-signin, GO GATE 1 of 4 (sign-in, decision 0072). QA only, no real data.
+# Source: docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (D1 one realm per tenant, 0072:42-43 and :103 binding permanent 1:1; D5(b) :166-177 hostname unique, allowed suffixes, host-based resolution of the PUBLIC sign-in configuration),
+# lib/letflow/routers/tenant_config.ex (moduledoc "Precedence" and "?host= resolves the company's existing onboarding binding": the host lookup "selects public sign-in configuration only. It never authorizes a request or selects a tenant-data prefix"),
+# lib/letflow/plugs/auth_pipeline.ex (authenticate_oidc/2 :133 takes the tenant from the verified token's realm, guard_realm_ownership :365), web/src/auth/tenantConfig.ts (fetchTenantConfig: realm from ?realm= or the stored slug, else the host).
+# HOST vs REALM, what the decisions promise (PM 2026-11-20; read, not recalled): 0072 D1 promises one realm per tenant, permanent and 1:1 (0072:42-43, :103); D5(b) promises the hostname is unique per tenant, is validated against the allowed suffixes, feeds the redirect URIs and web origins of the realm client (0072:67) and host-based resolution of the public sign-in configuration (0072:177). NO sentence of 0072 or 0088 promises that a token of another realm is refused (401) on a tenant host. 0088 D3 (0088:72, :78): platform rows are honoured only in the platform tenant (0046 D2, INV-10); INV-1 is unchanged. The code agrees: the tenant and the data prefix come from the verified token's realm, never from the host. A grep of docs/migration/decisions for a host/realm match rule found none. DEFECT NOTE for the security reviewer: none (no decision promises a hostname/realm match, so the missing match is not a defect).
 # 1. Scope: qoimeks-qa2 (the QA tenant of Client 1, slug qoimeks-qa2, realm qoimeks-qa2, host https://qoimeks-qa2.letflow.qa.bizdala.com); it exists (actors.yaml entries actor-qoimeks-qa2-admin and actor-qoimeks-qa2-storekeeper).
-# 2. Actors: actor-qoimeks-qa2-storekeeper and actor-qoimeks-qa2-admin (realm qoimeks-qa2, roster T-2219); actor-qoimeks-qa-storekeeper (realm qoimeks-qa, roster T-2192) is the "user of another realm". Live login of each is a precondition for acceptance (the credentials come from the acceptance credential source, none is quoted here); no live-access claim is made. The task text names a second administrator (admin2): it is NOT in the roster (test/fixtures/uat/actors.yaml), so no scenario of this batch uses it.
-# 3. Host and screens: the tenant host above is the QA host named by decisions 0072 and the retry group; the SPA reads the realm from the host (web/src/auth/tenantConfig.ts fetchTenantConfig, route /api/tenant-config of lib/letflow/routers/tenant_config.ex); after sign-in the stock screens open (web/src/modules/stock/stockRoutes.tsx, routes under admin/stock, permission StockRead). The real production DNS and certificate are NOT walkable (project/qoimeks-needs-human.md; production host is not part of this group).
+# 2. Actors: actor-qoimeks-qa2-storekeeper and actor-qoimeks-qa2-admin (realm qoimeks-qa2, roster T-2219). Live login of each is a precondition for acceptance (credentials come from the acceptance credential source, none is quoted); no live-access claim is made. The old realm qoimeks-qa is NOT used by this group (no actor of it is named anywhere).
+# 3. Host and screens: tenant host above (QA host named by decision 0072); sign-in redirect started by web/src/auth/ProtectedRoute.tsx; sign-out is the navigation item with the catalog label of web/src/components/layout/navMessages.ts (en "Sign out", ru "Выйти", kk "Шығу"); stock screens web/src/modules/stock/stockRoutes.tsx (admin/stock/documents, admin/stock/balances, permission StockRead); Documents title key stock.doc.title (web/src/modules/stock/documents/documentsMessages.ts: en "Stock documents", ru "Складские документы", kk "Қойма құжаттары"). The realm sign-in page is Keycloak's own and is not quoted. Production DNS and certificate are not walkable (project/qoimeks-needs-human.md).
 # 4. Data: none beyond the two QA accounts; nothing is created or changed by this group.
-# 5. Executable: a runner with a browser (sign-in, language switch, 1440 and 390 px) and an HTTP client (the tenant-config read and the token refusals). No step loops; one attempt per step.
+# 5. Executable: a runner with a browser only (1440 and 390 px, language switch). Every step of this scenario is a screen step: the former API steps (tenant-config read, no-credential read) were replaced by what the browser shows (the address of the sign-in page names the realm; a fresh session on a stock address is sent to the sign-in).
 # 6. Dry run: not run in this step (no acceptance environment here; uat.sh preflight needs the title "UAT qoimeks-signin").
-# EXPECTATION CORRECTIONS: 3 (a) the unknown-host answer is a 200 with one uniform default body, never a 404 or an error (tenant_config.ex moduledoc, INV-5), so the scenario expects "no tenant data", not "refused"; (b) a token of another realm on the tenant address is answered 401 by the auth pipeline (not 403); (c) no text of the realm's own sign-in page is quoted: it is Keycloak's, not in the web i18n catalog.
-# Decisions of the 0001..0092 range that Client 1 does NOT use, so nobody re-opens them: the task text says "the other 16 decisions are not used by Client 1" but the coverage helper report (operator, 2026-11-19) is not in this worktree and not in the task text, so the list is NOT written here and not invented; the PM names them in the next batch. Decided here from the sources opened: 0066 module uninstall/reactivate is NOT used (production-tenant-onboarding.md "Rollback summary": step 7 "none", what cannot be undone: installed modules; no row uses uninstall), so no group; 0074 document purge is NOT ON MAIN as a function: the only build is the database layer (priv/repo/migrations/20261105500001_create_purge_requests_and_delete_guards.exs, "no module, route, permission or event yet"; git grep for purge_requests/DocumentsPurge in lib and web/src finds only tenant_provisioning.ex's migration manifest), REQ-603 is pending, so the purge negative test is "not on main, not walked"; no qoimeks-purge group is written.
+# EXPECTATION CORRECTIONS: 3 (a) step 1 and step 8 were via api, now via ui: the realm is read from the address of the sign-in page and the no-credential refusal is the sign-in redirect with no stock data shown; (b) the claim "401 for a token of another realm on the tenant address" is removed from this group, the code gives no such promise (see HOST vs REALM); (c) no text of the realm's own sign-in page is quoted (Keycloak, not in the web catalog).
 # Z-forms: see the group qoimeks-zforms (p3, not a go gate).
 ---
 id: qoimeks-signin-1-tenant-address-leads-to-own-realm-and-signs-in
 scope: qoimeks-qa2
 title: >-
   A user opens the tenant address, is sent to the tenant's own realm sign-in and, after signing in, works on the tenant's stock screens
-version: "1.0"
+version: "1.1"
 tags: [qoimeks, signin, realm, browser, ru, kk, go-gate]
 
 description: >-
-  Decision 0072 D1 gives each tenant its own realm, and the tenant address resolves the tenant (D5(b)). A
-  user opens https://qoimeks-qa2.letflow.qa.bizdala.com in a browser, is sent to the sign-in of realm
-  qoimeks-qa2 (the realm named by the tenant configuration read for that host), signs in as the storekeeper,
-  and lands in the application of the tenant; the administrator does the same. The sign-out returns to the
-  sign-in. The real production host and certificate are not walked here (needs-human list).
+  Decision 0072 D1 gives each tenant its own realm, and the tenant address resolves the public sign-in
+  configuration of the tenant (D5(b)). A user opens https://qoimeks-qa2.letflow.qa.bizdala.com in a browser,
+  is sent to the sign-in of realm qoimeks-qa2, signs in as the storekeeper, and lands in the application of
+  the tenant; the administrator does the same. The sign-out returns to the sign-in. A fresh session that
+  opens a stock address without signing in is sent to the sign-in and sees no stock data. Every step is
+  done on screens.
 
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
@@ -45,60 +46,58 @@ steps:
   - step: 1
     actor: storekeeper
     action: >-
-      The test runner reads the tenant configuration the application asks for when opened on the tenant
-      host (the same read the browser makes), and notes the realm named in the sign-in authority it returns as
-      REALM-READ.
-    via: api
+      In a fresh browser session at 1440 px the storekeeper opens the tenant address
+      https://qoimeks-qa2.letflow.qa.bizdala.com. The browser is sent to a sign-in page; the host and the
+      realm named in its address (the realm path segment) are noted as SIGNIN-URL.
+    via: ui
   - step: 2
     actor: storekeeper
     action: >-
-      In a fresh browser session at 1440 px the storekeeper opens the tenant address
-      https://qoimeks-qa2.letflow.qa.bizdala.com. The browser is sent to a sign-in page; its address is noted
-      as SIGNIN-URL.
+      The storekeeper signs in with the own account. The application opens; the user's own name or login is
+      shown as the signed-in user. The storekeeper opens the stock Documents screen (title "Stock documents")
+      and the Balances screen.
     via: ui
   - step: 3
-    actor: storekeeper
-    action: >-
-      The storekeeper signs in with the own account. The application opens; the user's own name or login is
-      shown as the signed-in user. The storekeeper opens the stock Documents screen and the Balances screen.
-    via: ui
-  - step: 4
     actor: storekeeper
     action: >-
       The storekeeper switches the application language to Russian, reloads, and then to Kazakh, reloads;
       each time the signed-in state stays and the Documents screen shows its title in that language.
     via: ui
+  - step: 4
+    actor: storekeeper
+    action: >-
+      The same sign-in and the Documents screen at 390 px in Russian; nothing is clipped horizontally.
+    via: ui
   - step: 5
     actor: storekeeper
     action: >-
-      The same sign-in and the Documents screen at 390 px in Russian: nothing is clipped horizontally.
+      The storekeeper chooses the sign-out item of the navigation. The application shows the sign-in again;
+      opening the Documents screen address directly asks for a sign-in.
     via: ui
   - step: 6
-    actor: storekeeper
-    action: The storekeeper signs out. The application shows the sign-in again; opening the Documents screen address directly asks for a sign-in.
-    via: ui
-  - step: 7
     actor: admin
     action: >-
       In another fresh browser session the administrator opens the tenant address, is sent to the sign-in,
       signs in with the own account and opens the same Documents screen. The sign-in address is noted as SIGNIN-URL-ADMIN.
     via: ui
-  - step: 8
+  - step: 7
     actor: admin
     action: >-
-      The test runner sends a read of the stock documents list at the tenant address with no credential at all.
+      In a third fresh browser session, with nobody signed in, the runner opens the Documents screen address
+      of the tenant (https://qoimeks-qa2.letflow.qa.bizdala.com/admin/stock/documents) and the Balances screen
+      address directly. Each time the browser is sent to the sign-in; no document, item, place or balance of the tenant is shown at any moment.
     expect_refusal: true
-    via: api
+    via: ui
 
 expected_outcomes:
   - id: EO-001
-    description: The tenant host resolves to the tenant's own realm (decision 0072 D1, D5(b)).
+    description: The tenant address leads to the tenant's own realm sign-in (decision 0072 D1, D5(b)).
     verification:
-      method: api_response
+      method: gui_screen
       detail: >-
-        REALM-READ is the realm qoimeks-qa2 (the authority URL names it). The sign-in page address SIGNIN-URL
-        and SIGNIN-URL-ADMIN both name the same realm, REALM-READ, and the tenant host as the place to return to.
-      evidence: "REALM-READ, SIGNIN-URL and SIGNIN-URL-ADMIN (the password never recorded)."
+        SIGNIN-URL and SIGNIN-URL-ADMIN both name the realm qoimeks-qa2 and the tenant host as the place to
+        return to. They are the same realm in both sessions.
+      evidence: "SIGNIN-URL and SIGNIN-URL-ADMIN as screenshots of the address bar (the password never recorded)."
     on_fail:
       severity: BLOCKER
       business_impact: A client whose address leads to another company's sign-in cannot start work, or could meet another company's users.
@@ -109,9 +108,9 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >-
-        Steps 3 and 7: the Documents and Balances screens open without a sign-in loop or an error page; the
-        language switch of step 4 keeps the sign-in and shows the screen title in Russian and in Kazakh.
-        At 390 px (step 5) nothing is clipped.
+        Steps 2 and 6: the Documents and Balances screens open without a sign-in loop or an error page; the
+        language switch of step 3 keeps the sign-in and shows the screen title in Russian and in Kazakh.
+        At 390 px (step 4) nothing is clipped.
       evidence: "Screenshots of Documents and Balances at 1440 and 390 px in Russian and Kazakh."
     on_fail:
       severity: BLOCKER
@@ -123,7 +122,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >-
-        Step 6: the sign-in page is shown, and the Documents address does not show stock data without a sign-in.
+        Step 5: the sign-in page is shown, and the Documents address does not show stock data without a sign-in.
       evidence: "Screenshot of the sign-in after sign-out."
     on_fail:
       severity: MAJOR
@@ -131,14 +130,14 @@ expected_outcomes:
       suggested_action: route_to_frontend_dev
 
   - id: EO-004
-    description: A request to the stock documents list with no credential is refused and returns no tenant data.
+    description: Without a sign-in the stock addresses of the tenant show no tenant data; the browser is sent to the sign-in.
     verification:
-      method: api_response
+      method: gui_screen
       detail: >-
-        Step 8: HTTP status 401, a body with the standard error shape and no document, item or place of the
-        tenant (decision 0072 D1; lib/letflow/plugs/auth_pipeline.ex respond_auth_error).
-      evidence: "Status and body of step 8."
+        Step 7: both addresses end on the sign-in page; at no moment a list, a number or a name of the tenant
+        is on screen. Both addresses behave the same way.
+      evidence: "Screenshots of the sign-in reached from each stock address."
     on_fail:
       severity: BLOCKER
       business_impact: Anyone who knows the tenant address could read the stock.
-      suggested_action: route_to_elixir_dev
+      suggested_action: route_to_frontend_dev

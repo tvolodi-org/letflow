@@ -4,7 +4,7 @@
 # web/src/router.tsx (admin/tenants is wrapped in platformPage(P.TenantsManage, ...) = RequirePermission with platformOnly; the tenant dashboard route is "dashboard"),
 # docs/roles.md (platform-scope screens belong to PLATFORM_ADMIN of the platform tenant), docs/agents/instructions/security-invariants.md INV-10.
 # Purpose of the group: decide whether the engine's browser step works on this tenant. A step that cannot start a browser is reported BLOCKED, not failed.
-# NOT UAT-observable here: the exact tenant name text (the task does not state it; the scenario asks for the name the tenant was registered with, as recorded in the platform's tenant list, which the roster cannot read: see EO-002).
+# T-2292: the top bar must show the display name, not the slug (the product fix is merged: web/src/auth/tenantDisplayName.ts reads it from the caller's own membership entry). The expected text is read at run time from that membership entry, never typed here; the slug no longer passes (the earlier operator decision of T-2182 is superseded).
 # 1. Scope: qoimeks-qa2 — the tenant and its realm exist (slug checked against the tenant facts).
 # 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) is in the roster for realm qoimeks-qa2 and has a login in the acceptance environment; no second actor of this realm is needed (a cross-tenant sign-in is not claimed, with the reason in the description).
 # 3. Host and screens: the tenant host answers (precondition 1); the workspace dashboard route and the top bar with the tenant name exist at main (TenantHeader.tsx and the web router were read at main).
@@ -74,7 +74,8 @@ expected_outcomes:
     description: The top bar shows the name of this tenant.
     verification:
       method: gui_screen
-      detail: In step 2 the tenant name in the top bar is the tenant slug qoimeks-qa2 or the registered display name (the slug is accepted by the operator's decision of T-2182), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
+      detail: >-
+        In step 2 the tenant name in the top bar is the tenant's display name, equal to the display name of the administrator's own entry in the list of their memberships (read at run time with the administrator's own session: the self-service memberships read, which the sign-in itself uses), is not empty, is not the bare slug qoimeks-qa2 (unless the registered display name really is that text), and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
       evidence: Screenshot of the top bar at 1440 px width.
     on_fail:
       severity: MAJOR

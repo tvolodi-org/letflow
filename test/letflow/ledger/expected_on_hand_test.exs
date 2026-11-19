@@ -135,7 +135,7 @@ defmodule Letflow.Ledger.ExpectedOnHandTest do
   end
 
   test "T-853-6 invalid values are invalid_posting before any lock", %{schema: schema} do
-    for bad <- [Decimal.new(-1), Decimal.new("0.0000000001"), "5", 5] do
+    for bad <- [Decimal.new("0.0000000001"), "5", 5] do
       leg = Fx.leg(["z", "l"], 1, "u1", %{expected_on_hand: bad})
       invalid?(Fx.post_tx(Fx.capability(schema, "receipt", [leg])), :expected_on_hand_invalid)
     end

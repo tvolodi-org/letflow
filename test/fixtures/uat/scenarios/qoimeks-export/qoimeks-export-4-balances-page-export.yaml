@@ -38,7 +38,7 @@ description: >-
   the hint under the list that the file holds the loaded first page only. The storekeeper clicks "Export to Excel",
   and the saved file is read: two sheets, the register's column headers and the report sheet that states the time
   basis. The same is repeated in a window 390 px wide. This is not the Qoimeks layout of scenario 1: the columns
-  here are the register's own (item code, place, org unit, and so on).
+  here are the register's own (item, place, org unit and so on; the cells hold record ids, not codes or names, decision 0086 D5).
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
