@@ -1,37 +1,16 @@
-# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
-# 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-count. Live authenticated tenant enumeration not repeated.
-# 2. Actors (T-2222, PM 2026-11-19): every step a storekeeper does in real life (open the form, read the book quantity, submit the count, read the difference, input refusals, reading balances and movements, starting a reversal) runs as actor-qoimeks-qa2-storekeeper / STOREKEEPER; actor-qoimeks-qa2-admin / TENANT_ADMIN appears only as the second person who approves a count or completes a reversal task when four-eyes is on (qoimeks-count-3 steps 4 and 6). Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, places linked to QOI-OU-1, base units, lots, book quantity B, no open formal count and effective quick-count approval rule: listed in scenario preconditions. Every seeded balance carries a responsible employee, so the steps choose the Responsible employee of the Balances row (task 4740); a second approver is an absent baseline fixture and dependent outcomes are BLOCKED-by-environment. Re-read B before each retry; concurrent postings invalidate the environment precondition. Counts of items, places and balances are read at the start of the run (the seed changes them); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
-# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-count.
-# T-2190: run title UAT qoimeks-count; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
-# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
-# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
-# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
-# Access-refusal checks may use actor-qoimeks-qa2-storekeeper where its actual permissions warrant refusal; its availability is not an environment blocker. Other required roles or restricted org-unit grants must be confirmed before checks that need them. Sources: actors.yaml and docs/roles.md.
-# Do not substitute a platform or another tenant actor. No real data or production.
-# T-2159 (BA): Qoimeks QA walk, function "quick count that sets the balance". QA only, SYNTHETIC data, never the real tenant, no production.
-# Covers: REQ-855 (web screen: form, balance shown, difference shown; criteria 1, 2 first half, 6 empty and filled form), REQ-854 (route behind the screen),
-# REQ-853 (compare-and-set rule, indirectly: this scenario only reads).
-# Sources opened: docs/requirements.yaml REQ-853..856; web/src/modules/stock/quickCount/QuickCountPage.tsx (form: item picker, place, org unit, lot only for a lot-tracked item,
-# counted quantity, reason; balance and difference shown once item, place and org unit are chosen); quickCountMessages.ts (en/ru/kk texts quoted below);
-# web/src/modules/stock/stockRoutes.tsx and components/layout/navMessages.ts (the screen sits in the stock navigation as "Quick count" / "Быстрый пересчёт" / "Жылдам санақ").
-# This scenario writes nothing. Window: desktop 1440 px, English; phone width and ru/kk are walked in qoimeks-count-5.
-# Coverage notes (cases outside this walk and environment requirements):
-#  (a) the phone APK count screens and voice entry (REQ-856, REQ-731): an app on a handset and a microphone cannot be driven by the browser run; the phone is walked here only as a 390 px browser window (qoimeks-count-5).
-#  (b) refusal count_in_progress / location_frozen (a formal count order opened over the key): an open count order is a required fixture not supplied by this walk; both administrator and STOREKEEPER are rostered, so actor absence is not the blocker. Not walked; covered by REQ-854 criterion 7 tests.
-#  (c) refusal quick_count_stale (the balance moved between count and approval): needs a second posting in the gap; not exercised by this sequential administrator walk; STOREKEEPER is available for a coordinated posting check. Covered by REQ-854 criterion 5 tests.
-#  (d) four-eyes refusal (counter approves own count): now a step of qoimeks-count-3 (step 4, T-2240); the quick count is four-eyes ON on qoimeks-qa2.
-# Responsible rule (task 4740): the quick count form has a 'Responsible employee' selector (default 'Unassigned stock'); every step that compares a book quantity chooses the Responsible employee of the Balances row it noted. No stock without a responsible is needed.
-# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+# T-2262 code-reading pass, group qoimeks-count (PM 2026-11-19). Run title: UAT qoimeks-count. QA only, synthetic data, no production.
+# 1. Scope: every scenario has scope qoimeks-qa2, the synthetic QA tenant and its realm (qoimeks-qa2, host in the preconditions); the group directory name is not the scope.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks are routed to the role TENANT_ADMIN, so the storekeeper does not see them in My Tasks: the storekeeper holds no TasksReadAll) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). TARGET state after T-2239 (#4764, not merged on main at writing): the storekeeper also holds StockQuickCount and CodesRead; until then the quick count entry is missing for the storekeeper and the walk reports a PRODUCT defect, no step is moved to the administrator.
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com (answered HTTP 200 on 2026-11-19, T-2190; not re-run here). Read on main: web/src/modules/stock/stockRoutes.tsx (route admin/stock/quick-count), stock/index.ts (nav entry), quickCount/QuickCountPage.tsx, quickCountModel.ts, quickCountMessages.ts, documents/documentsModel.ts (actionsFor), register/stockRegisterModel.ts (CAUSES), pages/tasks/taskMessages.ts and TaskDetail.tsx.
+# 4. Data: no balance, item or place is named by code. Every walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item with no lot tracking, a place of one org unit and not one of the negative balances; it records item, place, org unit, the Responsible employee the row shows (none: the form selector stays at Unassigned stock) and the quantity B. Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those, never to a number written here. Tenant state read, not set: all stock process definitions active, quick count approval four-eyes ON, no formal count order open over the place, shared stock access enabled. No generator task is needed.
+# 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 step 7 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
+# 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and the run title UAT qoimeks-count); parse and schema checks only; acceptance runs the preflight.
 ---
 id: qoimeks-count-1-form-shows-balance-and-difference
 scope: qoimeks-qa2
-title: >-
-  The Qoimeks QA storekeeper opens the quick count form, chooses an item and a place, sees the current balance,
+title: The Qoimeks QA storekeeper opens the quick count form, chooses an item and a place, sees the current balance,
   types a counted quantity and sees the difference, without saving anything
-version: '1.1'
+version: '2.0'
 tags:
 - qoimeks
 - stock
@@ -40,162 +19,115 @@ tags:
 - desktop
 - read_only
 - en
-description: >-
-  The storekeeper opens "Quick count" from the stock navigation. The form is empty: item, location, org unit,
-  counted quantity, reason. The storekeeper chooses an item that already holds a posted opening balance and the
-  place, org unit and Responsible employee of that Balances row (the same ones the Balances screen shows for it). The form then
-  shows the book quantity of that key. The storekeeper types a counted quantity and the form shows the difference
-  (counted minus book). Changing the typed quantity changes the difference at once; clearing the item hides the
-  balance. Nothing is submitted: no document, no movement, no balance changes. Preconditions are in the list below.
-  Name of the test data: none created.
+description: 'REQ-855 (screen) over REQ-854. The storekeeper opens Quick count from the stock navigation; the form
+  is empty. The storekeeper chooses the item, place, org unit and Responsible employee of a Balances row; the form
+  shows the book quantity of that key. Typing a counted quantity shows the difference (counted minus book) and changing
+  the number changes it at once; clearing the item hides the balance. Nothing is submitted: no document, no movement,
+  no balance changes.'
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
-- description: >-
-    The Qoimeks QA tenant has the stock module active with the synthetic data (counts of items, places and balances read at the start of the run).
-  check: system_seeded
-  detail: >-
-    If the stock module has no balances, report BLOCKED for the whole scenario.
-- description: >-
-    The storekeeper can see "Quick count" in the stock navigation (source: the stock module role_grants give STOREKEEPER no
-    StockQuickCount, so the entry is expected to be missing for this account).
-  check: system_seeded
-  detail: >-
-    If the entry is missing for the storekeeper, report a PRODUCT defect (the real storekeeper must be able to count; the walk is not moved to the administrator), and do not open the screen by typing its address.
-- description: >-
-    The run can drive a real browser at a window width of 1440 px, in English.
-  check: system_seeded
-  detail: >-
-    If no browser can be started, report BLOCKED.
-- description: >-
-    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
-    Confirm the tenant before any action. Read the counts of items, places and posted balances at the start of the run (the seed changes them); every seeded
-    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes for opening approval is OFF; the quick-count rule is ON (a second person approves, issue 4765).
+- description: Sign in as actor-qoimeks-qa2-storekeeper (STOREKEEPER) at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
+    and confirm the tenant before any action. Read the counts of items, places and posted balances at the start
+    of the run and compare to those later.
   check: runner_prepared
-  detail: >-
-    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
-    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
-    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
-- description: >-
-    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
-    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
+    seed, grant roles or change approval rules to satisfy a precondition.
+- description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
+    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    shows and B before any count.
   check: runner_prepared
-  detail: >-
-    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
-    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
-    is not a blocker under this task contract.
-- description: >-
-    For the steps that compare a book quantity, first read the full balance key on the Balances screen: a row with a
-    positive quantity, no lot, the item base unit, at a place linked to QOI-OU-1. Record item, place, org unit, the
-    Responsible employee of that row and its quantity B before any count.
+  detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
+    selector is set to that employee (the form books against that exact key). If no such row exists, report BLOCKED-by-environment
+    before submitting; do not create stock.
+- description: 'TARGET state after T-2239 (#4764): the storekeeper sees "Quick count" in the stock navigation and
+    may open it.'
+  check: system_seeded
+  detail: If the entry is missing for the storekeeper, report a PRODUCT defect (#4764) and do not type the address;
+    the walk is not moved to the administrator. Until T-2239 merges the affected outcomes of this scenario FAIL
+    as product defects, they are not weakened.
+- description: The run drives a real browser at a window width of 1440 px in English.
   check: runner_prepared
-  detail: >-
-    Every seeded balance carries a responsible employee, so the quick count form needs that employee chosen in its
-    "Responsible employee" selector (default "Unassigned stock"); with the default the form shows book quantity 0 for a
-    seeded row (task 4740, issue 4720). The run chooses the Responsible employee of the Balances row it noted, and B is
-    the quantity of that same row. No separate stock without a responsible is needed. Read the counts of items, places
-    and balances at the start of the run (the seed changes them). If no such row exists, report BLOCKED-by-environment
-    before submitting. Do not create stock to satisfy this precondition.
+  detail: If no browser can be started, report BLOCKED-by-environment.
 steps:
 - step: 1
   actor: storekeeper
-  action: >-
-    The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2, opens the Balances
-    screen in the stock navigation, and notes one row with a positive quantity (not one of the three negative balances):
-    its item, its location, its org unit, its Responsible employee and its quantity. This quantity is called B below. The row must belong
-    to an item without lots, so that the form asks for no lot; if the row shows a lot, take another row.
+  action: The storekeeper opens the Balances screen and notes one row as in the preconditions (item, place, org
+    unit, Responsible employee, quantity B). The storekeeper then opens the stock documents screen and notes the
+    number of the newest document in the stock documents list (call it N0), or "none" for an empty list.
   via: ui
 - step: 2
   actor: storekeeper
-  action: >-
-    The storekeeper opens "Quick count" from the stock navigation and reads the empty form.
+  action: The storekeeper opens "Quick count" from the stock navigation and reads the empty form.
   via: ui
 - step: 3
   actor: storekeeper
-  action: >-
-    The storekeeper chooses the item noted in step 1 (typing its code or name in the item field), then the location,
-    then the org unit, then the Responsible employee of that Balances row. The storekeeper reads the form.
+  action: The storekeeper chooses the item noted in step 1 (typing its code or name in the item field), then the
+    location, the org unit and the Responsible employee, and reads the form.
   via: ui
 - step: 4
   actor: storekeeper
-  action: >-
-    The storekeeper types in the counted quantity field the number B plus 2 (for example B is 10, types 12) and
-    reads the form.
+  action: The storekeeper types the number B plus 2 in the counted quantity field and reads the form.
   via: ui
 - step: 5
   actor: storekeeper
-  action: >-
-    The storekeeper replaces the typed number by the number B minus 1 and reads the form again.
+  action: The storekeeper replaces the typed number by the number B minus 1 and reads the form again.
   via: ui
 - step: 6
   actor: storekeeper
-  action: >-
-    The storekeeper clears the item field and reads the form, then leaves the screen through the stock navigation
-    (to Balances) without submitting.
+  action: The storekeeper clears the item field and reads the form, then leaves the screen through the stock navigation
+    to Balances without submitting.
   via: ui
 - step: 7
   actor: storekeeper
-  action: >-
-    The storekeeper reads the row of the same key on the Balances screen again.
+  action: The storekeeper reads the row of the same key on Balances again and the stock documents list, noting the
+    newest document number.
   via: ui
 expected_outcomes:
 - id: EO-001
-  description: >-
-    The quick count screen is in the stock navigation and its form is empty at the start.
+  description: The Quick count screen is in the stock navigation and its form is empty at the start (REQ-855 criterion
+    1).
   verification:
     method: gui_screen
-    detail: >-
-      Step 2 shows the title "Quick count", the fields Item, Location, Org unit, Responsible employee, Counted quantity, Reason, the button
-      "Submit count", and no balance line.
-    evidence: >-
-      Screenshot of step 2.
+    detail: Step 2 shows the title "Quick count" and the labels "Item", "Location", "Org unit", "Responsible employee",
+      "Counted quantity", "Reason", the button "Submit count", and no book quantity line.
+    evidence: Screenshot of step 2.
   on_fail:
     severity: MAJOR
-    business_impact: >-
-      The storekeeper cannot find the one-form count that the old Qoimeks system had.
+    business_impact: The storekeeper cannot find the one-form count the old Qoimeks system had.
     suggested_action: route_to_frontend_dev
 - id: EO-002
-  description: >-
-    Once item, place and org unit are chosen the form shows the book quantity, equal to the Balances screen.
+  description: Once item, place and org unit are chosen the form shows the book quantity of that key, equal to the
+    Balances row (REQ-854 point 2, REQ-855 criterion 2).
   verification:
     method: gui_screen
-    detail: >-
-      Step 3 shows the line "Book quantity" with the value B with B equal to the quantity noted in step 1; no lot
-      field is shown for an item without lots.
-    evidence: >-
-      Screenshot of step 3 beside the Balances row of step 1.
+    detail: Step 3 shows the label "Book quantity" with the value B noted in step 1; no Lot field for an item without
+      lot tracking.
+    evidence: Screenshot of step 3 beside the Balances row of step 1.
   on_fail:
     severity: BLOCKER
-    business_impact: >-
-      A counter would be shown a wrong current balance and would count against it.
+    business_impact: A counter would count against a wrong current balance.
     suggested_action: route_to_frontend_dev
 - id: EO-003
-  description: >-
-    The difference is the counted quantity minus the book quantity and follows the typed number.
+  description: The difference is the counted quantity minus the book quantity and follows the typed number (REQ-855
+    criterion 2).
   verification:
     method: gui_screen
-    detail: >-
-      Step 4 shows Difference 2; step 5 shows Difference -1 (the minus sign visible); the book quantity stays B
-      in both.
-    evidence: >-
-      Screenshots of steps 4 and 5.
+    detail: Step 4 shows "Difference" equal to 2 and step 5 equal to -1 (minus sign visible); "Book quantity" stays
+      B in both.
+    evidence: Screenshots of steps 4 and 5.
   on_fail:
     severity: MAJOR
-    business_impact: >-
-      The counter cannot see what the count will change before saving.
+    business_impact: The counter cannot see what the count will change before saving.
     suggested_action: route_to_frontend_dev
 - id: EO-004
-  description: >-
-    Clearing the item hides the balance and nothing is saved by looking at the form.
+  description: Clearing the item hides the balance and looking at the form writes nothing.
   verification:
     method: gui_screen
-    detail: >-
-      Step 6 shows no book quantity line. Step 7 shows the same row with quantity B (unchanged); the stock documents
-      screen holds no new document made by this scenario.
-    evidence: >-
-      Screenshots of steps 6 and 7.
+    detail: Step 6 shows no "Book quantity" line. Step 7 shows the same Balances row at B and the newest document
+      number equal to N0.
+    evidence: Screenshots of steps 6 and 7.
   on_fail:
     severity: MAJOR
-    business_impact: >-
-      A read-only look would change stock, or a stale balance stays on screen after the item is cleared.
+    business_impact: A read-only look would change stock or leave a stale balance on screen.
     suggested_action: route_to_frontend_dev
