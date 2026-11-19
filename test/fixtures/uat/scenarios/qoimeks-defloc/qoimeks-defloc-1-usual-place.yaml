@@ -15,17 +15,19 @@
 # Sensitive actions: no approve, pay/release or user changes; all stock here is synthetic.
 # The other-company data refusal is in qoimeks-defloc-3. No other-tenant stock actor is supplied.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
 #   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
-# 3 Host and screens: the Items screen and card sections exist in web/src/modules/catalog_items/items/ItemDetails.tsx;
+# 3. Host and screens: the Items screen and card sections exist in web/src/modules/catalog_items/items/ItemDetails.tsx;
 #   section titles follow catalogItemsItemsMessages.ts (sec.overview: Обзор / Шолу; sec.related: Остатки по местам
 #   хранения / Сақтау орындары бойынша қалдық; field.defaultLocation: Обычное место / Әдеттегі орын). The English
 #   word "Related" is not shown on the screen in ru/kk and is no longer used in the steps.
-# 4 Data: items with a usual place do not exist yet (issue 4708); the scenario carries a data check as a precondition and
-#   is BLOCKED-by-environment until the generator task below merges and the data is reloaded.
-# 5 Executable: every step is a browser step; the data check is read-only.
-# 6 Dry run: uat.sh preflight was not run by the writer (no QA credentials in the writer session).
+# 4. Data: after the seed 216 items have a usual place (read the count at the start of the run, do not hard-code it);
+#   pick one of them; if none is found the scenario is BLOCKED-by-environment, not PASS.
+#   T-2206 (P13): the storekeeper cannot read the Locations admin screen (it needs the locations write permission), so the place
+#   is compared with the card's own stock-by-place table, not with Locations.
+# 5. Executable: every step is a browser step; the data check is read-only.
+# 6. Dry run: uat.sh preflight was not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-1-usual-place
 scope: qoimeks-qa
@@ -49,8 +51,9 @@ preconditions:
       Open https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, using
       QOIMEKS_QA_ADMIN credentials from UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*.
       If this address cannot reach this tenant, report BLOCKED; do not substitute a real tenant.
-      The supplied baseline is 142 places, 666 items and 603 posted opening balances including
-      three negative ones, with opening four-eyes off. Do not reset data or change that setting.
+      The seed has items, places and non-zero balances (three of them negative) and opening
+      four-eyes off. The counts are read at the start of the run and noted; they are not fixed
+      numbers. Do not reset data or change that setting.
   - description: An existing active synthetic item has an assigned usual place.
     check: system_seeded
     detail: >
@@ -59,8 +62,9 @@ preconditions:
       results. Use only this tenant's data, follow all result pages and keep the chosen values
       in the run evidence. Do not invent an article or infer its usual place from a stock balance.
       If no such item can be identified, report BLOCKED-by-environment for this scenario, not PASS.
-      Known state on 2026-11-19 (issue 4708): none exists. The generator task that adds usual places is not on main yet: scripts/pilot/qoimeks_gen.py never writes a usual place (home_loc), so no synthetic item has one (issue 4708: 0 of 666 items). Generator task to queue first: "qoimeks_gen: give a subset of the items a usual place (home_loc), including a few of the two-place items, regenerate and reload qoimeks-qa".
-      The scenario stays BLOCKED-by-environment until that task has merged and the data is reloaded.
+      Pick an item that has a usual place (a few hundred do after the seed; the count is read at the start
+      of the run); use another item for the empty case in the sibling scenarios.
+      If no such item can be identified, report BLOCKED-by-environment, not PASS.
   - description: A real browser can show every required width, language and appearance.
     check: system_seeded
     detail: >
@@ -82,8 +86,10 @@ steps:
   - step: 3
     actor: admin
     action: >
-      Open Locations from the navigation, find the recorded place by its code, and read its
-      name. Return to Items, search for the same article and open its card again.
+      On the card, open the section «Остатки по местам хранения» (Russian) or «Сақтау орындары бойынша қалдық»
+      (Kazakh) and compare it with the usual place: where the table has a row for the same place, its code and name
+      must equal the usual place; if the item has no stock there, compare with the recorded assignment instead.
+      Do not open Locations (the administrator may, the storekeeper cannot). Close the card, search for the same article and open it again.
     via: ui
   - step: 4
     actor: admin
@@ -96,8 +102,8 @@ steps:
     actor: storekeeper
     action: >
       Sign out, sign in as the storekeeper at the same QA tenant, open Items, search for the same
-      article code and open its card. Read the usual place in the same section and the place name
-      in Locations, without changing anything. Repeat in Russian and Kazakh at 1440 px.
+      article code and open its card. Read the usual place in the same section and compare it with the card's
+      stock-by-place table, without changing anything and without opening Locations. Repeat in Russian and Kazakh at 1440 px.
     via: ui
 expected_outcomes:
   - id: EO-001
@@ -105,8 +111,8 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        The card shows the recorded place as code - name, matching the Locations screen and
-        the recorded assignment. The card section «Обзор» / «Шолу» has one usual-place field and no second-place field.
+        The card shows the recorded place as code - name, matching the card's stock-by-place table
+        (where it lists that place) and the recorded assignment. The card section «Обзор» / «Шолу» has one usual-place field and no second-place field.
         No internal identifier, raw message key or loading placeholder
         remains after loading finishes. It is the same place after navigation and reload.
       evidence: Assignment evidence and screenshots of the card, location and reloaded card for all eight display combinations.

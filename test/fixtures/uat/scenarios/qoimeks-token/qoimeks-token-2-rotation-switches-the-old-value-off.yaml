@@ -7,7 +7,7 @@
 # 1 Scope: scope is qoimeks-qa (tenant and realm exist).
 # 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
 # 3 Host and screens: the tenant host answers; the management calls live under the identity mount of the API (the runbook docs/runbooks/pilot-rollout.md item 2 omits that mount, issue 4713: a product-doc fix, not a scenario fix); the old-app prefix /qoimeks/ is NOT routed to the backend on QA yet (issue 4715), see precondition 2.
-# 4 Data: the 666 items and 142 places exist; the shared access itself must be enabled for qoimeks-qa (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
+# 4 Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
 # 5 Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.
 # 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
@@ -21,7 +21,7 @@ description: >
   The Qoimeks QA administrator creates the shared stock access with a value of their own choice (noted as V1: 64 characters of the letters a to f and digits, the form of the old Qoimeks token). The old-app address
   accepts V1 for a catalog read. The administrator then creates again with an empty request: the system generates a new value V2 and V1 stops working at once (401 as for any unproven request) while V2 works.
   The status shows the creation time unchanged and a change time set. Two further create requests are refused with the reason "value invalid" and change nothing: a value of 10 characters (too short) and a
-  value of 64 characters with a space inside. After them V2 still works. The administrator revokes the access at the end. The shared access has no expiry, so no waiting step exists.
+  value of 64 characters plus one space inside (65 characters in all). After them V2 still works. The administrator revokes the access at the end. The shared access has no expiry, so no waiting step exists.
   Not exercised, with reasons: the stored form of the value and the audit entry (see header).
 
 actors:
@@ -37,6 +37,7 @@ preconditions:
   - description: The old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa reaches the backend, not the web app (BLOCKED-by-environment until the QA ingress routes the /qoimeks/ prefix on both QA hosts, issue 4715).
     check: system_seeded
     detail: >
+      Host used by this scenario: the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa (called <base>), which is another host than the tenant host https://qoimeks-qa.letflow.qa.bizdala.com used for the administrator's own calls. Precondition check on <base>: GET <base>/balances sent without any token must answer 401 (the plain refusal); at the time of writing both hosts answer 401. If <base> does not answer 401, report BLOCKED-by-environment and say which host answered what. 
       Precondition check: the balances read of the base address (the address followed by /balances), sent with no Authorization header at all, must answer 401 with the plain refusal
       "invalid or expired bearer token". A 200 page of text/html ("Completing sign-in..." or "Redirecting to login...") means the request fell through to the web app:
       report BLOCKED-by-environment for every step that uses the old-app address and name issue 4715. The same prefix on the tenant host
@@ -93,7 +94,7 @@ steps:
   - step: 8
     actor: admin
     action: >
-      The administrator creates the shared stock access with the value 3f9a1c5e7b2d4a60918c3e5f7a1b2c4d 6e8f0a1b3c5d7e9f1a2b4c6d8e0f1a23 (64 characters of the first form with one space in the middle). The answer is noted as C4.
+      The administrator creates the shared stock access with the value 3f9a1c5e7b2d4a60918c3e5f7a1b2c4d 6e8f0a1b3c5d7e9f1a2b4c6d8e0f1a23 (the 64 characters of the first form with one space in the middle: 65 characters in all, 64 plus the space). The answer is noted as C4.
     expect_refusal: true
     via: api
   - step: 9
