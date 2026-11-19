@@ -5,12 +5,12 @@
 # NOT UAT-observable: the audit entries shared_stock_access.created and shared_stock_access.revoked (REQ-858 AC 6): the roster has no actor that reads the audit view of this tenant. The posting of a movement with the revoked value is not walked: a defect would write a real stock document; the refusal for a revoked value is checked on reads (same 401 for every unproven request, REQ-859 AC 2).
 # Cleanup: the scenario creates the tenant's shared access and ends by revoking it, so the tenant ends as it began (no shared access). No stock row is written.
 # T-2192 rework (issues 4713, 4714, 4715): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist).
-# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
-# 3 Host and screens: the tenant host answers; the management calls live under the identity mount of the API (the runbook docs/runbooks/pilot-rollout.md item 2 omits that mount, issue 4713: a product-doc fix, not a scenario fix); the old-app prefix /qoimeks/ is NOT routed to the backend on QA yet (issue 4715), see precondition 2.
-# 4 Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
-# 5 Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.
-# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
+# 1. Scope: scope is qoimeks-qa (tenant and realm exist).
+# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
+# 3. Host and screens: the tenant host answers; the management calls live under the identity mount of the API (the runbook docs/runbooks/pilot-rollout.md item 2 omits that mount, issue 4713: a product-doc fix, not a scenario fix); the old-app prefix /qoimeks/ is NOT routed to the backend on QA yet (issue 4715), see precondition 2.
+# 4. Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
+# 5. Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.
+# 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-token-1-admin-revokes-then-old-address-refused
 scope: qoimeks-qa
