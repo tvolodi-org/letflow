@@ -14,6 +14,14 @@
 # D-086); the prompt text itself (server-internal; tested by voice_prompt_test.exs VP-1); the mobile voice
 # panel (Flutter app is not driven by the UAT runner). Desktop (1440 px) and phone (390 px) produce the same
 # API response; this is an API-only scenario.
+# T-2192 rework (issues 4717, 4718; PM 2026-11-19): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist).
+# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
+# 3 Host and screens: API route of the stock voice typed phrase (docs/runbooks/stock-voice.md); no screen.
+# 4 Data: no catalog data is needed (the phrases name no article, so the items list may be empty); the language model must be on: BLOCKED-by-keys until the owner supplies the keys. The earlier mention of a dropped reason items_empty is removed: that reason does not exist.
+# 5 Executable: HTTP steps only. Scenarios that need the speech or the language model are BLOCKED-by-keys: the provider keys
+#   come from the owner at O-015 (not a defect, not counted against the group).
+# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-voice-4-qoimeks-kind-words-ru
 scope: qoimeks-qa
@@ -36,8 +44,8 @@ preconditions:
       The language-model step of the platform is on (LETFLOW_VOICE_LLM_* settings are set for this environment).
     check: system_seeded
     detail: >
-      If the model step is off, every phrase returns kind "unknown" (not the kind under test) and the whole
-      scenario is BLOCKED. The provider-off path is covered by qoimeks-voice-1.
+      Check first: send any one typed phrase; the notice llm_off in the answer means the model step is off. Then report the whole scenario
+      BLOCKED-by-keys (the provider keys come from the owner at O-015; not a defect, not counted against the group). The provider-off path is covered by qoimeks-voice-1.
   - description: >
       The stock module is installed and the voice draft-text route is reachable by the administrator's token.
     check: system_seeded
@@ -77,7 +85,7 @@ expected_outcomes:
       method: api_response
       detail: >
         V1 answers 200 with kind "receipt". The transcript equals the sent phrase. Items may be empty (no specific
-        item was said); dropped may list items_empty or similar. The kind "receipt" is the proof that the
+        item was said). The kind "receipt" is the proof that the
         language model recognised "получил" as the receipt word.
       evidence: V1 body.
     on_fail:
