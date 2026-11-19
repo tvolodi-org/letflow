@@ -103,6 +103,7 @@ const IMPORT_ROWS: WorkbookImportRow[] = [
     number: 'QCI-2026-000001',
     created_at: '2026-11-18T04:00:00Z',
     created_by: '11111111-0000-0000-0000-000000000001',
+    created_by_label: 'Aigerim S.',
     file_name: 'stock-2026-11-18.xlsx',
     sheet: 'Остатки 2026-11-18',
     lines: 42,
@@ -115,6 +116,7 @@ const IMPORT_ROWS: WorkbookImportRow[] = [
     number: 'QCI-2026-000002',
     created_at: '2026-11-17T10:00:00Z',
     created_by: '22222222-0000-0000-0000-000000000002',
+    created_by_label: 'Bolat K.',
     file_name: 'stock-2026-11-17.xlsx',
     sheet: 'Остатки 2026-11-17',
     lines: 100,
@@ -195,6 +197,22 @@ export const workbookImportScreens: HarnessScreen[] = [
         <WorkbookImportPageHarness
           harness={{
             checkError: 'stock.wb.err.xlsx_unreadable',
+            importRows: IMPORT_ROWS,
+          }}
+        />,
+      ),
+  },
+  // T-2328: check refused because the file is over the size limit (app's own 413)
+  {
+    name: 'wb-import-too-large',
+    routes: [entitiesRoute(), importsRoute(IMPORT_ROWS)],
+    initialPath: '/admin/stock/workbook-import',
+    routePattern: '/admin/stock/workbook-import',
+    render: () =>
+      withAuth(
+        <WorkbookImportPageHarness
+          harness={{
+            checkError: 'stock.wb.err.request_too_large',
             importRows: IMPORT_ROWS,
           }}
         />,

@@ -75,6 +75,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.CountHold
   alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Checks
@@ -246,8 +247,8 @@ defmodule Letflow.Modules.Stock.Documents do
   transaction: the formal
   count rule (`CountHold`, 422 `count_in_progress` with `held_by` the order number), the book quantity of
   the key read through `Ledger.balances/4` with `opts[:authorized]` (nil: `{:error, :not_found}`, the
-  unknown-document answer; a balance of another unit is `unit_not_valid`, a negative balance
-  `book_quantity_negative`: the core's `expected_on_hand` is at least 0), the draft, the header and the
+  unknown-document answer; a balance of another unit is `unit_not_valid`; a negative book is
+  counted like any other, decision 0090: book -2 counted 3 posts +5), the draft, the header and the
   line (`book_quantity`, `difference` = counted minus book) and the issue. Nothing is stored and no number is
   taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
   is zero (then the document reads `confirmed`: no instance, no ledger entry). Returns the issued document
@@ -468,6 +469,8 @@ defmodule Letflow.Modules.Stock.Documents do
           |> Map.new()
         end
 
+      user_labels = ActorLabel.labels(prefix, Enum.map(rows, & &1.issued_by))
+
       result =
         Enum.map(rows, fn row ->
           marks = Map.get(marks_map, row.id, %{})
@@ -485,6 +488,7 @@ defmodule Letflow.Modules.Stock.Documents do
             number: number,
             created_at: row.inserted_at |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
             created_by: row.issued_by,
+            created_by_label: Map.get(user_labels, row.issued_by),
             file_name: ext["file_name"],
             sheet: ext["sheet"],
             lines: line_count,
@@ -774,7 +778,6 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp with_book!(doc, book) do
     book = to_decimal(book)
-    if Decimal.lt?(book, 0), do: Repo.rollback({"book_quantity_negative", %{}})
 
     [line] = doc.lines
     difference = Decimal.sub(Decimal.new(line["counted_quantity"]), book)

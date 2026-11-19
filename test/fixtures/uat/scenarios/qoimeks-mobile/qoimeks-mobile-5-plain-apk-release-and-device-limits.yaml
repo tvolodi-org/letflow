@@ -14,7 +14,7 @@
 # T-2264 code-reading pass (group check lines are in file 1 of this group). EXPECTATION CORRECTIONS in this file: 4.
 #   (1) the APK file name is no longer hard-coded: it is read from the url of latest.json and must have the form <prefix>-<versionName>-<versionCode>.apk with the record's own values (docs/runbooks/mobile-android-release.md, --name-prefix);
 #   (2) the release is published (latest.json, the APK and its checksum file answered 200 on 2026-11-19), so the "BLOCKED-by-environment until the owner builds it" statement is replaced by: BLOCKED only if latest.json or the APK does not answer;
-#   (3) the release notes are all empty strings today (issue 4772, next rebuild), so the notes check applies only when a note is not empty; empty notes are recorded, never failed;
+#   (3) T-2292: empty release notes are a FAIL, not a recorded gap (REQ-868 requires notes in ru, kk and en); the walk fails until the next rebuild publishes them (issue 4772, product task);
 #   (4) the checksum file holds the hexadecimal value alone, the record's sha256 equals it: both read at run time.
 ---
 id: qoimeks-mobile-5-plain-apk-release-and-device-limits
@@ -92,7 +92,7 @@ expected_outcomes:
     verification:
       method: file_content
       detail: >-
-        The run reads the ru, kk and en notes. A note that is not empty is text in its own language (the wording is not asserted) and holds no raw placeholder. A note that is empty is recorded as "no notes published" and is not a failure (the notes come with the next rebuild, issue 4772); the check applies only to notes that exist.
+        The run reads the ru, kk and en notes. Each of the three notes (ru, kk, en) must be present and not empty: the requirement for the release record asks for notes in Russian, Kazakh and English. An empty or missing note in any language is a FAIL. A note is text in its own language (the wording is not asserted) and holds no raw placeholder.
       evidence: The notes text in the run's report.
     on_fail:
       severity: MINOR
