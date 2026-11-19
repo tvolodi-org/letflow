@@ -182,6 +182,12 @@ is fixed (`--seed 42`) so each run produces identical files. Pass the directory 
 `--in` to `qoimeks_convert.py convert` with `--allow-drops` to proceed through the
 bad rows and verify all 603 non-zero, valid balances are accepted.
 
+With `--with-places` (off by default; the default files are unchanged) `items.csv` also carries
+`home_loc` (the usual place, every 3rd item) and `alt_loc` (a second place, every 9th item), and every
+25th item gets a lettered article code (Latin prefixes such as `AB0025` and Cyrillic ones such as `КС0075`)
+instead of its digits-only code. `balances.csv` uses the same codes. The option draws from its own random
+stream, so locations and the placement of balances are the same with and without it.
+
 ## Deliberately not here
 
 Tenant and realm creation, users, the cut-over and the read-only switch (steps 4-6 of T-1569 section 5), the

@@ -4,12 +4,18 @@
 Writes locations.csv, items.csv and balances.csv in the format qoimeks_convert.py reads.
 All data is entirely fictitious; no real Qoimeks client information is included (D-050).
 
-  python3 -I scripts/pilot/qoimeks_gen.py --out DIR [--seed N]
+  python3 -I scripts/pilot/qoimeks_gen.py --out DIR [--seed N] [--with-places]
 
 Sizes (default): 666 SKUs (unit pcs, quantities up to 3 decimal places), 134 rack locations
 plus 8 hierarchy nodes (1 warehouse, 7 zones), 600 positive balance rows, 3 negative opening rows,
 3 zero rows skipped by the converter and 4 comma-decimal rows it drops, to exercise the G4 and G8
 rules. A few item names embed Cyrillic look-alike letters to test Unicode handling.
+
+--with-places (off by default; the default output stays byte-identical to the original) adds
+home_loc and alt_loc columns to items.csv (a usual and a second place for a share of the items)
+and gives a set of items a lettered article code (Latin and Cyrillic letters, as the voice
+scenarios spell them). It uses its own random stream, so locations.csv is identical and the
+balances differ only in the sku value of the lettered items.
 """
 
 import argparse
@@ -45,6 +51,13 @@ CYRILLIC_LOOKALIKES = [
     "\u0420",  # Р looks like P
     "\u0425",  # Х looks like X
 ]
+
+# --with-places
+N_HOME_EVERY = 3      # every 3rd item has a usual place (home_loc)
+N_ALT_EVERY = 9       # every 9th item also has a second place (alt_loc)
+LETTER_EVERY = 25     # every 25th item gets a lettered article code
+LATIN_PREFIXES = ["AB", "KS", "MT", "DR", "PL", "VK"]
+CYRILLIC_PREFIXES = ["\u0410\u0411", "\u041a\u0421", "\u041c\u0422", "\u0414\u0420", "\u041f\u041b", "\u0412\u041a"]
 
 ITEM_TYPES = [
     "БОЛТ", "ГАЙКА", "ПРОВОД", "КРАСКА", "КЛЕЙ", "ЛЕНТА", "ТРУБА", "ПЛИТА",
@@ -102,6 +115,27 @@ def gen_items(rng):
             name = name + la
         rows.append({"sku": str(i).zfill(4), "sku_name": name, "unit": "pcs"})
     return rows
+
+
+def apply_places(item_rows, leaf_codes, seed):
+    """Add home_loc/alt_loc and lettered codes in place. Own rng: other streams are untouched."""
+    prng = random.Random("places-%s" % seed)
+    n_letter = 0
+    for i, row in enumerate(item_rows, start=1):
+        home = ""
+        alt = ""
+        if i % N_HOME_EVERY == 0:
+            home = prng.choice(leaf_codes)
+            if i % N_ALT_EVERY == 0:
+                alt = prng.choice([c for c in leaf_codes if c != home])
+        row["home_loc"] = home
+        row["alt_loc"] = alt
+        if i % LETTER_EVERY == 0:
+            # alternate Latin and Cyrillic prefixes; digits keep the code unique
+            prefixes = LATIN_PREFIXES if n_letter % 2 == 0 else CYRILLIC_PREFIXES
+            row["sku"] = prefixes[(n_letter // 2) % len(prefixes)] + str(i).zfill(4)
+            n_letter += 1
+    return item_rows
 
 
 def gen_qty(rng, decimals):
@@ -202,6 +236,8 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
                     help="random seed for reproducibility (default: %(default)s)")
+    ap.add_argument("--with-places", action="store_true",
+                    help="add home_loc/alt_loc and lettered article codes to items.csv")
     a = ap.parse_args(argv)
 
     out = check_out(a.out)
@@ -213,9 +249,18 @@ def main(argv=None):
     item_rows = gen_items(rng)
     item_codes = [r["sku"] for r in item_rows]
     bal_rows = gen_balances(item_codes, leaf_codes, rng)
+    item_fields = ["sku", "sku_name", "unit"]
+    if a.with_places:
+        # after balances: balances.csv is built from the plain codes, then lettered codes
+        # replace some skus in both files so the files stay consistent
+        apply_places(item_rows, leaf_codes, a.seed)
+        renamed = {old: r["sku"] for old, r in zip(item_codes, item_rows)}
+        for b in bal_rows:
+            b["sku"] = renamed[b["sku"]]
+        item_fields += ["home_loc", "alt_loc"]
 
     write_csv(out / "locations.csv", ["loc_code", "loc_name", "loc_parent"], loc_rows)
-    write_csv(out / "items.csv", ["sku", "sku_name", "unit"], item_rows)
+    write_csv(out / "items.csv", item_fields, item_rows)
     write_csv(out / "balances.csv", ["sku", "loc", "qty"], bal_rows)
 
     n_bad = N_ZERO_ROWS + N_NEG_ROWS + N_COMMA_ROWS

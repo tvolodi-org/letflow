@@ -118,4 +118,46 @@ defmodule Letflow.Scripts.QoimeksGenTest do
     assert c["records.stock_opening_line"] == "603"
     assert c["documents"] == "7"
   end
+
+  defp read_csv(path), do: path |> File.read!() |> String.split(~r/\r?\n/, trim: true)
+
+  test "GN-5 default output is unchanged by the places option being off", %{dir: dir} do
+    plain = Path.join(dir, "plain")
+    places = Path.join(dir, "places")
+    gen(plain)
+    assert {_, 0} = gen(places, ["--with-places"])
+    assert hd(read_csv(Path.join(plain, "items.csv"))) == "sku,sku_name,unit"
+
+    assert File.read!(Path.join(plain, "locations.csv")) ==
+             File.read!(Path.join(places, "locations.csv"))
+
+    # the plain run still has digits-only codes
+    refute Enum.any?(tl(read_csv(Path.join(plain, "items.csv"))), &(&1 =~ ~r/^[^\d,]/))
+  end
+
+  test "GN-6 with-places adds usual places and lettered Latin and Cyrillic codes", %{dir: dir} do
+    out = Path.join(dir, "in")
+    assert {_, 0} = gen(out, ["--with-places"])
+    [header | rows] = read_csv(Path.join(out, "items.csv"))
+    assert header == "sku,sku_name,unit,home_loc,alt_loc"
+    assert length(rows) == 666
+    cols = Enum.map(rows, &String.split(&1, ","))
+    assert Enum.count(cols, fn [_, _, _, h, _] -> h != "" end) == 222
+    assert Enum.count(cols, fn [_, _, _, _, a] -> a != "" end) == 74
+    skus = Enum.map(cols, &hd/1)
+    assert length(Enum.uniq(skus)) == 666
+    assert Enum.any?(skus, &(&1 =~ ~r/^[A-Z]{2}\d{4}$/))
+    assert Enum.any?(skus, &(&1 =~ ~r/^[\x{0400}-\x{04FF}]{2}\d{4}$/u))
+  end
+
+  test "GN-7 with-places output converts with every place known", %{dir: dir} do
+    in_dir = Path.join(dir, "in")
+    out_dir = Path.join(dir, "out")
+    gen(in_dir, ["--with-places"])
+    assert {text, 0} = convert(in_dir, out_dir)
+    assert text =~ "dropped total 4"
+    c = counts(out_dir)
+    assert c["records.catalog_item"] == "666"
+    assert c["records.stock_opening_line"] == "603"
+  end
 end
