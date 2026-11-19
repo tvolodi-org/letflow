@@ -396,7 +396,7 @@ defmodule Letflow.Modules.Installs do
     prefix = Keyword.fetch!(opts, :prefix)
 
     with {:ok, rationale} <- fetch_rationale(opts),
-         {:ok, entry_module} <- fetch_module(module_id) do
+         {:ok, entry_module} <- fetch_installable_module(module_id) do
       owner = ManagedTypes.module_owner(entry_module)
 
       install_transaction(module_id, fn ->
@@ -928,6 +928,14 @@ defmodule Letflow.Modules.Installs do
       nil -> {:error, {:module_not_installed, module_id}}
       %TenantModule{status: :uninstalled} -> {:error, {:module_not_installed, module_id}}
       %TenantModule{} = tm -> {:ok, tm}
+    end
+  end
+
+  # REQ-893: a module behind a release flag that is off is an unknown module to the install.
+  defp fetch_installable_module(module_id) do
+    case Catalog.fetch_installable(module_id) do
+      {:ok, entry_module} -> {:ok, entry_module}
+      {:error, :not_found} -> {:error, :unknown_module}
     end
   end
 
