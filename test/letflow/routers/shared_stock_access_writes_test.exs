@@ -132,8 +132,11 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   defp post_movement(fx, value, body, headers \\ []),
     do: call(:post, fx.tenant.slug, "/movements", value, body, headers)
 
-  defp reverse(fx, value, id, body, headers \\ []),
-    do: call(:post, fx.tenant.slug, "/movements/#{id}/reverse", value, body, headers)
+  # A reversal takes its own new client operation id (T-2282) unless the test names one.
+  defp reverse(fx, value, id, body, headers \\ []) do
+    body = if is_map(body), do: Map.put_new(body, "id", Ecto.UUID.generate()), else: body
+    call(:post, fx.tenant.slug, "/movements/#{id}/reverse", value, body, headers)
+  end
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
@@ -162,7 +165,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   defp movement(t, kind, qty, operator, extra \\ %{}) do
     Map.merge(
       %{
-        "id" => 1,
+        "id" => Ecto.UUID.generate(),
         "kind" => kind,
         "sku_id" => t.sku,
         "location_id" => t.loc1,
@@ -603,6 +606,165 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
         |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
 
       assert conn.status == 400
+    end
+  end
+
+  # -- I: the client operation id (T-2282) -----------------------------------------------------------
+
+  describe "I the client operation id" do
+    @reuse "this operation was already posted with different data"
+
+    defp with_id(t, kind, qty, id, extra \\ %{}),
+      do: movement(t, kind, qty, "Aigul", Map.put(extra, "id", id))
+
+    test "I-1 a missing or non-UUID id is 400 `id is required` on both routes, nothing written",
+         t do
+      rec = receive!(t, 5)
+      before = written(t.ctx.schema)
+
+      bad_ids = [
+        :none,
+        nil,
+        "",
+        "abc",
+        1,
+        12_345,
+        "1234",
+        String.duplicate("a", 36),
+        String.replace(Ecto.UUID.generate(), "-", "")
+      ]
+
+      for bad <- bad_ids do
+        body = movement(t, "receipt", 1, "X")
+        body = if bad == :none, do: Map.delete(body, "id"), else: Map.put(body, "id", bad)
+
+        assert %{"error" => "id is required"} = post_movement(t.a, t.value, body) |> status!(400)
+
+        rbody = if bad == :none, do: %{"operator" => "X"}, else: %{"operator" => "X", "id" => bad}
+
+        assert %{"error" => "id is required"} =
+                 call(:post, t.a.tenant.slug, "/movements/#{rec["id"]}/reverse", t.value, rbody)
+                 |> status!(400)
+      end
+
+      assert written(t.ctx.schema) == before
+      assert balance_at(t, t.loc1) == 5
+    end
+
+    test "I-2 a repeat with the same id and data is 200 with the stored movement, nothing doubled",
+         t do
+      id = Ecto.UUID.generate()
+      first = post_movement(t.a, t.value, with_id(t, "receipt", 10, id)) |> status!(201)
+      after_first = written(t.ctx.schema)
+      assert balance_at(t, t.loc1) == 10
+
+      # same data: another operator, the id in capitals, the quantity as text with a decimal part
+      for body <- [
+            with_id(t, "receipt", 10, id),
+            with_id(t, "receipt", "10.0", String.upcase(id)) |> Map.put("operator", "Ерлан"),
+            with_id(t, "receipt", 10, id) |> Map.delete("operator")
+          ] do
+        conn = post_movement(t.a, t.value, body, [{"x-operator", "Header"}])
+        assert status!(conn, 200) == first
+      end
+
+      assert written(t.ctx.schema) == after_first
+      assert balance_at(t, t.loc1) == 10
+      assert [%{"id" => _}] = call(:get, t.a.tenant.slug, "/movements", t.value) |> status!(200)
+
+      # the key lives in this tenant's schema only
+      %{rows: [[in_b]]} =
+        Repo.query!(~s|SELECT count(*) FROM "#{t.b.b.schema_name}".stock_create_idempotency|)
+
+      assert in_b == 0
+    end
+
+    test "I-3 the same id with other data is 409 and changes nothing", t do
+      id = Ecto.UUID.generate()
+      post_movement(t.a, t.value, with_id(t, "receipt", 10, id)) |> status!(201)
+      before = written(t.ctx.schema)
+
+      for body <- [
+            with_id(t, "receipt", 11, id),
+            with_id(t, "issue", 10, id),
+            with_id(t, "receipt", 10, id, %{"location_id" => t.loc2}),
+            with_id(t, "transfer", 10, id, %{"to_location_id" => t.loc2})
+          ] do
+        assert %{"error" => @reuse} = post_movement(t.a, t.value, body) |> status!(409)
+      end
+
+      assert written(t.ctx.schema) == before
+      assert balance_at(t, t.loc1) == 10
+    end
+
+    test "I-4 a reversal takes its own id and repeats; a second reversal or a mixed id is refused",
+         t do
+      rec = receive!(t, 10)
+      rid = Ecto.UUID.generate()
+      body = %{"id" => rid, "operator" => "Ерлан"}
+
+      rev = reverse(t.a, t.value, rec["id"], body) |> status!(201)
+      assert %{"kind" => "reversal"} = rev
+      assert balance_at(t, t.loc1) == 0
+      after_reverse = written(t.ctx.schema)
+
+      # the same reversal id again: the stored reversal, 200, nothing written
+      assert reverse(t.a, t.value, rec["id"], Map.put(body, "operator", "Другой")) |> status!(200) ==
+               rev
+
+      assert written(t.ctx.schema) == after_reverse
+
+      # the original reversed again under ANOTHER id is refused as before
+      assert %{"error" => "document_reversed"} =
+               reverse(t.a, t.value, rec["id"], %{"operator" => "X"}) |> status!(409)
+
+      # the reversal's id used for a post, and a post id used for a reverse
+      assert %{"error" => @reuse} =
+               post_movement(t.a, t.value, with_id(t, "receipt", 10, rid)) |> status!(409)
+
+      other = receive!(t, 3)
+      other_id = Ecto.UUID.generate()
+      post_movement(t.a, t.value, with_id(t, "receipt", 1, other_id)) |> status!(201)
+
+      assert %{"error" => @reuse} =
+               reverse(t.a, t.value, other["id"], %{"id" => other_id, "operator" => "X"})
+               |> status!(409)
+
+      # the reversal id used for the reverse of a different original
+      assert %{"error" => @reuse} =
+               reverse(t.a, t.value, other["id"], %{"id" => rid, "operator" => "X"})
+               |> status!(409)
+
+      assert balance_at(t, t.loc1) == 4
+    end
+
+    test "I-5 concurrent posts with one id leave one document and a correct balance", t do
+      id = Ecto.UUID.generate()
+      body = with_id(t, "receipt", 7, id)
+
+      results =
+        1..6
+        |> Enum.map(fn _ -> Task.async(fn -> post_movement(t.a, t.value, body) end) end)
+        |> Enum.map(&Task.await(&1, 60_000))
+
+      assert Enum.sort(Enum.map(results, & &1.status)) == [200, 200, 200, 200, 200, 201]
+      assert results |> Enum.map(&json/1) |> Enum.uniq() |> length() == 1
+      assert balance_at(t, t.loc1) == 7
+      {_entries, {_records, docs}} = written(t.ctx.schema)
+      assert docs == 1
+    end
+
+    test "I-6 a refused post binds nothing: the same id works once the cause is gone", t do
+      id = Ecto.UUID.generate()
+
+      assert %{"error" => _} =
+               post_movement(t.a, t.value, with_id(t, "issue", 5, id)) |> status!(409)
+
+      receive!(t, 8)
+      issued = post_movement(t.a, t.value, with_id(t, "issue", 5, id)) |> status!(201)
+      assert issued["kind"] == "stock_issue"
+      assert post_movement(t.a, t.value, with_id(t, "issue", 5, id)) |> status!(200) == issued
+      assert balance_at(t, t.loc1) == 3
     end
   end
 
