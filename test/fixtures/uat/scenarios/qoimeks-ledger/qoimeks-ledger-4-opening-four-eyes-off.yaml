@@ -1,6 +1,6 @@
 # T-2258 code-reading pass (2026-11-19); source checks are not live acceptance evidence.
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
+# 2. Actors: actors.yaml names qoimeks-qa2 admin, admin2 (second person, T-2334; both TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; admin2 login must be provisioned (precondition, else its steps are BLOCKED-by-environment); storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
 # 3. Host and screens: stockRoutes.tsx, router.tsx and mounted stock, My reports and Approval rules pages read on main; read-only tenant-host HEAD returned 200. Live authenticated screens remain unverified.
 # 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is BLOCKED-by-environment until the invalid-item posting harness described in its precondition is supplied; never assume it exists.
 # 5. Executable: source review covers every group outcome: journal filters/legs, receipt post/reversal, L7 rule order, opening approval/audit, report cards and approval-rule refusal. Browser/HTTP runner supplies its own script. Ledger-6 tests unauthorized reads; missing fixture or credentials blocks affected steps before writes.
@@ -28,7 +28,8 @@
 # NOT UAT-observable here, with reasons:
 #   (a) API-token self-approval is outside this interactive-user walk; SeparationOfDuties.check/6 requires :oidc for the OFF exception.
 #   (b) Storekeeper approval-rule access is covered by ledger-6 with the existing roster actor.
-# Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
+# T-2334 (issue 4836): documents are created, issued, claimed and completed on the screens (New document form, Issue, My Tasks); the API is used for reads and verification only (document, balance, audit) and for nothing that creates, issues, posts or reverses a document. Rule switches use the Approval rules screen.
+# Runner API adapter (reads and verification only): obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
 # Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa2.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
 # Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.
 # Opening body: kind:"opening", org_unit_id, note, lines [{catalog_item_id,catalog_uom_id,location_id,responsible_id,received_on:<today YYYY-MM-DD>,quantity:"1"}]. No supplier_document_ref for opening.
@@ -47,7 +48,7 @@ scope: qoimeks-qa2
 title: >-
   The Qoimeks QA administrator checks the four-eyes rule, issues a stock opening and self-approves it (rule OFF),
   sees the audit entry, then switches the rule ON and is refused, then restores the rule OFF
-version: '1.1'
+version: '1.2'
 tags:
 - qoimeks
 - ledger
@@ -65,11 +66,12 @@ description: >-
   at issue) and approves it in My Tasks. The approval succeeds because the rule is OFF. The administrator reads
   the audit log and finds the "self-approved, four-eyes off" note and the rule-change entry. The administrator then
   switches the rule to ON with a reason, creates a second stock opening "UAT-LEDGER-OPE-02", issues it and tries
-  to approve it — the approval is refused because the rule is ON. The administrator switches the rule back to OFF
-  to restore the QA state. As cleanup the administrator reverses the first opening and posts then reverses the second
-  after restoring the original rule.
+  to approve it — the approval is refused because the rule is ON (separation of duties). The second administrator (a different person) then approves OPE-2 in a browser sign-in with the rule ON and the
+  creator's own attempt is refused. Only then is the rule switched back to OFF to restore the QA state, and the audit is
+  read. As cleanup both openings are reversed and the reversal tasks completed.
 actors:
   admin: actor-qoimeks-qa2-admin
+  admin2: actor-qoimeks-qa2-admin2
 preconditions:
 - description: >-
     The stock module is active; the administrator holds ApprovalRulesManage through TENANT_ADMIN and the Approval
@@ -84,6 +86,13 @@ preconditions:
   detail: >-
     If ON, unreadable or another walk is in progress, BLOCKED-by-environment; do not silently restore a setting
     as preparation.
+- description: >-
+    A second administrator, actor-qoimeks-qa2-admin2 (a different person, TENANT_ADMIN, same tenant and realm), has a
+    login in the acceptance credential source and can sign in to a browser session.
+  check: runner_prepared
+  detail: >-
+    If the account is not provisioned, step 8 and EO-006 are BLOCKED-by-environment; do not use the first
+    administrator in its place and do not provision it from the walk.
 - description: >-
     At least one item with a known code and org unit exists in the synthetic data (read from the Balances screen).
   check: system_seeded
@@ -156,23 +165,33 @@ steps:
 - step: 7
   actor: admin
   action: >-
-    The administrator opens My Tasks, finds the approval task for OPE-2 and tries to approve it.
+    With the rule ON, the administrator who created OPE-2 opens My Tasks, finds the approval task for OPE-2 and tries to
+    approve it. The refusal (403, reason separation_of_duties) and the message the task screen shows are recorded.
   expect_refusal: true
   via: ui
 - step: 8
-  actor: admin
+  actor: admin2
   action: >-
-    The administrator switches the four-eyes rule for the stock opening approval step back to OFF with reason "UAT
-    test: restored". The switch response is noted as SW2.
-  via: api
+    With the rule still ON, the second administrator signs in to a separate browser session, opens My Tasks, claims
+    the approval task for OPE-2 (created by the first administrator) and completes it. The approval succeeds and
+    OPE-2 reaches the state Posted. Read the issued quantity of OPE-2 as Q2 and the document state as S2.
+  via: ui
 - step: 9
   actor: admin
   action: >-
-    After restoring the opening approval rule to OFF, the administrator completes the pending approval of OPE-2.
-    They start reversal of each posted opening with reason Other and the corresponding test note, and complete both
-    reversal tasks in My Tasks. Re-read both documents and the full balance key; both documents are reversed and
-    the balance equals B0. Finally read the audit again to include both rule changes and both self-approvals.
-  via: api
+    Only after OPE-2 is approved by the second administrator, the first administrator switches the four-eyes rule for
+    the stock opening approval step back to OFF on the Approval rules screen with reason "UAT test: restored". The
+    switch result is noted as SW2.
+  via: ui
+- step: 10
+  actor: admin
+  action: >-
+    The administrator starts reversal of each posted opening (OPE-1 and OPE-2) on the document screen with reason Other and
+    the corresponding test note; the reversal tasks are claimed and completed in My Tasks (by the second administrator
+    for OPE-2 where the rule asks for two people). Re-read both documents and the full balance key through the API
+    (read only): both documents are reversed and the balance equals B0. Finally read the audit again to include both
+    rule changes and both approvals (the self-approval of OPE-1 and the approval by admin2 of OPE-2).
+  via: ui
 expected_outcomes:
 - id: EO-001
   description: >-
@@ -208,16 +227,16 @@ expected_outcomes:
     suggested_action: route_to_elixir_dev
 - id: EO-003
   description: >-
-    The final audit includes both self-approvals and both rule changes.
+    The final audit includes the self-approval of OPE-1, the approval of OPE-2 by the second administrator and both rule changes.
   verification:
     method: api_response
     detail: >-
-      Read audit after step 9, not only the snapshot from step 4. Page through the run time window and match task.self_approved
-      to each opening approve task. Each has one self-approval entry with the four-eyes-off note. Match the two
+      Read audit after step 10, not only the snapshot from step 4. Page through the run time window and match task.self_approved
+      to each opening approve task. Match the one task.self_approved entry to OPE-1's approve task (OPE-2 has none); match the two
       approval_rule.changed events to the opening approve rule and the supplied switch reasons. Rule changes are
       not document-scoped entries.
     evidence: >-
-      Final audit response after step 9, with task and rule identifiers and run time window; redact the token.
+      Final audit response after step 10, with task and rule identifiers and run time window; redact the token.
   on_fail:
     severity: MAJOR
     business_impact: >-
@@ -229,7 +248,8 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      The approval action in step 7 is refused and OPE-2 remains in state "Issued". Re-read its full-key balance
+      The approval action in step 7 by the creator is refused (separation of duties, 403) with a visible message on the
+      task screen (record its text; none is invented here) and OPE-2 remains in state "Issued". Re-read its full-key balance
       and movements: neither changed during the refused approval. The issued document's information banner says
       "A second administrator approves the posting in the task inbox. The person who issued it cannot."
       in English; this banner is on the document, not a required task-panel error message.
@@ -240,16 +260,33 @@ expected_outcomes:
     business_impact: >-
       The four-eyes control does not work; a single person can bypass the two-person approval requirement.
     suggested_action: route_to_elixir_dev
+- id: EO-006
+  description: >-
+    With the rule ON a second administrator can approve OPE-2, and only after that the rule is switched OFF.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 8 by admin2 in a separate browser session: the approval completes and OPE-2 reaches Posted, while the rule
+      is still ON (read the rule on the Approval rules screen before step 9). Step 9 happens after, not before.
+      The audit read in step 10 shows the approval of OPE-2 by admin2 (a person other than the creator) and not a
+      self-approval entry for OPE-2.
+    evidence: >-
+      Screenshots of step 8 and the Approval rules screen before step 9; audit response of step 10.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The two-person control cannot be completed by a second administrator, or the rule was weakened before the approval.
+    suggested_action: route_to_elixir_dev
 - id: EO-005
   description: >-
     The opening rule and original balance are restored after both reversals.
   verification:
-    method: http_status
+    method: gui_screen
     detail: >-
-      SW2 answers 200 with four_eyes false. After both reversal tasks complete, both opening documents are reversed
+      SW2 shows four_eyes false on the Approval rules screen. After both reversal tasks complete, both opening documents are reversed
       and the full key is back to B0. Neither document has a pending approval or reversal task.
     evidence: >-
-      API responses of steps 8 and 9.
+      Approval rules screen after step 9 and read-only API responses of step 10.
   on_fail:
     severity: MAJOR
     business_impact: >-
