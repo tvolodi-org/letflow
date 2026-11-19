@@ -52,6 +52,8 @@ export interface WorkbookImportRow {
   number: string | null
   created_at: string
   created_by: string | null
+  /** The person's name from the server (never the id); absent when unresolvable. */
+  created_by_label?: string | null
   file_name: string | null
   sheet: string | null
   lines: number

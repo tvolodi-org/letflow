@@ -48,6 +48,7 @@ const HARNESS_IMPORT_ROW: WorkbookImportRow = {
   number: 'QCI-2026-000001',
   created_at: '2026-11-18T04:00:00Z',
   created_by: '11111111-0000-0000-0000-000000000001',
+  created_by_label: 'Aigerim S.',
   file_name: 'stock-2026-11-18.xlsx',
   sheet: 'Остатки 2026-11-18',
   lines: 42,
@@ -252,7 +253,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
       mono: true,
       render: (r) => formatStockDateTime(r.created_at, { locale: intl.locale }),
     },
-    { key: 'created_by', label: t('stock.wb.loads.col.user'), render: () => '—' },
+    { key: 'created_by', label: t('stock.wb.loads.col.user'), render: (r) => r.created_by_label || '—' },
     { key: 'file_name', label: t('stock.wb.loads.col.file'), render: (r) => r.file_name ?? '—' },
     { key: 'lines', label: t('stock.wb.loads.col.lines'), align: 'end', mono: true, render: (r) => String(r.lines) },
     {

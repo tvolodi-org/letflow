@@ -323,6 +323,26 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
   # -- criterion 5 -------------------------------------------------------------------------------
 
   describe "remarks" do
+    test "T-2303 a negative quantity gets R12, not R1, and loads nothing", ctx do
+      m = seed!(ctx.a.schema_name)
+      a = check(ctx, m.unit, book([["Z-1", "Один", -20, "R", "I", 2]]))
+
+      assert texts(a) == [
+               ~s(строка 2: Z-1: отрицательный остаток "-20" не загружается, учётный остаток остаётся как есть. Остатки этого товара в системе не изменяются)
+             ]
+
+      refute Enum.any?(texts(a), &(&1 =~ "не является количеством"))
+      assert Enum.filter(a["changes"], &(&1["item_code"] == "Z-1")) == []
+
+      a = check(ctx, m.unit, book([["Z-1", "Один", "-1,5", "R", "I", 2]]))
+      assert [t] = texts(a)
+      assert t =~ "отрицательный остаток \"-1,5\""
+
+      a = check(ctx, m.unit, book([["Z-1", "Один", "abc", "R", "I", 2]]))
+      assert [t] = texts(a)
+      assert t =~ "не является количеством"
+    end
+
     test "T-WI-5 R1 R3 R5 R6 R8 R9 and R10", ctx do
       m = seed!(ctx.a.schema_name)
       Cat.item!(ctx.a.schema_name, "LOT-1", m.uom.record_id, %{"tracking_policy" => "lot"})
