@@ -21,8 +21,8 @@ tags: [qoimeks, mobile, pwa, sign_in, phone, i18n, ru, kk, en, refusal]
 
 description: >
   The administrator opens the PWA in a window 390 px wide (and again at 1440 px), types the company code "qoimeks-qa" and presses Continue; the browser goes to the sign-in page of the company's identity provider,
-  the administrator signs in with their own account, and the browser returns to the PWA, which shows the stock home with the title "Stock" and its entries (stock documents, counts). The address bar no longer holds the sign-in parameters.
-  The administrator then switches the app language to Russian ("Склад") and Kazakh ("Қойма") and back to English with the language control of the app (labels EN, RU, KK), and reads the stock documents entry in each language.
+  the administrator signs in with their own account, and the browser returns to the PWA, which shows the tenant home screen with the entry "Stock" (the install hint and the language control EN, RU, KK are on this screen, not on the stock home). The administrator taps "Stock" and reaches the stock home with the title "Stock" and its entries (stock documents, counts). The address bar no longer holds the sign-in parameters.
+  The administrator then switches the app language to Russian ("Склад") and Kazakh ("Қойма") and back to English with the language control of the tenant home screen (labels EN, RU, KK), and reads the "Stock" entry there and, after tapping it, the stock documents entry in each language.
   Two refusals are walked on their own: a company code that does not exist (the app says "Company not found" and goes no further), and the right company code with a wrong password (the sign-in page refuses and the PWA stays signed out).
   Last, the page is reloaded: with the "stay signed in" build flag off, the app signs in again by itself while the company's sign-in session lives, or asks for the sign-in page again; with the flag on it asks for a PIN, which this scenario does not enter.
   Cleanup: no record is created; at the end the administrator clears the site data of the PWA address so the next run starts signed out.
@@ -58,12 +58,12 @@ steps:
   - step: 3
     actor: admin
     action: >
-      Back in the PWA the administrator reads the page that opens (the stock home) and its address bar.
+      Back in the PWA the administrator reads the page that opens (the tenant home screen with the entry "Stock") and its address bar, then taps "Stock" and reads the stock home.
     via: ui
   - step: 4
     actor: admin
     action: >
-      The administrator opens the language control of the app, chooses RU and reads the stock home and the entry for stock documents; then chooses KK and reads them again; then chooses EN.
+      On the tenant home screen the administrator opens the language control, chooses RU and reads the entry "Склад"; taps it and reads the stock home and the entry for stock documents; goes back to the tenant home screen, chooses KK and repeats the reading ("Қойма"); then chooses EN.
     via: ui
   - step: 5
     actor: admin
@@ -98,7 +98,7 @@ expected_outcomes:
     description: The company code leads to the company's own sign-in page, and a correct sign-in returns to the PWA with the stock home.
     verification:
       method: gui_screen
-      detail: After step 1 the browser shows the sign-in page of the realm of the Qoimeks QA company (not another company's page and no error); after step 3 the PWA shows the title "Stock" and the entries for stock documents and counts, with no error banner, and the address bar holds no "code=" or "state=" parameters. The text fits the 390 px width without sideways scrolling.
+      detail: After step 1 the browser shows the sign-in page of the realm of the Qoimeks QA company (not another company's page and no error); after step 3 the PWA shows the tenant home screen with the entry "Stock" and, after tapping it, the stock home with the title "Stock" and the entries for stock documents and counts, with no error banner, and the address bar holds no "code=" or "state=" parameters. The text fits the 390 px width without sideways scrolling.
       evidence: Screenshots of steps 1, 2 and 3 at 390 px, and of step 5 at 1440 px.
     on_fail:
       severity: BLOCKER
@@ -108,7 +108,7 @@ expected_outcomes:
     description: The stock home and the stock documents entry follow the chosen language.
     verification:
       method: gui_screen
-      detail: Step 4 in Russian shows "Склад" and "Складские документы"; in Kazakh shows "Қойма" and "Қойма құжаттары"; in English shows "Stock" and "Stock documents". No English words stay in the Russian or Kazakh screen except the language labels EN, RU, KK, and no text is shown as a raw key such as "stock.home.title".
+      detail: Step 4 in Russian shows the entry "Склад" on the tenant home screen and, on the stock home, "Склад" and "Складские документы"; in Kazakh shows "Қойма" and "Қойма құжаттары"; in English shows "Stock" and "Stock documents". No English words stay in the Russian or Kazakh screen except the language labels EN, RU, KK, and no text is shown as a raw key such as "stock.home.title".
       evidence: Screenshots of step 4 in the three languages at 390 px.
     on_fail:
       severity: MAJOR

@@ -11,6 +11,13 @@
 # 1 Scope: scope is qoimeks-qa (tenant and realm exist). 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); no lower-role claim is made for the phone screens.
 # 3 Host and screens: the phone PWA lives at https://pwa.letflow.qa.bizdala.com/ ; the tenant host serves only the web SPA and is not installable, so it is used only for the web screens; the Android app and PWA have no quick count screen (REQ-856 cancelled).
 # 4 Data: the synthetic tenant holds the data these steps read; no data precondition beyond the PWA address. 5 Executable: browser steps with the runner's own script. 6 uat.sh preflight not run by the writer (no QA credentials).
+# Group check lines (T-2204; apply to the whole group qoimeks-mobile; scenarios 1 to 5):
+# Scope: every scenario of the group has scope qoimeks-qa, an existing synthetic tenant and realm; the group directory name is not the scope; run title UAT qoimeks-mobile.
+# Actors: only actor-qoimeks-qa-admin (TENANT_ADMIN of qoimeks-qa) from the roster, with the QOIMEKS_QA_ADMIN login of the acceptance environment; no lower-role claim is made, a missing login makes the step BLOCKED-by-environment.
+# Host and screens: the phone PWA answers at https://pwa.letflow.qa.bizdala.com/ (tenant home with the install hint and language switch, reach Stock by tapping Stock); the web Quick count screen is on the tenant host https://qoimeks-qa.letflow.qa.bizdala.com/ (routes in web/src/modules/stock/stockRoutes.tsx); the APK page is https://pwa.letflow.qa.bizdala.com/android/.
+# Data: only the synthetic qoimeks-qa seed; item and place codes come from the seed; quantities and counts of rows are read at the start of the run, never assumed; mobile-3 reads the Balances row of an employee-assigned balance first; mobile-5 is BLOCKED-by-environment until the APK is published.
+# Executable: every step is a browser step (phone-width window) or an HTTP download by the runner's own script; no step depends on pipeline_test; steps needing a real phone are listed as not UAT-observable in the file headers.
+# Dry run: uat.sh preflight with the title UAT qoimeks-mobile was not run by the writer (it needs QA credentials); the YAML of all five files was parsed with yaml.safe_load.
 ---
 id: qoimeks-mobile-1-pwa-entry-install-hint-phone
 scope: qoimeks-qa
@@ -22,7 +29,7 @@ description: >
   A person opens the address of the phone web app (PWA) of the Qoimeks QA tenant in a browser window 390 px wide, and again at 1440 px.
   Before anyone is signed in, the page shows the company-code entry ("Company code" with the helper that the code comes from the company administrator and a Continue button).
   The page text is not cut off, nothing needs sideways scrolling, and no control overlaps another. The administrator then signs in (the sign-in itself is walked in the next scenario)
-  and reads the install hint ("Install on your phone") that the app shows once on the stock document list, with the iPhone and Android steps in English, Russian and Kazakh and the "I have read it" button that hides it.
+  and reads the install hint ("Install on your phone") that the app shows once on the tenant home screen (the first screen after sign-in, with the entry "Stock"), with the iPhone and Android steps in English, Russian and Kazakh and the "I have read it" button that hides it.
   The administrator also opens the web-app description file of the PWA (manifest.json next to the entry page) and the entry page's source to check that the app presents itself as "Letflow", opens as a standalone app,
   has its icons, and that every script the entry page loads carries the build stamp "?v=" followed by 12 characters.
   The run is done twice: at 390 px (the phone) and at 1440 px (desktop), English first, then Russian and Kazakh for the install hint.
@@ -58,12 +65,12 @@ steps:
   - step: 3
     actor: admin
     action: >
-      In the 390 px window the administrator signs in as in the next scenario (company code qoimeks-qa, the administrator's own account) and reads the install hint shown on the stock document list: its title, its text and its button, but does not press the button yet.
+      In the 390 px window the administrator signs in as in the next scenario (company code qoimeks-qa, the administrator's own account) and reads the install hint shown on the tenant home screen right after sign-in (the screen with the entry "Stock"; do not tap "Stock" yet): its title, its text and its button, but does not press the button yet.
     via: ui
   - step: 4
     actor: admin
     action: >
-      The administrator changes the app language to Russian and then to Kazakh (the language switch of the app, as in the next scenario) and reads the install hint each time; then presses the "I have read it" button in Kazakh ("Оқыдым") and reads the list again.
+      The administrator changes the app language to Russian and then to Kazakh (the language switch of the app, as in the next scenario) and reads the install hint each time; then presses the "I have read it" button in Kazakh ("Оқыдым") and reads the tenant home screen again. Last, the administrator taps "Stock" ("Қойма" in Kazakh) to reach the stock home, to show that the hint is not repeated there.
     via: ui
   - step: 5
     actor: admin
@@ -94,8 +101,8 @@ expected_outcomes:
       detail: >
         Step 3 shows the title "Install on your phone", an iPhone line ("Add to Home Screen" through Safari's Share button) or an Android line ("Install app" or "Add to home screen") as the browser kind decides, and the button "I have read it".
         Step 4 shows the title "Установить на телефон" with "Я прочитал" in Russian and "Телефонға орнату" with "Оқыдым" in Kazakh, with no English words left in the hint and no text shown as a raw key such as "offline.install.title".
-        After the Kazakh button is pressed the hint is gone from the list and does not come back when the list is reloaded.
-      evidence: Screenshots of steps 3 and 4 in the three languages, and of the list after the button.
+        After the Kazakh button is pressed the hint is gone from the tenant home screen and does not come back when the page is reloaded or when the stock home is opened.
+      evidence: Screenshots of steps 3 and 4 in the three languages, and of the tenant home screen after the button.
     on_fail:
       severity: MAJOR
       business_impact: Phone users are not told how to install the app, so the app loses saved drafts after 7 days without use.
@@ -124,7 +131,7 @@ expected_outcomes:
     description: No update banner or update button exists anywhere in the PWA (the update check was cancelled).
     verification:
       method: gui_screen
-      detail: In steps 3 and 4 the stock document list and the app menu show no "update available" banner and no "Check for updates" entry. This records the owner's decision of 2026-11-16, not a fault.
+      detail: In steps 3 and 4 the tenant home screen, the stock home and the app menu show no "update available" banner and no "Check for updates" entry. This records the owner's decision of 2026-11-16, not a fault.
       evidence: The same screenshots as EO-002.
     on_fail:
       severity: MINOR
