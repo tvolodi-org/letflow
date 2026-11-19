@@ -57772,7 +57772,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first part of CMMS slice 1 (task T-2280, PM go D-162); its dependencies REQ-748 and REQ-751 are delivered on main
+    gh: 4807
     # Source: task T-2280 (PM go 2026-11-19, D-162) and docs/cmms/scope-draft.md (sections 3, 4, 7 slice 1, 8, 9), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/mes_core/mes_core.ex (an empty module shell, the skeleton precedent), lib/letflow/modules/assets/assets.ex (depends_on, @document_types with numbering_scope :year and number_pad 6, scope_declarations {:column, "org_unit_id"} for assets_card, on_install calling Letflow.Documents.register_type/3), lib/letflow/modules/codes/codes.ex (on_install through Letflow.Modules.EntityActivation), lib/letflow/modules/installs.ex (install/3, {:error, :unknown_module}), lib/letflow/routers/tenant_modules.ex (unknown_module -> 404), lib/letflow/documents.ex (register_type/3, number_label/3), lib/letflow/modules/read_api.ex (lookup/3), config/config.exs (:modules list, flags such as :modules_uninstall_enabled false), docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D7 (a new module atom adds only the PLATFORM_ADMIN and TENANT_ADMIN rows; a role_grants widening is refused until per-tenant grant snapshots exist), docs/design/per-tenant-grant-snapshots.md, docs/roles.md, test/letflow/modules/mes_core/registration_test.exs.
     description: >
       Why. CMMS slice 1 of docs/cmms/scope-draft.md (size M; PM go D-162, task T-2280): a work request
@@ -57868,7 +57868,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-893 -- the routes need the module skeleton and its types
+    gh: 4806
     # Source: task T-2280 and docs/cmms/scope-draft.md (sections 1, 2, 4, 7 slice 1), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/read_api.ex (lookup/3 answers {:error, :not_found} for an unknown, malformed or other tenant's id), lib/letflow/modules/assets/card_photos.ex (the tenant-wide guard, a scoped or API principal answered with the same 404), lib/letflow/modules/stock/count_differences.ex (Documents.create_draft then Documents.issue then Documents.issued_summary), lib/letflow/documents.ex (create_draft/3, issue/2), lib/letflow/api/error.ex (idempotency_key_reuse), lib/letflow/api/pagination.ex (max page size 200), REQ-750 (the idempotency rule of the asset card routes), docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D7.1, priv/permission_matrix/effective.golden.
     description: >
       Why. Anyone who sees a fault on a machine reports it on the machine's asset card (docs/cmms/scope-draft.md
@@ -57919,7 +57919,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-894 -- photos belong to a work request
+    gh: 4805
     # Source: task T-2280 (reuse photos and attachments) and docs/cmms/scope-draft.md (sections 3 and 6), read on origin/main 7c38eeabe. Code read there: lib/letflow/attachments/owners.ex (the owner-kind registry: purposes, max per owner, main rule; assets_card has photo max 10 main true), lib/letflow/attachments.ex (add/4, list/3, content/4), lib/letflow/modules/assets/card_photos.ex (multipart original, optional thumbnail and caption; the refusal classes 422, 409, 429, 503, 404 and the byte response headers nosniff, inline, cache-control private max-age=86400), docs/design/photos.md.
     description: >
       Why. A photo of the fault tells the planner and the technician more than a text (docs/cmms/scope-draft.md
@@ -57952,7 +57952,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-894 -- an order is made from a work request and uses its atoms
+    gh: 4804
     # Source: task T-2280 (reuse the process engine for the life and the task_assigned mail) and docs/cmms/scope-draft.md (section 4 and slice 1), read on origin/main 7c38eeabe. Code read there: priv/modules/assets/generate_pack.exs (pack process definitions with HUMAN_TASK nodes and a role label), lib/letflow/modules/assets/documents/posting.ex (Letflow.Engine.create/2 from a module; lazy activation ensure_active/3, 409 definition_not_active), lib/letflow/engine/task_activation.ex (resolve_assignee/1: a task is routed to the node's role label), lib/letflow/tasks.ex (reassign_task/3 with actor_id, TasksReassignRouted; notify_assigned after the commit calls Letflow.Notifications.after_assignment/3 and the bell; authorize_completion/3: a task addressed to a USER is completed only by that user, else assigned_to_other_user), lib/letflow/routers/tasks.ex (403 'task is assigned to a different user'), lib/letflow/routers/instances.ex (GET /instances/:id answers variables), docs/roles.md (TASK_WORKER completes own tasks and reads the instances of its tasks), lib/letflow/routers/identity.ex (GET /users, policy key UsersManage).
     description: >
       Why. A real report becomes a work order that one person does (docs/cmms/scope-draft.md section 4). The
@@ -58016,7 +58016,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-896 -- the write-back runs on the tasks of the order's process
+    gh: 4803
     # Source: task T-2280 (what a closed order keeps) and docs/cmms/scope-draft.md section 4 ("A closed order is not edited; a correction is a new order"), read on origin/main 7c38eeabe. Code read there: lib/letflow/modules/write_handler_spec.ex (the optional key updates: the fields of a target type a handler may change through Letflow.Entities.HandlerWrites.update/3), lib/letflow/entities/handler_writes.ex (update/3), lib/letflow/definitions/module_writes.ex (module_writes lines on a HUMAN_TASK; only posting lines carry a run-time permission), priv/modules/assets/generate_pack.exs (a HUMAN_TASK node with a module_writes line).
     description: >
       Why. The manager and the next technician need to see what was done and who closed the order, on the
@@ -58051,7 +58051,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-895 -- the screens call the request and photo routes
+    gh: 4802
     # Source: task T-2280 (report a fault on one asset card) and docs/cmms/scope-draft.md (sections 1, 6, 7 slice 1), read on origin/main 7c38eeabe. Code read there: web/src/modules/registry.ts (REGISTERED_MODULES; each module's routes wrapped in ModuleGuard, an uninstalled module renders NotFoundPage), web/src/modules/types.ts (ModuleNavItem.permission, an atom of /me/access), web/src/modules/assets/cardActions.ts (CARD_ACTIONS; an action of another module sets href instead of kind), web/src/modules/assets/assetsRoutes.tsx (admin/ paths guarded by a permission), web/src/modules/codes/ (a small module folder: api, IntlProvider, messages, permissions, query keys, routes, shell).
     description: >
       Why. The requester reports a fault from the machine's card in a few taps, and the planner sees and
@@ -58090,7 +58090,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-897 -- the screens show the order life and its done and close record
+    gh: 4801
     # Source: task T-2280 (a My work orders list on the web for the assigned person) and docs/cmms/scope-draft.md (sections 4 and 6), read on origin/main 7c38eeabe. Code read there: web/src/router.tsx (the tasks path, TaskInboxPage), web/src/api/tasks.ts (the task client), lib/letflow/routers/tasks.ex (task_list_item_map: id, instance_id, node_id, node_name, status, assignee_type, assignee_ref), lib/letflow/routers/instances.ex (GET /instances/:id answers variables), lib/letflow/api/pagination.ex (max page size 200), web/src/api/identity.ts (GET /identity/users), lib/letflow/routers/identity.ex (GET /users, policy key UsersManage), web/src/modules/registry.ts.
     description: >
       Why. The planner makes and assigns orders on the web; the technician needs one list of the work orders
@@ -58129,7 +58129,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S9
-    # impl_order: UNREGISTERED -- blocked-by: REQ-897 -- the phone list shows the work tasks of the order process
+    gh: 4800
     # Source: task T-2280 (a My work orders list on the phone, PWA) and docs/cmms/scope-draft.md section 6, read on origin/main 7c38eeabe. Code read there: docs/mobile/pwa-parity.md (the PWA is the web build of the same Flutter code in apps/mobile), apps/mobile/lib/features/module_manifest.json (features codes and stock), apps/mobile/lib/features/features.dart, apps/mobile/lib/features/stock/stock_routes.dart (a feature's GoRoute list), apps/mobile/lib/renderers/task/task.dart (the generic task inbox on GET /api/v1/tasks/inbox and the task screen), lib/letflow/routers/tasks.ex (task_list_item_map), lib/letflow/routers/instances.ex (GET /instances/:id answers variables).
     description: >
       Why. A technician works at the machine, not at a desk: the list of their work orders and the way to
