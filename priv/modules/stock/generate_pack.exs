@@ -204,8 +204,8 @@ packed =
     }
   end)
 
-# One HUMAN_TASK with one module_writes line. The role label is only a label (graph check CHK-09 wants
-# one): the ledger authority step decides who may complete the task (StockPost / StockReverse).
+# One HUMAN_TASK with one module_writes line. The role label only routes the task (graph check CHK-09
+# wants one): the node's required_permission decides who may claim or complete it (decision 0093 F1/F2).
 posting_args = fn names ->
   Map.new(names, fn name -> {name, %{"var" => name}} end)
 end

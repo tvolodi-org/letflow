@@ -137,6 +137,17 @@ defmodule Letflow.Tasks do
   never itself decides tenant scope or authorization — `prefix` is supplied
   by the caller (the router, via `Letflow.Api.Context.scoped_repo_opts/1`),
   exactly like every other REQ-072+ context module in this codebase.
+
+  ## Node permission guard (decision 0093 F1)
+
+  A HUMAN_TASK may name `required_permission`. Claim and completion read that
+  attribute from the instance's pinned definition snapshot and require it in
+  addition to the existing USER/GROUP/ROLE addressing comparison. The request's
+  `Authorization.AccessContext` supplies the effective roles and tenant grant
+  overlay. A missing, unknown, non-tenant-scope or otherwise unreadable
+  permission, or a caller who does not hold it, returns `:task_not_found` so the
+  refusal is indistinguishable from a missing task (INV-5). Definitions without
+  the attribute keep their previous behaviour; `distinct_from` is independent.
   """
 
   import Ecto.Query
@@ -147,6 +158,7 @@ defmodule Letflow.Tasks do
   alias Letflow.Api.Pagination
   alias Letflow.Api.Scope
   alias Letflow.Entities.Query.Types
+  alias Letflow.Definitions.Graph
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Engine.SeparationOfDuties
   alias Letflow.Engine.Task
@@ -488,7 +500,11 @@ defmodule Letflow.Tasks do
 
   @type claim_attrs :: %{required(:actor_id) => Ecto.UUID.t()}
   @type f1 :: :off | {:enforce, Scope.Principal.t()}
-  @type claim_opts :: [prefix: String.t(), f1: f1()]
+  @type claim_opts :: [
+          prefix: String.t(),
+          f1: f1(),
+          authorization: Authorization.AccessContext.t()
+        ]
 
   @type claim_error ::
           {:error, :invalid_task_id}
@@ -538,7 +554,7 @@ defmodule Letflow.Tasks do
         {:ok, resolve_principal_scope(actor_id, prefix: prefix)}
       end)
       |> Multi.run(:apply, fn repo, %{task: task, scope: scope} ->
-        apply_claim(repo, task, actor_id, scope, prefix)
+        apply_claim(repo, task, actor_id, scope, prefix, Keyword.get(opts, :authorization))
       end)
       |> Repo.transaction()
       |> unwrap_write_result()
@@ -551,13 +567,22 @@ defmodule Letflow.Tasks do
     Multi.run(multi, :f1_scope, fn _repo, %{task: task} -> f1_recheck(task, principal, prefix) end)
   end
 
-  defp apply_claim(_repo, %Task{assignee_type: nil} = task, actor_id, _scope, prefix) do
+  # Decision 0093 F1: the pinned node's permission is checked before the
+  # addressing rule. A holder-less caller gets the same refusal as a missing
+  # task (INV-5), whatever reassignment or routing-role rename occurred.
+  defp apply_claim(repo, task, actor_id, scope, prefix, authorization) do
+    with :ok <- check_required_permission(task, prefix, authorization) do
+      apply_claim_addressing(repo, task, actor_id, scope, prefix)
+    end
+  end
+
+  defp apply_claim_addressing(_repo, %Task{assignee_type: nil} = task, actor_id, _scope, prefix) do
     with :ok <- SeparationOfDuties.check_for_claim(task, actor_id, prefix) do
       write_assignment(task, "USER", actor_id, prefix)
     end
   end
 
-  defp apply_claim(
+  defp apply_claim_addressing(
          _repo,
          %Task{assignee_type: "USER", assignee_ref: ref} = task,
          actor_id,
@@ -570,11 +595,11 @@ defmodule Letflow.Tasks do
     end
   end
 
-  defp apply_claim(_repo, %Task{assignee_type: "USER"}, _actor_id, _scope, _prefix) do
+  defp apply_claim_addressing(_repo, %Task{assignee_type: "USER"}, _actor_id, _scope, _prefix) do
     {:error, :assigned_to_other_user}
   end
 
-  defp apply_claim(
+  defp apply_claim_addressing(
          _repo,
          %Task{assignee_type: "GROUP", assignee_ref: ref} = task,
          actor_id,
@@ -590,7 +615,7 @@ defmodule Letflow.Tasks do
     end
   end
 
-  defp apply_claim(
+  defp apply_claim_addressing(
          _repo,
          %Task{assignee_type: "ROLE", assignee_ref: ref} = task,
          actor_id,
@@ -606,20 +631,24 @@ defmodule Letflow.Tasks do
     end
   end
 
-  defp apply_claim(_repo, %Task{}, _actor_id, _scope, _prefix), do: {:error, :not_claimable}
+  defp apply_claim_addressing(_repo, %Task{}, _actor_id, _scope, _prefix),
+    do: {:error, :not_claimable}
 
   # =========================================================================
   # authorize_completion/3 (ISS-0942) -- see
   # lib/letflow/design/iss0942-task-complete-authorization-gap.md §2 for the
   # full design this implements. Read-only admission check called from
   # Letflow.Routers.Tasks.handle_complete/3 BEFORE Letflow.Engine.complete_task/3
-  # -- mirrors apply_claim/5's own precedence table exactly, minus the write.
+  # -- mirrors apply_claim/6's own precedence table exactly, minus the write.
   # No row lock here (§2.3 of the design doc): this function never mutates
   # anything -- Engine.complete_task/3 still takes its own `SELECT ... FOR
   # UPDATE` inside its own Ecto.Multi, unchanged by this function.
   # =========================================================================
 
-  @type complete_authz_opts :: opts()
+  @type complete_authz_opts :: [
+          prefix: String.t(),
+          authorization: Authorization.AccessContext.t()
+        ]
 
   @type complete_authz_error ::
           {:error, :invalid_task_id}
@@ -630,8 +659,10 @@ defmodule Letflow.Tasks do
 
   @doc """
   Read-only authorization admission check for `POST /tasks/:id/complete`
-  (ISS-0942) -- mirrors `apply_claim/5`'s own precedence table exactly,
-  minus the write: unassigned (`nil`) task -> `:ok` (permissive, same as
+  (ISS-0942) -- mirrors `apply_claim/6`'s own precedence table exactly,
+  minus the write. Decision 0093 F1's pinned `required_permission` check runs
+  first and refuses with `:task_not_found`; the addressing outcomes are then
+  unchanged: unassigned (`nil`) task -> `:ok` (permissive, same as
   `claim_task/3`'s own unassigned case -- any authenticated actor may
   complete a currently-unassigned task, same as they may claim one);
   `USER` assignee matching `actor_id` -> `:ok`, mismatch -> `{:error,
@@ -656,7 +687,7 @@ defmodule Letflow.Tasks do
     with {:ok, task_id} <- cast_task_id(task_id),
          {:ok, task} <- fetch_task_for_completion_authz(task_id, prefix) do
       scope = resolve_principal_scope(actor_id, prefix: prefix)
-      apply_completion_authz(task, actor_id, scope)
+      apply_completion_authz(task, actor_id, scope, prefix, Keyword.get(opts, :authorization))
     end
   end
 
@@ -667,18 +698,32 @@ defmodule Letflow.Tasks do
     end
   end
 
-  defp apply_completion_authz(%Task{assignee_type: nil}, _actor_id, _scope), do: :ok
+  defp apply_completion_authz(task, actor_id, scope, prefix, authorization) do
+    with :ok <- check_required_permission(task, prefix, authorization) do
+      apply_completion_addressing(task, actor_id, scope)
+    end
+  end
 
-  defp apply_completion_authz(%Task{assignee_type: "USER", assignee_ref: ref}, actor_id, _scope)
+  defp apply_completion_addressing(%Task{assignee_type: nil}, _actor_id, _scope), do: :ok
+
+  defp apply_completion_addressing(
+         %Task{assignee_type: "USER", assignee_ref: ref},
+         actor_id,
+         _scope
+       )
        when ref == actor_id do
     :ok
   end
 
-  defp apply_completion_authz(%Task{assignee_type: "USER"}, _actor_id, _scope) do
+  defp apply_completion_addressing(%Task{assignee_type: "USER"}, _actor_id, _scope) do
     {:error, :assigned_to_other_user}
   end
 
-  defp apply_completion_authz(%Task{assignee_type: "GROUP", assignee_ref: ref}, _actor_id, scope) do
+  defp apply_completion_addressing(
+         %Task{assignee_type: "GROUP", assignee_ref: ref},
+         _actor_id,
+         scope
+       ) do
     if ref in scope.group_ids do
       :ok
     else
@@ -686,13 +731,90 @@ defmodule Letflow.Tasks do
     end
   end
 
-  defp apply_completion_authz(%Task{assignee_type: "ROLE", assignee_ref: ref}, _actor_id, scope) do
+  defp apply_completion_addressing(
+         %Task{assignee_type: "ROLE", assignee_ref: ref},
+         _actor_id,
+         scope
+       ) do
     if ref in scope.role_names do
       :ok
     else
       {:error, :assignee_role_not_held}
     end
   end
+
+  # A missing snapshot or an unreadable legacy graph keeps the established
+  # addressing/SeparationOfDuties behaviour (its own fail-open tests pin this).
+  # Fail-closed starts once a HUMAN_TASK node is readable: an invalid or
+  # unknown required_permission, or a caller who does not hold it, refuses.
+  defp check_required_permission(task, prefix, authorization) do
+    case pinned_required_permission(task, prefix) do
+      {:ok, nil} -> :ok
+      {:ok, permission} -> permission_held(authorization, permission)
+      :error -> {:error, :task_not_found}
+    end
+  end
+
+  defp pinned_required_permission(%Task{} = task, prefix) do
+    query_opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+    case Repo.get(InstanceDefinitionSnapshot, task.instance_id, [prefix: prefix] ++ query_opts) do
+      nil ->
+        {:ok, nil}
+
+      %InstanceDefinitionSnapshot{} = snapshot ->
+        with {:ok, %Graph{} = graph} <- Graph.from_map(snapshot.graph),
+             %Graph.Node{node_type: :HUMAN_TASK} = node <-
+               Enum.find(graph.nodes, &(&1.id == task.node_id)) do
+          node_required_permission(node)
+        else
+          _legacy_or_unreadable_graph -> {:ok, nil}
+        end
+    end
+  rescue
+    # SeparationOfDuties already treats this same snapshot read as fail-open
+    # for legacy claims; do not make a database error a new claim crash.
+    _snapshot_read_error -> {:ok, nil}
+  end
+
+  defp node_required_permission(%Graph.Node{attributes: attributes}) do
+    case is_map(attributes) && Map.fetch(attributes, "required_permission") do
+      false ->
+        {:ok, nil}
+
+      :error ->
+        {:ok, nil}
+
+      {:ok, raw} when is_binary(raw) ->
+        case Enum.find(Authorization.permissions(), &(Atom.to_string(&1) == raw)) do
+          permission when is_atom(permission) and not is_nil(permission) ->
+            if Authorization.permission_scope(permission) == :tenant,
+              do: {:ok, permission},
+              else: :error
+
+          nil ->
+            :error
+        end
+
+      {:ok, _invalid} ->
+        :error
+    end
+  end
+
+  defp permission_held(%Authorization.AccessContext{roles: roles} = authorization, permission)
+       when is_list(roles) do
+    if Enum.all?(roles, &(&1 in Authorization.roles())) and
+         Authorization.has_permission_in_scope?(
+           roles,
+           permission,
+           authorization.platform_tenant?,
+           authorization.role_overlay
+         ),
+       do: :ok,
+       else: {:error, :task_not_found}
+  end
+
+  defp permission_held(_missing_or_unreadable, _permission), do: {:error, :task_not_found}
 
   @type assign_attrs :: %{required(:user_id) => String.t()}
   @type assign_opts :: opts()
