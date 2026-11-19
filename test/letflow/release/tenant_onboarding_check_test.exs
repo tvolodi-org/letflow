@@ -85,6 +85,51 @@ defmodule Letflow.Release.TenantOnboardingCheckTest do
     refute out =~ tenant.schema_name
   end
 
+  test "SYS-READY a stock draft is ready for automatic activation; a tenant version is not" do
+    {tenant, realm} = tenant!()
+    add_host!(tenant, host())
+    assert {:ok, report} = Check.run(tenant.slug, realm: realm)
+    checks = Enum.filter(report.checks, &String.starts_with?(&1.name, "process_definition "))
+    assert length(checks) == 10
+    pack = File.read!("priv/modules/stock/pack.json") |> Jason.decode!()
+    expected = Enum.map(pack["definitions"], &("process_definition " <> &1["process_key"]))
+    assert Enum.sort(Enum.map(checks, & &1.name)) == Enum.sort(expected)
+
+    assert Enum.all?(checks, &(&1.result == :ok and &1.detail == "draft auto-activation"))
+
+    assert :ok =
+             Letflow.Modules.Stock.Documents.Posting.ensure_active(
+               tenant.schema_name,
+               "stock_issue",
+               nil
+             )
+
+    assert {:ok, active_report} = Check.run(tenant.slug, realm: realm)
+    assert results(active_report)["process_definition stock_issue"] == {:ok, "active"}
+
+    assert {:ok, _} =
+             Letflow.Definitions.create(
+               %{
+                 name: "stock_receipt",
+                 version: "9.0.0",
+                 created_by: Ecto.UUID.generate(),
+                 graph: %{
+                   "nodes" => [
+                     %{"id" => "s", "node_type" => "START"},
+                     %{"id" => "e", "node_type" => "END"}
+                   ],
+                   "edges" => [%{"id" => "se", "source" => "s", "target" => "e"}]
+                 }
+               },
+               prefix: tenant.schema_name
+             )
+
+    assert {:error, report} = Check.run(tenant.slug, realm: realm)
+
+    assert results(report)["process_definition stock_receipt"] ==
+             {{:fail, :process_definition_not_ready}, nil}
+  end
+
   test "C2: an unknown slug fails with one tenant check" do
     assert {:error, r} = Check.run("no-such-slug-" <> Ecto.UUID.generate())
     assert [%{name: "tenant", result: {:fail, :tenant_not_found}}] = r.checks

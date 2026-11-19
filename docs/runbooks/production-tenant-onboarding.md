@@ -165,6 +165,12 @@ on a replay counts as done; 422 `missing dependency` means the order was wrong: 
 
 **Rollback:** none (a failed install rolls itself back; uninstall is off by default).
 
+The stock process drafts activate on first use without an administrator step: test a shared-token
+receipt, then an issue, and a STOREKEEPER receipt on a fresh tenant. Each creates its document and
+reaches posting; check the `definition.activate` audit entry and that retrying creates no second
+activation entry. Tenant-created or changed definitions must remain untouched and return 409
+`definition_not_active`. See `stock-counts.md`, "Stock process activation".
+
 ### Step 8. Product check
 
 **Who:** infra only (release console).
@@ -175,6 +181,10 @@ on a replay counts as done; 422 `missing dependency` means the order was wrong: 
 installed). It is read-only and checks the tenant, realm, host row, the modules at the build's versions, the
 document types `stock_opening` and `stock_quick_count`, and the tables `entity_stock_quick_count` and
 `entity_stock_quick_count_line`.
+
+The check also reports all ten stock processes: `active` or `draft auto-activation` are ready; the
+latter activates on first use. `process_definition_not_ready` means a missing, tenant-created, changed,
+deprecated or archived process: stop and review the tenant's definitions; never replace them by hand.
 
 **Check:** the last line is `tenant_onboarding_check <slug>: PASS`. A failing token means:
 

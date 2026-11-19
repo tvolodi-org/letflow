@@ -11,7 +11,8 @@ defmodule Letflow.Release.TenantOnboardingCheck do
   install creates are only visible in the database. Infra proved them with raw psql; this check
   proves, for one tenant and without a token, that the tenant, realm, host row, modules (at the
   versions of the RUNNING build), the `stock_opening` / `stock_quick_count` document types and
-  the `entity_stock_quick_count` / `entity_stock_quick_count_line` tables are present.
+  the `entity_stock_quick_count` / `entity_stock_quick_count_line` tables are present. Stock process
+  definitions must be active or untouched module-owned drafts ready for automatic activation on first use.
 
   ## Options
 
@@ -35,6 +36,8 @@ defmodule Letflow.Release.TenantOnboardingCheck do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Definitions.OwnerStamp
+  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Documents.DocumentType
   alias Letflow.Identity
   alias Letflow.Identity.OnboardingRecord
@@ -46,6 +49,8 @@ defmodule Letflow.Release.TenantOnboardingCheck do
   @default_modules ~w(org locations catalog_items codes stock)
   @document_types ~w(stock_opening stock_quick_count)
   @tables ~w(entity_stock_quick_count entity_stock_quick_count_line)
+  @processes ~w(stock_receipt stock_issue stock_transfer stock_return stock_handover stock_writeoff
+                stock_opening stock_quick_count stock_reversal stock_count_posting)
 
   @type check :: %{name: String.t(), result: :ok | {:fail, atom()}, detail: String.t() | nil}
   @type report :: %{slug: String.t(), checks: [check()]}
@@ -223,7 +228,52 @@ defmodule Letflow.Release.TenantOnboardingCheck do
         end
       end
 
-    docs ++ tables
+    processes =
+      for key <- @processes do
+        name = "process_definition #{key}"
+
+        case guarded(fn -> process_readiness(schema, key) end) do
+          {:ok, status} when status in [:active, :draft] ->
+            check(name, :ok, if(status == :active, do: "active", else: "draft auto-activation"))
+
+          {:ok, _} ->
+            check(name, {:fail, :process_definition_not_ready}, nil)
+
+          _ ->
+            check(name, {:fail, :read_failed}, nil)
+        end
+      end
+
+    docs ++ tables ++ processes
+  end
+
+  defp process_readiness(schema, key) do
+    rows =
+      Repo.all(
+        from(d in ProcessDefinition,
+          where: d.name == ^key,
+          order_by: [desc: d.created_at, desc: d.id]
+        ),
+        prefix: schema
+      )
+
+    own? = fn row ->
+      case OwnerStamp.from_row(row) do
+        {:ok, %{module_id: "stock", body_hash: hash}} -> OwnerStamp.graph_hash(row.graph) == hash
+        _ -> false
+      end
+    end
+
+    case Enum.find(rows, &(&1.status == :active)) do
+      nil ->
+        case rows do
+          [%{status: :draft} | _] -> if Enum.all?(rows, own?), do: :draft, else: :not_ready
+          _ -> :not_ready
+        end
+
+      row ->
+        if own?.(row) and is_nil(row.needs_reactivation_at), do: :active, else: :not_ready
+    end
   end
 
   defp check(name, result, detail), do: %{name: name, result: result, detail: detail}

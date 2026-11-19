@@ -134,6 +134,139 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
     end
   end
 
+  @tag timeout: 30_000
+  test "SYS-1 unmodified stock drafts activate without caller authority, once and audited", ctx do
+    names =
+      ~w(stock_receipt stock_issue stock_transfer stock_return stock_handover stock_writeoff stock_reversal stock_count_posting stock_opening stock_quick_count)
+
+    for name <- names do
+      caller =
+        if name == "stock_receipt",
+          do: nil,
+          else: %{permissions: [], entities_records_write?: true}
+
+      assert :ok = Posting.ensure_active(ctx.schema, name, caller)
+      assert {:ok, row} = Definitions.get_active_by_name(name, prefix: ctx.schema)
+      assert is_map(row.activated_by["signature"])
+      assert row.activated_by["roles"] == []
+
+      assert {:ok, user} =
+               Letflow.Identity.get_user(row.activated_by["user_id"], prefix: ctx.schema)
+
+      assert user.auth_source == :internal
+      assert user.password_hash == "__NO_PASSWORD_SET__"
+      assert Letflow.Identity.list_effective_role_names(user.id, prefix: ctx.schema) == []
+      assert :ok = Posting.ensure_active(ctx.schema, name, nil)
+      assert {:ok, ^row} = Definitions.get_active_by_name(name, prefix: ctx.schema)
+
+      assert Repo.aggregate(
+               from(a in Letflow.Audit.Entry,
+                 where: a.action == "definition.activate" and a.resource_id == ^row.id
+               ),
+               :count,
+               prefix: ctx.schema
+             ) == 1
+    end
+
+    assert Repo.aggregate(
+             from(a in Letflow.Audit.Entry,
+               where: a.action == "stock.process_activator_created"
+             ),
+             :count,
+             prefix: ctx.schema
+           ) == 1
+  end
+
+  test "SYS-2 a tenant-created draft blocks automatic activation of the shipped draft", ctx do
+    graph = %{
+      "nodes" => [%{"id" => "s", "node_type" => "START"}, %{"id" => "e", "node_type" => "END"}],
+      "edges" => [%{"id" => "edge", "source" => "s", "target" => "e"}]
+    }
+
+    assert {:ok, custom} =
+             Definitions.create(
+               %{
+                 name: "stock_receipt",
+                 version: "9.0.0",
+                 graph: graph,
+                 created_by: Ecto.UUID.generate()
+               },
+               prefix: ctx.schema
+             )
+
+    assert Posting.ensure_active(ctx.schema, "stock_receipt", nil) == :error
+    admin = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
+    authority = Activator.from_auth_context(%{user_id: admin.id, roles: ["TENANT_ADMIN"]}, false)
+    assert Posting.ensure_active(ctx.schema, "stock_receipt", authority) == :error
+
+    assert {:ok, %{status: :draft}} = Definitions.get_by_id(custom.id, prefix: ctx.schema)
+
+    assert Repo.aggregate(
+             from(a in Letflow.Audit.Entry, where: a.action == "definition.activate"),
+             :count,
+             prefix: ctx.schema
+           ) == 0
+  end
+
+  test "SYS-4 concurrent first use activates only once", ctx do
+    tasks =
+      for _ <- 1..2,
+          do: Task.async(fn -> Posting.ensure_active(ctx.schema, "stock_receipt", nil) end)
+
+    assert Enum.map(tasks, &Task.await(&1, 30_000)) == [:ok, :ok]
+
+    assert Repo.aggregate(
+             from(a in Letflow.Audit.Entry, where: a.action == "definition.activate"),
+             :count,
+             prefix: ctx.schema
+           ) == 1
+  end
+
+  test "SYS-5 a deactivated internal activator stays inactive", ctx do
+    assert :ok = Posting.ensure_active(ctx.schema, "stock_receipt", nil)
+    assert {:ok, row} = Definitions.get_active_by_name("stock_receipt", prefix: ctx.schema)
+    id = row.activated_by["user_id"]
+
+    Repo.update_all(
+      from(u in Letflow.Identity.User, where: u.id == ^id),
+      [set: [status: :inactive]],
+      prefix: ctx.schema
+    )
+
+    assert :error = Posting.ensure_active(ctx.schema, "stock_issue", nil)
+    assert {:ok, %{status: :inactive}} = Letflow.Identity.get_user(id, prefix: ctx.schema)
+
+    assert {:error, :not_found} =
+             Definitions.get_active_by_name("stock_issue", prefix: ctx.schema)
+  end
+
+  test "SYS-6 audit failure rolls back activation and the internal user", ctx do
+    users = Repo.aggregate(Letflow.Identity.User, :count, prefix: ctx.schema)
+
+    Repo.query!(
+      ~s(ALTER TABLE "#{ctx.schema}".audit_entries RENAME TO activation_audit_unavailable)
+    )
+
+    try do
+      assert :error = Posting.ensure_active(ctx.schema, "stock_receipt", nil)
+    after
+      Repo.query!(
+        ~s(ALTER TABLE "#{ctx.schema}".activation_audit_unavailable RENAME TO audit_entries)
+      )
+    end
+
+    assert Repo.aggregate(Letflow.Identity.User, :count, prefix: ctx.schema) == users
+
+    assert {:error, :not_found} =
+             Definitions.get_active_by_name("stock_receipt", prefix: ctx.schema)
+
+    assert Repo.aggregate(
+             from(a in Letflow.Audit.Entry, where: a.action == "definition.activate"),
+             :count,
+             prefix: ctx.schema
+           ) == 0
+  end
+
   test "B-ACT-4 a tenant-made active definition of the same name is not the module's", ctx do
     graph = %{
       "nodes" => [
