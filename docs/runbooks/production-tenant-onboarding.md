@@ -254,6 +254,145 @@ production: no test data); W5 sign out. One screenshot per step, kept outside th
 
 **Rollback:** none needed.
 
+## First use and cutover (steps 14 to 23)
+
+Follow-up of T-2220 (T-2269). These steps come after step 8 and before the walk (step 12) as far as the data
+allows; the order below is the order to do them in. Steps 14 to 18 are the first-use settings of a stock
+tenant, 19 to 20 the defaults and the approval choice, 21 the cutover, 22 the infra-only list, 23 the go/no-go
+page. Each has a **Check**. Where a check names a screen and not a route, the screen is the supported way.
+
+### Step 14. Stock process definitions
+
+**Who:** a SYSTEM actor or the LONG-TERM COMPANY ADMIN. NEVER the `<slug>-setup` account.
+
+**Do:** activate ALL 10 stock process definitions: receipt, issue, transfer, return, handover, writeoff,
+reversal and count_posting by hand; opening and quick_count activate themselves on the first issue or count.
+Use `POST /api/v1/definitions/<id>/activate` (or `.../reactivate`) with the actor's own token. A definition is
+tied to the user who activated it: if that account is deactivated at handover (step 13), every definition it
+activated is flagged `needs_reactivation` and every post fails. Repeat the step after EVERY stock module
+upgrade (the upgrade brings new DRAFT definitions). Until T-2253 merges this is a manual step.
+
+**Check:** `GET /api/v1/definitions` lists the 10 stock definitions as active, and `needs_reactivation_at` is
+null on each; one known-item post succeeds.
+
+**Rollback:** none needed (reactivate by the same route).
+
+### Step 15. Storekeeper role in Keycloak
+
+**Who:** infra only.
+
+**Do:** map the STOREKEEPER realm role to each storekeeper BEFORE that person's first login. The role claim
+sync at first login is one-time and additive: a role mapped later is not picked up by it.
+
+**Check:** after the first login, `GET /api/v1/me/access` (the storekeeper's own token) shows STOREKEEPER.
+
+**Rollback:** remove the role mapping in Keycloak.
+
+### Step 16. Link each employee to the user
+
+**Who:** company administrator.
+
+**Do:** after each storekeeper's first login, link their EMPLOYEE record to the user (`user_id`).
+
+**Check:** the count of employees without a user link is 0 (Employees screen, filter "no user").
+
+**Rollback:** clear the link on the employee.
+
+### Step 17. Master data for the forms
+
+**Who:** company administrator.
+
+**Do:** the legal entity WITH NAME AND BIN on the org unit (the Z-forms print blank otherwise); every place
+(location) linked to the org unit; EXACTLY ONE active employee as the old-address responsible.
+
+**Check:** legal entity name and BIN present; places not linked to the org unit = 0; active employees marked as
+old-address responsible = 1 (not 0, not 2).
+
+**Rollback:** correct the records.
+
+### Step 18. Scope enforcement off
+
+**Who:** company administrator.
+
+**Do:** with the shared access of step 9 in use, scope enforcement stays OFF for the tenant.
+
+**Check:** the shared-access call and the `/qoimeks/<slug>/...` routes do not answer 403
+`scope_enforcement_active`; if they do, scope enforcement is on: switch it off.
+
+**Rollback:** switch it on again when the shared access is removed.
+
+### Step 19. Defaults for sss
+
+**Who:** company administrator.
+
+**Do:** `allow_negative` ON (Ledger settings screen, with the warning shown to the user and a reason text).
+Numbering starts at 1 per year; history stays in the old Qoimeks. The unit list comes from the import
+converter of the data load (step 10); there is no seed, units cannot be created by plain create. Set
+`settings[app_name]` = `Smart Security Systems` for the header (tenant settings screen); the `display_name` of
+`POST /api/v1/tenants` is not used for it.
+
+**Check:** `GET /api/v1/ledger-settings` shows `allow_negative` true; the header shows `Smart Security Systems`;
+the unit list is non-empty after the load; the first document of the year has number 1.
+
+**Rollback:** switch the setting back.
+
+### Step 20. One administrator or two (four eyes, owner item O-006)
+
+**Who:** the owner decides; company administrator sets it.
+
+**Do:** choose one of two ways and write the choice in the go record:
+
+- Two administrators with four eyes ON: the second one approves the opening balance and the counts.
+- One administrator with four eyes OFF for the opening approval, with the reason text (the Approval rules
+  screen); the audit still records the self-approval. Use it only for a one-person company.
+
+**Check:** the Approval rules screen shows the chosen state; with two administrators, the opening is approved by
+the second one in My Tasks.
+
+**Rollback:** change the rule; documents already posted stay posted.
+
+### Step 21. Cutover rules
+
+**Who:** company administrator, infra and the Qoimeks team (migration plan, section 6).
+
+**Do:**
+
+1. The phones get the NEW server address `sss.ai-letflow.com`, so old queues cannot post: the old app 0.1.3
+   refuses queued entries made for another server address.
+2. EMPTY the offline queue and fully restart the app BEFORE the cutover.
+3. Check one known-item post on the History screen.
+4. Test barcode or QR scan in training, before the go.
+5. The old-address integer ids (sku, location, movement) are assigned from 1 on first use, in the order of the
+   first catalog read. They are NOT the old Qoimeks ids; legacy ids are not possible (the CSV extract has none).
+6. Phones refetch the catalog at every app start.
+
+**Check:** a phone at the new address shows the catalog; its offline queue is empty; the known-item post
+appears on the History screen with the expected quantity.
+
+**Rollback:** point the phones back at the old address only while nothing was posted at the new one.
+
+### Step 22. Infra-only items
+
+**Who:** infra only.
+
+**Do:** hostnames, certificates, `LETFLOW_PUBLIC_BASE_URL`, the shared-access environment setting plus the app
+recreate (step 9), and the voice environment setting: one key for all tenants, not one per tenant.
+
+**Check:** `/health` is back after each recreate; `https://<host>` answers with a valid certificate.
+
+**Rollback:** restore the env file backup.
+
+### Step 23. Go or no-go page
+
+**Who:** infra (release console), owner reads.
+
+**Do:** run the read-only check report of T-2257 and file its output with the go record. It is the go/no-go
+page: it does not replace step 8 (`tenant_onboarding_check`), it adds the first-use checks of steps 14 to 19.
+
+**Check:** the report shows no failing line; any failing line is a no-go until fixed.
+
+**Rollback:** none needed (read-only).
+
 ## Rollback summary
 
 | Step | How to undo | What cannot be undone |
