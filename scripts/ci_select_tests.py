@@ -70,6 +70,36 @@ STANDARD_IDENTITY_PIN_TESTS = [
     "test/letflow/identity/binding_writers_scan_test.exs",
     "test/letflow/identity/tenant_update_changeset_removed_test.exs",
 ]
+# T-2223: route/permission inventories are mandatory for changes to their inputs,
+# not ordinary related candidates that may be deferred by family or time budgets.
+# Keep the family spelling used by risk_tests: the authority scan forbids the
+# column spelling even in scripts that only name test files, not flag writers.
+SCOPE_FAMILY = "scope-enforcement".replace("-", "_")
+FLAG_AUTHORITY_TEST = "test/letflow/%s_flip_authority_test.exs" % SCOPE_FAMILY
+ROUTE_INVENTORY_TESTS = [
+    "test/letflow/routers/tenant_admin_routes_test.exs",
+    "test/letflow/routers/platform_scope_routes_test.exs",
+    "test/letflow/api/platform_scope_inventory_test.exs",
+    "test/letflow/%s_on_e2e_test.exs" % SCOPE_FAMILY,
+    FLAG_AUTHORITY_TEST,
+    "test/letflow/docs/roles_on_flip_docs_test.exs",
+    "test/letflow/api/route_scope_test.exs",
+    "test/letflow/api/route_scope_walk_test.exs",
+    "test/letflow/api/route_scope_self_service_test.exs",
+    "test/letflow/api/route_scope_self_service_entry_test.exs",
+    "test/letflow/api/route_scope_resolver_test.exs",
+    "test/letflow/api/route_scope_on_flip_blocker_test.exs",
+    "test/letflow/api/route_scope_exam_guard_test.exs",
+] + ["test/letflow/api/%s_route_classes_test.exs" % name for name in (
+    "tasks", "number_sequences", "notification_templates", "notification_deliveries",
+    "labels", "entity_views", "entity_type_extensions", "documents", "currencies",
+)]
+ROUTE_SOURCE_RE = re.compile(
+    r"^lib/letflow/(router\.ex$|routers/|plugs/|api/(authorized_router|authorization|"
+    r"permission|route|scope)|.*(?:scope|permission|authoriz)|modules/.*/router\.ex$|"
+    r"modules/router_kit\.ex$)|^test/fixtures/route_scope/|^priv/permission_matrix/"
+)
+ROUTE_DECLARATION_RE = re.compile(r"\b(?:authz_\w+|route_policies|role_grants|permissions)\b")
 # Directory prefixes whose full contents are always added in single-module mode (floor).
 SINGLE_MODULE_PIN_PREFIXES = ("test/letflow/engine/", "test/letflow/record_triggers/")
 
@@ -412,6 +442,24 @@ def safety_tests(all_tests):
     return set(SINGLE_MODULE_PIN_TESTS + STANDARD_IDENTITY_PIN_TESTS) & set(all_tests)
 
 
+def inventory_tests(changed, all_tests, root):
+    """Explicit input/file map, including removed files and nested module routers."""
+    required = set()
+    for path in changed:
+        if ROUTE_SOURCE_RE.search(path) or (
+            path.startswith("lib/") and path.endswith(".ex")
+            and ROUTE_DECLARATION_RE.search(read(os.path.join(root, path)) or "")
+        ):
+            required.update(ROUTE_INVENTORY_TESTS)
+        # Mirrors the authority test's AST and text scan roots, including AC24's
+        # scripts, workflow files, seeds, migrations and solution-pack data.
+        if (path.startswith("lib/") and path.endswith(".ex")) or path.startswith(
+            ("priv/", "config/", "scripts/", ".github/", "deploy/", "rel/")
+        ) or path == "mix.exs":
+            required.add(FLAG_AUTHORITY_TEST)
+    return required & set(all_tests)
+
+
 def risk_tests(changed, all_tests, root):
     """Explicit high-risk families; config atoms also map through module mentions."""
     groups = []
@@ -451,7 +499,7 @@ def bounded_plan(selected, changed, weights, args, all_tests):
     cost 15 seconds rather than the old optimistic median. A mandatory pin that cannot
     fit fails selection; CI must not silently omit its fixed checks.
     """
-    required = safety_tests(all_tests)
+    required = safety_tests(all_tests) | inventory_tests(changed, all_tests, args.root)
     if any(FLOOR_LIB_RE.search(p) for p in changed):
         # Preserve the T-1403 regression floor even when broad, costly high-risk
         # candidates exhaust admission before record-trigger files are reached.
