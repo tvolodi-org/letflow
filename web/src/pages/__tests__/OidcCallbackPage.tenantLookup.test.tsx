@@ -125,7 +125,7 @@ describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
     expect(session.tenant_id).toBe('t-1')
   })
 
-  it('GH #4732: bare host (no realm in URL or storage) takes the slug from the token issuer', async () => {
+  it('GH 4732: bare host (no realm in URL or storage) takes the slug from the token issuer', async () => {
     vi.resetModules()
     vi.mocked(resolveRealmFromUrl).mockReturnValue(null)
     sessionStorage.removeItem('bpm_realm_slug')

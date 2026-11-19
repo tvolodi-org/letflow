@@ -78,7 +78,7 @@ export default function OidcCallbackPage() {
           return
         }
         setToken(token)
-        // GH #4732: on a bare host (no ?realm=, nothing remembered) the token's own claims name
+        // GH 4732: on a bare host (no ?realm=, nothing remembered) the token's own claims name
         // the tenant; without this the session had no slug and the shell read 'Unknown workspace'.
         const realmSlug =
           resolveRealmFromUrl() ?? sessionStorage.getItem('bpm_realm_slug') ?? resolveTenantSlug(payload)
