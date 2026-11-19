@@ -31,7 +31,7 @@ actors:
   storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
-  - description: The 603 opening balances were loaded as posted documents of the kind Opening balance, and 3 negative lines exist in them (synthetic data).
+  - description: The tenant's opening balances were loaded as posted documents of the kind Opening balance, and 3 negative lines exist in them (synthetic data); counts are read at the start of the run, not hard-coded.
     check: system_seeded
     detail: If no posted opening document with a negative line can be found, report BLOCKED and say what the Stock documents list holds.
   - description: The administrator may read stock documents and balances.
