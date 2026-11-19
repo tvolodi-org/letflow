@@ -753,4 +753,28 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
                "locales / default_locale / branding / environment_kind are global, not per-tenant"
     end
   end
+
+  # T-2208: the route reads ONLY `?slug=`. A probe with `?realm=<realm id>` (or any
+  # other name) is not a lookup key and gets the documented default, by design.
+  describe "T-2208: the lookup parameter is slug, not realm" do
+    test "?slug= returns the tenant's own realm; ?realm= is not a lookup key" do
+      realm_id = unique_realm("t2208")
+
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("t2208"),
+          display_name: "T-2208 Tenant",
+          idp_realm_id: realm_id
+        })
+
+      {_conn, by_slug} = get_mobile_config(tenant.slug)
+      assert by_slug["realm_url"] =~ "/realms/#{realm_id}"
+
+      for param <- ["realm", "realm_id", "tenant", "company"] do
+        conn = call(conn(:get, "/api/mobile/tenant-config?#{param}=#{realm_id}"))
+        assert conn.status == 200
+        assert Jason.decode!(conn.resp_body)["realm_url"] =~ "/realms/bpm-default"
+      end
+    end
+  end
 end
