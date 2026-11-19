@@ -1,0 +1,131 @@
+# T-2310 (BA), group qoimeks-signin, scenario 2: GO GATE 1 of 4 (decision 0072). Header lines of the group: see scenario 1 of this group (Scope, Actors, Host and screens, Data, Executable, Dry run).
+# 1. Scope: qoimeks-qa2 (exists).
+# 2. Actors: actor-qoimeks-qa-storekeeper (realm qoimeks-qa, STOREKEEPER, roster T-2192) is the user of ANOTHER realm; actor-qoimeks-qa2-storekeeper (realm qoimeks-qa2) is the control. Live logins are preconditions for acceptance.
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com; the tenant-configuration read (lib/letflow/routers/tenant_config.ex), the auth pipeline refusal (lib/letflow/plugs/auth_pipeline.ex, "token realm does not match tenant"), the stock Documents screen (web/src/modules/stock/stockRoutes.tsx).
+# 4. Data: none created; no write step.
+# 5. Executable: browser (the other realm's user tries the tenant address) and an HTTP client (tokens obtained by a normal sign-in of each account in its own realm, never printed).
+# 6. Dry run: not run in this step (no acceptance environment; uat.sh preflight needs the title "UAT qoimeks-signin").
+# EXPECTATION CORRECTIONS: 2 (a) the answer for an unknown host is a 200 default body, not an error; (b) the refusal text of a token of another realm is not pinned (several fixed 401 texts exist for a bad token; only the status, the identical shape and "no data" are expected).
+# Removed: a browser step on an unknown host name (the runner cannot serve the SPA for a host that has no DNS; the API read of step 5 covers the host rule).
+# Write refusals are not probed: the only requests sent are reads.
+---
+id: qoimeks-signin-2-user-of-another-realm-refused-and-wrong-host-shows-no-tenant
+scope: qoimeks-qa2
+title: >-
+  A user of another realm is refused on the tenant address, and a host that belongs to no tenant shows no tenant data
+version: "1.0"
+tags: [qoimeks, signin, realm, isolation, refusal, browser, ru, kk, go-gate]
+
+description: >-
+  Decision 0072 D1 binds one realm to one tenant. A user whose account belongs to the realm of another
+  Qoimeks tenant (qoimeks-qa) must not get into the tenant qoimeks-qa2: neither by signing in on the tenant
+  address, nor by presenting the token of the own realm to the tenant address. A host that belongs to no
+  tenant must show no data of the tenant: the application reads the same uniform default configuration as
+  for any unknown host (INV-5), which names neither the realm qoimeks-qa2 nor the tenant.
+
+actors:
+  other: actor-qoimeks-qa-storekeeper
+  storekeeper: actor-qoimeks-qa2-storekeeper
+
+preconditions:
+  - description: The tenant host https://qoimeks-qa2.letflow.qa.bizdala.com answers and the two accounts (own realm and other realm) can sign in each in its own realm.
+    check: system_seeded
+    detail: If one account cannot sign in at its own realm, report BLOCKED-by-environment and name the account.
+  - description: The run can drive a real browser and an HTTP client.
+    check: system_seeded
+    detail: The runner writes its own browser script; "no pipeline_test" is never a reason to block.
+  - description: No document, item or place of the tenant is written by this scenario.
+    check: test_setup
+    detail: Nothing to prepare; the steps only read.
+
+steps:
+  - step: 1
+    actor: other
+    action: >-
+      The test runner signs in as the user of the other realm at that user's own realm (qoimeks-qa) and keeps
+      the access token for the next step (never printed or stored).
+    via: api
+  - step: 2
+    actor: other
+    action: >-
+      The test runner presents that token to the tenant address https://qoimeks-qa2.letflow.qa.bizdala.com in a
+      read of the stock documents list, and in a read of the stock balances. The answers are noted as X1 and X2.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: other
+    action: >-
+      In a fresh browser session the user of the other realm opens the tenant address
+      https://qoimeks-qa2.letflow.qa.bizdala.com. The sign-in page of the realm qoimeks-qa2 is shown; the user
+      enters the account name and password of the OTHER realm. The sign-in is not accepted; no stock screen
+      of the tenant opens. Afterwards the user opens the Documents screen address of the tenant directly: the
+      sign-in is asked again.
+    expect_refusal: true
+    via: ui
+  - step: 4
+    actor: storekeeper
+    action: >-
+      As a control, the storekeeper of the tenant (own realm) signs in at the tenant address and opens the
+      Documents screen: it opens. This shows that steps 2 and 3 were refused because of the realm, not because the address was down.
+    via: ui
+  - step: 5
+    actor: storekeeper
+    action: >-
+      The test runner reads the tenant configuration with the tenant host (answer T-HOST) and then twice with
+      two host names that belong to no tenant (for example nosuch-one.example.invalid and
+      nosuch-two.example.invalid; answers T-U1 and T-U2). The reads are made with no credential.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A token of another realm is refused on the tenant address and returns no tenant data.
+    verification:
+      method: api_response
+      detail: >-
+        X1 and X2 each have HTTP status 401 (lib/letflow/plugs/auth_pipeline.ex: a token whose realm does not
+        belong to the tenant is a 401). After the trace_id field is removed, the bodies of X1 and X2 are
+        identical in shape and contain no document, item, place or balance of the tenant.
+      evidence: "Status and body of X1 and X2 (trace_id removed)."
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user of another company's realm could read this company's stock; tenant isolation is broken.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: The sign-in of the other realm's user is not accepted at the tenant's realm and no stock screen opens.
+    verification:
+      method: gui_screen
+      detail: >-
+        Step 3: the realm's sign-in page rejects the account of the other realm (no session is created), the
+        application never shows a stock screen, and the direct address of the Documents screen asks for a sign-in again.
+      evidence: "Screenshots of the rejected sign-in and of the Documents address afterwards, at 1440 px."
+    on_fail:
+      severity: BLOCKER
+      business_impact: Accounts of another client could be used in this client's warehouse.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-003
+    description: The control user of the tenant's own realm gets in.
+    verification:
+      method: gui_screen
+      detail: >-
+        Step 4: the Documents screen opens for the storekeeper at 1440 px and at 390 px, in Russian and in Kazakh, with no clipping.
+      evidence: "Screenshots of the Documents screen at 1440 and 390 px, ru and kk."
+    on_fail:
+      severity: MAJOR
+      business_impact: The refusals above cannot be told from an outage.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: A host that belongs to no tenant shows no tenant data; the answer is uniform (decision 0072 D5(b) host resolution; tenant_config.ex moduledoc, INV-5).
+    verification:
+      method: api_response
+      detail: >-
+        T-U1 and T-U2 have HTTP status 200 and byte-identical bodies (they carry the default configuration).
+        Neither names the realm qoimeks-qa2, and tenant_type is null in both. T-HOST differs from T-U1: it
+        names the realm qoimeks-qa2. No status code or field of T-U1 lets a caller tell an unknown host from a malformed one.
+      evidence: "Status and bodies of T-HOST, T-U1, T-U2."
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong address would show another company's sign-in, or reveal which addresses are real tenants.
+      suggested_action: route_to_elixir_dev

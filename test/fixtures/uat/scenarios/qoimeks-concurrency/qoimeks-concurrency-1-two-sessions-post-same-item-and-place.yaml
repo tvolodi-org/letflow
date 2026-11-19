@@ -1,0 +1,170 @@
+# T-2310 (BA, PM 2026-11-19), group qoimeks-concurrency: GO GATE 2 of 4 (decision 0061, with 0056 D2 for the numbers). QA only, no real data.
+# Source: docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (one global lock order for every write path: concurrent writers wait and succeed, no deadlock; "Amended (REQ-686, ledger class 5b)" for the ledger posting),
+# docs/migration/decisions/0056-versioned-documents.md D2 (two issues racing on one scope yield consecutive numbers, no duplicate, no gap; acceptance criterion 1),
+# docs/roles.md line 189 (TENANT_ADMIN and STOREKEEPER both hold StockPost and StockReverse).
+# 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) and actor-qoimeks-qa2-admin (TENANT_ADMIN), both in the roster (T-2219). The admin is used here because the scenario needs a SECOND signed-in person; a second administrator (admin2) is not in the roster and is not used. Live logins are preconditions for acceptance.
+# 3. Host and screens: stock Documents, Document and Balances screens (web/src/modules/stock/stockRoutes.tsx: admin/stock/documents, admin/stock/documents/new, admin/stock/documents/:id, admin/stock/balances), all behind StockRead; receipt and issue are not four-eyes documents (four-eyes applies to the quick count and the opening, decision 0091 / task text of the retry group).
+# 4. Data: an item with a posted balance at a place that is linked to an org unit (the run reads the Balances screen and picks one row; no number is fixed here); the balance, document counts and the numbers are read at the start of the run. If the tenant has no item with at least 20 on hand at one place, the scenario is BLOCKED-by-environment (no generator task is needed: any posted opening or receipt makes it).
+# 5. Executable: TWO sessions, at most two in parallel (the PM limit): one browser context for the storekeeper and one HTTP session (or second browser context) for the admin. The two issues are started as close together as the runner can (a single shared "go" signal); this is ONE attempt, never a loop, never more than two parallel requests. It is a script of the runner, not a pipeline test.
+# 6. Dry run: not run in this step (no acceptance environment; uat.sh preflight needs the title "UAT qoimeks-concurrency").
+# EXPECTATION CORRECTIONS: 2 (a) the expected result is "both succeed and the sum is exact"; a refusal "busy" is allowed only as a clearly named retry answer and then the runner repeats that one request ONCE (Documents moduledoc: {:error, :busy} stays :busy), never as a pass; (b) the numbers are checked as "consecutive, no duplicate" within the type of each document, read at run time.
+---
+id: qoimeks-concurrency-1-two-sessions-post-same-item-and-place
+scope: qoimeks-qa2
+title: >-
+  The storekeeper and the administrator post to the same item and place at the same time: both succeed, the balance is the exact sum and the numbers are consecutive
+version: "1.0"
+tags: [qoimeks, concurrency, ledger, numbering, lock-order, go-gate]
+
+description: >-
+  Decision 0061 makes every write path take its locks in one order, so two people posting to the same item at
+  the same place wait for each other and both succeed, with no deadlock. Two receipts are issued at the same
+  moment by two signed-in people for one item at one place: quantities Q-S (storekeeper) and Q-A
+  (administrator), different numbers chosen by the runner (for example 3 and 5). Both end Posted, the balance
+  grows by exactly Q-S plus Q-A, and the two documents get consecutive numbers of the receipt series
+  (decision 0056 D2). Cleanup: both documents are reversed, so the balance returns to the value read at the start.
+
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+
+preconditions:
+  - description: The tenant has an item with at least 20 on hand at one place, and that place is linked to an org unit.
+    check: system_seeded
+    detail: Read the Balances screen at the start; if there is none, BLOCKED-by-environment (name the missing data).
+  - description: The stock process definitions of the tenant are ACTIVE (the posting after the issue needs them) and the tenant's scope enforcement does not block the two people.
+    check: system_seeded
+    detail: If an issue is refused because a definition is not active, report BLOCKED-by-environment.
+  - description: The run can drive two sessions at the same time (two browser contexts or one browser and one HTTP session).
+    check: system_seeded
+    detail: If it cannot, report BLOCKED with the reason; do not serialise the two posts and call it a pass.
+  - description: Both accounts can sign in.
+    check: system_seeded
+    detail: Name the account that cannot.
+
+steps:
+  - step: 1
+    actor: storekeeper
+    action: >-
+      The storekeeper opens the Balances screen at 1440 px in Russian, picks one item and one place (the
+      item and the place are named ITEM-C and PLACE-C) and notes the sum of the item's rows at that place as B0.
+      The storekeeper opens the Documents screen and notes the highest receipt number as N0 (the number shown
+      in the Number column for the kind Receipt; none yet means N0 is zero) and the count of documents as D0.
+    via: ui
+  - step: 2
+    actor: storekeeper
+    action: >-
+      The storekeeper prepares a new Receipt document (New document) for ITEM-C at PLACE-C with quantity Q-S
+      (the runner's number, for example 3), the other required fields filled with the tenant's own
+      data. It is saved as a draft and NOT issued yet.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >-
+      The administrator, signed in at the tenant address, prepares a new Receipt document for the same
+      ITEM-C and PLACE-C with quantity Q-A (a different number, for example 5), saved as a draft and NOT issued yet.
+    via: ui
+  - step: 4
+    actor: storekeeper
+    action: >-
+      On one "go" signal of the runner, the storekeeper issues the draft of step 2 (action Issue) and the
+      administrator issues the draft of step 3 at the same moment. The two answers (status and the document
+      state) and the time each took are noted as S-ANS and A-ANS. If one answer is the named "busy" answer, that one
+      request is repeated once; this is the only repeat.
+    via: ui
+  - step: 5
+    actor: storekeeper
+    action: >-
+      After both documents show the state Posted (read the Documents screen; wait for the posting for at most
+      two minutes, reading again each ten seconds), the storekeeper notes the numbers of the two documents as
+      NUM-S and NUM-A and the balance of ITEM-C at PLACE-C as B1.
+    via: ui
+  - step: 6
+    actor: storekeeper
+    action: >-
+      The storekeeper opens the Movements screen, filters it to ITEM-C and PLACE-C, and notes the two newest
+      entries (one per document) with their document numbers.
+    via: ui
+  - step: 7
+    actor: storekeeper
+    action: >-
+      The same Balances screen at 390 px in Kazakh: the balance of ITEM-C at PLACE-C is noted as B1-phone.
+    via: ui
+  - step: 8
+    actor: storekeeper
+    action: >-
+      The test runner sends a request to issue a receipt with NO credential and one with a wrong credential
+      (the word Bearer and a value never issued). Nothing is created.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: storekeeper
+    action: >-
+      Cleanup: the storekeeper reverses the document NUM-S (action Reverse, a reason offered by the dialog),
+      and the administrator reverses the document NUM-A. The balance is read again as BFINAL.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Two people issuing to the same item and place at the same time both succeed, with no deadlock (decision 0061).
+    verification:
+      method: gui_screen
+      detail: >-
+        S-ANS and A-ANS both end with the document issued and then Posted within two minutes; neither answer is a
+        server error or a time-out; neither session had to wait longer than the longest of the two single issues
+        plus the time of the other (no stall that looks like a lock cycle). At most one "busy" answer, repeated once, is allowed
+        and it is noted in the report as a defect of the second class (MINOR) if it happens.
+      evidence: "States of the two documents, the two answers and their durations."
+    on_fail:
+      severity: BLOCKER
+      business_impact: Two warehouse workers receiving goods at the same place would lose or block a posting.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: The balance is the exact sum of the two postings.
+    verification:
+      method: gui_screen
+      detail: B1 equals B0 plus Q-S plus Q-A (the sum of the item's rows at that place, as in step 1). B1-phone equals B1. The Movements screen of step 6 shows exactly two new entries for ITEM-C at PLACE-C, one per document.
+      evidence: "B0, Q-S, Q-A, B1, B1-phone and the two movement entries."
+    on_fail:
+      severity: BLOCKER
+      business_impact: A lost update would leave the stock balance wrong without anyone noticing.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-003
+    description: The two documents get different, consecutive numbers of the receipt series (decision 0056 D2, acceptance criterion 1).
+    verification:
+      method: gui_screen
+      detail: >-
+        NUM-S and NUM-A differ, and together they are the numbers N0 plus 1 and N0 plus 2 of the receipt series (in
+        either order), with the same year prefix. No other receipt number is taken by this walk (the count of
+        documents is D0 plus 2).
+      evidence: "N0, NUM-S, NUM-A, D0 and the new count of documents."
+    on_fail:
+      severity: BLOCKER
+      business_impact: A repeated or skipped document number is a legal-record defect.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: An issue request without a credential or with a wrong credential is refused, identical answers, nothing created.
+    verification:
+      method: api_response
+      detail: >-
+        Step 8: both answers have status 401 and, after the trace_id field is removed, identical bodies. The count of documents is still D0 plus 2 (nothing created) when read again.
+      evidence: "Status and body of the two requests; the count of documents."
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without a sign-in could post stock.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-005
+    description: The cleanup restores the balance.
+    verification:
+      method: gui_screen
+      detail: BFINAL equals B0 (both documents reversed).
+      evidence: "B0 and BFINAL."
+    on_fail:
+      severity: MINOR
+      business_impact: The synthetic balance stays changed for the next run.
+      suggested_action: route_to_wf03

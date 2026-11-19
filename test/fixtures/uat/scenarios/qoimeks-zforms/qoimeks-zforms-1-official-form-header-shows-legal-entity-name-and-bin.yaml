@@ -1,0 +1,134 @@
+# T-2310 (BA, PM 2026-11-19), group qoimeks-zforms: PRIORITY P3, NOT A GO GATE. No printing at the go, Z-forms optional.
+# WHICH SOURCE GOVERNS (written down as the task asked): the readiness note says Client 1 does not print at the go (stock only, no printing) and the PM ruling of 2026-11-19 confirms it; the onboarding runbook
+# (docs/runbooks/production-tenant-onboarding.md, step 17 "Master data for the forms") still sets the legal entity WITH NAME AND BIN "(the Z-forms print blank otherwise)" because it is cheap and avoids blank forms later.
+# So: the readiness note governs the go (nothing printed); the runbook governs the master data; this group checks only that a form, when somebody does produce it, carries the name and BIN. No question to the operator is needed. Paper and PDF printing on the client's printer, and the Kazakh machine-draft notice on paper, are in project/qoimeks-needs-human.md (item 6) and are not walked.
+# Source: docs/migration/decisions/0089-official-form-company-templates.md (D1: the skeleton and header labels are the platform's; D2: a missing value prints blank, which is what this scenario must not see for the legal entity), lib/letflow/modules/stock/document_print_source.ex (the name and BIN of the legal entity of the header org unit; an empty map when a link is missing), web/src/modules/stock/forms/OfficialFormMenu.tsx and officialFormMessages.ts (menu 'Official form' with Z-1 and the formats .docx and PDF), docs/roles.md ('OfficialFormTemplatesManage': TENANT_ADMIN and PLATFORM_ADMIN only).
+# 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER, produces the form) and actor-qoimeks-qa2-admin (TENANT_ADMIN, reads the organisation master data). Live logins are acceptance preconditions.
+# 3. Host and screens: stock Document screen with the menu 'Official form' (ru 'Официальная форма', kk 'Ресми нысан'; entries 'Z-1 form' ru 'Форма З-1' kk 'Қ-1 нысаны'; formats '.docx' and 'PDF'; web/src/modules/stock/forms/officialFormMessages.ts); organisation screen route admin/org (web/src/modules/org/orgRoutes.tsx).
+# 4. Data: the legal entity of the org unit used by the documents must have its name and BIN set (runbook step 17); the run READS them on the organisation screen at the start (LE-NAME, LE-BIN) and compares; if the legal entity has no name or no BIN, or the org unit has no legal entity, the scenario is BLOCKED-by-environment and the finding "legal entity not set" is reported (this is exactly the case the runbook warns about, not a pass). One posted receipt of the walk (created by the walk).
+# 5. Executable: browser; the file is downloaded by the browser (the menu produces a download, not an in-page preview), the runner reads the header text from the downloaded .docx and the PDF.
+# 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-zforms").
+# EXPECTATION CORRECTIONS: 2 (a) the browser produces a file download, not a preview, so the header is read from the file; (b) the labels used are only those found in officialFormMessages.ts (Official form, Z-1 form, .docx, PDF); the header label texts of the form itself come from the platform catalog priv/print_forms/messages.json and are not quoted.
+---
+id: qoimeks-zforms-1-official-form-header-shows-legal-entity-name-and-bin
+scope: qoimeks-qa2
+title: >-
+  The Z-1 form of a posted receipt shows the tenant's legal entity name and BIN in its header, not blank (optional, no printing at the go)
+version: "1.0"
+tags: [qoimeks, zforms, official-forms, p3, optional, ru, kk]
+
+description: >-
+  Priority P3, not a go gate: Client 1 does not print at the go, but the onboarding sets the legal entity name
+  and BIN so that no form is blank later. The administrator reads the legal entity name and BIN on the
+  organisation screen. The storekeeper posts one receipt and produces the Z-1 form of it in Russian and in
+  Kazakh, in .docx and in PDF. The header of each file shows the legal entity name and BIN read by the
+  administrator, not blank (decision 0089 D2: a missing value would print blank). The storekeeper is refused the company
+  template administration (OfficialFormTemplatesManage). Cleanup: the receipt is reversed.
+
+actors:
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
+
+preconditions:
+  - description: The org unit of the receipt is linked to a legal entity with a name and a BIN (onboarding runbook step 17).
+    check: system_seeded
+    detail: If name or BIN is missing, report BLOCKED-by-environment with "legal entity not set"; do not write the value in to make the check pass.
+  - description: An item with stock at a place linked to that org unit, and the stock process definitions ACTIVE.
+    check: system_seeded
+    detail: Read at the start; if none, BLOCKED-by-environment.
+  - description: The run can drive a browser with downloads enabled and can read a downloaded .docx and PDF as text.
+    check: system_seeded
+    detail: If downloads cannot be read, report the steps 4 and 5 BLOCKED and say why.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >-
+      The administrator opens the organisation screen at 1440 px in Russian, finds the org unit used for the
+      stock documents and its legal entity, and notes the legal entity name as LE-NAME and the BIN as LE-BIN.
+    via: ui
+  - step: 2
+    actor: storekeeper
+    action: >-
+      The storekeeper issues one receipt of one item to a place of that org unit, quantity 1, until it shows Posted
+      (New document, fill, Issue). The number is noted as RN.
+    via: ui
+  - step: 3
+    actor: storekeeper
+    action: >-
+      On the Document screen of RN the storekeeper opens the menu Official form and sees the entry Z-1 form (the
+      entry the menu offers for a receipt).
+    via: ui
+  - step: 4
+    actor: storekeeper
+    action: >-
+      The storekeeper produces the Z-1 form in Russian as .docx and as PDF, then switches the application to
+      Kazakh and produces it again as .docx and as PDF. The four files are kept by the runner and their text read.
+    via: ui
+  - step: 5
+    actor: storekeeper
+    action: >-
+      The same Document screen and its Official form menu at 390 px in Kazakh: the menu opens and nothing is clipped.
+    via: ui
+  - step: 6
+    actor: storekeeper
+    action: >-
+      The test runner asks the company-template administration of the official forms (the list of templates) as
+      the storekeeper. It is refused; no template is shown and nothing is changed.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: storekeeper
+    action: >-
+      Cleanup: the storekeeper reverses the receipt RN (action Reverse, a reason offered by the dialog).
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The header of the produced Z-1 form carries the legal entity name and BIN of the tenant, not blank (decision 0089 D2; onboarding runbook step 17).
+    verification:
+      method: system_state
+      detail: >-
+        In each of the four files (ru .docx, ru PDF, kk .docx, kk PDF) the header text contains LE-NAME and
+        LE-BIN exactly as read in step 1, and the fields of the legal entity are not empty. The document number RN is
+        also in the file. (The labels of the skeleton come from the platform catalog and are not compared.)
+      evidence: "The extracted header text of the four files, with LE-NAME and LE-BIN."
+    on_fail:
+      severity: MINOR
+      business_impact: A form with a blank legal entity cannot be used as a paper record when the client starts to print.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: The menu and the form are available to the storekeeper at 1440 and 390 px in Russian and Kazakh.
+    verification:
+      method: gui_screen
+      detail: The menu Official form (ru 'Официальная форма', kk 'Ресми нысан') opens with the entry Z-1 form and the two formats; at 390 px nothing is clipped.
+      evidence: "Screenshots of the menu in ru at 1440 px and in kk at 390 px."
+    on_fail:
+      severity: MINOR
+      business_impact: The warehouse cannot produce a form when it needs one.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: The storekeeper is refused the company template administration (a role without the permission).
+    verification:
+      method: api_response
+      detail: >-
+        Step 6: HTTP status 403 and a body without any template content (OfficialFormTemplatesManage is held by TENANT_ADMIN and PLATFORM_ADMIN only, docs/roles.md).
+      evidence: "Status and body of step 6."
+    on_fail:
+      severity: MAJOR
+      business_impact: A clerk could change the legal wording or layout of official forms.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: The cleanup reverses the receipt.
+    verification:
+      method: gui_screen
+      detail: After step 7 the document RN shows the state Reversed ('Сторнирован' in Russian).
+      evidence: "Screenshot of RN after step 7."
+    on_fail:
+      severity: MINOR
+      business_impact: Synthetic stock stays changed.
+      suggested_action: route_to_wf03

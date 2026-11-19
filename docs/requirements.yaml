@@ -58155,3 +58155,249 @@ requirements:
       - "4. No offline and no platform branch: the feature writes nothing to the offline queue or the definition cache, and grep finds no kIsWeb and no dart.library import under apps/mobile/lib/features/maintenance/."
       - "5. Checks: flutter analyze is clean and flutter test passes; every new label exists in en, ru and kk."
     depends_on: [REQ-897]
+  - id: REQ-901
+    title: "Ledger slice L7 part 2a: a module write handler that posts to a ledger may refuse with a typed code from a closed platform list (record_version_conflict, master_inactive), released only to a completer who holds the posting authority (decision 0073 D6, ledger note 12.2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4821
+    # Source: task T-2308 (PM 2026-11-19, pilot gate rule: L7 is done only when BOTH parts are done). Files read on origin/main 1faffef80: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6, D-P, Consequences rows PILOT GATE and L7, sections "Amended by REQ-829" and "Amended by REQ-832"); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 7.1 (via 12.2), 9.4, 9.5, 12.1, 12.2, 14.6, 17; requirement REQ-832 (gh 4535, its OUT OF SCOPE list); lib/letflow/entities/handler_context.ex (the handler contract); lib/letflow/entities/handler_writes.ex (call_handler/5); lib/letflow/entities/step_writes.ex (interpret_line of :handler_invalid_arguments and :handler_shape); lib/letflow/api/response.ex (entity_write_refused/3, entity_write_status/1); lib/letflow/routers/tasks.ex (handle_complete_result); lib/letflow/ledger/codes.ex (@other_reserved, reserved/0); lib/letflow/ledger/handler_post.ex and lib/letflow/ledger/authority.ex (check/1, check_with_read/1); test/letflow/engine/module_write_failure_codes_test.exs; test/letflow/ledger/codes_test.exs; test/support/modules/fixture_ledger_post.
+    description: >
+      Why. Slice L7 part 2 needs two typed refusals at posting: record_version_conflict when the posting does
+      not carry the issued document version (decision 0073 D6 names "record-version preconditions
+      (expected_document_version, typed record_version_conflict)"; ledger note 9.4), and master_inactive when a
+      retired master is named on a stock-adding side (note 9.5). Today a write handler can only answer
+      {:error, :invalid_arguments} (422 validation_failed, audit detail handler_invalid_arguments) or
+      {:error, :not_permitted} (403): the contract in lib/letflow/entities/handler_context.ex is closed, and
+      call_handler/5 in lib/letflow/entities/handler_writes.ex turns any other answer into :handler_shape
+      (an internal failure). REQ-832 says so in its OUT OF SCOPE list. This requirement opens the contract by
+      exactly one closed form; no handler uses it yet (REQ-903 and REQ-904, planned with this entry, do).
+      What. (1) Contract. A handler registered with posts_ledger may also answer {:error, {:refused, code}}
+      where code is one atom of a closed list kept in ONE module attribute of
+      lib/letflow/entities/handler_writes.ex: :record_version_conflict and :master_inactive. Any other code,
+      and this form from a handler registered without posts_ledger, stays :handler_shape as today. (2) Mapping.
+      call_handler/5 maps the form to {:error, {:handler_refused, code}}; interpret_line in
+      lib/letflow/entities/step_writes.ex maps that to {:refused, i, code, :handler_refused}; the task
+      completion route answers with the existing envelope of Response.entity_write_refused/3
+      ({"error": code, "line_index": i}, no details); entity_write_status/1 keeps 409 for
+      record_version_conflict and gains a 409 clause for master_inactive. Nothing of the completion commits and
+      the task stays pending, as for every build refusal. The refusal is audited like the other build
+      refusals, with the detail handler_refused. (3) Who sees the code (note 12.2, "Who sees the typed codes":
+      a build-time typed refusal is released only to an AUTHORISED subject). The typed code is answered only
+      when the completing subject would pass the same decision as Letflow.Ledger.Authority
+      (lib/letflow/ledger/authority.ex) for a posting of that handler's ledger registration; a subject that
+      would not gets the uniform write_not_permitted 403 body. (4) Reserved codes. "master_inactive" is added
+      to @other_reserved of lib/letflow/ledger/codes.ex ("record_version_conflict" is already there), so no
+      module's error alias can take it. (5) Service-task origin. On a {:dispatch, _} origin the form is
+      classified exactly as :handler_invalid_arguments is classified on that origin today. Size S. Risk: low;
+      the authority rule of point (3) is the part a reviewer must check first. OUT OF SCOPE: any use by a real
+      module (REQ-903, REQ-904), a details map in the body, error aliases for the new codes, codes for the
+      org unit to location link.
+    acceptance_criteria:
+      - "1. Mapping (test file test/letflow/engine/module_write_failure_codes_test.exs): a fixture handler registered with posts_ledger (in the style of test/support/modules/fixture_ledger_post) that answers {:error, {:refused, :record_version_conflict}} makes a real HUMAN_TASK completion by a subject holding the fixture registration's posting authority answer 409 with body error record_version_conflict and the line_index of its module_writes line; one that answers {:error, {:refused, :master_inactive}} answers 409 with error master_inactive; in both the audit entry's detail is handler_refused, no ledger entry and no record of the completion exist, and the task is still pending."
+      - "2. Closed list: the same fixture answering {:error, {:refused, :something_else}} gives the internal failure of :handler_shape (as an unknown return does today), and a fixture handler registered WITHOUT posts_ledger answering {:error, {:refused, :master_inactive}} gives the same internal failure."
+      - "3. Authority first: the same completion as criterion 1 by a TASK_WORKER that holds no permission of the fixture registration answers 403 with a body byte-identical (trace_id dropped) to the write_not_permitted body that user gets for an otherwise equal completion whose handler answers {:error, :not_permitted}."
+      - "4. Reserved codes: test/letflow/ledger/codes_test.exs asserts that Letflow.Ledger.Codes.reserved/0 contains master_inactive and record_version_conflict, and that a module registration with an error alias whose value is master_inactive is refused by the existing alias check."
+      - "5. Unchanged answers: the existing rows of module_write_failure_codes_test.exs for :invalid_arguments and :not_permitted still pass unchanged."
+      - "6. Documentation: the contract section of the moduledoc of Letflow.Entities.HandlerContext names the third form, its closed list, the posts_ledger condition and the authority rule of description point (3)."
+    depends_on: [REQ-501, REQ-685, REQ-686]
+  - id: REQ-902
+    title: "Ledger slice L7 part 2b: read facade for the versioned documents of the handler's own module: HandlerWrites.read_document_version/3 reads one version of one document by id and number, no lock, no write (decision 0073 D6, ledger note 14.6)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4820
+    # Source: task T-2308. Files read on origin/main 1faffef80: requirement REQ-829 (gh 4527) and its build lib/letflow/entities/handler_writes.ex (read/3, active?/3, check_readable/2, the dry mode); lib/letflow/modules/write_handler_spec.ex (optional keys posts_ledger, updates, reads); lib/letflow/modules/catalog.ex (write_handler/2, rule 10); lib/letflow/modules/manifest_hash.ex; lib/letflow/documents.ex (moduledoc: tenant from prefix only, no permission check, the first caller owns permission; issued_summary/2; verify_binding/4); lib/letflow/documents/document.ex (table documents: type_key, issuing_org_unit_id, current_version); lib/letflow/documents/document_version.ex (table document_versions: version_no, status draft/issued/superseded/cancelled/discarded, content, content_hash); lib/letflow/documents/document_type.ex (owner_module); lib/letflow/modules/stock/stock.ex (document types registered with owner_module stock); lib/letflow/modules/stock/documents/posting.ex (issued/2, the read-side posting_check); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md section "Amended by REQ-829"; lib/letflow/design/gh2657-wms-stock-ledger-core.md section 14.6; test/letflow/entities/handler_writes_read_test.exs; test/letflow/entities/handler_writes_callers_test.exs (H4); test/letflow/entities/module_write_owner_path_test.exs; test/letflow/entities/ledger_boundaries_test.exs (T-SC-4e); test/letflow/modules/org/runbook_test.exs and test/letflow/modules/catalog_items/runbook_test.exs (line pins on handler_writes.ex).
+    description: >
+      Why. REQ-832 says why L7 part 2 is not done: "the versioned document lives in the Letflow.Documents
+      tables, which the REQ-829 facade does not read". What exists now: HandlerWrites.read/3 and active?/3
+      read one record of a manifest-declared type from entity_record_latest only. What is owed: a handler
+      cannot read the issued document version it is posting, so it cannot tell a posting of the issued content
+      from a changed one (the binding gap of REQ-713 criterion 6). This requirement adds that read as a
+      platform primitive with no consumer; REQ-903 wires it into the stock module. (1) Declaration. The
+      write-handler registration of lib/letflow/modules/write_handler_spec.ex gets one more optional key,
+      reads_documents, a boolean (default false). lib/letflow/modules/manifest_hash.ex hashes it only when it
+      is true, the way it hashes reads only when non-empty, so no existing manifest hash changes. (2) Function.
+      Letflow.Entities.HandlerWrites.read_document_version(ctx, document_id, version_no) answers {:ok, map}
+      with the string keys document_id, version_id, version_no, type_key, status (the stored status as a
+      string), current (true only when the document's current_version is this version), issuing_org_unit_id,
+      content and content_hash; {:error, :not_found} for a non-uuid document id, a version_no that is not a
+      positive integer, an unknown document, an unknown version number of that document, a document of
+      another tenant, and a document whose type's owner_module is not the handler's own module;
+      {:error, :read_not_registered} when the handler's registration has reads_documents false;
+      {:error, :invalid_write_command} for an absent or forged context (the per-call token check of read/3);
+      {:error, :dry_build} in a dry build, with no database call. The registration is re-resolved from the
+      Catalog on every call, never from the context. (3) Where the query lives. The query is one new INTERNAL
+      function of Letflow.Documents (lib/letflow/documents.ex), whose only caller is
+      read_document_version/3 (a caller scan pins this), so Letflow.Documents stays the owner of its tables;
+      like the rest of that module it checks no permission (the handler path has already been authorised by
+      the task completion). (4) What it reads. Only the tables documents, document_versions and
+      document_types in the schema ctx.prefix, with bound parameters: no lock (no FOR UPDATE or FOR SHARE), no
+      write, no ledger table, no other schema. A fact read is data and may be stale at commit (note 14.6);
+      REQ-903 states why that is enough for the stock posting. Pins to re-derive at implement time: the
+      handler_writes.ex line pins of the org and catalog_items runbook tests (B-06), the public function list
+      of HandlerWrites, scan H4. Size M. Risk: this is a new core read path into tenant document content
+      (INV-1, INV-6): the security review checks the owner-module restriction and the cross-tenant test first.
+      OUT OF SCOPE: any consumer (REQ-903), a list or search read of documents, a read of print artefacts or
+      holds, reads by a ledger policy file (declare/2 stays pure, decision 0073 D-P).
+    acceptance_criteria:
+      - "1. Declaration and hash: a test shows that a write-handler registration with reads_documents true is accepted by the Catalog, that a registration without the key (or with false) has the same manifest hash as before this change, and that setting it to true changes the hash."
+      - "2. Answers (test file test/letflow/entities/handler_writes_document_read_test.exs, planned, not yet on main): in a real HUMAN_TASK completion of a fixture definition whose handler declares reads_documents, for a document type registered by the handler's own module, read_document_version/3 answers {:ok, map} with every key of description point (2) for an issued current version (status issued, current true), a superseded version (status superseded, current false) and a cancelled version (status cancelled); and {:error, :not_found} for a non-uuid document id, a version_no of 0 and of a string, an unknown uuid and an unknown version number of an existing document."
+      - "3. Own module only: the same call for a document whose type is registered with another owner_module answers {:error, :not_found}; a handler whose registration has reads_documents false answers {:error, :read_not_registered}; a forged or absent context answers {:error, :invalid_write_command}."
+      - "4. No lock, no write, own schema: a test captures with PlatformTenantFixture.capture_repo_queries/1 every statement of two otherwise equal fixture completions, one whose handler calls read_document_version/3 once and one whose handler does not, and asserts that each extra statement of the first is a SELECT that names only the tables documents, document_versions or document_types of the schema ctx.prefix, and that none contains FOR UPDATE or FOR SHARE or names a table whose name starts with ledger_."
+      - "5. Dry build: a direct call of HandlerWrites.dry_postings/4 with a fixture handler that calls read_document_version/3 gets {:error, :dry_build} and capture_repo_queries/1 around that call captures no statement."
+      - "6. Tenant isolation (INV-1): with the fixture module installed on tenants A and B, read_document_version/3 in a completion of tenant B answers {:error, :not_found} for the document id and version number of an issued document that exists only in tenant A."
+      - "7. Scans and pins: scan H4 accepts HandlerWrites.read_document_version/3 in a handler file; the pinned public function list of HandlerWrites in test/letflow/entities/module_write_owner_path_test.exs gains read_document_version: 3; a test asserts that the new internal function of Letflow.Documents has HandlerWrites as its only caller under lib/; a negative control naming HandlerWrites.read_document_version in a ledger policy file is flagged by the T-SC-4e scan; the org and catalog_items runbook tests pass."
+      - "8. Documentation: the moduledoc of Letflow.Entities.HandlerWrites describes read_document_version/3 with the rules of description points (2) to (4); decision 0073 gets a short amendment section naming this requirement as the document read of L7 part 2."
+    depends_on: [REQ-829, REQ-542, REQ-543]
+  - id: REQ-903
+    title: "Ledger slice L7 part 2c: expected_document_version at posting: the stock handler post_document refuses with record_version_conflict a posting that is not the issued current version of its document or whose content differs from it (binding gap prevented, not only detected; decision 0073 D6, 0078 D5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4819
+    # Source: task T-2308. Files read on origin/main 1faffef80: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6, Consequences rows PILOT GATE and L7, "Amended by REQ-832"); docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md D5 (binding by workflow order and by detection until L7); requirement REQ-713 (gh 3748: description "Binding gap, stated not hidden", criteria 5, 6 and 8, open questions 1 and 2); requirement REQ-832 (gh 4535); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 9.4 and 13 (row DEFERRED, T-VER-1); lib/letflow/modules/stock/handlers.ex (post_document, run/5, valid_args?/2, check_masters); lib/letflow/modules/stock/stock.ex (write_handlers, version 0.22.0 on origin/main); lib/letflow/modules/stock/documents/posting.ex (start_post/4: variables document_id, document_type, version_no, org_unit_id, mark, posting; post_command/3: client_op_id is the issued version id, client_event_time the header event_time, write_off reason_code; expected_legs/2 and expected_from/2; legs_match?/2; cancel/5 and withdraw_post/3); lib/letflow/modules/stock/documents/kinds.ex (eight kinds, causes/1, sides/2); lib/letflow/modules/stock/documents.ex (view org_unit_id is documents.issuing_org_unit_id); docs/runbooks/wms-foundation.md items 1 and 18; test/letflow/modules/stock/posting_test.exs; test/letflow/modules/stock/master_posting_test.exs.
+    description: >
+      Why. Decision 0073 (Consequences, rows PILOT GATE and L7) keeps the stock module off customer tenants
+      until L7 is done, and L7 names expected_document_version. Today (REQ-713, decision 0078 D5) the binding
+      of a posting to the issued document is by workflow order and by detection: the engine merges a
+      completion's output_variables into the instance variables, so a holder of the posting permission can
+      complete the post task with a changed posting variable, or start a stock definition through the generic
+      instance start route with variables of its own (a draft's id, a cancelled document), and the document
+      read only shows posting_check mismatch afterwards (REQ-713 criterion 6). This requirement makes
+      post_document refuse such a completion. (1) Declaration. post_document in the manifest of
+      lib/letflow/modules/stock/stock.ex declares reads_documents true (REQ-902); post_count,
+      post_kind_change_out and reverse_document do not. The module version is raised to the next free version
+      above the one on origin/main at implement time. (2) The check, run by post_document before the master
+      checks of REQ-832 and before any step is added. It reads the version with
+      HandlerWrites.read_document_version(ctx, document_id, version_no) using the handler arguments
+      document_id and version_no. An {:error, :not_found} answer is the existing {:error, :invalid_arguments}
+      (422). The posting is refused with {:error, {:refused, :record_version_conflict}} (REQ-901, 409) when
+      any of these holds: the version's status is not issued; current is false; the posting's client_op_id is
+      not the version_id; the argument document_type or the posting's document_type is not the version's
+      type_key; the posting's document_id is not the argument document_id; the argument org_unit_id is not
+      the version's issuing_org_unit_id; the posting's cause is not one of the causes of the kind of that type
+      (Kinds.causes/1); for a kind whose command carries client_event_time, it is not the header event_time of
+      the content; for write_off, the reason_code is not the header reason_code; or the legs the posting gives
+      differ from the legs the issued content gives. (3) One comparison. The legs comparison is the multiset
+      of (sku, location, org unit, responsible, lot, unit, signed quantity) that the read-side posting_check
+      of lib/letflow/modules/stock/documents/posting.ex already computes (expected_from/2, leg_key/7 and
+      legs_match?/2). That computation moves into one new pure module under
+      lib/letflow/modules/stock/documents/ (planned, not yet on main) that references no Repo, no Ecto.Query
+      and no Letflow.Documents, and that uses for opening and quick_count the existing expected_legs/2 of
+      OpeningPosting and QuickCountPosting (both already free of Repo); posting_check and post_document both
+      call it, so the two can never disagree. The handler file stays within scan H4. The new file moves the
+      T-R-RULE8 file-count pin of test/letflow/modules/stock/registration_test.exs. (4) Dry build: when the read answers
+      {:error, :dry_build} the check is skipped and the real build runs it (no stock node is a SERVICE_TASK).
+      (5) Stale read. The read takes no lock. That is enough here: stock documents are never re-versioned
+      (the module has no new-version path), and the only cancel path of the module (Posting.cancel/5)
+      withdraws every pending post instance through Letflow.Engine.cancel_instance before
+      Letflow.Documents.cancel/3, so a cancel and a post of the same document are serialised by the instance
+      (an instance already completed makes the cancel answer document_posted). (6) What changes in existing
+      tests: the REQ-713 criterion 6 tests in test/letflow/modules/stock/posting_test.exs that complete with
+      changed output variables and assert posting_check mismatch now assert the refusal; the criterion 5 case
+      with a changed quantity under the same client_op_id now gets record_version_conflict before the
+      ledger's idempotency conflict; a REQ-713 criterion 8 test whose posting reaches a cancelled
+      document through the generic start route now asserts the refusal; the read-side posting_check stays as it is. Size M. Risk: medium; the
+      comparison must cover all eight kinds (receipt, issue, write_off, transfer, hand_over, return, opening,
+      quick_count) and keep their existing posting tests green. OUT OF SCOPE: the binding of post_count
+      (count.differences documents) and of post_kind_change_out (assets change of kind), which stay detected
+      on read; reversals (note 9.5); per-instance ledger ids; serial-tracked goods (OQ-23).
+    acceptance_criteria:
+      - "1. Manifest: a test reads the stock manifest and shows that post_document declares reads_documents true and that post_count, post_kind_change_out and reverse_document do not; the module installs on a fresh tenant; the module version is higher than the version on origin/main at implement time."
+      - "2. Unchanged postings still post: the existing posting tests of the eight kinds (test/letflow/modules/stock/posting_test.exs and the opening, transfer, hand over, return and quick count posting tests) pass, and a new test shows that a receipt issued and posted with no change to its variables gives one ledger entry and one posted mark."
+      - "3. Changed content refused (test file test/letflow/modules/stock/version_binding_test.exs, planned, not yet on main): completing the post task of an issued receipt with output_variables that replace the posting so that (a) one line's quantity differs, (b) one line's sku is another live active catalog_item, (c) the to location is another live active location_node, (d) a line is added, (e) client_event_time differs, (f) client_op_id is another uuid, and completing it with an org_unit_id argument of another live active org_unit, each answers 409 with error record_version_conflict; after each there is no ledger entry with that document_id and no stock_posting_mark of that document, and the post task is still pending."
+      - "4. Write-off fields: completing the post task of an issued write_off with a replaced posting whose reason_code differs from the header's answers 409 record_version_conflict."
+      - "5. Version state: a receipt whose post instance was started at issue and whose version is then cancelled through Letflow.Documents.cancel/3 directly in the test (not through the module route, which withdraws the instance) is refused with 409 record_version_conflict when its post task is completed; a stock_receipt instance started through the generic instance start route by a TENANT_ADMIN with the document id of a draft and version_no 1 is refused with 409 record_version_conflict; one started with an unknown document uuid is refused with 422 validation_failed and audit detail handler_invalid_arguments."
+      - "6. Check order: a receipt whose version is cancelled as in criterion 5 and whose item is then set to active false is refused with record_version_conflict (the version check runs before the master checks of REQ-832)."
+      - "7. One comparison: a source-scan test shows that the new pure module of description point (3) references no Repo, Ecto.Query or Letflow.Documents, that lib/letflow/modules/stock/documents/posting.ex and lib/letflow/modules/stock/handlers.ex both call it, and that no other file under lib/letflow/modules/stock/ defines a legs comparison; the posting_check tests that remain after the changes of description point (6) still pass."
+      - "8. Unauthorised completer: the completion of criterion 3 (a) by a TASK_WORKER that holds no stock permission answers 403 with a body byte-identical (trace_id dropped) to the body that user gets for the unchanged posting."
+      - "9. Documentation: the moduledoc of Letflow.Modules.Stock.Handlers states the check and description points (2) to (5); docs/runbooks/wms-foundation.md item 18 says the binding gap of post_document is closed at posting since this change and names what stays detected only (post_count, post_kind_change_out), and item 1 no longer says expected_document_version is owed; decision 0073 gets a short amendment section naming this requirement; test/letflow/modules/stock/runbook_test.exs passes."
+    depends_on: [REQ-901, REQ-902, REQ-713, REQ-726, REQ-854, REQ-832]
+  - id: REQ-904
+    title: "Ledger slice L7 part 2d: typed master_inactive at posting: a retired master on a stock-adding side is refused with 409 master_inactive instead of the untyped validation_failed; unknown ids stay validation_failed (decision 0073 note 9.5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4818
+    # Source: task T-2308. Files read on origin/main 1faffef80: requirement REQ-832 (gh 4535, criteria 2, 3, 6 and 9, OUT OF SCOPE); lib/letflow/modules/stock/handlers.ex (moduledoc section "Master checks at posting", check_masters); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 9.5 and 12.2 (master_inactive, details keys from slot names); lib/letflow/design/gh2658-wms-stock-dimensions.md (master_inactive for a retired lot or owner on adding legs); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md section "Amended by REQ-832"; lib/letflow/modules/locations/locations.ex (linked?/3 finds a link record by field values, not by id); lib/letflow/modules/stock/documents/checks.ex (not_linked at issue); test/letflow/modules/stock/master_posting_test.exs; docs/runbooks/wms-foundation.md item 1.
+    description: >
+      Why. REQ-832 refuses a retired master on a stock-adding side, but with the same untyped answer as a
+      typo (422 validation_failed, audit detail handler_invalid_arguments), because the handler contract was
+      closed. Ledger note 9.5 names the typed code master_inactive for that case. With REQ-901 the handler can
+      say it. (1) Rule. In the checks of lib/letflow/modules/stock/handlers.ex, on a line with a to side, a
+      master that is a live record of its type (HandlerWrites.read/3 answers {:ok, map}) but whose active
+      field is not true (the item, the unit, a given lot, the to location, the org unit, a given responsible)
+      makes the handler answer {:error, {:refused, :master_inactive}} (409). Everything else REQ-832 refuses
+      stays {:error, :invalid_arguments} (422): a non-uuid id, an unknown id, a record of another type, a
+      soft-deleted record, a unit that is not the item's base unit, a lot of another item. Sides that only
+      remove stock and reversals are unchanged (active false accepted, note 9.5). (2) First failure wins, in
+      the order the checks run today; the body carries no details (no slot name, no id). (3) No manifest change
+      (the reads of REQ-832 are enough), so the module version and manifest hash stay. (4) The org unit to
+      location link (not_linked) at posting is NOT part of this requirement: decision 0073 does not list it in
+      D6 or in the L7 row (only the REQ-832 amendment lists it as owed), and it cannot be built on the current
+      facade, because Letflow.Modules.Locations.linked?/3 finds the link record by field values and the
+      facade reads by id only (REQ-829 excludes list and search reads). It stays checked at issue
+      (lib/letflow/modules/stock/documents/checks.ex). Size S. Risk: low. OUT OF SCOPE: not_linked at posting,
+      a details map, the assets module handlers, per-instance ledger ids, serial-tracked goods (OQ-23).
+    acceptance_criteria:
+      - "1. Retired master on an adding side (test file test/letflow/modules/stock/master_posting_test.exs): for each of item, unit, lot, to location, org_unit and responsible, a receipt is issued, that master is set to active false through its owner's write path, and completing the post task answers 409 with error master_inactive; nothing commits (no ledger entry with that document_id, no stock_posting_mark of it) and the post task is still pending. The same holds for the to side of a transfer and for a count_difference surplus line."
+      - "2. Typos stay untyped: every refusal of REQ-832 criterion 2 (unknown uuid as sku, unit, lot and to location, a non-uuid sku, a location id given as sku, a lot of another item) still answers 422 validation_failed with audit detail handler_invalid_arguments, and a soft-deleted item answers the same."
+      - "3. Removing sides unchanged: the cases of REQ-832 criteria 4, 5 (from side) and 7 (reversal) still post."
+      - "4. Unauthorised completer: the completion of criterion 1 for the item by a TASK_WORKER that holds no stock permission answers 403 with a body byte-identical (trace_id dropped) to the body that user gets for a receipt whose masters are all active."
+      - "5. Manifest unchanged: a test shows that the stock manifest hash equals the hash on origin/main at implement time."
+      - "6. Documentation: the moduledoc section 'Master checks at posting' of Letflow.Modules.Stock.Handlers and docs/runbooks/wms-foundation.md item 1 state which refusal is master_inactive (409) and which stays validation_failed (422), and that not_linked is checked at issue only, with the reason of description point (4); decision 0073 gets a short amendment section naming this requirement and stating that not_linked at posting is not part of L7 part 2; test/letflow/modules/stock/runbook_test.exs passes."
+    depends_on: [REQ-901, REQ-832]
+  - id: REQ-905
+    title: "Ledger slice L7 part 2e: tests of the stock posting binding: two concurrent posts of the same issued version give one ledger entry, and cross-tenant postings are refused without revealing the other tenant's document or master state"
+    owner: TEST-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4817
+    # Source: task T-2308 (PM: "then the cross-tenant and double-post tests"). Files read on origin/main 1faffef80: requirement REQ-713 (gh 3748, criterion 5: a second instance with the same variables gets the ledger's duplicate result and no second entry); lib/letflow/modules/stock/handlers.ex moduledoc (a second mark of the same kind for one document violates the unique constraint of the mark type, so the completion rolls back before any ledger write); requirement REQ-832 criterion 9 (a tenant B master in a tenant A posting); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); test/letflow/modules/stock/posting_test.exs; test/support/platform_tenant_fixture.ex.
+    description: >
+      Why. The binding of REQ-903 and the typed codes of REQ-901 and REQ-904 change what a completer can learn
+      and what can be written twice; the security review of L7 asks for a concurrency test and a cross-tenant
+      negative test on the posting path. This requirement writes those tests only; it changes no lib/ file
+      (if a test finds a defect, the defect is reported, not fixed here). (1) Double post. Two stock_receipt
+      instances of one issued version exist (the one the issue started and a second started through the
+      generic instance start route by a TENANT_ADMIN with the same variables). Their post tasks are completed
+      at the same time from two processes, in a test with a committed tenant (Sandbox auto mode; a lock test
+      cannot run in the shared sandbox mode of router tests). (2) Cross-tenant. Tenants A and B both have the
+      stock module; the posting of a post task in tenant B is replaced so that it names tenant A's document.
+      (3) No leak. A tenant B master that is retired in B is named in a tenant A posting. Size S. Risk: low;
+      the concurrency test must be bounded (a timeout on each process, no sleep). OUT OF SCOPE: lib/ changes,
+      post_count and post_kind_change_out.
+    acceptance_criteria:
+      - "1. Concurrent double post (test file test/letflow/modules/stock/version_binding_concurrency_test.exs, planned, not yet on main): with the two instances of description point (1), the two completions run concurrently, each bounded by a timeout and synchronised without sleep; afterwards there is exactly one ledger entry with that document_id, exactly one stock_posting_mark with mark posted, Letflow.Ledger.balances/4 shows the quantity of one posting, and the losing completion committed nothing, its task is still pending or was answered with the ledger's duplicate result, and neither answer is a 500."
+      - "2. Sequential double post: completing the second instance's post task after the first committed gives no second ledger entry and no second posted mark."
+      - "3. Cross-tenant document: a tenant B user holding the posting permission in B completes a post task of tenant B whose output_variables replace document_id, version_no and the posting's document_id and client_op_id with the values of an issued, unposted receipt of tenant A; the answer is 422 validation_failed with audit detail handler_invalid_arguments (the document is not found in B), never record_version_conflict; tenant A's document, ledger and marks are unchanged."
+      - "4. Cross-tenant master state: a tenant A posting whose sku is the id of a catalog_item that exists only in tenant B and is set to active false there answers 422 validation_failed (not live in A), never 409 master_inactive."
+      - "5. The tests are listed in test/shard_manifest.txt where the suite requires it and pass with mix test on the planned files."
+    depends_on: [REQ-903, REQ-904]
+  - id: REQ-906
+    title: "Ledger slice L7 part 2f: the task screen shows a clear message for the two new posting refusals: the document changed or was cancelled after issue (record_version_conflict), a master was retired (master_inactive), in en, ru and kk"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4816
+    # Source: task T-2308. Files read on origin/main 1faffef80: web/src/pages/tasks/taskErrors.ts (taskErrorText: record_version_conflict is recognised only as a problem type of status 409; a plain entity write refusal body names the code in its error field, which today falls to the generic text; insufficient_stock and location_frozen are matched in the body text); web/src/pages/tasks/taskMessages.ts (errInsufficientStock, errConflict in en, ru and kk); web/src/pages/tasks/TaskDetail.tsx (uses taskErrorText); lib/letflow/api/response.ex (entity_write_refused/3: body error and line_index, no problem type).
+    description: >
+      Why. The post task is completed on the task screen (web/src/pages/tasks/TaskDetail.tsx), and a refusal
+      is shown through taskErrorText in web/src/pages/tasks/taskErrors.ts. The answers of REQ-903 and REQ-904
+      are plain entity write refusals (409, error record_version_conflict or master_inactive), which today
+      fall to the generic text, so the storekeeper would not know why the post failed. (1) Two new catalog
+      texts in web/src/pages/tasks/taskMessages.ts, in en, ru and kk: one for a document that was changed or
+      cancelled after it was issued (the user should reopen the document and check its state) and one for an
+      item, unit, lot, place, department or person on the document that was retired after issue (the user
+      should ask an administrator to restore it or cancel the document). (2) taskErrorText maps a 409 whose
+      body error is record_version_conflict to the first and master_inactive to the second; the existing
+      mappings stay. (3) No code, id or server wording reaches the screen (the file's own rule). Size S. Risk:
+      low; screenshots of both states are required by the screen-change rule. OUT OF SCOPE: any other screen,
+      any server change.
+    acceptance_criteria:
+      - "1. Mapping test (web/src/pages/tasks/__tests__): taskErrorText for an error with status 409 and body error record_version_conflict returns the new document-changed text, for master_inactive the new retired-master text, and for insufficient_stock, location_frozen and a 409 record-version-conflict problem type the same texts as before."
+      - "2. Catalog: both new keys exist in en, ru and kk in taskMessages.ts, and no text contains the strings record_version_conflict or master_inactive."
+      - "3. Screen: the task screen shows each text after a refused completion (a component test with the refusal answer), and the screenshot matrix of the design-system rules covers both states."
+      - "4. Checks: npm run check passes."
+    depends_on: [REQ-903, REQ-904]

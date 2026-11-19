@@ -452,6 +452,7 @@ describe('C5 loads and cancel', () => {
     number: 'QCI-2026-000010',
     created_at: '2026-11-18T04:00:00Z',
     created_by: 'aaaaaaaa-0000-0000-0000-000000000001',
+    created_by_label: 'Aigerim S.',
     file_name: 'stock.xlsx',
     sheet: 'Остатки',
     lines: 10,
@@ -465,8 +466,15 @@ describe('C5 loads and cancel', () => {
     await waitFor(() => expect(screen.getByTestId('wb-loads-section')).toBeInTheDocument())
     await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
     expect(screen.getByText('10')).toBeInTheDocument()
-    // User column shows '—' (created_by is a UUID, not resolvable by the client)
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+    // The User column shows who loaded (server label), never the id.
+    expect(screen.getByText('Aigerim S.')).toBeInTheDocument()
+    expect(screen.queryByText(importRow.created_by)).toBeNull()
+  })
+
+  it('shows a dash in the User column when the server gives no name', async () => {
+    renderWB(withQCAndReverse, [{ ...importRow, created_by_label: null }])
+    await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
+    expect(screen.queryByText('Aigerim S.')).toBeNull()
   })
 
   it('shows the document number linked to the document', async () => {
