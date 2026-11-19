@@ -247,6 +247,10 @@ defmodule Letflow.Modules.Stock.StockWorkbookCancelTest do
       assert is_binary(row["number"])
       assert is_binary(row["created_at"])
       assert is_binary(row["created_by"])
+
+      # T-2289: the person's name for the User column rides along (nil when unresolvable, never the id)
+      assert Map.has_key?(row, "created_by_label")
+      refute row["created_by_label"] == row["created_by"]
       assert row["file_name"] == "file2.xlsx"
       assert row["sheet"] == "Лист1"
       assert row["lines"] == 2

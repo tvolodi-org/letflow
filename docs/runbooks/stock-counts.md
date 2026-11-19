@@ -208,7 +208,7 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 
 | Route | Permission | Ok | Refusals |
 |---|---|---|---|
-| `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `book_quantity_negative`, `balance_in_other_rows`, `count_in_progress` with `held_by` |
+| `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `balance_in_other_rows`, `count_in_progress` with `held_by` |
 
 * **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule), PLATFORM_ADMIN (core rule) and, since stock
   0.22.0 (T-2239, GH #4764, PM decision D-161), STOREKEEPER (`role_grants`; decision 0081 note, passed through the signed
@@ -254,9 +254,9 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   place, org unit and lot holds stock under ANOTHER responsible would add a parallel row (total = old + counted).
   That count is refused 422 `balance_in_other_rows` (nothing stored, no number); count the row that holds the stock
   or use the count sheet. Lots stay separate: counting one lot never touches another lot.
-
-* **Negative book.** A key whose book quantity is negative (tenant setting) is refused `book_quantity_negative`: the
-  compare-and-set value is at least 0 (decision 0073, REQ-853).
+* **Negative book.** A key whose book quantity is negative (tenant setting) is counted like any other (decision 0090,
+  T-2288): the line keeps the negative `book_quantity`, the difference is counted minus book (book -2, counted 3
+  posts +5) and the compare-and-set value of the posting is the negative book. A count of 0 on book -2 posts +2.
 * **Formal count rule.** A quick count on a key inside the scope of a count order of the same org unit that has been
   opened and is not posted or cancelled (`counting`, `counted`, `signed`, no `posted` mark; the scope is the order's
   `count_order_scope` locations and everything below them) is refused at the route with `422 count_in_progress` and

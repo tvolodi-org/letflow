@@ -9,8 +9,8 @@ defmodule Letflow.Routers.SharedStockAccess do
   | `GET /catalog` | 200 JSON array: `id, name, article, unit, barcode` |
   | `GET /balances[?sku_id&location_id]` | 200 JSON array: `sku_id, location_id, quantity, sku_name, location_name` |
   | `GET /movements[?sku_id&location_id&limit]` | 200 JSON array, newest first, `limit` 50 when missing or outside 1..500: `id, kind, sku_id, location_id, quantity, operator, created_at` |
-  | `POST /movements` | 201 one movement (the row of `GET /movements`) of the posted document; body `kind` (`receipt`, `issue`, `transfer`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (ignored) |
-  | `POST /movements/:id/reverse` | 201 the reversal's own movement row; body `operator` (or `X-Operator`) |
+  | `POST /movements` | 201 one movement (the row of `GET /movements`) of the posted document; 200 the STORED row when the same `id` is sent again with equal data; body `kind` (`receipt`, `issue`, `transfer`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (REQUIRED: the client operation id, a UUID string; missing or not a UUID is 400 `id is required`; the same `id` with other data is 409) |
+  | `POST /movements/:id/reverse` | 201 the reversal's own movement row, 200 its stored row for the same reversal `id` sent again; body `id` (REQUIRED, the reversal's own new UUID), `operator` (or `X-Operator`) |
   | any other method or path | 404 `{"error": ...}` (the codes, feedback, voice and parse calls are not served) |
 
   Order of work for every request, and nothing else runs before it:
@@ -244,7 +244,8 @@ defmodule Letflow.Routers.SharedStockAccess do
       case read_json(conn) do
         {:ok, conn, params} ->
           case fun.(conn.assigns.shared_access, authorized, params) do
-            {:ok, movement} -> json(conn, 201, movement)
+            {:ok, movement, :created} -> json(conn, 201, movement)
+            {:ok, movement, :replayed} -> json(conn, 200, movement)
             {:error, {status, text}} -> json(conn, status, %{error: text})
           end
 
