@@ -38,7 +38,7 @@ preconditions:
   detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
     seed, grant roles or change approval rules to satisfy a precondition.
 - description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
-    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    one org unit, not one of the negative balances, and no OTHER Responsible employee holds non-zero stock of the same item at the same place, org unit and lot (T-2286 rule - after a count the item/place total IS the counted number, so read every Balances row of the item at that place and choose a key whose total T equals B; if none exists, BLOCKED-by-environment, create no stock). Record item, place, org unit, the Responsible employee the row
     shows and B before any count.
   check: runner_prepared
   detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
@@ -65,7 +65,7 @@ steps:
 - step: 1
   actor: storekeeper
   action: 'The storekeeper opens Balances and notes a row as in the preconditions (item, place, org unit, Responsible
-    employee, B), and Movements: the number of the newest movement of the key as M0.'
+    employee, B), and opens the history of the balance of that row (button "Show the history of this balance" on the row) and notes how many lines it lists as H0. (The Movements screen has no item filter; the per-key history is used, and the document number of step 3 identifies the lines of this walk.)'
   via: ui
 - step: 2
   actor: storekeeper
@@ -85,7 +85,7 @@ steps:
   via: ui
 - step: 5
   actor: storekeeper
-  action: The storekeeper reads the key on Balances and the new entries of the key on Movements.
+  action: The storekeeper reads the key on Balances and the history of its balance.
   via: ui
 - step: 6
   actor: storekeeper
@@ -100,7 +100,7 @@ steps:
   via: ui
 - step: 8
   actor: storekeeper
-  action: The storekeeper reads the document, then Balances and Movements for the key.
+  action: The storekeeper reads the document, then Balances and the history of the balance of the key.
   via: ui
 - step: 9
   actor: storekeeper
@@ -129,15 +129,11 @@ expected_outcomes:
     the difference (REQ-854 criterion 2, REQ-853).
   verification:
     method: gui_screen
-    detail: 'Step 4 shows "Approved". Step 5 shows the key at B plus 1 on Balances (not 2B plus 1) and exactly one
-      new movement of +1 for the key, linked to the count document, newer than M0. The cause column shows a readable
+    detail: 'Step 4 shows "Approved". Step 5 shows the key at B plus 1 on Balances (not 2B plus 1) and exactly one new line in the history of the key (H0 plus one lines), of +1, linked to the count document of this walk (the number noted in step 3). The cause column shows a readable
       name of the cause of the quick count in the screen language, like the other causes of the Movements screen, never the raw
       code; a raw code in the cause column is a FAIL (product task: the Movements screen catalog needs a label for the quick count cause).
       The opened count document (step 3 and step 5) shows book B, counted B plus 1 and difference 1 on the document screen itself
-      (REQ-854 criterion 1), not only on the result of step 3. The total of the item at that place and org unit over every Responsible row
-      is B plus 1 (read the Balances rows of the item before and after: REQ-854 sets the balance of one item at one place; a total of the old
-      quantity plus the counted one is a FAIL). If the item at that place holds stock under another Responsible, the submit is refused and
-      nothing is stored (nothing is written, no number is taken): record that as the expected refusal, cancel nothing, and repeat on a row whose item has one Responsible row only.'
+      (REQ-854 criterion 1), not only on the result of step 3. By the single-row precondition (T equals B, no other Responsible holds non-zero stock of the item at that place, org unit and lot) the total of the item at that place and org unit over every Responsible row is B plus 1 (read the Balances rows of the item before and after: REQ-854 sets the balance of one item at one place; a total of the old quantity plus the counted one, 2B plus 1, is a FAIL). The refusal for stock held under another Responsible is walked in qoimeks-count-8, not here.'
     evidence: Screenshots of steps 4 and 5.
   on_fail:
     severity: BLOCKER
@@ -147,8 +143,7 @@ expected_outcomes:
   description: Reversing the count returns the balance to what it was (REQ-854 criterion 12).
   verification:
     method: gui_screen
-    detail: 'Step 6 shows the reversal dialog accepted and the document not yet Reversed. Step 8 shows the document
-      "Reversed", the key at B on Balances and a second movement of -1 with the cause "Reversal". If no reversal
+    detail: 'Step 6 shows the reversal dialog accepted and the document not yet Reversed. Step 8 shows the document "Reversed", the key at B on Balances and a second line of -1 with the cause "Reversal" in the history of the key (H0 plus two lines). If no reversal
       task appears or the administrator cannot complete it, steps 6 to 9 are BLOCKED-by-environment: record the
       document number and the changed key.'
     evidence: Screenshots of steps 6 and 8.
