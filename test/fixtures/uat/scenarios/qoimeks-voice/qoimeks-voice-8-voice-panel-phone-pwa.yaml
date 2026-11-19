@@ -1,0 +1,110 @@
+# T-2225 (BA, PM/owner 2026-11-19): the voice provider keys are on QA (speech: ElevenLabs scribe; model: xAI with a JSON schema; read OK by infra), so these scenarios RUN the real function.
+# Voice group of qoimeks-qa2. The Qoimeks team phrases are a draft (ids ru-01..ru-10, kk-01..kk-10; demo catalog, no customer data); the expected result per id is the validated draft, not model accuracy.
+# Judge each phrase as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS; a miss of a phrase the team flags "verify" is reported, not a defect.
+# Audio: 20 SYNTHETIC test files made once with a text-to-speech model from the draft phrases (no real person), OUTSIDE the repository, webm/opus at /home/tvolodi/qoimeks-voice-audio/webm/<id>.webm on the run host. The web client sends webm; phone m4a and Safari audio are NOT tested here. Label every audio result "synthetic audio" and every Kazakh result "kk uncertain" (quality of the Kazakh synthetic speech is uncertain).
+# BUDGET (rule of the owner): each of the 20 phrases goes through each route EXACTLY ONCE per run (20 text calls in qoimeks-voice-5, 20 audio calls in qoimeks-voice-6): no loops, no retries on a provider answer, no repeated runs. Calls that make no provider call (the refusals of qoimeks-voice-7) are not counted. Calls the other scenarios of the group make (qoimeks-voice-1: 2 typed phrases; -2: one; -3: three; -4: four) are counted separately. The run summary lists every call with a running count and reports the number of speech (STT) and model (LLM) calls actually made: expected 20 STT and 40 LLM for voices 5 and 6 plus the typed calls of voices 1 to 4.
+# NOT UAT-observable: the microphone recording on a phone (a headless browser has no microphone); phone m4a/Safari audio; the prompt text sent to the model (server-internal); the log never holding the phrase or the key (a unit test captures the log).
+# Group checks (T-2225; apply to the whole group qoimeks-voice, scenarios 1 to 8; the same lines are in every file):
+# 1. Scope: every scenario has scope qoimeks-qa2, an existing synthetic tenant and realm; the group directory name is not the scope; run title UAT qoimeks-voice.
+# 2. Actors: only actor-qoimeks-qa2-storekeeper (STOREKEEPER of qoimeks-qa2, who does the voice entry in real life; it holds StockPost and StockRead in the stock module role grants, lib/letflow/modules/stock/stock.ex) with the QOIMEKS_QA2_STOREKEEPER login of the acceptance environment. Its live login is NOT verified by this writing step (no QA credentials in the writer session); a missing login makes the steps BLOCKED-by-environment.
+# 3. Host and screens: API routes of the stock voice (docs/runbooks/stock-voice.md; POST draft multipart and POST draft-text JSON); the only screen is the voice panel of the phone PWA https://pwa.letflow.qa.bizdala.com/ on the new receipt, issue or transfer document form (apps/mobile/lib/features/stock/documents/document_form_screen.dart, apps/mobile/lib/features/stock/voice/voice_panel.dart); the web SPA has no voice screen (grep voice in web/src finds none outside the print template fixtures).
+# 4. Data: demo catalog and places of the generator task T-2189 (items BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3, CBL-3x2.5; places A-01, A-02, A-03, B-01, B-02, C-01, RAMP, LA3; no C-02 and no D-03) read in each scenario before use; counts of documents, count records and balances rows are read at the start of the run and compared at the end, never assumed; a missing item or place makes the scenario BLOCKED-by-environment naming T-2189. The BLOCKED-by-keys markers of the earlier version are removed: the keys are set; the precondition is now a check that the settings are on (a typed answer with the notice llm_off means the model is off; a 503 speech_off on the audio route means speech is off; then report BLOCKED-by-environment, do not change settings, do not retry).
+# 5. Executable: HTTP steps (the audio steps upload the webm file with the runner's own HTTP client: multipart field audio and field lang with the value ru or kk) and browser steps with the runner's own script; no step depends on pipeline_test.
+# 6. Dry run: uat.sh preflight with the title UAT qoimeks-voice was not run by the writer (no QA credentials in the writer session); all files of the group were parsed with yaml.safe_load and the static check was run on the group.
+---
+id: qoimeks-voice-8-voice-panel-phone-pwa
+scope: qoimeks-qa2
+title: >-
+  The voice panel is on the new stock document form of the phone PWA in Russian and Kazakh, and opening it stores nothing
+version: '2.0'
+tags:
+- qoimeks
+- voice
+- pwa
+- phone
+- gui
+- ru
+- kk
+description: >-
+  On the phone PWA the storekeeper opens a new receipt document and finds the voice panel (the voice button, the language
+  choice and the typed-phrase field). The panel is only looked at: recording needs a microphone and a send would spend a provider
+  call outside the budget. The texts follow the interface language and nothing is stored.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: >-
+    The phone PWA answers at https://pwa.letflow.qa.bizdala.com/ and the storekeeper's login is accepted there.
+  check: system_seeded
+  detail: >-
+    If the PWA does not answer or the login is refused, report BLOCKED-by-environment. The voice panel shows only on an editable
+    draft of the kinds receipt, issue or transfer (document_form_screen.dart, _hasVoice).
+- description: >-
+    The microphone is not available to the run, so the voice button is looked at, never pressed.
+  check: system_seeded
+  detail: >-
+    Recording needs a real microphone (not UAT-observable here); the audio route is exercised by qoimeks-voice-6 with synthetic
+    files.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper reads the stock documents list by the runner's own HTTP call and notes the count D0. Then the storekeeper
+    opens the phone PWA https://pwa.letflow.qa.bizdala.com/ in a browser window 390 px wide, signs in to the company qoimeks-qa2
+    and taps Stock, then Stock documents («Складские документы» in Russian), then New («Создать» in Russian) and chooses Receipt
+    («Приход» in Russian). The new receipt form opens. Nothing is saved or sent during this scenario.
+  via: gui_screen
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper looks at the voice panel above the lines of the form: the button «Сказать» (Russian; «Speak» in English,
+    «Айту» in Kazakh), the language choice with «Русский» and «Казахский» (English «Russian», «Kazakh»; Kazakh «Орыс тілі»,
+    «Қазақ тілі»), and the typed-phrase field with the hint «Или введите фразу» and the button «Отправить фразу» (English
+    «Or type the phrase» and «Send phrase»). The storekeeper does not press the button, does not type a phrase and does not
+    send one: a headless browser has no microphone, and the provider budget of qoimeks-voice-5 and -6 allows no extra call.
+  via: gui_screen
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper switches the interface language to Kazakh and back to Russian (the language switch of the tenant home)
+    and looks at the voice panel again, then leaves the form without saving, by going back to the Stock documents list. The
+    documents list is read again by the runner's own HTTP call and the count noted as D1.
+  via: gui_screen
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The voice panel is offered on the new receipt form at phone width.
+  verification:
+    method: gui_screen
+    detail: >-
+      At 390 px the voice panel shows the voice button, the language choice for Russian and Kazakh and the typed-phrase field
+      with its send button, with the Russian labels of step 2; nothing is clipped horizontally and the page has no horizontal
+      scroll. The labels are those of stock.voice.* in apps/mobile/lib/i18n/l10n/app_ru.arb.
+    evidence: Screenshot of the form at 390 px in Russian.
+  on_fail:
+    severity: MAJOR
+    business_impact: The storekeeper cannot find the voice entry on the phone.
+    suggested_action: route_to_mobile_dev
+- id: EO-002
+  description: The panel texts follow the interface language.
+  verification:
+    method: gui_screen
+    detail: >-
+      In Kazakh the button reads «Айту» and the language choice «Орыс тілі» and «Қазақ тілі»; back in Russian the Russian
+      texts return.
+    evidence: Screenshot in Kazakh.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The voice panel is not understood in the operator's language.
+    suggested_action: route_to_mobile_dev
+- id: EO-003
+  description: Looking at the panel stores nothing.
+  verification:
+    method: api_response
+    detail: >-
+      D1 equals D0: opening the form and leaving it without saving creates no document.
+    evidence: D0 and D1.
+  on_fail:
+    severity: MAJOR
+    business_impact: Opening the voice form creates stray draft documents.
+    suggested_action: route_to_mobile_dev
