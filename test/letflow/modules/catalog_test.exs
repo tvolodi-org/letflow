@@ -54,6 +54,7 @@ defmodule Letflow.Modules.CatalogTest do
       # GH #3707 (REQ-687) adds Letflow.Modules.Stock right after Codes.
       # GH #3894 (REQ-748) adds Letflow.Modules.Assets right after Stock.
       # T-1841 (MES M1) adds Letflow.Modules.MesCore right after Assets.
+      # REQ-893 adds Letflow.Modules.Maintenance right after MesCore.
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
@@ -64,6 +65,7 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.Stock,
                Letflow.Modules.Assets,
                Letflow.Modules.MesCore,
+               Letflow.Modules.Maintenance,
                # T-1641: QA-only demo module, test list only.
                Letflow.Modules.RuntimeDemo,
                Letflow.Modules.Fixture,
@@ -104,13 +106,13 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.fetch("does-not-exist") == {:error, :not_found}
     end
 
-    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations, Codes, Stock, Assets, MesCore]" do
+    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations, Codes, Stock, Assets, MesCore, Maintenance]" do
       # REQ-408 added Letflow.Modules.Exam to config/config.exs; the test
       # env (config/test.exs) adds the fixture modules for test coverage.
       config_source = File.read!(Path.join([File.cwd!(), "config", "config.exs"]))
 
       assert config_source =~
-               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations,\s*Letflow\.Modules\.Codes,\s*Letflow\.Modules\.Stock,\s*Letflow\.Modules\.Assets,\s*Letflow\.Modules\.MesCore\s*\]/
+               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations,\s*Letflow\.Modules\.Codes,\s*Letflow\.Modules\.Stock,\s*Letflow\.Modules\.Assets,\s*Letflow\.Modules\.MesCore,\s*Letflow\.Modules\.Maintenance\s*\]/
     end
   end
 
@@ -432,7 +434,8 @@ defmodule Letflow.Modules.CatalogTest do
         Letflow.Modules.Codes,
         Letflow.Modules.Stock,
         Letflow.Modules.Assets,
-        Letflow.Modules.MesCore
+        Letflow.Modules.MesCore,
+        Letflow.Modules.Maintenance
       ]
 
       for module <- prod do

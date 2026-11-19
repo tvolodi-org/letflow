@@ -163,7 +163,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                "codes" => Letflow.Modules.Codes.manifest().version,
                "stock" => Letflow.Modules.Stock.manifest().version,
                "assets" => Letflow.Modules.Assets.manifest().version,
-               "mes_core" => Letflow.Modules.MesCore.manifest().version
+               "mes_core" => Letflow.Modules.MesCore.manifest().version,
+               "maintenance" => Letflow.Modules.Maintenance.manifest().version
              }
 
       for role <- golden.roles do
@@ -511,6 +512,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
              Letflow.Modules.Stock,
              Letflow.Modules.Assets,
              Letflow.Modules.MesCore,
+             Letflow.Modules.Maintenance,
              # T-1641: QA-only, not in the production catalogue or the golden.
              Letflow.Modules.RuntimeDemo
            ])
@@ -1338,7 +1340,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                Letflow.Modules.Codes,
                Letflow.Modules.Stock,
                Letflow.Modules.Assets,
-               Letflow.Modules.MesCore
+               Letflow.Modules.MesCore,
+               Letflow.Modules.Maintenance
              ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
@@ -1352,7 +1355,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         Letflow.Modules.Codes,
         Letflow.Modules.Stock,
         Letflow.Modules.Assets,
-        Letflow.Modules.MesCore
+        Letflow.Modules.MesCore,
+        Letflow.Modules.Maintenance
       ]
 
       assert PermissionMatrix.check_module_list(
