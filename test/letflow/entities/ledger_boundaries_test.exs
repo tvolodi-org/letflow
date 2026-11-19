@@ -207,6 +207,20 @@ defmodule Letflow.LedgerBoundariesTest do
              ) == [{:e, "Letflow.Entities.HandlerWrites"}]
     end
 
+    test "T-SC-4e3 REQ-902 a policy file naming the document read facade is flagged" do
+      path = "lib/letflow/modules/demo/ledger_policy/p.ex"
+
+      assert r8(
+               "def f(c), do: Letflow.Entities.HandlerWrites.read_document_version(c, \"id\", 1)",
+               path
+             ) == [{:e, "Letflow.Entities.HandlerWrites"}]
+
+      assert r8(
+               "alias Letflow.Entities.HandlerWrites\ndef f(c), do: HandlerWrites.read_document_version(c, \"id\", 1)",
+               path
+             ) == [{:e, "Letflow.Entities.HandlerWrites"}]
+    end
+
     test "T-SC-4f reads and the policy helper are not flagged" do
       for read <- [
             "authorize(a, b, c)",

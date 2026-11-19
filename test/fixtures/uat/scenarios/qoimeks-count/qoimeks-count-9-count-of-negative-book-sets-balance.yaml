@@ -1,0 +1,135 @@
+# T-2343 (BA, checklist pass 2026-11-20), group qoimeks-count. Run title: UAT qoimeks-count. QA only, synthetic data, no production.
+# 1. Scope: scope qoimeks-qa2, the synthetic QA tenant and its realm qoimeks-qa2 (the group directory name is not the scope).
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts and starts the reversal; actor-qoimeks-qa2-admin (TENANT_ADMIN) approves the count and completes the reversal task in My Tasks. Four-eyes is ON for the quick count: the approver must differ from the counter, and the counter here is the storekeeper, so the administrator is a different person and a second administrator (actor-qoimeks-qa2-admin2) is not needed in this scenario. Live login is an acceptance precondition (credentials from the acceptance credential source, never from files).
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com. Read on main: web/src/modules/stock/quickCount/QuickCountPage.tsx and quickCountModel.ts (a negative book is not refused by the screen; validateQuantity refuses only a negative COUNTED quantity), register/BalancesPage.tsx and BalanceHistoryPanel.tsx, documents (Reverse), My Tasks. Rules read: docs/runbooks/stock-counts.md "Negative book" (decision 0090, T-2288 merged: book -2, counted 3 posts +5, a count of 0 on book -2 posts +2) and decision 0090 table row "Reversal" (under the allow setting a reversal that takes a key below zero is accepted).
+# 4. Data: a negative-book key of the synthetic tenant, read at run time and never hard-coded (the data notes list item 0012 at RA15, 0118 at RB10 and 0596 at RB3 as negative; the run reads the real book on the Balances screen and picks one row with a negative quantity, no lot, no lot tracking, a place of one org unit, no OTHER Responsible holding non-zero stock of the same item at that place and org unit and lot). The tenant setting that allows negative balances is ON (read, not set). Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those. No generator task is needed.
+# 5. Executable: browser only (no pipeline_test). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
+# 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and the run title UAT qoimeks-count); parse and schema checks only.
+# EXPECTATION CORRECTIONS (this file): 1. Before T-2288 a count on a negative book was refused with book_quantity_negative; the expectation is the merged rule (counted minus book, posted, no negative left). 2. The per-key balance history is the movement check (the Movements screen has no item filter). 3. The second person is the administrator, not admin2, because the counter is the storekeeper.
+---
+id: qoimeks-count-9-count-of-negative-book-sets-balance
+scope: qoimeks-qa2
+title: The storekeeper counts a key whose book quantity is negative; after the administrator approves, the balance is
+  the counted number and no negative is left, then the reversal restores the negative book
+version: '1.0'
+tags:
+- qoimeks
+- stock
+- quick_count
+- negative_balance
+- approve
+- reverse
+- desktop
+- en
+description: >-
+  REQ-854 (the count sets the balance), decision 0090 and the "Negative book" rule of docs/runbooks/stock-counts.md
+  (T-2288). On a key with a negative book N (for example -2) the storekeeper counts a positive number C = the
+  absolute value of N plus 1 (for example 3). The form shows the negative book quantity and the difference counted minus
+  book (C plus the absolute value of N, in the example +5). The count is accepted (it is no longer refused for a
+  negative book) with state Issued and the four-eyes hint. After the administrator approves, Balances shows the key
+  at C (no negative left) and the history of the key has one new line equal to the difference. Cleanup: the
+  storekeeper starts the reversal of the count document, the administrator completes it and the key returns to the
+  negative book N.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: Sign in as actor-qoimeks-qa2-storekeeper (STOREKEEPER) at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
+    and confirm the tenant before any action. Read the counts of items, places and posted balances at the start
+    of the run and compare to those later.
+  check: runner_prepared
+  detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
+    seed, grant roles or change approval rules to satisfy a precondition.
+- description: A Balances row exists with a NEGATIVE quantity N, no lot, an item without lot tracking, a place of
+    one org unit, and no other Responsible employee holds non-zero stock of the same item at that place, org unit and lot.
+  check: runner_prepared
+  detail: Record item, place, org unit, the Responsible the row shows (or Unassigned stock) and N. If no such row exists
+    report BLOCKED-by-environment; do not create stock or change the tenant setting.
+- description: No formal count order is open over the chosen place for the same org unit, and nobody else posts to
+    the key during the walk.
+  check: system_seeded
+  detail: UAT assumption, to be confirmed by the process owner. If a message names a count in progress or a frozen
+    place, quote it and report BLOCKED-by-environment.
+- description: The storekeeper sees "Quick count" in the stock navigation (stock 0.22.0), and four-eyes is ON for the
+    quick count approval with the administrator able to sign in separately.
+  check: runner_prepared
+  detail: If the entry is missing, report a PRODUCT defect (#4764). If the administrator cannot sign in, the steps of
+    the administrator are BLOCKED-by-environment.
+steps:
+- step: 1
+  actor: storekeeper
+  action: The storekeeper opens Balances, notes the negative row as in the preconditions (item, place, org unit,
+    Responsible, N) and opens the history of the balance of that row ("Show the history of this balance"), noting how many lines it lists as H0.
+    C is worked out as the absolute value of N plus 1.
+  via: ui
+- step: 2
+  actor: storekeeper
+  action: The storekeeper opens "Quick count", chooses that item, place, org unit and Responsible employee (or
+    Unassigned stock) and reads the form, then types C as counted quantity, chooses the reason "Recount" and reads the form again.
+  via: ui
+- step: 3
+  actor: storekeeper
+  action: The storekeeper presses "Submit count", reads the result and records the document number QN.
+  via: ui
+- step: 4
+  actor: admin
+  action: The administrator, signed in separately, opens My Tasks, selects the approval task of QN, takes it ("Claim") if the screen offers it and presses "Approve".
+  via: ui
+- step: 5
+  actor: storekeeper
+  action: The storekeeper reads the key on Balances and the history of its balance.
+  via: ui
+- step: 6
+  actor: storekeeper
+  action: Cleanup. The storekeeper opens QN in the stock documents list, presses "Reverse", chooses the reason "Other",
+    types the note "UAT qoimeks-count-9 undo" and confirms.
+  via: ui
+- step: 7
+  actor: admin
+  action: The administrator opens My Tasks, selects the reversal task of QN, takes it if offered and completes it ("Reverse").
+  via: ui
+- step: 8
+  actor: storekeeper
+  action: The storekeeper reads QN, the key on Balances and the history of its balance.
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: The form accepts a negative book and shows the difference counted minus book (decision 0090, T-2288).
+  verification:
+    method: gui_screen
+    detail: Step 2 shows "Book quantity" equal to N with the minus sign and "Difference" equal to C minus N, which is C plus the absolute value of N (book -2, counted 3 shows +5); no field error and no refusal text about a negative book.
+    evidence: Screenshot of step 2.
+  on_fail:
+    severity: MAJOR
+    business_impact: A shelf with a negative book could not be recounted and corrected.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: The count of a negative book is accepted and waits for the second person.
+  verification:
+    method: gui_screen
+    detail: Step 3 shows "Count recorded", "Book quantity" N, "Counted quantity" C, "Difference" C minus N, state "Issued", no "Approve" button and the four-eyes hint "A second person needs to approve this count in My Tasks." A refusal with book_quantity_negative is a FAIL.
+    evidence: Screenshot of step 3.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Negative books could never be corrected through the count.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: After approval the balance is the counted number, no negative is left, and the movement is the difference.
+  verification:
+    method: gui_screen
+    detail: Step 4 shows "Approved". Step 5 shows the key at C on Balances (positive, not N plus C) and the history of the key with H0 plus one lines, the new one equal to C minus N and linked to QN, with the cause of the quick count in the screen language.
+    evidence: Screenshots of steps 4 and 5.
+  on_fail:
+    severity: BLOCKER
+    business_impact: The central promise, that a count sets the balance, fails for negative books and stock stays wrong.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: Reversing the count returns the key to its negative book (decision 0090, reversal under the allow setting).
+  verification:
+    method: gui_screen
+    detail: Step 6 is accepted and QN reads Posted until the task is done. Step 8 shows QN "Reversed", the key at N on Balances (negative again) and the history with H0 plus two lines, the second equal to minus the difference with the cause "Reversal". If the reversal is refused because it would take the key below zero, quote the message; that contradicts decision 0090 for a tenant that allows negative balances and is a FAIL, not BLOCKED.
+    evidence: Screenshots of step 8.
+  on_fail:
+    severity: MAJOR
+    business_impact: The test data stays changed and a wrong count on a negative book cannot be undone.
+    suggested_action: route_to_backend_dev

@@ -112,6 +112,45 @@ defmodule Letflow.Modules.FixtureLedgerPost.Handlers do
 
   def post_reading(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
+  # REQ-902: reads one document version and writes the answer (JSON for `{:ok, map}`) into a note.
+  @spec read_doc(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def read_doc(multi, ctx, %{"document_id" => id, "version_no" => version_no}) do
+    text =
+      case HandlerWrites.read_document_version(ctx, id, version_no) do
+        {:ok, map} -> "ok " <> Jason.encode!(map)
+        other -> inspect(other)
+      end
+
+    note(multi, ctx, %{"note" => text})
+  end
+
+  def read_doc(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-902: reads once when `do_read` is true; writes nothing either way.
+  @spec read_doc_maybe(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def read_doc_maybe(multi, ctx, %{"document_id" => id, "version_no" => v, "do_read" => do_read})
+      when is_boolean(do_read) do
+    if do_read, do: HandlerWrites.read_document_version(ctx, id, v)
+    {:ok, multi}
+  end
+
+  def read_doc_maybe(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-902: builds its posting only when the facade answers as it does in a dry build.
+  @spec post_reading_doc(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  def post_reading_doc(multi, ctx, %{"posting" => posting} = args) do
+    if HandlerWrites.read_document_version(ctx, Ecto.UUID.generate(), 1) == {:error, :dry_build} do
+      post(multi, ctx, posting, "fixture_ledger_post", args)
+    else
+      {:ok, multi}
+    end
+  end
+
+  def post_reading_doc(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
   defp note_and_post(multi, ctx, args, ledger_id) do
     with {:ok, multi} <- extra_notes(multi, ctx, Map.get(args, "before", 0)),
          {:ok, multi} <- note(multi, ctx, args, Map.get(args, "skip_note") == true) do

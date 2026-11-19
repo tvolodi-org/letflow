@@ -37,7 +37,7 @@ preconditions:
   detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
     seed, grant roles or change approval rules to satisfy a precondition.
 - description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
-    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    one org unit, not one of the negative balances, and no OTHER Responsible employee holds non-zero stock of the same item at the same place, org unit and lot (T-2286 rule - after a count the item/place total IS the counted number, so read every Balances row of the item at that place and choose a key whose total T equals B; if none exists, BLOCKED-by-environment, create no stock). Record item, place, org unit, the Responsible employee the row
     shows and B before any count.
   check: runner_prepared
   detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
@@ -64,7 +64,7 @@ steps:
 - step: 1
   actor: storekeeper
   action: The storekeeper opens Balances, notes a row as in the preconditions (item, place, org unit, Responsible
-    employee, B), and the newest document number in the stock documents list as N0.
+    employee, B), and opens the history of the balance of that row (button "Show the history of this balance" on the row) and notes how many lines it lists as H0.
   via: ui
 - step: 2
   actor: admin
@@ -149,8 +149,7 @@ expected_outcomes:
     detail: >-
       R1 has HTTP status 401, R2 has HTTP status 401, and
       R1 and R2 are plain refusals that name no tenant data (PM 2026-11-19/20: on /api/v1 with bearer tokens a missing and an invalid credential may get different texts; identical bodies are required only on the old address with the shared token). The stock documents list shows
-      no document newer than the cancelled ones of steps 4 and 6 (newest document number is not a new one made by
-      step 7) and the key is at B on Balances.
+      no document made by step 7 (the documents of this walk are the two cancelled ones of steps 4 and 6; no third one appears with the note text of this walk) and the key is at B on Balances with the history of its balance at H0 lines.
     evidence: Status and body of R1 and R2 side by side; screenshots of the documents list and Balances.
   on_fail:
     severity: BLOCKER

@@ -5,6 +5,7 @@
 # 4. Data: no balance, item or place is named by code. Every walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item with no lot tracking, a place of one org unit and not one of the negative balances; it records item, place, org unit, the Responsible employee the row shows (none: the form selector stays at Unassigned stock) and the quantity B. Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those, never to a number written here. Tenant state read, not set: all stock process definitions active, quick count approval four-eyes ON, no formal count order open over the place, shared stock access enabled. No generator task is needed.
 # 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 step 7 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
 # 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and the run title UAT qoimeks-count); parse and schema checks only; acceptance runs the preflight.
+# T-2343 checklist pass, EXPECTATION CORRECTIONS: 6 (group qoimeks-count). (1) the tenant-wide check of the newest document or movement number (count-1 step 7, count-2, count-3, count-4 step 8, count-6, count-7) is replaced by the history of the balance of the walk's own key (button Show the history of this balance, line count H0), since nobody else's posting can disturb it; (2) the Movements screen has no item filter (filters are cause, document type, document, posting-number range), so no step filters Movements by item; (3) T-2286 rule: every count scenario needs a key where no other Responsible holds non-zero stock, so the item/place total equals the counted number; (4) count-8 (new) walks the refusal balance_in_other_rows with its own receipt fixture; main shows only the generic text for it, a product gap written as the expectation; (5) count-9 (new) walks the count of a negative book (T-2288, decision 0090); (6) the count-3 EO-002 refusal branch moved to count-8.
 ---
 id: qoimeks-count-1-form-shows-balance-and-difference
 scope: qoimeks-qa2
@@ -34,7 +35,7 @@ preconditions:
   detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
     seed, grant roles or change approval rules to satisfy a precondition.
 - description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
-    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    one org unit, not one of the negative balances, and no OTHER Responsible employee holds non-zero stock of the same item at the same place, org unit and lot (T-2286 rule - after a count the item/place total IS the counted number, so read every Balances row of the item at that place and choose a key whose total T equals B; if none exists, BLOCKED-by-environment, create no stock). Record item, place, org unit, the Responsible employee the row
     shows and B before any count.
   check: runner_prepared
   detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
@@ -52,8 +53,7 @@ steps:
 - step: 1
   actor: storekeeper
   action: The storekeeper opens the Balances screen and notes one row as in the preconditions (item, place, org
-    unit, Responsible employee, quantity B). The storekeeper then opens the stock documents screen and notes the
-    number of the newest document in the stock documents list (call it N0), or "none" for an empty list.
+    unit, Responsible employee, quantity B). The storekeeper then opens the history of the balance of that row (button "Show the history of this balance" on the row) and notes how many lines it lists as H0 (zero lines is a valid H0). H0 belongs to this key only, so other people's postings elsewhere do not disturb the check.
   via: ui
 - step: 2
   actor: storekeeper
@@ -79,8 +79,7 @@ steps:
   via: ui
 - step: 7
   actor: storekeeper
-  action: The storekeeper reads the row of the same key on Balances again and the stock documents list, noting the
-    newest document number.
+  action: The storekeeper reads the row of the same key on Balances again, opens the history of the balance of that row again and counts its lines.
   via: ui
 expected_outcomes:
 - id: EO-001
@@ -126,8 +125,7 @@ expected_outcomes:
   description: Clearing the item hides the balance and looking at the form writes nothing.
   verification:
     method: gui_screen
-    detail: Step 6 shows no "Book quantity" line. Step 7 shows the same Balances row at B and the newest document
-      number equal to N0.
+    detail: Step 6 shows no "Book quantity" line. Step 7 shows the same Balances row at B and the history of the balance of that key with exactly H0 lines (this walk created no document and no movement for the key).
     evidence: Screenshots of steps 6 and 7.
   on_fail:
     severity: MAJOR

@@ -113,6 +113,12 @@ defmodule Letflow.Modules.ManifestHash do
         _none -> base
       end
 
+    # REQ-902: the document-read flag, only when true (a handler that reads no documents is unchanged).
+    base =
+      if Map.get(handler, :reads_documents) == true,
+        do: Map.put(base, "reads_documents", true),
+        else: base
+
     # G2: the update allow-list, again only when present (a handler that updates nothing is unchanged).
     case Map.get(handler, :updates) do
       updates when is_map(updates) and map_size(updates) > 0 ->
