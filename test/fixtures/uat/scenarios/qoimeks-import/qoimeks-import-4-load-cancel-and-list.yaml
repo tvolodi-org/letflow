@@ -181,7 +181,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      After step 4, Previous loads shows the recorded document number as a link in the Number column, a dash in User, file uat-wb-one-change.xlsx,
+      After step 4, Previous loads shows the recorded document number as a link in the Number column, the name of the administrator who made the load in the User column (the display name of actor-qoimeks-qa2-admin, not a dash and not an empty cell: a load list that does not say who loaded is a FAIL, product task), file uat-wb-one-change.xlsx,
       Lines 1, Remarks 0 and state Issued. Cancel is available for this row (the administrator holds the reverse right).
     evidence: >-
       Screenshot of the imports list showing the new entry in state Issued.
