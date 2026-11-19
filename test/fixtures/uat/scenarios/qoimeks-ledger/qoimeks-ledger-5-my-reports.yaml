@@ -1,3 +1,9 @@
+# T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2168 (BA): Qoimeks QA walk, Qoimeks parity G19: My reports screen. QA only, SYNTHETIC data.
 # REQ ids covered: REQ-872 (G19 part 1: a My reports screen where every signed-in user sees the status of each
 #   problem report they sent; labels in en, ru, kk; layout at 390 px).
@@ -17,131 +23,174 @@
 #   (c) The 503 unavailable state: not forceable without taking the server down; covered by REQ-872 component test (AC3).
 #   (d) The in_work, answered, fixed and not_done statuses: the QA tenant has 0 existing feedback rows and the support
 #       team acts on the new report outside the UAT run; only the initial "received" status is UAT-observable at submission.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-ledger-5-my-reports
-scope: qoimeks-ledger
-title: "The Qoimeks QA administrator sends a problem report and sees it in My reports, in English, Russian and Kazakh and on a phone"
-version: "1.0"
-tags: [qoimeks, my_reports, G19, REQ_872, ru, kk, phone_390]
-
-description: >
-  The administrator presses "Report a problem" in the top bar, fills in the description
-  "UAT qoimeks-ledger-5 test report" and submits the report. After submission the receipt panel shows a link
-  "See my reports". The administrator follows it and sees the report in My reports with status "received".
-  The same screen is then verified in Russian ("Мои сообщения") and in Kazakh ("Менің хабарламаларым")
-  and at a 390 px window width. The report remains in the system after the test (no delete route exists).
-
+scope: qoimeks-qa
+title: >-
+  The Qoimeks QA administrator sends a problem report and sees it in My reports, in English, Russian and Kazakh
+  and on a phone
+version: '1.1'
+tags:
+- qoimeks
+- my_reports
+- G19
+- REQ_872
+- ru
+- kk
+- phone_390
+description: >-
+  The administrator presses "Report a problem" in the top bar, fills in the description "UAT qoimeks-ledger-5 test
+  report" and submits the report. After submission the receipt panel shows a link "See my reports". The administrator
+  follows it and sees the report in My reports with status "received". The same screen is then verified in Russian
+  ("Мои сообщения") and in Kazakh ("Менің хабарламаларым") and at a 390 px window width. The report remains in the
+  system after the test (no delete route exists).
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: The administrator is signed in and the "Report a problem" button is visible in the top bar.
-    check: system_seeded
-    detail: If the button is absent, report BLOCKED for the whole scenario.
-  - description: The run can drive a real browser at 390 px width and screenshot it.
-    check: system_seeded
-    detail: If the width cannot be set, report BLOCKED for step 5 only; walk desktop steps first.
-  - description: The language is set to English.
-    check: system_seeded
-    detail: If not, switch to English first and carry on.
-
+- description: >-
+    The administrator is signed in and the "Report a problem" button is visible in the top bar.
+  check: system_seeded
+  detail: >-
+    If the button is absent, report BLOCKED for the whole scenario.
+- description: >-
+    The run can drive a real browser at 390 px width and screenshot it.
+  check: system_seeded
+  detail: >-
+    If the width cannot be set, report BLOCKED for step 5 only; walk desktop steps first.
+- description: >-
+    The language is set to English.
+  check: system_seeded
+  detail: >-
+    If not, switch to English first and carry on.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator clicks the "Report a problem" button in the top bar. The report dialog opens.
-      The administrator fills in the description "UAT qoimeks-ledger-5 test report", gives consent and submits
-      the report. The receipt panel (success message and link) is noted as RC1.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator follows the "See my reports" link in RC1 and reads the My reports screen.
-      The row for the submitted report is noted as ROW1.
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator switches the language to Russian and reads the My reports screen title, the column
-      headers and the status label of the report.
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator switches the language to Kazakh and reads the My reports screen title, the column
-      headers and the status label.
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      At 390 px width the administrator opens the My reports screen in Kazakh and reads whether the report row,
-      the report text and the status column are visible and readable without horizontal scrolling.
-    via: ui
-  - step: 6
-    actor: admin
-    action: >
-      The administrator switches the language back to English.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator clicks the "Report a problem" button in the top bar. The report dialog opens. The administrator
+    fills in the description "UAT qoimeks-ledger-5 test report", gives consent and submits the report. The receipt
+    panel (success message and link) is noted as RC1.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator follows the "See my reports" link in RC1 and reads the My reports screen. The row for the
+    submitted report is noted as ROW1.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator switches the language to Russian and reads the My reports screen title, the column headers
+    and the status label of the report.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator switches the language to Kazakh and reads the My reports screen title, the column headers
+    and the status label.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    At 390 px width the administrator opens the My reports screen in Kazakh and reads whether the report row, the
+    report text and the status column are visible and readable without horizontal scrolling.
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The administrator switches the language back to English.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The report is submitted and the receipt shows the My reports link.
-    verification:
-      method: gui_screen
-      detail: >
-        RC1 shows a success message and the link "See my reports" (not a raw message key, not an empty link).
-        No error banner appears.
-      evidence: Screenshot of step 1 (the receipt panel).
-    on_fail:
-      severity: MAJOR
-      business_impact: The user cannot confirm the report was received and cannot navigate to their report list.
-      suggested_action: route_to_frontend_dev
-  - id: EO-002
-    description: My reports shows the submitted report with status received.
-    verification:
-      method: gui_screen
-      detail: >
-        ROW1 shows the report text "UAT qoimeks-ledger-5 test report", a received date (today's date),
-        and status "received" in English; the row appears in the list with no error banner.
-      evidence: Screenshot of step 2 (My reports screen in English at 1440 px).
-    on_fail:
-      severity: BLOCKER
-      business_impact: The user cannot see the status of a problem they reported; the feedback loop is broken.
-      suggested_action: route_to_frontend_dev
-  - id: EO-003
-    description: The My reports screen is in Russian with correct labels.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 3 shows the title "Мои сообщения", the column headers "Номер", "Получено", "Статус",
-        "Ваше сообщение"; the status of the report is shown in Russian; no English text is visible in those elements.
-      evidence: Screenshot of step 3.
-    on_fail:
-      severity: MAJOR
-      business_impact: Russian-speaking users see My reports with English labels.
-      suggested_action: route_to_frontend_dev
-  - id: EO-004
-    description: The My reports screen is in Kazakh with correct labels.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 4 shows the title "Менің хабарламаларым", the column headers "Нөмір", "Қабылданды",
-        "Мәртебе", "Сіздің хабарламаңыз"; the status is shown in Kazakh; no English or Russian text
-        is visible in those elements.
-      evidence: Screenshot of step 4.
-    on_fail:
-      severity: MAJOR
-      business_impact: Kazakh-speaking users see My reports with non-Kazakh labels.
-      suggested_action: route_to_frontend_dev
-  - id: EO-005
-    description: At 390 px width the My reports screen is usable in Kazakh.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 5 shows the report row with its text, date and status; no horizontal scroll bar is needed;
-        the report text does not overlap the status or other columns; the title "Менің хабарламаларым" is visible.
-      evidence: Screenshot of step 5 at 390 px width.
-    on_fail:
-      severity: MAJOR
-      business_impact: Administrators on a phone cannot read their problem report history.
-      suggested_action: route_to_frontend_dev
+- id: EO-001
+  description: >-
+    The report is submitted and the receipt shows the My reports link.
+  verification:
+    method: gui_screen
+    detail: >-
+      RC1 shows a success message and the link "See my reports" (not a raw message key, not an empty link). No error
+      banner appears.
+    evidence: >-
+      Screenshot of step 1 (the receipt panel).
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The user cannot confirm the report was received and cannot navigate to their report list.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    My reports shows the submitted report with status received.
+  verification:
+    method: gui_screen
+    detail: >-
+      ROW1 shows the report text "UAT qoimeks-ledger-5 test report", a received date (today's date), and status
+      "received" in English; the row appears in the list with no error banner.
+    evidence: >-
+      Screenshot of step 2 (My reports screen in English at 1440 px).
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The user cannot see the status of a problem they reported; the feedback loop is broken.
+    suggested_action: route_to_frontend_dev
+- id: EO-003
+  description: >-
+    The My reports screen is in Russian with correct labels.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 shows the title "Мои сообщения", the column headers "Номер", "Получено", "Статус", "Ваше сообщение";
+      the status of the report is shown in Russian; no English text is visible in those elements.
+    evidence: >-
+      Screenshot of step 3.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Russian-speaking users see My reports with English labels.
+    suggested_action: route_to_frontend_dev
+- id: EO-004
+  description: >-
+    The My reports screen is in Kazakh with correct labels.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 shows the title "Менің хабарламаларым", the column headers "Нөмір", "Қабылданды", "Мәртебе", "Сіздің
+      хабарламаңыз"; the status is shown in Kazakh; no English or Russian text is visible in those elements.
+    evidence: >-
+      Screenshot of step 4.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Kazakh-speaking users see My reports with non-Kazakh labels.
+    suggested_action: route_to_frontend_dev
+- id: EO-005
+  description: >-
+    At 390 px width the My reports screen is usable in Kazakh.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 5 shows the report row with its text, date and status; no horizontal scroll bar is needed; the report
+      text does not overlap the status or other columns; the title "Менің хабарламаларым" is visible.
+    evidence: >-
+      Screenshot of step 5 at 390 px width.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Administrators on a phone cannot read their problem report history.
+    suggested_action: route_to_frontend_dev

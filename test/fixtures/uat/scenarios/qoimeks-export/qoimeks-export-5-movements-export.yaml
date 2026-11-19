@@ -1,3 +1,9 @@
+# T-2190: run title UAT qoimeks-export; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2166 (BA): Qoimeks QA walk, the export of stock movements. QA only, synthetic data. No real data, no production.
 # Requirements covered: REQ-728 (movements xlsx: sheet "movements" with one row per leg, sheet "report" with basis posting_seq and the time zone).
 # Sources: docs/requirements.yaml REQ-728 criterion 3 (header row entry_id, posting_seq, posting_time, event_time, cause, reverses_entry_id, reason_code, document_type, document_id, related_document_id, correlation_id, leg_no, sku, location, org_unit, responsible, lot, quantity, unit_ref, document_line_id, masked; report rows basis posting_seq, cutoff_seq, as_of empty, timezone Asia/Almaty, filters, ledger_seq empty, next_cursor);
@@ -6,105 +12,184 @@
 # Not UAT-observable, with reasons: (a) the reversal row (reverses_entry_id equal to the receipt's entry id) and the masked leg of a scoped reader: they need a reversal and a scoped reader that the synthetic data and the roster do not hold; covered by the router and file tests of REQ-728;
 # (b) the neutralising of values starting with = + - @: covered by the pure renderer test; (c) the refusals (API token 404, TASK_WORKER 403): no such actor in the roster.
 # Cleanup: none, read-only.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-5-movements-export
 scope: qoimeks-qa
-title: The Export button of the Movements screen saves stock-movements.xlsx with a movements sheet of one row per leg and a report sheet that gives the time basis and zone, on desktop and phone
-version: "1.0"
-tags: [qoimeks, export, xlsx, movements, desktop, phone, ru]
-
-description: >
-  The administrator opens the Movements screen (1440 px), reads the rows of the first page, clicks "Export (xlsx)" and the saved file is read: sheet names, header row, the first rows and the report sheet.
-  Then the administrator narrows the list by one filter, exports again and checks that the file follows the filter. The administrator repeats the export in Russian and in a window 390 px wide;
-  the file's own headers stay the same English technical words in every language.
-
+title: >-
+  The Export button of the Movements screen saves stock-movements.xlsx with a movements sheet of one row per leg
+  and a report sheet that gives the time basis and zone, on desktop and phone
+version: '1.1'
+tags:
+- qoimeks
+- export
+- xlsx
+- movements
+- desktop
+- phone
+- ru
+description: >-
+  The administrator opens the Movements screen (1440 px), reads the rows of the first page, clicks "Export (xlsx)"
+  and the saved file is read: sheet names, header row, the first rows and the report sheet. Then the administrator
+  narrows the list by one filter, exports again and checks that the file follows the filter. The administrator repeats
+  the export in Russian and in a window 390 px wide; the file's own headers stay the same English technical words
+  in every language.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: The Qoimeks QA tenant has the stock module active and holds movements (the postings of the synthetic opening balances).
-    check: system_seeded
-    detail: If the Movements screen is empty, report BLOCKED for the row outcomes and still check the button and the header row.
-  - description: The run can drive a real browser at 1440 px and 390 px, can switch the language, and can read a downloaded xlsx file.
-    check: system_seeded
-    detail: If the file cannot be read, report BLOCKED for EO-002 and EO-003 and keep the screenshots.
-
+- description: >-
+    The Qoimeks QA tenant has the stock module active and holds movements (the postings of the synthetic opening
+    balances).
+  check: system_seeded
+  detail: >-
+    If the Movements screen is empty, report BLOCKED for the row outcomes and still check the button and the header
+    row.
+- description: >-
+    The run can drive a real browser at 1440 px and 390 px, can switch the language, and can read a downloaded xlsx
+    file.
+  check: system_seeded
+  detail: >-
+    If the file cannot be read, report BLOCKED for EO-002 and EO-003 and keep the screenshots.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    For any before/after count comparison, record the same full traversal of the balance or document list, loading
+    further pages until exhausted. Do not compare a first-page count with a whole-workbook count, and do not compare
+    journal operations with legs.
+  check: runner_prepared
+  detail: >-
+    Retain the traversal/count method and sampled full keys. If another walk posts during the comparison, the equality
+    outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), in English, opens the Movements screen at 1440 px, reads the first rows and notes the number of rows of the first page.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator clicks "Export (xlsx)" and waits until the file is saved. The run reads the file name, the sheet names, the header row of the first sheet, the first three data rows and the two columns of the second sheet.
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator sets one filter on the screen (the item filter, one item that appears in the list), reads how many rows remain, clicks "Export (xlsx)" again and the run counts the data rows of the new file.
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator clears the filter, switches the language to Russian, clicks the export button ("Экспорт (xlsx)") and the run reads the header row and the sheet names of the saved file; then the administrator switches the language back to English.
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      The browser window is made 390 px wide. The administrator opens the Movements screen, clicks "Export (xlsx)" and the run reads the file name and the sheet names.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in to the synthetic QA tenant in English, opens Movements at 1440 px and records the
+    loaded operations. They select one operation and read its document link, saving the document identifier from
+    that link for the filter. They expand its legs and record item, place, responsible and quantity for each leg.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator clicks "Export (xlsx)" and waits until the file is saved. The run reads the file name, the
+    sheet names, the header row of the first sheet, the first three data rows and the two columns of the second
+    sheet.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator opens the filters, enters the document identifier recorded in step 1 in the Document field,
+    and exports again. They expand each selected operation to record its legs and compare those legs with the downloaded
+    rows. Count operations separately from legs; do not assume one row per operation.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator clears the filter, switches the language to Russian, clicks the export button ("Экспорт (xlsx)")
+    and the run reads the header row and the sheet names of the saved file; then the administrator switches the
+    language back to English.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The browser window is made 390 px wide. The administrator opens the Movements screen, clicks "Export (xlsx)"
+    and the run reads the file name and the sheet names.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The Movements screen offers the export and keeps working after the download.
-    verification:
-      method: gui_screen
-      detail: Step 1 shows the button "Export (xlsx)"; after each download no error banner appears and the list is still shown; at 390 px in step 5 the button is reachable without sideways scrolling.
-      evidence: Screenshots of steps 1 and 5.
-    on_fail:
-      severity: MAJOR
-      business_impact: The movement history cannot be taken out of the system for review.
-      suggested_action: route_to_frontend_dev
-  - id: EO-002
-    description: The file has the agreed name, sheets and the 21 column headers, one row per leg.
-    verification:
-      method: file_content
-      detail: The file is named stock-movements.xlsx; the first sheet is "movements" and row 1 reads entry_id, posting_seq, posting_time, event_time, cause, reverses_entry_id, reason_code, document_type, document_id, related_document_id, correlation_id, leg_no, sku, location, org_unit, responsible, lot, quantity, unit_ref, document_line_id, masked;
-        the rows are in posting_seq then leg_no order; column masked reads false on every row for this administrator; the second sheet is "report"; no price, value, user identifier or payload hash column exists.
-      evidence: The file name, sheet names, row 1 and the first rows read from the saved file of step 2.
-    on_fail:
-      severity: MAJOR
-      business_impact: Audit and bookkeeping reviews of the movement history get a file that does not match the documented layout.
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: The report sheet states the time basis and zone of the movements.
-    verification:
-      method: file_content
-      detail: The report sheet holds the keys basis (value posting_seq), cutoff_seq, as_of (empty), timezone (value Asia/Almaty), filters, ledger_seq (empty) and next_cursor (filled when more movements exist than the file holds).
-      evidence: The cells of the report sheet read from the saved file of step 2.
-    on_fail:
-      severity: MAJOR
-      business_impact: Times in the file cannot be read in the right zone.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: The file follows the filter of the screen.
-    verification:
-      method: file_content
-      detail: The file of step 3 holds only rows of the filtered item (column sku) and as many data rows as the filtered list of step 3 shows, when that list fits one page.
-      evidence: The row count and the sku cells read from the file of step 3, and the row count of the screen.
-    on_fail:
-      severity: MINOR
-      business_impact: The export no longer matches what the user sees.
-      suggested_action: route_to_frontend_dev
-  - id: EO-005
-    description: The file does not change with the screen language.
-    verification:
-      method: file_content
-      detail: The file of step 4 (Russian screen) has the same sheet names and the same row 1 as the file of step 2; the Russian screen shows the button "Экспорт (xlsx)" and no error banner.
-      evidence: Row 1 and sheet names of the file of step 4 and a screenshot of the Russian screen.
-    on_fail:
-      severity: MINOR
-      business_impact: Files from Russian-speaking users would differ from the documented layout.
-      suggested_action: route_to_elixir_dev
+- id: EO-001
+  description: >-
+    The Movements screen offers the export and keeps working after the download.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows the button "Export (xlsx)"; after each download no error banner appears and the list is still
+      shown; at 390 px in step 5 the button is reachable without sideways scrolling.
+    evidence: >-
+      Screenshots of steps 1 and 5.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The movement history cannot be taken out of the system for review.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    The file has the agreed name, sheets and the 21 column headers, one row per leg.
+  verification:
+    method: file_content
+    detail: >-
+      The file is named stock-movements.xlsx; the first sheet is "movements" and row 1 reads entry_id, posting_seq,
+      posting_time, event_time, cause, reverses_entry_id, reason_code, document_type, document_id, related_document_id,
+      correlation_id, leg_no, sku, location, org_unit, responsible, lot, quantity, unit_ref, document_line_id, masked;
+      the rows are in posting_seq then leg_no order; column masked reads false on every row for this administrator;
+      the second sheet is "report"; no price, value, user identifier or payload hash column exists.
+    evidence: >-
+      The file name, sheet names, row 1 and the first rows read from the saved file of step 2.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Audit and bookkeeping reviews of the movement history get a file that does not match the documented layout.
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    The report sheet states the time basis and zone of the movements.
+  verification:
+    method: file_content
+    detail: >-
+      The report sheet holds the keys basis (value posting_seq), cutoff_seq, as_of (empty), timezone (value Asia/Almaty),
+      filters, ledger_seq (empty) and next_cursor (filled when more movements exist than the file holds).
+    evidence: >-
+      The cells of the report sheet read from the saved file of step 2.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Times in the file cannot be read in the right zone.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    The document-filtered export matches the selected operations at leg level.
+  verification:
+    method: file_content
+    detail: >-
+      Every exported row has the selected document_id. Compare each loaded selected operation by entry_id and its
+      legs by leg_no, item, location, responsible and quantity against the expanded details. The export contains
+      the first server page of legs for this filter, not one row per journal operation; use report next_cursor to
+      identify truncation and compare only that page. Do not equate the operation count with exported row count.
+    evidence: >-
+      Selected document identifier, expanded-leg screenshots, downloaded rows and report next_cursor; operation
+      and leg counts recorded separately.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The export no longer matches what the user sees.
+    suggested_action: route_to_frontend_dev
+- id: EO-005
+  description: >-
+    The file does not change with the screen language.
+  verification:
+    method: file_content
+    detail: >-
+      The file of step 4 (Russian screen) has the same sheet names and the same row 1 as the file of step 2; the
+      Russian screen shows the button "Экспорт (xlsx)" and no error banner.
+    evidence: >-
+      Row 1 and sheet names of the file of step 4 and a screenshot of the Russian screen.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      Files from Russian-speaking users would differ from the documented layout.
+    suggested_action: route_to_elixir_dev

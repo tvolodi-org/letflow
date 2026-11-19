@@ -1,8 +1,14 @@
+# T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2168 (BA): Qoimeks QA walk, ledger effects L6 and L7: stock opening with four-eyes rule OFF, self-approval, audit. QA only, SYNTHETIC data.
 # REQ ids covered: REQ-831 (stock document routes accept the full-access admin for the opening process: submit, approve, reverse).
 # Sources opened: docs/requirements.yaml REQ-831; docs/design/four-eyes-switch.md (sections 3.1, 3.3, 4: rule off enables self-approval;
 #   audit entries "task.self_approved" with note "self-approved, four-eyes off" and "approval_rule.changed" with reason);
-#   docs/status/qoimeks-migration-readiness.md section 1.4 (four-eyes rule OFF is the agreed QA state for the opening;
+#   docs/status/qoimeks-migration-readiness.md section 1.4 (opening approval contract; T-2190 explicitly supplies the QA OFF baseline;
 #   "four-eyes off for the opening approval");
 #   lib/letflow/routers/approval_rules.ex (moduledoc: routes GET / and PUT /:definition_name/:node_id; permission ApprovalRulesManage);
 #   priv/modules/stock/generate_pack.exs (two_step_definition for stock_opening: "submit" completed at issue;
@@ -10,171 +16,228 @@
 #   web/src/modules/stock/documents/documentsMessages.ts (waiting message for four-eyes ON:
 #   "A second administrator approves the posting in the task inbox. The person who issued it cannot.");
 #   web/src/components/layout/navMessages.ts ("Approval rules" / "Правила утверждения" / "Бекіту ережелері").
-# Writes: one stock opening "UAT-LEDGER-OPE-01" (posted, reversed as cleanup) and one "UAT-LEDGER-OPE-02" (issued, cancelled as cleanup).
+# Writes: one stock opening "UAT-LEDGER-OPE-01" (posted, reversed as cleanup) and one "UAT-LEDGER-OPE-02" (self-approved after restoring OFF, then reversed as cleanup).
 # NOT UAT-observable here, with reasons:
 #   (a) Service user (API token) under four eyes when the rule is OFF: open question O-7 in four-eyes-switch.md; tested by backend tests.
 #   (b) Switching by a STOREKEEPER (should be refused for ApprovalRulesManage): the roster has no STOREKEEPER for qoimeks-qa;
 #       covered by REQ-831 backend tests.
+# Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
+# Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
+# Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.
+# Opening body: kind:"opening", org_unit_id, note, lines [{catalog_item_id,catalog_uom_id,location_id,responsible_id,received_on:<today YYYY-MM-DD>,quantity:"1"}]. No supplier_document_ref for opening.
+# POST /api/v1/modules/stock/documents/<D1>/issue and /post use {}; /reverse uses {reason_code:"other",reason_text:<step note>}; /cancel uses {reason:<step note>}. GET the same document to verify final state.
+# Use a fresh per-action idempotency-key if supplied; second-post refusal uses a new key, not a replay of the successful posting.
+# Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
+# Approval adapter (approval_rules.ex): GET /api/v1/approval-rules; PUT /api/v1/approval-rules/stock_opening/approve with {four_eyes:true|false,reason:<step reason>}. Restore only the value read at start.
+# Audit adapter (routers/audit.ex): GET /api/v1/audit?from=<run start ISO8601>&to=<run end ISO8601>, page by next_cursor; filter records locally by task/rule. Do not filter the whole audit by the stock document id.
+# Correction from Posting.cancellable/2: an opening with a pending approve task cannot be cancelled. Restore OFF, approve OPE-2, and reverse BOTH openings, completing both reversal tasks.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+# This temporary opening-rule switch is the existing QA scenario action; it does not set production policy or change quick-count rules.
+# Audit producers: lib/letflow/approval_rules.ex audit!/6 emits approval_rule.changed; lib/letflow/engine.ex self_approved_audit_multi/3 emits task.self_approved. lib/letflow/routers/audit.ex audit_item/2 serializes before_state/after_state.
 ---
 id: qoimeks-ledger-4-opening-four-eyes-off
-scope: qoimeks-ledger
-title: "The Qoimeks QA administrator checks the four-eyes rule, issues a stock opening and self-approves it (rule OFF), sees the audit entry, then switches the rule ON and is refused, then restores the rule OFF"
-version: "1.0"
-tags: [qoimeks, ledger, opening, four_eyes, approval, self_approval, audit, L6, refusal]
-
-description: >
-  The QA tenant was seeded with the four-eyes rule for the stock opening approval step switched OFF
-  (the administrator may approve their own opening). The administrator first reads the current rule state to
-  confirm it is OFF, then creates a stock opening "UAT-LEDGER-OPE-01" for 1 unit of a known item,
-  issues it (the submit step completes automatically at issue) and approves it in My Tasks. The approval
-  succeeds because the rule is OFF. The administrator reads the audit log and finds the
-  "self-approved, four-eyes off" note and the rule-change entry.
-  The administrator then switches the rule to ON with a reason, creates a second stock opening
-  "UAT-LEDGER-OPE-02", issues it and tries to approve it — the approval is refused because the rule is ON.
-  The administrator switches the rule back to OFF to restore the QA state.
-  As cleanup the administrator reverses the first opening and cancels the second.
-
+scope: qoimeks-qa
+title: >-
+  The Qoimeks QA administrator checks the four-eyes rule, issues a stock opening and self-approves it (rule OFF),
+  sees the audit entry, then switches the rule ON and is refused, then restores the rule OFF
+version: '1.1'
+tags:
+- qoimeks
+- ledger
+- opening
+- four_eyes
+- approval
+- self_approval
+- audit
+- L6
+- refusal
+description: >-
+  The QA tenant was seeded with the four-eyes rule for the stock opening approval step switched OFF (the administrator
+  may approve their own opening). The administrator first reads the current rule state to confirm it is OFF, then
+  creates a stock opening "UAT-LEDGER-OPE-01" for 1 unit of a known item, issues it (the submit step completes automatically
+  at issue) and approves it in My Tasks. The approval succeeds because the rule is OFF. The administrator reads
+  the audit log and finds the "self-approved, four-eyes off" note and the rule-change entry. The administrator then
+  switches the rule to ON with a reason, creates a second stock opening "UAT-LEDGER-OPE-02", issues it and tries
+  to approve it — the approval is refused because the rule is ON. The administrator switches the rule back to OFF
+  to restore the QA state. As cleanup the administrator reverses the first opening and posts then reverses the second
+  after restoring the original rule.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: >
-      The stock module is active; the administrator holds ApprovalRulesManage through TENANT_ADMIN and
-      the Approval rules admin page is accessible.
-    check: system_seeded
-    detail: If the Approval rules screen is absent from the navigation, report BLOCKED.
-  - description: >
-      The four-eyes rule for the step "approve" of the stock opening process is currently OFF on this tenant
-      (four_eyes false). This is the agreed QA setup (docs/status/qoimeks-migration-readiness.md section 1.4).
-      If a previous run left it ON, switch it OFF with reason "UAT pre-condition restore" before step 1 and
-      record this pre-step in the results.
-    check: system_seeded
-    detail: "Read the current state via GET /approval-rules before step 1."
-  - description: At least one item with a known code and org unit exists in the synthetic data (read from the Balances screen).
-    check: system_seeded
-    detail: Use any item and org unit from the Balances screen. The opening adds 1 unit; the reversal removes it.
-
+- description: >-
+    The stock module is active; the administrator holds ApprovalRulesManage through TENANT_ADMIN and the Approval
+    rules admin page is accessible.
+  check: system_seeded
+  detail: >-
+    If the Approval rules screen is absent from the navigation, report BLOCKED.
+- description: >-
+    Read the effective stock_opening approve rule and confirm it is OFF before any write. T-2190 supplies this QA
+    baseline. Confirm no other walk is using this setting during the temporary switch test.
+  check: system_seeded
+  detail: >-
+    If ON, unreadable or another walk is in progress, BLOCKED-by-environment; do not silently restore a setting
+    as preparation.
+- description: >-
+    At least one item with a known code and org unit exists in the synthetic data (read from the Balances screen).
+  check: system_seeded
+  detail: >-
+    Use any item and org unit from the Balances screen. The opening adds 1 unit; the reversal removes it.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator opens the Approval rules admin page and reads the entry for the stock opening approval step.
-      The current four_eyes value is noted as R0.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator creates a new stock opening: org unit and item from the precondition, quantity 1,
-      supplier reference "UAT-LEDGER-OPE-01". The draft is saved and issued. The document number is noted as OPE-1.
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator opens My Tasks, finds the approval task for OPE-1 and approves it.
-      The document state and task result are noted as S1.
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator reads the audit log for the opening OPE-1 (via the audit API for the document).
-      The audit entries are noted as A1.
-    via: api
-  - step: 5
-    actor: admin
-    action: >
-      The administrator switches the four-eyes rule for the stock opening approval step to ON with reason
-      "UAT test: switching on". The switch response is noted as SW1.
-    via: api
-  - step: 6
-    actor: admin
-    action: >
-      The administrator creates a second stock opening: same org unit and item, quantity 1, supplier reference
-      "UAT-LEDGER-OPE-02". The draft is saved and issued. The document number is noted as OPE-2.
-    via: ui
-  - step: 7
-    actor: admin
-    action: >
-      The administrator opens My Tasks, finds the approval task for OPE-2 and tries to approve it.
-    expect_refusal: true
-    via: ui
-  - step: 8
-    actor: admin
-    action: >
-      The administrator switches the four-eyes rule for the stock opening approval step back to OFF with
-      reason "UAT test: restored". The switch response is noted as SW2.
-    via: api
-  - step: 9
-    actor: admin
-    action: >
-      The administrator reverses the first opening OPE-1 with reason "UAT reversal of UAT-LEDGER-OPE-01"
-      and cancels the second opening OPE-2.
-    via: api
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator opens the Approval rules admin page and reads the entry for the stock opening approval step.
+    The current four_eyes value is noted as R0.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator records the complete starting balance key and B0, including org unit, location, responsible
+    employee and unit. They create an opening with that org unit, note UAT-LEDGER-OPE-01, and one line for the recorded
+    item, unit, location and responsible employee, quantity 1 and today as received date. Save and issue it as OPE-1.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, finds the approval task for OPE-1 and approves it. The document state and
+    task result are noted as S1.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator reads the audit log for the opening OPE-1 (via the audit API for the document). The audit
+    entries are noted as A1.
+  via: api
+- step: 5
+  actor: admin
+  action: >-
+    The administrator switches the four-eyes rule for the stock opening approval step to ON with reason "UAT test:
+    switching on". The switch response is noted as SW1.
+  via: api
+- step: 6
+  actor: admin
+  action: >-
+    The administrator creates a second opening using the same full key and received date, quantity 1 and note UAT-LEDGER-OPE-02.
+    Save and issue it as OPE-2; record its identifier for cancellation.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, finds the approval task for OPE-2 and tries to approve it.
+  expect_refusal: true
+  via: ui
+- step: 8
+  actor: admin
+  action: >-
+    The administrator switches the four-eyes rule for the stock opening approval step back to OFF with reason "UAT
+    test: restored". The switch response is noted as SW2.
+  via: api
+- step: 9
+  actor: admin
+  action: >-
+    After restoring the opening approval rule to OFF, the administrator completes the pending approval of OPE-2.
+    They start reversal of each posted opening with reason Other and the corresponding test note, and complete both
+    reversal tasks in My Tasks. Re-read both documents and the full balance key; both documents are reversed and
+    the balance equals B0. Finally read the audit again to include both rule changes and both self-approvals.
+  via: api
 expected_outcomes:
-  - id: EO-001
-    description: The current rule is OFF (four_eyes false) before the test.
-    verification:
-      method: gui_screen
-      detail: >
-        R0 shows four_eyes false for the stock opening approval step; the Approval rules screen labels
-        the step as "stock_opening / approve" or the translated equivalent.
-      evidence: Screenshot of step 1.
-    on_fail:
-      severity: MAJOR
-      business_impact: The rule state differs from the agreed QA setup; the test may not reproduce the documented one-administrator walk.
-      suggested_action: route_to_wf03
-  - id: EO-002
-    description: With the rule OFF the administrator approves their own opening and the opening is posted.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 3 shows no warning about a second approver being required; the approval succeeds and the document
-        reaches state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген");
-        the balance of the item used in OPE-1 increased by 1.
-      evidence: Screenshots of step 3 (task completion) and balance after.
-    on_fail:
-      severity: BLOCKER
-      business_impact: >
-        A one-administrator company cannot post the stock opening; this is the required Qoimeks Client 1 path
-        (docs/status/qoimeks-migration-readiness.md section 1.4).
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: The audit log records the self-approval and the rule switches.
-    verification:
-      method: api_response
-      detail: >
-        A1 has one "task.self_approved" entry for the approve task with the note "self-approved, four-eyes off"
-        and at least two "approval_rule.changed" entries: one for the switch to ON and one for the switch back
-        to OFF, each carrying the given reason.
-      evidence: A1 (audit log response).
-    on_fail:
-      severity: MAJOR
-      business_impact: A lowered approval control leaves no trace in the audit log.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: With the rule ON the administrator cannot approve their own opening.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 7 shows the warning "A second administrator approves the posting in the task inbox.
-        The person who issued it cannot." (or the equivalent in the current language);
-        the approval action is refused; OPE-2 remains in state "Issued".
-      evidence: Screenshot of step 7.
-    on_fail:
-      severity: BLOCKER
-      business_impact: The four-eyes control does not work; a single person can bypass the two-person approval requirement.
-      suggested_action: route_to_elixir_dev
-  - id: EO-005
-    description: The rule is restored to OFF and the cleanup succeeds.
-    verification:
-      method: http_status
-      detail: >
-        SW2 answers 200 with four_eyes false; the reversal of OPE-1 answers 200 and the balance returns to the
-        value before OPE-1; the cancel of OPE-2 answers 200.
-      evidence: API responses of steps 8 and 9.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        The QA tenant is left with the four-eyes rule ON, breaking the agreed one-administrator walk of the
-        QA rehearsal (docs/status/qoimeks-migration-readiness.md section 1.4).
-      suggested_action: route_to_elixir_dev
+- id: EO-001
+  description: >-
+    The current rule is OFF (four_eyes false) before the test.
+  verification:
+    method: gui_screen
+    detail: >-
+      R0 shows four_eyes false for the stock opening approval step; the Approval rules screen labels the step as
+      "stock_opening / approve" or the translated equivalent.
+    evidence: >-
+      Screenshot of step 1.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The rule state differs from the agreed QA setup; the test may not reproduce the documented one-administrator
+      walk.
+    suggested_action: route_to_wf03
+- id: EO-002
+  description: >-
+    With the rule OFF the administrator approves their own opening and the opening is posted.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 shows no warning about a second approver being required; the approval succeeds and the document reaches
+      state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген"); the balance of the item used in OPE-1 increased
+      by 1.
+    evidence: >-
+      Screenshots of step 3 (task completion) and balance after.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A one-administrator company cannot post the stock opening; this is the required Qoimeks Client 1 path (docs/status/qoimeks-migration-readiness.md
+      section 1.4).
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    The final audit includes both self-approvals and both rule changes.
+  verification:
+    method: api_response
+    detail: >-
+      Read audit after step 9, not only the snapshot from step 4. Page through the run time window and match task.self_approved
+      to each opening approve task. Each has one self-approval entry with the four-eyes-off note. Match the two
+      approval_rule.changed events to the opening approve rule and the supplied switch reasons. Rule changes are
+      not document-scoped entries.
+    evidence: >-
+      Final audit response after step 9, with task and rule identifiers and run time window; redact the token.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A lowered approval control leaves no trace in the audit log.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    With the rule ON the administrator cannot approve their own opening.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 7 shows the warning "A second administrator approves the posting in the task inbox. The person who issued
+      it cannot." (or the equivalent in the current language); the approval action is refused; OPE-2 remains in
+      state "Issued".
+    evidence: >-
+      Screenshot of step 7.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The four-eyes control does not work; a single person can bypass the two-person approval requirement.
+    suggested_action: route_to_elixir_dev
+- id: EO-005
+  description: >-
+    The opening rule and original balance are restored after both reversals.
+  verification:
+    method: http_status
+    detail: >-
+      SW2 answers 200 with four_eyes false. After both reversal tasks complete, both opening documents are reversed
+      and the full key is back to B0. Neither document has a pending approval or reversal task.
+    evidence: >-
+      API responses of steps 8 and 9.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The QA tenant is left with the four-eyes rule ON, breaking the agreed one-administrator walk of the QA rehearsal
+      (docs/status/qoimeks-migration-readiness.md section 1.4).
+    suggested_action: route_to_elixir_dev

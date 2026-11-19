@@ -1,3 +1,9 @@
+# T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2168 (BA): Qoimeks QA walk, ledger effect L7: master validation at posting refuses an invalid item. QA only, SYNTHETIC data.
 # REQ ids covered: REQ-832 (Ledger slice L7: every master named by a line is a live record;
 #   a non-existent item key is refused with validation_failed at posting time).
@@ -6,110 +12,150 @@
 #   "without L7 a typo in an item or location id creates a NEW balance key whose first-touch unit_ref and max_on_hand
 #   pin is permanent");
 #   lib/letflow/modules/stock/router.ex (moduledoc: routes /documents POST, /documents/:id/issue, /documents/:id/cancel).
-# Writes: one draft stock receipt with item "UAT-FAKE-ITEM-NOT-IN-CATALOG"; issued but never posted; cancelled as cleanup.
-#   No balance change.
-# NOT UAT-observable here, with reasons:
-#   (a) retired-master check (a valid item that was active at document creation but retired before posting): requires
-#       changing an item's active flag in the shared synthetic catalog; not done here to avoid affecting shared QA data.
-#   (b) L7 check for lot, unit, location, org_unit and responsible with invalid values: the web form uses pickers
-#       that only allow valid values; API-only approach is used only for the item key to demonstrate the principle.
-# Note: the web document form uses an item picker that only offers catalog items; it does not allow typing an arbitrary
-#   key. Steps 1 and 2 therefore use the API to create a document with the fake item key.
+# T-2190 correction: a non-UUID article code is refused by Shape before L7. L7 needs an environment-prepared canonical UUID verified absent from this tenant.
+# Use an issue (withdrawable while posting is pending), not a receipt (which cannot cancel a pending post). Sources: documents/shape.ex; documents/kinds.ex withdrawable?/1; documents/posting.ex cancellable/2.
+# Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
+# Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
+# Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.
+# Opening body: kind:"opening", org_unit_id, note, lines [{catalog_item_id,catalog_uom_id,location_id,responsible_id,received_on:<today YYYY-MM-DD>,quantity:"1"}]. No supplier_document_ref for opening.
+# POST /api/v1/modules/stock/documents/<D1>/issue and /post use {}; /reverse uses {reason_code:"other",reason_text:<step note>}; /cancel uses {reason:<step note>}. GET the same document to verify final state.
+# Use a fresh per-action idempotency-key if supplied; second-post refusal uses a new key, not a replay of the successful posting.
+# Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+
+# NOT UAT-observable on the baseline: L7 requires a prepared posting-variable harness. Unknown items fail issue-time unit validation first (Checks.masters/2), so save/issue of a fabricated item is not an L7 test.
 ---
 id: qoimeks-ledger-3-L7-invalid-item-refused
-scope: qoimeks-ledger
-title: "The administrator creates a stock receipt with fake item UAT-FAKE-ITEM-NOT-IN-CATALOG via the API, issues it, and posting is refused with a master-not-found error (L7)"
-version: "1.0"
-tags: [qoimeks, ledger, L7, master_validation, refusal, api]
-
-description: >
-  Ledger slice L7 adds a master check at posting time: if any item named by a line is not in the catalog,
-  the posting is refused. The document form in the browser only offers valid items through a picker, so
-  the receipt with the fake item is created via the API (bypassing the form picker).
-  The administrator creates a draft receipt whose line names the item code "UAT-FAKE-ITEM-NOT-IN-CATALOG",
-  then issues it. The save and issue succeed because the master check runs only at posting, not at save or issue.
-  When the administrator opens the posting task in My Tasks and tries to complete it, the system refuses
-  the post with an error naming the invalid master.
-  The document is cancelled to clean up.
-
+scope: qoimeks-qa
+title: >-
+  A prepared stock issue with an absent item identifier is refused at posting and cancelled without changing balances
+version: '1.1'
+tags:
+- qoimeks
+- ledger
+- L7
+- master_validation
+- refusal
+- api
+description: >-
+  The posting master check must refuse an absent item without writing stock. A normal document cannot reach that
+  check with an unknown item because issuing checks the item unit first. This scenario therefore requires an environment-prepared
+  issued stock issue whose pending posting command carries a verified absent item identifier, with all other masters
+  valid. The walk reads that prepared document, attempts its pending posting task, and cancels it after refusal.
+  Without that prepared fixture the whole scenario is BLOCKED-by-environment before any write; the run must not
+  replace this with an earlier request-shape refusal.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: The stock module is active; the administrator has StockPost through TENANT_ADMIN.
-    check: system_seeded
-    detail: If the stock module is not installed, report BLOCKED.
-  - description: >
-      No item with code "UAT-FAKE-ITEM-NOT-IN-CATALOG" exists in the catalog. This is a deliberately invented
-      code that cannot match any synthetic item. If by chance an item with that exact code exists, use a different
-      obviously-fake code and note the substitution in the results.
-    check: system_seeded
-
+- description: >-
+    The stock module is active; the administrator has StockPost through TENANT_ADMIN.
+  check: system_seeded
+  detail: >-
+    If the stock module is not installed, report BLOCKED.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    The environment supplies an already issued, run-owned stock issue and its pending posting task, prepared so
+    the posting command references a canonical absent item identifier while its other masters are valid. Supply
+    the document and task identifiers and read-only evidence that the missing item is absent, that the document
+    is unposted and that its posting task remains pending. Record the original balance and movement baseline.
+  check: runner_prepared
+  detail: >-
+    This fixture is not present in the supplied synthetic tenant and no supported browser action prepares it. The
+    complete scenario is BLOCKED-by-environment unless a controlled test harness has supplied it. Do not create
+    a receipt with a fake article code, do not mutate shared masters, and do not assume an unknown item will pass
+    issuing. Source: documents.ex check_issue, documents/checks.ex masters/2 and lines; the posting-variable test
+    setup in REQ-832 criterion 2.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator creates a draft stock receipt via the API: org unit and location taken from any existing
-      balance row on the Balances screen, item key "UAT-FAKE-ITEM-NOT-IN-CATALOG", quantity 1.
-      The draft id is noted as D1 and the response as R1.
-    via: api
-  - step: 2
-    actor: admin
-    action: >
-      The administrator issues D1 via the API. The document state and number are noted as R2.
-    via: api
-  - step: 3
-    actor: admin
-    action: >
-      The administrator opens My Tasks, finds the posting task for the document from step 2 and tries to
-      complete it. The error shown by the task panel is noted as E1.
-    expect_refusal: true
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator cancels the issued document D1 via the API to clean up. The cancel response is noted as C1.
-    via: api
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator reads the prepared test issue and records its document identifier D1, number, full stock key
+    and the original balance and movement evidence. Confirm it is the run-owned fixture named in the precondition.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens My Tasks and the pending posting task of the prepared issue, recording the issued document
+    state and matching task identifier before attempting completion.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator opens the posting task for D1 in My Tasks and attempts to complete it. Record the refusal
+    and read the document state and balances again.
+  expect_refusal: true
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator cancels the refused issue with reason UAT test cancel, then reads D1, the pending task list
+    and balances to verify cleanup.
+  via: api
 expected_outcomes:
-  - id: EO-001
-    description: The draft and issue succeed even with a non-existent item (the master check is not at save or issue time).
-    verification:
-      method: http_status
-      detail: >
-        R1 answers 201 with state "draft"; R2 answers 200 with state "issued" and a document number.
-        Neither step produces a 422 or 409.
-      evidence: API responses R1 and R2.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        If the check happened at issue time the master check is in the wrong place for decision 0073 D6's
-        design; note the actual error and report it as a finding rather than a failure of this scenario.
-      suggested_action: route_to_elixir_dev
-  - id: EO-002
-    description: Completing the posting task with the invalid item is refused.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 3 shows an error on the task completion panel: the error text names a master check failure
-        (contains "invalid", "not found", or the equivalent in Russian or Kazakh); the document does not
-        reach state "Posted"; no new balance row for "UAT-FAKE-ITEM-NOT-IN-CATALOG" appears on the Balances screen.
-      evidence: Screenshot of step 3 (the error state on the task panel) and confirmation that no balance for the fake item appears.
-    on_fail:
-      severity: BLOCKER
-      business_impact: >
-        A typo in an item code creates a new unknown balance key whose initial unit and quantity become permanent
-        (decision 0073 D6 consequence: without L7, the first posting with an unknown key pins it permanently).
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: The cancel cleans up the issued document.
-    verification:
-      method: http_status
-      detail: "C1 answers 200 with an action of \"cancelled\"; the document does not appear in the main document list as active."
-      evidence: API response C1.
-    on_fail:
-      severity: MINOR
-      business_impact: >
-        A stuck issued document with a fake item remains in the QA tenant; it blocks no functionality
-        but adds noise to the document list.
-      suggested_action: route_to_elixir_dev
+- id: EO-001
+  description: >-
+    The prepared issue is issued and has a matching pending posting task.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 1 and 2 show the prepared run-owned issue in state Issued with its document number and pending posting
+      task. Record the identifiers before completion. Missing or mismatched fixture is BLOCKED-by-environment.
+    evidence: >-
+      Prepared-fixture manifest, document and pending-task screenshots; no credentials.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The prepared invalid-master fixture did not reach posting. Record the actual response and stop; do not substitute
+      a malformed article code or claim the posting check passed.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: >-
+    The master check refuses the absent item before any posting.
+  verification:
+    method: api_response
+    detail: >-
+      The posting task refuses the absent item, the document stays unposted and no balance for the supplied missing
+      item exists. Capture the completion response and the unchanged balance response rather than guessing words
+      in a translated error.
+    evidence: >-
+      Screenshot of step 3 (the error state on the task panel) and confirmation that no balance for the fake item
+      appears.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A typo in an item code creates a new unknown balance key whose initial unit and quantity become permanent
+      (decision 0073 D6 consequence: without L7, the first posting with an unknown key pins it permanently).
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    Cancellation withdraws the refused issue without removing its history.
+  verification:
+    method: http_status
+    detail: >-
+      Cancellation returns the document in state cancelled; re-read D1 and confirm its posting task is no longer
+      pending. No balance or movement for the missing item exists. The cancelled document remains visible as history.
+    evidence: >-
+      API response C1.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      A stuck issued document with a fake item remains in the QA tenant; it blocks no functionality but adds noise
+      to the document list.
+    suggested_action: route_to_elixir_dev
