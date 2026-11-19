@@ -359,7 +359,7 @@ samp {
 .lf-install-hint ol { list-style: decimal; margin: var(--space-1) 0 var(--space-2); padding-inline-start: var(--space-6); }
 /* T-2201: the dashboard must not scroll sideways at 390 px: padding shrinks, tiles stack, long text wraps. */
 .lf-dashboard { padding: var(--space-8); max-width: 900px; min-width: 0; overflow-wrap: anywhere; }
-.lf-dashboard__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-5); min-width: 0; }
+.lf-dashboard__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-6); min-width: 0; }
 .lf-dashboard__grid > * { min-width: 0; }
 @media (max-width: 600px) { .lf-dashboard { padding: var(--space-4); } }
 
