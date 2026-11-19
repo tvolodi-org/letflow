@@ -42,6 +42,7 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
   @expected_keys [
     "branding",
     "client_id",
+    "company_found",
     "default_locale",
     "environment_kind",
     "locales",
@@ -401,13 +402,13 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
     end
   end
 
-  describe "REQ-418: moduledoc no longer says \"exactly five keys\"; states six keys and the reasoning" do
-    test "moduledoc states six keys, includes client_id, and the three-point security reasoning" do
+  describe "REQ-418: moduledoc no longer says \"exactly five keys\"; states seven keys and the reasoning" do
+    test "moduledoc states seven keys, includes client_id, and the three-point security reasoning" do
       {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} =
         Code.fetch_docs(Letflow.Routers.MobileTenantConfig)
 
       refute moduledoc =~ "exactly five keys"
-      assert moduledoc =~ "exactly six keys"
+      assert moduledoc =~ "exactly seven keys"
       assert moduledoc =~ "client_id"
       assert moduledoc =~ "is not a secret"
       assert moduledoc =~ "platform-global"
@@ -775,6 +776,30 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
         assert conn.status == 200
         assert Jason.decode!(conn.resp_body)["realm_url"] =~ "/realms/bpm-default"
       end
+    end
+  end
+
+  # T-2244 / GH #4771: the app must tell an unknown company from a known one.
+  describe "T-2244: company_found flag" do
+    test "true for a resolvable tenant; false and identical for every other branch" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("t2244"),
+          display_name: "T-2244 Tenant",
+          idp_realm_id: unique_realm("t2244")
+        })
+
+      {_, known} = get_mobile_config(tenant.slug)
+      assert known["company_found"] == true
+
+      {_, unknown_a} = get_mobile_config(unique_slug("t2244-nosuch"))
+      {_, unknown_b} = get_mobile_config("another-unknown-company")
+      {_, missing} = get_mobile_config()
+
+      assert unknown_a["company_found"] == false
+      assert unknown_a == unknown_b
+      assert unknown_a == missing
+      assert unknown_a["realm_url"] =~ "/realms/bpm-default"
     end
   end
 end

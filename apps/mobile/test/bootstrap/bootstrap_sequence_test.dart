@@ -43,6 +43,19 @@ void main() {
     fakeAdapter.handler = (options) {
       if (options.path == '/api/mobile/tenant-config') {
         final slug = options.queryParameters['slug'];
+        if (slug == 'no-such-company') {
+          // GH #4771: the server's unknown-company answer.
+          return (
+            200,
+            {
+              ...tenantConfigJson(
+                realmUrl: 'https://idp.example/realms/bpm-default',
+                clientId: 'letflow-mobile',
+              ),
+              'company_found': false,
+            },
+          );
+        }
         if (slug == 'acme') {
           return (
             200,
@@ -180,6 +193,26 @@ void main() {
       fakeAdapter.requests.single.headers['Authorization'],
       'Bearer token-beta',
     );
+  });
+
+  test('an unknown company code shows tenant-not-found and never starts'
+      ' sign-in (GH #4771)', () async {
+    final result = await runTenantBootstrap(
+      'no-such-company',
+      client: client,
+      tokenStore: tokenStore,
+      activeRealm: activeRealm,
+      appAuthAdapter: FakeAppAuthAdapter(
+        response: fakeTokenResponse(accessToken: 'must-not-be-used'),
+      ),
+    );
+
+    expect(result, isA<BootstrapFailure>());
+    expect(
+      (result as BootstrapFailure).reason,
+      BootstrapFailureReason.tenantNotFound,
+    );
+    expect(activeRealm.currentRealmUrl, isNull);
   });
 
   test(

@@ -55,6 +55,7 @@ class TenantConfig {
     required this.defaultLocale,
     required this.branding,
     required this.environmentKind,
+    this.companyFound = true,
   });
 
   final String realmUrl;
@@ -63,6 +64,11 @@ class TenantConfig {
   final String defaultLocale;
   final TenantBranding branding;
   final String environmentKind;
+
+  /// `false` when the entered company code resolved to no usable company
+  /// (GH #4771): the body is then the platform default and the app shows
+  /// "Company not found". An absent key (older server) counts as found.
+  final bool companyFound;
 
   factory TenantConfig.fromJson(Map<String, dynamic> json) {
     final brandingJson = json['branding'];
@@ -84,6 +90,7 @@ class TenantConfig {
       defaultLocale: _requireString(json, 'default_locale'),
       branding: TenantBranding.fromJson(brandingJson),
       environmentKind: _requireString(json, 'environment_kind'),
+      companyFound: json['company_found'] != false,
     );
   }
 }
@@ -540,7 +547,9 @@ class ApiClient implements WriteCapableHttpGateway {
       () => _dio.post<dynamic>(
         path,
         data: data,
-        options: key == null ? null : Options(headers: {'idempotency-key': key}),
+        options: key == null
+            ? null
+            : Options(headers: {'idempotency-key': key}),
       ),
       allowServerRetry: false,
     );
