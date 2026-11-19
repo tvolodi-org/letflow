@@ -41,7 +41,7 @@ export default function PlatformDashboardPage(): JSX.Element {
       : 'success'
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '900px' }}>
+    <div className="lf-dashboard">
       <h1
         data-testid="platform-dashboard-heading"
         style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1.5rem' }}

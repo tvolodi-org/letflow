@@ -56,7 +56,7 @@ export default function TenantDashboardPage(): JSX.Element {
   const rendererState: RendererState = !canReadDefinitions ? 'success' : loadingDefs ? 'loading' : errorDefs ? classifyError(defsError) : 'success'
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '900px' }}>
+    <div className="lf-dashboard" data-testid="tenant-dashboard">
       <h1
         data-testid="tenant-dashboard-heading"
         style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}
@@ -94,7 +94,7 @@ export default function TenantDashboardPage(): JSX.Element {
         onRetry={() => { void refetchDefs() }}
         columns={[{ widthPercent: 33 }, { widthPercent: 33 }, { widthPercent: 34 }]}
       >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+      <div className="lf-dashboard__grid" data-testid="tenant-dashboard-grid">
         {/* Recent Definitions */}
         {canReadDefinitions && (
         <div
