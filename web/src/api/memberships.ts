@@ -22,4 +22,7 @@ export interface MembershipsResponse {
 
 export const membershipsApi = {
   list: () => client.get<MembershipsResponse>('/api/v1/me/memberships'),
+  /** Same call with an explicit token, for the login path where it is not installed yet. */
+  listWithToken: (token: string) =>
+    client.getWithToken<MembershipsResponse>('/api/v1/me/memberships', token),
 }
