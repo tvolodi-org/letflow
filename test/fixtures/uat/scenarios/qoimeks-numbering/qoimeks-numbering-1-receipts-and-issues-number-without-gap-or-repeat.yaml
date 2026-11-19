@@ -9,6 +9,8 @@
 # 4. Data: an item with at least 10 on hand at one place linked to an org unit; the balance of that item at that place is read at the start. NO absolute number is asserted: other sessions may take numbers of the same tenant while this walk runs, so only the numbers issued BY THIS WALK are compared with each other.
 # 5. Executable: a runner with a browser; the unauthorized refusal uses an HTTP client. One session per actor at a time, no loops.
 # 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-numbering").
+# Not at the same time: the groups qoimeks-numbering and qoimeks-concurrency must NOT run at the same time on the tenant (the operator chains them: one finishes, with its cleanup, before the other starts). In the T-2341 walk the first two attempts of concurrency-2 were spoiled because this group posted on the same item 0036 at the same moment.
+# Reserved for concurrency: the item and place that the group qoimeks-concurrency reserves (ITEM-C at PLACE-C, found at run time, see its header) are NOT used here: this group picks a different item and place (ITEM-N at PLACE-N). Item ФЛАНЕЦ-0036 at place RC12 is not used either: it carries a net offset of +1 left by foreign writes (T-2341 walk), so no scenario relies on its start value being 617 or on any fixed start value.
 # EXPECTATION CORRECTIONS: 7 (a) issuing a receipt or issue only STARTS the posting task, so every post and every reversal gets an explicit My Tasks step by the administrator; (b) 'NR0+1, +2, +3' and 'R4 = R3+1' removed: only this walk's own numbers are compared (strictly increasing in order of issue, no repeat, no number of this walk missing from the list); (c) the Documents list has no number filter: R4 is found with the kind filter, the state filter and Load more; (d) the discard step asserts the draft's number is not in the list (Discard returns the app to the Documents list) and that the next issued number is not shifted by it, instead of looking at the draft screen; (e) the year is the year shown in the Issued at field of the run's own document (0056 D2; no calendar date hard-coded); (f) a reversal does not allocate a new number of the receipt series in this scenario (not asserted either way); (g) the quantity check of a refused issue is not used as the "refused issue takes no number" case (covered by unit tests).
 # Purge of a posted document (decision 0074): not on main, not walked (see group qoimeks-signin header).
 ---
@@ -16,7 +18,7 @@ id: qoimeks-numbering-1-receipts-and-issues-number-without-gap-or-repeat
 scope: qoimeks-qa2
 title: >-
   Receipts and issues take increasing numbers of the current year without repeat; a cancelled number is kept and not reused; a discarded draft takes none
-version: "1.1"
+version: "1.2"
 tags: [qoimeks, numbering, documents, ledger, ru, kk, go-gate]
 
 description: >-
@@ -35,9 +37,12 @@ actors:
   admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
-  - description: An item with at least 10 on hand at one place linked to an org unit; the stock process definitions are ACTIVE.
+  - description: An item with at least 10 on hand at one place linked to an org unit, other than the pair reserved for concurrency and other than ФЛАНЕЦ-0036 at RC12; the stock process definitions are ACTIVE.
     check: system_seeded
     detail: Read the Balances screen at the start; if none, BLOCKED-by-environment (name the missing data).
+  - description: The group qoimeks-concurrency is not running at the same time (the operator chains the two groups).
+    check: system_seeded
+    detail: If a foreign posting changes the balance of ITEM-N at PLACE-N during the walk, the attempt is void and is repeated once.
   - description: The tenant's receipt and issue are not four-eyes documents (four-eyes applies only to the opening and the quick count).
     check: system_seeded
     detail: If an issue is waiting for an approval, report BLOCKED-by-environment.
@@ -52,7 +57,7 @@ steps:
       The storekeeper opens the Documents screen at 1440 px in Russian, filters the kind Receipt and notes the
       newest number shown as NR0, then the kind Issue, newest number NI0 (only to learn the prefix and the year; the
       values are never compared later, because other sessions may add numbers). The storekeeper opens the Balances
-      screen and notes the balance of one item at one place (the sum of its rows there) as B0, with ITEM-N and PLACE-N the item and place.
+      screen and notes the balance of one item at one place (the sum of its rows there) as B0, with ITEM-N and PLACE-N the item and place (not the pair reserved for concurrency and never ФЛАНЕЦ-0036 at RC12).
     via: ui
   - step: 2
     actor: storekeeper

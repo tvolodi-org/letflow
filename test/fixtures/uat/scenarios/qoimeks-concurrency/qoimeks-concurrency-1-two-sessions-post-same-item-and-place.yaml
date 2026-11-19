@@ -5,16 +5,19 @@
 # 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
 # 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER: creates and issues the receipts, starts the reversals) and two tenant administrators, actor-qoimeks-qa2-admin and actor-qoimeks-qa2-admin2 (both TENANT_ADMIN, T-2334 roster entry; issue 4844 answered: option A, admin2). The CONCURRENT action is the two task completions, one by each administrator. Both administrators have empty routing roles: routing is addressing (0088 D5), so the runner checks live that each posting task appears in My Tasks and does not assume a role chip. Live logins are preconditions for acceptance.
 # 3. Host and screens: stock Documents, Document, Balances and My Tasks screens and the Movements screen (web/src/modules/stock/stockRoutes.tsx: admin/stock/documents, admin/stock/documents/new, admin/stock/documents/:id, admin/stock/balances, admin/stock/movements). The Movements screen filters only by cause, document type, document (the document identifier of the document screen) and from/to posting number (web/src/modules/stock/register/MovementsPage.tsx; there is no item or place filter). Receipt and issue are not four-eyes documents.
-# 4. Data: an item with a posted balance of at least 20 at a place linked to an org unit (the run reads the Balances screen and picks one row; no number fixed here). Other sessions may take numbers of the same tenant: only the walk's own two documents are compared, no absolute value is asserted. If the tenant has no such item the scenario is BLOCKED-by-environment (any posted opening or receipt makes it).
+# 4. Data: an item with a posted balance of at least 20 at a place linked to an org unit, chosen by the reserved-for-concurrency rule below (the run reads the Balances screen and picks one row; no number fixed here). Other sessions may take numbers of the same tenant: only the walk's own two documents are compared, no absolute value is asserted. If the tenant has no such item the scenario is BLOCKED-by-environment (any posted opening or receipt makes it).
 # 5. Executable: at most TWO sessions in parallel (the PM limit): two browser contexts, admin and admin2, each completes one task on one shared "go" signal; one attempt, no loop. The storekeeper steps run before and after, alone. It is a script of the runner, not a pipeline test.
 # 6. Dry run: not run in this step (no acceptance environment; uat.sh preflight needs the title "UAT qoimeks-concurrency").
+# Reserved for concurrency (T-2341 walk, PM 2026-11-20): the item and the place of this group are found AT RUN TIME and are reserved for the groups qoimeks-concurrency-1 and -2 only. Selection rule, read on the Balances screen at the start: an item with a round on-hand sum (a multiple of 10, at least 20) at one place linked to an org unit, that is NOT item ФЛАНЕЦ-0036 at place RC12, that no other scenario group names or uses in the same run, and of which no other responsible holds stock at that place. The runner writes the chosen item and place in the run notes as ITEM-C and PLACE-C and uses the same pair in both scenarios of the group; the group qoimeks-numbering must pick a different item and place.
+# Not at the same time: the groups qoimeks-concurrency and qoimeks-numbering must NOT run at the same time on the tenant (the operator chains them: one finishes, with its cleanup, before the other starts). In the T-2341 walk the first two attempts of concurrency-2 were spoiled because the numbering walk posted on the same item 0036 at the same moment.
+# Known offset: item ФЛАНЕЦ-0036 at place RC12 carries a net offset of +1 left by foreign writes (T-2341 walk): no scenario relies on its start value being 617 or on any fixed start value; every balance is read at the start of the run and compared only with this walk's own changes.
 # EXPECTATION CORRECTIONS: 6 (a) the concurrent action is the two task completions (the ledger write under the 0061 lock order), not the two issues: issuing only starts the posting task; (b) the storekeeper issues, admin and admin2 each complete one task at the same time, with explicit My Tasks steps for the post tasks and for the cleanup reversal tasks; (c) the Movements step uses the Document filter (one document at a time), not an item or place filter, which the screen does not have; (d) the numbers are checked only for the walk's own two documents (different, the first issued lower than the second), not N0 plus 1 and N0 plus 2 or a document count D0 plus 2; (e) the expected result is "both succeed and the sum is exact"; a "busy" answer is allowed only as a named retry answer, repeated ONCE, never a pass; (f) the role chip is not assumed: the task is found by the document number in My Tasks.
 ---
 id: qoimeks-concurrency-1-two-sessions-post-same-item-and-place
 scope: qoimeks-qa2
 title: >-
   Two administrators complete the posting tasks of two receipts for the same item and place at the same time: both succeed, the balance is the exact sum and the numbers differ
-version: "1.1"
+version: "1.2"
 tags: [qoimeks, concurrency, ledger, numbering, lock-order, go-gate]
 
 description: >-
@@ -33,9 +36,12 @@ actors:
   admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
-  - description: The tenant has an item with at least 20 on hand at one place, and that place is linked to an org unit.
+  - description: The tenant has an item with a round on-hand sum (a multiple of 10, at least 20) at one place linked to an org unit, that is reserved for concurrency (not ФЛАНЕЦ-0036 at RC12, not used by any other group, no other responsible holds stock of it there).
     check: system_seeded
-    detail: Read the Balances screen at the start; if there is none, BLOCKED-by-environment (name the missing data).
+    detail: Read the Balances screen at the start; if there is none, BLOCKED-by-environment (name the missing data; a seed task for a dedicated concurrency item is requested).
+  - description: The group qoimeks-numbering is not running and nobody else posts on the reserved item and place during the walk (the operator chains the two groups).
+    check: system_seeded
+    detail: If a foreign posting changes the balance of ITEM-C at PLACE-C during the walk, the attempt is void (not a PASS or FAIL of the product) and is repeated once after the other group has finished.
   - description: The stock process definitions of the tenant are ACTIVE (the posting task needs them) and the tenant's scope enforcement does not block the two administrators.
     check: system_seeded
     detail: If an issue is refused because a definition is not active, report BLOCKED-by-environment.
@@ -50,8 +56,8 @@ steps:
   - step: 1
     actor: storekeeper
     action: >-
-      The storekeeper opens the Balances screen at 1440 px in Russian, picks one item and one place (named ITEM-C
-      and PLACE-C) and notes the sum of the item's rows at that place as B0.
+      The storekeeper opens the Balances screen at 1440 px in Russian, picks the item and the place reserved for concurrency (named ITEM-C
+      and PLACE-C; selection rule in the header; ФЛАНЕЦ-0036 at RC12 is never taken) and notes the sum of the item's rows at that place as B0. The pair is written in the run notes for scenario 2.
     via: ui
   - step: 2
     actor: storekeeper
