@@ -1,9 +1,6 @@
-# 0092 — Who owns equipment state and downtime: `maintenance` or `mes_core`
+# 0092 — ACCEPTED (option C, D-163): who owns equipment state and downtime: `maintenance` or `mes_core`
 
-Status: **DRAFT** (T-2281, 2026-11-19; owner request D-162 via the PM; the architect's written answer to open point Q8 of
-`docs/cmms/scope-draft.md`). Not binding until the owner decides and REVIEWER signs off. Docs only: no code, no schema, no migration,
-no requirement entry, no manifest change. The number 0092 was the next free one on origin/main at T-2281 (0091 is the highest, and no open
-`origin/team/*` branch carries a 0092 file); re-check it when this is merged.
+Status: **ACCEPTED** (2026-11-19, D-163, decided by the team (PM); architecture is the team's decision under the owner's rule, so the owner question was not sent). Option C, built lazily. Originally drafted in T-2281 (2026-11-19; owner request D-162 via the PM; the architect's written answer to open point Q8 of `docs/cmms/scope-draft.md`). Docs only: no code, no schema, no migration, no requirement entry, no manifest change. The number 0092 was the next free one on origin/main at T-2281 (0091 is the highest, and no open `origin/team/*` branch carries a 0092 file).
 
 Sources (read, not changed): `docs/cmms/scope-draft.md` (summary item 4, section 9 Q7 and Q8); `docs/design/mes/01-domain-and-fit-gap.md`
 (rows 6 "Equipment and its state" and 11 "OEE and downtime"); `docs/design/mes/05-platform-options.md` (section 4.1 `mes_core` with
@@ -125,7 +122,16 @@ Sizes: XS under a day, S about a day or two, M a few days, L a week or more of t
 * Whether `assets` itself should gain a "current state" column (rejected here: it would put a state history into the master data layer 0076
   keeps small).
 
-## The one-sentence owner decision
+## Decided
 
-**Do you agree that equipment state and downtime get one owner, a small shared module that both `maintenance` and the future `mes_core` depend on, built
-only when CMMS slice 5 needs it (option C), or should `maintenance` own it for now (option A)?**
+**D-163 (2026-11-19, decided by the team (PM)): option C.** Equipment state, state history and downtime have ONE owner: a small shared module that both
+`maintenance` and the future `mes_core` depend on. It is built only when CMMS slice 5 (downtime and KPIs) needs it; neither `maintenance` nor `mes_core`
+creates its own copy. The module NAME is chosen by the architect when slice 5 starts. Meters and criticality STAY in `maintenance` (unless MES asks for them).
+Option A is no longer the fallback of record; the recommendation above is the decision.
+
+## Follow-ups (TODO, not done here; those files are not edited by this record)
+
+- [ ] `docs/cmms/scope-draft.md`: rewrite the Q7 and Q8 text to state this decision.
+- [ ] `docs/design/mes/01-domain-and-fit-gap.md`: rows 6 ("Equipment and its state") and 11 ("OEE and downtime"): equipment, state and downtime come from the shared module; OEE and shift logs stay in `mes_core`.
+- [ ] `docs/design/mes/05-platform-options.md` s4.3: move the records `equipment`, `equipment_state_change`, `downtime` out of `mes_core`; add the shared module to `mes_core`'s `depends_on` (s4.1).
+- [ ] One requirement entry for the shared module, written by the BA when CMMS slice 5 is planned (module name chosen then by the architect).
