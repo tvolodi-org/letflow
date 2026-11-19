@@ -157,6 +157,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
         setLoadResult({ noChange: true })
       } else if ('document_id' in result) {
         setLoadResult({ documentId: result.document_id, number: result.number })
+        void qc.invalidateQueries({ queryKey: stockQueryKeys.workbookImports(tenantId) })
       }
     },
     onError: (err) => {
@@ -232,6 +233,19 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
   const importRows = harness?.importRows ?? (harness?.cancelDialogOpen ? [HARNESS_IMPORT_ROW] : importsQuery.data?.rows ?? [])
 
   const loadColumns: DataTableColumn<WorkbookImportRow>[] = [
+    {
+      key: 'number',
+      label: t('stock.wb.loads.col.number'),
+      mono: true,
+      render: (r) =>
+        r.number ? (
+          <Link to={`/admin/stock/documents/${r.document_id}`} data-testid={`load-doc-${r.document_id}`}>
+            {r.number}
+          </Link>
+        ) : (
+          '—'
+        ),
+    },
     {
       key: 'created_at',
       label: t('stock.wb.loads.col.date'),

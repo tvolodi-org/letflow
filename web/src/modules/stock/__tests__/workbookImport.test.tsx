@@ -371,6 +371,25 @@ describe('C4 apply answers', () => {
     expect(link).toHaveAttribute('href', `/admin/stock/documents/${DOC_ID}`)
   })
 
+  it('201: the new load appears in Previous loads without reopening', async () => {
+    let loaded = false
+    const row = {
+      document_id: DOC_ID, number: 'QCI-2026-000042', created_at: '2026-11-18T04:00:00Z', created_by: null,
+      file_name: 'stock.xlsx', sheet: 'S', lines: 5, remarks_count: 0, state: 'issued', reversal_pending: false,
+    }
+    await setupAndCheck({ changes: 1 })
+    clientMock.get.mockImplementation(async (path: string) => {
+      if ((path as string).includes('stock-workbook/imports')) return { rows: loaded ? [row] : [] }
+      return { rows: [] }
+    })
+    clientMock.postRaw.mockImplementationOnce(async () => {
+      loaded = true
+      return { document_id: DOC_ID, number: 'QCI-2026-000042', lines: 5, remarks: [], approve_task_id: null }
+    })
+    fireEvent.click(screen.getByTestId('wb-load'))
+    expect(await screen.findByTestId(`load-doc-${DOC_ID}`)).toHaveTextContent('QCI-2026-000042')
+  })
+
   it('applied false: shows no-difference text', async () => {
     await setupCheckedAndClickLoad({ applied: false, changes: 0, remarks: [] })
     await waitFor(() => expect(screen.getByTestId('wb-load-no-change')).toBeInTheDocument())
@@ -433,6 +452,13 @@ describe('C5 loads and cancel', () => {
     expect(screen.getByText('10')).toBeInTheDocument()
     // User column shows '—' (created_by is a UUID, not resolvable by the client)
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+
+  it('shows the document number linked to the document', async () => {
+    renderWB(withQCAndReverse, [importRow])
+    const link = await screen.findByTestId('load-doc-imp-1')
+    expect(link).toHaveTextContent('QCI-2026-000010')
+    expect(link).toHaveAttribute('href', '/admin/stock/documents/imp-1')
   })
 
   it('shows Cancel button for StockReverse on an issued load', async () => {
