@@ -1,3 +1,16 @@
+# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-import. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-import.
+# T-2190: run title UAT qoimeks-import; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2158 (BA): UAT walk for balance import and Excel load on the Qoimeks QA tenant.
 # REQ-884 (GH #4607): module stock checks a Qoimeks-layout balances workbook.
 # REQ-885 (GH #4606): module stock loads a checked balances workbook, creates a quick_count document.
@@ -7,162 +20,176 @@
 #     after approval one ledger entry of cause count_set; check same file → 0 changes after approval)
 #   web/src/modules/stock/workbook/workbookMessages.ts (kk: title, load.hint, load.success, load.noChange)
 #   test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin: TENANT_ADMIN; holds StockQuickCount)
-# UAT assumption, to be confirmed by the process owner: the Qoimeks QA tenant has the approval rule
-#   for stock_quick_count / approve set to four_eyes: false (four-eyes OFF), so the same administrator
-#   who creates the load can also complete the approve task from their inbox without a second user.
-#   If four_eyes is ON, step 4 (approve from inbox) is NOT UAT-observable with the current actor roster
-#   (only one actor exists for this realm); in that case report step 4 as NOT UAT-OBSERVABLE and skip
-#   to EO-004 outcome noting the limitation.
-# Cleanup: this scenario changes the balance of the test item at the test place by +1 after approval.
-#   To restore for the next run: download a fresh uat-wb-exact.xlsx from the balances screen after
-#   this scenario and use it in scenario 1.
-# Runner preparation: use the same uat-wb-one-change.xlsx from scenario 4 (or prepare a fresh copy).
-#   The org unit and test item must be the same as in scenario 4.
+# #4697: opening approval OFF does not imply quick-count approval OFF. Read the effective quick-count rule first; never switch it here.
+# Approval/posting and post-approval round trip excluded: no independent second actor exists. This walk cancels before approval and preserves the original balance.
+# Workbook cells and zero-stock checks are specified in this scenario preconditions; scenario 4 need not run first if that same single-row fixture is prepared independently.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-import-5-load-approve-kk
 scope: qoimeks-qa
-title: The administrator loads the one-change workbook, approves the quick-count document alone (four-eyes OFF), the balance is updated, and re-checking the same file shows no changes — in Kazakh on a phone
-version: "1.0"
-tags: [qoimeks, import, load, approve, kk, phone]
-
-description: >
-  On a 390 px phone-width window in Kazakh, the administrator checks uat-wb-one-change.xlsx for
-  the same org unit as scenario 4, then loads it ("Файлдағы қалдықтарды жазу"). The load creates
-  a quick-count document and shows the success message in Kazakh with the document number. The
-  administrator opens their inbox and finds the approval task for this document; they complete it.
-  After completion the balance of the test item at the test place changes to match the file value.
-  The administrator re-opens the import screen and checks the same file: the check now returns
-  0 changes ("Файлда ағымдағы қалдықтардан айырмашылық жоқ."), confirming that the balances
-  match the file. The major Kazakh labels of the import screen are verified during the walk.
-  UAT assumption: four-eyes OFF for stock_quick_count / approve; see the preparation section.
-  Cleanup note: balances change after this scenario; see the preparation section for how to restore.
-
+title: >-
+  In Kazakh on a phone the administrator loads one unstocked article, is prevented from approving their own count
+  with four-eyes ON, and cancels before posting
+version: '1.1'
+tags:
+- qoimeks
+- import
+- load
+- approve
+- kk
+- phone
+description: >-
+  At 390 px in Kazakh, use the single-row unstocked-article workbook of scenario 4, checked again against current
+  stock. The load creates an issued quick count. With the effective quick-count four-eyes rule ON the loader cannot
+  approve alone. Cancel the load before approval, then re-read the plain key and history. It remains absent or zero;
+  the original responsible-stock balances are untouched. Posting and the post-approval round trip are BLOCKED-by-environment
+  because the roster has no independent approver. Do not switch the quick-count approval rule.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: >
-      The Qoimeks QA tenant is reachable, the stock module is active, and the administrator's
-      credentials are available.
-    check: system_seeded
-    detail: If the tenant is not reachable or credentials are missing, report BLOCKED.
-  - description: The run can drive a real browser at a window width of 390 px in Kazakh.
-    check: system_seeded
-    detail: If no browser can be started at 390 px or the language cannot be set to Kazakh, report BLOCKED.
-  - description: >
-      Scenario 4 has been completed (uat-wb-one-change.xlsx is prepared and the previous load
-      with this file has been cancelled, so no quick_count document for this file is pending approval).
-    check: runner_prepared
-    detail: >
-      If a pending quick_count document from an earlier use of uat-wb-one-change.xlsx is waiting
-      for approval, approve or cancel it first so this scenario starts cleanly.
-  - description: >
-      UAT assumption (to be confirmed by the process owner): the Qoimeks QA tenant has the approval
-      rule for stock_quick_count / approve set to four_eyes: false (the administrator can approve
-      their own load). If this is not the case, the approval step (step 4) cannot be completed with
-      one actor; report NOT UAT-OBSERVABLE for step 4 and EO-003.
-    check: runner_prepared
-    detail: >
-      To verify: open the admin navigation, find "Approval rules" (or "Правила согласования"),
-      look for a row named "Quick count / Approve" and check that "Four eyes" reads "Off".
-      If it reads "On", mark step 4 as NOT UAT-OBSERVABLE.
-
+- description: >-
+    The Qoimeks QA tenant is reachable, the stock module is active, and the administrator's credentials are available.
+  check: system_seeded
+  detail: >-
+    If the tenant is not reachable or credentials are missing, report BLOCKED.
+- description: >-
+    The real browser can run at 390 px in Kazakh and retain screenshots.
+  check: system_seeded
+  detail: >-
+    If no browser can be started, report BLOCKED.
+- description: >-
+    Prepare uat-wb-one-change.xlsx with only one existing untracked article that has no non-zero stock anywhere
+    in the tenant, and one existing shelf place. Read all stock of the article first. Copy its exact article code
+    and name from the catalog and the place code from the location record. First sheet cells A1=Артикул; A2=the
+    observed article code, B2=its observed name, C2=1, H2=the observed place code; all other cells blank. Save these
+    exact cells as an xlsx file; no other data row. Select QOI-OU-1. Record the absence of a balance for this plain
+    key as book quantity 0, before any load.
+  check: runner_prepared
+  detail: >-
+    If no such article or place exists, or workbook creation is unavailable, BLOCKED-by-environment before any write.
+    Never choose a responsible-stock article. Retain the workbook bytes and observed identifiers in evidence; create
+    no new masters.
+- description: >-
+    No count order is open over the test key in QOI-OU-1. Read the count-order list and frozen-place state before
+    loading.
+  check: runner_prepared
+  detail: >-
+    If a count order covers the test key, BLOCKED-by-environment before writing. Do not complete or cancel somebody
+    else’s count to make this walk run.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    Before loading, read Approval rules and confirm the effective stock_quick_count approve rule is ON. The opening
+    rule OFF is unrelated. Scenario 4 is cancelled, and the unstocked article still has no non-zero stock.
+  check: runner_prepared
+  detail: >-
+    If the quick-count rule is OFF or cannot be read, the self-approval refusal is BLOCKED-by-environment; stop
+    before loading. Do not reconfigure it. If a second approver is needed for posting, BLOCKED-by-environment because
+    no such roster actor exists.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator signs in on the tenant's own address
-      (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 390 px wide and switches the
-      UI language to Kazakh.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator opens the "Excel-ден қалдықтарды жүктеу" screen (Load balances from Excel
-      in Kazakh), selects the same org unit as scenario 4, uploads uat-wb-one-change.xlsx and
-      presses "Тексеру" (Check in Kazakh).
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator reads the check result (1 change shown) and presses
-      "Файлдағы қалдықтарды жазу" (Write balances from the file in Kazakh).
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator navigates to their task inbox, finds the approval task for the new
-      quick-count document and completes it.
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      The administrator returns to the "Excel-ден қалдықтарды жүктеу" screen, selects the same
-      org unit, uploads uat-wb-one-change.xlsx again and presses "Тексеру".
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in to the synthetic QA tenant at 390 px, switches to Kazakh and opens the workbook import
+    page.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator selects QOI-OU-1, uploads uat-wb-one-change.xlsx, checks that book is 0, file is 1, difference
+    is 1 and remarks are 0, then loads the file. They record the document number and open its approval task in My
+    Tasks.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator attempts to approve their own new count through the task panel. If the completion control
+    is unavailable, record that control refusal without bypassing it.
+  expect_refusal: true
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator returns to the load history, cancels this load with the reason UAT test cancel, and reads
+    its state. They read the same plain balance key on Balances again, then restore English.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The import screen major labels appear in Kazakh on the phone.
-    verification:
-      method: gui_screen
-      detail: >
-        After step 1 the import screen heading reads "Excel-ден қалдықтарды жүктеу". The org-unit
-        selector label reads "Бөлімше". The file drop zone title reads ".xlsx файлды осында сүйреңіз".
-        The check button reads "Тексеру". The load button (once check is done) reads "Файлдағы
-        қалдықтарды жазу". No English word appears in the visible labels.
-      evidence: Screenshot of the import screen in Kazakh at 390 px.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        Bookkeepers who work in Kazakh see English or Russian labels on the main import tool.
-        The product is committed to full Kazakh localisation for the Qoimeks tenant.
-      suggested_action: route_to_frontend_dev
-  - id: EO-002
-    description: The load creates a document and shows the success message in Kazakh.
-    verification:
-      method: gui_screen
-      detail: >
-        After step 3, the screen shows the message "Жүктеу {number} нөмірлі құжатпен тіркелді.
-        Қалдықтар құжат бекітілгеннен кейін өзгереді." with a document number starting with "QCT"
-        and a link "Құжатты ашу" (Open document in Kazakh).
-      evidence: Screenshot of the load success message in Kazakh at 390 px.
-    on_fail:
-      severity: BLOCKER
-      business_impact: >
-        Loading the workbook does not create a document, or the success message is not in Kazakh.
-        Bookkeepers cannot apply the file balances to the stock.
-      suggested_action: route_to_wf03
-  - id: EO-003
-    description: After the administrator approves the task, the balances match the file.
-    verification:
-      method: system_state
-      detail: >
-        UAT assumption: four-eyes OFF. After step 4, the approval task is no longer in the inbox.
-        The balance of the test item at the test place in the chosen org unit equals the value in
-        uat-wb-one-change.xlsx (the original balance + 1). This may be verified on the balances
-        screen. If four-eyes is ON (the assumption does not hold), mark this outcome NOT
-        UAT-OBSERVABLE: the second user's approval cannot be performed with the current actor roster.
-      evidence: Screenshot of the balances screen showing the updated balance for the test item.
-    on_fail:
-      severity: BLOCKER
-      business_impact: >
-        The load is approved but balances are not updated. The core write path of the balance import
-        does not work, making the entire feature non-functional.
-      suggested_action: route_to_wf03
-  - id: EO-004
-    description: Re-checking the same file after approval returns 0 changes in Kazakh.
-    verification:
-      method: gui_screen
-      detail: >
-        After step 5, the check summary shows 0 under "Өзгерістер" (Changes in Kazakh), 0 under
-        "Ескертпелер" (Remarks in Kazakh), and the message "Файлда ағымдағы қалдықтардан
-        айырмашылық жоқ." (No balance differs from the file in Kazakh). The "Файлдағы қалдықтарды
-        жазу" button is not enabled.
-      evidence: Screenshot of the re-check result in Kazakh showing 0 changes.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        After a successful load and approval, the same file still shows changes. The balances
-        were not set to the file values; the import is not reliable.
-      suggested_action: route_to_wf03
+- id: EO-001
+  description: >-
+    The Kazakh check is readable at phone width.
+  verification:
+    method: gui_screen
+    detail: >-
+      At 390 px the heading is "Excel-ден қалдықтарды жүктеу"; the org-unit label is "Бөлімше" and the check button
+      is "Тексеру". The check shows book 0, file 1 and one change with no remarks. Controls are readable and reachable.
+    evidence: >-
+      Screenshot of the Kazakh check at 390 px, with the single change and counts.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The check does not detect a known one-unit difference. Bookkeepers cannot trust the check to identify what
+      the load will change before they commit to it.
+    suggested_action: route_to_wf03
+- id: EO-002
+  description: >-
+    Loading records an issued document and shows its link in Kazakh.
+  verification:
+    method: gui_screen
+    detail: >-
+      After loading the Kazakh success text contains the recorded document number and the link "Құжатты ашу". The
+      document is issued and not posted.
+    evidence: >-
+      Screenshot of the Kazakh load success, issued document and its number.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      Loading a workbook does not create a document. Bookkeepers cannot apply file balances to the stock.
+    suggested_action: route_to_wf03
+- id: EO-003
+  description: >-
+    The loader cannot self-approve with the quick-count rule ON.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 refuses self-approval through the task panel or makes its completion control unavailable. The document
+      remains issued, and the recorded balance is still absent or zero. No second actor is substituted.
+    evidence: >-
+      Task-panel refusal or disabled approval screenshot, issued document and unchanged balance evidence.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The load list does not show the pending import. Bookkeepers cannot track which imports are waiting for approval
+      or cancel an erroneous one.
+    suggested_action: route_to_wf03
+- id: EO-004
+  description: >-
+    Cancellation withdraws the unapproved load without moving balances.
+  verification:
+    method: gui_screen
+    detail: >-
+      After step 4 the history shows this load cancelled, its Cancel action is absent, and the key remains absent
+      or zero. Retain the cancellation and balance screenshots. The language is English again.
+    evidence: >-
+      Cancelled history entry and balance re-read, plus English restored.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A bookkeeper cannot cancel an erroneous load before it is approved. The document would proceed to approval
+      and change the wrong balances.
+    suggested_action: route_to_wf03

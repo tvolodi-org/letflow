@@ -1,3 +1,16 @@
+# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-import. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-import.
+# T-2190: run title UAT qoimeks-import; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2158 (BA): UAT walk for balance import and Excel load on the Qoimeks QA tenant.
 # REQ-884 (GH #4607): module stock checks a Qoimeks-layout balances workbook against the stock of one org unit,
 #   normalising look-alike letters and decimal commas, with Russian per-row warnings, and writes nothing.
@@ -14,94 +27,128 @@
 # NOT UAT-observable here: (a) the load write path: covered in scenarios 4 and 5;
 #   (b) a caller without StockQuickCount: the roster has no second actor for this realm.
 # Runner preparation: same uat-wb-exact.xlsx from scenario 1 (exact-match workbook for one org unit).
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-import-2-check-workbook-phone-ru
 scope: qoimeks-qa
-title: The administrator checks the balances workbook on a phone width in Russian, and the check summary and labels appear in Russian
-version: "1.0"
-tags: [qoimeks, import, check, phone, ru]
-
-description: >
-  On a 390 px phone-width window in Russian, the administrator navigates to the "Загрузка остатков
-  из Excel" page (Load balances from Excel), uploads the exact-match workbook (uat-wb-exact.xlsx)
-  for the same org unit as scenario 1, and presses "Проверить" (Check). The result shows
-  the check summary in Russian: the sheet name, the rows-read count, 0 changed rows and 0 remarks
-  ("В файле нет отличий от текущих остатков."). All major labels — the page title, the org-unit
-  selector label, the file drop zone, the summary fields and the check button — are in Russian.
-  The remarks hint explains that remarks are written in Russian when the server produces any.
+title: >-
+  The administrator checks the balances workbook on a phone width in Russian, and the check summary and labels appear
+  in Russian
+version: '1.1'
+tags:
+- qoimeks
+- import
+- check
+- phone
+- ru
+description: >-
+  On a 390 px phone-width window in Russian, the administrator navigates to the "Загрузка остатков из Excel" page
+  (Load balances from Excel), uploads the exact-match workbook (uat-wb-exact.xlsx) for the same org unit as scenario
+  1, and presses "Проверить" (Check). The result shows the check summary in Russian: the sheet name, the rows-read
+  count, 0 changed rows and 543 responsible-stock remarks ("В файле нет отличий от текущих остатков."). All major
+  labels — the page title, the org-unit selector label, the file drop zone, the summary fields and the check button
+  — are in Russian. The remarks hint explains that remarks are written in Russian when the server produces any.
   This scenario writes nothing.
-
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: >
-      The Qoimeks QA tenant is reachable and the administrator's credentials are available.
-      Scenario 1 has been completed so uat-wb-exact.xlsx is available.
-    check: system_seeded
-    detail: If the tenant is not reachable or credentials are missing, report BLOCKED for the whole scenario.
-  - description: The run can drive a real browser at a window width of 390 px in Russian.
-    check: system_seeded
-    detail: If no browser can be started at 390 px or the language cannot be set to Russian, report BLOCKED.
-
+- description: >-
+    The Qoimeks QA tenant is reachable and the administrator's credentials are available. Scenario 1 has been completed
+    so uat-wb-exact.xlsx is available.
+  check: system_seeded
+  detail: >-
+    If the tenant is not reachable or credentials are missing, report BLOCKED for the whole scenario.
+- description: >-
+    The run can drive a real browser at a window width of 390 px in Russian.
+  check: system_seeded
+  detail: >-
+    If no browser can be started at 390 px or the language cannot be set to Russian, report BLOCKED.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    Before checking, download a fresh unchanged whole-stock workbook through the Balances workbook button. Select
+    QOI-OU-1. Verify that this is the unchanged synthetic baseline of 726 data rows and 543 distinct stocked articles
+    with responsible balances, as recorded in issue #4696.
+  check: runner_prepared
+  detail: >-
+    Count the workbook rows and distinct stocked articles and read the matching balances before Check. If another
+    run has changed this baseline, report the fixed-count outcomes BLOCKED-by-environment and retain the observed
+    counts; do not change the fixture to force zero remarks.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator signs in on the tenant's own address
-      (https://qoimeks-qa.letflow.qa.bizdala.com) in a window 390 px wide. After signing in
-      they switch the UI language to Russian using the language switcher.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator opens the stock Balances screen and finds the "Загрузка остатков из Excel"
-      button (Load balances from Excel in Russian).
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator taps "Загрузка остатков из Excel" and arrives on the import screen.
-      They select the same org unit used in scenario 1, upload uat-wb-exact.xlsx and press
-      "Проверить" (Check in Russian).
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator reads the check result and the page labels in Russian.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa)
+    in a window 390 px wide. After signing in they switch the UI language to Russian using the language switcher.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens the stock Balances screen and finds the "Загрузка остатков из Excel" button (Load balances
+    from Excel in Russian).
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator taps "Загрузка остатков из Excel" and arrives on the import screen. They select the same org
+    unit used in scenario 1, upload uat-wb-exact.xlsx and press "Проверить" (Check in Russian).
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator reads the check result and the page labels in Russian.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The import screen title and main labels appear in Russian on the phone.
-    verification:
-      method: gui_screen
-      detail: >
-        After step 2 the browser navigates to admin/stock/workbook-import. The page heading reads
-        "Загрузка остатков из Excel". The org-unit selector label reads "Подразделение". The file
-        drop zone title reads "Перетащите .xlsx файл сюда". The check button reads "Проверить".
-        No English word appears in the visible text (titles, labels, placeholders, hints).
-      evidence: Screenshot of the import screen in Russian at 390 px before uploading.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        Bookkeepers who work in Russian see English labels on the main import tool. The product
-        is committed to full Russian localisation for the Qoimeks tenant.
-      suggested_action: route_to_frontend_dev
-  - id: EO-002
-    description: The check result is shown in Russian with 0 changes.
-    verification:
-      method: gui_screen
-      detail: >
-        After step 3 the check summary shows the sheet name and counts in Russian: the
-        "Прочитано строк" count matches the file, "Изменений" is 0, "Замечаний" is 0, and the
-        no-change message reads "В файле нет отличий от текущих остатков." The remarks section
-        shows the hint "Замечания описывают ошибки в файле и его данных." (the remarks are written
-        in Russian regardless of UI locale). No English word appears in the check result section.
-      evidence: Screenshot of the check result in Russian at 390 px.
-    on_fail:
-      severity: MAJOR
-      business_impact: >
-        The check result screen is not in Russian; bookkeepers cannot read the outcome of the check
-        in their working language.
-      suggested_action: route_to_frontend_dev
+- id: EO-001
+  description: >-
+    The import screen title and main labels appear in Russian on the phone.
+  verification:
+    method: gui_screen
+    detail: >-
+      During step 3, immediately after opening the import screen and before uploading the workbook, read the page.
+      The page heading reads "Загрузка остатков из Excel". The org-unit selector label reads "Подразделение". The
+      file drop zone title reads "Перетащите .xlsx файл сюда". The check button reads "Проверить". No English word
+      appears in the visible text (titles, labels, placeholders, hints).
+    evidence: >-
+      Screenshot of the import screen in Russian at 390 px before uploading.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Bookkeepers who work in Russian see English labels on the main import tool. The product is committed to full
+      Russian localisation for the Qoimeks tenant.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    The unchanged synthetic workbook gives zero changes and 543 responsible-stock remarks.
+  verification:
+    method: gui_screen
+    detail: >-
+      After step 3 the summary has 726 rows read, 0 changes and 543 remarks. Each remark explains in Russian that
+      the article is tracked separately by org units, responsible employees, lots or units and is left unchanged.
+      The no-change message is shown and the write button is disabled. The remarks hint is present because remarks
+      exist. The hint reads "Замечания описывают ошибки в файле и его данных." and the summary labels include "Прочитано
+      строк", "Изменений", "Замечаний".
+    evidence: >-
+      Screenshot of the check result in Russian at 390 px.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The check result screen is not in Russian; bookkeepers cannot read the outcome of the check in their working
+      language.
+    suggested_action: route_to_frontend_dev

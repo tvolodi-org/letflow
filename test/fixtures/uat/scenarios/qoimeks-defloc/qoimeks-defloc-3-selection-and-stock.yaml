@@ -11,6 +11,16 @@
 # document-header prefill, native phone or voice behaviour is a pass condition.
 # Sensitive actions: only other-company visibility is attempted below, as a refusal.
 # No approving, paying/releasing or user changes in these read-only synthetic-data walks.
+# T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 3 Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
+#   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
+#   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
+# 4 Data: needs an item WITH a usual place (none exists, issue 4708): BLOCKED-by-environment until the generator task merges.
+# 5 Executable: browser steps only; the refusal step now runs as the storekeeper (least role).
+# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-3-selection-and-stock
 scope: qoimeks-qa
@@ -20,13 +30,14 @@ tags: [qoimeks, default_location, selection, stock, desktop, phone_390, ru, kk, 
 description: >
   Compare the usual place with the same item's actual stock locations, then switch between
   an item with a usual place and one without it. Repeat in a real browser at 1440 px and
-  390 px, in Russian and Kazakh, light and dark. Capture both selected cards and the Related
-  stock section in each combination. No business records are written and no document is
+  390 px, in Russian and Kazakh, light and dark. Capture both selected cards and the
+  stock-by-location section in each combination. No business records are written and no document is
   posted. Cleanup returns to Items, clears search and selection, and restores the original
-  language and appearance. The administrator also attempts to open the platform's company
+  language and appearance. The storekeeper also attempts to open the platform's company
   list; the whole request must be refused.
 actors:
   admin: actor-qoimeks-qa-admin
+  storekeeper: actor-qoimeks-qa-storekeeper
 preconditions:
   - description: The synthetic QA tenant and its administrator are available in a real browser.
     check: system_seeded
@@ -41,7 +52,7 @@ preconditions:
       from synthetic import evidence or this administrator's read-only item query. Record the
       populated item's place code/name and its actual stock rows from the read-only stock
       query, following any pages. Choose a populated item with stock at a different place
-      when one exists. If none exists, still compare the actual rows but mark the different-place
+      when one exists. Known state on 2026-11-19 (issue 4708): no synthetic item has a usual place (scripts/pilot/qoimeks_gen.py never writes home_loc). Generator task to queue first: "qoimeks_gen: give a subset of the items a usual place (home_loc), including a few of the two-place items, regenerate and reload qoimeks-qa". If no item has a usual place, this scenario is BLOCKED-by-environment until that task has merged. If none exists, still compare the actual rows but mark the different-place
       contrast BLOCKED, not PASS. Missing either item blocks the selection comparison. Do not
       move stock, edit a place or create records to force this case.
 steps:
@@ -49,7 +60,7 @@ steps:
     actor: admin
     action: >
       Sign in to QA, set the current display combination, open Items and select the recorded
-      item with a usual place. Read Overview, then Related, and capture the usual place and
+      item with a usual place. Read the section «Обзор» (Russian) or «Шолу» (Kazakh), then the section «Остатки по местам хранения» (Russian) or «Сақтау орындары бойынша қалдық» (Kazakh), and capture the usual place and
       actual stock locations and quantities.
     via: ui
   - step: 2
@@ -63,19 +74,19 @@ steps:
     actor: admin
     action: >
       Return to the list and reopen the first item by its article code. Read its usual
-      place and Related stock rows again, then reload and capture the selected card.
+      place and the stock-by-location rows again, then reload and capture the selected card.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      Attempt to open the platform operator's company list by typing the address of the
+      Sign in as the storekeeper and attempt to open the platform operator's company list by typing the address of the
       tenants page under the admin section of this same QA host.
     via: ui
     expect_refusal: true
   - step: 5
     actor: admin
     action: >
-      Return to Items. After all display combinations, clear the search, close the card
+      Sign back in as the administrator if needed and return to Items. After all display combinations, clear the search, close the card
       and restore the initial language and appearance.
     via: ui
 expected_outcomes:
@@ -98,19 +109,19 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Related shows actual stock rows matching the recorded locations and quantities;
+        The stock-by-location section shows actual stock rows matching the recorded locations and quantities;
         a row at a different location remains at that location and is not relabelled as
-        the usual place. The Overview value stays the recorded assignment. Compare the
+        the usual place. The usual-place value stays the recorded assignment. Compare the
         visible rows with the same rows of the recorded stock results; if the screen
         indicates more rows, do not claim that the screenshot proves the whole balance list.
         Reading and switching cards does not change any of the compared quantities.
-      evidence: Before/after Related and Overview screenshots and stock comparison evidence; explicitly record an unavailable different-place contrast as BLOCKED.
+      evidence: Before/after stock-by-location and card screenshots and stock comparison evidence; explicitly record an unavailable different-place contrast as BLOCKED.
     on_fail:
       severity: MAJOR
       business_impact: A storage recommendation is mistaken for where stock actually exists.
       suggested_action: route_to_frontend_dev
   - id: EO-003
-    description: The customer administrator cannot inspect the platform's other companies.
+    description: An ordinary warehouse user cannot inspect the platform's other companies.
     verification:
       method: gui_screen
       detail: >
