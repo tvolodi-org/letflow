@@ -15,7 +15,7 @@
 # Requirements covered: REQ-728 (movements xlsx: sheet "movements" with one row per leg, sheet "report" with basis posting_seq and the time zone).
 # Sources: docs/requirements.yaml REQ-728 criterion 3 (header row entry_id, posting_seq, posting_time, event_time, cause, reverses_entry_id, reason_code, document_type, document_id, related_document_id, correlation_id, leg_no, sku, location, org_unit, responsible, lot, quantity, unit_ref, document_line_id, masked; report rows basis posting_seq, cutoff_seq, as_of empty, timezone Asia/Almaty, filters, ledger_seq empty, next_cursor);
 # web/src/modules/stock/register/MovementsPage.tsx (onExport saves stock-movements.xlsx with the screen's filters; the first page only); web/src/modules/stock/stockMessages.ts.
-# The movements of the synthetic tenant are the postings of the 603 opening balances (and any later ones); this scenario does not create a posting, so the reversal row of criterion 3 is checked only if the tenant already holds a reversal.
+# The movements of the synthetic tenant are the postings of the opening balances (and any later ones); this scenario does not create a posting, so the reversal row of criterion 3 is checked only if the tenant already holds a reversal.
 # Not UAT-observable, with reasons: (a) the reversal row (reverses_entry_id equal to the receipt's entry id) and the masked leg of a scoped reader: they need a reversal and a scoped reader that the synthetic data and the roster do not hold; covered by the router and file tests of REQ-728;
 # (b) the neutralising of values starting with = + - @: covered by the pure renderer test; (c) the refusals (API token 404, TASK_WORKER 403): no such actor in the roster.
 # Cleanup: none, read-only.
@@ -59,7 +59,8 @@ preconditions:
     If the file cannot be read, report BLOCKED for EO-002 and EO-003 and keep the screenshots.
 - description: >-
     Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
-    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
+    (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
   check: runner_prepared
