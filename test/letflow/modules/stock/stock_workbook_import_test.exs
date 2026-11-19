@@ -196,6 +196,39 @@ defmodule Letflow.Modules.Stock.StockWorkbookImportTest do
     end
   end
 
+  describe "round trip place codes (T-2287)" do
+    test "T-WI-2b an unchanged export of many place shapes reads back with no R11", ctx do
+      schema = ctx.a.schema_name
+      unit = Docs.unit!(schema)
+      uom = Cat.uom!(schema, "pcs")
+
+      codes =
+        ~w(LA3 RA1 RA12 RB7 RB10 O1 OO1 RO5 L A7 RA007 RB0 Z99 WH-01 LA 0)
+
+      sides =
+        Enum.map(codes, fn code ->
+          {code, S.side(unit, loc!(schema, code))}
+        end)
+
+      lines =
+        sides
+        |> Enum.with_index(1)
+        |> Enum.map(fn {{_code, side}, i} ->
+          item = Cat.item!(schema, "RT-#{i}", uom.record_id, %{"name" => "Товар #{i}"})
+          S.line(item.record_id, "#{i}", %{to: side})
+        end)
+
+      S.post!(schema, "receipt", %{document_id: "wbi-rt", lines: lines})
+
+      conn = S.get("/stock-workbook", ctx.tok_a)
+      assert conn.status == 200
+      answer = check(ctx, unit, conn.resp_body)
+      r11 = Enum.filter(texts(answer), &String.contains?(&1, "прочитано как"))
+      assert r11 == []
+      assert answer["changes"] == []
+    end
+  end
+
   # -- criterion 3 -------------------------------------------------------------------------------
 
   describe "normalising" do

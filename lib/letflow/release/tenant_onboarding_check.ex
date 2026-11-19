@@ -12,6 +12,8 @@ defmodule Letflow.Release.TenantOnboardingCheck do
   every stock process definition, document type and entity table, the platform role groups and
   STOREKEEPER members, the organisation/location/employee links, and the settings needed at first
   use. Shared-access, negative-balance and four-eyes values are information, not readiness gates.
+  A stock process definition is ready when it is active, or when it is still an untouched
+  module-owned draft that the first use activates (`Posting.ensure_active/3`, T-2253).
 
   ## Options
 
@@ -43,6 +45,8 @@ defmodule Letflow.Release.TenantOnboardingCheck do
   alias Letflow.ApprovalRules
   alias Letflow.BuildInfo
   alias Letflow.Definitions
+  alias Letflow.Definitions.OwnerStamp
+  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Documents.DocumentType
   alias Letflow.Identity
   alias Letflow.Identity.Group
@@ -377,7 +381,7 @@ defmodule Letflow.Release.TenantOnboardingCheck do
           check("process #{name}", {:fail, :reactivation_required}, "active=true")
 
         {:ok, {:error, :not_found}} ->
-          check("process #{name}", {:fail, :process_not_active}, "active=false")
+          draft_check(schema, name)
 
         _ ->
           check("process #{name}", {:fail, :read_failed}, nil)
@@ -387,6 +391,36 @@ defmodule Letflow.Release.TenantOnboardingCheck do
 
   defp process_checks(_schema, _),
     do: [check("stock process definitions", {:fail, :read_failed}, nil)]
+
+  # No active row: an untouched module-owned draft is ready (Posting.ensure_active activates it on
+  # first use, T-2253); anything else (no row, tenant-created or changed version) is not.
+  defp draft_check(schema, name) do
+    case guarded(fn -> draft_ready?(schema, name) end) do
+      {:ok, true} -> check("process #{name}", :ok, "active=false auto_activation=ready")
+      {:ok, false} -> check("process #{name}", {:fail, :process_not_active}, "active=false")
+      _ -> check("process #{name}", {:fail, :read_failed}, nil)
+    end
+  end
+
+  defp draft_ready?(schema, name) do
+    rows =
+      Repo.all(
+        from(d in ProcessDefinition,
+          where: d.name == ^name,
+          order_by: [desc: d.created_at, desc: d.id]
+        ),
+        prefix: schema
+      )
+
+    own? = fn row ->
+      case OwnerStamp.from_row(row) do
+        {:ok, %{module_id: "stock", body_hash: hash}} -> OwnerStamp.graph_hash(row.graph) == hash
+        _ -> false
+      end
+    end
+
+    match?([%{status: :draft} | _], rows) and Enum.all?(rows, own?)
+  end
 
   defp document_checks(schema, {:ok, keys}) do
     for key <- keys do

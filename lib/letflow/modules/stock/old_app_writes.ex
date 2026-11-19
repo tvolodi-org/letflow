@@ -32,9 +32,9 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   * Kind `adjustment` (a count) and a balance below zero answer as Letflow does today for the stock
     routes: `adjustment` is `invalid kind` (400); the negative-balance setting and the freeze guard
     refuse as they do for a personal account.
-  * The process definitions of the kinds must already be active (a personal account activates them on
-    first use, `Posting.ensure_active/3`); the shared access has no activator, so an inactive one is
-    refused `definition_not_active` (409) before any number is taken.
+  * Untouched module-owned process drafts are activated on first use by the internal stock activator
+    (`Posting.ensure_active/3`); the shared access needs no admin activation step. Tenant-created,
+    changed or deprecated definitions are refused `definition_not_active` (409) before a number is taken.
 
   ## The client operation id (T-2282, decision 0091 "Retry by client id")
 

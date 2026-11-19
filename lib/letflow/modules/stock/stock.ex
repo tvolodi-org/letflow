@@ -27,7 +27,7 @@ defmodule Letflow.Modules.Stock do
   and stamped at install) and the routes `post`, `reverse` and `cancel`. The issue step starts one
   `stock_receipt` instance; completing its task posts the receipt and writes a `posted` mark in one
   transaction. Install leaves the definitions as stamped drafts; the issue and reverse routes
-  activate them lazily with the request's own activator (`Letflow.Modules.Stock.Documents.Posting`).
+  activate untouched stock drafts lazily, using the internal stock activator when the caller lacks activation authority (`Letflow.Modules.Stock.Documents.Posting`).
   A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
   mark per document, so a second completion is refused and nothing is written.
 

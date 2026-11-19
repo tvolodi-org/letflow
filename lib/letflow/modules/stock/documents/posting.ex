@@ -32,11 +32,13 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   ## Lazy activation
 
-  Install leaves the pack's process definitions as module-stamped drafts and `InstallContext` has
-  no activator. `ensure_active/3` activates the draft with the REQUEST's activator (a signed act,
-  `Letflow.Definitions.activate/2`); it answers `:error` (the routes' 409 `definition_not_active`)
-  when there is no activator, it lacks `DefinitionsActivate` or `EntitiesRecordsWrite`, the
-  activation is refused, or an active definition of that name is not this module's.
+  Install leaves the pack's process definitions as module-stamped drafts. On first use,
+  `ensure_active/3` activates an unchanged stock draft with the request's activator when it has
+  authority, otherwise with the tenant-local stock process activator. This internal user has no
+  password, role, group or login-directory entry. Its authority exists only in this reviewed path,
+  after the closed process-name, ownership and body checks; it cannot activate tenant definitions.
+  The ordinary `Definitions.activate/2` validators, signed authority and activation audit still run.
+  Tenant versions, changed graphs, deprecated definitions and a deactivated system user fail closed.
 
   ## Read states
 
@@ -87,50 +89,141 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   @doc """
   Makes sure the module's process definition `name` is active, activating its stamped draft with
-  `activator` when needed. `:ok` or `:error`; never raises, logs the reason tag only.
+  `activator` when authorized, otherwise the internal stock activator. `:ok` or `:error`; logs reason tags only.
   """
   @spec ensure_active(String.t(), String.t(), map() | nil) :: :ok | :error
   def ensure_active(prefix, name, activator) when is_binary(prefix) and is_binary(name) do
-    case Definitions.get_active_by_name(name, prefix: prefix) do
-      {:ok, row} -> if stock_stamped?(row), do: :ok, else: :error
-      {:error, :not_found} -> activate_draft(prefix, name, activator)
-      _other -> :error
+    if name in (Kinds.definition_names() ++ [@reversal_definition, @count_definition]) do
+      case Repo.transaction(fn -> ensure_locked(prefix, name, activator) end) do
+        {:ok, :ok} -> :ok
+        {:error, _reason} -> :error
+      end
+    else
+      :error
+    end
+  rescue
+    _error -> :error
+  end
+
+  defp ensure_locked(prefix, name, activator) do
+    rows =
+      Repo.all(
+        from(d in ProcessDefinition,
+          where: d.name == ^name,
+          order_by: [desc: d.created_at, desc: d.id],
+          lock: "FOR UPDATE"
+        ),
+        prefix: prefix
+      )
+
+    case Enum.find(rows, &(&1.status == :active)) do
+      %ProcessDefinition{} = active ->
+        if stock_stamped?(active), do: :ok, else: Repo.rollback(:foreign_definition)
+
+      nil ->
+        with [draft | _] <- rows,
+             :draft <- draft.status,
+             true <- Enum.all?(rows, &stock_stamped?/1),
+             {:ok, authority} <- activation_authority(prefix, activator),
+             {:ok, _activated} <-
+               Definitions.activate(draft.id, prefix: prefix, activator: authority) do
+          :ok
+        else
+          {:error, reason} ->
+            Logger.warning("stock definition activation refused: #{inspect(tag(reason))}")
+            Repo.rollback(:activation_refused)
+
+          _refused ->
+            Repo.rollback(:activation_refused)
+        end
     end
   end
 
-  defp activate_draft(prefix, name, activator) do
-    with true <- activator?(activator),
-         %ProcessDefinition{id: id} <- stamped_draft(prefix, name),
-         {:ok, _activated} <- Definitions.activate(id, prefix: prefix, activator: activator) do
-      :ok
-    else
-      {:error, reason} ->
-        Logger.warning("stock definition activation refused: #{inspect(tag(reason))}")
-        :error
-
-      _refused ->
-        :error
-    end
+  defp activation_authority(prefix, activator) do
+    if activator?(activator), do: {:ok, activator}, else: system_authority(prefix)
   end
 
   defp activator?(%{permissions: permissions, entities_records_write?: true})
-       when is_list(permissions),
-       do: "DefinitionsActivate" in permissions
+       when is_list(permissions), do: "DefinitionsActivate" in permissions
 
-  defp activator?(_other), do: false
+  defp activator?(_), do: false
 
-  defp stamped_draft(prefix, name) do
-    Repo.one(
-      from(d in ProcessDefinition,
-        where: d.name == ^name and d.status == :draft and d.owner_module == "stock",
-        order_by: [desc: d.created_at],
-        limit: 1
-      ),
-      prefix: prefix
-    )
+  defp system_authority(prefix) do
+    # A fixed id prevents a pre-existing same-name tenant user from becoming the system activator.
+    # No memberships or credentials are created, and an existing inactive user is never reactivated.
+    id = "00000000-0000-0000-0000-000000007130"
+    username = "__stock_process_activator__"
+
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    {created, _} =
+      Repo.insert_all(
+        Letflow.Identity.User,
+        [
+          %{
+            id: id,
+            username: username,
+            display_name: "Stock process activator",
+            email: "stock-process-activator@system.invalid",
+            password_hash: "__NO_PASSWORD_SET__",
+            auth_source: :internal,
+            status: :active,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        prefix: prefix,
+        on_conflict: :nothing
+      )
+
+    with :ok <- audit_system_user(created, id, prefix),
+         %Letflow.Identity.User{
+           status: :active,
+           auth_source: :internal,
+           username: ^username,
+           password_hash: "__NO_PASSWORD_SET__"
+         } <-
+           Repo.get(Letflow.Identity.User, id, prefix: prefix),
+         [] <- Letflow.Identity.list_effective_role_names(id, prefix: prefix) do
+      {:ok,
+       %{
+         user_id: id,
+         roles: [],
+         permissions: ["DefinitionsActivate", "EntitiesRecordsWrite"],
+         entities_records_write?: true,
+         credential: "none"
+       }}
+    else
+      _refused -> {:error, :system_activator_unavailable}
+    end
   end
 
-  defp stock_stamped?(row), do: match?({:ok, %{module_id: "stock"}}, OwnerStamp.from_row(row))
+  defp audit_system_user(0, _id, _prefix), do: :ok
+
+  defp audit_system_user(1, id, prefix) do
+    case Letflow.Audit.insert_entry(
+           Repo,
+           %{
+             actor_id: nil,
+             action: "stock.process_activator_created",
+             resource_type: "user",
+             resource_id: id,
+             before_state: nil,
+             after_state: %{"username" => "__stock_process_activator__", "roles" => []}
+           },
+           prefix
+         ) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp stock_stamped?(row) do
+    case OwnerStamp.from_row(row) do
+      {:ok, %{module_id: "stock", body_hash: hash}} -> OwnerStamp.graph_hash(row.graph) == hash
+      _ -> false
+    end
+  end
 
   defp tag(reason) when is_tuple(reason) and tuple_size(reason) > 0, do: elem(reason, 0)
   defp tag(reason), do: reason

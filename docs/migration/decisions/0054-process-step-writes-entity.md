@@ -642,6 +642,27 @@ Rejected: (a) a pending request confirmed by an EDW holder needs a new table, ro
 inactive-until-activated step already gives a second EDW-keyed decision point. (c) module code only leaves
 tenant-authored packs with no path, and module-managed types are refused the flag by D4a.2(b) anyway.
 
+## Amendment (T-2253): stock-owned drafts may use a module-local system activator
+
+The owner-authorized T-2253 task permits a system activator for untouched stock definitions.
+`Stock.Documents.Posting.ensure_active/3` keeps lazy activation, including on existing installations;
+0052 D4's pack-install behavior is unchanged. This is a narrow exception to the interactive
+activator provenance of D4a and D6: the stock process activator is a tenant-local internal user with
+no password, role, membership or login-directory entry. The reviewed stock path constructs its
+activation authority only for the closed stock process-name list, after verifying the stock owner
+stamp and unchanged graph of every candidate version. It never supplies this authority to a
+request, tenant-authored process, declarative entity write, imported graph or script.
+
+Normal `Definitions.activate/2` semantic/module validation, HMAC signing and transactional
+`definition.activate` audit remain mandatory. The existing engine verifies the signature and active
+user on completion; ledger posting still checks the completer's own credential and stock permission.
+A deactivated internal user is never reactivated automatically. Tenant-created versions and changed,
+deprecated or archived candidates fail closed. A fixed internal user id prevents a pre-existing
+same-name tenant user from being adopted as the activator. No authorization role or policy changes.
+
+Independent security review is required before integration; this amendment records the implementation
+choice, not a reviewer sign-off.
+
 ## Amendment (T-1489 / assets G2): D6 handler UPDATE (`HandlerWrites.update/3`)
 
 A write handler could only create records (`create/3`) and post to the ledger (`post/3`). The assets card must follow a

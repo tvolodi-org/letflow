@@ -20,7 +20,6 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
   alias Letflow.Engine
   alias Letflow.Modules.Locations
-  alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Plugs.AuthAttemptLimit
   alias Letflow.Plugs.AuthAttemptLimit.Bucket
   alias Letflow.Repo
@@ -76,19 +75,6 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
         node2["record_id"],
         %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
       )
-
-    # The three kinds and the reversal are active (a personal account does that on first use).
-    activator = %{
-      user_id: ctx.holder.id,
-      roles: ["TENANT_ADMIN"],
-      permissions: ["DefinitionsActivate", "EntitiesRecordsWrite"],
-      entities_records_write?: true,
-      credential: "oidc"
-    }
-
-    for name <- ~w(stock_receipt stock_issue stock_transfer stock_reversal) do
-      assert :ok = Posting.ensure_active(schema, name, activator)
-    end
 
     [sku] = Map.values(IntIds.assign(schema, :sku, [m.item]))
     locs = IntIds.assign(schema, :location, [m.location, node2["record_id"]])
@@ -568,12 +554,12 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       assert P.pending_task(t.ctx, issue["id"], "post") == nil
     end
 
-    test "W-4 an inactive process definition is 409 before any number is taken", t do
+    test "W-4 a deprecated process definition is 409 before any number is taken", t do
       import Ecto.Query, only: [from: 2]
 
       Repo.update_all(
         from(d in Letflow.Definitions.ProcessDefinition, where: d.name == "stock_issue"),
-        [set: [status: :draft]],
+        [set: [status: :deprecated]],
         prefix: t.ctx.schema
       )
 

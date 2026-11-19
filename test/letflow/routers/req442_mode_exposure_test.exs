@@ -91,6 +91,7 @@ defmodule Letflow.Routers.Req442ModeExposureTest do
                  [
                    "branding",
                    "client_id",
+                   "company_found",
                    "default_locale",
                    "environment_kind",
                    "locales",
