@@ -83,7 +83,7 @@ expected_outcomes:
     description: The Russian zone word слева gives the place LA3.
     verification:
       method: api_response
-      detail: V1 answers 200; the transcript equals the sent phrase; the location is the place LA3.
+      detail: V1 answers 200; the transcript equals the sent phrase; the location object (id, code, name) has the code LA3; it is kept only if the words of the place that the model names occur in the phrase, otherwise the server drops it with the reason location_not_said.
       evidence: V1 body.
     on_fail:
       severity: MAJOR
@@ -93,7 +93,7 @@ expected_outcomes:
     description: The Russian spoken form эл а три gives the place LA3.
     verification:
       method: api_response
-      detail: V2 answers 200; the transcript equals the sent phrase; the location is the place LA3.
+      detail: V2 answers 200; the transcript equals the sent phrase; the location object (id, code, name) has the code LA3; it is kept only if the words of the place that the model names occur in the phrase, otherwise the server drops it with the reason location_not_said.
       evidence: V2 body.
     on_fail:
       severity: MAJOR
@@ -103,7 +103,7 @@ expected_outcomes:
     description: The Kazakh zone word сол жақ gives the place LA3.
     verification:
       method: api_response
-      detail: V3 answers 200; the transcript equals the sent phrase; the location is the place LA3.
+      detail: V3 answers 200; the transcript equals the sent phrase; the location object (id, code, name) has the code LA3; it is kept only if the words of the place that the model names occur in the phrase, otherwise the server drops it with the reason location_not_said.
       evidence: V3 body.
     on_fail:
       severity: MAJOR

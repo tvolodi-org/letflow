@@ -34,7 +34,7 @@ description: >-
   from the draft phrases; synthetic speech, no real person) once to the voice audio route with the language hint ru or kk.
   The real speech provider returns a transcript and the real model a draft; both are judged: the transcript by meaning against
   the phrase, the draft against the validated draft as PASS, PARTIAL or MISS. Every result is labelled synthetic audio, every
-  Kazakh result kk uncertain. Phone m4a and Safari audio are not tested. No document, count or balance changes.
+  Kazakh result kk uncertain. Phone m4a and Safari audio are not tested. No document, count or balance changes. Reading an answer: items is a list of objects with id, code and name (up to three when the name fits several items); location and to_location are objects with id, code and name, or null; quantity is decimal text ("100") or null, and zero is kept only for the kind count (otherwise dropped with bad_quantity); the "dropped" list names what the server check removed (unknown_item, unknown_location, location_not_said, to_location_not_transfer); to_location is filled for the kind transfer only; the server does not compare the quantity with the phrase, so a wrong quantity is judged PARTIAL by the reader.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:

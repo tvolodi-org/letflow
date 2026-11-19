@@ -32,7 +32,7 @@ description: >-
   each exactly once, with the real model of QA now on, and judges the kind, items, quantity and place of each draft against
   the validated draft as PASS, PARTIAL or MISS. The phrases ru-07 (place C-02) and kk-08 (place D-03) say a place the tenant
   does not have: the place is dropped (location empty). The phrases ru-09 and kk-10 are not stock entries and give kind unknown.
-  No document, count or balance changes. Kazakh results are labelled kk uncertain.
+  No document, count or balance changes. Kazakh results are labelled kk uncertain. Reading an answer: items is a list of objects with id, code and name (up to three when the name fits several items); location and to_location are objects with id, code and name, or null; quantity is decimal text ("100") or null, and zero is kept only for the kind count (otherwise dropped with bad_quantity); the "dropped" list names what the server check removed (unknown_item, unknown_location, location_not_said, to_location_not_transfer); to_location is filled for the kind transfer only; the server does not compare the quantity with the phrase, so a wrong quantity is judged PARTIAL by the reader.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:

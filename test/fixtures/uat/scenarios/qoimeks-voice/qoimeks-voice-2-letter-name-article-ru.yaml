@@ -83,8 +83,9 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V1 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the items list holds exactly the item BLT-M10-60 with quantity 12.
-        The location is expected to be A-02 (marked "verify" by the Qoimeks team: a different or empty location is recorded as an observation and is not a failure of this outcome).
+        V1 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the items list holds the item BLT-M10-60
+        (each entry carries id, code and name; the quantity is not inside an item) and the top-level quantity is "12" (decimal text).
+        The location is expected to be the place with code A-02 (marked "verify" by the Qoimeks team: a different or empty location is recorded as an observation and is not a failure of this outcome).
       evidence: V1 body.
     on_fail:
       severity: MAJOR
@@ -95,7 +96,9 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        V2 answers 200; the items list does not contain BLT-M10-60 (it may be empty or hold another item, and no item BLS-M10-60 exists to match).
+        V2 answers 200; the items list does not contain BLT-M10-60 (it may be empty or hold another item; the server drops a code the tenant does not have with the
+        reason unknown_item, and no item BLS-M10-60 exists to match). The server check does not compare the draft with the spoken letters, so a model that still
+        answers BLT-M10-60 is a MISS of the prompt, reported with the body.
       evidence: V2 body.
     on_fail:
       severity: MINOR
