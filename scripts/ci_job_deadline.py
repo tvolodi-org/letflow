@@ -3,7 +3,14 @@
 
 The first step records an absolute deadline with a 45-second reporting/cleanup
 reserve. This watchdog includes setup/compile time, unlike the runner's 1800s
-partition watchdog. GitHub's job timeout remains the final backstop. No retries.
+partition watchdog. GitHub's job timeout remains the final backstop.
+
+Retries (T-2224): only with `--retry-downloads`, used by the steps that download
+dependencies (mix deps.get, npm ci, flutter pub get, Gradle through flutter build).
+A failed command is run ONCE more, after a short pause, and only when its output matches
+a download/network pattern (DOWNLOAD_FLAKE_PATTERNS); a compile or test failure, or a
+timeout, is never retried. The pause and the second run count against the same job
+deadline. The retry is logged as `retry 1/1: <pattern>` and added to the step summary.
 """
 import glob
 import os
@@ -12,7 +19,29 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+
+# (label, regex) pairs; the label is what the log shows.
+DOWNLOAD_FLAKE_PATTERNS = [
+    ("Could not resolve", r"Could not resolve"),
+    ("Could not find", r"Could not find "),
+    ("Could not GET", r"Could not GET"),
+    ("Could not parse POM", r"Could not parse POM"),
+    ("timeout", r"(?i)timed? ?out|timeout"),
+    ("5xx", r"(?i)(HTTP(/\d(\.\d)?)? |status code |error: |response code: )5\d\d\b"),
+    ("ECONNRESET", r"ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection reset"),
+]
+RETRY_PAUSE_S = 15
+MIN_REMAINING_AFTER_PAUSE_S = 60
+
+
+def match_download_flake(text):
+    """Return the label of the first download/network pattern found in text, else None."""
+    for label, rx in DOWNLOAD_FLAKE_PATTERNS:
+        if re.search(rx, text):
+            return label
+    return None
 
 
 def unfinished_files():
@@ -51,20 +80,29 @@ def report():
             fh.write(message + "\n")
 
 
-def main():
-    command = sys.argv[1:]
-    if command[:1] == ["--"]:
-        command = command[1:]
-    deadline = os.environ.get("CI_JOB_DEADLINE_S")
-    if not deadline:
-        raise SystemExit("CI_JOB_DEADLINE_S missing; refusing an unbounded CI shell")
-    remaining = float(deadline) - time.time()
-    if remaining <= 0:
-        report()
-        return 124
-    child = subprocess.Popen(command, start_new_session=True)
+def run_once(command, remaining, capture):
+    """Run command within `remaining` seconds. Returns (code, tail_text, timed_out)."""
+    if not capture:
+        child = subprocess.Popen(command, start_new_session=True)
+        reader = None
+    else:
+        child = subprocess.Popen(command, start_new_session=True, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, text=True, errors="replace")
+    tail = []
+
+    def pump():
+        for line in child.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            tail.append(line)
+            del tail[:-500]
+
+    if capture:
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
     try:
-        return child.wait(timeout=remaining)
+        code = child.wait(timeout=remaining)
+        timed_out = False
     except subprocess.TimeoutExpired:
         # Report BEFORE termination so logs survive even if the child ignores TERM.
         report()
@@ -74,7 +112,47 @@ def main():
         except subprocess.TimeoutExpired:
             os.killpg(child.pid, signal.SIGKILL)
             child.wait()
+        code, timed_out = 124, True
+    if reader:
+        reader.join(timeout=5)
+    return code, "".join(tail), timed_out
+
+
+def note_retry(label):
+    message = f"retry 1/1: {label}"
+    print(message, flush=True)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write(f"{message} (download flake; step re-run once)\n")
+
+
+def main():
+    command = sys.argv[1:]
+    retry = False
+    if command[:1] == ["--retry-downloads"]:
+        retry, command = True, command[1:]
+    if command[:1] == ["--"]:
+        command = command[1:]
+    deadline = os.environ.get("CI_JOB_DEADLINE_S")
+    if not deadline:
+        raise SystemExit("CI_JOB_DEADLINE_S missing; refusing an unbounded CI shell")
+    remaining = float(deadline) - time.time()
+    if remaining <= 0:
+        report()
         return 124
+    code, tail, timed_out = run_once(command, remaining, retry)
+    if not retry or code == 0 or timed_out:
+        return code
+    label = match_download_flake(tail)
+    pause = float(os.environ.get("CI_RETRY_PAUSE_S", RETRY_PAUSE_S))
+    remaining = float(deadline) - time.time() - pause
+    if label is None or remaining < float(os.environ.get("CI_RETRY_MIN_REMAINING_S", MIN_REMAINING_AFTER_PAUSE_S)):
+        return code
+    note_retry(label)
+    time.sleep(pause)
+    code, _tail, _timed_out = run_once(command, float(deadline) - time.time(), True)
+    return code
 
 
 if __name__ == "__main__":

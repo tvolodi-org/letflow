@@ -77,6 +77,11 @@ suite, including exam and slow tests. Required check names stay
   which stops the command 45 seconds before the job limit,
   prints the job and unfinished shard files (running or pending without a partition
   `Result:`), and fails with exit 124. The reserve allows diagnostics and cleanup;
+  Dependency-download steps (`mix deps.get`, `npm ci`, `flutter pub get`, the Gradle-backed
+  `flutter build apk/web`) pass `--retry-downloads`: one retry after a 15 s pause, only when the
+  output matches a download/network pattern (`DOWNLOAD_FLAKE_PATTERNS`), logged as `retry 1/1: <pattern>`
+  and added to the step summary; a compile or test failure is never retried, and the pause and
+  second run count against the same job deadline (T-2224).
   GitHub's job timeout is the backstop, including for hung actions. Actions cancelled
   before a wrapped command cannot emit the watchdog's diagnostic. A timeout stays red:
   no retry or rerun-to-pass; shorten/split the selected tests or move overflow to nightly.

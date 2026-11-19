@@ -682,7 +682,7 @@ jobs:
 
       - name: Install dependencies
         if: needs.changes.outputs.backend != 'false'
-        run: mix deps.get
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- mix deps.get
 
       # Step 3 of the backend-gate speed-up (Q-1037 / GH #2364): the service database is a
       # throwaway used only by this job's tests, so crash durability buys nothing. fsync,
@@ -930,7 +930,7 @@ jobs:
 
       - name: Install dependencies
         if: needs.changes.outputs.backend != 'false' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
-        run: mix deps.get
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- mix deps.get
 
       # Step 3 of the backend-gate speed-up (Q-1037 / GH #2364): the service database is a
       # throwaway used only by this job's tests, so crash durability buys nothing. fsync,
@@ -1232,7 +1232,7 @@ jobs:
 
       - name: Install dependencies
         if: needs.changes.outputs.frontend != 'false'
-        run: npm ci
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- npm ci
 
       - name: Run frontend gate
         if: needs.changes.outputs.frontend != 'false'
@@ -1302,7 +1302,7 @@ jobs:
 
       - name: Install dependencies
         if: needs.changes.outputs.mobile != 'false'
-        run: flutter pub get
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- flutter pub get
 
       - name: Analyze
         if: needs.changes.outputs.mobile != 'false'
@@ -1320,7 +1320,7 @@ jobs:
 
       - name: Build debug APK
         if: needs.changes.outputs.mobile != 'false'
-        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter build apk --debug
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- flutter build apk --debug
       - name: Build web (PWA)
         if: needs.changes.outputs.mobile != 'false'
-        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- flutter build web --release
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- flutter build web --release
