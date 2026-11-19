@@ -17,21 +17,21 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
     assert Catalog.validate(Codes.manifest()) == :ok
   end
 
-  test "R-02: id codes, no dependencies, the three managed types, one write permission, no grants" do
+  test "R-02: id codes, no dependencies, the three managed types, one write permission, CodesRead for the storekeeper (T-2239)" do
     m = Codes.manifest()
     assert m.id == "codes"
-    assert m.version == "0.6.0"
+    assert m.version == "0.7.0"
     assert m.depends_on == []
     assert m.manages_entity_types == @types
     assert m.pack == "modules/codes/pack.json"
     assert m.permissions == [:CodesWrite, :CodesRead]
-    assert m.role_grants == %{}
+    assert m.role_grants == %{STOREKEEPER: [:CodesRead]}
   end
 
-  test "REQ-667 M1: one write permission, five route policies, the router, no role grants" do
+  test "REQ-667 M1: one write permission, five route policies, the router, CodesRead only for STOREKEEPER (T-2239)" do
     m = Codes.manifest()
     assert m.permissions == [:CodesWrite, :CodesRead]
-    assert m.role_grants == %{}
+    assert m.role_grants == %{STOREKEEPER: [:CodesRead]}
     assert m.depends_on == []
     assert Codes.router() == Letflow.Modules.Codes.Router
     assert length(m.route_policies) == 7

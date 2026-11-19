@@ -75,10 +75,11 @@ describe('role-based sidebar (golden-backed)', () => {
     ])
   })
 
-  it('N2 storekeeper: stock screens and My Tasks; Import data with exactly stock_opening_line; no org/users entry', () => {
+  it('N2 storekeeper: stock screens, Quick count and My Tasks; Import data with exactly stock_opening_line; no org/users entry', () => {
     const v = view(setFor('storekeeper'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
-    expect(v.labels).toEqual(['My Tasks', 'Reports', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Import data'])
+    // T-2239: Quick count is a storekeeper entry (StockQuickCount), the Excel load is not (StockWorkbookApply)
+    expect(v.labels).toEqual(['My Tasks', 'Reports', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Quick count', 'Import data'])
     expect(v.importTypes).toEqual(['stock_opening_line'])
   })
 

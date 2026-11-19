@@ -45,7 +45,7 @@ const WB_ACCESS = {
   info: {
     roles: [],
     platform_tenant: false,
-    permissions: ['StockQuickCount', 'StockRead', 'StockReverse'],
+    permissions: ['StockWorkbookApply', 'StockRead', 'StockReverse'],
   },
 }
 

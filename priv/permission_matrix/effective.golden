@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.6.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.21.0
+# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.22.0
 # roles: 9
-# permissions: 103
-# rows: 927
+# permissions: 104
+# rows: 936
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
 AGENT_RUNNER AssetsCardWrite false module:assets -
@@ -97,6 +97,7 @@ AGENT_RUNNER StockQuickCount false module:stock -
 AGENT_RUNNER StockRead false module:stock -
 AGENT_RUNNER StockReconcile false module:stock -
 AGENT_RUNNER StockReverse false module:stock -
+AGENT_RUNNER StockWorkbookApply false module:stock -
 AGENT_RUNNER TasksAssign false core -
 AGENT_RUNNER TasksComplete false core -
 AGENT_RUNNER TasksRead false core -
@@ -200,6 +201,7 @@ CANDIDATE StockQuickCount false module:stock -
 CANDIDATE StockRead false module:stock -
 CANDIDATE StockReconcile false module:stock -
 CANDIDATE StockReverse false module:stock -
+CANDIDATE StockWorkbookApply false module:stock -
 CANDIDATE TasksAssign false core -
 CANDIDATE TasksComplete false core -
 CANDIDATE TasksRead false core -
@@ -303,6 +305,7 @@ PLATFORM_ADMIN StockQuickCount true module:stock core
 PLATFORM_ADMIN StockRead true module:stock core
 PLATFORM_ADMIN StockReconcile true module:stock core
 PLATFORM_ADMIN StockReverse true module:stock core
+PLATFORM_ADMIN StockWorkbookApply true module:stock core
 PLATFORM_ADMIN TasksAssign true core core
 PLATFORM_ADMIN TasksComplete true core core
 PLATFORM_ADMIN TasksRead true core core
@@ -406,6 +409,7 @@ PROCESS_DESIGNER StockQuickCount false module:stock -
 PROCESS_DESIGNER StockRead false module:stock -
 PROCESS_DESIGNER StockReconcile false module:stock -
 PROCESS_DESIGNER StockReverse false module:stock -
+PROCESS_DESIGNER StockWorkbookApply false module:stock -
 PROCESS_DESIGNER TasksAssign false core -
 PROCESS_DESIGNER TasksComplete false core -
 PROCESS_DESIGNER TasksRead true core core
@@ -509,6 +513,7 @@ PROCESS_OPERATOR StockQuickCount false module:stock -
 PROCESS_OPERATOR StockRead false module:stock -
 PROCESS_OPERATOR StockReconcile false module:stock -
 PROCESS_OPERATOR StockReverse false module:stock -
+PROCESS_OPERATOR StockWorkbookApply false module:stock -
 PROCESS_OPERATOR TasksAssign true core core
 PROCESS_OPERATOR TasksComplete true core core
 PROCESS_OPERATOR TasksRead true core core
@@ -534,7 +539,7 @@ STOREKEEPER AttachmentsManage false core -
 STOREKEEPER AttachmentsRead false core -
 STOREKEEPER AuditRead false core -
 STOREKEEPER CatalogLotsWrite false module:catalog_items -
-STOREKEEPER CodesRead false module:codes -
+STOREKEEPER CodesRead true module:codes grant
 STOREKEEPER CodesWrite false module:codes -
 STOREKEEPER CurrenciesManage false core -
 STOREKEEPER DataExport false core -
@@ -608,10 +613,11 @@ STOREKEEPER SolutionOverridesManage false core -
 STOREKEEPER StockCountOrder true module:stock grant
 STOREKEEPER StockCountRecord true module:stock grant
 STOREKEEPER StockPost true module:stock grant
-STOREKEEPER StockQuickCount false module:stock -
+STOREKEEPER StockQuickCount true module:stock grant
 STOREKEEPER StockRead true module:stock grant
 STOREKEEPER StockReconcile false module:stock -
 STOREKEEPER StockReverse true module:stock grant
+STOREKEEPER StockWorkbookApply false module:stock -
 STOREKEEPER TasksAssign false core -
 STOREKEEPER TasksComplete true core core
 STOREKEEPER TasksRead true core core
@@ -715,6 +721,7 @@ TASK_WORKER StockQuickCount false module:stock -
 TASK_WORKER StockRead false module:stock -
 TASK_WORKER StockReconcile false module:stock -
 TASK_WORKER StockReverse false module:stock -
+TASK_WORKER StockWorkbookApply false module:stock -
 TASK_WORKER TasksAssign false core -
 TASK_WORKER TasksComplete true core core
 TASK_WORKER TasksRead true core core
@@ -818,6 +825,7 @@ TENANT_ADMIN StockQuickCount true module:stock core
 TENANT_ADMIN StockRead true module:stock core
 TENANT_ADMIN StockReconcile true module:stock core
 TENANT_ADMIN StockReverse true module:stock core
+TENANT_ADMIN StockWorkbookApply true module:stock core
 TENANT_ADMIN TasksAssign true core core
 TENANT_ADMIN TasksComplete true core core
 TENANT_ADMIN TasksRead true core core
@@ -921,6 +929,7 @@ TENANT_AUDITOR StockQuickCount false module:stock -
 TENANT_AUDITOR StockRead false module:stock -
 TENANT_AUDITOR StockReconcile false module:stock -
 TENANT_AUDITOR StockReverse false module:stock -
+TENANT_AUDITOR StockWorkbookApply false module:stock -
 TENANT_AUDITOR TasksAssign false core -
 TENANT_AUDITOR TasksComplete false core -
 TENANT_AUDITOR TasksRead true core core

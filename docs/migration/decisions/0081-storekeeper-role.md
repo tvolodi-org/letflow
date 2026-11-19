@@ -17,6 +17,16 @@ tenants derive from `roles/0`, so no migration is needed. Assignable to a user o
   `EntitiesRecordsImport`. No write, manage, export, token, user, role, module, settings or audit permission; no platform-scope one.
 * D-097: the asset grant (`AssetsRead`, `AssetsPost`) is deferred. A `role_grants` widening of a role already in the baseline is refused until per-tenant grant snapshots exist (D3 below; 0055 D7, open point 1 ruling 2026-10-15), so T-1339 delivered C19 without it. Once snapshots exist (or the owner amends 0055), it is a one-line addition to the assets manifest.
 
+### Note (T-2239, GH #4764, PM decision D-161, 2026-11-19): the quick count and the scan reach the storekeeper
+
+The real users of Client 1 are storekeepers (the owner's parity rule D-150), so the storekeeper must open and submit the quick count and
+scan on the phone. PM decision D-161 amends the grant split above, without rewriting it: stock 0.22.0 adds `StockQuickCount` to the
+STOREKEEPER `role_grants`, and codes 0.7.0 adds `CodesRead` (the scan resolve and the label print; `CodesWrite` stays off). `StockReconcile`,
+the assets atoms, record export and user, role, token and settings administration stay withheld. The approval of a quick count under
+four-eyes stays with another person. The Excel load of a balances workbook (`POST /stock-workbook/apply`) shared the quick-count permission;
+it now has its own `StockWorkbookApply`, held by TENANT_ADMIN and PLATFORM_ADMIN only, so the storekeeper counts without loading Excel.
+The widening passes the matrix check through the narrow signed exception recorded in 0055 D7 (amendment, D-161), not by weakening D3.
+
 ## D3: the permission-matrix tool
 
 A role absent from the baseline golden cannot be "widened". Its rows are reported as `{:added_new_role, role, perm}` core changes, which

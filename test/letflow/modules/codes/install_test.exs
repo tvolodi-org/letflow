@@ -146,10 +146,10 @@ defmodule Letflow.Modules.Codes.InstallTest do
       end
     end
 
-    test "TI-03: the manifest declares the write permission and routes, no role grant" do
+    test "TI-03: the manifest declares the write permission and routes, CodesRead for STOREKEEPER (T-2239)" do
       m = Letflow.Modules.Codes.manifest()
       assert m.permissions == [:CodesWrite, :CodesRead]
-      assert m.role_grants == %{}
+      assert m.role_grants == %{STOREKEEPER: [:CodesRead]}
       assert length(m.route_policies) == 7
     end
   end

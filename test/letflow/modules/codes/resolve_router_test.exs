@@ -113,7 +113,7 @@ defmodule Letflow.Modules.Codes.ResolveRouterTest do
       end
     end
 
-    test "H3 only TENANT_ADMIN and PLATFORM_ADMIN hold CodesRead" do
+    test "H3 TENANT_ADMIN, PLATFORM_ADMIN and (T-2239, codes 0.7.0) STOREKEEPER hold CodesRead; nobody else" do
       holders =
         "priv/permission_matrix/effective.golden"
         |> File.read!()
@@ -122,7 +122,25 @@ defmodule Letflow.Modules.Codes.ResolveRouterTest do
         |> Enum.filter(&match?([_role, "CodesRead", "true" | _], &1))
         |> Enum.map(&hd/1)
 
-      assert Enum.sort(holders) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
+      assert Enum.sort(holders) == ["PLATFORM_ADMIN", "STOREKEEPER", "TENANT_ADMIN"]
+    end
+
+    test "H4 T-2239: a STOREKEEPER token resolves a scan and prints labels but cannot write codes",
+         ctx do
+      tag = Fx.tag!(ctx.a.schema, "H4", %{"status" => "assigned"})
+      Fx.assign!(ctx.a.schema, tag, "location_node", ctx.node.record_id)
+      keeper = user!(ctx.a, ["STOREKEEPER"])
+
+      assert %{"status" => "assigned"} = ok!(resolve(keeper, "H4"), 200)
+      refute call("/labels", keeper, %{}).status == 403
+
+      for path <- [
+            "/receive",
+            "/#{Ecto.UUID.generate()}/release",
+            "/#{Ecto.UUID.generate()}/retire"
+          ] do
+        assert call(path, keeper, %{"idempotency_key" => "k"}).status == 403, path
+      end
     end
   end
 
