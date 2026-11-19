@@ -5,7 +5,7 @@
 # 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
 # 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-import.
-# T-2267 code-reading pass (PM 2026-11-19), EXPECTATION CORRECTIONS 4: (1) step 7 was marked expect_refusal but only looks at a missing button; the refusal of a second cancel exists only at the server (422 import_already_cancelled, not reachable from the screen, which hides Cancel for cancelled rows): step 7 is now a read, EO-005 says so; (2) the Cancel button needs StockReverse (TENANT_ADMIN holds it): stated; (3) the 'User' column shows a dash always (the list has no user name): kept, source WorkbookImportPage; (4) the document number is a link in the Number column (T-2238): stated.
+# T-2267 code-reading pass (PM 2026-11-19), EXPECTATION CORRECTIONS 4: (1) step 7 was marked expect_refusal but only looks at a missing button; the refusal of a second cancel exists only at the server (422 import_already_cancelled, not reachable from the screen, which hides Cancel for cancelled rows): step 7 is now a read, EO-005 says so; (2) the Cancel button needs StockReverse (TENANT_ADMIN holds it): stated; (3) the 'User' column shows the loader's name (T-2289; was a dash), source WorkbookImportPage; (4) the document number is a link in the Number column (T-2238): stated.
 # T-2190: run title UAT qoimeks-import; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
@@ -181,7 +181,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      After step 4, Previous loads shows the recorded document number as a link in the Number column, a dash in User, file uat-wb-one-change.xlsx,
+      After step 4, Previous loads shows the recorded document number as a link in the Number column, the name of the person who loaded in User (a dash only when the name cannot be resolved), file uat-wb-one-change.xlsx,
       Lines 1, Remarks 0 and state Issued. Cancel is available for this row (the administrator holds the reverse right).
     evidence: >-
       Screenshot of the imports list showing the new entry in state Issued.
