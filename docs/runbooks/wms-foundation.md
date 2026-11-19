@@ -567,11 +567,12 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     any ledger write, so there is one entry and one mark, the second task stays pending and the answer is a typed
     refusal, not the ledger's duplicate result. This also refuses a second completer and a changed quantity under
     the same operation id (`priv/modules/stock/entity_definitions/stock_posting_mark.json`, GH #3748).
-21. **The definitions are activated lazily.** Install leaves `stock_receipt` and `stock_reversal` as stamped drafts;
-    the first issue (and the first reverse) of a tenant activates its definition with the activator of that request
-    (`DefinitionsActivate` and `EntitiesRecordsWrite`), and answers 409 `definition_not_active` before any number is
-    taken when it cannot, or when an active definition of that name is not the module's
-    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+21. **The definitions are activated lazily.** Install leaves the ten stock processes as stamped drafts.
+    The first use activates an untouched stock draft with the request's activator when authorized, otherwise
+    with the tenant-local internal stock activator (T-2253). Shared-token and STOREKEEPER calls need no admin
+    activation step. Normal activation validation, signatures and audit still apply. A tenant-created version,
+    changed graph or deprecated definition is refused with 409 `definition_not_active` before a number is taken
+    (`lib/letflow/modules/stock/documents/posting.ex`; `stock-counts.md`, "Stock process activation").
 22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
     text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
     (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).

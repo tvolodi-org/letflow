@@ -41,6 +41,21 @@ defmodule Letflow.Modules.Stock.PostingTest do
   defp reason(conn, status), do: conn |> P.status!(status) |> Map.fetch!("reason")
 
   describe "lazy activation" do
+    test "SYS-3 a fresh storekeeper receipt issues and posts without an admin activation", ctx do
+      token = S.token(ctx, :a, ["STOREKEEPER"], sub: "fresh-storekeeper")
+      doc = D.request(:post, "/documents", token, D.body(ctx.ma)) |> P.status!(201)
+      issued = D.request(:post, "/documents/#{doc["id"]}/issue", token) |> P.status!(200)
+      assert issued["id"] == doc["id"]
+
+      user =
+        Repo.one!(from(u in Letflow.Identity.User, where: u.username == "fresh-storekeeper"),
+          prefix: ctx.schema
+        )
+
+      assert {:ok, _} = P.complete(ctx, P.pending_task(ctx, doc["id"], "post"), user: user)
+      assert P.get!(ctx, doc["id"])["state"] == "posted"
+    end
+
     test "B-ACT-1 the first issue activates stock_receipt and starts one instance", ctx do
       assert definition(ctx, "stock_receipt").status == :draft
       doc = P.issue!(ctx)
@@ -55,25 +70,13 @@ defmodule Letflow.Modules.Stock.PostingTest do
       assert definition(ctx, "stock_reversal").status == :draft
     end
 
-    test "B-ACT-2 B-ACT-3 an activator that cannot activate: 409 before a number is taken", ctx do
+    test "B-ACT-2 a caller without definition permissions uses the stock activator", ctx do
       doc = P.save!(ctx)
-      prefix = ctx.schema
-      actor = Ecto.UUID.generate()
-
-      no_perm = %{permissions: [], entities_records_write?: true, user_id: actor, roles: []}
-      no_write = %{permissions: ["DefinitionsActivate"], entities_records_write?: false}
-
-      for activator <- [nil, no_perm, no_write] do
-        assert {:error, :definition_not_active} =
-                 Documents.issue(prefix, doc["id"], actor, activator: activator)
-      end
-
-      assert P.get!(ctx, doc["id"])["state"] == "draft"
-      assert definition(ctx, "stock_receipt").status == :draft
-      # no number was taken: the next successful issue is number 1 of the year
-      issued = P.issue!(ctx, D.body(ctx.ma))
-      assert issued["number"] =~ "-000001"
-      assert issued["id"] != doc["id"]
+      assert {:ok, _} = Documents.issue(ctx.schema, doc["id"], ctx.holder.id)
+      row = definition(ctx, "stock_receipt")
+      assert row.status == :active
+      assert row.activated_by["roles"] == []
+      assert row.activated_by["user_id"] != ctx.holder.id
     end
   end
 

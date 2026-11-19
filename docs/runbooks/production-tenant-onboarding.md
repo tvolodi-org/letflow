@@ -165,6 +165,12 @@ on a replay counts as done; 422 `missing dependency` means the order was wrong: 
 
 **Rollback:** none (a failed install rolls itself back; uninstall is off by default).
 
+The stock process drafts activate on first use without an administrator step: test a shared-token
+receipt, then an issue, and a STOREKEEPER receipt on a fresh tenant. Each creates its document and
+reaches posting; check the `definition.activate` audit entry and that retrying creates no second
+activation entry. Tenant-created or changed definitions must remain untouched and return 409
+`definition_not_active`. See `stock-counts.md`, "Stock process activation".
+
 ### Step 8. Product check
 
 **Who:** infra only (release console).
@@ -193,6 +199,11 @@ Entity tables: `entity_stock_receipt`, `entity_stock_receipt_line`, `entity_stoc
 `entity_count_sheet_line`, `entity_count_entry`, `entity_count_signature`, `entity_count_freeze_location`,
 `entity_stock_posting_mark`, `entity_stock_opening`, `entity_stock_opening_line`, `entity_stock_quick_count`,
 `entity_stock_quick_count_line`.
+
+A stock process is ready when it is `active` and needs no reactivation, or when it is still an untouched
+module-owned draft that the first use activates (`active=false auto_activation=ready`). A missing,
+tenant-created, changed, deprecated or archived process is `process_not_active`: stop and review the tenant's
+definitions; never replace them by hand.
 
 **Check:** the header names tenant slug, build SHA and date; each check is one `OK`, `RED` or `INFO` line with a
 count or name and no personal data. The last line is `READY`, or `RED` followed by every failed check name. A
@@ -291,19 +302,30 @@ page. Each has a **Check**. Where a check names a screen and not a route, the sc
 
 ### Step 14. Stock process definitions
 
-**Who:** a SYSTEM actor or the LONG-TERM COMPANY ADMIN. NEVER the `<slug>-setup` account.
+**Who:** nobody for a fresh tenant: the product does it. The LONG-TERM COMPANY ADMIN only for the exception below.
+NEVER the `<slug>-setup` account.
 
-**Do:** activate ALL 10 stock process definitions: receipt, issue, transfer, return, handover, writeoff,
-reversal and count_posting by hand; opening and quick_count activate themselves on the first issue or count.
-Use `POST /api/v1/definitions/<id>/activate` (or `.../reactivate`) with the actor's own token. A definition is
-tied to the user who activated it: if that account is deactivated at handover (step 13), every definition it
-activated is flagged `needs_reactivation` and every post fails. Repeat the step after EVERY stock module
-upgrade (the upgrade brings new DRAFT definitions). Until T-2253 merges this is a manual step.
+**Do:** nothing for the ten stock process definitions (receipt, issue, transfer, return, handover, writeoff,
+reversal, count_posting, opening, quick_count). The first use of each activates its untouched module-owned draft
+through a tenant-local system activator that never expires, so the handover in step 13 does not flag it
+`needs_reactivation`; the activation is audited (`definition.activate`) and runs once. The same holds after
+every stock module upgrade (the new DRAFT versions activate on first use). A definition the tenant created or
+changed, or a deprecated one, is never touched: the post answers 409 `definition_not_active`; the company admin
+reviews it and activates it by `POST /api/v1/definitions/<id>/activate`. Details: `stock-counts.md`, "Stock
+process activation".
+
+**Existing tenant (for example one installed before T-2253, no walk yet):** run nothing by hand either: the
+first post activates the drafts. To have them active earlier, post one receipt and one issue with a
+STOREKEEPER token after the dump. Verify with `GET /api/v1/definitions` (status `active`, `needs_reactivation_at`
+null) and with the step 8 report (`OK process ...`). A definition that an admin activated by hand and that was
+flagged `needs_reactivation` stays that way: reactivate it with `POST /api/v1/definitions/<id>/reactivate`.
 
 **Check:** `GET /api/v1/definitions` lists the 10 stock definitions as active, and `needs_reactivation_at` is
-null on each; one known-item post succeeds.
+null on each; one known-item post succeeds. `stock_opening` and `stock_quick_count` stay DRAFT until their first
+use, so the four-eyes `PUT` for them answers 422 `not_a_four_eyes_step` before that first use: post one
+opening and one quick count first (before step 20).
 
-**Rollback:** none needed (reactivate by the same route).
+**Rollback:** none needed.
 
 ### Step 15. Storekeeper role in Keycloak
 
