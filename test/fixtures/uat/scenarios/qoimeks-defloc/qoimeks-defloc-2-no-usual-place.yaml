@@ -12,9 +12,9 @@
 # 390 px is a browser check, not native mobile/APK evidence.
 # No approval, pay/release, user change or real sensitive data; other-company refusal in scenario 3.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
-#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 1. Scope: scope is qoimeks-qa2 (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2,
+#   login UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*, added to actors.yaml by this task).
 # 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
@@ -23,7 +23,7 @@
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-2-no-usual-place
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: An item without a usual place remains readable and shows a dash
 version: "1.0"
 tags: [qoimeks, default_location, empty_field, desktop, phone_390, ru, kk, read_only]
@@ -34,13 +34,13 @@ description: >
   or modified. Cleanup clears the search, closes the card and restores the initial language
   and appearance. Do not clear an existing item's place just to provide this fixture.
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 preconditions:
   - description: The synthetic Qoimeks QA tenant and administrator are available in a real browser.
     check: system_seeded
     detail: >
-      Use only https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, account
-      QOIMEKS_QA_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*. Record the initial
+      Use only https://qoimeks-qa2.letflow.qa.bizdala.com, realm qoimeks-qa2, account
+      QOIMEKS_QA2_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*. Record the initial
       language and appearance. Missing credentials, tenant or browser means BLOCKED.
   - description: An active synthetic item is known to have no usual place assigned.
     check: system_seeded

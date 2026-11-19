@@ -10,8 +10,8 @@
 # (the Flutter mobile app is not driven by the UAT runner); the log never holding the phrase or the key (a unit test
 # captures the log). Desktop (1440 px) and phone (390 px) widths produce the same API response; this is an API-only scenario.
 # T-2192 rework (issues 4717, 4718; PM 2026-11-19): checks before this group is merged:
-# 1. Scope: scope is qoimeks-qa (tenant and realm exist).
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
+# 1. Scope: scope is qoimeks-qa2 (tenant and realm exist).
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
 # 3. Host and screens: API route of the stock voice typed phrase (docs/runbooks/stock-voice.md); no screen.
 # 4. Data: no catalog data is needed; with the language model off the route answers the transcript with notice llm_off (this is the passed path); the lists read in steps 1 and 7 exist on the synthetic tenant.
 # 5. Executable: HTTP steps only. Scenarios that need the speech or the language model are BLOCKED-by-keys: the provider keys
@@ -19,7 +19,7 @@
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-voice-1-typed-phrase-transcript-ru-kk
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator sends a typed phrase in Russian and Kazakh and receives its transcript back; nothing is stored
 version: "1.0"
 tags: [qoimeks, voice, api, ru, kk, transcript, provider-off]
@@ -32,7 +32,7 @@ description: >
   The route refuses a request with no text, a request with an extra field, and a request with the language "en".
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: >

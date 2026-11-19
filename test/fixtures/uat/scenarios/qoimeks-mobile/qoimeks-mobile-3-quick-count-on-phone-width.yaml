@@ -4,18 +4,18 @@
 #   REQ-856 (a phone-app Quick count screen with voice) is CANCELLED (owner 2026-11-16: typed count only), so "quick count on a phone" is the web screen at phone width in the phone's browser; the Android app and the PWA have no quick count screen
 #   (grep of apps/mobile/lib for "quick" on origin/main finds only the formal-count files count_*.dart and stock_*.dart, none a quick count screen).
 #   G15 voice (REQ-862 letter-name table, merged as build commit ac29bac1e; REQ-863 ElevenLabs provider, merged as build commit df10c01d2) acts on the voice draft of stock documents and counts, not on a quick count: not exercised here.
-# Not UAT-observable, with reasons:
+# Coverage notes (cases outside this walk and environment requirements):
 #   (a) Voice (speaking a count phrase): needs a microphone and a speech provider key; and the quick count has no voice input after REQ-856 was cancelled.
 #   (b) Scanning an item code with a phone camera into the item field: needs a camera; the screen also takes a typed code or a keyboard scanner, which is what this scenario types.
-#   (c) Posting the count (balance becomes the counted number): with four eyes on, a second user must approve, and the roster has one account for this tenant (actor-qoimeks-qa-admin) - so the posted balance, the movement entry and the reversal are NOT walked here; they are covered by tests of REQ-854 criteria 1, 2, 5 and 12.
+#   (c) Posting the count (balance becomes the counted number): with four eyes on, a second user must approve, and actor-qoimeks-qa2-storekeeper is available as a second user, with approval-task eligibility to be confirmed; this phone walk cancels its draft, so the posted balance, the movement entry and the reversal are NOT walked here; they are covered by tests of REQ-854 criteria 1, 2, 5 and 12.
 #   (d) A quick count refused count_in_progress or location_frozen: needs a formal count order opened on the synthetic data; not created by this scenario (it must not change counts of the tenant).
 # Cleanup: every run of this scenario issues exactly one quick count document and ends by cancelling it with the reason "UAT T-2165 cleanup". Cancelled documents cannot be deleted by the product: the document number and the cancel reason are written in the run's report. The balance of the key is never changed.
 # T-2204 rework (issue 4720, task #4740): the Quick count form has a 'Responsible employee' selector (default 'Unassigned stock'). Every seeded balance carries a responsible employee, so the run chooses the responsible of the Balances row it noted and compares B for that same key; there is no B = 0 fallback and no plain-key precondition.
-# Checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin (TENANT_ADMIN; no lower-role claim for quick count is made); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
+# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin (TENANT_ADMIN; no lower-role claim for quick count is made); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
 # 4 data: the synthetic balances all carry a responsible employee, handled by precondition 1 (the form's Responsible employee selector is set to that employee); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
 ---
 id: qoimeks-mobile-3-quick-count-on-phone-width
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator records one quick count at a phone width of 390 px and at 1440 px, sees the book quantity and the difference before and after submitting, cannot approve their own count alone, and cancels the test count
 version: "1.0"
 tags: [qoimeks, mobile, quick_count, phone, responsive, stock, refusal, cleanup]
@@ -30,7 +30,7 @@ description: >
   The whole run is repeated at 1440 px. Screens fit the 390 px width: nothing is cut off, no sideways scrolling is needed, no two controls overlap, and the form fields and buttons can be reached with a thumb-sized tap target.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: The Qoimeks QA tenant holds the synthetic stock data (read the item, place and balance counts at the start of the run and record them; the seed changes them), the stock module is active, and one balance row that is not lot-tracked or serial-tracked and has a positive quantity can be chosen.
@@ -52,7 +52,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, the Responsible employee of the row and B (the quantity of that row), and every other row of the combination with its Responsible value and quantity.
+      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, the Responsible employee of the row and B (the quantity of that row), and every other row of the combination with its Responsible value and quantity.
     via: ui
   - step: 2
     actor: admin

@@ -1,12 +1,12 @@
 # T-2192 (PM 2026-11-19): the Qoimeks team's voice phrases (a draft, nothing recorded; demo catalog, no customer data).
-# Checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API typed-phrase route only (docs/runbooks/stock-voice.md);
+# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 API typed-phrase route only (docs/runbooks/stock-voice.md);
 # 4 data: needs the demo catalog and places of the generator task T-2189 (option "voice demo"): BLOCKED-by-environment until merged and loaded;
 # the language model must be on: BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect, not counted against the group);
 # 5 HTTP steps only, every phrase literal; 6 uat.sh preflight not run by the writer (no QA credentials).
 # NOT UAT-observable: speech recognition (audio and keys). The expected result is the validated draft, not model accuracy.
 ---
 id: qoimeks-voice-5-demo-phrases-ru-kk
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The twenty demo phrases of the Qoimeks team in Russian and Kazakh give validated drafts and store nothing
 version: "1.0"
 tags: [qoimeks, voice, api, ru, kk, llm-on, blocked-by-keys, demo-catalog]
@@ -16,14 +16,14 @@ description: >-
   the quantity and the place of each draft against the demo catalog. No document or count is stored by any call.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
     check: system_seeded
     detail: >-
       Check first: the answer of phrase ru-01 carries the notice llm_off when the model is off. Then report the whole scenario BLOCKED-by-keys (not a defect). Do not change settings.
-  - description: The demo catalog and places of the generator task T-2189 (option "voice demo") are loaded into qoimeks-qa.
+  - description: The demo catalog and places of the generator task T-2189 (option "voice demo") are loaded into qoimeks-qa2.
     check: system_seeded
     detail: >-
       Read-only check: the active items (all pages) include BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3 and CBL-3x2.5,

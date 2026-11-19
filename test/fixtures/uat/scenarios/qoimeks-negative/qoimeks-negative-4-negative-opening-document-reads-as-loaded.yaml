@@ -1,4 +1,4 @@
-# T-2160 (BA), rework T-2191 (issues #4701, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issues #4701, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa2, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 7: a negative row moves as a negative opening line; one opening document does not mix signs),
 #   REQ-834 (the ledger accepts the negative opening line when the setting allows it), REQ-837 (converter writes negative lines into documents of their own; zero rows are skipped).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md sections 5 and 7; docs/requirements.yaml REQ-837 (converter criteria 1 to 3);
@@ -10,11 +10,11 @@
 #   (a) the converter (scripts/pilot/qoimeks_convert.py) writing the negative lines into files and skipping zero rows: a command-line tool; observable check is its report file and manifest, covered by test/scripts/qoimeks_rehearsal_test.exs; recorded as a GAP sidecar attached to a placeholder id (qoimeks-negative-converter-and-switched-off-refusal-checks), so this read-only walk is not excluded from the run (fix of #4701);
 #   (b) a header with a negative line refused while the setting is Refused (422 quantity_invalid): needs the setting switched off, which scenario 2 does not do; an API call by the admin after a switch would be the check, not run here;
 #   (c) a document mixing positive and negative lines being refused: the web form's behaviour on this input was not read; the check would be an API call by the administrator, and is not run in this walk, since it is a write;
-# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and repeats the read of the negative document and the balance (steps 7 and 8).
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) now exists in the roster and repeats the read of the negative document and the balance (steps 7 and 8).
 #   Source: docs/roles.md STOREKEEPER (the stock module: documents, balances, movements: StockRead).
 ---
 id: qoimeks-negative-4-negative-opening-document-reads-as-loaded
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator finds a posted opening balance document with a negative line and the same figure on the Balances screen
 version: "2.0"
 tags: [qoimeks, negative_balance, opening_balance, stock_documents, ru, kk, phone_390]
@@ -27,8 +27,8 @@ description: >
   Precondition risk: if the negative lines were loaded some other way (not as opening documents), the scenario reports BLOCKED and says what was found.
 
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The tenant's opening balances were loaded as posted documents of the kind Opening balance, and 3 negative lines exist in them (synthetic data); counts are read at the start of the run, not hard-coded.
@@ -40,7 +40,7 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
     check: system_seeded
     detail: >
       If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the administrator steps still run. If the storekeeper's Stock documents list does not hold the
@@ -50,7 +50,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents and finds the documents of the kind Opening balance.
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents and finds the documents of the kind Opening balance.
     via: ui
   - step: 2
     actor: admin
@@ -80,7 +80,7 @@ steps:
   - step: 7
     actor: storekeeper
     action: >
-      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, finds the same opening document that the administrator opened in step 2 and reads its status, the item, the place and the quantity of the negative line.
+      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, finds the same opening document that the administrator opened in step 2 and reads its status, the item, the place and the quantity of the negative line.
     via: ui
   - step: 8
     actor: storekeeper

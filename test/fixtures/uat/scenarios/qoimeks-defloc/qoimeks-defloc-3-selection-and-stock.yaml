@@ -3,7 +3,7 @@
 # web/src/modules/catalog_items/items/ItemsPage.tsx (selection, keyed ItemDetails),
 # ItemDetails.tsx (Overview default and Related balance locations are separate),
 # catalogItemsItemsMessages.ts; web/src/router.tsx platformPage + admin/tenants;
-# docs/roles.md TENANT_ADMIN; test/fixtures/uat/actors.yaml actor-qoimeks-qa-admin.
+# docs/roles.md TENANT_ADMIN; test/fixtures/uat/actors.yaml actor-qoimeks-qa2-admin.
 # NOT UAT-observable here: import writes/refusals, converter report/counts (REQ-842),
 # cross-tenant stock API negatives (only this tenant's admin supplied). Import outputs,
 # converter report.txt/expected_counts.txt and comparison files are their observable evidence.
@@ -12,9 +12,9 @@
 # Sensitive actions: only other-company visibility is attempted below, as a refusal.
 # No approving, paying/releasing or user changes in these read-only synthetic-data walks.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
-#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 1. Scope: scope is qoimeks-qa2 (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2,
+#   login UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*, added to actors.yaml by this task).
 # 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
@@ -23,7 +23,7 @@
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-3-selection-and-stock
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: Changing the selected item keeps its usual place separate from actual stock locations
 version: "1.0"
 tags: [qoimeks, default_location, selection, stock, desktop, phone_390, ru, kk, refusal]
@@ -36,14 +36,14 @@ description: >
   language and appearance. The storekeeper also attempts to open the platform's company
   list; the whole request must be refused.
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
   - description: The synthetic QA tenant and its administrator are available in a real browser.
     check: system_seeded
     detail: >
-      Use only https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, account
-      QOIMEKS_QA_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*. Record original language
+      Use only https://qoimeks-qa2.letflow.qa.bizdala.com, realm qoimeks-qa2, account
+      QOIMEKS_QA2_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*. Record original language
       and appearance. Missing browser, account or tenant means BLOCKED; never use real data.
   - description: Two existing synthetic items have independently recorded place assignments.
     check: system_seeded

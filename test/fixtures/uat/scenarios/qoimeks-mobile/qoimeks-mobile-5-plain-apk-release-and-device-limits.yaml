@@ -9,11 +9,11 @@
 #   (e) Which key signed the APK: the apksigner check is run by the release script on the build machine (docs/runbooks/mobile-android-release.md section 2); it is not visible in a browser. This scenario checks only the published files.
 #   The observable check for (a) to (d) is a person with an Android phone following docs/runbooks/mobile-android-release.md section 4 (install on a phone) by hand; the team does not run it, and this scenario does not claim it passed.
 # The download address is not in the repository: the operator (infra) gives it to the run. If none is given, the whole scenario is BLOCKED, not passed.
-# T-2192 rework (issue 4722; PM/infra 2026-11-19): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin (browser/HTTP client only); 3 host https://pwa.letflow.qa.bizdala.com/android/ ;
+# T-2192 rework (issue 4722; PM/infra 2026-11-19): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin (browser/HTTP client only); 3 host https://pwa.letflow.qa.bizdala.com/android/ ;
 # 4 data: no tenant data; the release files do not exist yet, so the scenario is BLOCKED-by-environment until the owner builds and publishes them; 5 browser and download steps; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-mobile-5-plain-apk-release-and-device-limits
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The QA download location of the plain Android APK publishes a readable release record and an APK whose checksum matches, and the on-phone install and sign-in are recorded as not observable here
 version: "1.0"
 tags: [qoimeks, mobile, apk, android, release, download, not_uat_observable]
@@ -26,14 +26,14 @@ description: >
   Nothing is installed and nobody signs in: see the list in the header. Cleanup: the downloaded APK is deleted from the run's folder at the end; nothing on the tenant is changed.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: The plain Android release is published at https://pwa.letflow.qa.bizdala.com/android/ (files qoimeks-qa-1.0.0-1.apk, qoimeks-qa-1.0.0-1.apk.sha256 and latest.json; the PWA itself is at https://pwa.letflow.qa.bizdala.com/) and is a build made after the G16 change (BLOCKED-by-environment until the owner builds and publishes it, issue 4722).
     check: system_seeded
     detail: >-
       Precondition check, read-only: latest.json at https://pwa.letflow.qa.bizdala.com/android/latest.json answers 200, and the APK file name it gives answers 200.
-      The files in release-out/ dated 2026-10-29 and 2026-10-30 are older than G16 and were built for the base address qoimeks-qa.ai-dala.com: they are not a valid release for this scenario; a latest.json that names such a build, or one that does not answer, means BLOCKED-by-environment (name issue 4722).
+      The files in release-out/ dated 2026-10-29 and 2026-10-30 are older than G16 and were built for the base address qoimeks-qa2.ai-dala.com: they are not a valid release for this scenario; a latest.json that names such a build, or one that does not answer, means BLOCKED-by-environment (name issue 4722).
       The owner builds it by docs/runbooks/mobile-android-release.md section 2 with --base-url https://pwa.letflow.qa.bizdala.com/android/ --api-base-url https://qa.bizdala.com --platform-host qa.bizdala.com --first-release. Do not substitute another location and do not build the app in the run.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px, can download a file, and can compute a SHA-256 checksum of a downloaded file.
     check: system_seeded

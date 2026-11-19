@@ -1,16 +1,16 @@
 # T-2129 (BA), rewritten in T-2182 (issue #4687): the tenant holds data, the first version assumed an empty tenant. QA only, no real data.
 # Decision (operator, 2026-11-19): the tenant keeps its data; the scenarios judge what is true with data.
 # The data is SYNTHETIC: the Qoimeks-shaped dataset of scripts/pilot/qoimeks_gen.py, seed 42 (666 items, 134 rack places plus 8 hierarchy nodes, 600 positive balance rows;
-# all fictitious, see that script's docstring). The size reported by the owner for qoimeks-qa is about 142 places, 666 items, 603 balances, 6-7 posted opening documents:
+# all fictitious, see that script's docstring). The size reported by the owner for qoimeks-qa2 is about 142 places, 666 items, 603 balances, 6-7 posted opening documents:
 # counts are NOT asserted exactly (the tenant may have gained or lost a few rows since); the scenario asserts "rows are shown".
 # Sources: web/src/modules/locations/locationsMessages.ts ('locations.tree.title': Locations), web/src/modules/catalog_items/catalogItemsItemsMessages.ts ('catalog_items.items.title': Items),
 # web/src/modules/stock/documents/documentsMessages.ts ('stock.doc.title': Stock documents), web/src/modules/stock/stockMessages.ts ('stock.balances.title': Balances),
 # web/src/modules/locations/locationsRoutes.tsx, catalog_items/catalogItemsRoutes.tsx, stock/stockRoutes.tsx (the screen paths).
-# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision), not a defect.
+# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision), not a defect.
 # Not UAT-observable here: exact row counts (see above); the error banner of a failed request cannot be forced from the roster, only its absence is judged.
 ---
 id: qoimeks-qa-2-screens-with-data-desktop
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: >-
   On a desktop width the locations, catalog items, stock documents and stock balances screens of the Qoimeks QA tenant open without an error and show rows of the synthetic dataset
 version: "2.0"
@@ -27,7 +27,7 @@ description: >
   (c) exact row counts: the tenant data may drift, only "rows are shown" is judged.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: >-
@@ -35,7 +35,7 @@ preconditions:
       (places, catalog items, stock balances and at least one posted stock document).
     check: system_seeded
     detail: If a module is not active, report BLOCKED for the steps of that module. If a screen shows an empty message instead of rows, that is a FAIL of its outcome (the data is promised), but first confirm the tenant was not reset; if it was reset, report BLOCKED.
-  - description: The administrator is able to sign in on the realm qoimeks-qa (see the first scenario of this group).
+  - description: The administrator is able to sign in on the realm qoimeks-qa2 (see the first scenario of this group).
     check: system_seeded
     detail: If sign-in fails, report BLOCKED for the whole scenario.
   - description: The run can drive a real browser at a window width of 1440 px, English language.
@@ -46,7 +46,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 1440 px wide, in English.
+      The administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 1440 px wide, in English.
     via: ui
   - step: 2
     actor: admin
@@ -119,7 +119,7 @@ expected_outcomes:
     description: Navigation by the menu is repeatable, and the top bar shows the tenant slug.
     verification:
       method: gui_screen
-      detail: Step 6 shows the locations screen with its rows again, the same as step 2. In every step the top bar shows the slug qoimeks-qa as the tenant name, which is accepted for this tenant.
+      detail: Step 6 shows the locations screen with its rows again, the same as step 2. In every step the top bar shows the slug qoimeks-qa2 as the tenant name, which is accepted for this tenant.
       evidence: Screenshots of step 6 and of the top bar.
     on_fail:
       severity: MINOR

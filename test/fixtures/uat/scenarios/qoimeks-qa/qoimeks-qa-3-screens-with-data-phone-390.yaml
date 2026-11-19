@@ -3,10 +3,10 @@
 # Sources: the same screens and titles as scenario qoimeks-qa-2-screens-with-data-desktop (web/src/modules/locations/locationsMessages.ts, catalog_items/catalogItemsItemsMessages.ts,
 # stock/documents/documentsMessages.ts, stock/stockMessages.ts); web/src/components/layout/AppShell.tsx (the side navigation of a narrow window).
 # The 390 px width is a browser window setting of the run, not a device test: no real phone is used.
-# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision).
+# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision).
 ---
 id: qoimeks-qa-3-screens-with-data-phone-390
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: >-
   On a phone width of 390 px the locations, catalog items, stock documents and stock balances screens of the Qoimeks QA tenant show rows, fit the width and can be reached by the menu
 version: "2.0"
@@ -21,7 +21,7 @@ description: >
   (b) the scanner of the stock count: it needs a count order that this smoke does not create; (c) exact row counts: only "rows are shown" is judged.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: >-
@@ -37,7 +37,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 390 px wide, in English, and reads the page that opens.
+      The administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2, because the host alone resolves to the default realm until issue 4686 is fixed) in a window 390 px wide, in English, and reads the page that opens.
     via: ui
   - step: 2
     actor: admin

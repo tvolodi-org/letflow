@@ -15,8 +15,8 @@
 # panel (Flutter app is not driven by the UAT runner). Desktop (1440 px) and phone (390 px) produce the same
 # API response; this is an API-only scenario.
 # T-2192 rework (issues 4717, 4718; PM 2026-11-19): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist).
-# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
+# 1 Scope: scope is qoimeks-qa2 (tenant and realm exist).
+# 2 Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
 # 3 Host and screens: API route of the stock voice typed phrase (docs/runbooks/stock-voice.md); no screen.
 # 4 Data: no catalog data is needed (the phrases name no article, so the items list may be empty); the language model must be on: BLOCKED-by-keys until the owner supplies the keys. The earlier mention of a dropped reason items_empty is removed: that reason does not exist.
 # 5 Executable: HTTP steps only. Scenarios that need the speech or the language model are BLOCKED-by-keys: the provider keys
@@ -24,7 +24,7 @@
 # 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-voice-4-qoimeks-kind-words-ru
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: When the language model is on, the Qoimeks kind words получил, отпустил, списал and по факту in a typed Russian phrase each produce the correct draft kind
 version: "1.0"
 tags: [qoimeks, voice, api, ru, kind-words, llm-on]
@@ -37,7 +37,7 @@ description: >
   the voice regression suite (voice_regression_test.exs R-1..R-9).
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: >

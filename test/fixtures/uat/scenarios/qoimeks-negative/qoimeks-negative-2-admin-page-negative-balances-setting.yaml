@@ -1,21 +1,21 @@
-# T-2160 (BA), rework T-2191 (issue #4702, folded minor): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issue #4702, folded minor): Qoimeks QA walk, negative balances. QA only (qoimeks-qa2, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 5: setting per registration, reason required), REQ-835 (route and permission to switch),
 #   REQ-839 (admin page "Negative balances": list, reason dialog, localized errors).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 5; docs/requirements.yaml REQ-839;
 #   web/src/pages/admin/ledger-settings/ledgerSettingsMessages.ts (all texts below); web/src/router.tsx (page guarded by the permission LedgerSettingsManage);
-#   docs/roles.md and the actor roster (actor-qoimeks-qa-admin is TENANT_ADMIN).
+#   docs/roles.md and the actor roster (actor-qoimeks-qa2-admin is TENANT_ADMIN).
 # Not UAT-observable here, with reasons:
 #   (a) saving a change: the scenario never saves, because switching the setting changes how the whole QA tenant posts and the three negative rows were loaded under "Allowed"; a saved switch would need switching back, and the audit entry it writes cannot be removed. The saved path is covered by component tests of REQ-839 and backend tests of REQ-835;
 #   (b) the audit entry of a change: not shown on a screen of this page (the audit log screen exists, but nothing is saved here);
 #   (c) a scoped grant of the administrator role and a non-interactive credential are refused by the handler (router test LS-5 of the backend); no roster actor holds such a grant.
-# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and walks the refusals (steps 8 to 10).
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) now exists in the roster and walks the refusals (steps 8 to 10).
 #   Sources for the refusals: web/src/router.tsx (the page sits under RequirePermission with LedgerSettingsManage; a user without it sees PermissionDenied), web/src/components/ui/feedbackMessages.ts
 #   (texts, en/ru/kk), web/src/components/layout/AppShell.tsx (the navigation entry carries the same permission), lib/letflow/routers/ledger_settings.ex (GET / needs LedgerSettingsManage tenant-wide),
 #   test/letflow/routers/ledger_settings_test.exs LS-4 (a STOREKEEPER gets 403 on both routes), docs/roles.md STOREKEEPER ("Must not: ... administer ... settings"; LedgerSettingsManage is TENANT_ADMIN only).
 # UAT assumption, to be confirmed by the process owner: the stock register of the tenant currently reads "Allowed" because the negative opening lines were loaded (runbook docs/runbooks/qoimeks-rehearsal.md step 5). If it reads "Refused" the steps still run; the dialog texts differ (refuse versus allow) and EO-002 is checked against the text of the opposite switch.
 ---
 id: qoimeks-negative-2-admin-page-negative-balances-setting
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator reads the Negative balances page and cannot save a switch without a reason
 version: "2.0"
 tags: [qoimeks, negative_balance, admin, ru, kk, phone_390, refusal]
@@ -28,8 +28,8 @@ description: >
   is refused the page and the read behind it (steps 9 and 10).
 
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The stock module is installed and declares the negative balance setting, so the list holds one row for the stock register.
@@ -41,7 +41,7 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in.
     check: system_seeded
     detail: >
       If the sign-in of this account fails, report steps 8 to 10 as BLOCKED-by-environment (account missing or
@@ -51,7 +51,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and opens the "Negative balances" page from the admin section of the side navigation.
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px and opens the "Negative balances" page from the admin section of the side navigation.
     via: ui
   - step: 2
     actor: admin
@@ -87,7 +87,7 @@ steps:
   - step: 8
     actor: storekeeper
     action: >
-      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and looks through the side navigation, admin section included, for the entry "Negative balances".
+      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px and looks through the side navigation, admin section included, for the entry "Negative balances".
     via: ui
   - step: 9
     actor: storekeeper

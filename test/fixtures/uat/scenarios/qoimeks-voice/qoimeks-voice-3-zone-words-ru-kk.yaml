@@ -12,7 +12,7 @@
 # NOT UAT-observable: the speech recognition step (requires real audio); the prompt text itself (server-internal;
 # tested by voice_prompt_test.exs VP-1..VP-5); the mobile voice panel (Flutter app is not driven by the UAT runner).
 # Desktop (1440 px) and phone (390 px) produce the same API response; this is an API-only scenario.
-# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API route only (docs/runbooks/stock-voice.md);
+# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 API route only (docs/runbooks/stock-voice.md);
 # 4 data (T-2206, P17): the seed has the places A-01 A-02 A-03 B-01 B-02 C-01 RAMP LA3 (zone-coded place named «Слева A 3») and the demo items; it has NO place RA3.
 # The scenario uses LA3 only; step 1 reads the locations list and the scenario is BLOCKED-by-environment if LA3 is missing. Right-zone phrases were removed, because no place exists to resolve them to;
 # the second Russian step uses the other spoken form of the same place (эл а три);
@@ -20,7 +20,7 @@
 # 5 HTTP steps only; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-voice-3-zone-words-ru-kk
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: When the language model is on, Russian and Kazakh zone words in a typed phrase resolve to the place with the matching zone letter
 version: "1.1"
 tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on, blocked-by-keys]
@@ -32,7 +32,7 @@ description: >
   The expected result is the validated draft, not model accuracy.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).

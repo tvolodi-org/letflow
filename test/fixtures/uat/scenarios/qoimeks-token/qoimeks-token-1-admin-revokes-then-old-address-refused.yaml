@@ -1,58 +1,58 @@
 # T-2163 (BA): the old shared token. The Qoimeks QA administrator creates the tenant's shared stock access, the old-app address accepts it, the administrator revokes it through the API, then the same address refuses it. QA only, synthetic data, never the real tenant.
 # REQ ids covered: REQ-857 (decision 0091 sections 2 to 4, 8.1), REQ-858 (create, status, revoke; AC 1, 3, 6), REQ-859 (read at the old address, same 401 for every unproven request; AC 1, 2). REQ-861 (a screen for it) is cancelled: there is no screen.
-# Sources opened: docs/requirements.yaml REQ-857..861; docs/migration/decisions/0091-shared-stock-access.md sections 3, 4.3, 6, 8.1, 11a; docs/runbooks/pilot-rollout.md "Old Qoimeks app address" items 1 to 3; docs/runbooks/auth-rate-limits.md "The old-app address"; test/fixtures/uat/actors.yaml (actor-qoimeks-qa-admin).
+# Sources opened: docs/requirements.yaml REQ-857..861; docs/migration/decisions/0091-shared-stock-access.md sections 3, 4.3, 6, 8.1, 11a; docs/runbooks/pilot-rollout.md "Old Qoimeks app address" items 1 to 3; docs/runbooks/auth-rate-limits.md "The old-app address"; test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin).
 # NOT UAT-observable in a browser: the create, status and revoke calls and the old-app reads carry an Authorization header, which a browser address bar cannot send, and the product has no screen for them (REQ-861 cancelled). Every such step is via: api; the observable check is the HTTP status and body of each call. The browser-visible part (the address without a value, the Tokens page) is in qoimeks-token-4.
 # NOT UAT-observable: the audit entries shared_stock_access.created and shared_stock_access.revoked (REQ-858 AC 6): the roster has no actor that reads the audit view of this tenant. The posting of a movement with the revoked value is not walked: a defect would write a real stock document; the refusal for a revoked value is checked on reads (same 401 for every unproven request, REQ-859 AC 2).
 # Cleanup: the scenario creates the tenant's shared access and ends by revoking it, so the tenant ends as it began (no shared access). No stock row is written.
 # T-2192 rework (issues 4713, 4714, 4715): checks before this group is merged:
-# 1. Scope: scope is qoimeks-qa (tenant and realm exist).
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
+# 1. Scope: scope is qoimeks-qa2 (tenant and realm exist).
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa2-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
 # 3. Host and screens: the tenant host answers; the management calls live under the identity mount of the API (the runbook docs/runbooks/pilot-rollout.md item 2 omits that mount, issue 4713: a product-doc fix, not a scenario fix); the old-app prefix /qoimeks/ is NOT routed to the backend on QA yet (issue 4715), see precondition 2.
-# 4. Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
+# 4. Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa2 (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
 # 5. Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-token-1-admin-revokes-then-old-address-refused
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator creates the shared stock access, the old-app address accepts it, the administrator revokes it, and the same address then refuses it
 version: "1.0"
 tags: [qoimeks, shared_stock_access, revoke, old_app_address, refusal, api]
 
 description: >
-  On the Qoimeks QA tenant (https://qoimeks-qa.letflow.qa.bizdala.com) the administrator creates the tenant's shared stock access with an empty request, so that the
+  On the Qoimeks QA tenant (https://qoimeks-qa2.letflow.qa.bizdala.com) the administrator creates the tenant's shared stock access with an empty request, so that the
   system generates the value (noted as V1; it is shown once, in the answer to the create call). A status read shows that one exists, when it was created and by whom, and no value.
-  The old-app address of the tenant (the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa) answers a read of the item catalog when V1 is presented as a bearer value; the number of items is noted
+  The old-app address of the tenant (the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2) answers a read of the item catalog when V1 is presented as a bearer value; the number of items is noted
   (synthetic data: compared with the Items screen total read at the start of the run). The administrator then revokes the shared access: the answer is "no content" (204). The same catalog read with V1 is now refused with the one refusal every unproven request gets
   (401, body text "invalid or expired bearer token"); it is the same answer, byte for byte, as for a made-up value (noted as W, a 64-character value of letters a to f that was never issued). A status read shows
   that none exists. A second revoke is refused as "nothing to revoke" (404). A new create afterwards gives a different value V2 and is revoked again at the end, so the tenant ends with no shared access.
   Not exercised, with reasons: a second company's administrator and the other roles (no roster actor for this realm besides the administrator; see qoimeks-token-3 for the other-address checks); a posting with the revoked value (see header).
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
-  - description: The QA deployment lists qoimeks-qa for the shared stock access (BLOCKED-by-environment until infrastructure enables it, issue 4714).
+  - description: The QA deployment lists qoimeks-qa2 for the shared stock access (BLOCKED-by-environment until infrastructure enables it, issue 4714).
     check: system_seeded
     detail: >
       Before any other step the administrator reads the status of the tenant's shared stock access: the answer must be 200 with enabled true.
-      Enabled false means the deployment setting does not list qoimeks-qa; report BLOCKED-by-environment for every step that needs the access
+      Enabled false means the deployment setting does not list qoimeks-qa2; report BLOCKED-by-environment for every step that needs the access
       and name issue 4714; do not count it against the group. Infrastructure lists the tenant in the deployment setting and redeploys the backend.
-  - description: The old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa reaches the backend, not the web app (BLOCKED-by-environment until the QA ingress routes the /qoimeks/ prefix on both QA hosts, issue 4715).
+  - description: The old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 reaches the backend, not the web app (BLOCKED-by-environment until the QA ingress routes the /qoimeks/ prefix on both QA hosts, issue 4715).
     check: system_seeded
     detail: >
-      Host used by this scenario: the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa (called <base>), which is another host than the tenant host https://qoimeks-qa.letflow.qa.bizdala.com used for the administrator's own calls. Precondition check on <base>: GET <base>/balances sent without any token must answer 401 (the plain refusal); at the time of writing both hosts answer 401. If <base> does not answer 401, report BLOCKED-by-environment and say which host answered what. 
+      Host used by this scenario: the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 (called <base>), which is another host than the tenant host https://qoimeks-qa2.letflow.qa.bizdala.com used for the administrator's own calls. Precondition check on <base>: GET <base>/balances sent without any token must answer 401 (the plain refusal); at the time of writing both hosts answer 401. If <base> does not answer 401, report BLOCKED-by-environment and say which host answered what.
       Precondition check: the balances read of the base address (the address followed by /balances), sent with no Authorization header at all, must answer 401 with the plain refusal
       "invalid or expired bearer token". A 200 page of text/html ("Completing sign-in..." or "Redirecting to login...") means the request fell through to the web app:
       report BLOCKED-by-environment for every step that uses the old-app address and name issue 4715. The same prefix on the tenant host
-      https://qoimeks-qa.letflow.qa.bizdala.com is routed by the same infrastructure change; use the base address above as the canonical one.
+      https://qoimeks-qa2.letflow.qa.bizdala.com is routed by the same infrastructure change; use the base address above as the canonical one.
       Every presentation of a value at this address is one Authorization header written as the word Bearer, one space, and the value; a value sent without the word Bearer is a different (refused) request and is not used in this scenario.
-  - description: The tenant slug qoimeks-qa is listed in the deployment setting that allows a shared stock access (LETFLOW_SHARED_STOCK_ACCESS_TENANTS), the tenant is active and has the stock module installed.
+  - description: The tenant slug qoimeks-qa2 is listed in the deployment setting that allows a shared stock access (LETFLOW_SHARED_STOCK_ACCESS_TENANTS), the tenant is active and has the stock module installed.
     check: system_seeded
     detail: Read the status first. If it says "not enabled", report BLOCKED for the whole scenario and say the deployment setting does not list the tenant (the owner or the operator lists it; QA only).
   - description: The tenant has NO shared stock access yet (the status read says none exists) and the tenant's scope enforcement is off.
     check: system_seeded
     detail: If one already exists, report BLOCKED for the whole scenario, because creating a new one would replace the value the pilot phones hold and the revoke at the end would remove it. Do not delete it to make the scenario run.
-  - description: The tenant holds the synthetic stock data (the item and place counts are read at the start of the run) and the administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+  - description: The tenant holds the synthetic stock data (the item and place counts are read at the start of the run) and the administrator account can sign in (variables UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*).
     check: system_seeded
     detail: If sign-in is refused for a correct password or the credentials are missing, report BLOCKED for the whole scenario.
 
