@@ -12,6 +12,9 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
   `to_location_not_transfer`, `negative_quantity`, and `bad_quantity` (zero on a kind other than count; added
   by D2a, section 4 lists no reason for it). Location words are tested before the code, so a code the
   tenant does not have with words absent from the phrase gives `location_not_said`.
+  GH 4829 guard: a count with no stated quantity, or any entry with no quantity whose phrase is a question
+  or a look-up request, is downgraded to kind `unknown` with no items (reasons `count_without_quantity`,
+  `question_not_entry`).
   Known gaps (design section 5): the quantity is not compared with the transcript; a wrong code with the
   right words is kept.
   """
@@ -79,7 +82,7 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
 
     {quantity, d5} = check_quantity(answer["quantity"], kind)
 
-    %{
+    draft = %{
       kind: kind,
       items: kept_items,
       location: location,
@@ -88,7 +91,38 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
       transcript: transcript,
       dropped: d1 ++ d2 ++ d3 ++ d4 ++ d5
     }
+
+    guard_not_an_entry(draft)
   end
+
+  # GH 4829: a question or a request to look something up is not a stock entry, and a count needs a
+  # stated counted quantity. Deterministic guard after the model: such a draft becomes `unknown` with no
+  # items, places or quantity (the reason stays in `dropped`, so the screen can show a notice).
+  defp guard_not_an_entry(%{kind: kind, quantity: nil} = draft) when kind != "unknown" do
+    cond do
+      question?(draft.transcript) -> downgrade(draft, "question_not_entry")
+      kind == "count" -> downgrade(draft, "count_without_quantity")
+      true -> draft
+    end
+  end
+
+  defp guard_not_an_entry(draft), do: draft
+
+  defp downgrade(draft, reason) do
+    %{
+      draft
+      | kind: "unknown",
+        items: [],
+        location: nil,
+        to_location: nil,
+        quantity: nil,
+        dropped: draft.dropped ++ [drop("kind", draft.kind, reason)]
+    }
+  end
+
+  @question ~r/\?|(^|[^\p{L}])(сколько|посмотри|покажи|скажи|подскажи|проверь|узнай|какой|какая|какое|какие|где|қанша|қарашы|көрсет|айтшы|қандай|қайда)([^\p{L}]|$)/u
+
+  defp question?(transcript), do: Regex.match?(@question, String.downcase(transcript))
 
   defp check_kind(kind) when kind in @kinds or kind == "unknown", do: {kind, []}
   defp check_kind(kind), do: {"unknown", [drop("kind", kind, "unknown_kind")]}

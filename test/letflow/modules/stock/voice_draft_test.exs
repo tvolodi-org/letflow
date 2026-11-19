@@ -274,4 +274,41 @@ defmodule Letflow.Modules.Stock.VoiceDraftTest do
 
     assert VoiceDraft.check(parsed, "x", @catalog).quantity == "100"
   end
+
+  describe "GH 4829 not an entry" do
+    test "VD-Q1 a question classed as count becomes unknown with no items" do
+      d =
+        run(
+          [kind: "count", item_codes: ["NUT-M8"], location_words: nil],
+          "посмотри, сколько осталось гаек"
+        )
+
+      assert d.kind == "unknown"
+      assert d.items == []
+      assert d.quantity == nil
+      assert Enum.any?(d.dropped, &(&1.reason == "question_not_entry"))
+    end
+
+    test "VD-Q2 a count without a quantity becomes unknown" do
+      d = run([kind: "count", item_codes: ["NUT-M8"]], "пересчитал гайки")
+      assert d.kind == "unknown"
+      assert d.items == []
+      assert Enum.any?(d.dropped, &(&1.reason == "count_without_quantity"))
+    end
+
+    test "VD-Q3 a count with a stated quantity (also zero) is kept" do
+      assert %{kind: "count", quantity: "12"} =
+               run([kind: "count", item_codes: ["NUT-M8"], quantity: 12], "гаек двенадцать")
+
+      assert %{kind: "count", quantity: "0"} =
+               run([kind: "count", item_codes: ["NUT-M8"], quantity: 0], "гаек ноль")
+    end
+
+    test "VD-Q4 a Kazakh question is unknown; a receipt with quantity is kept" do
+      assert %{kind: "unknown"} = run([kind: "issue", item_codes: ["NUT-M8"]], "гайка қанша")
+
+      assert %{kind: "receipt"} =
+               run([kind: "receipt", item_codes: ["NUT-M8"], quantity: 5], "приход гайка пять")
+    end
+  end
 end
