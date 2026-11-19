@@ -110,6 +110,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  "GET /definitions/search",
                  "GET /help/resolved",
                  "GET /labels",
+                 "GET /me",
                  "GET /me/access",
                  "GET /me/memberships",
                  "GET /me/modules",
@@ -318,6 +319,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) ==
                Enum.sort([
                  {"GET", "/:id/attachments/:attachment_id/link-content", :tenant_wide},
+                 {"GET", "/", :self_service},
                  {"GET", "/memberships", :self_service},
                  {"GET", "/modules", :self_service},
                  {"GET", "/access", :self_service},
