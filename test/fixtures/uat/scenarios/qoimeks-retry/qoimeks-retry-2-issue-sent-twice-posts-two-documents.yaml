@@ -1,3 +1,4 @@
+# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2161 (BA), rework T-2191 (issues #4703, #4704, #4707): qoimeks-retry group, scenario 2. QA only, no real data.
 # Covers REQ-859 (old-app address reads, build #4664) and REQ-860 (old-app address writes, build #4666).
 # Decision 0091 section 9 notes that retry deduplication by client id on the old-app address
@@ -123,7 +124,7 @@ steps:
   - step: 4
     actor: admin
     action: >
-      The test runner sends an issue to the old-app address for ITEM-RETRY-I2, quantity 3,
+      Before the first send the test runner maps the item and the place to the integer ids the old-app address needs: it reads the catalog call (GET /catalog) and the balances call (GET /balances) of the old-app address with Authorization: Bearer V1 and takes the integer sku_id of the item and the integer location_id of the place from them. The old-app post puts the stock under the place's first linked org unit and under the first active employee of the tenant as responsible, while every seeded balance carries its own responsible; so the runner picks an item and a place whose balance row has that first active employee as responsible, and the place must be linked to the org unit QOI-OU-1 (otherwise the post is refused 422 location_not_linked: then pick another place). If no such row exists, the runner compares totals per item and place (all responsible rows of that item at that place added together) before and after, never a single row.  Every balance named B0, B1 or BFINAL in this walk is the total per item and place (all responsible rows added), read the same way each time. The test runner sends an issue to the old-app address for ITEM-RETRY-I2, quantity 3,
       from the noted place, operator name "Тест-повтор", client id I-RETRY-2 (the `id` field in the
       JSON body), presenting V1 as the bearer credential (the word Bearer followed by the value).
       The answer is noted as A1.
