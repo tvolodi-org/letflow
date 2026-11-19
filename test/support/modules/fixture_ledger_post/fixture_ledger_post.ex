@@ -100,6 +100,20 @@ defmodule Letflow.Modules.FixtureLedgerPost do
         args: %{"posting" => %{required: true}},
         posts_ledger: "alpha",
         reads: ["fxlp_note"]
+      },
+      # REQ-901: handlers that refuse with a typed code (kept last: tests take the first handler).
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "refuse_alpha",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :refuse},
+        targets: ["fxlp_note"],
+        args: %{"note" => %{required: true}, "code" => %{required: true}},
+        posts_ledger: "alpha"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "refuse_plain",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :refuse},
+        targets: ["fxlp_note"],
+        args: %{"note" => %{required: true}, "code" => %{required: true}}
       }
     ],
     ledger: %{

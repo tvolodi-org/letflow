@@ -13,6 +13,19 @@ defmodule Letflow.Modules.FixtureLedgerPost.Handlers do
 
   alias Letflow.Entities.HandlerWrites
 
+  # REQ-901: the same return from a posting and a non-posting registration.
+  def refuse(_multi, _ctx, %{"code" => "record_version_conflict"}),
+    do: {:error, {:refused, :record_version_conflict}}
+
+  def refuse(_multi, _ctx, %{"code" => "master_inactive"}),
+    do: {:error, {:refused, :master_inactive}}
+
+  def refuse(_multi, _ctx, %{"code" => "something_else"}),
+    do: {:error, {:refused, :something_else}}
+
+  def refuse(_multi, _ctx, %{"code" => "not_permitted"}), do: {:error, :not_permitted}
+  def refuse(_multi, _ctx, %{"code" => "invalid_arguments"}), do: {:error, :invalid_arguments}
+
   @spec post_alpha(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
           {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
   def post_alpha(multi, ctx, args), do: note_and_post(multi, ctx, args, "fixture_ledger_post")
