@@ -31,6 +31,7 @@ PARALLEL_GATEWAY, TIMER, SUB_PROCESS. What the picture does with each piece:
 | HUMAN_TASK | `role`, `assignee_type`, `assignee_ref` | SHOWN: sub-line (role, else assignee_ref); listed in details |
 | HUMAN_TASK | `form_schema` | SUMMARISED: "Form: N fields", keys and titles (at most 12); schema bodies and `x-ui` expressions are never rendered |
 | HUMAN_TASK | `validation_script_key` | SUMMARISED: key only |
+| HUMAN_TASK | `required_permission` (a permission atom the completer must hold, decision 0093) | IGNORED: carried through unchanged; the server checks it when the task is completed |
 | HUMAN_TASK | `distinct_from` (four-eyes rule) | SUMMARISED: "Must differ from: <step labels>" |
 | HUMAN_TASK / SERVICE_TASK | `module_writes` | SUMMARISED: handler names only (`post_document`, ...); `args` are never shown |
 | SERVICE_TASK | `service_id` | SUMMARISED: "Service: <id>" |

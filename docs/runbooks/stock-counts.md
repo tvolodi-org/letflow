@@ -363,3 +363,21 @@ A print of the order for the field, to count on paper and type in later. `GET /a
 The document service accepts an issuing org unit only when it is in the core scope tree
 (`Letflow.ScopeNodePaths`, filled by the org import). An org unit made by another route and not in the
 tree makes `issue` answer 422 `request_refused` (the document service refused; the reason is logged by tag only); the draft stays a draft.
+
+## Who may approve, post and reverse (stock 0.23.0, decision 0093 F2)
+
+The approve, post and reverse tasks of the stock processes (`stock_receipt`, `stock_issue`, `stock_writeoff`,
+`stock_transfer`, `stock_handover`, `stock_return`, `stock_opening`, `stock_quick_count`, `stock_count_posting`,
+`stock_reversal`) carry `required_permission: StockApprove`. The `role` label (TENANT_ADMIN) only decides whose My Tasks
+shows the task. A caller without `StockApprove` (the storekeeper) is refused on claim and on completion with the
+not-found answer, also after the task was reassigned to them. `GET /api/v1/modules/stock/approval-access` answers 200
+`{"can_approve": true}` to a holder and 403 to anyone else.
+
+* Nothing is granted by the upgrade: TENANT_ADMIN and PLATFORM_ADMIN hold `StockApprove` through the catch-all; no role
+  grant, no data migration.
+* **Existing tenants (operator).** Process definitions are pinned per instance and the pack's definitions are installed
+  with the module, so a tenant that installed stock before 0.23.0 keeps the old nodes (addressing only; the storekeeper is
+  still refused by the TENANT_ADMIN label) until its stock process definitions are replaced by those of the 0.23.0 pack.
+  This is reported, not automated: running tasks of old pinned definitions finish as they are.
+* Assigning `StockApprove` to a tenant-defined role (a warehouse manager who is not the tenant admin) is not possible yet:
+  tenant-defined roles are not built and `Authorization.grantable/0` lists only the two assets atoms for STOREKEEPER.

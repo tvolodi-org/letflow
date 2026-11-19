@@ -8,7 +8,7 @@ export const MODULE_ATOMS_TENANT_ADMIN = [
   'DataExport', 'DocumentHold', 'DocumentsRetentionManage', 'EntitiesExtensionsManage', 'EntitiesRecordsImportAnyType', 'EntitiesViewsManage', 'ExamGradingRead', 'ExamGradingWrite',
   'IntegrationMappingsManage', 'LabelsManage', 'LedgerSettingsManage', 'LocationsWrite', 'NotificationTemplatesManage', 'NumberSequencesManage',
   'OfficialFormTemplatesManage', 'OrgEmployeesWrite', 'OrgStructureWrite', 'PhotosAdd', 'PhotosDelete', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
-  'ProcurementRequestWrite', 'ScheduledJobsManage', 'StockCountOrder', 'StockCountRecord', 'StockPost', 'StockQuickCount', 'StockRead', 'StockReconcile',
+  'ProcurementRequestWrite', 'ScheduledJobsManage', 'StockApprove', 'StockCountOrder', 'StockCountRecord', 'StockPost', 'StockQuickCount', 'StockRead', 'StockReconcile',
   'StockReverse', 'StockWorkbookApply', 'TasksReadAll', 'TasksReassignRouted', 'TenantSecurityManage',
 ]
 

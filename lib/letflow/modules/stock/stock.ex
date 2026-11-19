@@ -321,6 +321,15 @@ defmodule Letflow.Modules.Stock do
   `grants_widening` entry below, exactly `{STOREKEEPER, StockQuickCount}` at 0.22.0, and the check stays strict for
   every other widening. The approval of a quick count under four-eyes stays with another person (TENANT_ADMIN).
   OQ-11 of decision 0073 stays open.
+
+  `StockApprove` (0.23.0, T-2329, decision 0093 F2): "may approve a count, post a held stock document or complete a
+  stock reversal task that another person prepared". Held by TENANT_ADMIN and PLATFORM_ADMIN through the catch-all,
+  NOT in the STOREKEEPER `role_grants`, assignable to a tenant role. The post, approve and reverse HUMAN_TASK nodes of
+  the pack name it as `required_permission`, which `Letflow.Tasks` checks on claim and completion whoever the task is
+  addressed to (the `role` label only routes). `GET /approval-access` is its route: it writes nothing and answers
+  whether the caller holds it. No widening: nothing is granted by the upgrade. The new node attribute is in the
+  `1.0.0` process definitions of the pack, which are installed with the module; a tenant that installed stock earlier
+  keeps its pinned definitions (addressing only) until its stock processes are re-created from the pack.
   """
 
   @behaviour Letflow.Modules.Module
@@ -433,7 +442,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.22.0",
+    version: "0.23.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -446,7 +455,8 @@ defmodule Letflow.Modules.Stock do
       :StockCountOrder,
       :StockCountRecord,
       :StockQuickCount,
-      :StockWorkbookApply
+      :StockWorkbookApply,
+      :StockApprove
     ],
     role_grants: %{
       STOREKEEPER: [
@@ -486,6 +496,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-workbook", :StockRead},
       {"POST", "/stock-workbook/check", :StockRead},
       {"POST", "/stock-workbook/apply", :StockWorkbookApply},
+      {"GET", "/approval-access", :StockApprove},
       {"GET", "/stock-workbook/imports", :StockRead},
       {"POST", "/stock-workbook/imports/:id/cancel", :StockReverse},
       {"POST", "/documents/:id/post", :StockPost},

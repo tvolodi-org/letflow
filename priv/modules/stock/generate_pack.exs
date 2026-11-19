@@ -223,6 +223,7 @@ process_definition = fn id, key, node, handler, names ->
           "node_type" => "HUMAN_TASK",
           "attributes" => %{
             "role" => "TENANT_ADMIN",
+            "required_permission" => "StockApprove",
             "module_writes" => [
               %{"module" => "stock", "handler" => handler, "args" => posting_args.(names)}
             ]
@@ -259,6 +260,7 @@ two_step_definition = fn id, key, handler, names, submit_role ->
           "node_type" => "HUMAN_TASK",
           "attributes" => %{
             "role" => "TENANT_ADMIN",
+            "required_permission" => "StockApprove",
             "distinct_from" => ["submit"],
             "module_writes" => [
               %{"module" => "stock", "handler" => handler, "args" => posting_args.(names)}
