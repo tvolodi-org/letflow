@@ -19,6 +19,7 @@ import { meApi } from '@/api/me'
 import { canManageTenants } from './access/access'
 import { resetTenantConfigCache, resolveRealmFromUrl } from './tenantConfig'
 import { fetchTenantTypeForSlug } from './tenantType'
+import { resolveOwnTenantDisplayName } from './tenantDisplayName'
 import { isEmailFirstLoginEnabled } from './emailFirstFlag'
 import { buildRedirectArgs } from './oidcRedirectArgs'
 
@@ -58,6 +59,9 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
       console.error('[AuthProvider] Could not resolve tenant display name', tenantSlug)
       // a failed lookup leaves tenantDisplayName null, so the slug is shown below
     }
+  } else if (tenantSlug) {
+    // T-2291: any other session reads its own tenant's display name from its own memberships.
+    tenantDisplayName = await resolveOwnTenantDisplayName(token, tenantSlug)
   }
 
   // REQ-470: tenant_type comes from the public tenant-config for every session.

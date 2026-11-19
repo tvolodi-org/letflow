@@ -10,6 +10,7 @@ import { resolveRealmFromUrl } from '@/auth/tenantConfig'
 import { fetchTenantTypeForSlug } from '@/auth/tenantType'
 import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
+import { resolveOwnTenantDisplayName } from '@/auth/tenantDisplayName'
 import { canManageTenants } from '@/auth/access'
 import { isSafeRestorePath } from '@/auth/safeRestorePath'
 
@@ -101,6 +102,9 @@ export default function OidcCallbackPage() {
           } catch {
             // non-fatal: a failed lookup leaves tenantDisplayName null, so the slug is shown below
           }
+        } else if (realmSlug) {
+          // T-2291: a non-platform login reads its own tenant's display name from its memberships.
+          tenantDisplayName = await resolveOwnTenantDisplayName(token, realmSlug)
         }
         // REQ-470: tenant_type comes from the public tenant-config for every login.
         const tenantType = await fetchTenantTypeForSlug(realmSlug)
