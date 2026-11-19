@@ -62,6 +62,8 @@ The balance of a register as of a date D is the sum of the legs whose `event_tim
 
 ### D3 Time zone of a date
 
+> **SUPERSEDED 2026-11-20 (second decision check, `docs/status/qoimeks-decision-check-2.md`, D5).** The statement below that no tenant time zone setting exists is no longer true. REQ-703 added one: `lib/letflow/identity/tenant_timezone.ex` (`Letflow.Identity.TenantTimezone`), stored in `tenants.settings["timezone"]`, default `Asia/Almaty`. Open Q1 is answered by that code. The text is kept as the history of the 2026-10 state.
+
 No tenant time zone setting exists on `origin/main`. Command and output:
 
 ```
