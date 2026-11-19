@@ -696,7 +696,9 @@ defmodule Letflow.Modules.Stock.Documents do
         {:held, number} -> Repo.rollback({"count_in_progress", %{"held_by" => number}})
       end
 
-      doc = with_book!(doc, book_quantity(authorized, unit, line))
+      book = book_quantity(authorized, unit, line)
+      other_rows_refusal!(authorized, unit, line, book)
+      doc = with_book!(doc, book)
 
       draft_attrs = %{
         type_key: spec.type_key,
@@ -740,6 +742,31 @@ defmodule Letflow.Modules.Stock.Documents do
 
       _unreadable ->
         {:refuse, "ledger_read_failed"}
+    end
+  end
+
+  # GH T-2286 / REQ-854: the count must leave the item/place total equal to the counted number. The
+  # ledger is append-only and keyed (item, place, org unit, responsible, lot), so a key count with
+  # stock of the same item, place, org unit and lot under ANOTHER responsible would add a parallel row
+  # (total = old + counted). Such a count is refused `balance_in_other_rows`; the count sheet is the tool.
+  defp other_rows_refusal!(_authorized, _unit, _line, {:refuse, _reason}), do: :ok
+
+  defp other_rows_refusal!(authorized, unit, line, book) do
+    filters = %{
+      "sku" => line["catalog_item_id"],
+      "location" => line["location_id"],
+      "org_unit" => unit,
+      "lot" => line["catalog_lot_id"] || ""
+    }
+
+    own = if Decimal.eq?(to_decimal(book), 0), do: 0, else: 1
+
+    case Ledger.balances(authorized, {:posting_seq, :latest}, filters, %{limit: 10, nonzero: true}) do
+      {:ok, %{rows: rows, next_cursor: nil}} when length(rows) <= own ->
+        :ok
+
+      _more_or_unreadable ->
+        Repo.rollback({"balance_in_other_rows", %{}})
     end
   end
 

@@ -32,6 +32,10 @@ vi.mock('@/api/me', () => ({
   meApi: { getAccessWithToken: vi.fn() },
 }))
 
+vi.mock('@/api/memberships', () => ({
+  membershipsApi: { listWithToken: vi.fn() },
+}))
+
 vi.mock('@/api/tenants', () => ({
   tenantsApi: {
     getBySlug: vi.fn(),
@@ -54,6 +58,7 @@ vi.mock('@/auth/oidcRedirectArgs', () => ({
 import { buildSessionFromToken } from '@/auth/AuthProvider'
 import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
+import { membershipsApi } from '@/api/memberships'
 import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
 const SLUG = 'bilimbaga'
@@ -67,6 +72,35 @@ function fakeToken(tenantId: string): string {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(membershipsApi.listWithToken).mockRejectedValue({ status: 500 })
+})
+
+describe('T-2291 — non-platform session shows the tenant display name', () => {
+  it('uses the display name from the own membership, not the slug', async () => {
+    vi.mocked(meApi.getAccessWithToken).mockResolvedValue(ACCESS_FIXTURES.candidate)
+    vi.mocked(membershipsApi.listWithToken).mockResolvedValue({
+      memberships: [
+        { tenant_id: 'x', tenant_slug: 'other', tenant_display_name: 'Other Co', display_label: null },
+        { tenant_id: 't-1', tenant_slug: SLUG, tenant_display_name: 'Smart Security Systems', display_label: null },
+      ],
+    })
+
+    const session = await buildSessionFromToken(fakeToken(SLUG))
+
+    expect(tenantsApi.getBySlug).not.toHaveBeenCalled()
+    expect(session.tenant_display_name).toBe('Smart Security Systems')
+  })
+
+  it('a blank display name falls back to the slug', async () => {
+    vi.mocked(meApi.getAccessWithToken).mockResolvedValue(ACCESS_FIXTURES.candidate)
+    vi.mocked(membershipsApi.listWithToken).mockResolvedValue({
+      memberships: [{ tenant_id: 't-1', tenant_slug: SLUG, tenant_display_name: '  ', display_label: null }],
+    })
+
+    const session = await buildSessionFromToken(fakeToken(SLUG))
+
+    expect(session.tenant_display_name).toBe(SLUG)
+  })
 })
 
 describe('Q-1074 / GH 2431 — buildSessionFromToken tenant lookup', () => {
