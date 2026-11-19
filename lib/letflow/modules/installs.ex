@@ -104,6 +104,7 @@ defmodule Letflow.Modules.Installs do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Modules.Catalog
+  alias Letflow.Modules.EnsureSeeds
   alias Letflow.Modules.InstallContext
   alias Letflow.Modules.TenantModule
   alias Letflow.Repo
@@ -395,7 +396,7 @@ defmodule Letflow.Modules.Installs do
     prefix = Keyword.fetch!(opts, :prefix)
 
     with {:ok, rationale} <- fetch_rationale(opts),
-         {:ok, entry_module} <- fetch_module(module_id) do
+         {:ok, entry_module} <- fetch_installable_module(module_id) do
       owner = ManagedTypes.module_owner(entry_module)
 
       install_transaction(module_id, fn ->
@@ -617,8 +618,9 @@ defmodule Letflow.Modules.Installs do
 
   Returns `{:ok, %{entity_versions: n, process_drafts: ["key@version"], ledger_ids: n,
   compiled_manifest_hash: hash}}`, `{:error, {:activation_refused, name, reason}}`,
-  `{:error, :storage_refused}` or `{:error, reason}`. Does not re-run `on_install/3` (a new seed is a
-  step, decision 0055 D2) and writes no `tenant_modules` row. Schema source: `opts[:prefix]` only (INV-1).
+  `{:error, :storage_refused}` or `{:error, reason}`. Runs `Letflow.Modules.EnsureSeeds` (the answer's
+  `:seeds`) without re-running `on_install/3` and writes no `tenant_modules` row.
+  Schema source: `opts[:prefix]` only (INV-1).
   """
   @spec apply_upgrade_pack(
           module_id :: String.t(),
@@ -634,6 +636,7 @@ defmodule Letflow.Modules.Installs do
          manifest = entry_module.manifest(),
          owner = ManagedTypes.module_owner(entry_module),
          {:ok, document} <- upgrade_pack_document(manifest),
+         {:ok, seeds} <- EnsureSeeds.run(entry_module, owner, actor_id, rationale, prefix),
          {:ok, created} <-
            upgrade_entity_versions(document, selection.entities, actor_id, prefix, owner),
          :ok <- activate_upgraded(created, actor_id, rationale, prefix),
@@ -645,23 +648,57 @@ defmodule Letflow.Modules.Installs do
              rationale,
              prefix
            ),
-         {:ok, drafts} <-
-           SolutionPack.install_process_drafts(
-             document,
-             selection.processes,
-             actor_id,
-             [prefix: prefix, draft_suffix: selection.to_version],
-             owner
-           ),
          {:ok, ledger_ids} <- upgrade_ledger_storage(entry_module, prefix) do
       {:ok,
        %{
-         entity_versions: length(created) + reactivated,
-         process_drafts: drafts,
+         seeds: seeds,
+         entity_versions: length(created) + reactivated + length(seeds["entity_definitions"]),
+         process_drafts: seeds["process_drafts"],
          ledger_ids: ledger_ids,
          compiled_manifest_hash: owner.manifest_hash
        }}
     end
+  end
+
+  @doc """
+  T-2217: the supported repair of a tenant installed at an older module version (and the same step
+  `apply_upgrade_pack/5` and the boot upgrade run): creates what the current build's install would
+  have created and the tenant lacks, see `Letflow.Modules.EnsureSeeds`. Its own transaction (joins a
+  caller's). `{:ok, report}`, `{:error, :unknown_module | :module_not_installed}` or
+  `{:error, reason}` with everything rolled back. Schema source: `opts[:prefix]` only (INV-1).
+  """
+  @spec ensure_module_seeds(String.t(), Ecto.UUID.t(), String.t(), opts()) ::
+          {:ok, map()} | {:error, term()}
+  def ensure_module_seeds(module_id, actor_id, rationale, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, entry_module} <- fetch_module(module_id),
+         true <- module_installed?(module_id, prefix) or {:error, :module_not_installed} do
+      owner = ManagedTypes.module_owner(entry_module)
+
+      Repo.transaction(fn ->
+        # Share upgrade's exclusion key so a boot repair or admin request cannot race an apply.
+        %{rows: [[locked?]]} =
+          Repo.query!("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))", [
+            prefix <> ":" <> module_id
+          ])
+
+        unless locked?, do: Repo.rollback(:upgrade_running)
+
+        case EnsureSeeds.run(entry_module, owner, actor_id, rationale, prefix) do
+          {:ok, report} -> report
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    end
+  end
+
+  @doc "Runs only the module's additive seed hook, under the supplied tenant prefix."
+  @spec ensure_seeds(module(), String.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
+  def ensure_seeds(entry_module, prefix, actor_id) do
+    if function_exported?(entry_module, :ensure_seeds, 2),
+      do: entry_module.ensure_seeds(prefix, %{actor_id: actor_id}),
+      else: :ok
   end
 
   defp upgrade_pack_document(manifest) do
@@ -891,6 +928,14 @@ defmodule Letflow.Modules.Installs do
       nil -> {:error, {:module_not_installed, module_id}}
       %TenantModule{status: :uninstalled} -> {:error, {:module_not_installed, module_id}}
       %TenantModule{} = tm -> {:ok, tm}
+    end
+  end
+
+  # REQ-893: a module behind a release flag that is off is an unknown module to the install.
+  defp fetch_installable_module(module_id) do
+    case Catalog.fetch_installable(module_id) do
+      {:ok, entry_module} -> {:ok, entry_module}
+      {:error, :not_found} -> {:error, :unknown_module}
     end
   end
 

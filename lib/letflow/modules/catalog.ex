@@ -205,6 +205,19 @@ defmodule Letflow.Modules.Catalog do
   end
 
   @doc """
+  Like `fetch/1`, for the install: an entry module that exports `enabled?/0` (a release flag, REQ-893)
+  and answers false is `{:error, :not_found}`, as an unknown id. Modules without it are always installable.
+  """
+  @spec fetch_installable(id :: String.t()) :: {:ok, module()} | {:error, :not_found}
+  def fetch_installable(id) do
+    with {:ok, entry_module} <- fetch(id) do
+      if function_exported?(entry_module, :enabled?, 0) and not entry_module.enabled?(),
+        do: {:error, :not_found},
+        else: {:ok, entry_module}
+    end
+  end
+
+  @doc """
   The set of `pack_id` values owned by registered modules (REQ-411).
 
   Used by `POST /api/v1/solution-packs/install` to refuse direct installation

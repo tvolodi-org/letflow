@@ -67,6 +67,7 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # GH #3588 (REQ-648) adds Letflow.Modules.Codes; GH #3707 (REQ-687) adds Letflow.Modules.Stock;
 # GH #3894 (REQ-748) adds Letflow.Modules.Assets;
 # T-1841 (MES M1) adds Letflow.Modules.MesCore;
+# REQ-893 (CMMS slice 1) adds Letflow.Modules.Maintenance (behind :maintenance_enabled, below);
 # config/test.exs appends the test-only fixture modules on top.
 config :letflow, :modules, [
   Letflow.Modules.Exam,
@@ -77,7 +78,8 @@ config :letflow, :modules, [
   Letflow.Modules.Codes,
   Letflow.Modules.Stock,
   Letflow.Modules.Assets,
-  Letflow.Modules.MesCore
+  Letflow.Modules.MesCore,
+  Letflow.Modules.Maintenance
 ]
 
 # T-1641 (UAT decision B5#10): the QA-only demo module `runtime_demo`. A SEPARATE key from :modules, filled only
@@ -172,6 +174,9 @@ config :letflow, :form_validation_hook_enabled, false
 # off until slice 2 adds the open-work guard; off, both routes answer as an unknown route. Read only
 # by Letflow.Modules.Installs.uninstall_enabled?/0. No environment overrides it.
 config :letflow, :modules_uninstall_enabled, false
+
+# REQ-893: release flag of module `maintenance` (CMMS). Off here and everywhere but config/test.exs.
+config :letflow, :maintenance_enabled, false
 
 # REQ-570 / GH #3248 (decision 0067 D9, slice T-1): record triggers (after-commit scripts bound to a
 # record type and event). Default off: the routes of part 2 and every later slice sit behind it. Read

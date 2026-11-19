@@ -1,0 +1,189 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "description": "REQ-893 (CMMS slice 1 part 1), docs/cmms/scope-draft.md. One report of a fault on one asset card. asset_card_id is the record id of an assets_card, a declarative reference checked in code through Letflow.Modules.ReadApi.lookup/3, never a foreign key (decision 0076). org_unit_id is the card's org unit copied at create (the scope column). description is 1 to 2000 characters and urgency is low, normal or urgent (UAT assumptions, to be confirmed by the process owner); both are checked by the writer of the request (REQ-894). status is new, ordered or rejected. reported_by is a user id. order_id names the work order made from the request. document_id is the issued maintenance_request document.",
+        "display_name": "Maintenance work request",
+        "fields": [
+          {
+            "name": "asset_card_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "low",
+              "normal",
+              "urgent"
+            ],
+            "name": "urgency",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "enum_values": [
+              "new",
+              "ordered",
+              "rejected"
+            ],
+            "name": "status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "reported_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reject_reason",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "order_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "asset_card_id"
+            ],
+            "name": "idx_maintenance_work_request_asset_card_id"
+          }
+        ],
+        "name": "maintenance_work_request"
+      },
+      "display_name": "Maintenance work request",
+      "entity_definition_id": "15fcc658-6d12-8872-615b-a4aee502d6a8",
+      "logical_shape_version": "ac4c1c9732e235eaf8b67b7ecb8d8282d588e7b74c119fbc2416e26ea31a104c",
+      "name": "maintenance_work_request"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-893 (CMMS slice 1 part 1), docs/cmms/scope-draft.md. One job on one asset card, made from a work request or directly. asset_card_id is a declarative record id of an assets_card checked in code (decision 0076), never a foreign key. org_unit_id is the card's org unit (the scope column). request_id is the record_id of the maintenance_work_request it came from; the foreign_keys entry promotes it to a uuid column with ON DELETE RESTRICT. document_id is the issued maintenance_order document and instance_id its process instance. There is deliberately no status field: the status of an order is derived from its process tasks (REQ-896). work_done, done_by, done_at, closed_by and closed_at are the done and close record (REQ-897).",
+        "display_name": "Maintenance work order",
+        "fields": [
+          {
+            "name": "asset_card_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "low",
+              "normal",
+              "urgent"
+            ],
+            "name": "urgency",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "request_id",
+            "queried": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "instance_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "work_done",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "done_by",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "done_at",
+            "required": false,
+            "type": "datetime"
+          },
+          {
+            "name": "closed_by",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "closed_at",
+            "required": false,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "request_id",
+            "name": "fk_maintenance_work_order_request_id",
+            "references_entity": "maintenance_work_request"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "asset_card_id"
+            ],
+            "name": "idx_maintenance_work_order_asset_card_id"
+          }
+        ],
+        "name": "maintenance_work_order"
+      },
+      "display_name": "Maintenance work order",
+      "entity_definition_id": "8c94976c-b6fe-6162-336d-3052e628ab4b",
+      "logical_shape_version": "4c3b3801fd06ff0d84c5ebbc1c810aff15bcdab0b00a92702e67624b7e2d5d79",
+      "name": "maintenance_work_order"
+    }
+  ],
+  "exported_at": "2026-11-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-maintenance",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

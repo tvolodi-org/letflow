@@ -80,7 +80,8 @@ defmodule Letflow.Documents do
   Registers (or re-registers) a document type. `attrs` (atom keys): `key`, `owner_module`,
   `numbering_scope` (`:year | :none`), `number_prefix`, `number_pad`, `legal_entity_required`,
   `declared_fields`, optional `template_ref` and `sensitivity` (see the moduledoc). `ctx` is the
-  `on_install/3` context (any map with `actor_id`).
+  `on_install/3` context (any map with `actor_id`). `preserve_existing: true` makes registration
+  insert-only for upgrade seeds: an existing row of the same owner is returned unchanged.
 
   A restricted field (a row of `entity_field_restrictions`, or a free field that is not marked
   public) gives `{:error, {:restricted_field, entity_type, field}}`. A type that requires a legal
@@ -99,7 +100,9 @@ defmodule Letflow.Documents do
          {:ok, resolver} <- Catalog.document_org_resolver(),
          :ok <- resolver_available(type.legal_entity_required, resolver),
          :ok <- check_restricted(prefix, type.declared_fields, Map.get(attrs, :sensitivity)) do
-      transact(fn -> upsert_type(prefix, tenant_id, actor_id, type) end)
+      transact(fn ->
+        upsert_type(prefix, tenant_id, actor_id, type, Map.get(ctx, :preserve_existing) == true)
+      end)
     end
   end
 
@@ -205,7 +208,7 @@ defmodule Letflow.Documents do
     end
   end
 
-  defp upsert_type(prefix, tenant_id, actor_id, type) do
+  defp upsert_type(prefix, tenant_id, actor_id, type, preserve_existing) do
     type = %{type | declared_fields: stored_fields(type.declared_fields)}
 
     {inserted, _} =
@@ -244,7 +247,7 @@ defmodule Letflow.Documents do
       row.owner_module != type.owner_module ->
         Repo.rollback(:type_owned_by_other_module)
 
-      Map.take(row, @type_columns) == Map.take(type, @type_columns) ->
+      preserve_existing or Map.take(row, @type_columns) == Map.take(type, @type_columns) ->
         row
 
       true ->

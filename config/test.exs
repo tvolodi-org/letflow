@@ -306,6 +306,9 @@ config :letflow, :public_read_kinds, %{
 # (test/support/modules/fixture_failing_install/, on_install/2 always
 # {:error, :boom}, proves Installs.install/3's AC6 whole-transaction
 # rollback -- design §9 open question 1, option (a), its own recommendation).
+# REQ-893: the release flag of module `maintenance` is on only here (tests); off in every other config.
+config :letflow, :maintenance_enabled, true
+
 config :letflow, :modules, [
   Letflow.Modules.Exam,
   Letflow.Modules.Org,
@@ -316,6 +319,7 @@ config :letflow, :modules, [
   Letflow.Modules.Stock,
   Letflow.Modules.Assets,
   Letflow.Modules.MesCore,
+  Letflow.Modules.Maintenance,
   # T-1641: QA-only demo module (not in the production list or the golden); CI covers it here.
   Letflow.Modules.RuntimeDemo,
   Letflow.Modules.Fixture,
