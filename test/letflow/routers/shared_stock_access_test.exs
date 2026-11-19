@@ -123,6 +123,10 @@ defmodule Letflow.Routers.SharedStockAccessTest do
       for bad <- [
             "short",
             String.duplicate("a", 31),
+            String.duplicate("a", 32),
+            String.duplicate("a", 63),
+            String.duplicate("g", 64),
+            String.duplicate("!", 64),
             String.duplicate("a", 16) <> " " <> String.duplicate("a", 20),
             String.duplicate("a", 40) <> "\n",
             String.duplicate("a", 40) <> <<0>>,
