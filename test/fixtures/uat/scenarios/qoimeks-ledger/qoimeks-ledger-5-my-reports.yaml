@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads movements, posts and reverses where it holds StockPost and StockReverse (qoimeks-ledger-1, 2, 3, 5); actor-qoimeks-qa2-admin / TENANT_ADMIN stays for the approval and posting tasks in My Tasks (STOREKEEPER does not hold TasksReadAll, docs/roles.md) and for the ledger and approval-rule settings (qoimeks-ledger-4, and the refusal of qoimeks-ledger-6). Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, units, places, responsible employee, QOI-OU-1, starting balance and movements, opening approval rule, pending tasks and report data: listed in scenario preconditions. The L7 issued-document posting-variable harness is not supplied by the synthetic baseline; ledger-3 is BLOCKED-by-environment unless it is prepared first. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -34,7 +34,7 @@
 id: qoimeks-ledger-5-my-reports
 scope: qoimeks-qa2
 title: >-
-  The Qoimeks QA administrator sends a problem report and sees it in My reports, in English, Russian and Kazakh
+  The Qoimeks QA storekeeper sends a problem report and sees it in My reports, in English, Russian and Kazakh
   and on a phone
 version: '1.1'
 tags:
@@ -46,16 +46,16 @@ tags:
 - kk
 - phone_390
 description: >-
-  The administrator presses "Report a problem" in the top bar, fills in the description "UAT qoimeks-ledger-5 test
-  report" and submits the report. After submission the receipt panel shows a link "See my reports". The administrator
+  The storekeeper presses "Report a problem" in the top bar, fills in the description "UAT qoimeks-ledger-5 test
+  report" and submits the report. After submission the receipt panel shows a link "See my reports". The storekeeper
   follows it and sees the report in My reports with status "Received". The same screen is then verified in Russian
   ("Мои сообщения") and in Kazakh ("Менің хабарламаларым") and at a 390 px window width. The report remains in the
   system after the test (no delete route exists).
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
-    The administrator is signed in and the "Report a problem" button is visible in the top bar.
+    The storekeeper is signed in and the "Report a problem" button is visible in the top bar.
   check: system_seeded
   detail: >-
     If the button is absent, report BLOCKED for the whole scenario.
@@ -70,7 +70,7 @@ preconditions:
   detail: >-
     If not, switch to English first and carry on.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
@@ -90,40 +90,40 @@ preconditions:
     is not a blocker under this task contract.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator clicks the "Report a problem" button in the top bar. The report dialog opens. The administrator
+    The storekeeper clicks the "Report a problem" button in the top bar. The report dialog opens. The storekeeper
     fills in the description "UAT qoimeks-ledger-5 test report", gives consent and submits the report. The receipt
     panel (success message and link) is noted as RC1.
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator follows the "See my reports" link in RC1 and reads the My reports screen. The row for the
+    The storekeeper follows the "See my reports" link in RC1 and reads the My reports screen. The row for the
     submitted report is noted as ROW1.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator switches the language to Russian and reads the My reports screen title, the column headers
+    The storekeeper switches the language to Russian and reads the My reports screen title, the column headers
     and the status label of the report.
   via: ui
 - step: 4
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator switches the language to Kazakh and reads the My reports screen title, the column headers
+    The storekeeper switches the language to Kazakh and reads the My reports screen title, the column headers
     and the status label.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    At 390 px width the administrator opens the My reports screen in Kazakh and reads whether the report row, the
+    At 390 px width the storekeeper opens the My reports screen in Kazakh and reads whether the report row, the
     report text and the status column are visible and readable without horizontal scrolling.
   via: ui
 - step: 6
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator switches the language back to English.
+    The storekeeper switches the language back to English.
   via: ui
 expected_outcomes:
 - id: EO-001
@@ -199,5 +199,5 @@ expected_outcomes:
   on_fail:
     severity: MAJOR
     business_impact: >-
-      Administrators on a phone cannot read their problem report history.
+      Storekeepers on a phone cannot read their problem report history.
     suggested_action: route_to_frontend_dev

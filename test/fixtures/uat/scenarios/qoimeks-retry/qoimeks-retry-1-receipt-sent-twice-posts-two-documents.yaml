@@ -38,7 +38,7 @@
 # PLATFORM_ADMIN hold (docs/roles.md, matrix row TokensManage; STOREKEEPER: no), and the handler answers 403 "insufficient permissions" otherwise (shared_access_guarded). The refusal is walked on the
 # READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
 # 1. Scope: qoimeks-qa2 — the tenant and its realm exist (scope checked against the tenant facts).
-# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa2 and have a login in the acceptance environment.
+# 2. Actors (T-2222, PM 2026-11-19): the old-address post, retry and reversal are done by the test runner with the shared token, which the administrator (actor-qoimeks-qa2-admin / TENANT_ADMIN) creates and revokes (an admin function); every screen reading (balances, document list, phone width) is done by actor-qoimeks-qa2-storekeeper / STOREKEEPER. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
 # 3. Host and screens: the tenant host answers; the stock balance screen and the stock document list exist at main (read at main; the list filters by kind and state, not by operator, see step 8); the old-app address is a deployment precondition (precondition 2).
 # 4. Data: one item with a posted opening balance greater than 0 in at least one place (seeded; counts are read at the start of the run, not hard-coded); no movement with client id R-RETRY-1 yet; the tenant's scope enforcement is off.
 # 5. Executable: every step runs with a browser or an HTTP client; the shared access value is created by the walk itself at step 2 and kept only in the run's environment.
@@ -121,9 +121,9 @@ steps:
       and noted as S1.
     via: api
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock balance screen in Russian at 1440 px. The balance of
+      The storekeeper opens the stock balance screen in Russian at 1440 px. The balance of
       ITEM-RETRY-R1 is noted as B0.
     via: ui
   - step: 4
@@ -146,22 +146,22 @@ steps:
       The answer is noted as B1-api.
     via: api
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator refreshes the stock balance screen in Russian at 1440 px and reads the
+      The storekeeper refreshes the stock balance screen in Russian at 1440 px and reads the
       balance of ITEM-RETRY-R1. The result is noted as B1-ui.
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock document list, filters it to the kind Receipt and the state
+      The storekeeper opens the stock document list, filters it to the kind Receipt and the state
       Posted, finds the two new receipts of this walk and opens each one, reading the row
       "Posted by" ("Кем проведён" in Russian). The operator names read are noted as D1.
     via: ui
   - step: 9
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the balance screen at 390 px. The balance of ITEM-RETRY-R1 is
+      The storekeeper opens the balance screen at 390 px. The balance of ITEM-RETRY-R1 is
       noted as B1-phone.
     via: ui
   - step: 10

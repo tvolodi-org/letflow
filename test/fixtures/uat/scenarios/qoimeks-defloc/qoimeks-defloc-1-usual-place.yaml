@@ -16,8 +16,7 @@
 # The other-company data refusal is in qoimeks-defloc-3. No other-tenant stock actor is supplied.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
 # 1. Scope: scope is qoimeks-qa2 (tenant and realm exist); the directory name is only the group name.
-# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2,
-#   login UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads the item card and its usual place and cannot change it; actor-qoimeks-qa2-admin / TENANT_ADMIN appears only as the cross-check reader in qoimeks-defloc-1 step 5. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
 # 3. Host and screens: the Items screen and card sections exist in web/src/modules/catalog_items/items/ItemDetails.tsx;
 #   section titles follow catalogItemsItemsMessages.ts (sec.overview: Обзор / Шолу; sec.related: Остатки по местам
 #   хранения / Сақтау орындары бойынша қалдық; field.defaultLocation: Обычное место / Әдеттегі орын). The English
@@ -42,15 +41,16 @@ description: >
   changes no business records; cleanup restores the starting language and appearance,
   clears the search and closes the card. Do not replace browser evidence with a query result.
 actors:
-  admin: actor-qoimeks-qa2-admin
   storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
 preconditions:
-  - description: The run uses only the synthetic Qoimeks QA tenant and its administrator.
+  - description: The run uses only the synthetic Qoimeks QA tenant and its storekeeper.
     check: system_seeded
     detail: >
       Open https://qoimeks-qa2.letflow.qa.bizdala.com, realm qoimeks-qa2, using
-      QOIMEKS_QA2_ADMIN credentials from UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*.
+      QOIMEKS_QA2_STOREKEEPER credentials from UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*.
       If this address cannot reach this tenant, report BLOCKED; do not substitute a real tenant.
+      Step 5 signs in as actor-qoimeks-qa2-admin (UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*) for the cross-check only.
       The seed has items, places and non-zero balances (three of them negative) and opening
       four-eyes off. The counts are read at the start of the run and noted; they are not fixed
       numbers. Do not reset data or change that setting.
@@ -72,19 +72,19 @@ preconditions:
       an unavailable display variant is recorded as BLOCKED, never replaced by a desktop shot.
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
       Sign in to the QA tenant, set the current display combination, and open Items from
       the navigation. Search for the recorded article code and open that exact item's card.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
       Read the usual place in the section «Обзор» (Russian) or «Шолу» (Kazakh). Capture the item code, the field label and its value
       together. At phone width, scroll the card to show the full field without zooming out.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
       On the card, open the section «Остатки по местам хранения» (Russian) or «Сақтау орындары бойынша қалдық»
       (Kazakh) and compare it with the usual place: where the table has a row for the same place, its code and name
@@ -92,18 +92,26 @@ steps:
       Do not open Locations (the administrator may, the storekeeper cannot). Close the card, search for the same article and open it again.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
       Reload the browser on the selected card and read its usual place again. Capture the
       reopened card. After all display combinations, clear the search, close the card and
       restore the starting language and appearance.
     via: ui
   - step: 5
+    actor: admin
+    action: >
+      Sign out, sign in as the administrator at the same QA tenant, open Items, search for the same
+      article code and open its card. Read the usual place in the same section and compare it with what the storekeeper read
+      in steps 2 to 4, without changing anything. Repeat in Russian and Kazakh at 1440 px.
+    via: ui
+  - step: 6
     actor: storekeeper
     action: >
-      Sign out, sign in as the storekeeper at the same QA tenant, open Items, search for the same
-      article code and open its card. Read the usual place in the same section and compare it with the card's
-      stock-by-place table, without changing anything and without opening Locations. Repeat in Russian and Kazakh at 1440 px.
+      Sign out and sign in again as the storekeeper. Open the same item's card and look through the card (Russian, 1440 px)
+      for any control that changes the usual place: an edit button, a place selector, a save button. The card of an item has no edit route
+      for anyone (web/src/modules/catalog_items/items/ItemDetails.tsx, header comment: create, edit and retire have no server route yet), and the storekeeper holds no catalog write right, so no such control may be there.
+    expect_refusal: true
     via: ui
 expected_outcomes:
   - id: EO-001
@@ -125,12 +133,24 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        The storekeeper's card shows the same place code and name as the administrator's card
+        The administrator's card shows the same place code and name as the storekeeper's card
         (Обычное место in Russian, Әдеттегі орын in Kazakh), with no access-denied page.
-      evidence: Storekeeper card screenshots in Russian and Kazakh.
+      evidence: Storekeeper card screenshots in Russian and Kazakh (steps 2 to 4) and the administrator's in step 5.
     on_fail:
       severity: MAJOR
       business_impact: Warehouse staff cannot read where an item normally belongs.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The storekeeper reads the usual place and cannot change it.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows the card with the usual place as plain text: no edit button, no place selector, no save button, in Russian at 1440 px.
+        The card changes nothing and the field value is the same after the storekeeper reloads it.
+      evidence: Screenshot of the card in step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A warehouse clerk could move the item's usual place for everybody, or the card promises an action that does not exist.
       suggested_action: route_to_frontend_dev
   - id: EO-002
     description: Both languages and both widths keep the usual-place information readable.

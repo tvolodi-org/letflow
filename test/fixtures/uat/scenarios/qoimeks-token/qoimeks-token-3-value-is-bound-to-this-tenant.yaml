@@ -6,7 +6,7 @@
 # Cleanup: creates the tenant's shared access and revokes it at the end. Wrong-value attempts are kept to 3 so the failure limit of the address (10 failures a minute per address, docs/runbooks/auth-rate-limits.md) is not reached. No stock row is written.
 # T-2192 rework (issues 4713, 4714, 4715): checks before this group is merged:
 # 1 Scope: scope is qoimeks-qa2 (tenant and realm exist).
-# 2 Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN). The storekeeper (actor-qoimeks-qa2-storekeeper) is not used: creating and revoking the shared access is an administrator action, and a role refusal for it is not claimed here because the router was not re-read by this rework.
+# 2 Actors (T-2222): actor-qoimeks-qa2-admin (TENANT_ADMIN) runs this scenario, because creating, rotating and revoking the shared access are administrator functions; the storekeeper is refused them in qoimeks-token-5.
 # 3 Host and screens: the tenant host answers; the management calls live under the identity mount of the API (the runbook docs/runbooks/pilot-rollout.md item 2 omits that mount, issue 4713: a product-doc fix, not a scenario fix); the old-app prefix /qoimeks/ is NOT routed to the backend on QA yet (issue 4715), see precondition 2.
 # 4 Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa2 (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
 # 5 Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.

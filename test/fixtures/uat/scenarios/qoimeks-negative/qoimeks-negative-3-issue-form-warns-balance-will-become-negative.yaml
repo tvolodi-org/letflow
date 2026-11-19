@@ -17,7 +17,7 @@
 #   (a) the voice draft on the phone app (decision 0090 section 6 item 4) and the Flutter form: APK only, no browser; observable check is the mobile tier's own test; not part of this walk;
 #   (b) the warning for write off, transfer, hand over and return: same code path as the issue (negativeBalance.ts); this walk uses the issue and the receipt, and component tests of REQ-838 cover the others;
 #   (c) the warning being absent when the tenant refuses negatives: needs the setting switched to Refused, which scenario 2 deliberately does not do; covered by component tests of REQ-838;
-#   (d) the full receipt, language and phone reads by the storekeeper: the code path is the same as for the administrator; the storekeeper repeats only the warning of the Issue form (steps 8 and 9).
+#   (d) the full receipt, language and phone reads by the administrator: the code path is the same as for the storekeeper; the administrator repeats only the warning of the Issue form (steps 8 and 9).
 # UAT assumption, to be confirmed by the process owner: the stock setting of the tenant is "Allowed" (see scenario 2). If it is "Refused" no warning is shown by design and EO-001 reports BLOCKED.
 ---
 id: qoimeks-negative-3-issue-form-warns-balance-will-become-negative
@@ -27,7 +27,7 @@ version: "2.0"
 tags: [qoimeks, negative_balance, stock_documents, warning, ru, kk, phone_390]
 
 description: >
-  The administrator starts a new stock document of the kind Issue, picks one item that has a positive balance at one place (read from the Balances screen first),
+  The storekeeper starts a new stock document of the kind Issue, picks one item that has a positive balance at one place (read from the Balances screen first),
   types a quantity larger than that balance and reads the warning "The balance will become negative" next to the line; Save stays enabled. Then types a quantity equal to the
   balance and the warning goes away. Then starts a fresh document of the kind Receipt with the same place, org unit, responsible, item and the larger quantity: no warning shows,
   because a receipt raises the balance. The same warning is then read in Russian and Kazakh and at 390 px, each time on a fresh Issue document with the same values re-entered.
@@ -39,7 +39,7 @@ actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
-  - description: The stock setting of the tenant allows negative balances (see scenario 2) and the administrator may read balances.
+  - description: The stock setting of the tenant allows negative balances (see scenario 2); the administrator reads the setting page (step 0) and the storekeeper may read balances (StockRead, docs/roles.md).
     check: system_seeded
     detail: If the page "Negative balances" shows Refused, report BLOCKED for EO-001 and EO-002; the warning is not shown on a refusing tenant by design.
   - description: At least one item has a positive balance on the Balances screen.
@@ -49,10 +49,10 @@ preconditions:
       the responsible (the Responsible column), the lot (the Lot column; prefer a row whose Lot reads empty, and note "none" when it does), the unit (the Unit column) and the
       quantity, called Q. The warning compares the line against the balance of exactly this item, place, org unit, responsible, lot and unit; the lot and the responsible of the
       form must be the noted ones, otherwise the balance read is 0 and EO-001 fails falsely.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in and holds stock read and stock post tenant-wide.
+  - description: The administrator account of this tenant (actor-qoimeks-qa2-admin, role TENANT_ADMIN) can sign in for the cross-check of steps 8 and 9; the storekeeper holds StockRead and StockPost (docs/roles.md).
     check: system_seeded
     detail: >
-      If the sign-in fails, report steps 8 and 9 as BLOCKED-by-environment and name the account; the administrator steps still run. If the header pickers of the storekeeper do not offer
+      If the sign-in fails, report steps 8 and 9 as BLOCKED-by-environment and name the account; the storekeeper steps still run. If the header pickers of the administrator do not offer
       the noted place, org unit or responsible (a node-limited grant), report steps 8 and 9 as BLOCKED-by-environment and say which picker was empty.
 
   - description: The run can drive a real browser at 1440 px and 390 px.
@@ -66,58 +66,58 @@ steps:
       The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px and opens the admin page of the negative-balance setting (the path /admin/ledger-settings of the tenant host). If the page is refused (the message "You do not have access to this area"), the scenario is BLOCKED and the refusal is quoted. If the stock row shows "Refused", EO-001 and EO-002 are BLOCKED. The value read is noted.
     via: ui
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens Balances and notes one row with a positive quantity whose Responsible column is filled (a row with an empty Responsible is skipped; press "Load more" if the first rows do not offer one): the item, the place,
+      The storekeeper opens Balances and notes one row with a positive quantity whose Responsible column is filled (a row with an empty Responsible is skipped; press "Load more" if the first rows do not offer one): the item, the place,
       the org unit, the responsible, the lot (or "none" when the Lot column reads empty) and the unit of that row, and its quantity, called Q.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens Stock documents, presses "New document", chooses the kind Issue, fills the header with the noted place (the Location field), the noted org unit
+      The storekeeper opens Stock documents, presses "New document", chooses the kind Issue, fills the header with the noted place (the Location field), the noted org unit
       (the Org unit field) and the noted responsible (the Responsible field), and adds one line with the noted item and a quantity of Q plus 1; when a lot was noted, the lot
       is picked on the line; when "none" was noted, the lot stays empty. The unit of the line is the item's base unit, taken by the form itself.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator reads the line and the buttons of the form.
+      The storekeeper reads the line and the buttons of the form.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator changes the quantity of the line to exactly Q and reads the line again.
+      The storekeeper changes the quantity of the line to exactly Q and reads the line again.
     via: ui
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator leaves the form with "Back to the list" without saving, presses "New document", chooses the kind Receipt, and fills the same place, org unit and
+      The storekeeper leaves the form with "Back to the list" without saving, presses "New document", chooses the kind Receipt, and fills the same place, org unit and
       responsible in the header and one line with the same item, the same lot handling and a quantity of Q plus 1, then reads the line. (The kind is chosen when the document
       is started; switching the kind of a started document would throw this typed data away, so the receipt gets its own fresh document.)
     via: ui
   - step: 6
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator leaves the receipt form with "Back to the list" without saving, presses "New document", chooses the kind Issue, re-enters the same header (place, org unit,
+      The storekeeper leaves the receipt form with "Back to the list" without saving, presses "New document", chooses the kind Issue, re-enters the same header (place, org unit,
       responsible) and the same line (item, quantity Q plus 1, the same lot handling), switches the language to Russian and reads the warning, then switches the language to
       Kazakh and reads the warning.
     via: ui
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator narrows the window to 390 px wide and reads the warning in the language chosen last; then leaves the form with "Back to the list" without saving,
+      The storekeeper narrows the window to 390 px wide and reads the warning in the language chosen last; then leaves the form with "Back to the list" without saving,
       switches the language to English and widens the window.
     via: ui
   - step: 8
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, presses "New document", chooses the kind Issue, fills the same header
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, presses "New document", chooses the kind Issue, fills the same header
       (the noted place, org unit and responsible) and one line with the noted item, the same lot handling and a quantity of Q plus 1.
     via: ui
   - step: 9
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper reads the line and the buttons of the form, then leaves the form with "Back to the list" without saving.
+      The administrator reads the line and the buttons of the form, then leaves the form with "Back to the list" without saving.
     via: ui
 
 expected_outcomes:
@@ -164,7 +164,7 @@ expected_outcomes:
       business_impact: A phone user does not see the warning, or a test record is left in the tenant.
       suggested_action: route_to_frontend_dev
   - id: EO-005
-    description: The storekeeper, who will make the issue in daily work, gets the same warning and no document is saved.
+    description: The administrator, as the cross-check, gets the same warning as the storekeeper who makes the issue in daily work, and no document is saved.
     verification:
       method: gui_screen
       detail: Step 9 shows "The balance will become negative" at the line, no red refusal banner, the Save draft button enabled; after leaving the form the Stock documents list holds no new document made by this walk.

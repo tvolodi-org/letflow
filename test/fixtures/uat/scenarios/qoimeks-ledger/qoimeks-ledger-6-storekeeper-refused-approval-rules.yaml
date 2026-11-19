@@ -1,0 +1,84 @@
+# T-2222 (BA, PM decision 2026-11-19): the one refusal scenario of the ledger group. The four-eyes switch (approval rules) is an administrator function (qoimeks-ledger-4); a storekeeper is refused it.
+# Sources opened: web/src/router.tsx (admin/approval-rules guarded by ApprovalRulesManage); docs/roles.md (ApprovalRulesManage: GET /approval-rules and PUT /approval-rules/:definition_name/:node_id, TENANT_ADMIN only);
+# docs/roles.md STOREKEEPER (does not administer settings); web/src/components/ui/feedbackMessages.ts (permissionDenied text).
+# Read-only: only the page and the list read are tried; the switch is never changed by the storekeeper.
+---
+id: qoimeks-ledger-6-storekeeper-refused-approval-rules
+scope: qoimeks-qa2
+title: >-
+  The storekeeper does not find the approval rules page and is refused the list of approval rules
+version: '1.0'
+tags:
+- qoimeks
+- ledger
+- four_eyes
+- refusal
+- storekeeper
+- desktop
+- read_only
+description: >-
+  The storekeeper signs in at 1440 px in English and looks through the side navigation, the admin section included, for the
+  approval rules page. It is not offered. When the storekeeper types the address of the page (the path /admin/approval-rules),
+  the page is refused with the message "You do not have access to this area. Contact your tenant administrator." and shows no rule.
+  The storekeeper's session then asks the server for the list of approval rules (the read behind the page, no change is made):
+  the answer is a refusal and carries no rule. The four-eyes switch of the stock approval steps stays as the administrator set it.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: >-
+    The storekeeper account can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+  check: runner_prepared
+  detail: >-
+    If sign-in fails, report BLOCKED-by-environment and name the account; credentials come from the acceptance credential source.
+- description: >-
+    The run can drive a real browser at 1440 px and an HTTP client from the signed-in browser session.
+  check: runner_prepared
+  detail: >-
+    If no browser can be started, report BLOCKED-by-environment. The storekeeper never sends a change of a rule.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper signs in and looks through the side navigation, the admin section included, for an entry about approval rules.
+  via: ui
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper types the address of the approval rules page (the path /admin/approval-rules of the tenant host) into the browser.
+  expect_refusal: true
+  via: ui
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper's session asks the server for the list of approval rules (the read behind the page; nothing is changed). The answer is noted as R-AR.
+  expect_refusal: true
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The approval rules page is neither offered nor opened for the storekeeper.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows no approval rules entry in the side navigation. Step 2 shows the message "You do not have access to this area. Contact your tenant administrator." and no list of rules.
+    evidence: >-
+      Screenshots of steps 1 and 2.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A warehouse clerk could see or switch off the second-person check on stock postings.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    The server refuses the list of approval rules to the storekeeper and tells nothing about the rules.
+  verification:
+    method: api_response
+    detail: >-
+      R-AR has HTTP status 403 (a 404 is also accepted if the product hides the route from callers without the right) and its body carries no rule row or switch value.
+    evidence: >-
+      HTTP status and body of R-AR.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A clerk could learn which stock steps need a second person and plan around the check.
+    suggested_action: route_to_elixir_dev

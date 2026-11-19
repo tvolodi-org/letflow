@@ -111,9 +111,9 @@ steps:
       and noted as S1.
     via: api
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the balance screen in Russian at 1440 px. The balance of
+      The storekeeper opens the balance screen in Russian at 1440 px. The balance of
       ITEM-RETRY-C3 is noted as B0.
     via: ui
   - step: 4
@@ -138,15 +138,15 @@ steps:
       The answer is noted as B1-api.
     via: api
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator refreshes the balance screen in Russian at 1440 px. The balance of
+      The storekeeper refreshes the balance screen in Russian at 1440 px. The balance of
       ITEM-RETRY-C3 is noted as B1-ui.
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the balance screen at 390 px. The balance is noted as B1-phone.
+      The storekeeper opens the balance screen at 390 px. The balance is noted as B1-phone.
     via: ui
   - step: 9
     actor: admin

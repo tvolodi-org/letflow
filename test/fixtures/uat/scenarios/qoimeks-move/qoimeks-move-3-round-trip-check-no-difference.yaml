@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -41,20 +41,20 @@ tags:
 - kk
 - refusal
 description: >-
-  The administrator downloads the unchanged whole-stock workbook and checks it against QOI-OU-1. On the synthetic
+  The storekeeper downloads the unchanged whole-stock workbook and checks it against QOI-OU-1. On the synthetic
   baseline it has R data rows, zero changes and S (distinct stocked articles) Russian responsible-stock remarks. The write control stays
   disabled; no load is made. Record the history before and after and re-read balances. This is an exclusion check
   for responsible stock, not evidence that the import can set those balances. Repeat the required language and viewport
   checks with the same bytes.
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
     The Qoimeks QA tenant holds the synthetic stock (posted opening balances, counted at the start of the run) and the stock module is active;
-    the administrator holds the right to quick counts (the tenant administrator does).
+    the storekeeper is expected to hold the right to quick counts, which the source (stock module role_grants) does not grant: if the button is missing for the storekeeper, report a PRODUCT defect, not BLOCKED.
   check: system_seeded
   detail: >-
-    If the Balances screen has no button "Load balances from Excel", report BLOCKED for steps 3 to 9 and say so.
+    If the Balances screen shows no button "Load balances from Excel" to the storekeeper, report a PRODUCT defect for steps 3 to 9 (the walk is not moved to the administrator) and say so.
 - description: >-
     The run knows which org unit received the opening balances (the one named in the seed record of the QA tenant).
   check: system_seeded
@@ -73,7 +73,7 @@ preconditions:
   detail: >-
     If not, switch to English first.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. The item, place and non-zero balance counts are read at the start of the run (the seed changes them); every seeded
     balance carries a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
@@ -107,63 +107,63 @@ preconditions:
     outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 at 1440 px in English,
+    The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 at 1440 px in English,
     opens the Balances screen and presses "Stock workbook (Qoimeks layout)"; the file is saved and not changed.
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator counts the data rows of the saved file (the rows under the header row) and notes the number R, and counts the distinct stocked articles S that appear in it with a non-zero quantity; both numbers are read from the file at the start of the run.
+    The storekeeper counts the data rows of the saved file (the rows under the header row) and notes the number R, and counts the distinct stocked articles S that appear in it with a non-zero quantity; both numbers are read from the file at the start of the run.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator presses the button "Load balances from Excel" on the Balances screen. The screen "Load balances
-    from Excel" opens. The administrator reads the list "Previous loads" and notes what it shows.
+    The storekeeper presses the button "Load balances from Excel" on the Balances screen. The screen "Load balances
+    from Excel" opens. The storekeeper reads the list "Previous loads" and notes what it shows.
   via: ui
 - step: 4
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator chooses the org unit that holds the opening balances in the select "Org unit" and chooses
+    The storekeeper chooses the org unit that holds the opening balances in the select "Org unit" and chooses
     the saved, unchanged file in the file field.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator presses "Check" and reads the check summary (Rows read, Changed, Unchanged, Remarks), the
+    The storekeeper presses "Check" and reads the check summary (Rows read, Changed, Unchanged, Remarks), the
     result text and the button "Write balances from the file".
   via: ui
 - step: 6
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator observes that the write button is disabled and cannot be activated. Do not issue a forced
+    The storekeeper observes that the write button is disabled and cannot be activated. Do not issue a forced
     click or an API write.
   via: ui
 - step: 7
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator reads the list of previous loads again and compares it with the recorded list from step 3.
+    The storekeeper reads the list of previous loads again and compares it with the recorded list from step 3.
   via: ui
 - step: 8
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator drops notes.txt into the file drop zone. Its complete UTF-8 bytes are This is not a workbook.
+    The storekeeper drops notes.txt into the file drop zone. Its complete UTF-8 bytes are This is not a workbook.
     with no trailing newline.
   expect_refusal: true
   via: ui
 - step: 9
-  actor: admin
+  actor: storekeeper
   action: >-
-    The window is made 390 px wide and the language is switched to Russian. The administrator opens the screen again,
+    The window is made 390 px wide and the language is switched to Russian. The storekeeper opens the screen again,
     chooses the same org unit and the same unchanged file, presses the check button ("Проверить") and reads the
     screen.
   via: ui
 - step: 10
-  actor: admin
+  actor: storekeeper
   action: >-
-    The language is switched to Kazakh. The administrator chooses the same org unit and file again, presses the
+    The language is switched to Kazakh. The storekeeper chooses the same org unit and file again, presses the
     check button ("Тексеру"), reads the screen, and then switches the language back to English.
   via: ui
 expected_outcomes:

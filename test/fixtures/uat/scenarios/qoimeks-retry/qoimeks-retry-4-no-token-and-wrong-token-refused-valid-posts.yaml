@@ -51,7 +51,7 @@ description: >
   refused with the same 401 (no information about whether a valid credential exists). The walk then
   creates the tenant's shared stock access through the admin API, keeps the one-time value in the
   run's own environment only, records the balance of the test item, and posts a small receipt with
-  the valid value. The administrator verifies the balance via the browser. The shared token cannot
+  the valid value. The storekeeper verifies the balance via the browser. The shared token cannot
   be used on the standard admin API (/api/v1) for a catalog read. Cleanup: the receipt posted with
   the valid token is reversed and the shared access is revoked, so the tenant is left as it began.
   Not exercised, with reasons: (a) rate-limit lockout (needs many rapid wrong requests): covered
@@ -148,15 +148,15 @@ steps:
     expect_refusal: true
     via: api
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the balance screen in Russian at 1440 px. The balance of
+      The storekeeper opens the balance screen in Russian at 1440 px. The balance of
       ITEM-RETRY-A4 is noted as B1-ui.
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the balance screen at 390 px in Russian. The balance of
+      The storekeeper opens the balance screen at 390 px in Russian. The balance of
       ITEM-RETRY-A4 is noted as B1-phone.
     via: ui
   - step: 9

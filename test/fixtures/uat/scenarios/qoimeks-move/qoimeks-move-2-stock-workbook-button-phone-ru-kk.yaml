@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -36,7 +36,7 @@ tags:
 - kk
 - i18n
 description: >-
-  The browser window is 390 px wide. The administrator opens the Balances screen, switches the language to Russian,
+  The browser window is 390 px wide. The storekeeper opens the Balances screen, switches the language to Russian,
   reads the workbook button and the caption, presses the button and sees the file saved; then does the same in Kazakh;
   then returns to English. In each language the button and caption are in that language with no English word left
   and no raw message key, nothing is cut off at the right edge, no sideways scrolling is needed to reach the button,
@@ -44,11 +44,11 @@ description: >-
   banners (too many rows, reader of the whole company needed): the tenant cannot reach those states (see scenario
   qoimeks-move-1).
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
     The Qoimeks QA tenant holds the synthetic stock (posted opening balances, counted at the start of the run) and the stock module is active;
-    the administrator account works.
+    the storekeeper account works.
   check: system_seeded
   detail: >-
     If the Balances screen is empty, report BLOCKED for the whole scenario.
@@ -58,12 +58,12 @@ preconditions:
   detail: >-
     If no browser can be started, report BLOCKED for the whole scenario.
 - description: >-
-    The language choice of the administrator's browser starts as English.
+    The language choice of the storekeeper's browser starts as English.
   check: system_seeded
   detail: >-
     If not, switch to English first and carry on.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
@@ -91,38 +91,38 @@ preconditions:
     outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    In a window 390 px wide the administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
+    In a window 390 px wide the storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
     in English, opens the side navigation (folded behind a button on a narrow window) and opens the Balances screen
     of the stock section.
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the language menu, chooses Russian, and reads the buttons above the balances list and
+    The storekeeper opens the language menu, chooses Russian, and reads the buttons above the balances list and
     the caption under the workbook button.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator presses the workbook button and checks that a file named stock-<year>-<month>-<day>.xlsx is
+    The storekeeper presses the workbook button and checks that a file named stock-<year>-<month>-<day>.xlsx is
     saved and no error banner appears.
   via: ui
 - step: 4
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the language menu, chooses Kazakh, and reads the same buttons and caption.
+    The storekeeper opens the language menu, chooses Kazakh, and reads the same buttons and caption.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator presses the workbook button again and checks that a file is saved and no error banner appears.
+    The storekeeper presses the workbook button again and checks that a file is saved and no error banner appears.
   via: ui
 - step: 6
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the language menu and chooses English, and reads the screen.
+    The storekeeper opens the language menu and chooses English, and reads the screen.
   via: ui
 expected_outcomes:
 - id: EO-001

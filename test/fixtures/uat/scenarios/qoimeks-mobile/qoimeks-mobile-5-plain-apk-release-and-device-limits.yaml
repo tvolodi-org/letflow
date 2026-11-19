@@ -9,7 +9,7 @@
 #   (e) Which key signed the APK: the apksigner check is run by the release script on the build machine (docs/runbooks/mobile-android-release.md section 2); it is not visible in a browser. This scenario checks only the published files.
 #   The observable check for (a) to (d) is a person with an Android phone following docs/runbooks/mobile-android-release.md section 4 (install on a phone) by hand; the team does not run it, and this scenario does not claim it passed.
 # The download address is not in the repository: the operator (infra) gives it to the run. If none is given, the whole scenario is BLOCKED, not passed.
-# T-2192 rework (issue 4722; PM/infra 2026-11-19): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin (browser/HTTP client only); 3 host https://pwa.letflow.qa.bizdala.com/android/ ;
+# T-2192 rework (issue 4722; PM/infra 2026-11-19): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (browser/HTTP client only; no sign-in is needed for the release page); 3 host https://pwa.letflow.qa.bizdala.com/android/ ;
 # 4 data: no tenant data; the release files do not exist yet, so the scenario is BLOCKED-by-environment until the owner builds and publishes them; 5 browser and download steps; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-mobile-5-plain-apk-release-and-device-limits
@@ -26,7 +26,7 @@ description: >
   Nothing is installed and nobody signs in: see the list in the header. Cleanup: the downloaded APK is deleted from the run's folder at the end; nothing on the tenant is changed.
 
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The plain Android release is published at https://pwa.letflow.qa.bizdala.com/android/ (files qoimeks-qa-1.0.0-1.apk, qoimeks-qa-1.0.0-1.apk.sha256 and latest.json; the PWA itself is at https://pwa.letflow.qa.bizdala.com/) and is a build made after the G16 change (BLOCKED-by-environment until the owner builds and publishes it, issue 4722).
@@ -41,24 +41,24 @@ preconditions:
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 390 px wide the administrator opens the address https://pwa.letflow.qa.bizdala.com/android/latest.json and reads the text.
+      In a window 390 px wide the storekeeper opens the address https://pwa.letflow.qa.bizdala.com/android/latest.json and reads the text.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the same file in a window 1440 px wide and reads the text.
+      The storekeeper opens the same file in a window 1440 px wide and reads the text.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the checksum file (the APK's file name followed by .sha256) in the browser and reads it, then downloads the APK from the address in latest.json and computes the SHA-256 checksum of the downloaded file.
+      The storekeeper opens the checksum file (the APK's file name followed by .sha256) in the browser and reads it, then downloads the APK from the address in latest.json and computes the SHA-256 checksum of the downloaded file.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator deletes the downloaded APK from the run's folder.
+      The storekeeper deletes the downloaded APK from the run's folder.
     via: ui
 
 expected_outcomes:
