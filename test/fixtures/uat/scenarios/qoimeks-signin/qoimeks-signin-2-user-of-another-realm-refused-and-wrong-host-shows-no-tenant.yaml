@@ -2,12 +2,12 @@
 # HOST vs REALM, short form (full text in scenario 1): 0072 D1 one realm per tenant, 1:1 (0072:42-43, :103); D5(b) the hostname selects the PUBLIC sign-in configuration only (0072:166-177; lib/letflow/routers/tenant_config.ex moduledoc "?host= resolves ..." : it "never authorizes a request or selects a tenant-data prefix"); 0088:72 and :78 platform rows are honoured only in the platform tenant (INV-10), tenant isolation INV-1 unchanged (code: lib/letflow/api/authorization.ex effective_roles/2, the platform_tenant? exclusion of PLATFORM_ADMIN, ~:831). The code takes the tenant from the verified token's realm: lib/letflow/plugs/auth_pipeline.ex authenticate_oidc/2 :133 (verify_token, extract_realm, resolve_tenant, guard_realm_ownership :365). No decision promises "a token of another realm on this host is 401"; the only 401 "token realm does not match tenant" (auth_pipeline.ex :227-228) is the internal ownership guard (a realm resolved to a tenant that does not own it), not a host check. A PLATFORM_ADMIN of bpm-default legitimately uses platform routes on any host, so a hard host/realm match would break that. DEFECT NOTE for the security reviewer: none; the scenario therefore expects "the caller NEVER receives qoimeks-qa2 data", not a 401.
 # 1. Scope: qoimeks-qa2 (exists).
 # 2. Actors: actor-platform-admin (roster entry, tenant platform, realm bpm-default, PLATFORM_ADMIN; the account the preflight uses, scripts/uat_preflight.sh) is the "user of another realm", allowed for this run; actor-qoimeks-qa2-storekeeper (realm qoimeks-qa2) is the control. The old realms qoimeks-qa and qoimeks-client1-qa are NOT touched (no actor of them). Live logins are preconditions for acceptance; no live-access claim is made; credentials never quoted.
-# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com; the sign-in start with ?realm=<slug> and the host fallback (web/src/auth/tenantConfig.ts resolveRealmFromUrl and fetchTenantConfig; lib/letflow/routers/tenant_config.ex resolve_realm/2: an unknown slug falls through to the host branch); the stock Documents and Balances screens (web/src/modules/stock/stockRoutes.tsx, StockRead). The slug of the default tenant is bpm-default (lib/mix/tasks/letflow.seed.ex :36).
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com; the sign-in start with ?realm=<slug> and the host fallback (web/src/auth/tenantConfig.ts resolveRealmFromUrl and fetchTenantConfig: the web sends the realm OR the host, never both; lib/letflow/routers/tenant_config.ex resolve_realm/2: an unknown slug falls to the host branch only when ?host= was also sent, which the web never does, so it lands in resolve_default_realm: the tenant named by LETFLOW_DEFAULT_TENANT_SLUG, else bpm-default); the stock Documents and Balances screens (web/src/modules/stock/stockRoutes.tsx, StockRead). The slug of the default tenant is bpm-default (lib/mix/tasks/letflow.seed.ex :36).
 # 4. Data: the no-leak comparison needs at least one stock document or balance row in qoimeks-qa2, read at the start by the control (step 1). If both lists are empty the comparison proves nothing: report BLOCKED-by-environment for steps 2 to 3 and name the missing data (a posted document in qoimeks-qa2); no generator task is opened here because other groups of this run (the retry and ledger groups) post documents in the same tenant, so run this group after them.
 # 5. Executable: browser only. Every step is a screen step. NOT screen-observable and therefore not walked here (named as the task asks): the answer of the public tenant-configuration read for a host that belongs to no tenant (no DNS for an unknown host, so the SPA cannot be served from it; the former API reads T-HOST/T-U1/T-U2 were removed) and the status code of a foreign token on a stock route (no screen shows it; the code gives no promise, see HOST vs REALM).
 # 6. Dry run: not run in this step (no acceptance environment; uat.sh preflight needs the title "UAT qoimeks-signin").
-# Walked on screens instead of the API (T-2337): former step 1 and 2 (token of the other realm) are steps 2 and 3; former step 5 (unknown company) is step 5. No wrong-host page and no "no such company" message exists in web/src: grep -rniE "no such company|company not found|unknown company|wrong host|wrong address" web/src (non-test .ts/.tsx) found nothing, and web/src/i18n/loginMessages.ts states "no message may say or imply whether an address is registered". The scenario expects the ABSENCE of such a message.
-# EXPECTATION CORRECTIONS: 5 (a) the other-realm user is the platform admin of bpm-default, not a user of the old realm qoimeks-qa; (b) a foreign token on the tenant host is NOT expected to be 401: it gets its own context or a refusal and never qoimeks-qa2 data; (c) the host/realm 401 claim is removed; (d) the unknown-host API read is replaced by the unknown-company-code browser step (the unknown slug falls to the host's own realm, tenant_config.ex resolve_realm/2); (e) Keycloak may refuse the redirect of the bpm-default client to the tenant host (0072:67 lists only the tenant's own redirect URIs for its own realm client), so both a refused sign-in and a sign-in into own context are accepted outcomes.
+# Walked on screens instead of the API (T-2337): former step 1 and 2 (token of the other realm) are steps 2 and 3; former step 5 (unknown company) is step 5; step 6 (T-2345) is the host-resolved path without ?realm=. No wrong-host page and no "no such company" message exists in web/src: grep -rniE "no such company|company not found|unknown company|wrong host|wrong address" web/src (non-test .ts/.tsx) found nothing, and web/src/i18n/loginMessages.ts states "no message may say or imply whether an address is registered". The scenario expects the ABSENCE of such a message.
+# EXPECTATION CORRECTIONS: 8 (a) the other-realm user is the platform admin of bpm-default, not a user of the old realm qoimeks-qa; (b) a foreign token on the tenant host is NOT expected to be 401: it gets its own context or a refusal and never qoimeks-qa2 data; (c) the host/realm 401 claim is removed; (d) the unknown-host API read is replaced by the unknown-company-code browser step, and (T-2345, T-2338 audit) the expectation 'falls to the host's own realm' is WRONG and corrected: the web sends {realm} or {host}, never both (tenantConfig.ts fetchTenantConfig), resolve_realm/2 uses the host only if ?host= came too, so an unknown slug gets resolve_default_realm, the sign-in of the instance's DEFAULT realm, never qoimeks-qa2; (f) step 5 actor is none (unauthenticated), not the storekeeper; (g) new step 6 (the tenant address without ?realm= is the host-resolved path and equals OWN-SIGNIN) and EO-004; (h) step 4 now says fresh browser session (the chosen realm is remembered per tab session, tenantConfig.ts resolveRealmFromUrl, sessionStorage); the other signin steps were re-read against tenantConfig.ts and tenant_config.ex: step 2 ?realm=bpm-default resolves the slug bpm-default (servable tenant), consistent. (e) Keycloak may refuse the redirect of the bpm-default client to the tenant host (0072:67 lists only the tenant's own redirect URIs for its own realm client), so both a refused sign-in and a sign-in into own context are accepted outcomes.
 ---
 id: qoimeks-signin-2-user-of-another-realm-refused-and-wrong-host-shows-no-tenant
 scope: qoimeks-qa2
@@ -22,7 +22,8 @@ description: >-
   realm, allowed for this run) opens the tenant address with the default realm chosen and tries to work on
   the stock screens of qoimeks-qa2. Whatever happens (the sign-in is refused, or the user gets the own
   context), no document, item, place or balance of qoimeks-qa2 is shown. A company code that belongs to no
-  company leads to the sign-in of the tenant address itself and shows no message about whether a company exists.
+  company leads to the sign-in of the instance's default realm (not the tenant's own, and not the tenant's data) and shows no message about
+  whether a company exists; the tenant address without any code leads to the tenant's own sign-in.
 
 actors:
   other: actor-platform-admin
@@ -72,16 +73,25 @@ steps:
   - step: 4
     actor: storekeeper
     action: >-
-      The storekeeper signs in again at the tenant address and opens the Documents screen: the number of
+      In a fresh browser session the storekeeper opens the tenant address, signs in again at the tenant address and opens the Documents screen: the number of
       documents and DOC-REF are the same as noted in step 1 (the walk of the platform administrator changed nothing).
     via: ui
   - step: 5
-    actor: storekeeper
+    actor: none (unauthenticated)
     action: >-
-      In a fresh browser session the runner opens https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=no-such-company-uat
+      In a fresh browser session nobody signs in; the runner opens https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=no-such-company-uat
       (a company code that belongs to no company). The sign-in page that opens is noted as UNKNOWN-SIGNIN;
-      its address is compared with OWN-SIGNIN of step 1. No message
-      about whether the company exists is shown on any screen of this step.
+      its address names the realm of the instance's default sign-in (the realm of the default tenant, bpm-default
+      unless the instance names another default tenant) and is compared with OWN-SIGNIN of step 1 (and with
+      OTHER-SIGNIN of step 2 when the default is bpm-default). No message about whether the company exists is shown on any
+      screen of this step, and no data or name of qoimeks-qa2 is shown.
+    via: ui
+  - step: 6
+    actor: none (unauthenticated)
+    action: >-
+      In another fresh browser session (no company code remembered) nobody signs in; the runner opens the tenant address
+      https://qoimeks-qa2.letflow.qa.bizdala.com WITHOUT any company code. The sign-in page that opens is noted as HOST-SIGNIN
+      and compared with OWN-SIGNIN of step 1: same realm and same branding (logo and name shown on the sign-in start).
     via: ui
 
 expected_outcomes:
@@ -115,14 +125,28 @@ expected_outcomes:
       suggested_action: route_to_frontend_dev
 
   - id: EO-003
-    description: A company code that belongs to no company leads to the tenant address's own sign-in and says nothing about whether a company exists (INV-5; tenant_config.ex precedence, loginMessages.ts wording rule).
+    description: A company code that belongs to no company leads to the default realm's sign-in and says nothing about whether a company exists (INV-5; tenant_config.ex precedence, loginMessages.ts wording rule).
     verification:
       method: gui_screen
       detail: >-
-        Step 5: UNKNOWN-SIGNIN names the same realm as OWN-SIGNIN (qoimeks-qa2, the host's own realm), and no
-        screen shows a message that the company is not found or does not exist.
+        Step 5: UNKNOWN-SIGNIN is the sign-in of the instance's default realm (bpm-default unless the instance names
+        another default tenant); it does not name qoimeks-qa2 and shows no data of it; no screen shows a message that
+        the company is not found or does not exist. UAT assumption, to be confirmed by the process owner: the default
+        tenant of the QA instance is not qoimeks-qa2; if it is, report BLOCKED-by-environment for this outcome.
       evidence: "Screenshot and address of UNKNOWN-SIGNIN."
     on_fail:
       severity: MAJOR
       business_impact: A wrong code would show another company's sign-in, or reveal which company codes are real.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: The tenant address without a company code (host-resolved path) leads to the tenant's own sign-in, the same as in step 1 (decision 0072 D5(b); tenant_config.ex resolve_realm/2 host branch).
+    verification:
+      method: gui_screen
+      detail: >-
+        Step 6: HOST-SIGNIN names the same realm as OWN-SIGNIN (qoimeks-qa2) with the same branding, and is not the sign-in of step 5.
+      evidence: "Addresses and screenshots of HOST-SIGNIN and OWN-SIGNIN."
+    on_fail:
+      severity: BLOCKER
+      business_impact: The client's own address would not lead to the client's own sign-in.
       suggested_action: route_to_elixir_dev

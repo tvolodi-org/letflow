@@ -572,7 +572,8 @@ describe('C5b no approve task', () => {
     fireEvent.click(screen.getByTestId('submit-quick-count'))
 
     await waitFor(() => expect(screen.getByTestId('no-task-hint')).toBeInTheDocument())
-    expect(screen.getByTestId('no-task-hint')).toHaveTextContent(qcEn['stock.qc.no_task_hint'])
+    expect(screen.getByTestId('no-task-hint')).toHaveTextContent(qcEn['stock.qc.four_eyes_hint'])
+    expect(qcEn['stock.qc.four_eyes_hint']).not.toMatch(/Open My Tasks/)
     expect(screen.getByTestId('my-tasks-link')).toHaveAttribute('href', '/tasks')
     expect(screen.queryByTestId('approve-button')).not.toBeInTheDocument()
     expect(screen.queryByTestId('four-eyes-hint')).not.toBeInTheDocument()
