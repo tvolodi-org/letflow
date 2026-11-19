@@ -9,6 +9,11 @@
 #   (c) The Kazakh wording of the long messages is checked by reading them against the file named above; whether the Kazakh is good language is for a Kazakh-speaking reader of the screenshots, not decided by the run.
 # T-2192 rework: checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (STOREKEEPER; no StockQuickCount in the source role_grants, a refused Quick count screen is a product defect to report); 3 the tenant host and the web Quick count screen exist, the labels are the ru/kk texts quoted in the steps; 4 refusal inputs need no balance data (nothing is submitted successfully); 5 browser script; 6 uat.sh preflight not run by the writer (no QA credentials).
 # This scenario compares no balances, so the responsible-employee key of issue 4720 does not apply here (see qoimeks-mobile-3).
+# T-2264 code-reading pass (group check lines are in file 1 of this group). EXPECTATION CORRECTIONS in this file: 4.
+#   (1) the screen checks all fields at once (validate in QuickCountPage.tsx), so every refusal shows its own message TOGETHER with the required-field messages of the still-empty item, place and org unit fields; steps 3 to 6 and 8 to 11 and EO-002, EO-003, EO-004 now say "among the messages";
+#   (2) the storekeeper holds StockQuickCount only after T-2239 (issue 4764): written for the target, a missing entry is a product defect and not a pass of anything;
+#   (3) the language menu is the globe with the current code, whose items are named in their own language: the scenario no longer quotes an item name, it chooses Russian or Kazakh by the code RU or KK shown beside the item;
+#   (4) the Kazakh line under the title is not asserted (the Russian one is), the wording is read against quickCountMessages.ts by a Kazakh reader.
 ---
 id: qoimeks-mobile-4-quick-count-ru-kk-and-input-refusals
 scope: qoimeks-qa2
@@ -19,7 +24,7 @@ tags: [qoimeks, mobile, quick_count, phone, i18n, ru, kk, validation, refusal]
 description: >
   The storekeeper switches the language of the screen to Russian (title "Быстрый пересчёт"), opens the Quick count screen in a window 390 px wide, and reads the title, the line under it, the field labels and the reason list.
   Then four refusals are tried one by one, each ending without anything being sent: the empty form is submitted (the fields item, place and org unit say "Обязательное поле" and the quantity asks for the number);
-  a negative quantity is typed; a number with ten decimals is typed; the reason "Другое" is chosen with no note. Each time the screen shows its own message in Russian next to the field and records nothing.
+  a negative quantity is typed; a number with ten decimals is typed; the reason "Другое" is chosen with no note. Each time the screen shows its own message in Russian next to the field (among the required-field messages of the fields still empty) and records nothing.
   The same is then done in Kazakh (title "Жылдам санақ"), and the reading is repeated at 1440 px in both languages. Finally the language is put back to English.
   The messages are not raw keys, no English words stay in a Russian or Kazakh screen, and the text fits the 390 px width without sideways scrolling.
 
@@ -29,7 +34,7 @@ actors:
 preconditions:
   - description: The Qoimeks QA tenant has the stock module active and the storekeeper's account holds the stock quick count permission, so that the Quick count screen is in the navigation.
     check: system_seeded
-    detail: If the entry "Quick count" is missing from the navigation, report a PRODUCT defect for the whole scenario and name the missing permission (StockQuickCount is not in the STOREKEEPER role_grants of the stock module, lib/letflow/modules/stock/stock.ex; the real storekeeper must be able to count, so the step is not moved to the administrator).
+    detail: If the entry "Quick count" is missing from the navigation, report a PRODUCT defect for the whole scenario and name the missing permission (StockQuickCount is not in the STOREKEEPER role_grants of the stock module, lib/letflow/modules/stock/stock.ex; the real storekeeper must be able to count, so the step is not moved to the administrator). The permission is added by T-2239 (issue 4764); the scenario is written for that target.
   - description: The storekeeper's browser language choice is English at the start (a fresh profile).
     check: system_seeded
     detail: If the screen opens in another language, switch to English first and carry on.
@@ -41,7 +46,7 @@ steps:
   - step: 1
     actor: storekeeper
     action: >
-      In a window 390 px wide the storekeeper signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the language menu (the globe with the current language code in the top bar) and chooses Russian.
+      In a window 390 px wide the storekeeper signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the language menu (the globe with the current language code in the top bar) and chooses the item with the code RU (Russian).
     via: ui
   - step: 2
     actor: storekeeper
@@ -75,7 +80,7 @@ steps:
   - step: 7
     actor: storekeeper
     action: >
-      The storekeeper switches the language to Kazakh, opens the screen "Жылдам санақ" through the navigation and reads it (title, line under it, labels, the list of reasons).
+      The storekeeper switches the language to Kazakh (the item with the code KK), opens the screen "Жылдам санақ" through the navigation and reads it (title, line under it, labels, the list of reasons).
     via: ui
   - step: 8
     actor: storekeeper
@@ -122,7 +127,7 @@ expected_outcomes:
     description: The empty form is refused in Russian and nothing is recorded.
     verification:
       method: gui_screen
-      detail: Step 3 shows "Обязательное поле" at the item, place and org unit fields and "Введите фактическое количество." at the quantity; the form stays, no result "Пересчёт зафиксирован" appears.
+      detail: Step 3 shows "Обязательное поле" at the item, place and org unit fields and "Введите фактическое количество." at the quantity (all four at once); the form stays, no result "Пересчёт зафиксирован" appears.
       evidence: Screenshot of step 3.
     on_fail:
       severity: MAJOR
@@ -132,7 +137,7 @@ expected_outcomes:
     description: A negative quantity, ten decimals and a reason "Другое" without a note are each refused in Russian and nothing is recorded.
     verification:
       method: gui_screen
-      detail: Step 4 shows "Количество не может быть отрицательным."; step 5 shows "Не более 9 знаков после запятой."; step 6 shows "Введите примечание для «Другое»." next to the note field. In each of the three the form stays and no result "Пересчёт зафиксирован" appears.
+      detail: Step 4 shows "Количество не может быть отрицательным."; step 5 shows "Не более 9 знаков после запятой."; step 6 shows "Введите примечание для «Другое»." next to the note field; each of them appears together with "Обязательное поле" at the still empty item, place and org unit. In each of the three the form stays and no result "Пересчёт зафиксирован" appears.
       evidence: Screenshots of steps 4, 5 and 6.
     on_fail:
       severity: MAJOR
