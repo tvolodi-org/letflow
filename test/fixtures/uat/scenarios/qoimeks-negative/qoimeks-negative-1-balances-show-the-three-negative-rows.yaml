@@ -1,8 +1,9 @@
+# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2160 (BA), rework T-2191 (issue #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090: a ledger registration may carry negative balances, set per tenant), REQ-834 (the ledger honours the setting),
 #   REQ-836 (the stock registration opts in), REQ-837 (negative opening lines move with their sign; the tenant data holds 3 of them).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md (sections 1, 3, 7); docs/requirements.yaml REQ-833..839;
-#   web/src/components/layout/navMessages.ts (screen names Balances / Остатки / Қалдықтар); task text (142 places, 666 items, 603 posted opening balances incl. 3 negative).
+#   web/src/components/layout/navMessages.ts (screen names Balances / Остатки / Қалдықтар); task text (the seed: 150 places, 678 items, 603 non-zero balances incl. 3 negative; counts are read at the start of the run, not hard-coded).
 # Not UAT-observable here, with reasons:
 #   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
 #   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests;
@@ -48,7 +49,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and sorts or scans the quantity column so the rows with a minus sign come together.
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and loads the whole list: the Balances table has no sort and no sign filter, so the administrator presses "Load more" until every row is loaded (no further "Load more" is offered), then scans the quantity column for the rows with a minus sign. The number of rows loaded is read at the start of the run and noted; no count is taken from this text.
     via: ui
   - step: 2
     actor: admin
@@ -78,7 +79,7 @@ steps:
   - step: 7
     actor: storekeeper
     action: >
-      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and finds the rows whose quantity starts with a minus sign.
+      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and presses "Load more" until every row is loaded (there is no sort and no sign filter) and finds the rows whose quantity starts with a minus sign.
     via: ui
   - step: 8
     actor: storekeeper

@@ -10,9 +10,9 @@
 #   (c) Posting the count (balance becomes the counted number): with four eyes on, a second user must approve, and the roster has one account for this tenant (actor-qoimeks-qa-admin) - so the posted balance, the movement entry and the reversal are NOT walked here; they are covered by tests of REQ-854 criteria 1, 2, 5 and 12.
 #   (d) A quick count refused count_in_progress or location_frozen: needs a formal count order opened on the synthetic data; not created by this scenario (it must not change counts of the tenant).
 # Cleanup: every run of this scenario issues exactly one quick count document and ends by cancelling it with the reason "UAT T-2165 cleanup". Cancelled documents cannot be deleted by the product: the document number and the cancel reason are written in the run's report. The balance of the key is never changed.
-# T-2192 rework (issue 4720): the book quantity is compared for the SAME key the form submits (item, place, org unit, no responsible employee), see the description and precondition 1; employee-assigned stock is never substituted.
+# T-2204 rework (issue 4720, task #4740): the Quick count form has a 'Responsible employee' selector (default 'Unassigned stock'). Every seeded balance carries a responsible employee, so the run chooses the responsible of the Balances row it noted and compares B for that same key; there is no B = 0 fallback and no plain-key precondition.
 # Checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin (TENANT_ADMIN; no lower-role claim for quick count is made); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
-# 4 data: the synthetic balances all carry a responsible employee, handled by precondition 1 (B = 0 case); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
+# 4 data: the synthetic balances all carry a responsible employee, handled by precondition 1 (the form's Responsible employee selector is set to that employee); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
 ---
 id: qoimeks-mobile-3-quick-count-on-phone-width
 scope: qoimeks-qa
@@ -21,23 +21,23 @@ version: "1.0"
 tags: [qoimeks, mobile, quick_count, phone, responsive, stock, refusal, cleanup]
 
 description: >
-  The Quick count form has no field for a responsible employee: the count it submits is for the slot with NO responsible employee, and its book quantity is the quantity of that slot only (a balance held under an employee is a different slot and is not counted).
-  The administrator therefore looks up, on the stock balances screen, one item at one place and org unit, and notes B: the quantity of the row that has an empty Responsible column; if the combination has no such row, B is 0. A combination with a positive row without a responsible employee is preferred; employee-assigned rows of the same combination are noted too and are never used as B.
-  Then, at a window 390 px wide, they open the Quick count screen from the navigation (the button that unfolds it), choose the same item, place and org unit, and read the book quantity the form shows, which must equal B.
+  The Quick count form has a selector "Responsible employee" (default "Unassigned stock"); the count it submits is for the balance row of the chosen employee, and its book quantity is the quantity of that row only (a row held by another employee, or unassigned, is a different row).
+  The administrator therefore looks up, on the stock balances screen, one item at one place and org unit and notes the row to count: its Responsible employee and its quantity B (every seeded balance carries a responsible employee, so the row to count is the employee-assigned one; never read the stock without a responsible as B).
+  Then, at a window 390 px wide, they open the Quick count screen from the navigation (the button that unfolds it), choose the same item, place and org unit and the same Responsible employee, and read the book quantity the form shows, which must equal B.
   They type a counted quantity of B plus 1 and read the difference the form shows (1), choose the reason "Recount" and press "Submit count". The screen then shows "Count recorded" with the document number, the book quantity B,
   the counted quantity B plus 1, the difference 1 and the state, and tells that a second person approves the count in My Tasks. The administrator tries to approve their own count in My Tasks and is not allowed (four eyes: a person cannot approve what they counted).
-  The balances screen still shows B for the row without a responsible employee, and the employee-assigned rows unchanged (nothing is posted until a second person approves). The administrator opens the stock documents screen, opens the quick count document and cancels it with the reason "UAT T-2165 cleanup"; it reads Cancelled.
+  The balances screen still shows B for the row of that employee, and the other rows of the item unchanged (nothing is posted until a second person approves). The administrator opens the stock documents screen, opens the quick count document and cancels it with the reason "UAT T-2165 cleanup"; it reads Cancelled.
   The whole run is repeated at 1440 px. Screens fit the 390 px width: nothing is cut off, no sideways scrolling is needed, no two controls overlap, and the form fields and buttons can be reached with a thumb-sized tap target.
 
 actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: The Qoimeks QA tenant holds the synthetic stock data (142 places, 666 items, 603 posted opening balances), the stock module is active, and one item/place/org unit combination that is not lot-tracked or serial-tracked can be chosen.
+  - description: The Qoimeks QA tenant holds the synthetic stock data (read the item, place and balance counts at the start of the run and record them; the seed changes them), the stock module is active, and one balance row that is not lot-tracked or serial-tracked and has a positive quantity can be chosen.
     check: system_seeded
     detail: >
-      All 603 opening balances carry a responsible employee (QOI-OU-1 is the only org unit), and the form submits no responsible employee, so a positive row WITHOUT a responsible employee does not exist on the synthetic tenant (issue 4720).
-      The run reads the balances screen (Responsible column) and chooses a combination in this order: (1) a row with an empty Responsible column and a positive quantity (B is its quantity); (2) if none exists, as on the synthetic tenant, any positive employee-assigned combination that is not lot-tracked or serial-tracked, with B = 0 for the form's slot and the assigned quantity noted as A (it must not be used as B and must not change). The run records the combination, B, and every row of the combination with its Responsible value. It is never reported that the form should show A. The quick count refuses serial-tracked items and needs a lot for lot-tracked ones; pick another combination in that case.
+      Every opening balance carries a responsible employee (QOI-OU-1 is the only org unit). The run reads the balances screen (Responsible column) and chooses one positive row of an item that is not lot-tracked or serial-tracked; B is that row's quantity and its Responsible employee is chosen in the form's "Responsible employee" selector, so the form submits the key of that row (issue 4720, task 4740).
+      The run records the combination, its Responsible employee, B, and every other row of the item at that place with its Responsible value. The quick count refuses serial-tracked items and needs a lot for lot-tracked ones; pick another row in that case. If no positive row of such an item exists, report BLOCKED-by-environment; never use a row without a responsible, never set B to 0.
   - description: The administrator's account has the stock quick count permission and the quick count is on its four-eyes default (no approval rule switched off for the quick count approval step).
     check: system_seeded
     detail: The permission StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule (docs/roles.md, stock module). UAT assumption, to be confirmed by the process owner - the four-eyes switch of the quick count in this tenant was not read; the opening approval is known to be off. If the result screen in step 5 offers an "Approve" button instead of the second-person hint, the switch is off, so do NOT press it, report BLOCKED for step 6 and carry on with the cancel in step 8.
@@ -52,7 +52,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, B (the quantity of the row with an empty Responsible column, 0 when there is none) and every employee-assigned row of the combination with its quantity.
+      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, the Responsible employee of the row and B (the quantity of that row), and every other row of the combination with its Responsible value and quantity.
     via: ui
   - step: 2
     actor: admin
@@ -62,7 +62,7 @@ steps:
   - step: 3
     actor: admin
     action: >
-      The administrator chooses the noted item, the noted place and the noted org unit, and reads what the form shows below the fields.
+      The administrator chooses the noted item, the noted place, the noted org unit and the noted Responsible employee, and reads what the form shows below the fields.
     via: ui
   - step: 4
     actor: admin
@@ -83,7 +83,7 @@ steps:
   - step: 7
     actor: admin
     action: >
-      The administrator opens the stock balances screen again and reads the quantity of the noted item at the noted place and org unit.
+      The administrator opens the stock balances screen again and reads the quantity of the noted item at the noted place and org unit for the noted Responsible employee.
     via: ui
   - step: 8
     actor: admin
@@ -101,7 +101,7 @@ expected_outcomes:
     description: The Quick count screen can be reached and used at a phone width.
     verification:
       method: gui_screen
-      detail: At 390 px step 2 shows the title "Quick count" with the line "Count a single item at a location and record the actual quantity.", and the fields Item, Location, Org unit, Counted quantity, Reason and the button "Submit count"; the text is inside the 390 px width, there is no horizontal scroll bar, no two controls overlap, and each field and button can be tapped.
+      detail: At 390 px step 2 shows the title "Quick count" with the line "Count a single item at a location and record the actual quantity.", and the fields Item, Location, Org unit, Responsible employee, Counted quantity, Reason and the button "Submit count"; the text is inside the 390 px width, there is no horizontal scroll bar, no two controls overlap, and each field and button can be tapped.
       evidence: Screenshots of steps 2, 3, 4 and 5 at 390 px.
     on_fail:
       severity: MAJOR
@@ -111,7 +111,7 @@ expected_outcomes:
     description: The form shows the book quantity of the chosen key and the difference of the typed count before submitting.
     verification:
       method: gui_screen
-      detail: After step 3 the form shows "Book quantity" equal to B (the quantity of the slot with no responsible employee noted in step 1; 0 when the combination holds only employee-assigned rows, never the employee-assigned quantity); after step 4 it shows "Difference" equal to 1 (a plain number, 1 or 1.000 - compared as a number).
+      detail: After step 3 the form shows "Book quantity" equal to B (the quantity of the row of the chosen Responsible employee noted in step 1); after step 4 it shows "Difference" equal to 1 (a plain number, 1 or 1.000 - compared as a number).
       evidence: Screenshots of steps 3 and 4.
     on_fail:
       severity: MAJOR
@@ -141,7 +141,7 @@ expected_outcomes:
     description: An unapproved count does not change the stock balance.
     verification:
       method: gui_screen
-      detail: Step 7 shows B for the row without a responsible employee (no row at all when B is 0) and the employee-assigned rows with the quantities noted in step 1; no new movement is added by the unapproved count.
+      detail: Step 7 shows B for the row of the noted Responsible employee and the other rows with the quantities noted in step 1; no new movement is added by the unapproved count.
       evidence: Screenshot of step 7.
     on_fail:
       severity: BLOCKER
