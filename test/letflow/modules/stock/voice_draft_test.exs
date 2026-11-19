@@ -213,9 +213,12 @@ defmodule Letflow.Modules.Stock.VoiceDraftTest do
 
     test "VD-R6b non-transfer place only in to_location moves to location (GH 4830)" do
       for kind <- ["receipt", "issue", "count"] do
+        # a count needs a stated quantity (GH 4829), so the count case carries one
+        qty = if kind == "count", do: [quantity: 5], else: []
+
         d =
           run(
-            [kind: kind, to_location_words: "бэ два", to_location_code: "B-02"],
+            [kind: kind, to_location_words: "бэ два", to_location_code: "B-02"] ++ qty,
             "приход на бэ два"
           )
 
