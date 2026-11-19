@@ -221,9 +221,19 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   Serial-tracked items are refused `tracking_policy_not_supported`, as for receipts. `POST /documents` and
   `PUT /documents/:id` refuse the kind `quick_count` (`unknown_kind`), so the permission cannot be bypassed.
   Read, cancel, reverse and print use the existing `/documents` routes.
+
+* **Web form.** Select a responsible employee, or **Unassigned stock**. The book quantity and submission
+  use the same employee key; unassigned stock never includes employee-held stock.
+
 * **One call.** The route reads the book quantity of the key (balance of that exact item, place, org unit, responsible
   and lot) with the caller's stock read authority, stores it as `book_quantity` with `difference` = counted minus book,
   and issues the document in the same transaction. A refusal stores nothing and takes no number.
+
+* **Setup.** A tenant whose installed pack lacks the quick-count document type receives 409
+  `definition_not_active`, with no document or number stored. The tenant must have the `stock_quick_count`
+  document type registered before retrying. This refusal does not alter existing tenant definitions or
+  balances; an ordinary module upgrade does not rerun `on_install/3` seeds (`Letflow.ModuleUpgrade.Apply`).
+
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
   issue, `approve` (role TENANT_ADMIN like every stock posting task, `distinct_from submit`) posts. Four eyes are ON by
   default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with

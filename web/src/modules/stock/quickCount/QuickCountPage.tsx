@@ -41,14 +41,15 @@ export function balanceKeyParams(form: QuickCountForm): Record<string, string> {
     sku: form.itemId,
     location: form.locationId,
     org_unit: form.orgUnitId,
+    ...(form.responsibleId ? { responsible: form.responsibleId } : {}),
     ...(form.lotId ? { lot: form.lotId } : {}),
   }
 }
 
-/** The row the server books against: no responsible, the chosen lot (none when empty), the item's base unit. */
-export function bookRow<R extends BalanceRow>(rows: R[], lotId: string, uomId: string): R | undefined {
+/** The row the server books against: the chosen responsible, lot (none when empty), the item's base unit. */
+export function bookRow<R extends BalanceRow>(rows: R[], lotId: string, uomId: string, responsibleId = ''): R | undefined {
   return rows.find((row) =>
-    !row.responsible && (row.lot ?? '') === lotId && (!uomId || !row.unit_ref || row.unit_ref === uomId))
+    (row.responsible ?? '') === responsibleId && (row.lot ?? '') === lotId && (!uomId || !row.unit_ref || row.unit_ref === uomId))
 }
 
 function baseUomId(fields: Record<string, unknown> | undefined): string {
@@ -91,6 +92,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
 
   const items = usePickerOptions('catalog_item', NONE)
   const locations = usePickerOptions('location_node', NONE)
+  const employees = usePickerOptions('org_employee', NONE)
   const orgUnits = usePickerOptions('org_unit', NONE)
 
   // The item field finds by code, name or barcode, and a keyboard scanner's code + Enter picks the item (ItemPicker).
@@ -116,11 +118,11 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
 
   const balanceQueryState = balanceQuery.isPending ? 'loading' : balanceQuery.isError ? classifyError(balanceQuery.error) : 'success'
 
-  // The server's book quantity is the slot with no responsible and the chosen lot (none when empty), in the
+  // Match the selected responsible and lot exactly (empty means unassigned), in the
   // item's base unit; the client drops empty query values, so that slot is picked from the rows here.
   const uomId = baseUomId(selectedItem?.fields)
   const bookQuantity = balanceEnabled && balanceQuery.data
-    ? (bookRow(balanceQuery.data.rows, form.lotId, uomId)?.quantity ?? '0')
+    ? (bookRow(balanceQuery.data.rows, form.lotId, uomId, form.responsibleId)?.quantity ?? '0')
     : null
 
   // Exact decimal subtraction: a float would show 10.3 - 10.1 as 0.20000000000000107.
@@ -230,6 +232,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
       org_unit_id: form.orgUnitId,
       counted_quantity: form.countedQuantity,
       reason_code: form.reasonCode,
+      ...(form.responsibleId ? { responsible_id: form.responsibleId } : {}),
       ...(form.lotId ? { catalog_lot_id: form.lotId } : {}),
       ...(form.reasonText.trim() ? { reason_text: form.reasonText.trim() } : {}),
     }
@@ -310,6 +313,14 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
               options={orgUnits}
               placeholder={t('stock.qc.select')}
               error={fieldErrors.orgUnitId}
+            />
+            <Select
+              name="responsible_id"
+              width="m"
+              label={t('stock.qc.responsible')}
+              value={form.responsibleId}
+              onChange={set('responsibleId')}
+              options={[{ value: "", label: t('stock.qc.unassigned') }, ...employees]}
             />
             {form.itemId && isLotTracked && (
               <Select

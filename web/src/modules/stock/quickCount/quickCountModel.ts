@@ -7,6 +7,7 @@ export interface QuickCountForm {
   itemId: string
   locationId: string
   orgUnitId: string
+  responsibleId: string
   lotId: string
   countedQuantity: string
   reasonCode: string
@@ -17,6 +18,7 @@ export const EMPTY_FORM: QuickCountForm = {
   itemId: '',
   locationId: '',
   orgUnitId: '',
+  responsibleId: '',
   lotId: '',
   countedQuantity: '',
   reasonCode: 'recount',
@@ -68,6 +70,7 @@ export function needsLot(fields: Record<string, unknown> | undefined): boolean {
 /** Maps a 422/409 error details.reason to a message key. */
 export function errorReasonToMessageId(reason: string | undefined): string {
   switch (reason) {
+    case 'definition_not_active': return 'stock.qc.error.definition_not_active'
     case 'count_in_progress': return 'stock.qc.error.count_in_progress'
     case 'location_frozen': return 'stock.qc.error.location_frozen'
     case 'quick_count_stale': return 'stock.qc.error.quick_count_stale'

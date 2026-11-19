@@ -22,7 +22,7 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
 
   @moduletag timeout: 240_000
 
-  setup do
+  setup tags do
     ctx = P.setup!([:a, :b])
     ctx = Map.merge(ctx, P.tenant_b!(ctx))
 
@@ -41,7 +41,11 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     # masters of its own so the tests' keys stay clean (QCT number 1).
     first = D.masters!(ctx.schema)
     body = qc_body(first, %{"counted_quantity" => "0"})
-    assert D.request(:post, "/quick-counts", ctx.tok_a, body).status == 201
+
+    unless tags[:missing_quick_count_type] do
+      assert D.request(:post, "/quick-counts", ctx.tok_a, body).status == 201
+    end
+
     ctx
   end
 
@@ -338,6 +342,53 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert [%{"book_quantity" => "0.000000000", "difference" => "5.000000000"}] = doc["lines"]
     approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
     assert Decimal.eq?(balance(ctx), 5)
+  end
+
+  @tag :missing_quick_count_type
+  test "QC-4719 missing document type is a clear conflict with no writes", ctx do
+    # Simulate a tenant installed before the quick-count document type existed.
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(
+        from(t in Letflow.Documents.DocumentType, where: t.key == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types ENABLE TRIGGER USER|)
+    end
+
+    before = {stored(ctx), O.counts(ctx.schema)}
+    body = qc_body(ctx.ma, %{"counted_quantity" => "97.5"}) |> Map.delete("responsible_id")
+    count(ctx, body) |> refused!(409, "definition_not_active")
+    assert {stored(ctx), O.counts(ctx.schema)} == before
+  end
+
+  test "QC-4719 unassigned count alongside employee stock creates its own key", ctx do
+    receipt!(ctx, "96.5")
+    body = qc_body(ctx.ma, %{"counted_quantity" => "97.5"}) |> Map.delete("responsible_id")
+    doc = count!(ctx, body)
+    assert [%{"book_quantity" => "0.000000000", "difference" => "97.500000000"}] = doc["lines"]
+    approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
+
+    rows =
+      S.get(
+        "/balances?sku=#{ctx.ma.item}&location=#{ctx.ma.location}&org_unit=#{ctx.ma.unit}",
+        ctx.tok_a
+      )
+      |> P.status!(200)
+      |> Map.fetch!("rows")
+
+    assert Enum.any?(
+             rows,
+             &(&1["responsible"] == ctx.ma.employee and
+                 Decimal.eq?(Decimal.new(&1["quantity"]), "96.5"))
+           )
+
+    assert Enum.any?(
+             rows,
+             &(&1["responsible"] in [nil, ""] and Decimal.eq?(Decimal.new(&1["quantity"]), "97.5"))
+           )
   end
 
   # -- the formal count rule (criteria 7 and 8) ---------------------------------------------------
