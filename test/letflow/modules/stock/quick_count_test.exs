@@ -363,31 +363,22 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert {stored(ctx), O.counts(ctx.schema)} == before
   end
 
-  test "QC-4719 unassigned count alongside employee stock creates its own key", ctx do
+  test "QC-T2286a unassigned count while an employee holds stock is refused, nothing stored",
+       ctx do
     receipt!(ctx, "96.5")
+    before = {stored(ctx), D.counts(ctx.schema)}
     body = qc_body(ctx.ma, %{"counted_quantity" => "97.5"}) |> Map.delete("responsible_id")
-    doc = count!(ctx, body)
-    assert [%{"book_quantity" => "0.000000000", "difference" => "97.500000000"}] = doc["lines"]
+    count(ctx, body) |> refused!(422, "balance_in_other_rows")
+    assert before == {stored(ctx), D.counts(ctx.schema)}
+    assert Decimal.eq?(balance(ctx), "96.5")
+  end
+
+  test "QC-T2286b counting the row that holds all the stock sets the item/place total", ctx do
+    receipt!(ctx, "96.5")
+    doc = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "97.5"}))
+    assert [%{"book_quantity" => "96.500000000", "difference" => "1.000000000"}] = doc["lines"]
     approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
-
-    rows =
-      S.get(
-        "/balances?sku=#{ctx.ma.item}&location=#{ctx.ma.location}&org_unit=#{ctx.ma.unit}",
-        ctx.tok_a
-      )
-      |> P.status!(200)
-      |> Map.fetch!("rows")
-
-    assert Enum.any?(
-             rows,
-             &(&1["responsible"] == ctx.ma.employee and
-                 Decimal.eq?(Decimal.new(&1["quantity"]), "96.5"))
-           )
-
-    assert Enum.any?(
-             rows,
-             &(&1["responsible"] in [nil, ""] and Decimal.eq?(Decimal.new(&1["quantity"]), "97.5"))
-           )
+    assert Decimal.eq?(balance(ctx), "97.5")
   end
 
   # -- the formal count rule (criteria 7 and 8) ---------------------------------------------------
