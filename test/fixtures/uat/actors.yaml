@@ -146,6 +146,18 @@ actors:
     routing_roles: []
     note: "Seeded user bilimbaga-admin-user in realm bilimbaga (ai-dala-infra secrets-inventory; qa-login.sh bilimbaga-admin-user). TENANT_ADMIN only: ai-dala-infra T-0173 (done) removed PLATFORM_ADMIN from this user. The inventory line that still says PLATFORM_ADMIN is stale (T-0178). No credential in this file. The alias actor-bilimbaga-admin resolves to account bilimbaga-admin-user and is available through the UAT credential source."
 
+  actor-qoimeks-qa2-admin:
+    tenant: qoimeks-qa2
+    builtin_roles: [TENANT_ADMIN]
+    routing_roles: []
+    note: "T-2219, PM decision 2026-11-19: username qoimeks-qa2-admin, realm qoimeks-qa2, role TENANT_ADMIN; provisioner-created fresh QA tenant. Credentials come from the acceptance credential source, never from this file."
+
+  actor-qoimeks-qa2-storekeeper:
+    tenant: qoimeks-qa2
+    builtin_roles: [STOREKEEPER]
+    routing_roles: []
+    note: "T-2219, PM decision 2026-11-19: username qoimeks-qa2-storekeeper, realm qoimeks-qa2, role STOREKEEPER; provisioner-created fresh QA tenant. Credentials come from the acceptance credential source, never from this file."
+
   actor-qoimeks-qa-admin:
     tenant: qoimeks-qa
     builtin_roles: [TENANT_ADMIN]

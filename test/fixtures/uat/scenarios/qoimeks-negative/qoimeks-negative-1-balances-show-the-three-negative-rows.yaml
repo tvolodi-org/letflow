@@ -1,5 +1,5 @@
-# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
-# T-2160 (BA), rework T-2191 (issue #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2205 readiness fixes: (1) scope qoimeks-qa2 exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
+# T-2160 (BA), rework T-2191 (issue #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa2, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090: a ledger registration may carry negative balances, set per tenant), REQ-834 (the ledger honours the setting),
 #   REQ-836 (the stock registration opts in), REQ-837 (negative opening lines move with their sign; the tenant data holds 3 of them).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md (sections 1, 3, 7); docs/requirements.yaml REQ-833..839;
@@ -8,17 +8,17 @@
 #   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
 #   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests;
 #   (c) a scoped grant (node-limited STOREKEEPER): the storekeeper account is read as tenant-wide; if its balances differ from the administrator's for that reason the walk reports BLOCKED-by-environment (see the preconditions).
-# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and reads the same screen (steps 7 and 8).
+# Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) now exists in the roster and reads the same screen (steps 7 and 8).
 #   Sources: docs/roles.md (STOREKEEPER does StockRead: balances), web/src/router.tsx and web/src/components/layout/AppShell.tsx (Balances guarded by the stock read permission, the same entry as for the administrator).
-# 1. Scope: qoimeks-qa — the tenant and its realm exist (scope checked against the tenant facts).
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa and have a login in the acceptance environment.
+# 1. Scope: qoimeks-qa2 — the tenant and its realm exist (scope checked against the tenant facts).
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa2 and have a login in the acceptance environment.
 # 3. Host and screens: the tenant host answers; the screens Balances and Stock documents exist at main (the navigation names and the guard were read at main).
 # 4. Data: the opening balances (3 of them negative) are seeded by the synthetic generator; the item, place and balance counts are read at the start of the run (Items screen total, Locations total, Balances rows), never hard-coded.
 # 5. Executable: every step runs with a browser or an HTTP client; no step blocks on "no pipeline_test" (the runner writes its own browser script).
 # 6. Dry run: uat.sh preflight not run by the writer (no acceptance environment in this step).
 ---
 id: qoimeks-negative-1-balances-show-the-three-negative-rows
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator finds the three negative opening balances on the Balances screen, in three languages and on a phone
 version: "2.0"
 tags: [qoimeks, negative_balance, balances, ru, kk, phone_390]
@@ -32,8 +32,8 @@ description: >
   Precondition risk: if the three negative rows were never loaded, or were corrected after loading, the count differs and the scenario reports BLOCKED, not PASS.
 
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The tenant's opening balances are posted and 3 of them are negative (synthetic data, as the task states); the count is the Balances total shown on the screen, read at the start of the run, not hard-coded.
@@ -45,7 +45,7 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and at 390 px wide.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the whole scenario.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
     check: system_seeded
     detail: >
       If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the administrator
@@ -56,7 +56,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and loads the whole list: the Balances table has no sort and no sign filter, so the administrator presses "Load more" until every row is loaded (no further "Load more" is offered), then scans the quantity column for the rows with a minus sign. The number of rows loaded is read at the start of the run and noted; no count is taken from this text.
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and loads the whole list: the Balances table has no sort and no sign filter, so the administrator presses "Load more" until every row is loaded (no further "Load more" is offered), then scans the quantity column for the rows with a minus sign. The number of rows loaded is read at the start of the run and noted; no count is taken from this text.
     via: ui
   - step: 2
     actor: admin
@@ -86,7 +86,7 @@ steps:
   - step: 7
     actor: storekeeper
     action: >
-      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and presses "Load more" until every row is loaded (there is no sort and no sign filter) and finds the rows whose quantity starts with a minus sign.
+      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Balances from the side navigation (stock section) and presses "Load more" until every row is loaded (there is no sort and no sign filter) and finds the rows whose quantity starts with a minus sign.
     via: ui
   - step: 8
     actor: storekeeper

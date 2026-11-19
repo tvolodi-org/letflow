@@ -9,18 +9,18 @@
 #   (c) A sign-out button: no sign-out text exists in the app's three language files on origin/main (grep of apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb for logout, sign out), so this scenario ends by clearing the site data of the PWA address.
 #   (d) Lost-device revocation of a user's offline sessions: an infra step in the identity provider, not a screen of the product.
 # T-2192 rework (issue 4721; PM/infra 2026-11-19): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist). 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); no lower-role claim is made for the phone screens.
+# 1 Scope: scope is qoimeks-qa2 (tenant and realm exist). 2 Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN); no lower-role claim is made for the phone screens.
 # 3 Host and screens: the phone PWA lives at https://pwa.letflow.qa.bizdala.com/ ; the tenant host serves only the web SPA and is not installable, so it is used only for the web screens; the Android app and PWA have no quick count screen (REQ-856 cancelled).
 # 4 Data: the synthetic tenant holds the data these steps read; no data precondition beyond the PWA address. 5 Executable: browser steps with the runner's own script. 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-mobile-2-pwa-sign-in-and-language-phone
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator signs in on the phone PWA with the company code, reaches the stock home, reads it in English, Russian and Kazakh, and a wrong company code or wrong password does not get in
 version: "1.0"
 tags: [qoimeks, mobile, pwa, sign_in, phone, i18n, ru, kk, en, refusal]
 
 description: >
-  The administrator opens the PWA in a window 390 px wide (and again at 1440 px), types the company code "qoimeks-qa" and presses Continue; the browser goes to the sign-in page of the company's identity provider,
+  The administrator opens the PWA in a window 390 px wide (and again at 1440 px), types the company code "qoimeks-qa2" and presses Continue; the browser goes to the sign-in page of the company's identity provider,
   the administrator signs in with their own account, and the browser returns to the PWA, which shows the tenant home screen with the entry "Stock" (the install hint and the language control EN, RU, KK are on this screen, not on the stock home). The administrator taps "Stock" and reaches the stock home with the title "Stock" and its entries (stock documents, counts). The address bar no longer holds the sign-in parameters.
   The administrator then switches the app language to Russian ("Склад") and Kazakh ("Қойма") and back to English with the language control of the tenant home screen (labels EN, RU, KK), and reads the "Stock" entry there and, after tapping it, the stock documents entry in each language.
   Two refusals are walked on their own: a company code that does not exist (the app says "Company not found" and goes no further), and the right company code with a wrong password (the sign-in page refuses and the PWA stays signed out).
@@ -28,16 +28,16 @@ description: >
   Cleanup: no record is created; at the end the administrator clears the site data of the PWA address so the next run starts signed out.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
-  - description: The Flutter phone web app (PWA) is served at https://pwa.letflow.qa.bizdala.com/ (infrastructure fact of 2026-11-19) and the QA identity provider accepts that address for the qoimeks-qa mobile sign-in client.
+  - description: The Flutter phone web app (PWA) is served at https://pwa.letflow.qa.bizdala.com/ (infrastructure fact of 2026-11-19) and the QA identity provider accepts that address for the qoimeks-qa2 mobile sign-in client.
     check: system_seeded
     detail: >-
       Precondition check, read-only: the entry address answers 200 with the web app (not the administration site), its manifest.json answers 200, and the manifest names the app "Letflow".
-      The tenant host https://qoimeks-qa.letflow.qa.bizdala.com serves only the web SPA and is NOT installable: it is never used as the PWA address, and qoimeks-client1-qa is never used.
+      The tenant host https://qoimeks-qa2.letflow.qa.bizdala.com serves only the web SPA and is NOT installable: it is never used as the PWA address, and qoimeks-client1-qa is never used.
       For the sign-in scenario: the company-code step must reach the company's sign-in page; an invalid-redirect error from the identity provider means the address is not registered for the mobile sign-in client: report BLOCKED-by-environment for the whole scenario and name issue 4721 (infrastructure registers the redirect and web origin). If the entry address does not answer, report BLOCKED-by-environment and name issue 4721.
-  - description: The administrator account (actor-qoimeks-qa-admin) can sign in to the company's realm with a user name and password, and its credentials come from the UAT credential source variables, never from this file.
+  - description: The administrator account (actor-qoimeks-qa2-admin) can sign in to the company's realm with a user name and password, and its credentials come from the UAT credential source variables, never from this file.
     check: system_seeded
     detail: If the account cannot sign in, report BLOCKED. The account holds the stock module access the stock home needs (UAT assumption, TENANT_ADMIN; see test/fixtures/uat/actors.yaml); if the stock home shows no entry, report the missing access as the finding of step 3.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px, with a fresh profile (no saved site data for the PWA address).
@@ -48,7 +48,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      In a window 390 px wide the administrator opens the PWA address, types the company code qoimeks-qa in the field "Company code" and presses "Continue".
+      In a window 390 px wide the administrator opens the PWA address, types the company code qoimeks-qa2 in the field "Company code" and presses "Continue".
     via: ui
   - step: 2
     actor: admin
@@ -73,13 +73,13 @@ steps:
   - step: 6
     actor: admin
     action: >
-      After clearing the site data, the administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa-nosuchcompany and presses "Continue".
+      After clearing the site data, the administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa2-nosuchcompany and presses "Continue".
     expect_refusal: true
     via: ui
   - step: 7
     actor: admin
     action: >
-      The administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa, presses "Continue" and, on the sign-in page, types their own user name with a wrong password.
+      The administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa2, presses "Continue" and, on the sign-in page, types their own user name with a wrong password.
     expect_refusal: true
     via: ui
   - step: 8

@@ -1,15 +1,15 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
-# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-export. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-export. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, movement operations and legs, document filter and selected balance/page baselines: listed in scenario preconditions. Usual-place-only and no-stock rows are conditional checks, not invented seeded fixtures; missing data blocks only the affected outcomes. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-export.
-# T-2190: run title UAT qoimeks-export; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-export.
+# T-2190: run title UAT qoimeks-export; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
 # Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
-# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Access-refusal checks may use actor-qoimeks-qa2-storekeeper where its actual permissions warrant refusal; its availability is not an environment blocker. Other required roles or restricted org-unit grants must be confirmed before checks that need them. Sources: actors.yaml and docs/roles.md.
 # Do not substitute a platform or another tenant actor. No real data or production.
 # T-2166 (BA): Qoimeks QA walk, the downloaded whole-stock workbook is read back by the check of "Load balances from Excel" (check only, nothing is written). QA only, synthetic data. No real data, no production.
 # Requirements covered: REQ-865 (the file reads back by the Qoimeks import rules), REQ-884 (the check writes nothing), REQ-887 (the web screen "Загрузка остатков из Excel": check result, remarks in Russian).
@@ -20,7 +20,7 @@
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-6-workbook-check-roundtrip
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: >-
   The whole-stock workbook downloaded from the Balances screen is accepted by the check of "Load balances from Excel",
   the rows are read, the remarks are in Russian, and nothing is written
@@ -40,7 +40,7 @@ description: >-
   for responsible stock, not evidence that the import can set those balances. Repeat the required language and viewport
   checks with the same bytes.
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 preconditions:
 - description: >-
     The Qoimeks QA tenant has the stock module active with its synthetic stock, the screen "Load balances from Excel"
@@ -56,7 +56,7 @@ preconditions:
   detail: >-
     If the file cannot be chosen in the browser, report BLOCKED for steps 3 to 6.
 - description: >-
-    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. The item, place and non-zero balance counts are read at the start of the run (the seed changes them); every seeded
     balance carries a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
@@ -92,7 +92,7 @@ steps:
 - step: 1
   actor: admin
   action: >-
-    The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa),
+    The administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2),
     in English, opens the Balances screen, notes the number of balance rows, and clicks "Stock workbook (Qoimeks
     layout)" to save the file.
   via: ui

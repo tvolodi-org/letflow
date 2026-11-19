@@ -1,41 +1,40 @@
-# T-2129 (BA): first acceptance run on the Qoimeks QA tenant (slug qoimeks-qa, realm qoimeks-qa). QA only, no real data.
+# T-2129 (BA): first acceptance run on the Qoimeks QA tenant (slug qoimeks-qa2, realm qoimeks-qa2). QA only, no real data.
 # Sources: the task text (owner/PM 2026-11-16: actor, host, installed modules, "tenant has no data yet"),
 # web/src/components/layout/TenantHeader.tsx (shows tenantDisplayName from useTenantContext),
 # web/src/router.tsx (admin/tenants is wrapped in platformPage(P.TenantsManage, ...) = RequirePermission with platformOnly; the tenant dashboard route is "dashboard"),
 # docs/roles.md (platform-scope screens belong to PLATFORM_ADMIN of the platform tenant), docs/agents/instructions/security-invariants.md INV-10.
 # Purpose of the group: decide whether the engine's browser step works on this tenant. A step that cannot start a browser is reported BLOCKED, not failed.
 # NOT UAT-observable here: the exact tenant name text (the task does not state it; the scenario asks for the name the tenant was registered with, as recorded in the platform's tenant list, which the roster cannot read: see EO-002).
-# 1. Scope: qoimeks-qa — the tenant and its realm exist (slug checked against the tenant facts).
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) is in the roster for realm qoimeks-qa and has a login in the acceptance environment; no second actor of this realm is needed (a cross-tenant sign-in is not claimed, with the reason in the description).
+# 1. Scope: qoimeks-qa2 — the tenant and its realm exist (slug checked against the tenant facts).
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) is in the roster for realm qoimeks-qa2 and has a login in the acceptance environment; no second actor of this realm is needed (a cross-tenant sign-in is not claimed, with the reason in the description).
 # 3. Host and screens: the tenant host answers (precondition 1); the workspace dashboard route and the top bar with the tenant name exist at main (TenantHeader.tsx and the web router were read at main).
 # 4. Data: none needed beyond the tenant and the administrator account; the tenant keeps its synthetic data and this walk asserts no counts (any counts are read at the start of the run).
 # 5. Executable: every step runs with a browser; step 3 is the platform operator's tenant-list address typed by hand in the browser.
-# 6. Dry run: uat.sh preflight not run by the writer (no acceptance environment in this step).
+# Dry run: T-2219 ran uat.sh preflight with title UAT qoimeks-qa; ENV_NOT_READY, actor-qoimeks-qa2-admin(NO_PASSWORD). Acceptance requires the operator credential source; no scenario run.
 ---
 id: qoimeks-qa-1-admin-signs-in-and-sees-tenant-name
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The Qoimeks QA administrator signs in on the tenant's own address, lands in a workspace that shows the tenant's name, and is refused the platform operator's tenant list
 version: "1.0"
 tags: [smoke, qoimeks, login, tenant_name, refusal, access_control]
 
 description: >
   The administrator of the Qoimeks QA tenant opens the tenant's own address
-  (https://qoimeks-qa.letflow.qa.bizdala.com), signs in with the tenant account and arrives in the workspace. The top bar
+  (https://qoimeks-qa2.letflow.qa.bizdala.com), signs in with the tenant account and arrives in the workspace. The top bar
   shows the name of this tenant, not the name of another company and not an "unknown tenant" mark. The administrator
   then types the address of the platform operator's tenant list by hand: a tenant administrator is not the platform
   operator, so the page must not open (a plain "no access" or "not found" page, no list of tenants).
   This is the smoke check of the first acceptance run on this tenant. It does not create or change any data.
-  Not exercised, with reasons: (a) the sign-in of a user of another company on this address: the roster has no second
-  actor for this realm, so there is nothing to sign in with; (b) changing the password or the account: not a smoke matter.
+  Not exercised, with reasons: (a) the sign-in of a user of another company on this address: the second actor, actor-qoimeks-qa2-storekeeper, belongs to the same tenant and cannot serve as the other-company user; (b) changing the password or the account: not a smoke matter.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
-  - description: The Qoimeks QA tenant exists (slug qoimeks-qa) and answers on https://qoimeks-qa.letflow.qa.bizdala.com, with its own sign-in realm qoimeks-qa.
+  - description: The Qoimeks QA tenant exists (slug qoimeks-qa2) and answers on https://qoimeks-qa2.letflow.qa.bizdala.com, with its own sign-in realm qoimeks-qa2.
     check: system_seeded
     detail: If the address does not answer or the realm has no sign-in page, report BLOCKED for the whole scenario and say which of the two.
-  - description: The tenant administrator account exists and its credentials are given to the run through the UAT credential source (variables UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*).
+  - description: The tenant administrator account exists and its credentials are given to the run through the UAT credential source (variables UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*).
     check: system_seeded
     detail: If the credentials are missing or the sign-in is refused for a correct password, report BLOCKED for the whole scenario.
   - description: The run can drive a real browser.
@@ -46,7 +45,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator opens the tenant's own address with the realm named in it (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa), is taken to the sign-in page of this tenant, and signs in with the tenant account. The realm is named in the address because, until issue 4686 is fixed, the host alone resolves to the default realm and would show the wrong sign-in page.
+      The administrator opens the tenant's own address with the realm named in it (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2), is taken to the sign-in page of this tenant, and signs in with the tenant account. The realm is named in the address because, until issue 4686 is fixed, the host alone resolves to the default realm and would show the wrong sign-in page.
     via: ui
   - step: 2
     actor: admin
@@ -65,7 +64,7 @@ expected_outcomes:
     description: Sign-in on the tenant's own address succeeds and a workspace opens.
     verification:
       method: page_state
-      detail: After step 1 the address stays on qoimeks-qa.letflow.qa.bizdala.com (no jump to another host), the sign-in page is gone, and a workspace page with the side navigation and the top bar is shown, with no error banner.
+      detail: After step 1 the address stays on qoimeks-qa2.letflow.qa.bizdala.com (no jump to another host), the sign-in page is gone, and a workspace page with the side navigation and the top bar is shown, with no error banner.
       evidence: Screenshot after sign-in and the address shown in the browser.
     on_fail:
       severity: BLOCKER
@@ -75,7 +74,7 @@ expected_outcomes:
     description: The top bar shows the name of this tenant.
     verification:
       method: gui_screen
-      detail: In step 2 the tenant name in the top bar is the tenant slug qoimeks-qa or the registered display name (the slug is accepted by the operator's decision of T-2182), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
+      detail: In step 2 the tenant name in the top bar is the tenant slug qoimeks-qa2 or the registered display name (the slug is accepted by the operator's decision of T-2182), is not empty, and is not the "unknown tenant" mark and not the name of another company (SwiftRoute, BilimBaga, Meridian, Vortex).
       evidence: Screenshot of the top bar at 1440 px width.
     on_fail:
       severity: MAJOR

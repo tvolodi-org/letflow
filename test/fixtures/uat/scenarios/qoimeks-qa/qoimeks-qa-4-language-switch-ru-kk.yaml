@@ -6,10 +6,10 @@
 # stock/documents/documentsMessages.ts 'stock.doc.title': Stock documents / Складские документы / Қойма құжаттары;
 # stock/stockMessages.ts 'stock.balances.title': Balances / Остатки / Қалдықтар.
 # The language choice stays in the browser for the account, so the last step puts it back to English to leave the account as found.
-# The top bar shows the slug qoimeks-qa as the tenant name: accepted (operator decision).
+# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision).
 ---
 id: qoimeks-qa-4-language-switch-ru-kk
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: >-
   The Qoimeks QA administrator switches the screen language to Russian and Kazakh and back to English, the screen titles follow, rows stay, and the choice persists across screens and a reload
 version: "2.0"
@@ -25,7 +25,7 @@ description: >
   (c) texts of empty states: the tenant holds data, they are not on screen.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: >-
@@ -43,7 +43,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa, because the host alone resolves to the default realm until issue 4686 is fixed) and opens the locations screen in English.
+      The administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2, because the host alone resolves to the default realm until issue 4686 is fixed) and opens the locations screen in English.
     via: ui
   - step: 2
     actor: admin

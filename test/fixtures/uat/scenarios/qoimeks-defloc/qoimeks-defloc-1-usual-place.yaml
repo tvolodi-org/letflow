@@ -15,9 +15,9 @@
 # Sensitive actions: no approve, pay/release or user changes; all stock here is synthetic.
 # The other-company data refusal is in qoimeks-defloc-3. No other-tenant stock actor is supplied.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
-#   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 1. Scope: scope is qoimeks-qa2 (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2,
+#   login UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*, added to actors.yaml by this task).
 # 3. Host and screens: the Items screen and card sections exist in web/src/modules/catalog_items/items/ItemDetails.tsx;
 #   section titles follow catalogItemsItemsMessages.ts (sec.overview: Обзор / Шолу; sec.related: Остатки по местам
 #   хранения / Сақтау орындары бойынша қалдық; field.defaultLocation: Обычное место / Әдеттегі орын). The English
@@ -30,7 +30,7 @@
 # 6. Dry run: uat.sh preflight was not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-1-usual-place
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: An imported item's usual place is readable on its card in Russian and Kazakh
 version: "1.0"
 tags: [qoimeks, default_location, desktop, phone_390, ru, kk, read_only]
@@ -42,14 +42,14 @@ description: >
   changes no business records; cleanup restores the starting language and appearance,
   clears the search and closes the card. Do not replace browser evidence with a query result.
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
   - description: The run uses only the synthetic Qoimeks QA tenant and its administrator.
     check: system_seeded
     detail: >
-      Open https://qoimeks-qa.letflow.qa.bizdala.com, realm qoimeks-qa, using
-      QOIMEKS_QA_ADMIN credentials from UAT_QA_ACTOR_QOIMEKS_QA_ADMIN_USER_*.
+      Open https://qoimeks-qa2.letflow.qa.bizdala.com, realm qoimeks-qa2, using
+      QOIMEKS_QA2_ADMIN credentials from UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*.
       If this address cannot reach this tenant, report BLOCKED; do not substitute a real tenant.
       The seed has items, places and non-zero balances (three of them negative) and opening
       four-eyes off. The counts are read at the start of the run and noted; they are not fixed

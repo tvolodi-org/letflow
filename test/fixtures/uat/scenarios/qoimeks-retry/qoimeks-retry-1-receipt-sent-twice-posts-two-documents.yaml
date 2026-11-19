@@ -1,4 +1,4 @@
-# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
+# T-2205 readiness fixes: (1) scope qoimeks-qa2 exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2161 (BA), rework T-2191 (issues #4703, #4704, #4707): qoimeks-retry group, scenario 1. QA only, no real data.
 # Covers REQ-859 (old-app address reads, build #4664) and REQ-860 (old-app address writes, build #4666).
 # Decision 0091 section 9 notes that retry deduplication by client id on the old-app address
@@ -33,19 +33,19 @@
 # - The race condition where two copies of the app send the same client id simultaneously:
 #   this scenario covers a sequential retry, not a concurrent one.
 # - The token value: created by the walk at step 2, kept in the run's environment only, never recorded.
-# Role-based refusal (T-2191 rework, gate finding): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) is refused the admin API of the shared stock access
+# Role-based refusal (T-2191 rework, gate finding): the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) is refused the admin API of the shared stock access
 # (step 13): the three routes need the permission TokensManage (lib/letflow/routers/identity.ex, authz_get/authz_post/authz_delete "/shared-stock-access"), which only TENANT_ADMIN and
 # PLATFORM_ADMIN hold (docs/roles.md, matrix row TokensManage; STOREKEEPER: no), and the handler answers 403 "insufficient permissions" otherwise (shared_access_guarded). The refusal is walked on the
 # READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
-# 1. Scope: qoimeks-qa — the tenant and its realm exist (scope checked against the tenant facts).
-# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa and have a login in the acceptance environment.
+# 1. Scope: qoimeks-qa2 — the tenant and its realm exist (scope checked against the tenant facts).
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa2 and have a login in the acceptance environment.
 # 3. Host and screens: the tenant host answers; the stock balance screen and the stock document list exist at main (read at main; the list filters by kind and state, not by operator, see step 8); the old-app address is a deployment precondition (precondition 2).
 # 4. Data: one item with a posted opening balance greater than 0 in at least one place (seeded; counts are read at the start of the run, not hard-coded); no movement with client id R-RETRY-1 yet; the tenant's scope enforcement is off.
 # 5. Executable: every step runs with a browser or an HTTP client; the shared access value is created by the walk itself at step 2 and kept only in the run's environment.
 # 6. Dry run: uat.sh preflight not run by the writer (no acceptance environment in this step).
 ---
 id: qoimeks-retry-1-receipt-sent-twice-posts-two-documents
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: A receipt posted twice from the old-app address with the same client id currently posts two documents (retry deduplication pending T-2029)
 version: "2.0"
 tags: [qoimeks, retry, idempotency-gap, old-app, receipt, balance, ru]
@@ -66,8 +66,8 @@ description: >
   Not exercised, with reasons: (a) the actual phone screen and APK; (b) concurrent sends.
 
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The tenant's scope enforcement is off.
@@ -78,9 +78,9 @@ preconditions:
       If it is not off, report BLOCKED for the whole scenario; switching it is the platform
       operator's act, not the walk's.
   - description: >
-      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      The qoimeks-qa2 tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
       REQ-858 build #4662), and the old-app address (decision 0091 section 6, REQ-859 build #4664)
-      answers for the tenant slug qoimeks-qa.
+      answers for the tenant slug qoimeks-qa2.
     check: system_seeded
     detail: >
       The walk creates the shared access itself at step 2, so none needs to exist. If the old-app
@@ -98,7 +98,7 @@ preconditions:
   - description: The run can drive a real browser.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the balance and document steps.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in.
     check: system_seeded
     detail: >
       Needed only for the last step. If the sign-in of this account fails, report that step as BLOCKED-by-environment
@@ -109,7 +109,7 @@ steps:
     actor: admin
     action: >
       The administrator, signed in on the tenant's own address
-      (https://qoimeks-qa.letflow.qa.bizdala.com), reads the status of the tenant's shared stock
+      (https://qoimeks-qa2.letflow.qa.bizdala.com), reads the status of the tenant's shared stock
       access through the admin API. The answer is noted as S0.
     via: api
   - step: 2
@@ -186,7 +186,7 @@ steps:
   - step: 13
     actor: storekeeper
     action: >
-      The storekeeper, signed in on the tenant's own address (https://qoimeks-qa.letflow.qa.bizdala.com), asks the admin API for the status of the tenant's shared stock access
+      The storekeeper, signed in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), asks the admin API for the status of the tenant's shared stock access
       (the read; nothing is created or changed). The answer is noted as R-SK.
     expect_refusal: true
     via: api

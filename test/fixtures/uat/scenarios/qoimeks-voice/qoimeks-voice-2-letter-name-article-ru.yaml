@@ -8,19 +8,19 @@
 #
 # PROVIDER DEPENDENCY: this scenario verifies that the language model resolves a letter-spelled article code
 # to the matching catalog item. This requires the language-model step to be on (LETFLOW_VOICE_LLM_* settings set
-# for the qoimeks-qa tenant's platform). If the model step is off the whole scenario is BLOCKED; the
+# for the qoimeks-qa2 tenant's platform). If the model step is off the whole scenario is BLOCKED; the
 # provider-off transcript path is covered by qoimeks-voice-1.
 #
 # NOT UAT-observable: the speech recognition step (requires real audio and provider keys set by the owner,
 # D-086); the prompt text itself (server-internal; tested in voice_prompt_test.exs VP-1..VP-5);
 # the mobile voice panel UI (Flutter app is not driven by the UAT runner). Desktop (1440 px) and phone (390 px)
 # widths produce the same API response; this is an API-only scenario.
-# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa exists; 2 actor actor-qoimeks-qa-admin; 3 API route only (docs/runbooks/stock-voice.md);
+# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 API route only (docs/runbooks/stock-voice.md);
 # 4 data: needs the demo catalog of T-2189 (code BLT-M10-60), BLOCKED-by-environment until loaded; the language model must be on, BLOCKED-by-keys until the owner
 # supplies the keys at O-015 (not a defect); 5 HTTP steps only, the phrase is pinned literally; 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-voice-2-letter-name-article-ru
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: When the language model is on, a typed Russian phrase that spells a catalog article code by letter names resolves to that article
 version: "1.1"
 tags: [qoimeks, voice, api, ru, letter-name, llm-on, blocked-by-keys]
@@ -33,7 +33,7 @@ description: >
   Needs the demo catalog of the generator task T-2189 (option "voice demo") and the language model.
 
 actors:
-  admin: actor-qoimeks-qa-admin
+  admin: actor-qoimeks-qa2-admin
 
 preconditions:
   - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
@@ -41,7 +41,7 @@ preconditions:
     detail: >
       Check first: send the pinned phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-keys
       (not a defect, not counted against the group). Do not change settings.
-  - description: The demo catalog of the generator task T-2189 (option "voice demo") is loaded into qoimeks-qa (BLOCKED-by-environment until that task has merged and the data is loaded, issue 4718).
+  - description: The demo catalog of the generator task T-2189 (option "voice demo") is loaded into qoimeks-qa2 (BLOCKED-by-environment until that task has merged and the data is loaded, issue 4718).
     check: system_seeded
     detail: >
       Read-only check: the active items of the tenant, all pages, include an item with the code BLT-M10-60 (a code with Latin letters, digits and hyphens;

@@ -1,5 +1,5 @@
-# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
-# T-2160 (BA), rework T-2191 (issues #4699, #4700, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2205 readiness fixes: (1) scope qoimeks-qa2 exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
+# T-2160 (BA), rework T-2191 (issues #4699, #4700, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa2, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 6: the warning before saving), REQ-836 (the form learns from the module whether the tenant allows it), REQ-838 (the warning in the stock document form).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 6; docs/requirements.yaml REQ-838;
 #   web/src/modules/stock/documents/documentsMessages.ts (texts: en "The balance will become negative", ru "Остаток станет отрицательным", kk "Қалдық теріс болады"; kinds Issue / Расход, Receipt / Приход);
@@ -11,7 +11,7 @@
 # The warning is not an error: Save stays available. The scenario never saves, so it creates no record and needs no cleanup. Each form is left with "Back to the list" and the browser asks nothing.
 # Fix of #4699: steps 5 to 7 of version 1 switched the kind of one started form; as the kind switch resets the form, those steps read an empty form. The Receipt is now filled on its own fresh document, and the Issue is re-entered on a fresh document before the language and phone reads.
 # Fix of #4700: steps 1 to 2 of version 1 pinned only item, place and quantity, so a different responsible, lot or unit than the Balances row made the warning compare against a balance of 0. Step 1 now notes org unit, responsible, lot and unit from the chosen row, and step 2 copies all of them.
-# Fix of #4702: the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster; the administrator runs steps 1 to 7 and the storekeeper repeats the warning on its own fresh Issue document (steps 8 and 9).
+# Fix of #4702: the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) now exists in the roster; the administrator runs steps 1 to 7 and the storekeeper repeats the warning on its own fresh Issue document (steps 8 and 9).
 #   Sources: docs/roles.md STOREKEEPER (StockRead, StockPost, StockReverse, reads of reference data EntitiesDefinitionsRead and EntitiesQuery: the form pickers need them).
 # Not UAT-observable here, with reasons:
 #   (a) the voice draft on the phone app (decision 0090 section 6 item 4) and the Flutter form: APK only, no browser; observable check is the mobile tier's own test; not part of this walk;
@@ -21,7 +21,7 @@
 # UAT assumption, to be confirmed by the process owner: the stock setting of the tenant is "Allowed" (see scenario 2). If it is "Refused" no warning is shown by design and EO-001 reports BLOCKED.
 ---
 id: qoimeks-negative-3-issue-form-warns-balance-will-become-negative
-scope: qoimeks-qa
+scope: qoimeks-qa2
 title: The stock issue form warns that the balance will become negative, and a receipt and a smaller issue do not
 version: "2.0"
 tags: [qoimeks, negative_balance, stock_documents, warning, ru, kk, phone_390]
@@ -35,8 +35,8 @@ description: >
   The kind of a started document cannot be switched usefully: switching it throws the typed data away and starts an empty form, so each kind gets its own new document in this walk.
 
 actors:
-  admin: actor-qoimeks-qa-admin
-  storekeeper: actor-qoimeks-qa-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The stock setting of the tenant allows negative balances (see scenario 2) and the administrator may read balances.
@@ -49,7 +49,7 @@ preconditions:
       the responsible (the Responsible column), the lot (the Lot column; prefer a row whose Lot reads empty, and note "none" when it does), the unit (the Unit column) and the
       quantity, called Q. The warning compares the line against the balance of exactly this item, place, org unit, responsible, lot and unit; the lot and the responsible of the
       form must be the noted ones, otherwise the balance read is 0 and EO-001 fails falsely.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa-storekeeper, role STOREKEEPER) can sign in and holds stock read and stock post tenant-wide.
+  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in and holds stock read and stock post tenant-wide.
     check: system_seeded
     detail: >
       If the sign-in fails, report steps 8 and 9 as BLOCKED-by-environment and name the account; the administrator steps still run. If the header pickers of the storekeeper do not offer
@@ -63,7 +63,7 @@ steps:
   - step: 0
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and opens the admin page of the negative-balance setting (the path /admin/ledger-settings of the tenant host). If the page is refused (the message "You do not have access to this area"), the scenario is BLOCKED and the refusal is quoted. If the stock row shows "Refused", EO-001 and EO-002 are BLOCKED. The value read is noted.
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px and opens the admin page of the negative-balance setting (the path /admin/ledger-settings of the tenant host). If the page is refused (the message "You do not have access to this area"), the scenario is BLOCKED and the refusal is quoted. If the stock row shows "Refused", EO-001 and EO-002 are BLOCKED. The value read is noted.
     via: ui
   - step: 1
     actor: admin
@@ -111,7 +111,7 @@ steps:
   - step: 8
     actor: storekeeper
     action: >
-      The storekeeper signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, presses "New document", chooses the kind Issue, fills the same header
+      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, presses "New document", chooses the kind Issue, fills the same header
       (the noted place, org unit and responsible) and one line with the noted item, the same lot handling and a quantity of Q plus 1.
     via: ui
   - step: 9
