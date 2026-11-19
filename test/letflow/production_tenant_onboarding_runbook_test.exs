@@ -38,7 +38,7 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
 
     numbers = Enum.map(sections, fn s -> Regex.run(~r/^### Step (\d+)\./, s) |> List.last() end)
 
-    numbers == Enum.map(0..13, &Integer.to_string/1) and
+    numbers == Enum.map(0..23, &Integer.to_string/1) and
       Enum.all?(sections, fn s ->
         Enum.all?(
           ["**Who:**", "**Do:**", "**Check:**", "**Rollback:**"],
@@ -86,18 +86,18 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     refute src =~ ~r/[A-Za-z0-9._%+-]+@(?!<)[A-Za-z0-9-]+\.[a-z]{2,}/
   end
 
-  test "R5: steps 0..13 each have Who/Do/Check/Rollback and the infra-only steps say so" do
+  test "R5: steps 0..23 each have Who/Do/Check/Rollback and the infra-only steps say so" do
     src = text()
     assert steps_ok?(src)
 
     sections = steps(src)
 
-    for n <- [0, 1, 2, 3, 8] do
+    for n <- [0, 1, 2, 3, 8, 15, 22] do
       assert who_line(Enum.at(sections, n)) =~ "infra only", "step #{n}"
     end
 
     # bite: a copy with one Check line removed, and one with a step missing, fail
     refute steps_ok?(String.replace(src, "**Check:** 404, default realm", "404, default realm"))
-    refute steps_ok?(String.replace(src, "### Step 13. Handover", "### Step 14. Handover"))
+    refute steps_ok?(String.replace(src, "### Step 13. Handover", "### Step 15. Handover"))
   end
 end

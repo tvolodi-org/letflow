@@ -704,6 +704,10 @@ defmodule Letflow.Modules.Stock do
   @impl true
   def router, do: Letflow.Modules.Stock.Router
 
+  @doc "Every document type this module registers on install, in registration order."
+  @spec document_types() :: [map()]
+  def document_types, do: @document_types
+
   @doc """
   The import function of `stock_opening_line` (REQ-727, manifest `:import_functions`): one row of a
   file, called by the core import route. See `Letflow.Modules.Stock.Documents.OpeningImport`.
