@@ -150,8 +150,44 @@ defmodule Letflow.Scripts.QoimeksGenTest do
     assert Enum.count(cols, fn [_, _, _, _, a] -> a != "" end) == 74
     skus = Enum.map(cols, &hd/1)
     assert length(Enum.uniq(skus)) == 666
-    assert Enum.any?(skus, &(&1 =~ ~r/^[A-Z]{2}\d{4}$/))
-    assert Enum.any?(skus, &(&1 =~ ~r/^[\x{0400}-\x{04FF}]{2}\d{4}$/u))
+    # the item codes stay digits-only: a lettered code never replaces one (T-2202)
+    assert Enum.all?(skus, &(&1 =~ ~r/^\d{4}$/))
+
+    [codes_header | code_rows] = read_csv(Path.join(out, "codes.csv"))
+    assert codes_header == "object_type,object_code,code_type,code"
+    assert length(code_rows) == 26
+    parsed = Enum.map(code_rows, &String.split(&1, ","))
+
+    assert Enum.all?(parsed, fn [t, sku, ct, _] ->
+             t == "sku" and ct == "manual" and sku in skus
+           end)
+
+    codes = Enum.map(parsed, &List.last/1)
+    assert Enum.any?(codes, &(&1 =~ ~r/^[A-Z]{2}\d{4}$/))
+    assert Enum.any?(codes, &(&1 =~ ~r/^[\x{0400}-\x{04FF}]{2}\d{4}$/u))
+    # 0075 -> KS0075 style: the lettered code carries the digits of its own item
+    assert Enum.all?(parsed, fn [_, sku, _, code] -> String.ends_with?(code, sku) end)
+  end
+
+  test "GN-6b with-places leaves the old item and balance rows unchanged", %{dir: dir} do
+    plain = Path.join(dir, "plain")
+    places = Path.join(dir, "places")
+    gen(plain)
+    gen(places, ["--with-places"])
+
+    assert File.read!(Path.join(plain, "balances.csv")) ==
+             File.read!(Path.join(places, "balances.csv"))
+
+    first3 = fn d ->
+      d
+      |> Path.join("items.csv")
+      |> read_csv()
+      |> tl()
+      |> Enum.map(&(&1 |> String.split(",") |> Enum.take(3)))
+    end
+
+    assert first3.(plain) == first3.(places)
+    refute File.exists?(Path.join(plain, "codes.csv"))
   end
 
   test "GN-7 with-places output converts with every place known", %{dir: dir} do
@@ -163,6 +199,8 @@ defmodule Letflow.Scripts.QoimeksGenTest do
     c = counts(out_dir)
     assert c["records.catalog_item"] == "666"
     assert c["records.stock_opening_line"] == "603"
+    # the lettered codes arrive as additional codes of the same items
+    assert c["records.code_tag"] == "26"
   end
 
   # SHA-256 of the default seed-42 files, taken from the generator before the options existed.
