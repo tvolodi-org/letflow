@@ -55,7 +55,7 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
     locations = Enum.reject(locations, &(Map.get(&1, :active) == false))
 
     {kind, d1} = check_kind(answer["kind"])
-    {kept_items, d2} = check_items(answer["item_codes"], items)
+    {kept_items, d2} = check_items(answer["item_codes"], items, transcript)
 
     # GH #4830: for a kind other than transfer the model sometimes puts the one place it heard into
     # `to_location_*`. When `location_*` is empty, that place is the location (notice `to_location_moved`).
@@ -122,7 +122,8 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
   defp check_kind(kind) when kind in @kinds or kind == "unknown", do: {kind, []}
   defp check_kind(kind), do: {"unknown", [drop("kind", kind, "unknown_kind")]}
 
-  defp check_items(codes, items) do
+  defp check_items(codes, items, transcript) do
+    spoken = spoken_letters(transcript)
     by_code = Map.new(items, &{&1.code, &1})
 
     {kept, _seen, dropped} =
@@ -132,7 +133,11 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
             {kept, seen, [drop("item_codes", code, "duplicate_item") | dropped]}
 
           item = by_code[code] ->
-            {[Map.take(item, [:id, :code, :name]) | kept], MapSet.put(seen, code), dropped}
+            if spelling_matches?(code, spoken) do
+              {[Map.take(item, [:id, :code, :name]) | kept], MapSet.put(seen, code), dropped}
+            else
+              {kept, seen, [drop("item_codes", code, "spelling_mismatch") | dropped]}
+            end
 
           true ->
             {kept, seen, [drop("item_codes", code, "unknown_item") | dropped]}
@@ -155,6 +160,67 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
       true ->
         {nil, [drop(field, code || words, "unknown_location")]}
     end
+  end
+
+  # GH 4828: when the phrase spells letters ("бэ эл тэ эм ..."), the letters are matched exactly, never
+  # fuzzily: a kept article must contain the spoken letter run in its code. A phrase with fewer than two
+  # letter names in a row is not a spelling and is not checked here.
+  @letter_names %{
+    "а" => "A",
+    "бэ" => "B",
+    "цэ" => "C",
+    "си" => "C",
+    "дэ" => "D",
+    "е" => "E",
+    "эф" => "F",
+    "гэ" => "G",
+    "жэ" => "G",
+    "аш" => "H",
+    "и" => "I",
+    "йот" => "J",
+    "джей" => "J",
+    "ка" => "K",
+    "эл" => "L",
+    "эм" => "M",
+    "эн" => "N",
+    "о" => "O",
+    "пэ" => "P",
+    "ку" => "Q",
+    "эр" => "R",
+    "эс" => "S",
+    "тэ" => "T",
+    "у" => "U",
+    "вэ" => "V",
+    "икс" => "X",
+    "игрек" => "Y",
+    "вай" => "Y",
+    "зэт" => "Z",
+    "дабл-ю" => "W",
+    "дубль-вэ" => "W"
+  }
+
+  defp spoken_letters(transcript) do
+    transcript
+    |> String.downcase()
+    |> String.replace("ё", "е")
+    |> String.replace("вэ двойное", "дубль-вэ")
+    |> String.split(~r/[^\p{L}\-]+/u, trim: true)
+    |> Enum.map(&Map.get(@letter_names, &1))
+    |> Enum.chunk_by(&is_nil/1)
+    |> Enum.reject(&(hd(&1) == nil))
+    |> Enum.map(&Enum.join/1)
+    |> Enum.max_by(&String.length/1, fn -> "" end)
+    |> case do
+      run when byte_size(run) >= 2 -> run
+      _ -> nil
+    end
+  end
+
+  defp spelling_matches?(_code, nil), do: true
+
+  defp spelling_matches?(code, spoken) do
+    letters = code |> String.upcase() |> String.replace(~r/[^A-Z]/, "")
+    String.contains?(letters, spoken)
   end
 
   defp not_transfer(answer) do
