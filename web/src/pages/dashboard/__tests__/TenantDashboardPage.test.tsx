@@ -4,6 +4,7 @@
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithAccess } from '@/auth/access/testing'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
@@ -81,5 +82,20 @@ describe('T-1435 dashboard', () => {
     expect(screen.getByText(b)).toBeInTheDocument()
     expect(screen.queryByText('assets_kind_change')).toBeNull()
     expect(container.textContent).not.toMatch(/BPM|workspace/i)
+  })
+})
+
+describe('T-2201 dashboard at 390 px', () => {
+  it('N1 no fixed 3-column grid or fixed padding inline; CSS stacks tiles and shrinks padding', async () => {
+    m.defs.mockResolvedValue({ items: [] })
+    m.inst.mockResolvedValue({ items: [] })
+    m.tasks.mockResolvedValue({ items: [] })
+    renderDash('tenantAdmin')
+    const grid = await screen.findByTestId('tenant-dashboard-grid')
+    expect(grid.getAttribute('style') ?? '').not.toMatch(/repeat\(3/)
+    expect(screen.getByTestId('tenant-dashboard').getAttribute('style') ?? '').not.toMatch(/padding/)
+    const css = readFileSync('src/styles/base.css', 'utf8')
+    expect(css).toMatch(/\.lf-dashboard__grid\s*\{[^}]*minmax\(min\(100%/)
+    expect(css).toMatch(/@media \(max-width: 600px\)\s*\{\s*\.lf-dashboard\s*\{\s*padding/)
   })
 })
