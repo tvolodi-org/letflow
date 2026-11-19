@@ -75,6 +75,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.CountHold
   alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Checks
@@ -468,6 +469,8 @@ defmodule Letflow.Modules.Stock.Documents do
           |> Map.new()
         end
 
+      user_labels = ActorLabel.labels(prefix, Enum.map(rows, & &1.issued_by))
+
       result =
         Enum.map(rows, fn row ->
           marks = Map.get(marks_map, row.id, %{})
@@ -485,6 +488,7 @@ defmodule Letflow.Modules.Stock.Documents do
             number: number,
             created_at: row.inserted_at |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
             created_by: row.issued_by,
+            created_by_label: Map.get(user_labels, row.issued_by),
             file_name: ext["file_name"],
             sheet: ext["sheet"],
             lines: line_count,
