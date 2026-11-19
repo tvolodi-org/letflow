@@ -95,8 +95,8 @@ Slices (note section 17; neutral names):
 | L4 | stock module: manifest registration, views, read routes through `authorize/3`, runbook; no master checks |
 | L5 | SERVICE-origin pre-locks and lifting the typed refusal (D-L12), with its 0061 amendment |
 | L6 | scope enforcement for `post/3` through the registered `scope_slot`, fail closed: gates the pilot |
-| PILOT GATE | The stock module is NOT enabled for a customer tenant until L6 AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved. Without L7 a typo in an item or location id creates a NEW balance key whose first-touch `unit_ref` and `max_on_hand` pin is permanent; without L6 a scoped storekeeper cannot post; without OQ-23 the same serial can be active at two locations. |
-| L7 | master validation, `expected_document_version`, retired-master checks, per-instance ledger ids: gates the pilot; depends on the OQ-R4 read facade (owed at WMS slice 5) |
+| PILOT GATE | The stock module is NOT enabled for a customer tenant until L6 AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved. Without L7 a typo in an item or location id creates a NEW balance key whose first-touch `unit_ref` and `max_on_hand` pin is permanent; without L6 a scoped storekeeper cannot post; without OQ-23 the same serial can be active at two locations. **For a one-site customer, the L7 gate is MET by delivery of REQ-832 + REQ-901..906 (owner/PM 2026-11-19); the two items in "Waived for a one-site customer" below do not block it.** |
+| L7 | master validation, `expected_document_version`, retired-master checks: gates the pilot; depends on the OQ-R4 read facade (owed at WMS slice 5). Per-instance ledger ids (D-L3 scale path) and `not_linked` at posting are WAIVED for a one-site customer (see "Waived for a one-site customer"); the L7 gate is MET by delivery of REQ-832 + REQ-901..906 |
 
 * Ownership of follow-ups: Rule 7 and the tables land in L1; the 0061 amendment is applied in L3; 0057 and 0054 are not edited, their amended wording lives here; OQ-R4 stays at WMS slice 5.
 * Cost recorded (note 3.3, EC F13): a posting handler must still declare at least one managed bookkeeping target (`write_handler_no_targets` and `write_handler_without_managed_types` stay), so a stock module must manage at least one entity type that the posting handler writes through `create/3`, for example a document-line record.
@@ -400,6 +400,17 @@ part 2 (REQ-831).
 - Still owed to slice L7 (part 2 and later): `expected_document_version` and the binding of a posting to the issued document
   version, a typed wire code such as `master_inactive`, the org unit to location link at posting, the assets module handlers and
   per-instance ledger ids.
+
+## Waived for a one-site customer (owner/PM 2026-11-19)
+
+Two items are WAIVED for the one-site pilot. REQ-901..906 (L7 part 2) specify `expected_document_version`, the binding of a posting to the issued document version and the typed `master_inactive` refusal, and exclude these two:
+
+- **`not_linked` at posting (the org unit to location link check).** Why: it needs a search read that the OQ-R4 read facade does not have, and D6 and the L7 row do not require it. Risk in plain words: a posting to a place that was unlinked from its department after the document was issued can still be accepted. Balances stay correct; the department-to-place rule is not rechecked at posting.
+- **Per-instance ledger ids (the D-L3 scale path).** Why: one fixed stock ledger id per tenant (D-L3, release 1) is enough for one site. Risk in plain words: sites sharing that ledger also share its sequence, so their postings queue behind each other; for one site this is fine.
+
+Trigger that brings them back: a second site in one tenant, or a multi-warehouse customer. Then both items become requirements again before that tenant is enabled.
+
+For a one-site customer, the L7 gate is MET by delivery of REQ-832 + REQ-901..906. This is the completion rule, not a release sign-off: as of this ruling, REQ-901..906 are registered requirements whose implementation is still owed. L6 remains required, and OQ-23 still excludes serial-tracked goods until resolved.
 
 ## Amended by 0090 (negative balances per tenant, REQ-833)
 
