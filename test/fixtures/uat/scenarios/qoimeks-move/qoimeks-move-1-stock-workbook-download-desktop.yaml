@@ -11,11 +11,11 @@
 # Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
 # Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
 # Do not substitute a platform or another tenant actor. No real data or production.
-# T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data (142 places, 666 items, 603 posted opening balances incl. 3 negative), never the real tenant.
+# T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data (item, place and balance counts recorded at the start of the run; some opening balances negative), never the real tenant.
 # Requirements covered: REQ-865 (whole-stock workbook in the Qoimeks import layout, module stock), REQ-866 (the "Stock workbook (Qoimeks layout)" button on the Balances screen).
 # Context: the move rules (REQ-880, docs/runbooks/qoimeks-rehearsal.md section "Move rules") say counts and current balances must be equal after the move; this workbook is what the bookkeepers open to see the whole stock after the move.
 # Sources opened: docs/requirements.yaml REQ-865/866; web/src/modules/stock/stockMessages.ts (stock.balances.workbook, workbookHint); lib/letflow/modules/stock/router.ex (GET /stock-workbook, file name stock-YYYY-MM-DD.xlsx).
-# Not UAT-observable here: the 10 000 row refusal (workbook_too_large) and the "scoped reader gets not found" answer: the tenant holds 603 balances and the roster has no scoped stock reader of this tenant.
+# Not UAT-observable here: the 10 000 row refusal (workbook_too_large) and the "scoped reader gets not found" answer: the tenant holds far fewer balances than that limit and the roster has no scoped stock reader of this tenant.
 # Cleanup: nothing is written; the only trace is a downloaded file in the run's download folder, which the run deletes at the end.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
@@ -49,8 +49,9 @@ actors:
   admin: actor-qoimeks-qa-admin
 preconditions:
 - description: >-
-    The Qoimeks QA tenant holds the synthetic stock (666 items, 142 places, 603 posted opening balances of which
-    3 are negative) and the stock module is active.
+    The Qoimeks QA tenant holds the synthetic stock; record the item, place and balance counts at the start of the
+    run (Items screen total, Locations total, Balances rows), some opening balances are negative, and the stock
+    module is active.
   check: system_seeded
   detail: >-
     If the Balances screen is empty, report BLOCKED for the whole scenario and say what the screen showed.
@@ -68,7 +69,8 @@ preconditions:
     If not, switch to English first and carry on.
 - description: >-
     Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
-    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
+    (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
   check: runner_prepared
@@ -190,7 +192,7 @@ expected_outcomes:
       data has 3 negative opening balances; if the run finds another number, report it as found and do not call
       it a pass); the count of rows with a non-zero quantity equals the balance count read at step 2. UAT assumption,
       to be confirmed by the process owner (the QA operator who seeded the tenant): no item stands twice at one
-      place with the same unit, so 603 balances give 603 rows; if the counts differ, the run reports both numbers
+      place with the same unit, so the number of balances read at the start of the run gives the same number of rows; if the counts differ, the run reports both numbers
       and does not guess the cause.
     evidence: >-
       The counts and the three negative rows (article and quantity), quoted.

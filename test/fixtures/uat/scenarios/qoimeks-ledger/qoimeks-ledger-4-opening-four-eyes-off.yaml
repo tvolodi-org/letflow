@@ -91,7 +91,8 @@ preconditions:
     Use any item and org unit from the Balances screen. The opening adds 1 unit; the reversal removes it.
 - description: >-
     Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
-    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
+    (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
   check: runner_prepared
