@@ -1,10 +1,10 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-export. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2260, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER downloads the whole-stock workbook (StockRead, which STOREKEEPER holds) and is the actor of the refusal step; actor-qoimeks-qa2-admin / TENANT_ADMIN does the check on the screen "Load balances from Excel", because that screen and the Balances button that opens it need StockQuickCount, which STOREKEEPER does not hold (stock manifest role_grants in lib/letflow/modules/stock/stock.ex, route guard in web/src/modules/stock/stockRoutes.tsx, docs/roles.md). The admin never presses the write control. actors.yaml maps both to tenant/realm qoimeks-qa2 (T-2219 PM decision); live login not exercised in this writing step; missing credentials block the affected outcomes. Precondition: the storekeeper is a tenant-wide reader (a scoped reader gets the not-found answer for the whole-stock workbook: BLOCKED-by-environment).
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, movement operations and legs, document filter and selected balance/page baselines: listed in scenario preconditions. Usual-place-only and no-stock rows are conditional checks, not invented seeded fixtures; missing data blocks only the affected outcomes. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-export.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2, storekeeper and administrator); acceptance must use title UAT qoimeks-export.
 # T-2190: run title UAT qoimeks-export; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
@@ -16,7 +16,7 @@
 # Sources: docs/requirements.yaml REQ-865 criterion 4 (round trip), REQ-884 and REQ-887 (titles: check a Qoimeks-layout workbook, write nothing; screen to check a workbook and show the Russian remarks); web/src/modules/stock/workbook/workbookMessages.ts (en: "Load balances from Excel", button "Check workbook", "Check", "Remarks", "No balance differs from the file.", "Write balances from the file"; ru: title "Загрузка остатков из Excel", "No differences" text "В файле нет отличий от текущих остатков.");
 # web/src/modules/stock/stockRoutes.tsx (route admin/stock/workbook-import).
 # This scenario NEVER presses "Write balances from the file" (the write creates a stock document, so it would change tenant data); the run stops after the check.
-# #4696: the unchanged downloaded workbook has R data rows and S distinct stocked articles (both read from the downloaded file at the start of the run), zero changes and S R7 remarks; responsible stock is excluded, so this does not prove plain-key equality.
+# #4696 / #4784 (T-2260): the unchanged downloaded workbook has R data rows. The first applicable rule wins per article (REQ-884 criterion 3; StockWorkbookImport.process/4 and placed/6): an article with a quantity that is not a quantity gets rule R1 first, and the download keeps the signed quantity of a negative balance (the synthetic data has three negative balances on distinct articles, scripts/pilot/qoimeks_gen.py), so every negative row gives an R1 remark and never an R7 remark for that article. Every other article that is not stopped earlier (unknown article R8, lot/serial/expiry R9, amount without place R5, place without zone R3, unknown place R6) and whose stock is held with a responsible employee gets one R7 remark at its first row. Zero changes. Responsible stock is excluded, so this does not prove plain-key equality. The numbers are derived from the downloaded file at the start of the run, never hard-coded.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-6-workbook-check-roundtrip
@@ -34,9 +34,11 @@ tags:
 - ru
 - en
 description: >-
-  The administrator downloads the unchanged whole-stock workbook and checks it against QOI-OU-1. On the synthetic
-  baseline it has R data rows, zero changes and S (distinct stocked articles) Russian responsible-stock remarks. The write control stays
-  disabled; no load is made. Record the history before and after and re-read balances. This is an exclusion check
+  The storekeeper downloads the unchanged whole-stock workbook; the administrator checks it against QOI-OU-1. The
+  workbook has R data rows (read from the file). The check shows zero changes, one remark of rule R1 for every row
+  whose quantity is negative (the quantity of a negative balance is not accepted as a quantity, and R1 comes before the
+  responsible-stock rule R7) and one remark of rule R7 for every other stocked article with a responsible employee that
+  no earlier rule stops. The write control stays disabled; no load is made. Record the history before and after and re-read balances. This is an exclusion check
   for responsible stock, not evidence that the import can set those balances. Repeat the required language and viewport
   checks with the same bytes.
 actors:
@@ -56,7 +58,7 @@ preconditions:
   detail: >-
     If the file cannot be chosen in the browser, report BLOCKED for steps 3 to 6.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (username qoimeks-qa2-storekeeper), the roster STOREKEEPER, a tenant-wide reader holding StockRead, for the download (step 1), and as actor-qoimeks-qa2-admin (username qoimeks-qa2-admin), the roster TENANT_ADMIN, for the check (steps 2 to 6), at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. The item, place and non-zero balance counts are read at the start of the run (the seed changes them); every seeded
     balance carries a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
@@ -74,11 +76,12 @@ preconditions:
     support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
     is not a blocker under this task contract.
 - description: >-
-    Read the current workbook and balances before checking. This fixed-count round trip needs the unchanged synthetic
-    baseline of R workbook data rows and S distinct stocked articles, both counted from the downloaded file at the start of the run (the seed changes them, so no fixed number is used) with responsible balances in QOI-OU-1.
+    Read the current workbook and balances before checking. This round trip needs the unchanged synthetic
+    baseline: R workbook data rows, N data rows with a negative quantity and the stocked articles with their rows, all
+    counted from the downloaded file at the start of the run (the seed changes them, so no fixed number is used), with responsible balances in QOI-OU-1.
   check: runner_prepared
   detail: >-
-    Record R (data rows) and S (distinct stocked articles) from the downloaded file; the expected remarks equal S. If another run changed the baseline, BLOCKED-by-environment for the count outcomes. Keep actual counts
+    Record from the downloaded file: R (data rows), the data rows with a negative quantity and their articles (N1 rows, N2 distinct articles), and the stocked articles that hold a responsible employee and are not stopped by an earlier rule (read the place, zone and tracking columns; items tracked by lot, serial or expiry give R9, so read their tracking on the item card). The expected R1 remarks equal N1; the expected R7 remarks equal the number of those articles that have no negative row (one per article). If another run changed the baseline so that the file cannot be classified, BLOCKED-by-environment for the count outcomes. Keep actual counts
     in evidence; do not remove responsible employees or alter stock to make the check clean.
 - description: >-
     For any before/after count comparison, record the same full traversal of the balance or document list, loading
@@ -90,16 +93,16 @@ preconditions:
     outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2),
+    The storekeeper signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2),
     in English, opens the Balances screen, notes the number of balance rows, and clicks "Stock workbook (Qoimeks
-    layout)" to save the file.
+    layout)" to save the file; the file is kept for the administrator's check in step 3. The run reads from the file R, the rows with a negative quantity and the other counts listed in the preconditions.
   via: ui
 - step: 2
   actor: admin
   action: >-
-    The administrator opens "Load balances from Excel" and records the existing load history before selecting a
+    The administrator signs in to the same tenant and opens "Load balances from Excel" and records the existing load history before selecting a
     file. They read the org-unit selector and file field.
   via: ui
 - step: 3
@@ -111,7 +114,8 @@ steps:
   actor: admin
   action: >-
     The administrator reads the check summary (rows read, changed, unchanged, remarks), the remarks and the list
-    of changes if shown.
+    of changes if shown, and counts the remarks that name a quantity that is not a quantity (R1) and those that say the
+    stock is kept separately by units, responsible employees, lots or units of measure (R7).
   via: ui
 - step: 5
   actor: admin
@@ -126,6 +130,20 @@ steps:
     balance rows on Balances and confirms quantities and responsible employees are unchanged. They do not write
     the workbook, then restore English.
   via: ui
+- step: 7
+  actor: storekeeper
+  action: >-
+    The storekeeper, signed in, looks at the Balances screen for the button that opens "Load balances from Excel" and
+    then types the address of that screen (the path admin/stock/workbook-import) into the browser. No file is chosen and nothing is sent.
+  expect_refusal: true
+  via: ui
+- step: 8
+  actor: storekeeper
+  action: >-
+    The run sends a request for the whole-stock workbook download without any sign-in credential, and a second one with
+    a made-up credential that no one was given. Nothing else is sent in this step.
+  expect_refusal: true
+  via: api
 expected_outcomes:
 - id: EO-001
   description: >-
@@ -146,19 +164,22 @@ expected_outcomes:
     suggested_action: route_to_elixir_dev
 - id: EO-002
   description: >-
-    The synthetic workbook produces the expected exclusions without changes.
+    The synthetic workbook produces the expected exclusions without changes, in the order of the rules.
   verification:
     method: gui_screen
     detail: >-
-      The check reads R data rows, finds zero changes and S responsible-stock remarks in Russian. The no-change
-      message is shown and writing is disabled. Unchanged is recorded as displayed; skipped articles are not a successful
-      equality comparison.
+      The check reads R data rows (REQ-884) and finds zero changes. Each negative-quantity row has an R1 remark in Russian
+      (as many as N1, read from the file) and its article has no R7 remark (the first applicable rule wins, REQ-884
+      criterion 3). Each other article that holds a responsible employee and is not stopped by an earlier rule has exactly one
+      R7 remark in Russian (as many as derived from the file in the preconditions). Any other remark (R3, R5, R6, R8, R9) is
+      explained by the file or the item card; none is unexplained. The no-change message is shown and writing is
+      disabled. Unchanged is recorded as displayed; skipped articles are not a successful equality comparison.
     evidence: >-
       Screenshots of steps 4 and 5.
   on_fail:
     severity: MINOR
     business_impact: >-
-      Russian-speaking bookkeepers cannot read why a row was refused.
+      Russian-speaking bookkeepers cannot read why an article was refused, or are told the wrong reason.
     suggested_action: route_to_frontend_dev
 - id: EO-003
   description: >-
@@ -174,4 +195,21 @@ expected_outcomes:
     severity: BLOCKER
     business_impact: >-
       A check that writes would change stock before anyone has decided to.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    The storekeeper cannot open the Excel load screen and stock data is not downloadable without a sign-in.
+  verification:
+    method: gui_screen
+    detail: >-
+      In step 7 the Balances screen shows no button that opens "Load balances from Excel" and the typed address does not
+      show the upload form (the access guard answers instead); in step 8 both requests are refused with the answer 401
+      and hold no stock row or file. Nothing is changed: the load history and the Balances rows are as recorded in step 1.
+    evidence: >-
+      Screenshots of step 7, status and body of both answers of step 8 (trace_id removed before comparing).
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A role without the right to load stock could change the stock of the tenant, or stock data could leave the system
+      without a sign-in.
     suggested_action: route_to_elixir_dev
