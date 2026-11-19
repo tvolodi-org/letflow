@@ -257,5 +257,34 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
       assert {:error, {:write_handler_read_not_reachable, ^name, "no_such_type"}} =
                Catalog.validate(reading.("no_such_type"), known)
     end
+
+    test "D-1 reads_documents (REQ-902): shape, default, accepted by the Catalog, hash only when true" do
+      assert {:ok, %WriteHandlerSpec{reads_documents: false}} = WriteHandlerSpec.new(@valid)
+
+      assert {:ok, %WriteHandlerSpec{reads_documents: true}} =
+               WriteHandlerSpec.new(Map.put(@valid, :reads_documents, true))
+
+      for bad <- [nil, "true", 1, []] do
+        assert {:error, {:invalid_field, :reads_documents}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :reads_documents, bad))
+      end
+
+      base = FixtureLedger.manifest()
+      [first | rest] = base.write_handlers
+      put = fn flag -> %{base | write_handlers: [%{first | reads_documents: flag} | rest]} end
+
+      # absent (the default) and false keep the hash; true changes it
+      assert ManifestHash.compute(put.(false)) == ManifestHash.compute(base)
+      assert ManifestHash.compute(put.(true)) != ManifestHash.compute(base)
+
+      # the Catalog accepts a registration with the flag, and resolves it on the WriteHandler struct
+      assert :ok = Catalog.validate(put.(true), Catalog.all_manifests())
+
+      assert {:ok, %{reads_documents: true}} =
+               Catalog.write_handler("fixture_ledger_post", "read_doc")
+
+      assert {:ok, %{reads_documents: false}} =
+               Catalog.write_handler("fixture_ledger_post", "read_doc_off")
+    end
   end
 end

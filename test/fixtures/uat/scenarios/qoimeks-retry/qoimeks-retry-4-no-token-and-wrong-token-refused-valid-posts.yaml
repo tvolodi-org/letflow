@@ -21,7 +21,7 @@
 # 4. Data: scripts/pilot/qoimeks_gen.py gen_items/gen_locations/gen_balances supplies candidate items, places and positive opening quantities, not live posting proof. Before acceptance verify imported openings, active masters/base unit, linked active org unit, active employee, active stock definitions, no freeze, scope enforcement off, tenant allow-listed, and no existing shared access. Missing prerequisites are BLOCKED-by-environment; never change production settings. Record item/place/balance counts at the start of the run. UUIDs and all mapped integer ids come from this run; no seed counts or invented item codes.
 # 5. Executable: browser and HTTP client suffice, including concurrent sends; runner creates one shared credential per scenario and keeps it only in memory. Run serially with the token group; never replace an existing credential. OldAppReads.movements is a capped list, with no client pagination: use limit 500 (movement_limit), identical filters and require every snapshot to contain fewer than 500 rows; otherwise BLOCKED-by-environment for movement-count evidence. Snapshot comparisons use all returned ids and values, never only the newest row. No physical APK/phone UI is UAT-observable here; browser phone width is covered.
 # 6. Dry run: preflight with title UAT qoimeks-retry returned ENV_NOT_READY: QA health and deployed SHA OK, realm OK; both actors NO_PASSWORD, tenant/app roles UNKNOWN without tokens. Acceptance is BLOCKED-by-environment until credentials are supplied; no live login verified. No acceptance scenarios run in this writing step.
-# EXPECTATION CORRECTIONS: 11 — receipt replay; issue replay; changed-data conflict; one balance/document; reversal replay; second/reversal-of-reversal refusals; required UUIDs on both writes; concurrent duplicates; stored-row comparison; runtime-derived quantities and malformed references; capped movement-read evidence.
+# T-2343: the step that used the shared value at ANOTHER tenant (the old tenant qoimeks-qa) is rewritten to a made-up slug on the same address (same 401); no request goes to the old tenant. Earlier correction list follows. EXPECTATION CORRECTIONS: 11 — receipt replay; issue replay; changed-data conflict; one balance/document; reversal replay; second/reversal-of-reversal refusals; required UUIDs on both writes; concurrent duplicates; stored-row comparison; runtime-derived quantities and malformed references; capped movement-read evidence.
 ---
 id: qoimeks-retry-4-no-token-and-wrong-token-refused-valid-posts
 scope: qoimeks-qa2
@@ -157,9 +157,7 @@ steps:
 - step: 7
   actor: admin
   action: >-
-    The runner submits the same movement with V1 presented at the old-app address of ANOTHER tenant (https://qa.bizdala.com/qoimeks/qoimeks-qa),
-    that is, the shared access value of this tenant used against a tenant it does not belong to. The answer
-    is noted as R6.
+    The runner submits the same movement with V1 presented at the old-app address under a made-up tenant slug that does not exist (https://qa.bizdala.com/qoimeks/uat-no-such-tenant), that is, the shared access value of this tenant used where it does not belong. A real other tenant, in particular the old tenant qoimeks-qa, is never used for this step (rule: no request goes to the old tenant). The answer is noted as R6 and must be the same 401 as the other refusals.
   expect_refusal: true
   via: api
 - step: 8
@@ -265,8 +263,7 @@ expected_outcomes:
     suggested_action: route_to_wf03
 - id: EO-009
   description: >-
-    An unauthorized stock movement (a receipt) with no token, a wrong token, the shared value used at
-    another tenant's address, or a personal sign-in token is refused 401 with identical answers, and nothing
+    An unauthorized stock movement (a receipt) with no token, a wrong token, the shared value used under a made-up tenant slug at the same address, or a personal sign-in token is refused 401 with identical answers, and nothing
     changes.
   verification:
     method: api_response

@@ -6,7 +6,7 @@
 # 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
 # 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER, produces the form) and actor-qoimeks-qa2-admin (TENANT_ADMIN, reads the organisation master data). Live logins are acceptance preconditions.
 # 3. Host and screens: stock Document screen with the menu 'Official form' (ru 'Официальная форма', kk 'Ресми нысан'; entries 'Z-1 form' ru 'Форма З-1' kk 'Қ-1 нысаны'; formats '.docx' and 'PDF'; web/src/modules/stock/forms/officialFormMessages.ts); organisation screen route admin/org (web/src/modules/org/orgRoutes.tsx).
-# 4. Data: the legal entity of the org unit used by the documents must have its name and BIN set (runbook step 17); the run READS them on the organisation screen at the start (LE-NAME, LE-BIN) and compares; if the legal entity has no name or no BIN, or the org unit has no legal entity, the scenario is BLOCKED-by-environment and the finding "legal entity not set" is reported (this is exactly the case the runbook warns about, not a pass). One posted receipt of the walk (created by the walk).
+# 4. Data: the legal entity of the org unit used by the documents must have its name and BIN set (runbook step 17); the run READS them on the organisation screen at the start (LE-NAME, LE-BIN) and compares; if the legal entity has no name or no BIN, or the org unit has no legal entity, the scenario is BLOCKED-by-environment and the finding "legal entity not set" is reported (this is exactly the case the runbook warns about, not a pass). One posted receipt of the walk (created by the walk). The run records the item/place balance B0 at the start and compares BFINAL to it at the end.
 # 5. Executable: browser; the file is downloaded by the browser (the menu produces a download, not an in-page preview), the runner reads the header text from the downloaded .docx and the PDF.
 # 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-zforms").
 # EXPECTATION CORRECTIONS: 2 (a) the browser produces a file download, not a preview, so the header is read from the file; (b) the labels used are only those found in officialFormMessages.ts (Official form, Z-1 form, .docx, PDF); the header label texts of the form itself come from the platform catalog priv/print_forms/messages.json and are not quoted.
@@ -24,7 +24,7 @@ description: >-
   organisation screen. The storekeeper posts one receipt and produces the Z-1 form of it in Russian and in
   Kazakh, in .docx and in PDF. The header of each file shows the legal entity name and BIN read by the
   administrator, not blank (decision 0089 D2: a missing value would print blank). The storekeeper is refused the company
-  template administration (OfficialFormTemplatesManage). Cleanup: the receipt is reversed.
+  template administration (OfficialFormTemplatesManage). Cleanup: the storekeeper starts the reversal of the receipt, the administrator completes the post and the reversal task in My Tasks (the storekeeper cannot), and the stock is back at the quantity read at the start.
 
 actors:
   admin: actor-qoimeks-qa2-admin
@@ -39,7 +39,7 @@ preconditions:
     detail: Read at the start; if none, BLOCKED-by-environment.
   - description: The run can drive a browser with downloads enabled and can read a downloaded .docx and PDF as text.
     check: system_seeded
-    detail: If downloads cannot be read, report the steps 4 and 5 BLOCKED and say why.
+    detail: If downloads cannot be read, report step 6 BLOCKED and say why.
 
 steps:
   - step: 1
@@ -51,37 +51,63 @@ steps:
   - step: 2
     actor: storekeeper
     action: >-
-      The storekeeper issues one receipt of one item to a place of that org unit, quantity 1, until it shows Posted
-      (New document, fill, Issue). The number is noted as RN.
+      The storekeeper opens the Balances screen, chooses the item and the place of the receipt of step 3 and reads
+      the quantity of that item at that place (all Responsible rows added) as B0. The run also records the Items total,
+      the Locations total and the Balances rows at the start.
     via: ui
   - step: 3
+    actor: storekeeper
+    action: >-
+      The storekeeper issues one receipt of that item to that place of the org unit, quantity 1 (New document, fill,
+      Issue). The number is noted as RN. RN reads Issued: the posting waits for the administrator.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >-
+      The administrator, signed in separately, opens My Tasks, selects the posting task of RN (it is addressed to the
+      tenant administrator role, so the storekeeper does not see it), takes it ("Claim") if the screen offers it and
+      completes it. RN reads Posted and the item at that place reads B0 plus 1 on Balances.
+    via: ui
+  - step: 5
     actor: storekeeper
     action: >-
       On the Document screen of RN the storekeeper opens the menu Official form and sees the entry Z-1 form (the
       entry the menu offers for a receipt).
     via: ui
-  - step: 4
+  - step: 6
     actor: storekeeper
     action: >-
       The storekeeper produces the Z-1 form in Russian as .docx and as PDF, then switches the application to
       Kazakh and produces it again as .docx and as PDF. The four files are kept by the runner and their text read.
     via: ui
-  - step: 5
+  - step: 7
     actor: storekeeper
     action: >-
       The same Document screen and its Official form menu at 390 px in Kazakh: the menu opens and nothing is clipped.
     via: ui
-  - step: 6
+  - step: 8
     actor: storekeeper
     action: >-
       The test runner asks the company-template administration of the official forms (the list of templates) as
       the storekeeper. It is refused; no template is shown and nothing is changed.
     expect_refusal: true
     via: api
-  - step: 7
+  - step: 9
     actor: storekeeper
     action: >-
-      Cleanup: the storekeeper reverses the receipt RN (action Reverse, a reason offered by the dialog).
+      Cleanup: the storekeeper reverses the receipt RN (action Reverse, a reason offered by the dialog). RN still
+      reads Posted until the reversal task is done.
+    via: ui
+  - step: 10
+    actor: admin
+    action: >-
+      The administrator opens My Tasks, selects the reversal task of RN, takes it if offered and completes it
+      ("Reverse").
+    via: ui
+  - step: 11
+    actor: storekeeper
+    action: >-
+      The storekeeper reads RN and the Balances screen for the same item and place and notes the quantity as BFINAL.
     via: ui
 
 expected_outcomes:
@@ -115,19 +141,22 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >-
-        Step 6: HTTP status 403 and a body without any template content (OfficialFormTemplatesManage is held by TENANT_ADMIN and PLATFORM_ADMIN only, docs/roles.md).
-      evidence: "Status and body of step 6."
+        Step 8: HTTP status 403 and a body without any template content (OfficialFormTemplatesManage is held by TENANT_ADMIN and PLATFORM_ADMIN only, docs/roles.md).
+      evidence: "Status and body of step 8."
     on_fail:
       severity: MAJOR
       business_impact: A clerk could change the legal wording or layout of official forms.
       suggested_action: route_to_elixir_dev
 
   - id: EO-004
-    description: The cleanup reverses the receipt.
+    description: The receipt is posted by the administrator and the cleanup reversal, completed by the administrator, puts the stock back (BFINAL equals B0).
     verification:
       method: gui_screen
-      detail: After step 7 the document RN shows the state Reversed ('Сторнирован' in Russian).
-      evidence: "Screenshot of RN after step 7."
+      detail: >-
+        After step 4 RN reads Posted and the item at the place shows B0 plus 1. After step 11 the document RN shows
+        the state Reversed ('Сторнирован' in Russian) and the quantity of the item at the place equals B0. The
+        comparison is with the value this walk read in step 2, not with a figure written in advance.
+      evidence: "Screenshots of RN after steps 4 and 11 and of Balances in steps 2 and 11; B0 and BFINAL."
     on_fail:
       severity: MINOR
       business_impact: Synthetic stock stays changed.

@@ -401,6 +401,19 @@ part 2 (REQ-831).
   version, a typed wire code such as `master_inactive`, the org unit to location link at posting, the assets module handlers and
   per-instance ledger ids.
 
+## Amended by REQ-902 (slice L7 part 2b, the document read of L7 part 2)
+
+- L7 part 2 owed a read of the versioned document a handler is posting. This is it, as a platform primitive with no
+  consumer yet (REQ-903 wires it into the stock module): `HandlerWrites.read_document_version(ctx, document_id,
+  version_no)`, enabled per handler by the optional boolean `reads_documents` of the write-handler registration
+  (default false; hashed only when true, so no existing manifest hash changes).
+- It reads one version of one document, only from `documents`, `document_versions` and `document_types` of the tenant
+  schema, through one internal function of `Letflow.Documents` whose only caller is the facade; no lock, no write, no
+  ledger table. A document whose type's `owner_module` is not the handler's own module, a document of another tenant and a
+  malformed or unknown id or version all answer `{:error, :not_found}` (INV-1, INV-5); a dry build answers
+  `{:error, :dry_build}` without a query. A fact read is data, never authority, and may be stale at commit (note 14.6).
+  A ledger policy file cannot reach it (scan T-SC-4e): `declare/2` stays pure.
+
 ## Waived for a one-site customer (owner/PM 2026-11-19)
 
 Two items are WAIVED for the one-site pilot. REQ-901..906 (L7 part 2) specify `expected_document_version`, the binding of a posting to the issued document version and the typed `master_inactive` refusal, and exclude these two:
