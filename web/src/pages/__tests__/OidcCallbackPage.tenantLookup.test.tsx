@@ -124,4 +124,28 @@ describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
     expect(session.tenant_display_name).toBe('Bilimbaga Tenant')
     expect(session.tenant_id).toBe('t-1')
   })
+
+  it('GH #4732: bare host (no realm in URL or storage) takes the slug from the token issuer', async () => {
+    vi.resetModules()
+    vi.mocked(resolveRealmFromUrl).mockReturnValue(null)
+    sessionStorage.removeItem('bpm_realm_slug')
+    const b64 = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/=+$/, '')
+    const token = `${b64({ alg: 'none' })}.${b64({
+      roles: ['claimed'],
+      sub: 'u',
+      iss: 'https://idp.example/realms/qoimeks-qa',
+    })}.sig`
+    mockGetAccess.mockResolvedValue(ACCESS_FIXTURES.candidate)
+    mockSigninRedirectCallback.mockResolvedValue({ access_token: token })
+
+    const { default: OidcCallbackPage } = await import('@/pages/OidcCallbackPage')
+    render(<OidcCallbackPage />)
+
+    await waitFor(() => {
+      expect(mockSetSession).toHaveBeenCalledTimes(1)
+    })
+    const session = mockSetSession.mock.calls[0][0]
+    expect(session.tenant_slug).toBe('qoimeks-qa')
+    expect(session.tenant_display_name).toBe('qoimeks-qa')
+  })
 })

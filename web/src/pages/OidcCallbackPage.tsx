@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { getOidcManager, oidcManager } from '@/auth/OidcManager'
 import { useAuth } from '@/auth/AuthContext'
 import { setToken } from '@/api/client'
-import { decodeTokenPayload, resolveDisplayName } from '@/auth/tokenUtils'
+import { decodeTokenPayload, resolveDisplayName, resolveTenantSlug } from '@/auth/tokenUtils'
 import { resolveRealmFromUrl } from '@/auth/tenantConfig'
 import { fetchTenantTypeForSlug } from '@/auth/tenantType'
 import { tenantsApi } from '@/api/tenants'
@@ -78,7 +78,10 @@ export default function OidcCallbackPage() {
           return
         }
         setToken(token)
-        const realmSlug = resolveRealmFromUrl() ?? sessionStorage.getItem('bpm_realm_slug') ?? null
+        // GH #4732: on a bare host (no ?realm=, nothing remembered) the token's own claims name
+        // the tenant; without this the session had no slug and the shell read 'Unknown workspace'.
+        const realmSlug =
+          resolveRealmFromUrl() ?? sessionStorage.getItem('bpm_realm_slug') ?? resolveTenantSlug(payload)
         let tenantDisplayName: string | null = null
         let tenantId: string | null = null
         // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
