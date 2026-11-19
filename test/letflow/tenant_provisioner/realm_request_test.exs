@@ -19,7 +19,8 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
       Keyword.get(overrides, :tid, @tid),
       Keyword.get(overrides, :email, "  Owner@Example.COM "),
       Keyword.get(overrides, :host, "acme.demo.example.test"),
-      Keyword.get(overrides, :smtp, @smtp)
+      Keyword.get(overrides, :smtp, @smtp),
+      Keyword.take(overrides, [:pwa_uri])
     )
   end
 
@@ -68,7 +69,7 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
   test "placeholders are replaced and no wildcard origin remains" do
     assert {:ok, body} = build()
     refute Jason.encode!(Map.delete(body, "smtpServer")) =~ ~r/__[A-Z_]+__/
-    [client] = body["clients"]
+    client = Enum.find(body["clients"], &(&1["clientId"] == "letflow-web"))
 
     assert client["redirectUris"] == [
              "https://acme.demo.example.test/auth/callback",
@@ -129,6 +130,62 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
     for path <- paths do
       assert plain_secret_keys(path |> File.read!() |> Jason.decode!()) == []
     end
+  end
+
+  @pwa "https://letflow-qa.example.test/mobile/"
+
+  defp mobile(body), do: Enum.find(body["clients"], &(&1["clientId"] == "letflow-mobile"))
+
+  test "a new realm gets letflow-mobile with the exact native and PWA redirect URIs" do
+    assert {:ok, body} = build(pwa_uri: @pwa)
+    client = mobile(body)
+    assert client["publicClient"] == true
+    assert client["standardFlowEnabled"] == true
+    assert client["directAccessGrantsEnabled"] == false
+    assert client["implicitFlowEnabled"] == false
+    assert client["attributes"]["pkce.code.challenge.method"] == "S256"
+    assert client["redirectUris"] == ["com.bizdala.letflow:/oauth2redirect", @pwa]
+    assert client["webOrigins"] == ["https://letflow-qa.example.test"]
+
+    assert client["attributes"]["post.logout.redirect.uris"] ==
+             "com.bizdala.letflow:/oauth2redirect##" <> @pwa
+
+    names = Enum.map(client["protocolMappers"], & &1["name"])
+    assert names == ["realm-roles", "letflow-mobile-audience"]
+    refute Jason.encode!(Map.delete(body, "smtpServer")) =~ ~r/__[A-Z_]+__/
+  end
+
+  test "without a PWA uri the mobile client carries the native redirect only" do
+    assert {:ok, body} = build()
+    client = mobile(body)
+    assert client["redirectUris"] == ["com.bizdala.letflow:/oauth2redirect"]
+    assert client["webOrigins"] == []
+    refute Jason.encode!(body) =~ ~r/__[A-Z_]+__/
+  end
+
+  test "a wildcard or malformed PWA uri is refused" do
+    for bad <- [
+          "https://*.example.test/mobile/",
+          "https://example.test/*",
+          "http://example.test/mobile/",
+          "https://u@example.test/mobile/",
+          "https://example.test/mobile/?a=1",
+          "https://example.test/#x",
+          "https://example.test:99999/m/",
+          "",
+          42
+        ] do
+      assert {:error, :invalid_pwa_uri} == build(pwa_uri: bad)
+    end
+  end
+
+  test "existing realm: the client is created when missing and never replaced" do
+    assert {:ok, [client]} = RealmRequest.ensure_mobile_client(["letflow-web"], @pwa)
+    assert client["clientId"] == "letflow-mobile"
+    assert client["redirectUris"] == ["com.bizdala.letflow:/oauth2redirect", @pwa]
+
+    assert {:ok, []} = RealmRequest.ensure_mobile_client(["letflow-web", "letflow-mobile"], @pwa)
+    assert {:error, :invalid_pwa_uri} = RealmRequest.ensure_mobile_client([], "https://*/")
   end
 
   # Forbidden keys whose value is not a Keycloak vault reference.

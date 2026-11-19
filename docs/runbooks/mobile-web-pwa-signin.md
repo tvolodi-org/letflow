@@ -6,25 +6,22 @@ back to its own page, so each environment needs one more registered URI.
 
 The shared realm template (`priv/keycloak/realms/bpm-default.json`) is **not** changed: its tests
 pin the native redirect as the only entry (no http(s), no wildcard), and the PWA host differs per
-environment. Adding the URI is a manual infra step; automating it in the provisioner is a follow-up.
+environment. The provisioner creates the client with the PWA URI when it is given one (see the prerequisite); for an older realm the steps below are the manual path.
 
-## Prerequisite: the `letflow-mobile` client must exist in the tenant realm
+## Prerequisite: the `letflow-mobile` client in the tenant realm
 
-The Keycloak client `letflow-mobile` is defined in `priv/keycloak/realms/bpm-default.json`, but the
-provisioner's tenant realm template (`priv/keycloak/provisioner/v2/tenant-realm.json`, v1 frozen)
-creates only `letflow-web`. A realm made by the provisioner therefore has NO `letflow-mobile`
-client (infra created it by hand in realm `gate-b6`). Until the gap below is closed, create it
-once per tenant realm from the `letflow-mobile` block of `bpm-default.json`: public client, standard
-flow only, PKCE `S256`, implicit flow and direct access grants off, the `realm-roles` and
-`letflow-mobile-audience` mappers, then do the steps below.
+Since T-2207 the provisioner's tenant realm template (`priv/keycloak/provisioner/v3/tenant-realm.json`)
+creates `letflow-mobile` next to `letflow-web`, in the same realm import: public client, standard flow
+only, PKCE `S256`, implicit flow and direct access grants off, the `realm-roles` and
+`letflow-mobile-audience` mappers (copied from `bpm-default.json`). Its redirect URIs are the native
+redirect plus the one exact PWA URI of the environment (`RealmRequest.build/5`, option `:pwa_uri`; a
+wildcard is refused); the web origin and the post-logout URI follow from it. Without `:pwa_uri` the
+client carries the native redirect only and steps 1-2 below are still needed.
 
-Gap (decision needed from PM/infra, not built in T-1863): the provisioner should create the client
-too. It is not a one-line addition to a client list: the template is versioned and pinned by drift
-tests (`keycloak_tenant_realm_template_v2_test.exs`), so it means a new template version, and the
-redirect URIs and web origin differ per environment (the PWA host), so the provisioner needs a
-setting for them. Infra owns the template and the provisioner; proposed shape: template v3 with
-`letflow-mobile` (native redirect plus the environment's PWA URI substituted like the `letflow-web`
-placeholders).
+A realm that was made with template v1 or v2 has no `letflow-mobile` client. For it the provisioner calls
+`RealmRequest.ensure_mobile_client/2` with the realm's client ids: the client is created if missing and an
+existing one is never overwritten (so a hand-made client, such as the one infra created in `gate-b6` or
+`qoimeks-qa`, keeps its settings; check its URIs against step 2).
 
 ## Steps (per environment, per tenant realm that serves the PWA)
 
