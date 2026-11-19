@@ -12,15 +12,15 @@
 # 390 px is a browser check, not native mobile/APK evidence.
 # No approval, pay/release, user change or real sensitive data; other-company refusal in scenario 3.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
-# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
+# 1. Scope: scope is qoimeks-qa (tenant and realm exist); the directory name is only the group name.
+# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa,
 #   login UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, added to actors.yaml by this task).
-# 3 Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
+# 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
-# 4 Data: all 666 synthetic items have no usual place, so the item this scenario needs exists; the precondition checks it.
-# 5 Executable: browser steps only; the data check is read-only.
-# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
+# 4. Data: the seed has 678 items, 216 with a usual place, so items without one exist (read the counts at the start of the run); the precondition checks it.
+# 5. Executable: browser steps only; the data check is read-only.
+# 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-defloc-2-no-usual-place
 scope: qoimeks-qa
