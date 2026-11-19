@@ -165,7 +165,9 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
                  ]))
         )
 
-      assert length(self_service) == 14
+      # T-2195 (PR 4737) added GET /me, explicitly declared and ruled like /me/access.
+      assert length(self_service) == 15
+      assert Enum.any?(self_service, &(&1.method == "GET" and &1.path == "/me"))
       assert Enum.all?(self_service, &(&1.class == :self_service and &1.source == :declared))
       assert Enum.all?(RouteScope.self_service_routes(), &is_binary(&1.ruling))
     end
