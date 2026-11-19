@@ -1,33 +1,38 @@
-# T-2310 (BA, PM 2026-11-19), group qoimeks-numbering: GO GATE 3 of 4 (decisions 0056 D2 and 0075). QA only, no real data.
+# T-2310 (BA, PM 2026-11-19), reworked T-2339 (issue 4842, PM 2026-11-20), group qoimeks-numbering: GO GATE 3 of 4 (decisions 0056 D2 and 0075). QA only, no real data.
 # Source: docs/migration/decisions/0056-versioned-documents.md D2 (number <prefix>-<year>-<n>, n from 1; allocated at issue, not at draft; rollback releases it; a cancelled document keeps its number and it is not reused; a discarded draft carries no number so discarding creates no gap),
 # docs/migration/decisions/0075-versioned-documents-render-after-numbering-commit.md (the number is allocated and committed first; a later failure does not release it),
-# lib/letflow/modules/stock/stock.ex (document types stock_receipt prefix RCP and stock_issue prefix ISS, numbering_scope year, pad 6), lib/letflow/modules/stock/document_numbers.ex (the label RCP-2026-000001 shown to the user), lib/letflow/modules/stock/documents.ex moduledoc ("a refused check takes no number").
+# lib/letflow/modules/stock/stock.ex (document types stock_receipt prefix RCP and stock_issue prefix ISS, numbering_scope year, pad 6), lib/letflow/modules/stock/document_numbers.ex (the label RCP-2026-000001 shown to the user), lib/letflow/modules/stock/documents.ex moduledoc ("a refused check takes no number"),
+# priv/modules/stock/pack.json (the post node is a HUMAN_TASK addressed to the tenant administrator role label; reversal starts a stock_reversal task), decision 0093 direction (the storekeeper cannot complete these tasks), scenario qoimeks-ledger-2 (same contract).
 # 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
-# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER: posts, reverses and cancels, docs/roles.md line 189); actor-qoimeks-qa2-admin (TENANT_ADMIN) only for the second-session part of the sibling group, not used here. Live login is a precondition for acceptance.
-# 3. Host and screens: stock Documents screen (admin/stock/documents, kind filter, Number column 'stock.doc.col.number' = Номер / Нөмірі), Document screen (actions Issue, Discard, Reverse, Cancel document: 'stock.doc.action.*' in web/src/modules/stock/documents/documentsMessages.ts), Movements screen (stock.col.document). Routes in web/src/modules/stock/stockRoutes.tsx.
-# 4. Data: an item with at least 10 on hand at one place linked to an org unit; the highest receipt number and issue number, and the item balance, are read at the start of the run. No count or number is fixed here.
-# 5. Executable: a runner with a browser; the unauthorized refusal uses an HTTP client. One session, no loops.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER: creates, issues, starts reversal, cancels); actor-qoimeks-qa2-admin (TENANT_ADMIN: claims and completes every posting task and the reversal tasks in My Tasks); actor-qoimeks-qa2-admin2 (TENANT_ADMIN, second administrator, T-2334 roster entry: completes part of the cleanup reversal tasks). Both administrators have empty routing roles: the task is addressed to the role label (addressing, decision 0088 D5), so the runner checks live that the task appears in My Tasks and does not assume a role chip. Live logins (admin2 included) are a precondition for acceptance.
+# 3. Host and screens: stock Documents screen (admin/stock/documents; filters: kind, state, org unit and Load more, NO number filter; Number column 'stock.doc.col.number' = Номер / Нөмірі; DocumentList.tsx), Document screen (actions Issue, Discard, Reverse, Cancel document: 'stock.doc.action.*' in web/src/modules/stock/documents/documentsMessages.ts), Balances screen, My Tasks screen. Routes in web/src/modules/stock/stockRoutes.tsx.
+# 4. Data: an item with at least 10 on hand at one place linked to an org unit; the balance of that item at that place is read at the start. NO absolute number is asserted: other sessions may take numbers of the same tenant while this walk runs, so only the numbers issued BY THIS WALK are compared with each other.
+# 5. Executable: a runner with a browser; the unauthorized refusal uses an HTTP client. One session per actor at a time, no loops.
 # 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-numbering").
-# EXPECTATION CORRECTIONS: 3 (a) the year is the year shown in the Issued at field of the run's own document (the period is read from the server clock in the tenant's zone, 0056 D2; open point 11 left the zone open, so no calendar date is hard-coded); (b) a reversal does not allocate a new number of the receipt series in this scenario (not asserted either way: only the numbers of documents the runner issues are counted); (c) the quantity check of a refused issue is not used as the "refused issue takes no number" case because no reliably refused issue is known on this tenant (Documents moduledoc states the rule; it is covered by unit tests, not walked here).
+# EXPECTATION CORRECTIONS: 7 (a) issuing a receipt or issue only STARTS the posting task, so every post and every reversal gets an explicit My Tasks step by the administrator; (b) 'NR0+1, +2, +3' and 'R4 = R3+1' removed: only this walk's own numbers are compared (strictly increasing in order of issue, no repeat, no number of this walk missing from the list); (c) the Documents list has no number filter: R4 is found with the kind filter, the state filter and Load more; (d) the discard step asserts the draft's number is not in the list (Discard returns the app to the Documents list) and that the next issued number is not shifted by it, instead of looking at the draft screen; (e) the year is the year shown in the Issued at field of the run's own document (0056 D2; no calendar date hard-coded); (f) a reversal does not allocate a new number of the receipt series in this scenario (not asserted either way); (g) the quantity check of a refused issue is not used as the "refused issue takes no number" case (covered by unit tests).
 # Purge of a posted document (decision 0074): not on main, not walked (see group qoimeks-signin header).
 ---
 id: qoimeks-numbering-1-receipts-and-issues-number-without-gap-or-repeat
 scope: qoimeks-qa2
 title: >-
-  Receipts and issues take consecutive numbers of the current year; a cancelled number is kept and not reused; a discarded draft takes none
-version: "1.0"
+  Receipts and issues take increasing numbers of the current year without repeat; a cancelled number is kept and not reused; a discarded draft takes none
+version: "1.1"
 tags: [qoimeks, numbering, documents, ledger, ru, kk, go-gate]
 
 description: >-
-  Decision 0056 D2 gives every issued document a number "prefix-year-n" with n counting up from 1 in its own
-  series (here Receipt and Issue), allocated when the document is issued, never at draft. The storekeeper
-  reads the highest receipt number and the highest issue number, issues and posts three receipts and two issues,
-  discards one draft, and cancels one posted-and-reversed receipt. The numbers run N+1, N+2, N+3 without a gap or a
-  repeat; the cancelled document keeps its number, the next receipt does not take it; the discarded draft
-  took no number. Cleanup: every document of the walk is reversed so the balance returns.
+  Decision 0056 D2 gives every issued document a number "prefix-year-n" in its own series (here Receipt and Issue),
+  allocated when the document is issued, never at draft. The storekeeper issues three receipts and two issues; each
+  issue only starts a posting task, which the administrator claims and completes in My Tasks. One draft is discarded,
+  one receipt is reversed (a reversal task completed by the administrator) and cancelled. Only numbers issued by this
+  walk are compared: they grow in the order of issue, none repeats, none of them is missing from the Documents list,
+  the cancelled number is not taken again, and the discarded draft left no hole. Other sessions may take numbers of
+  the same tenant meanwhile, so no absolute value is asserted. Cleanup: every document of the walk is reversed
+  through the reversal tasks, so the balance returns.
 
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
   - description: An item with at least 10 on hand at one place linked to an org unit; the stock process definitions are ACTIVE.
@@ -36,89 +41,132 @@ preconditions:
   - description: The tenant's receipt and issue are not four-eyes documents (four-eyes applies only to the opening and the quick count).
     check: system_seeded
     detail: If an issue is waiting for an approval, report BLOCKED-by-environment.
-  - description: The storekeeper account can sign in.
+  - description: The storekeeper, the administrator and the second administrator can sign in, and a posting task started by the storekeeper appears in My Tasks of the administrator.
     check: system_seeded
-    detail: Name the account that cannot.
+    detail: Name the account that cannot sign in (admin2 is new in the roster, T-2334); if the task does not appear, report BLOCKED-by-environment with what My Tasks showed.
 
 steps:
   - step: 1
     actor: storekeeper
     action: >-
       The storekeeper opens the Documents screen at 1440 px in Russian, filters the kind Receipt and notes the
-      highest number shown as NR0 (the number of the newest receipt; none yet means the series starts at 1);
-      then the kind Issue, highest number NI0. The storekeeper opens the Balances screen and notes the balance
-      of one item at one place (the sum of its rows there) as B0, with ITEM-N and PLACE-N the item and place.
+      newest number shown as NR0, then the kind Issue, newest number NI0 (only to learn the prefix and the year; the
+      values are never compared later, because other sessions may add numbers). The storekeeper opens the Balances
+      screen and notes the balance of one item at one place (the sum of its rows there) as B0, with ITEM-N and PLACE-N the item and place.
     via: ui
   - step: 2
     actor: storekeeper
     action: >-
-      The storekeeper issues three receipts of ITEM-N to PLACE-N, quantity 1 each (New document, fill, Issue),
-      one after the other, each until it shows Posted. The numbers are noted as R1, R2 and R3 in the order of issue.
+      The storekeeper issues three receipts of ITEM-N to PLACE-N, quantity 1 each (New document, fill, Issue), one
+      after the other. Each shows the state Issued and its number straight away. The numbers are noted as R1, R2 and R3 in the order of issue.
     via: ui
   - step: 3
-    actor: storekeeper
+    actor: admin
     action: >-
-      The storekeeper issues two issues of ITEM-N from PLACE-N, quantity 1 each, one after the other, each until
-      Posted. The numbers are noted as I1 and I2.
+      The administrator opens My Tasks and, for each of R1, R2 and R3 in turn, finds the posting task of that
+      document, claims it and completes it. Each document is then read on the Documents screen: Posted.
     via: ui
   - step: 4
     actor: storekeeper
     action: >-
-      The storekeeper creates a draft receipt and discards it (action Discard). The Documents screen is read:
-      the draft never showed a number (a draft shows the Draft mark instead of a number).
+      The storekeeper issues two issues of ITEM-N from PLACE-N, quantity 1 each, one after the other. The numbers are
+      noted as I1 and I2 in the order of issue.
     via: ui
   - step: 5
-    actor: storekeeper
+    actor: admin
     action: >-
-      The storekeeper reverses the receipt R2 (action Reverse, a reason offered by the dialog) and, once it is
-      Reversed, cancels it (action Cancel document, a reason offered by the dialog). The document R2 shows the
-      state Cancelled and still shows its number.
+      The administrator opens My Tasks, claims and completes the posting task of I1 and then of I2. Both documents show Posted.
     via: ui
   - step: 6
     actor: storekeeper
     action: >-
-      The storekeeper issues one more receipt of ITEM-N to PLACE-N, quantity 1, until Posted. Its number is noted as R4.
+      The storekeeper creates a draft receipt and discards it (action Discard). The app returns to the Documents
+      list. The storekeeper filters the kind Receipt and the state Draft (and reads again with no state filter): the
+      discarded draft is not in the list. Before the discard the draft showed the Draft mark instead of a number.
     via: ui
   - step: 7
     actor: storekeeper
     action: >-
-      The storekeeper reads the date of issue ('Issued at') of the document R4 and the year of the numbers; opens
-      the same Documents screen at 390 px in Kazakh and finds R4 by its number: the number is the same and nothing is clipped.
+      The storekeeper opens the receipt R2 and uses the action Reverse (a reason offered by the dialog). The reversal
+      only STARTS a reversal task; R2 is not yet Reversed.
     via: ui
   - step: 8
+    actor: admin
+    action: >-
+      The administrator opens My Tasks, claims and completes the reversal task of R2. R2 now shows the state Reversed.
+    via: ui
+  - step: 9
+    actor: storekeeper
+    action: >-
+      The storekeeper uses the action Cancel document on R2 (a reason offered by the dialog). R2 shows the state
+      Cancelled and still shows its number.
+    via: ui
+  - step: 10
+    actor: storekeeper
+    action: >-
+      The storekeeper issues one more receipt of ITEM-N to PLACE-N, quantity 1. Its number is noted as R4.
+    via: ui
+  - step: 11
+    actor: admin
+    action: >-
+      The administrator opens My Tasks, claims and completes the posting task of R4. R4 shows Posted.
+    via: ui
+  - step: 12
+    actor: storekeeper
+    action: >-
+      The storekeeper reads the date of issue ('Issued at') of R4 and the year of the numbers; opens the Documents
+      screen at 390 px in Kazakh, sets the kind filter Receipt (there is no number filter), uses Load more until R4
+      is in the list, and reads R1, R2, R3 and R4 in the list.
+    via: ui
+  - step: 13
     actor: storekeeper
     action: >-
       The test runner sends a request to list the stock documents with no credential, and another with a wrong
       credential (the word Bearer and a value never issued).
     expect_refusal: true
     via: api
-  - step: 9
+  - step: 14
     actor: storekeeper
     action: >-
-      Cleanup: the storekeeper reverses the receipts R1, R3 and R4 and the two issues I1 and I2 (R2 is already
-      cancelled). The balance is read as BFINAL.
+      Cleanup, start: the storekeeper uses the action Reverse on R1, R3, R4, I1 and I2 (R2 is already cancelled), one
+      after the other. Each starts a reversal task.
+    via: ui
+  - step: 15
+    actor: admin
+    action: >-
+      The administrator opens My Tasks, claims and completes the reversal tasks of R1, R3 and R4.
+    via: ui
+  - step: 16
+    actor: admin2
+    action: >-
+      The second administrator opens My Tasks, claims and completes the reversal tasks of I1 and I2. The storekeeper
+      reads the Balances screen: the balance is BFINAL.
     via: ui
 
 expected_outcomes:
   - id: EO-001
-    description: Numbers of one series run without gap or repeat (decision 0056 D2, acceptance criterion 1).
+    description: Numbers issued by this walk run in the order of issue, without repeat or loss (decision 0056 D2, acceptance criterion 1).
     verification:
       method: gui_screen
       detail: >-
-        R1, R2 and R3 are NR0 plus 1, plus 2, plus 3 (same prefix, same year, the width of the number is the
-        same); I1 and I2 are NI0 plus 1 and plus 2 in the Issue series; the prefix of the Receipt series differs
-        from the prefix of the Issue series. All of R1, R2, R3, R4, I1, I2 are different from each other and from every number already on the screen.
-      evidence: "NR0, NI0, R1..R4, I1, I2 read from the Documents screen."
+        R1 is lower than R2, R2 lower than R3 and R3 lower than R4 (same prefix and same year, same width of the
+        number); I1 is lower than I2 in the Issue series; the prefix of the Receipt series differs from the prefix of
+        the Issue series. R1, R2, R3, R4, I1 and I2 differ from each other. Every number between R1 and R4 in the
+        Receipt list belongs to a document shown in the list (a number taken by another session is shown there too):
+        no number of the series is missing between this walk's own numbers. No absolute value (NR0 plus 1 and so on) is asserted.
+      evidence: "R1..R4, I1, I2 read from the Documents screen; the Receipt list between R1 and R4."
     on_fail:
       severity: BLOCKER
-      business_impact: A repeated or skipped number is a defect of the legal register of stock documents.
+      business_impact: A repeated or lost number is a defect of the legal register of stock documents.
       suggested_action: route_to_elixir_dev
 
   - id: EO-002
     description: A cancelled number is kept and not reused (decision 0056 D2).
     verification:
       method: gui_screen
-      detail: After step 5 the document R2 shows the state Cancelled and its number; R4 equals R3 plus 1, so the number R2 and no earlier number was taken again.
+      detail: >-
+        After step 9 the document R2 shows the state Cancelled and its number; R4 is higher than R3 and different
+        from R2 and from every other number of the walk, so the number of R2 was not taken again.
       evidence: "The state and number of R2, and R4."
     on_fail:
       severity: BLOCKER
@@ -126,11 +174,14 @@ expected_outcomes:
       suggested_action: route_to_elixir_dev
 
   - id: EO-003
-    description: A discarded draft takes no number (decision 0056 D2, status machine "a draft carries no number, so discarding creates no gap").
+    description: A discarded draft takes no number and leaves no hole (decision 0056 D2, "a draft carries no number, so discarding creates no gap").
     verification:
       method: gui_screen
-      detail: In step 4 the draft shows no number before it is discarded; the next numbers issued (R4) are unaffected, as EO-001 and EO-002 show.
-      evidence: "Screenshot of the draft with the Draft mark and no number."
+      detail: >-
+        In step 6 the draft shows the Draft mark and no number before it is discarded; after Discard the Documents
+        list does not show the draft. The next receipt issued (R4) shows no number missing between R3 and R4 in the
+        list other than numbers of documents the list shows (EO-001), so the discard shifted nothing.
+      evidence: "Screenshot of the draft with the Draft mark; the list after Discard; the list between R3 and R4."
     on_fail:
       severity: MAJOR
       business_impact: Draft work would leave holes in the numbering.
@@ -152,7 +203,7 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >-
-        Step 8: both answers have status 401, each a plain refusal whose text for a missing credential and for a wrong one may differ (PM 2026-11-19/20: on /api/v1 with bearer tokens identical bodies are not required), and contain no number or document; the highest receipt number read again is R4.
+        Step 13: both answers have status 401, each a plain refusal whose text for a missing credential and for a wrong one may differ (PM 2026-11-19/20: on /api/v1 with bearer tokens identical bodies are not required), and contain no number or document; the Receipt list read again shows R4 and the same numbers as before the request.
       evidence: "Status and body of both requests."
     on_fail:
       severity: BLOCKER
@@ -160,13 +211,15 @@ expected_outcomes:
       suggested_action: route_to_elixir_dev
 
   - id: EO-006
-    description: The cleanup restores the balance, and the screen layout holds at 390 px in Kazakh.
+    description: Every posting and every reversal is done through its task in My Tasks, and the cleanup restores the balance.
     verification:
       method: gui_screen
       detail: >-
-        BFINAL equals B0. Step 7: R4 is found at 390 px in Kazakh with the same number and no horizontal clipping.
-      evidence: "B0, BFINAL and the 390 px screenshot."
+        After steps 2 and 4 the documents show Issued and the balance is still B0 until the administrator completes
+        the posting tasks (steps 3, 5, 11); after step 14 the documents are not yet Reversed until the tasks of
+        steps 15 and 16 are completed. BFINAL equals B0. Step 12: R4 is found at 390 px in Kazakh with the same number and no horizontal clipping.
+      evidence: "States before and after each task; B0, BFINAL and the 390 px screenshot."
     on_fail:
-      severity: MINOR
-      business_impact: Synthetic data stays changed; phone users cannot read the number.
-      suggested_action: route_to_frontend_dev
+      severity: MAJOR
+      business_impact: Synthetic data stays changed, or a document is posted without the task the process requires.
+      suggested_action: route_to_elixir_dev
