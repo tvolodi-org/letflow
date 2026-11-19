@@ -142,7 +142,8 @@ defmodule Letflow.CiDocsOnlyTest do
     # T-2083: +1 for stock/stock_workbook_import_test.exs (reads docs/runbooks/stock-workbook-import.md)
     # T-2089: +1 for routers/shared_stock_access_address_test.exs (reads docs/runbooks/auth-rate-limits.md)
     # T-2085 (REQ-886): +1 for stock/stock_workbook_cancel_test.exs (reads docs/runbooks/stock-workbook-import.md)
-    assert length(files) < 83, "docs test list grew to #{length(files)} files"
+    # T-2220: +1 for production_tenant_onboarding_runbook_test.exs (reads docs/runbooks/production-tenant-onboarding.md)
+    assert length(files) < 84, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
     # T-1404: 79 files still ran 575 s on main; these DB suites (80 s each) only cite a docs
     # path in a moduledoc or a comment and must stay out

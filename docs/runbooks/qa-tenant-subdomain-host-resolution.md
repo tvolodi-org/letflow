@@ -44,7 +44,7 @@ For QA creation, use this order: `realm` → `users` → `POST /api/v1/tenants`
 (including `idp_realm_id`) → `host <slug> <hostname>`. The `/admin/v1/tenants`
 provisioner already stores its validated host on creation and now also refuses
 legacy case/padding variants held by another tenant. A replay of a provisioner
-create completes missing steps, including re-registering its host after DELETE.
+create completes missing steps, including re-registering its host after DELETE. The full procedure, QA and production, is `docs/runbooks/production-tenant-onboarding.md`.
 
 The infra helper is maintained outside this product. T-2184 supplies
 `infra/qa-tenant-create.host-mode.patch` in its task artifacts, with a patched copy
