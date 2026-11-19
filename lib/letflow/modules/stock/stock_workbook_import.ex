@@ -25,7 +25,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
   other is removed; a single `,` or `.` is the decimal sign; several of one sign and none of the
   other are thousands signs. The result must be a decimal of 0 or more with at most 9 decimals.
 
-  Remarks R1 to R11 are Russian texts, see `docs/runbooks/stock-workbook-import.md`.
+  Remarks R1 to R12 are Russian texts, see `docs/runbooks/stock-workbook-import.md`.
 
   Byte bounds (INV-8): before any normalising, a read cell over its byte cap (256; 512 for B; 64
   for C), a total of the read cells over 2 MiB, or more filled rows than the row cap refuses the
@@ -304,6 +304,10 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
     do:
       ~s(#{prefix(line)}#{a}: остаток "#{raw}" не является количеством. Остатки этого товара в системе не изменяются)
 
+  def remark(:r12, line, a, raw),
+    do:
+      ~s(#{prefix(line)}#{a}: отрицательный остаток "#{raw}" не загружается, учётный остаток остаётся как есть. Остатки этого товара в системе не изменяются)
+
   def remark(:r2, line, a, {code, sum}),
     do: "#{prefix(line)}#{a}: место #{code} указано повторно, остатки сложены: #{sum}"
 
@@ -533,11 +537,31 @@ defmodule Letflow.Modules.Stock.StockWorkbookImport do
       bad_qty != [] ->
         left_out(
           r11 ++
-            for(r <- bad_qty, do: {r.line, remark(:r1, r.line, article, elem(r.quantity, 1))})
+            for(r <- bad_qty, do: {r.line, bad_qty_remark(r, article)})
         )
 
       true ->
         placed(article, rows, item, held, r11, ctx)
+    end
+  end
+
+  # A negative balance is something the export itself writes (the book may hold one): it gets
+  # its own remark (R12), not "not a quantity". The counted quantity stays >= 0, so it is never loaded.
+  defp bad_qty_remark(r, article) do
+    raw = elem(r.quantity, 1)
+
+    if negative?(raw),
+      do: remark(:r12, r.line, article, raw),
+      else: remark(:r1, r.line, article, raw)
+  end
+
+  defp negative?(raw) do
+    case String.replace(raw, ~r/[\s\x{00A0}'’]/u, "") do
+      "-" <> rest ->
+        match?({:ok, d} when d.coef != 0, quantity(rest))
+
+      _ ->
+        false
     end
   end
 
