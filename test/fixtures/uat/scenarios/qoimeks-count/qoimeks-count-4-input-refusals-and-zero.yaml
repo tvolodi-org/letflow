@@ -60,8 +60,7 @@ preconditions:
 - description: >-
     Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Read the counts of items, places and posted balances at the start of the run (the seed changes them); every seeded
-    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
-    only; read the quick-count rule separately.
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes for opening approval is OFF; the quick-count rule is ON (a second person approves, issue 4765).
   check: runner_prepared
   detail: >-
     Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
