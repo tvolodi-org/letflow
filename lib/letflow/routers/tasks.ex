@@ -360,6 +360,21 @@ defmodule Letflow.Routers.Tasks do
     end
   end
 
+  # Decision 0093 F1: the same pure authorization context as the coarse plug,
+  # handed to Tasks for the node's required_permission check. The tenant flag
+  # is recomputed, never trusted from a hand-built auth_context.
+  defp task_authorization(conn) do
+    auth = conn.assigns.auth_context
+    platform_tenant? = Letflow.PlatformTenant.platform_tenant?(Map.get(auth, :tenant_id))
+
+    %Authorization.AccessContext{
+      user_id: auth.user_id,
+      roles: Authorization.effective_roles(Map.get(auth, :roles, []), platform_tenant?),
+      platform_tenant?: platform_tenant?,
+      role_overlay: Map.get(conn.assigns, :role_overlay, %{})
+    }
+  end
+
   # ── POST /tasks/:id/complete (REQ-085 design §5.2, ISS-0942) ────────────
   #
   # INV-TW85-2: this handler performs ZERO Repo. calls and ZERO
@@ -385,7 +400,12 @@ defmodule Letflow.Routers.Tasks do
     # REQ-518 PR 2d: the scope gate comes first; an out-of-scope task answers like a nonexistent
     # one, and the routing-role errors below stay as they were (AC 14).
     with :ok <- Tasks.in_scope(id, scope, opts),
-         :ok <- Tasks.authorize_completion(id, actor_id, opts),
+         :ok <-
+           Tasks.authorize_completion(
+             id,
+             actor_id,
+             Keyword.put(opts, :authorization, task_authorization(conn))
+           ),
          {:ok, hidden} <- hidden_labels(conn) do
       output_variables = conn.body_params
       idempotency_key = Ecto.UUID.generate()
@@ -593,7 +613,12 @@ defmodule Letflow.Routers.Tasks do
     case Tasks.in_scope(id, scope, opts) do
       :ok ->
         id
-        |> Tasks.claim_task(attrs, Keyword.put(opts, :f1, f1))
+        |> Tasks.claim_task(
+          attrs,
+          opts
+          |> Keyword.put(:f1, f1)
+          |> Keyword.put(:authorization, task_authorization(conn))
+        )
         |> handle_claim_result(conn, opts)
 
       {:error, _reason} = error ->
