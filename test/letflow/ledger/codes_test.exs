@@ -6,6 +6,20 @@ defmodule Letflow.Ledger.CodesTest do
 
   alias Letflow.Ledger.Codes
 
+  @tag :req901
+  test "REQ-901 reserved handler codes cannot be used as module aliases" do
+    entry = Letflow.Modules.FixtureLedgerPost
+    manifest = entry.manifest()
+
+    for code <- ["master_inactive", "record_version_conflict"] do
+      assert code in Codes.reserved()
+      changed = put_in(manifest, [:ledger, "alpha", :error_aliases], %{"unit_mismatch" => code})
+
+      assert {:error, {:invalid_ledger_registration, "alpha", :error_aliases}} =
+               Letflow.Modules.LedgerRegistration.validate(changed, [changed], entry)
+    end
+  end
+
   test "T-ERR-4a the core codes with their statuses are unchanged" do
     assert Codes.core() == [
              {"insufficient_balance", 409},
@@ -66,6 +80,7 @@ defmodule Letflow.Ledger.CodesTest do
              "invalid_posting",
              "invalid_request",
              "ledger_instances_exhausted",
+             "master_inactive",
              "movement_not_found",
              "not_found",
              "posting_already_reversed",

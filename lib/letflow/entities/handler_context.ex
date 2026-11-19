@@ -16,6 +16,18 @@ defmodule Letflow.Entities.HandlerContext do
   only by the Catalog and called only by the platform inside the step transaction. The context
   it receives is bound to that one call: `create/3` refuses a copy that differs in any field.
 
+  REQ-901: a handler registered with `posts_ledger` may also return
+  `{:error, {:refused, code}}`, where the closed platform list is `:record_version_conflict`
+  and `:master_inactive`. Any other code, or this form without `posts_ledger`, is a
+  `:handler_shape` contract violation. On HUMAN_TASK completion the platform releases the
+  typed 409 code only after `Letflow.Ledger.Authority` accepts the completing subject for
+  that handler's ledger registration: live credential, tenant-scoped roles and posting scope,
+  never the request's role claims. A denial is the uniform `write_not_permitted` 403.
+  When no posting legs are available, a scoped subject cannot prove posting scope and is
+  denied. The response contains only `error` and `line_index`; the audit detail is
+  `handler_refused`, the completion rolls back and the task stays pending. On a
+  `{:dispatch, _}` origin this form is classified as `:handler_invalid_arguments`.
+
     1. The handler BUILDS Multi steps by calling `HandlerWrites.create/3` and does nothing
        else: it reads no table, holds no `repo`, never calls `Repo.transaction` or
        `Repo.rollback`, never rescues a database error, never starts a process or performs
