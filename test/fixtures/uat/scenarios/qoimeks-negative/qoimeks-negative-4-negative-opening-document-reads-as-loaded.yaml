@@ -1,4 +1,4 @@
-# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issues #4701, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 7: a negative row moves as a negative opening line; one opening document does not mix signs),
 #   REQ-834 (the ledger accepts the negative opening line when the setting allows it), REQ-837 (converter writes negative lines into documents of their own; zero rows are skipped).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md sections 5 and 7; docs/requirements.yaml REQ-837 (converter criteria 1 to 3);
@@ -7,14 +7,15 @@
 # How a negative opening line loads, in business words: the old balances are moved in documents of the kind Opening balance; a negative balance goes into a document that holds only negative lines, and such a document can be created only while the tenant allows negative balances; then it is posted like the others (four-eyes is off for the opening approval in this tenant).
 # Read-only walk: the administrator opens existing posted opening documents; nothing is created, so nothing to clean up.
 # Not UAT-observable in a browser, with reasons (each has the observable check given):
-#   (a) the converter (scripts/pilot/qoimeks_convert.py) writing the negative lines into files and skipping zero rows: a command-line tool; observable check is its report file and manifest, covered by test/scripts/qoimeks_rehearsal_test.exs; recorded as a GAP sidecar;
+#   (a) the converter (scripts/pilot/qoimeks_convert.py) writing the negative lines into files and skipping zero rows: a command-line tool; observable check is its report file and manifest, covered by test/scripts/qoimeks_rehearsal_test.exs; recorded as a GAP sidecar attached to a placeholder id (qoimeks-negative-converter-and-switched-off-refusal-checks), so this read-only walk is not excluded from the run (fix of #4701);
 #   (b) a header with a negative line refused while the setting is Refused (422 quantity_invalid): needs the setting switched off, which scenario 2 does not do; an API call by the admin after a switch would be the check, not run here;
-#   (c) a document mixing positive and negative lines being refused: the web form's behaviour on this input was not read; the check would be an API call by the administrator, and is not run in this walk, since it is a write.
+#   (c) a document mixing positive and negative lines being refused: the web form's behaviour on this input was not read; the check would be an API call by the administrator, and is not run in this walk, since it is a write;
+#   (d) the same read by a storekeeper account: the roster has no actor below TENANT_ADMIN for this tenant; that coverage is BLOCKED-by-environment, see the preconditions (issue #4702).
 ---
 id: qoimeks-negative-4-negative-opening-document-reads-as-loaded
 scope: qoimeks-qa
 title: The Qoimeks QA administrator finds a posted opening balance document with a negative line and the same figure on the Balances screen
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, negative_balance, opening_balance, stock_documents, ru, kk, phone_390]
 
 description: >
@@ -37,6 +38,12 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
+  - description: The roster's only actor for this tenant is the tenant administrator (TENANT_ADMIN); no storekeeper account exists.
+    check: system_seeded
+    detail: >
+      Run the steps with the administrator, who may read stock documents and balances. The same read by a
+      storekeeper account is BLOCKED-by-environment, not a product result: report it as BLOCKED-by-environment
+      and name the missing account; still read EO-001 to EO-004 with the administrator.
 
 steps:
   - step: 1

@@ -1,26 +1,54 @@
-# T-2161 (BA): qoimeks-retry group, scenario 4. QA only, no real data.
+# T-2161 (BA), rework T-2191 (issues #4703, #4705, #4706, #4707): qoimeks-retry group, scenario 4. QA only, no real data.
 # Covers REQ-857 (decision record), REQ-858 (token lifecycle), REQ-859 (old-app address reads).
 # Access refusal tests for the old-app address before the retry function can be used.
+#
+# Fix of #4703 (the blocker of the group's audit): no seed, variable or preflight check provides the
+# shared stock token value; the value is shown only once, at creation (decision 0091 section 4.3).
+# The walk now creates the tenant's shared access itself through the admin API (after the two
+# no-credential refusal checks, which run while none exists), keeps the one-time value in the run's
+# own environment only (never in a file, a screenshot or the report), and revokes it at the end, so
+# the tenant is left with none, exactly as it began. If a shared access already exists when the walk
+# starts, the walk does not replace or revoke it (it may belong to a concurrent run) and reports
+# BLOCKED-by-environment instead.
+# Ordering rule (decision 0091 section 4.3; the sibling group qoimeks-token manages the same
+# credential): this group and the qoimeks-token group must not run at the same time; either order is
+# fine, because both restore the tenant to "no shared access". qoimeks-token-1 requires the tenant to
+# start with none, which this walk's cleanup guarantees.
+#
+# Fix of #4706: step 2 of version 1 sent the wrong value without the "Bearer " prefix, so the router
+# treated the request as having no header at all and the wrong-value path was never exercised
+# (SharedStockAccess.bearer/1 matches only "Bearer " followed by a value). The step now sends
+# "Bearer WRONG-TOKEN-VALUE"; this step is the scope's only check of the wrong-credential refusal.
+#
+# Fix of #4705: no step of version 1 recorded the balance before the posting, so EO-004 and EO-006
+# had nothing to compare against. A balance reading (B0) is now recorded before the receipt is sent.
+#
+# Fix of #4707: the precondition that the tenant's scope enforcement is off, now stated in all four
+# scenarios of the group (while it is "on" or "shadow", every old-app request is answered 403
+# scope_enforcement_active: SharedStockAccess.accept/2, decision 0091 sections 9 and 11b).
 #
 # NOT UAT-observable (stated, not invented):
 # - The rate-limit lockout on many wrong tokens (REQ-859 criterion 3): requires many rapid requests;
 #   tested by unit tests; not UAT-observable here.
 # - The admin creating or rotating the shared token through the browser UI: REQ-861 is cancelled
 #   (no Tokens screen, owner 2026-11-16); the token is managed through the admin API only.
+# - The token value: created by the walk at step 3, kept in the run's environment only, never recorded.
 ---
 id: qoimeks-retry-4-no-token-and-wrong-token-refused-valid-posts
 scope: qoimeks-qa
 title: The old-app address refuses requests without a token and with a wrong token; a valid token posts and reads; the shared token is refused on the standard admin API
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, old-app, refusal, access, token, idempotency, ru, kk]
 
 description: >
   The old-app address is the only place where the shared stock token is accepted. This scenario
   confirms the boundary: a request without a token and a request with a wrong token are each
-  refused with the same 401 (no information about whether a valid credential exists). A request
-  with the valid shared token posts a small receipt. The administrator verifies the balance via
-  the browser. The shared token cannot be used on the standard admin API (/api/v1) for a
-  balance read. Cleanup: the receipt posted with the valid token is reversed.
+  refused with the same 401 (no information about whether a valid credential exists). The walk then
+  creates the tenant's shared stock access through the admin API, keeps the one-time value in the
+  run's own environment only, records the balance of the test item, and posts a small receipt with
+  the valid value. The administrator verifies the balance via the browser. The shared token cannot
+  be used on the standard admin API (/api/v1) for a catalog read. Cleanup: the receipt posted with
+  the valid token is reversed and the shared access is revoked, so the tenant is left as it began.
   Not exercised, with reasons: (a) rate-limit lockout (needs many rapid wrong requests): covered
   by REQ-859 unit tests; (b) a request where the tenant is not listed in
   LETFLOW_SHARED_STOCK_ACCESS_TENANTS: not reproducible on this tenant during normal UAT because
@@ -30,24 +58,33 @@ actors:
   admin: actor-qoimeks-qa-admin
 
 preconditions:
-  - description: >
-      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
-      REQ-858 build #4662), a shared stock token is set for the tenant, and the old-app address
-      (decision 0091 section 6, REQ-859 build #4664) answers for the slug qoimeks-qa.
+  - description: The tenant's scope enforcement is off.
     check: system_seeded
     detail: >
-      If the old-app address is not reachable or no shared token is configured, report BLOCKED
-      for the whole scenario and name which precondition is missing.
+      While the scope enforcement is "on" or "shadow", every old-app request is answered 403
+      scope_enforcement_active (decision 0091 sections 9 and 11b) and no step of this walk can run.
+      If it is not off, report BLOCKED for the whole scenario; switching it is the platform
+      operator's act, not the walk's.
+  - description: >
+      The qoimeks-qa tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
+      REQ-858 build #4662), and the old-app address (decision 0091 section 6, REQ-859 build #4664)
+      answers for the slug qoimeks-qa.
+    check: system_seeded
+    detail: >
+      The walk creates the shared access itself at step 3, so none needs to exist; the refusal
+      checks of steps 1 and 2 even assume none exists yet. If the old-app address is not reachable
+      or the deployment setting does not list the tenant, report BLOCKED for the whole scenario and
+      name which precondition is missing.
   - description: >
       The tenant has an item ITEM-RETRY-A4 with a posted balance in at least one place.
     check: system_seeded
     detail: If no such item exists, choose any item from the synthetic catalog.
   - description: No movement with client id A-RETRY-4 has been posted in this tenant.
     check: test_setup
-    detail: If a movement with client id A-RETRY-4 exists, remove it or use a different id.
+    detail: If a movement with client id A-RETRY-4 exists, use a different client id.
   - description: The run can drive a real browser.
     check: system_seeded
-    detail: If no browser can be started, report BLOCKED for steps 5 and 6.
+    detail: If no browser can be started, report BLOCKED for the balance steps.
 
 steps:
   - step: 1
@@ -57,51 +94,68 @@ steps:
       Authorization header. The answer is noted as R1.
     expect_refusal: true
     via: api
-
   - step: 2
     actor: admin
     action: >
-      The test runner sends a request to the old-app address catalog call with the
-      Authorization header value "WRONG-TOKEN-VALUE". The answer is noted as R2.
+      The test runner sends a request to the old-app address catalog call with the Authorization
+      header value "Bearer WRONG-TOKEN-VALUE" (the word Bearer, a space, then a value that was
+      never issued). The answer is noted as R2.
     expect_refusal: true
     via: api
-
   - step: 3
     actor: admin
     action: >
-      The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
-      operator name "Тест-доступ", client id A-RETRY-4, using the valid shared token.
-      The answer is noted as A1.
+      The administrator, signed in on the tenant's own address
+      (https://qoimeks-qa.letflow.qa.bizdala.com), reads the status of the tenant's shared stock
+      access through the admin API (noted as S0) and then creates it with an empty request (the
+      system generates the value). The create answer is noted as C1; the value in it is noted as V1
+      and is kept only in the run's own environment, never in a file, a screenshot or the report.
+      The status is read again and noted as S1.
     via: api
-
   - step: 4
     actor: admin
     action: >
-      The test runner sends the catalog call to the standard admin API path at the tenant
-      address (/api/v1 route) with the shared token value as the Authorization header.
-      The answer is noted as R3.
-    expect_refusal: true
+      The test runner reads the balance of ITEM-RETRY-A4 from the old-app address balances call,
+      presenting V1 as the bearer credential. This is the balance before any posting of this walk;
+      it is noted as B0.
     via: api
-
   - step: 5
     actor: admin
     action: >
-      The administrator signs in on the tenant address and opens the balance screen in Russian
-      at 1440 px. The balance of ITEM-RETRY-A4 is noted as B1-ui.
-    via: ui
-
+      The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
+      operator name "Тест-доступ", client id A-RETRY-4 (the `id` field in the JSON body), using V1
+      as the bearer credential. The answer is noted as A1.
+    via: api
   - step: 6
+    actor: admin
+    action: >
+      The test runner sends the catalog call to the standard admin API path at the tenant address
+      (/api/v1 route), presenting V1 as the bearer credential. The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator opens the balance screen in Russian at 1440 px. The balance of
+      ITEM-RETRY-A4 is noted as B1-ui.
+    via: ui
+  - step: 8
     actor: admin
     action: >
       The administrator opens the balance screen at 390 px in Russian. The balance of
       ITEM-RETRY-A4 is noted as B1-phone.
     via: ui
-
-  - step: 7
+  - step: 9
     actor: admin
     action: >
-      The administrator reverses the receipt posted in step 3 with operator name "Тест-откат".
+      The test runner reverses the receipt posted in step 5 with operator name "Тест-откат".
       The balance after reversal is noted as BFINAL.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator revokes the shared stock access created in step 3 (the answer is noted as
+      D3) and reads the status again (noted as S3), so that the tenant ends with none.
     via: api
 
 expected_outcomes:
@@ -156,9 +210,9 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        B1-ui shows the balance of ITEM-RETRY-A4 increased by 2 compared to its value before
-        step 3. All text is in Russian.
-      evidence: "Screenshot of the balance screen at 1440 px in Russian."
+        B1-ui shows the balance of ITEM-RETRY-A4 increased by 2 compared to B0, the balance
+        recorded in step 4 before the posting. All text is in Russian.
+      evidence: "Screenshot of the balance screen at 1440 px in Russian, with B0 and B1-ui noted."
     on_fail:
       severity: MAJOR
       business_impact: >
@@ -178,12 +232,30 @@ expected_outcomes:
       suggested_action: route_to_frontend_dev
 
   - id: EO-006
-    description: The reversal restores the balance.
+    description: The reversal restores the balance recorded before the posting.
     verification:
       method: api_response
-      detail: BFINAL equals the balance before step 3. The synthetic data is restored.
-      evidence: "BFINAL equals the pre-test balance."
+      detail: >
+        BFINAL equals B0, the balance recorded in step 4 before the posting. The synthetic data
+        is restored.
+      evidence: "BFINAL equals B0."
     on_fail:
       severity: MINOR
       business_impact: The synthetic balance is left changed; later runs may start from a wrong value.
+      suggested_action: route_to_wf03
+
+  - id: EO-007
+    description: The shared access created at the start is revoked, leaving the tenant as it began.
+    verification:
+      method: api_response
+      detail: >
+        S0 said exists is false before the walk. D3 has HTTP status 204 (no content). S3 is 200
+        with exists is false: the tenant holds no shared stock access after the walk, so the
+        sibling group qoimeks-token can run its own create-revoke walk on the same tenant.
+      evidence: "The exists flags of S0 and S3 and the status of D3."
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A live shared credential is left on the QA tenant after the run, with a value that sat in
+        the run's environment; the old-app address stays open until the operator revokes it.
       suggested_action: route_to_wf03

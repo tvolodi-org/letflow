@@ -1,16 +1,18 @@
-# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issue #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090: a ledger registration may carry negative balances, set per tenant), REQ-834 (the ledger honours the setting),
 #   REQ-836 (the stock registration opts in), REQ-837 (negative opening lines move with their sign; the tenant data holds 3 of them).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md (sections 1, 3, 7); docs/requirements.yaml REQ-833..839;
 #   web/src/components/layout/navMessages.ts (screen names Balances / Остатки / Қалдықтар); task text (142 places, 666 items, 603 posted opening balances incl. 3 negative).
 # Not UAT-observable here, with reasons:
 #   (a) a warning on the Balances screen: the screen shows a negative quantity as a number only; the warning of the group belongs to the stock document form (scenario 3), so no warning is expected here;
-#   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests.
+#   (b) the database lower bound and the 10^21 refusal (decision 0090 section 3): no screen reaches it, covered by backend tests;
+#   (c) the same read by a storekeeper account (a tenant user holding only stock read): no such actor exists in the roster for this tenant (the only qoimeks-qa actor is the
+#     tenant administrator); that coverage is BLOCKED-by-environment, see the preconditions.
 ---
 id: qoimeks-negative-1-balances-show-the-three-negative-rows
 scope: qoimeks-qa
 title: The Qoimeks QA administrator finds the three negative opening balances on the Balances screen, in three languages and on a phone
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, negative_balance, balances, ru, kk, phone_390]
 
 description: >
@@ -33,6 +35,12 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and at 390 px wide.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the whole scenario.
+  - description: The roster's only actor for this tenant is the tenant administrator (TENANT_ADMIN); no storekeeper account exists.
+    check: system_seeded
+    detail: >
+      Run the steps with the administrator, who may read balances. The same read by a storekeeper account is
+      BLOCKED-by-environment, not a product result: report it as BLOCKED-by-environment and name the missing
+      account; still read EO-001 to EO-003 with the administrator.
 
 steps:
   - step: 1

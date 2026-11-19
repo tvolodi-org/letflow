@@ -1,4 +1,4 @@
-# T-2160 (BA): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
+# T-2160 (BA), rework T-2191 (issue #4702, folded minor): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 5: setting per registration, reason required), REQ-835 (route and permission to switch),
 #   REQ-839 (admin page "Negative balances": list, reason dialog, localized errors).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 5; docs/requirements.yaml REQ-839;
@@ -6,13 +6,15 @@
 #   docs/roles.md and the actor roster (actor-qoimeks-qa-admin is TENANT_ADMIN).
 # Not UAT-observable here, with reasons:
 #   (a) saving a change: the scenario never saves, because switching the setting changes how the whole QA tenant posts and the three negative rows were loaded under "Allowed"; a saved switch would need switching back, and the audit entry it writes cannot be removed. The saved path is covered by component tests of REQ-839 and backend tests of REQ-835;
-#   (b) the audit entry of a change: not shown on a screen of this page (the audit log screen exists, but nothing is saved here).
+#   (b) the audit entry of a change: not shown on a screen of this page (the audit log screen exists, but nothing is saved here);
+#   (c) a non-administrator being refused this page: the roster has no actor below TENANT_ADMIN for this tenant, so the refusal walk cannot be written;
+#     that coverage is BLOCKED-by-environment, see the preconditions (folded minor of issue #4702).
 # UAT assumption, to be confirmed by the process owner: the stock register of the tenant currently reads "Allowed" because the negative opening lines were loaded (runbook docs/runbooks/qoimeks-rehearsal.md step 5). If it reads "Refused" the steps still run; the dialog texts differ (refuse versus allow) and EO-002 is checked against the text of the opposite switch.
 ---
 id: qoimeks-negative-2-admin-page-negative-balances-setting
 scope: qoimeks-qa
 title: The Qoimeks QA administrator reads the Negative balances page and cannot save a switch without a reason
-version: "1.0"
+version: "2.0"
 tags: [qoimeks, negative_balance, admin, ru, kk, phone_390, refusal]
 
 description: >
@@ -34,6 +36,12 @@ preconditions:
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
+  - description: The roster has no actor below TENANT_ADMIN for this tenant; a storekeeper account does not exist.
+    check: system_seeded
+    detail: >
+      The refusal of this page for a non-administrator (a tenant user without the permission that guards it)
+      cannot be walked: report that coverage as BLOCKED-by-environment, not as a product result, and name the
+      missing account. The administrator steps of this scenario still run.
 
 steps:
   - step: 1
