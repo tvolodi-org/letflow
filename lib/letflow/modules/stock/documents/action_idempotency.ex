@@ -39,15 +39,66 @@ defmodule Letflow.Modules.Stock.Documents.ActionIdempotency do
   def run(_prefix, _server_minted_key, _id, _replay, action), do: action.()
 
   defp serialised(prefix, key, doc_id, replay, action) do
+    with_lock(prefix, key, fn ->
+      case Repo.get(CreateIdempotency, key, prefix: prefix) do
+        %CreateIdempotency{document_id: ^doc_id} -> replay.()
+        %CreateIdempotency{} -> reuse(replay)
+        nil -> bind(prefix, key, doc_id, action.())
+      end
+    end)
+  end
+
+  @doc """
+  T-2282 (the old-address movement post and reverse): like `run/5`, but for an action whose document
+  is not known before it runs, and whose "same request" is a caller-computed `hash` (SHA-256 hex) of
+  the compared data, not a document id.
+
+  Under the same per-key session advisory lock: a row with the same `hash` is a replay
+  (`replay.(document_id)` answers, nothing is written, `{:ok, :replayed, result}`); a row with another
+  hash is `{:error, :idempotency_key_reuse}`; no row runs `action` (a zero-arity function returning
+  `{:ok, document_id, result}` or `{:error, reason}`) and, only after it succeeded, binds
+  `key -> document_id, hash` (`{:ok, :created, result}`). The row is the tenant's unique client
+  operation id (the table's primary key), so two concurrent posts with one id leave one document: the
+  second waits on the lock and then replays. A refused action binds nothing.
+  """
+  @spec run_bound(String.t(), String.t(), String.t(), (String.t() -> term()), (-> term())) ::
+          {:ok, :created | :replayed, term()} | {:error, term()}
+  def run_bound(prefix, "client:" <> _ = key, hash, replay, action)
+      when is_binary(prefix) and is_binary(hash) do
+    with_lock(prefix, key, fn ->
+      case Repo.get(CreateIdempotency, key, prefix: prefix) do
+        %CreateIdempotency{body_hash: ^hash, document_id: document_id} ->
+          with {:ok, result} <- replay.(document_id), do: {:ok, :replayed, result}
+
+        %CreateIdempotency{} ->
+          {:error, :idempotency_key_reuse}
+
+        nil ->
+          case action.() do
+            {:ok, document_id, result} ->
+              %CreateIdempotency{}
+              |> CreateIdempotency.changeset(%{
+                key: key,
+                document_id: document_id,
+                body_hash: hash
+              })
+              |> Repo.insert!(prefix: prefix)
+
+              {:ok, :created, result}
+
+            {:error, _reason} = refusal ->
+              refusal
+          end
+      end
+    end)
+  end
+
+  defp with_lock(prefix, key, fun) do
     Repo.checkout(fn ->
       Repo.query!("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lock_key(prefix, key)])
 
       try do
-        case Repo.get(CreateIdempotency, key, prefix: prefix) do
-          %CreateIdempotency{document_id: ^doc_id} -> replay.()
-          %CreateIdempotency{} -> reuse(replay)
-          nil -> bind(prefix, key, doc_id, action.())
-        end
+        fun.()
       after
         Repo.query!("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lock_key(prefix, key)])
       end

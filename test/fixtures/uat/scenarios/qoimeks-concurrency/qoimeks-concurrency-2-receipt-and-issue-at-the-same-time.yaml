@@ -1,0 +1,133 @@
+# T-2310 (BA), group qoimeks-concurrency, scenario 2: GO GATE 2 of 4 (decision 0061). Header lines of the group: see scenario 1 of this group.
+# 1. Scope: qoimeks-qa2 (exists).
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) and actor-qoimeks-qa2-admin (TENANT_ADMIN); both hold StockPost (docs/roles.md line 189). Live logins: preconditions for acceptance.
+# 3. Host and screens: stock Documents, Balances and Movements screens at https://qoimeks-qa2.letflow.qa.bizdala.com (web/src/modules/stock/stockRoutes.tsx).
+# 4. Data: an item with at least 20 on hand at one place (read at the start of the run); no fixed numbers.
+# 5. Executable: two sessions at most, one attempt, one shared "go" signal; no loop.
+# 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-concurrency").
+# EXPECTATION CORRECTIONS: 1 the refusal step is a read with no credential (401, auth pipeline), not a reverse of an unknown id, because that route answer was not traced; the negative balance setting is not part of this scenario (the quantity out is small).
+---
+id: qoimeks-concurrency-2-receipt-and-issue-at-the-same-time
+scope: qoimeks-qa2
+title: >-
+  A receipt and an issue for the same item and place posted at the same time by two people: both succeed and the balance is the exact net
+version: "1.0"
+tags: [qoimeks, concurrency, ledger, lock-order, go-gate]
+
+description: >-
+  The storekeeper issues goods out (kind Issue, quantity Q-OUT, for example 2) while the administrator
+  receives goods in (kind Receipt, quantity Q-IN, for example 4) for the same item at the same place, started
+  at the same moment (decision 0061). Both documents end Posted; the balance is B0 plus Q-IN minus Q-OUT;
+  each document gets the next number of its OWN series (the series of Receipt and of Issue are separate, decision 0056 D2).
+  Cleanup: both are reversed.
+
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+
+preconditions:
+  - description: An item with at least 20 on hand at one place that is linked to an org unit; the stock process definitions are ACTIVE.
+    check: system_seeded
+    detail: Read the Balances screen at the start; if none, BLOCKED-by-environment.
+  - description: Two sessions can be driven at the same time.
+    check: system_seeded
+    detail: If not, BLOCKED; never serialise and call it a pass.
+
+steps:
+  - step: 1
+    actor: storekeeper
+    action: >-
+      The storekeeper reads, at 1440 px in Russian, the balance of one item at one place as B0 (sum of the
+      item's rows there), the highest Receipt number as NR0 and the highest Issue number as NI0 on the
+      Documents screen (zero when there is none).
+    via: ui
+  - step: 2
+    actor: storekeeper
+    action: The storekeeper prepares a draft Issue of Q-OUT of that item from that place (not issued yet).
+    via: ui
+  - step: 3
+    actor: admin
+    action: The administrator prepares a draft Receipt of Q-IN of the same item to the same place (not issued yet).
+    via: ui
+  - step: 4
+    actor: storekeeper
+    action: >-
+      On one "go" signal the storekeeper issues the Issue draft and the administrator issues the Receipt draft at
+      the same moment. One attempt; a named "busy" answer is repeated once for that request only.
+    via: ui
+  - step: 5
+    actor: storekeeper
+    action: >-
+      When both show Posted (read again each ten seconds, two minutes at most), the storekeeper notes the
+      number of the Issue as NI1, of the Receipt as NR1 and the balance as B1; then opens the Balances screen at
+      390 px in Kazakh and notes the balance as B1-phone.
+    via: ui
+  - step: 6
+    actor: storekeeper
+    action: >-
+      The test runner reads the stock balances with no credential at all. It is refused; the balance read
+      again on the screen is still B1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >-
+      Cleanup: both documents are reversed (the Issue by the storekeeper, the Receipt by the administrator); the balance is read as BFINAL.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Both documents succeed at the same time with no deadlock (decision 0061).
+    verification:
+      method: gui_screen
+      detail: Both end Posted within two minutes; no answer is a server error or a time-out.
+      evidence: "States of the two documents and the answers."
+    on_fail:
+      severity: BLOCKER
+      business_impact: Receiving and issuing at one place at the same time would block the warehouse.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: The balance is the exact net of the two postings.
+    verification:
+      method: gui_screen
+      detail: B1 equals B0 plus Q-IN minus Q-OUT; B1-phone equals B1.
+      evidence: "B0, Q-IN, Q-OUT, B1, B1-phone."
+    on_fail:
+      severity: BLOCKER
+      business_impact: A lost update leaves the stock wrong.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-003
+    description: Each document takes the next number of its own series (decision 0056 D2).
+    verification:
+      method: gui_screen
+      detail: NR1 is NR0 plus 1 (prefix of the Receipt series) and NI1 is NI0 plus 1 (prefix of the Issue series); the two prefixes differ and both carry the same year.
+      evidence: "NR0, NR1, NI0, NI1."
+    on_fail:
+      severity: BLOCKER
+      business_impact: Numbers of different kinds would mix or skip.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: A read of the stock balances with no credential is refused and nothing changes.
+    verification:
+      method: api_response
+      detail: >-
+        Step 6: HTTP status 401 with the standard error shape and no balance in the body (lib/letflow/plugs/auth_pipeline.ex respond_auth_error); the balance read again on the screen is still B1.
+      evidence: "Status and body of step 6; the balance."
+    on_fail:
+      severity: MAJOR
+      business_impact: Anyone who knows the address could read the stock.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-005
+    description: The cleanup restores the balance.
+    verification:
+      method: gui_screen
+      detail: BFINAL equals B0.
+      evidence: "B0 and BFINAL."
+    on_fail:
+      severity: MINOR
+      business_impact: Synthetic data left changed.
+      suggested_action: route_to_wf03

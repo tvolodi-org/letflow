@@ -89,12 +89,15 @@ defmodule Letflow.Routers.ApprovalRulesCorpusTest do
     # A missing/empty corpus cannot turn this into a vacuous success; additions need no pin update.
     assert {"assets_opening", "approve"} in expected
     assert {"stock_opening", "approve"} in expected
+    assert {"stock_quick_count", "approve"} in expected
 
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "approval-corpus")
     load!(tenant, definitions)
     items = read(tenant)
 
     assert keys(items) == Enum.sort(expected)
+    # REQ-854: the quick count (and the Excel load that creates one) is a second four-eyes step.
+    assert {"stock_quick_count", "approve"} in keys(items)
 
     for item <- items do
       assert item["four_eyes"] == true

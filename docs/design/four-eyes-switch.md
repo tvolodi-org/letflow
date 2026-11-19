@@ -229,11 +229,17 @@ own suites.
 
 ## 6. Pilot note: Qoimeks Client 1 (stock only)
 
-Approvals in the stock module (section 2, rows 3 and 14, V): **only one four-eyes approval exists, the stock opening
-(`stock_opening`, step `approve` apart from `submit`).** Receipt, issue, write-off, transfer, handover, return,
-reversal and count posting are single-step (one person posts). The count has a chair and commission signatures
-(rows 9 and 10), which are not four-eyes and are not switched. So for a one-person Client 1, switching four eyes OFF
-for `stock_opening / approve` (slices 1 and 3) is the whole need. The count still needs a chair, and the chair cannot
+Approvals in the stock module (section 2, rows 3 and 14, V): **two four-eyes approvals exist: the stock opening
+(`stock_opening`, step `approve` apart from `submit`) and the quick count (`stock_quick_count`, step `approve`
+kept apart from `submit` by `distinct_from`, `priv/modules/stock/generate_pack.exs`, REQ-854). An Excel load that
+creates quick counts goes through the same process, so it needs the same approval.** Receipt, issue, write-off,
+transfer, handover, return, reversal and count posting are single-step (one person posts). The count order has a
+chair and commission signatures (rows 9 and 10), which are not four-eyes and are not switched. For a one-person
+Client 1, switch four eyes OFF for **both** `stock_opening / approve` and `stock_quick_count / approve` (slices 1
+and 3), each with its own reason (the reason rule is per step, and each OFF is its own audit row). If only the
+opening is switched OFF, that person can issue openings alone but **cannot confirm a quick count (or an Excel
+load) alone**: the approve step is refused as the same person. `GET /api/v1/approval-rules` lists both steps
+(`approval_rules_corpus_test.exs`). The count still needs a chair, and the chair cannot
 also be a member (row 8); but the member list of a stock count order may be empty
 (`lib/letflow/modules/stock/counts.ex`: `uuid_list(input, "member_employee_ids", true)`, the `true` is "may be
 empty", V), so one person can run a stock count as chair alone. Whether the paper form of a count accepts a
