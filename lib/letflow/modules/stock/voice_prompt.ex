@@ -63,7 +63,7 @@ defmodule Letflow.Modules.Stock.VoicePrompt do
     - transfer: переместил, перенёс, ауыстырдым
     - count: инвентаризация, пересчитал, түгендеу, санадым, по факту
     - anything else: unknown
-    Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, икс X, зэт Z.
+    Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, йот/джей J, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, дубль-вэ/дабл-ю/вэ двойное W, икс X, игрек/вай Y, зэт Z.
     Operators often say the article instead of the name, letter by letter and with digits as words ("эс тэ е эл триста пятьдесят" for ST-EL350, "а один" for A-01); a location they name can help choose between similar articles.
     Location codes are often a zone letter (L left/слева/сол жақ, R right/справа/оң жақ, D straight ahead/прямо/тура), a rack letter and a shelf number, said in any form: "слева а три" and "эл а три" are both LA3, "сол жақ эн екі" is LN2.
     Rules:
