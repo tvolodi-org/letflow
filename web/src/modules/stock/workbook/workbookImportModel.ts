@@ -8,10 +8,19 @@ export interface CancelDialogState {
   error: string | null
 }
 
+/** The size limit in whole MB from the app's own 413 answer (`code: request_too_large`, `limit_bytes`), else null. */
+export function tooLargeLimitMb(err: unknown): number | null {
+  const e = err as { status?: unknown; details?: { code?: unknown; limit_bytes?: unknown } } | null
+  if (!e || typeof e !== 'object' || e.details?.code !== 'request_too_large') return null
+  const bytes = e.details.limit_bytes
+  return typeof bytes === 'number' && bytes > 0 ? Math.max(1, Math.round(bytes / 1048576)) : null
+}
+
 /** Maps a check/apply API error to a message id. */
 export function workbookCheckErrorId(err: unknown): string {
   const e = err as { status?: unknown; details?: { reason?: unknown; held_by?: unknown } } | null
   if (!e || typeof e !== 'object') return 'stock.wb.err.generic'
+  if (tooLargeLimitMb(err) !== null) return 'stock.wb.err.request_too_large'
   const reason = e.details?.reason
   if (typeof reason === 'string') {
     switch (reason) {

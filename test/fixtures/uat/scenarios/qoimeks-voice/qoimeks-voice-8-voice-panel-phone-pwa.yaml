@@ -26,8 +26,7 @@ tags:
 - ru
 - kk
 description: >-
-  On the phone PWA the storekeeper opens a new receipt document and finds the voice panel (the voice button, the language
-  choice and the typed-phrase field). The panel is only looked at: recording needs a microphone and a send would spend a provider
+  On the phone PWA the storekeeper opens a new receipt document and finds the voice panel (the voice button and the typed-phrase field; in English also the language choice). The panel is only looked at: recording needs a microphone and a send would spend a provider
   call outside the budget. The texts follow the interface language and nothing is stored.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
@@ -57,16 +56,15 @@ steps:
   actor: storekeeper
   action: >-
     The storekeeper looks at the voice panel above the lines of the form: the button «Сказать» (Russian; «Speak» in English,
-    «Айту» in Kazakh), the language choice with «Русский» and «Казахский» (English «Russian», «Kazakh»; Kazakh «Орыс тілі»,
-    «Қазақ тілі»), and the typed-phrase field with the hint «Или введите фразу» and the button «Отправить фразу» (English
-    «Or type the phrase» and «Send phrase»). The storekeeper does not press the button, does not type a phrase and does not
+    «Айту» in Kazakh) and the typed-phrase field with the hint «Или введите фразу» and the button «Отправить фразу» (English
+    «Or type the phrase» and «Send phrase»; Kazakh «Немесе сөйлемді теріңіз» and «Сөйлемді жіберу»). In Russian and in Kazakh there is no language choice: the phrase language is the app language (the language chips are shown only when the app language is neither Russian nor Kazakh, apps/mobile/lib/features/stock/voice/voice_language.dart and voice_panel.dart). The storekeeper does not press the button, does not type a phrase and does not
     send one: a headless browser has no microphone, and the provider budget of qoimeks-voice-5 and -6 allows no extra call.
   via: gui_screen
 - step: 3
   actor: storekeeper
   action: >-
-    The storekeeper switches the interface language to Kazakh and back to Russian (the language switch of the tenant home)
-    and looks at the voice panel again, then leaves the form without saving, by going back to the Stock documents list. The
+    The storekeeper switches the interface language to Kazakh, then to English, and back to Russian (the language switch of the tenant home)
+    and looks at the voice panel each time, then leaves the form without saving, by going back to the Stock documents list. The
     documents list is read again by the runner's own HTTP call and the count noted as D1.
   via: gui_screen
 expected_outcomes:
@@ -76,8 +74,8 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      At 390 px the voice panel shows the voice button, the language choice for Russian and Kazakh and the typed-phrase field
-      with its send button, with the Russian labels of step 2; nothing is clipped horizontally and the page has no horizontal
+      At 390 px the voice panel shows the voice button «Сказать» and the typed-phrase field
+      with its send button, with the Russian labels of step 2, and no language choice (in Russian the app language is the phrase language); nothing is clipped horizontally and the page has no horizontal
       scroll. The labels are those of stock.voice.* in apps/mobile/lib/i18n/l10n/app_ru.arb.
     evidence: Screenshot of the form at 390 px in Russian.
   on_fail:
@@ -89,8 +87,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      In Kazakh the button reads «Айту» and the language choice «Орыс тілі» and «Қазақ тілі»; back in Russian the Russian
-      texts return.
+      In Kazakh the button reads «Айту», the field hint «Немесе сөйлемді теріңіз» and the send button «Сөйлемді жіберу», with no language choice. In English the button reads «Speak» and the panel shows the language choice titled «Language of the phrase» with the chips «Russian» and «Kazakh» (the only language in which the chips appear). Back in Russian the Russian texts return and the chips are gone.
     evidence: Screenshot in Kazakh.
   on_fail:
     severity: MINOR

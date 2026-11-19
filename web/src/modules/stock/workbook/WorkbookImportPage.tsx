@@ -23,7 +23,7 @@ import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { workbookApi, type WorkbookChange, type WorkbookCheckResult, type WorkbookImportRow } from './workbook.api'
-import { workbookCheckErrorId, workbookCancelErrorId, type CancelDialogState } from './workbookImportModel'
+import { workbookCheckErrorId, workbookCancelErrorId, tooLargeLimitMb, type CancelDialogState } from './workbookImportModel'
 import { formatStockDateTime } from '../register/stockRegisterModel'
 
 const ACTIVE_ONLY: never[] = []
@@ -79,6 +79,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
     harness?.loadResult ?? null,
   )
   const [loadError, setLoadError] = useState<string | null>(harness?.loadError ?? null)
+  const [limitMb, setLimitMb] = useState<number>(2)
 
   const [cancelDialog, setCancelDialog] = useState<CancelDialogState | null>(
     harness?.cancelDialogOpen ? { id: 'd1', lines: 42, reason: '', busy: false, error: harness.cancelError ?? null } : null,
@@ -143,6 +144,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
       setCheckResult(null)
       setCheckedOrgUnitId('')
       setCheckedFile(null)
+      setLimitMb(tooLargeLimitMb(err) ?? 2)
       setCheckError(workbookCheckErrorId(err))
     },
   })
@@ -162,6 +164,7 @@ function WorkbookImportInner({ harness }: { harness?: WorkbookImportHarnessProps
       }
     },
     onError: (err) => {
+      setLimitMb(tooLargeLimitMb(err) ?? 2)
       setLoadError(workbookCheckErrorId(err))
     },
   })
@@ -338,7 +341,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
           </div>
           {checkError !== null && (
             <div data-testid="wb-check-error">
-              <Banner tone="danger">{t(checkError)}</Banner>
+              <Banner tone="danger">{t(checkError, { limit: limitMb })}</Banner>
             </div>
           )}
         </div>
@@ -427,7 +430,7 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
 
             {loadError !== null && (
               <div data-testid="wb-load-error">
-                <Banner tone="danger">{t(loadError)}</Banner>
+                <Banner tone="danger">{t(loadError, { limit: limitMb })}</Banner>
               </div>
             )}
 

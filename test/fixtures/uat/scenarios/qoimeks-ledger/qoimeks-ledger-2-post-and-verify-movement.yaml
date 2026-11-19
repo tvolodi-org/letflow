@@ -24,7 +24,7 @@
 # Writes: one stock receipt "UAT-LEDGER-REC-01" and its reversal. Both remain in the ledger (append-only); net balance change is zero.
 # NOT UAT-observable here, with reasons:
 #   (a) L6 scope_denied path: actor-qoimeks-qa2-storekeeper exists, but restricted org-unit grants are not confirmed by actors.yaml; covered by REQ-830 backend tests.
-#   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; tested in qoimeks-ledger-3.
+#   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; covered by master_posting_test.exs (qoimeks-ledger-3 is not walkable, T-2292).
 # T-2334 (issue 4836): documents are created, issued and reversed on the screens (New document form, Issue, Reverse, My Tasks claim and complete); the API is used for reads and verification only. EO-002 keeps the expectation that after completion the document panel shows Posted (product defect 4835 is queued separately; this walk fails until it merges, intended).
 # Runner API adapter (reads and verification only): obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
 # Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa2.letflow.qa.bizdala.com. No tenant id is accepted from another realm.

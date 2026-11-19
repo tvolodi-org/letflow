@@ -235,8 +235,7 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      R1 has HTTP status 401. R2 has HTTP status 401. After the trace_id field is removed from both bodies (it differs on
-      every request), R1's body is byte-identical to R2's body. Neither answer carries a spreadsheet content type or any
+      R1 has HTTP status 401. R2 has HTTP status 401. Each body is a plain refusal (the text for a missing credential and the text for an invalid one may differ; PM 2026-11-19/20: on /api/v1 with bearer tokens identical bodies are not required, only the old address with the shared token gives them). Neither answer carries a spreadsheet content type or any
       stock data, and neither names the tenant's accounts. Nothing was written (the run writes nothing in this scenario).
     evidence: >-
       HTTP status, content type and body of R1 and R2 side by side.

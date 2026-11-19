@@ -1,0 +1,97 @@
+# T-2327 (BA, PM 2026-11-20, infra #4827): size class of the check. Before the infra fix nginx had no body limit set, so its 1 MiB default hit every QA upload route.
+# Infra then set per-route limits on QA (run 2026-11-20-qa-nginx-upload-limits-001): workbook/csv/import routes (stock-workbook check and apply, entity record import, user import, official form templates) 3m; voice 12m; asset card photos 6m; attachments 26m; everything else 1m. Probes of infra: 1.5 MiB passes nginx; 2.5 MiB reaches the app and gets the app's own 413; 3.5 MiB gets the nginx HTML 413.
+# Limits of the app: the request body of the root Plug.Parsers is 2_097_152 bytes (lib/letflow/plugs/api_pipeline.ex, length), decision 0077 (docs/migration/decisions/0077-xlsx-import-export.md, request body row); the workbook route reads the raw bytes through Letflow.Plugs.XlsxBodyParser, which raises the same 413 as an oversized JSON body.
+# Generated file (no customer data): python3 -B scripts/pilot/uat_size_workbook.py <out.xlsx> <bytes> [rows] (standard library only; the first sheet holds the header and invented articles ZZSIZE-nnnnn at place A-1-1, a second sheet of random text brings it to the size; the check reads the first sheet only). The runner makes the file at the start of the run and reads its real size from the disk.
+# Coverage of the size class: this file = 1.5 MiB (above nginx's old 1 MiB, below the app's 2 MiB); qoimeks-import-9 = above the app's 2 MiB (2.5 to 3 MiB) with the state A / state B rule of T-2328, plus the informational 'above 3 MiB' line; voice: the 10 MB audio limit is already covered by qoimeks-voice-7 (nginx 12m for the voice route only); photo: see the note in qoimeks-import-9.
+# 1. Scope: qoimeks-qa2, the existing synthetic tenant and realm (same as the rest of this group); the group directory name is not the scope.
+# 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN (the check screen is guarded by the quick-count right, WorkbookImportPage in stockRoutes.tsx); exists in actors.yaml (T-2219); live login is verified by acceptance, credentials come from the acceptance credential source.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2; route admin/stock/workbook-import and the file input of WorkbookImportPage (accept .xlsx) read on main; the generic error text 'stock.wb.err.generic' read in workbookMessages.ts.
+# 4. Data: no tenant data needed beyond one org unit to select (any); the file carries invented articles, so every row is answered with an unknown-article remark or difference; nothing is written because only Check is pressed. The file's size is read from the disk, no row count is fixed here.
+# 5. Executable: a browser upload of the generated file; or the same bytes sent with an HTTP client to the check route with the xlsx content type and the admin's token. No pipeline_test needed.
+# 6. Dry run: live preflight not run in this writing step (acceptance credentials); the generator was run for 1.5, 2.5 and 3 MiB and produced files of exactly the asked size that open as zip archives; the check against the real reader belongs to the acceptance walk.
+# EXPECTATION CORRECTIONS: 2 (the check does not require the rows to be real articles: unknown ones are remarks, per the task text; the answer to expect is a check result, not 'no remarks').
+---
+id: qoimeks-import-8-check-workbook-1-5-mib
+scope: qoimeks-qa2
+title: >-
+  A generated workbook of about 1.5 MiB passes the proxy and the app and the check answers with a result
+version: '1.0'
+tags:
+- qoimeks
+- import
+- size
+- proxy
+description: >-
+  The administrator checks a generated synthetic workbook of about 1.5 MiB. It is above the old default of 1 MiB
+  of the proxy and below the 2 MiB request limit of the application, so the check must ANSWER with its normal
+  result (the summary of rows read and the remarks for the invented articles), not with a proxy error page.
+  Nothing is written: only Check is pressed.
+actors:
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: >-
+    The Qoimeks QA tenant exists, the stock module is active and at least one org unit can be chosen on the import
+    screen. The administrator can sign in at the tenant's own address.
+  check: system_seeded
+  detail: >-
+    If the tenant is not reachable or the login is missing, report BLOCKED for the whole scenario.
+- description: >-
+    The runner has made the file with the generator described in the header, for a target of 1,572,864 bytes, and
+    noted its real size.
+  check: runner_prepared
+  detail: >-
+    If the file cannot be made, report BLOCKED-by-environment. The size noted must be between 1,300,000 and
+    2,000,000 bytes; otherwise remake it.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on the tenant's own address in a desktop window and opens the import screen
+    "Load balances from Excel" from the stock Balances screen. They choose an org unit.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator uploads the generated workbook of about 1.5 MiB and presses Check. The runner records the
+    time of the request and the answer status seen by the browser (or by the HTTP client when the same bytes are
+    sent directly).
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator reads the result panel and then opens the stock Balances and the list of loads.
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The check of a 1.5 MiB workbook is answered by the application with a result.
+  verification:
+    method: gui_screen
+    detail: >-
+      After step 2 the screen shows the check result (sheet name, rows read, and remarks or differences for the
+      invented articles) and no error banner. The answer is not an HTML page of the proxy: the status is not 413
+      and the body of any non-success answer contains neither '<html' nor 'nginx'. The size limit of the app is
+      2,097,152 bytes (decision 0077), so 1.5 MiB is inside it.
+    evidence: >-
+      Screenshot of the result panel; the status and the first 200 characters of the answer body; the real size of the file.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bookkeeper's ordinary workbook of about 1.5 MiB is stopped by the proxy before the application sees it and
+      the Excel load cannot be used for the whole stock.
+    suggested_action: route_to_infra
+- id: EO-002
+  description: >-
+    The check writes nothing.
+  verification:
+    method: gui_screen
+    detail: >-
+      In step 3 the list of loads shows no new load made by this walk and the Balances screen shows the item,
+      place and balance counts read at the start of the run unchanged (the check is read-only, decision 0077).
+    evidence: >-
+      Screenshot of the list of loads and of the Balances totals compared with the counts recorded at the start.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A check that only reads must never change stock.
+    suggested_action: route_to_wf03
