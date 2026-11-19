@@ -57,6 +57,17 @@ defmodule Letflow.Entities.HandlerWrites do
   never authority, and may be stale at commit (ledger note 14.6). A ledger policy file cannot reach it
   (scan T-SC-4e): `declare/2` reads nothing.
 
+  ## Document read: `read_document_version/3` (REQ-902, decision 0073 D6, L7 part 2b)
+
+  `read_document_version(ctx, document_id, version_no)` reads one version of one document of the handler's
+  own module (`documents`, `document_versions`, `document_types` of `ctx.prefix` only). It needs the
+  manifest entry's `reads_documents: true` (re-resolved from the Catalog on every call), answers
+  `{:error, :not_found}` uniformly for a malformed id, a bad version number, an unknown document or
+  version, another tenant's document and a document whose type is owned by another module, and
+  `{:error, :dry_build}` in a dry build without a query. No lock, no write, no ledger table; the answer
+  may be stale at commit (note 14.6). The query is `Letflow.Documents.read_version_for_module/4`, which
+  has no other caller.
+
   ## Platform-facing functions (not for handler code; scan H4 forbids them in handler files)
 
     * `build_call/4`: ONE handler call of a `module_writes` line, as the steps
@@ -95,6 +106,7 @@ defmodule Letflow.Entities.HandlerWrites do
 
   alias Ecto.Multi
   alias Letflow.Definitions.ModuleWrites
+  alias Letflow.Documents
   alias Letflow.Engine.VariableMerge
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
@@ -287,6 +299,53 @@ defmodule Letflow.Entities.HandlerWrites do
   end
 
   def read(_ctx, _entity_type, _record_id), do: {:error, :invalid_write_command}
+
+  @doc """
+  REQ-902 (decision 0073 D6, L7 part 2b): reads ONE version of ONE document of the handler's OWN module, by
+  document id and version number. Answers `{:ok, map}` with the string keys `document_id`, `version_id`,
+  `version_no`, `type_key`, `status` (the stored status as a string), `current` (true only when the
+  document's `current_version` is this version), `issuing_org_unit_id`, `content` and `content_hash`;
+  `{:error, :not_found}` (a non-uuid id, a `version_no` that is not a positive integer, an unknown document
+  or version, a document of another tenant, a document whose type's `owner_module` is not the handler's own
+  module: all the same answer, INV-1/INV-5); `{:error, :read_not_registered}` (the registration has
+  `reads_documents` false); `{:error, :invalid_write_command}` (an absent or forged context, the per-call
+  token check of `create/3`) or `{:error, :dry_build}` (the ledger pre-step: no database call).
+
+  The registration is re-resolved from the Catalog on every call, never from the context. The query is the
+  internal `Letflow.Documents.read_version_for_module/4` (its only caller): it reads only `documents`,
+  `document_versions` and `document_types` in `ctx.prefix` with bound parameters: no lock, no write, no
+  ledger table, no other schema. A fact read is data, never authority, and may be stale at commit (ledger
+  note 14.6). A ledger policy file cannot reach it (scan T-SC-4e).
+  """
+  @spec read_document_version(HandlerContext.t(), term(), term()) ::
+          {:ok, map()}
+          | {:error, :not_found | :read_not_registered | :invalid_write_command | :dry_build}
+  def read_document_version(%HandlerContext{} = ctx, document_id, version_no) do
+    with {:ok, token} <- fetch_token(ctx),
+         true <- valid_context?(ctx),
+         :not_dry <- dry_mode(token),
+         :ok <- check_documents_readable(ctx) do
+      Documents.read_version_for_module(
+        ctx.prefix,
+        ctx.handler.module_id,
+        document_id,
+        version_no
+      )
+    else
+      :dry -> {:error, :dry_build}
+      false -> {:error, :invalid_write_command}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def read_document_version(_ctx, _document_id, _version_no), do: {:error, :invalid_write_command}
+
+  defp check_documents_readable(%HandlerContext{handler: %{module_id: module_id, name: name}}) do
+    case Catalog.write_handler(module_id, name) do
+      {:ok, %{reads_documents: true}} -> :ok
+      _not_registered -> {:error, :read_not_registered}
+    end
+  end
 
   @doc "REQ-829: true only when `read/3` answers `{:ok, map}` and the map's `active` field is `true`."
   @spec active?(HandlerContext.t(), String.t(), String.t()) :: boolean()

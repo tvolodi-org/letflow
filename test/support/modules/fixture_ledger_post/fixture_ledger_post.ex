@@ -101,6 +101,41 @@ defmodule Letflow.Modules.FixtureLedgerPost do
         posts_ledger: "alpha",
         reads: ["fxlp_note"]
       },
+      # REQ-902 (document read facade): `read_doc` reads one document version and records the answer in a
+      # note; `read_doc_off` is the same function with `reads_documents` false; `read_doc_maybe` reads once
+      # (or not) and writes nothing; `post_reading_doc` posts only in a dry build.
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "read_doc",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :read_doc},
+        targets: ["fxlp_note"],
+        args: %{"document_id" => %{required: true}, "version_no" => %{required: true}},
+        reads_documents: true
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "read_doc_off",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :read_doc},
+        targets: ["fxlp_note"],
+        args: %{"document_id" => %{required: true}, "version_no" => %{required: true}}
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "read_doc_maybe",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :read_doc_maybe},
+        targets: ["fxlp_note"],
+        args: %{
+          "document_id" => %{required: true},
+          "version_no" => %{required: true},
+          "do_read" => %{required: true}
+        },
+        reads_documents: true
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_reading_doc",
+        function: {Letflow.Modules.FixtureLedgerPost.Handlers, :post_reading_doc},
+        targets: ["fxlp_note"],
+        args: %{"posting" => %{required: true}},
+        posts_ledger: "alpha",
+        reads_documents: true
+      },
       # REQ-901: handlers that refuse with a typed code (kept last: tests take the first handler).
       %Letflow.Modules.WriteHandlerSpec{
         name: "refuse_alpha",
