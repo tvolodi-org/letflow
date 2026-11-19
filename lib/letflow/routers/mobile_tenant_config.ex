@@ -154,6 +154,10 @@ defmodule Letflow.Routers.MobileTenantConfig do
 
   ## Slug resolution — `?slug=` only, no `?host=` branch (design OQ-2)
 
+  The query parameter is `slug` and nothing else: `?realm=`, `?tenant=` or a company
+  code under another name is ignored and answers the platform default (T-2208). The
+  PWA/mobile sign-in sends `?slug=<company code>` (`fetchTenantConfig`).
+
   Unlike `Letflow.Routers.TenantConfig`'s web-SPA `?host=` fallback (used
   when no slug is known yet), MOB-2's mobile callers always resolve a slug
   (deep-link subdomain or manual entry) before calling this endpoint. This
