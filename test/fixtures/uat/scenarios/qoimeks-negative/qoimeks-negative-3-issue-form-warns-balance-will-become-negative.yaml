@@ -1,3 +1,4 @@
+# T-2205 readiness fixes: (1) scope qoimeks-qa exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2160 (BA), rework T-2191 (issues #4699, #4700, #4702): Qoimeks QA walk, negative balances. QA only (qoimeks-qa, SYNTHETIC data), never the real tenant.
 # REQ ids covered: REQ-833 (decision 0090 section 6: the warning before saving), REQ-836 (the form learns from the module whether the tenant allows it), REQ-838 (the warning in the stock document form).
 # Sources opened: docs/migration/decisions/0090-negative-balances-per-tenant.md section 6; docs/requirements.yaml REQ-838;
@@ -44,7 +45,7 @@ preconditions:
   - description: At least one item has a positive balance on the Balances screen.
     check: system_seeded
     detail: >
-      Take the first positive row seen; if none exists, report BLOCKED. Note from that one row the item, the place (the Location column), the org unit (the Org unit column),
+      Take the first positive row seen whose Responsible is filled; if none exists, report BLOCKED. Note from that one row the item, the place (the Location column), the org unit (the Org unit column),
       the responsible (the Responsible column), the lot (the Lot column; prefer a row whose Lot reads empty, and note "none" when it does), the unit (the Unit column) and the
       quantity, called Q. The warning compares the line against the balance of exactly this item, place, org unit, responsible, lot and unit; the lot and the responsible of the
       form must be the noted ones, otherwise the balance read is 0 and EO-001 fails falsely.
@@ -59,10 +60,15 @@ preconditions:
     detail: If no browser can be started, report BLOCKED.
 
 steps:
+  - step: 0
+    actor: admin
+    action: >
+      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px and opens the admin page of the negative-balance setting (the path /admin/ledger-settings of the tenant host). If the page is refused (the message "You do not have access to this area"), the scenario is BLOCKED and the refusal is quoted. If the stock row shows "Refused", EO-001 and EO-002 are BLOCKED. The value read is noted.
+    via: ui
   - step: 1
     actor: admin
     action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com in English at 1440 px, opens Balances and notes one row with a positive quantity: the item, the place,
+      The administrator opens Balances and notes one row with a positive quantity whose Responsible column is filled (a row with an empty Responsible is skipped; press "Load more" if the first rows do not offer one): the item, the place,
       the org unit, the responsible, the lot (or "none" when the Lot column reads empty) and the unit of that row, and its quantity, called Q.
     via: ui
   - step: 2
