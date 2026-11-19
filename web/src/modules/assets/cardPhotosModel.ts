@@ -61,6 +61,9 @@ const REASONS = [
 /** The message id for a refused photo call; unknown failures use the generic text (with Retry). */
 export function photoErrorId(err: unknown): string {
   const info = reasonOf(err)
+  if ((err as { details?: { code?: unknown } } | null)?.details?.code === 'request_too_large') {
+    return 'assets.photos.error.photo_too_large'
+  }
   if (info.reason !== undefined && (REASONS as readonly string[]).includes(info.reason)) {
     return `assets.photos.error.${info.reason}`
   }

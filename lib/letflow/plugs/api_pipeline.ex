@@ -361,7 +361,42 @@ defmodule Letflow.Plugs.ApiPipeline do
       end
 
     Letflow.Plugs.Admission.release_pending_refs()
-    respond_scope_set_error(conn, reason)
+
+    case reason do
+      %Plug.Parsers.RequestTooLargeError{} -> respond_request_too_large(conn)
+      _ -> respond_scope_set_error(conn, reason)
+    end
+  end
+
+  # T-2328: the parser's own 413 (Plug.Parsers above) carries no body. Answer it once, here, for
+  # every API route with the problem document and the constant code `request_too_large` plus the
+  # limit in bytes of the parser that refused it (constants only; nothing from the request).
+  # The multipart limit and the logo limit mirror the per-parser `length:` options above.
+  @request_too_large_json_bytes 2_097_152
+  @request_too_large_multipart_bytes 26_214_400
+  @request_too_large_logo_bytes 524_288
+
+  defp respond_request_too_large(%Plug.Conn{state: state} = conn) when state in [:unset, :set] do
+    problem =
+      Letflow.Api.Error.payload_too_large("the request body is too large")
+      |> Map.put(:extensions, %{
+        "code" => "request_too_large",
+        "limit_bytes" => request_limit_bytes(conn)
+      })
+
+    Letflow.Api.Response.send_problem(conn, problem)
+  end
+
+  defp respond_request_too_large(conn), do: conn
+
+  defp request_limit_bytes(%Plug.Conn{request_path: "/tenant/logo"}),
+    do: @request_too_large_logo_bytes
+
+  defp request_limit_bytes(conn) do
+    case Plug.Conn.get_req_header(conn, "content-type") do
+      ["multipart/" <> _ | _] -> @request_too_large_multipart_bytes
+      _ -> @request_too_large_json_bytes
+    end
   end
 
   # REQ-518 SEC C-1: a failed allowed-node-set computation answers the SAME detail-free 500

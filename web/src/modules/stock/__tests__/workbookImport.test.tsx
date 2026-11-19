@@ -678,3 +678,33 @@ describe('C6 i18n', () => {
     expect(wbKk['stock.wb.load']).toBe('Файлдағы қалдықтарды жазу')
   })
 })
+
+/** T-2328: the app's own 413 (code request_too_large) shows a clear message with the limit. */
+describe('too large file', () => {
+  it.each(['en', 'ru', 'kk'] as const)('%s: check answer 413 shows the limit message', async (locale) => {
+    useUiLocaleStore.getState().setLocaleTransient(locale)
+    const msgs = locale === 'ru' ? wbRu : locale === 'kk' ? wbKk : wbEn
+    const user = userEvent.setup()
+    renderWB()
+    await waitFor(() => expect(screen.getByTestId('wb-check')).toBeInTheDocument())
+    const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
+    await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
+    fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
+    await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
+    clientMock.postRaw.mockRejectedValueOnce({
+      status: 413,
+      message: 'Content Too Large',
+      code: '413',
+      details: { code: 'request_too_large', limit_bytes: 2097152 },
+    })
+    fireEvent.click(screen.getByTestId('wb-check'))
+    const expected = msgs['stock.wb.err.request_too_large'].replace('{limit}', '2')
+    await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
+    expect(screen.queryByText('stock.wb.err.request_too_large')).not.toBeInTheDocument()
+  })
+
+  it('the three catalogs carry the key with the limit placeholder', () => {
+    for (const m of [wbEn, wbRu, wbKk]) expect(m['stock.wb.err.request_too_large']).toContain('{limit}')
+  })
+})
