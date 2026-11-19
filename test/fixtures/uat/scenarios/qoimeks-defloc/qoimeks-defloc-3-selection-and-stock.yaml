@@ -17,7 +17,7 @@
 # 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
-# 4. Data: needs an item WITH a usual place (216 have one after the seed; read the count at the start of the run) and one without; if none is found: BLOCKED-by-environment.
+# 4. Data: needs an item WITH a usual place and one without (found at the run by opening cards, counts never hard-coded); if none is found: BLOCKED-by-environment.
 # 5. Executable: browser steps only; the refusal step now runs as the storekeeper (least role).
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
@@ -46,11 +46,10 @@ preconditions:
   - description: Two existing synthetic items have independently recorded place assignments.
     check: system_seeded
     detail: >
-      Use the actual codes/names of one item with a usual place and one without it, identified
-      from synthetic import evidence or this storekeeper's read-only item query. Record the
-      populated item's place code/name and its actual stock rows from the read-only stock
-      query, following any pages. Choose a populated item with stock at a different place
-      when one exists. Pick an item that has a usual place (216 did at the last seed; the count is read at the start of the run); use another item for the empty case. If no item has a usual place, this scenario is BLOCKED-by-environment. If none exists, still compare the actual rows but mark the different-place
+      Open item cards on the Items screen until one shows a place in the usual-place field and another shows a dash; record both
+      items' codes, the populated item's place and its stock-by-place rows (location and quantity, as read at the start of the run).
+      Prefer a populated item with stock at a different place when one exists. If no item has a usual place, this scenario is BLOCKED-by-environment.
+      If no populated item has stock at a different place, mark the different-place
       contrast BLOCKED, not PASS. Missing either item blocks the selection comparison. Do not
       move stock, edit a place or create records to force this case.
 steps:
@@ -84,7 +83,7 @@ steps:
   - step: 5
     actor: storekeeper
     action: >
-      Sign back in as the storekeeper if needed and return to Items. After all display combinations, clear the search, close the card
+      Return to Items (sign in again first only if the step 4 attempt ended the session). After all display combinations, clear the search, close the card
       and restore the initial language and appearance.
     via: ui
 expected_outcomes:
@@ -107,13 +106,13 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        The stock-by-location section shows actual stock rows matching the recorded locations and quantities;
+        The stock-by-location section shows actual stock rows equal to the rows recorded at the start (location and quantity);
         a row at a different location remains at that location and is not relabelled as
         the usual place. The usual-place value stays the recorded assignment. Compare the
-        visible rows with the same rows of the recorded stock results; if the screen
+        visible rows before and after switching cards; if the screen
         indicates more rows, do not claim that the screenshot proves the whole balance list.
         Reading and switching cards does not change any of the compared quantities.
-      evidence: Before/after stock-by-location and card screenshots and stock comparison evidence; explicitly record an unavailable different-place contrast as BLOCKED.
+      evidence: Before/after stock-by-location and card screenshots; explicitly record an unavailable different-place contrast as BLOCKED.
     on_fail:
       severity: MAJOR
       business_impact: A storage recommendation is mistaken for where stock actually exists.
@@ -123,7 +122,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        The attempted company-list page shows access denied or not found, with no company
+        The attempted company-list page shows the permission-denied screen (the page mounts only for a platform operator with the tenants permission), with no company
         list or other-company names. This is only the screen boundary check; it does not
         prove cross-company stock isolation. Never try a write or change users for this check.
       evidence: Refused-page screenshot in each display combination.
