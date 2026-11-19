@@ -18,15 +18,17 @@ tags:
 - read_only
 description: >-
   The storekeeper signs in at 1440 px in English and looks through the side navigation, the admin section included, for the
-  approval rules page. It is not offered. When the storekeeper types the address of the page (the path /admin/approval-rules),
+  approval rules page. It is not offered. When the storekeeper types the address of the page (the tenant approval rules page),
   the page is refused with the message "You do not have access to this area. Contact your tenant administrator." and shows no rule.
   The storekeeper's session then asks the server for the list of approval rules (the read behind the page, no change is made):
   the answer is a refusal and carries no rule. The four-eyes switch of the stock approval steps stays as the administrator set it.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
 preconditions:
 - description: >-
-    The storekeeper account can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Both roster accounts can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    The administrator can read the approval rules; the storekeeper's effective permissions exclude their management.
   check: runner_prepared
   detail: >-
     If sign-in fails, report BLOCKED-by-environment and name the account; credentials come from the acceptance credential source.
@@ -37,21 +39,32 @@ preconditions:
     If no browser can be started, report BLOCKED-by-environment. The storekeeper never sends a change of a rule.
 steps:
 - step: 1
+  actor: admin
+  action: >-
+    The administrator reads the current approval rules and records their values as the starting snapshot.
+  via: api
+- step: 2
   actor: storekeeper
   action: >-
     The storekeeper signs in and looks through the side navigation, the admin section included, for an entry about approval rules.
   via: ui
-- step: 2
-  actor: storekeeper
-  action: >-
-    The storekeeper types the address of the approval rules page (the path /admin/approval-rules of the tenant host) into the browser.
-  expect_refusal: true
-  via: ui
 - step: 3
   actor: storekeeper
   action: >-
-    The storekeeper's session asks the server for the list of approval rules (the read behind the page; nothing is changed). The answer is noted as R-AR.
+    The storekeeper types the address of the approval rules page (the tenant approval rules page) into the browser.
   expect_refusal: true
+  via: ui
+- step: 4
+  actor: storekeeper
+  action: >-
+    The storekeeper's session asks the server for the list of approval rules twice (the read behind the page;
+    nothing is changed). Record both refusals as R-AR and R-AR2.
+  expect_refusal: true
+  via: api
+- step: 5
+  actor: admin
+  action: >-
+    The administrator reads the approval rules again and compares their values to the starting snapshot.
   via: api
 expected_outcomes:
 - id: EO-001
@@ -60,9 +73,9 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 1 shows no approval rules entry in the side navigation. Step 2 shows the message "You do not have access to this area. Contact your tenant administrator." and no list of rules.
+      Step 2 shows no approval rules entry in the side navigation. Step 3 shows the message "You do not have access to this area. Contact your tenant administrator." and no list of rules.
     evidence: >-
-      Screenshots of steps 1 and 2.
+      Screenshots of steps 2 and 3.
   on_fail:
     severity: BLOCKER
     business_impact: >-
@@ -74,7 +87,9 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      R-AR has HTTP status 403 (a 404 is also accepted if the product hides the route from callers without the right) and its body carries no rule row or switch value.
+      R-AR and R-AR2 have HTTP status 403 and carry no rule row or switch value. Their insufficient-permissions
+      answers are identical after excluding the request trace identifier. Step 5 confirms all rule
+      values equal the snapshot from step 1; no value changed.
     evidence: >-
       HTTP status and body of R-AR.
   on_fail:
