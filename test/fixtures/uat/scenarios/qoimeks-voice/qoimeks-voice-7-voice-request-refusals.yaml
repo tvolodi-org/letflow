@@ -184,8 +184,7 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      N1, N2, W1 and W2 all answer 401 and the four bodies are identical once the trace_id is dropped (the answer does not tell a missing credential from a wrong one,
-      and does not name the route or the phrase); the authentication step runs before the voice code, so no provider is called and the phrase is not echoed.
+      N1, N2, W1 and W2 all answer 401; N1 and N2 (no credential) have one body and W1 and W2 (wrong credential) have one body once the trace_id is dropped, and the two texts may differ (PM 2026-11-19/20: on /api/v1 with bearer tokens a missing and an invalid credential may be told apart; identical bodies are required only on the old address with the shared token). No body names the route or the phrase; the authentication step runs before the voice code, so no provider is called and the phrase is not echoed.
     evidence: N1, N2, W1, W2 bodies and the call count.
   on_fail:
     severity: BLOCKER

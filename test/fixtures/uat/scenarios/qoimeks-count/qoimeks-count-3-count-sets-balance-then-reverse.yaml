@@ -1,6 +1,6 @@
 # T-2262 code-reading pass, group qoimeks-count (PM 2026-11-19). Run title: UAT qoimeks-count. QA only, synthetic data, no production.
 # 1. Scope: every scenario has scope qoimeks-qa2, the synthetic QA tenant and its realm (qoimeks-qa2, host in the preconditions); the group directory name is not the scope.
-# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks are routed to the role TENANT_ADMIN, so the storekeeper does not see them in My Tasks: the storekeeper holds no TasksReadAll) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). TARGET state after T-2239 (#4764, not merged on main at writing): the storekeeper also holds StockQuickCount and CodesRead; until then the quick count entry is missing for the storekeeper and the walk reports a PRODUCT defect, no step is moved to the administrator.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks are routed to the role TENANT_ADMIN, so the storekeeper does not see them in My Tasks: the storekeeper holds no TasksReadAll) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). State since stock 0.22.0 (T-2239, issue 4764, merged: lib/letflow/modules/stock/stock.ex STOREKEEPER grants, docs/roles.md): the storekeeper holds StockQuickCount and CodesRead; if the quick count entry is missing for the storekeeper the walk reports a PRODUCT defect, no step is moved to the administrator.
 # 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com (answered HTTP 200 on 2026-11-19, T-2190; not re-run here). Read on main: web/src/modules/stock/stockRoutes.tsx (route admin/stock/quick-count), stock/index.ts (nav entry), quickCount/QuickCountPage.tsx, quickCountModel.ts, quickCountMessages.ts, documents/documentsModel.ts (actionsFor), register/stockRegisterModel.ts (CAUSES), pages/tasks/taskMessages.ts and TaskDetail.tsx.
 # 4. Data: no balance, item or place is named by code. Every walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item with no lot tracking, a place of one org unit and not one of the negative balances; it records item, place, org unit, the Responsible employee the row shows (none: the form selector stays at Unassigned stock) and the quantity B. Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those, never to a number written here. Tenant state read, not set: all stock process definitions active, quick count approval four-eyes ON, no formal count order open over the place, shared stock access enabled. No generator task is needed.
 # 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 step 7 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
@@ -51,12 +51,11 @@ preconditions:
     is in progress or the place is frozen, quote it and its order number and report BLOCKED-by-environment. If the
     posting is refused because the balance changed, keep the evidence, cancel the unposted document, read a fresh
     B and repeat once.
-- description: 'TARGET state after T-2239 (#4764): the storekeeper sees "Quick count" in the stock navigation and
+- description: 'Since stock 0.22.0 (T-2239, issue 4764, merged): the storekeeper sees "Quick count" in the stock navigation and
     may open it.'
   check: system_seeded
   detail: If the entry is missing for the storekeeper, report a PRODUCT defect (#4764) and do not type the address;
-    the walk is not moved to the administrator. Until T-2239 merges the affected outcomes of this scenario FAIL
-    as product defects, they are not weakened.
+    the walk is not moved to the administrator. A missing entry is a product defect and the affected outcomes FAIL; they are not weakened.
 - description: 'Four-eyes is ON for the quick count approval (second person approves) and a different person from
     the counter can complete the approve task: the administrator. The administrator can sign in separately.'
   check: runner_prepared
@@ -116,10 +115,10 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: 'Step 3 shows "Count recorded", "Book quantity" B, "Counted quantity" B plus 1, "Difference" 1, state
-      "Issued", no "Approve" button and a hint to approve in My Tasks: the four-eyes hint "A second person needs
-      to approve this count in My Tasks." (REQ-855 criterion 5 target), or, when the storekeeper cannot see the
-      administrator-routed task, "This count is waiting for approval. Open My Tasks to approve it."; either is accepted,
-      record which one is shown. Balances still shows B.'
+      "Issued", no "Approve" button and the four-eyes hint "A second person needs
+      to approve this count in My Tasks." (REQ-855 criterion 5: with four eyes ON the result says that a second person approves).
+      The other text "This count is waiting for approval. Open My Tasks to approve it." (the no-task hint, shown when the screen cannot read the approval task) is NOT accepted:
+      it is a FAIL, because the four-eyes hint is what the requirement asks for. Balances still shows B.'
     evidence: Screenshot of step 3.
   on_fail:
     severity: MAJOR
@@ -131,9 +130,14 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: 'Step 4 shows "Approved". Step 5 shows the key at B plus 1 on Balances (not 2B plus 1) and exactly one
-      new movement of +1 for the key, linked to the count document, newer than M0. The cause column shows the cause
-      of the quick count (count_set): the Movements screen catalog has no label for it, so it may read as the raw
-      code; record that as a screen note, not a failure.'
+      new movement of +1 for the key, linked to the count document, newer than M0. The cause column shows a readable
+      name of the cause of the quick count in the screen language, like the other causes of the Movements screen, never the raw
+      code; a raw code in the cause column is a FAIL (product task: the Movements screen catalog needs a label for the quick count cause).
+      The opened count document (step 3 and step 5) shows book B, counted B plus 1 and difference 1 on the document screen itself
+      (REQ-854 criterion 1), not only on the result of step 3. The total of the item at that place and org unit over every Responsible row
+      is B plus 1 (read the Balances rows of the item before and after: REQ-854 sets the balance of one item at one place; a total of the old
+      quantity plus the counted one is a FAIL). If the item at that place holds stock under another Responsible, the submit is refused and
+      nothing is stored (nothing is written, no number is taken): record that as the expected refusal, cancel nothing, and repeat on a row whose item has one Responsible row only.'
     evidence: Screenshots of steps 4 and 5.
   on_fail:
     severity: BLOCKER

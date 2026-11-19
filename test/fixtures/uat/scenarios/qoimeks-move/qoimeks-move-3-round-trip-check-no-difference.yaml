@@ -159,7 +159,7 @@ expected_outcomes:
       Step 5 shows Rows read equal to R and Changed 0. Remarks is at least S: one remark per stocked article, naming the
       article and saying in Russian that the stock is kept separately by org unit, responsible, lot or unit and that the
       stock of this article in the system is not changed; the run counts the remarks of that kind (must equal S) and
-      separately any remark that says a place was read as another code (reported, not failed). Unchanged is recorded as
+      separately any remark that says a place was read as another code (R11): on this UNCHANGED export an R11 remark is a FAIL, because the workbook was written from the system's own places and must read back as the same places (REQ-865 round trip; product defect). Unchanged is recorded as
       shown (not more than R). The text "No balance differs from the file." is shown.
     evidence: >-
       Screenshot at step 5 with R, S, the remark counts and Unchanged quoted.

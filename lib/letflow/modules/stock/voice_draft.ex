@@ -15,6 +15,8 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
   GH 4829 guard: a count with no stated quantity, or any entry with no quantity whose phrase is a question
   or a look-up request, is downgraded to kind `unknown` with no items (reasons `count_without_quantity`,
   `question_not_entry`).
+  GH #4830: a non-transfer answer with an empty `location_*` and a place in `to_location_*` has that place
+  moved to `location` (draft key `notice: "to_location_moved"`); with both set, `to_location` is dropped.
   Known gaps (design section 5): the quantity is not compared with the transcript; a wrong code with the
   right words is kept.
   """
@@ -58,6 +60,10 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
     {kind, d1} = check_kind(answer["kind"])
     {kept_items, d2} = check_items(answer["item_codes"], items)
 
+    # GH #4830: for a kind other than transfer the model sometimes puts the one place it heard into
+    # `to_location_*`. When `location_*` is empty, that place is the location (notice `to_location_moved`).
+    {answer, moved?} = move_to_location(answer, kind)
+
     {location, d3} =
       check_location(
         "location",
@@ -92,8 +98,30 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
       dropped: d1 ++ d2 ++ d3 ++ d4 ++ d5
     }
 
+    draft = if moved?, do: Map.put(draft, :notice, "to_location_moved"), else: draft
     guard_not_an_entry(draft)
   end
+
+  defp move_to_location(answer, kind) when kind != "transfer" do
+    if blank?(answer["location_words"]) and blank?(answer["location_code"]) and
+         not (blank?(answer["to_location_words"]) and blank?(answer["to_location_code"])) do
+      moved =
+        Map.merge(answer, %{
+          "location_words" => answer["to_location_words"],
+          "location_code" => answer["to_location_code"],
+          "to_location_words" => nil,
+          "to_location_code" => nil
+        })
+
+      {moved, true}
+    else
+      {answer, false}
+    end
+  end
+
+  defp move_to_location(answer, _kind), do: {answer, false}
+
+  defp blank?(v), do: is_nil(v) or v == ""
 
   # GH 4829: a question or a request to look something up is not a stock entry, and a count needs a
   # stated counted quantity. Deterministic guard after the model: such a draft becomes `unknown` with no
@@ -118,6 +146,7 @@ defmodule Letflow.Modules.Stock.VoiceDraft do
         quantity: nil,
         dropped: draft.dropped ++ [drop("kind", draft.kind, reason)]
     }
+    |> Map.delete(:notice)
   end
 
   @question ~r/\?|(^|[^\p{L}])(сколько|посмотри|покажи|скажи|подскажи|проверь|узнай|какой|какая|какое|какие|где|қанша|қарашы|көрсет|айтшы|қандай|қайда)([^\p{L}]|$)/u
