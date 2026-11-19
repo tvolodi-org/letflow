@@ -16,8 +16,9 @@ defmodule Letflow.SharedStockAccess do
     characters, 32 random bytes as `openssl rand -hex 32`); `%{"value" => v}` stores a given value
     (the old Qoimeks token). The plaintext is returned in the `{:ok, ...}` result only, to be sent
     once; it is never stored, logged or audited (INV-4). Refused with `:not_enabled` when the
-    tenant is not listed, and `:invalid_value` when a given value is not 32 to 256 printable
-    ASCII characters without space (nothing changes).
+    tenant is not listed, and `:invalid_value` when a given value is not 64 to 256 hexadecimal
+    characters (decision 0091 section 4.3: the minimum is the 64 hex characters of `openssl rand -hex 32`,
+    and the old Qoimeks token has that form; nothing changes).
   * `revoke/2`: sets `revoked_at`; allowed even when the tenant is no longer listed (the
     administrator can always clean up, decision 0091 section 3.4). `{:error, :not_found}` when
     none is active.
@@ -35,7 +36,7 @@ defmodule Letflow.SharedStockAccess do
   alias Letflow.Repo
   alias Letflow.SharedStockAccess.Credential
 
-  @value_re ~r/\A[\x21-\x7E]{32,256}\z/
+  @value_re ~r/\A[0-9a-fA-F]{64,256}\z/
 
   @type actor :: %{user_id: Ecto.UUID.t(), trace_id: String.t() | nil}
   @type status :: %{
