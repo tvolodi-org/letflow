@@ -21,12 +21,20 @@
 #   section titles follow catalogItemsItemsMessages.ts (sec.overview: Обзор / Шолу; sec.related: Остатки по местам
 #   хранения / Сақтау орындары бойынша қалдық; field.defaultLocation: Обычное место / Әдеттегі орын). The English
 #   word "Related" is not shown on the screen in ru/kk and is no longer used in the steps.
-# 4. Data: after the seed 216 items have a usual place (read the count at the start of the run, do not hard-code it);
-#   pick one of them; if none is found the scenario is BLOCKED-by-environment, not PASS.
+# 4. Data: after the seed a few hundred items have a usual place (never hard-coded; the Items screen shows no such count: open cards, starting with the demo items, until one with a place is found); if none is found the scenario is BLOCKED-by-environment, not PASS.
 #   T-2206 (P13): the storekeeper cannot read the Locations admin screen (it needs the locations write permission), so the place
 #   is compared with the card's own stock-by-place table, not with Locations.
 # 5. Executable: every step is a browser step; the data check is read-only.
 # 6. Dry run: uat.sh preflight was not run by the writer (no QA credentials in the writer session).
+# T-2263 code-reading pass. EXPECTATION CORRECTIONS: 13. defloc-1: (1) the fixed count of items with a usual place is gone (read at the run; the Items
+#   screen shows no such count, so the run picks items by opening cards); (2) description, step 3 and EO-001 no longer compare with the Locations screen (the
+#   storekeeper cannot open it; the card's stock-by-place table and the administrator's card are the cross-checks); (3) the "recorded assignment from import
+#   evidence or a read-only item query" source is gone (no such screen for the storekeeper); (4) step 6 is an absence check, no longer expect_refusal (the group's
+#   one refusal step is defloc-3 step 4); (5) a sign-in-return step is added (the card address typed while signed out shows the same card after sign-in, T-2241 merged);
+#   (6) the English section name is Stock by location, not Related. defloc-2: (7) the seed counts are gone from the header; (8) the "storekeeper's read-only item
+#   query" precondition is replaced by browsing cards; (9) the view-only line and import link are named with their exact ru/kk text. defloc-3: (10) the fixed count is
+#   gone; (11) the "read-only stock query" source is replaced by the card's own stock-by-place rows read before and after; (12) the refusal outcome names the
+#   permission-denied screen and the guard (platform tenant and tenants-manage permission); (13) step 5 no longer re-signs in an actor that never signed out.
 ---
 id: qoimeks-defloc-1-usual-place
 scope: qoimeks-qa2
@@ -34,10 +42,10 @@ title: An imported item's usual place is readable on its card in Russian and Kaz
 version: "1.0"
 tags: [qoimeks, default_location, desktop, phone_390, ru, kk, read_only]
 description: >
-  Read the usual place on an existing synthetic item's card and compare its code and name
-  with the Locations screen. Run the entire walk in each combination of 1440 px and
+  Read the usual place on an existing synthetic item's card and compare it with the card's own
+  stock-by-place table and with the administrator's view of the same card. Run the entire walk in each combination of 1440 px and
   390 px width, Russian and Kazakh, light and dark appearance. Save labelled screenshots
-  of the card and its matching location in every combination. This walk creates and
+  of the card in every combination. This walk creates and
   changes no business records; cleanup restores the starting language and appearance,
   clears the search and closes the card. Do not replace browser evidence with a query result.
 actors:
@@ -57,14 +65,11 @@ preconditions:
   - description: An existing active synthetic item has an assigned usual place.
     check: system_seeded
     detail: >
-      Before the walk, record the actual item code/name and its assigned place code/name from
-      the synthetic import evidence or the administrator's read-only item and location query
-      results. Use only this tenant's data, follow all result pages and keep the chosen values
-      in the run evidence. Do not invent an article or infer its usual place from a stock balance.
-      If no such item can be identified, report BLOCKED-by-environment for this scenario, not PASS.
-      Pick an item that has a usual place (a few hundred do after the seed; the count is read at the start
-      of the run); use another item for the empty case in the sibling scenarios.
-      If no such item can be identified, report BLOCKED-by-environment, not PASS.
+      Before the walk, open item cards on the Items screen (the search matches code or title) until one shows a
+      place in the usual-place field; record that item's code, name and the place shown, as read at the start
+      of the run, in the run evidence. Do not invent an article or infer its usual place from a stock balance.
+      Use another item for the empty case in the sibling scenarios. If no item with a usual place is found
+      after looking through the list, report BLOCKED-by-environment, not PASS.
   - description: A real browser can show every required width, language and appearance.
     check: system_seeded
     detail: >
@@ -88,8 +93,8 @@ steps:
     action: >
       On the card, open the section «Остатки по местам хранения» (Russian) or «Сақтау орындары бойынша қалдық»
       (Kazakh) and compare it with the usual place: where the table has a row for the same place, its code and name
-      must equal the usual place; if the item has no stock there, compare with the recorded assignment instead.
-      Do not open Locations (the administrator may, the storekeeper cannot). Close the card, search for the same article and open it again.
+      must be written the same way as the usual place; if the item has no stock there, there is nothing to compare here and step 5 is the cross-check.
+      Do not open Locations (the storekeeper cannot). Close the card, search for the same article and open it again.
     via: ui
   - step: 4
     actor: storekeeper
@@ -111,7 +116,12 @@ steps:
       Sign out and sign in again as the storekeeper. Open the same item's card and look through the card (Russian, 1440 px)
       for any control that changes the usual place: an edit button, a place selector, a save button. The card of an item has no edit route
       for anyone (web/src/modules/catalog_items/items/ItemDetails.tsx, header comment: create, edit and retire have no server route yet), and the storekeeper holds no catalog write right, so no such control may be there.
-    expect_refusal: true
+    via: ui
+  - step: 7
+    actor: storekeeper
+    action: >
+      Sign out. In the same browser type the address of the same item's card (the Items address with the item chosen in it, copied from the
+      address bar before sign-out) and sign in again as the storekeeper. After sign-in, read which screen is shown.
     via: ui
 expected_outcomes:
   - id: EO-001
@@ -119,11 +129,11 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        The card shows the recorded place as code - name, matching the card's stock-by-place table
-        (where it lists that place) and the recorded assignment. The card section «Обзор» / «Шолу» has one usual-place field and no second-place field.
+        The card shows the place as code - name, written the same way as in the card's stock-by-place table
+        (where it lists that place) and as the administrator's card shows it (REQ-843 AC1). The card section «Обзор» / «Шолу» has one usual-place field and no second-place field.
         No internal identifier, raw message key or loading placeholder
         remains after loading finishes. It is the same place after navigation and reload.
-      evidence: Assignment evidence and screenshots of the card, location and reloaded card for all eight display combinations.
+      evidence: Screenshots of the card and the reloaded card for all eight display combinations; the item code and place noted at the start.
     on_fail:
       severity: MAJOR
       business_impact: The warehouse user cannot identify where the item normally belongs.
@@ -140,13 +150,25 @@ expected_outcomes:
       severity: MAJOR
       business_impact: Warehouse staff cannot read where an item normally belongs.
       suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: After sign-in the page that was open is shown again.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7: after sign-in the browser shows the same item's card (the item selected in the address), not the home screen
+        (behaviour of the merged sign-in return fix, T-2241). The place is the same as before.
+      evidence: Screenshot after sign-in in Russian at 1440 px.
+    on_fail:
+      severity: MINOR
+      business_impact: A user who reloads or follows a saved address loses the item they were reading.
+      suggested_action: route_to_frontend_dev
   - id: EO-004
     description: The storekeeper reads the usual place and cannot change it.
     verification:
       method: gui_screen
       detail: >
         Step 6 shows the card with the usual place as plain text: no edit button, no place selector, no save button, in Russian at 1440 px.
-        The card changes nothing and the field value is the same after the storekeeper reloads it.
+        The head carries only the view-only line and the link to Import data. The card changes nothing and the field value is the same after the storekeeper reloads it.
       evidence: Screenshot of the card in step 6.
     on_fail:
       severity: MAJOR
