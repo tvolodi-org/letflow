@@ -288,7 +288,8 @@ defmodule Letflow.Modules.Stock do
   the book posts nothing; the document reads `confirmed`. A key inside an opened, unposted, uncancelled
   count order of the same org unit is refused `count_in_progress` at the route and `location_frozen` at
   approval (`Letflow.Modules.Stock.FreezeGuard`). A tenant installed before 0.20.0 needs a reinstall for
-  the new document type and process (QA only, as for the opening of 0.9.0).
+  the new document type and process (QA only, as for the opening of 0.9.0); until then the quick-count
+  routes answer 409 `definition_not_active` before activating a definition or writing a document.
 
   ## Slots and their order (append-only, rule 12)
 

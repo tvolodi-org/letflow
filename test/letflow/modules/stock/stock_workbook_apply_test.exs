@@ -790,5 +790,38 @@ defmodule Letflow.Modules.Stock.StockWorkbookApplyTest do
       assert {written(ctx.schema), written(ctx.b.schema_name)} == before
       assert m.unit != ctx.mb.unit
     end
+
+    test "QWA-19 GH #4695: a checked workbook on a pre-0.20 install is a clear refusal", ctx do
+      s = S.tenant!("wba-pre20", ctx.names.s)
+      token = S.token(ctx, :s, ["TENANT_ADMIN"], sub: "wba-pre20-admin")
+      m = seed!(s.schema_name)
+      bytes = book([["Z-3", "Три", 1, "R", "I", 2]])
+      S.get("/balances", token) |> P.status!(200)
+
+      # An install upgraded from before quick count has no document type. The first unfixed apply
+      # activates the shipped process and then fails; the documented repair is a module reinstall.
+      Repo.query!(~s|ALTER TABLE "#{s.schema_name}"."document_types" DISABLE TRIGGER USER|)
+
+      try do
+        Repo.delete_all(
+          from(t in Letflow.Documents.DocumentType, where: t.key == "stock_quick_count"),
+          prefix: s.schema_name
+        )
+      after
+        Repo.query!(~s|ALTER TABLE "#{s.schema_name}"."document_types" ENABLE TRIGGER USER|)
+      end
+
+      checked = apply_request("/stock-workbook/check?org_unit_id=#{m.unit}", token, bytes)
+      assert checked.status == 200
+      assert length(S.json(checked)["changes"]) == 1
+      before = written(s.schema_name)
+
+      conn = apply_request(apply_path(m.unit), token, bytes)
+      assert reason!(conn, 409) == "definition_not_active"
+      assert written(s.schema_name) == before
+
+      assert {:error, :not_found} =
+               Letflow.Definitions.get_active_by_name("stock_quick_count", prefix: s.schema_name)
+    end
   end
 end
