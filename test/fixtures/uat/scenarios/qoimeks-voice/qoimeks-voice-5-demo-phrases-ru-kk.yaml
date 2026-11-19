@@ -1,399 +1,537 @@
-# T-2192 (PM 2026-11-19): the Qoimeks team's voice phrases (a draft, nothing recorded; demo catalog, no customer data).
-# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 API typed-phrase route only (docs/runbooks/stock-voice.md);
-# 4 data: needs the demo catalog and places of the generator task T-2189 (option "voice demo"): BLOCKED-by-environment until merged and loaded;
-# the language model must be on: BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect, not counted against the group);
-# 5 HTTP steps only, every phrase literal; 6 uat.sh preflight not run by the writer (no QA credentials).
-# NOT UAT-observable: speech recognition (audio and keys). The expected result is the validated draft, not model accuracy.
+# T-2225 (BA, PM/owner 2026-11-19): the voice provider keys are on QA (speech: ElevenLabs scribe; model: xAI with a JSON schema; read OK by infra), so these scenarios RUN the real function.
+# Voice group of qoimeks-qa2. The Qoimeks team phrases are a draft (ids ru-01..ru-10, kk-01..kk-10; demo catalog, no customer data); the expected result per id is the validated draft, not model accuracy.
+# Judge each phrase as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS; a miss of a phrase the team flags "verify" is reported, not a defect.
+# Audio: 20 SYNTHETIC test files made once with a text-to-speech model from the draft phrases (no real person), OUTSIDE the repository, webm/opus at /home/tvolodi/qoimeks-voice-audio/webm/<id>.webm on the run host. The web client sends webm; phone m4a and Safari audio are NOT tested here. Label every audio result "synthetic audio" and every Kazakh result "kk uncertain" (quality of the Kazakh synthetic speech is uncertain).
+# BUDGET (rule of the owner): each of the 20 phrases goes through each route EXACTLY ONCE per run (20 text calls in qoimeks-voice-5, 20 audio calls in qoimeks-voice-6): no loops, no retries on a provider answer, no repeated runs. Calls that make no provider call (the refusals of qoimeks-voice-7) are not counted. Calls the other scenarios of the group make (qoimeks-voice-1: 2 typed phrases; -2: one; -3: three; -4: four) are counted separately. The run summary lists every call with a running count and reports the number of speech (STT) and model (LLM) calls actually made: expected 20 STT and 40 LLM for voices 5 and 6 plus the typed calls of voices 1 to 4.
+# NOT UAT-observable: the microphone recording on a phone (a headless browser has no microphone); phone m4a/Safari audio; the prompt text sent to the model (server-internal); the log never holding the phrase or the key (a unit test captures the log).
+# Group checks (T-2225; apply to the whole group qoimeks-voice, scenarios 1 to 8; the same lines are in every file):
+# 1. Scope: every scenario has scope qoimeks-qa2, an existing synthetic tenant and realm; the group directory name is not the scope; run title UAT qoimeks-voice.
+# 2. Actors: only actor-qoimeks-qa2-storekeeper (STOREKEEPER of qoimeks-qa2, who does the voice entry in real life; it holds StockPost and StockRead in the stock module role grants, lib/letflow/modules/stock/stock.ex) with the QOIMEKS_QA2_STOREKEEPER login of the acceptance environment. Its live login is NOT verified by this writing step (no QA credentials in the writer session); a missing login makes the steps BLOCKED-by-environment.
+# 3. Host and screens: API routes of the stock voice (docs/runbooks/stock-voice.md; POST draft multipart and POST draft-text JSON); the only screen is the voice panel of the phone PWA https://pwa.letflow.qa.bizdala.com/ on the new receipt, issue or transfer document form (apps/mobile/lib/features/stock/documents/document_form_screen.dart, apps/mobile/lib/features/stock/voice/voice_panel.dart); the web SPA has no voice screen (grep voice in web/src finds none outside the print template fixtures).
+# 4. Data: demo catalog and places of the generator task T-2189 (items BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3, CBL-3x2.5; places A-01, A-02, A-03, B-01, B-02, C-01, RAMP, LA3; no C-02 and no D-03) read in each scenario before use; counts of documents, count records and balances rows are read at the start of the run and compared at the end, never assumed; a missing item or place makes the scenario BLOCKED-by-environment naming T-2189. The BLOCKED-by-keys markers of the earlier version are removed: the keys are set; the precondition is now a check that the settings are on (a typed answer with the notice llm_off means the model is off; a 503 speech_off on the audio route means speech is off; then report BLOCKED-by-environment, do not change settings, do not retry).
+# 5. Executable: HTTP steps (the audio steps upload the webm file with the runner's own HTTP client: multipart field audio and field lang with the value ru or kk) and browser steps with the runner's own script; no step depends on pipeline_test.
+# 6. Dry run: uat.sh preflight with the title UAT qoimeks-voice was not run by the writer (no QA credentials in the writer session); all files of the group were parsed with yaml.safe_load and the static check was run on the group.
 ---
 id: qoimeks-voice-5-demo-phrases-ru-kk
 scope: qoimeks-qa2
-title: The twenty demo phrases of the Qoimeks team in Russian and Kazakh give validated drafts and store nothing
-version: "1.0"
-tags: [qoimeks, voice, api, ru, kk, llm-on, blocked-by-keys, demo-catalog]
-
+title: >-
+  The storekeeper types the twenty demo phrases of the Qoimeks team in Russian and Kazakh, the real model answers with validated
+  drafts, and nothing is stored
+version: '2.0'
+tags:
+- qoimeks
+- voice
+- api
+- ru
+- kk
+- llm-on
+- text
+- demo-catalog
 description: >-
-  The administrator sends the twenty typed demo phrases of the Qoimeks team (ten Russian, ten Kazakh) to the typed-phrase route one by one and checks the kind, the item,
-  the quantity and the place of each draft against the demo catalog. No document or count is stored by any call.
-
+  The storekeeper sends the twenty typed demo phrases of the Qoimeks team (ten Russian, ten Kazakh) to the typed-phrase route,
+  each exactly once, with the real model of QA now on, and judges the kind, items, quantity and place of each draft against
+  the validated draft as PASS, PARTIAL or MISS. The phrases ru-07 (place C-02) and kk-08 (place D-03) say a place the tenant
+  does not have: the place is dropped (location empty). The phrases ru-09 and kk-10 are not stock entries and give kind unknown.
+  No document, count or balance changes. Kazakh results are labelled kk uncertain.
 actors:
-  admin: actor-qoimeks-qa2-admin
-
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
-  - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
-    check: system_seeded
-    detail: >-
-      Check first: the answer of phrase ru-01 carries the notice llm_off when the model is off. Then report the whole scenario BLOCKED-by-keys (not a defect). Do not change settings.
-  - description: The demo catalog and places of the generator task T-2189 (option "voice demo") are loaded into qoimeks-qa2.
-    check: system_seeded
-    detail: >-
-      Read-only check: the active items (all pages) include BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3 and CBL-3x2.5,
-      and the places include A-01, A-02, A-03, B-01, B-02, C-01 and RAMP, and do not include C-02 and D-03. Anything missing: report BLOCKED-by-environment and name T-2189. Do not create data.
-  - description: The stock module is installed and the voice typed-phrase route answers the administrator.
-    check: system_seeded
-    detail: If the route answers 404 for the stock module, report BLOCKED.
-
+- description: >-
+    The voice settings are on: the model step answers (no notice llm_off) and the speech step is on (no 503 speech_off). The
+    route of the stock module answers the storekeeper.
+  check: system_seeded
+  detail: >-
+    Judged from the answers of the first call of the scenario, never from an extra call: the notice llm_off on a typed answer
+    or the status 503 with reason speech_off on an audio answer means the step is off; then report the whole scenario BLOCKED-by-environment
+    (settings are infra's), change no setting and do not retry. A 404 for the stock module is BLOCKED as well.
+- description: >-
+    The demo catalog and places of the generator task T-2189 are loaded into qoimeks-qa2.
+  check: system_seeded
+  detail: >-
+    Read-only check, all pages: the active items include BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60,
+    TAPE-48, GLV-L, SCR-4-40, PNT-GR-3 and CBL-3x2.5; the places include A-01, A-02, A-03, B-01, B-02, C-01 and RAMP and do
+    not include C-02 and D-03. Anything missing: BLOCKED-by-environment naming T-2189. Create no data.
 steps:
-  - step: 1
-    actor: admin
-    action: >-
-      The administrator reads the stock documents list (GET /api/v1/modules/stock/documents) and the count records list (GET /api/v1/modules/stock/counts), following all pages, and notes the counts as D0 and C0; the counts are read at the start of the run, never hard-coded.
-    via: api
-  - step: 2
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «приход, болт эм восемь на сорок, сто штук, на а один» with the language "ru". The answer is noted as ru-01.
-    via: api
-  - step: 3
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «выдал краску белую десять литров, две штуки» with the language "ru". The answer is noted as ru-02.
-    via: api
-  - step: 4
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «переместил шайбы плоские восемь, тридцать штук, из бэ два в цэ один» with the language "ru". The answer is noted as ru-03.
-    via: api
-  - step: 5
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «инвентаризация, кабель три на полтора, по факту сто двадцать метров, бэ один» with the language "ru". The answer is noted as ru-04.
-    via: api
-  - step: 6
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «приход гайки, пятьдесят штук, на а три» with the language "ru". The answer is noted as ru-05.
-    via: api
-  - step: 7
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «расход, бэ эл тэ эм десять шестьдесят, двенадцать штук, с а два» with the language "ru". The answer is noted as ru-06.
-    via: api
-  - step: 8
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «приход скотч упаковочный, двадцать четыре штуки, на цэ два» with the language "ru". The answer is noted as ru-07.
-    via: api
-  - step: 9
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «расход, перчатки рабочие, сорок пар, нет, не сорок, а четырнадцать, с а один» with the language "ru". The answer is noted as ru-08.
-    via: api
-  - step: 10
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «посмотри, сколько осталось саморезов» with the language "ru". The answer is noted as ru-09.
-    via: api
-  - step: 11
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «пересчитал саморезы по дереву, два с половиной килограмма, цэ один» with the language "ru". The answer is noted as ru-10.
-    via: api
-  - step: 12
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «кіріс, гайка эм сегіз, жүз дана, а бір» with the language "kk". The answer is noted as kk-01.
-    via: api
-  - step: 13
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «шығыс, болт эм сегіз қырық, жиырма дана, а бірден» with the language "kk". The answer is noted as kk-02.
-    via: api
-  - step: 14
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «ауыстырдым, шайба сегіз, елу дана, бэ екіден цэ бірге» with the language "kk". The answer is noted as kk-03.
-    via: api
-  - step: 15
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «түгендеу, сұр бояу, нөл, цэ бір» with the language "kk". The answer is noted as kk-04.
-    via: api
-  - step: 16
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «қабылдадым, кабель, жүз метр, бэ бір» with the language "kk". The answer is noted as kk-05.
-    via: api
-  - step: 17
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «бердім, қолғап, он жұп» with the language "kk". The answer is noted as kk-06.
-    via: api
-  - step: 18
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «кіріс, тэ а пэ е қырық сегіз, отыз дана, рампа» with the language "kk". The answer is noted as kk-07.
-    via: api
-  - step: 19
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «шығыс, шайба сегіз, он бес дана, дэ үш» with the language "kk". The answer is noted as kk-08.
-    via: api
-  - step: 20
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «санадым, гайка эм он, по факту қырық дана, бэ бір» with the language "kk". The answer is noted as kk-09.
-    via: api
-  - step: 21
-    actor: admin
-    action: >-
-      The administrator sends the typed phrase «гайка қанша қалды» with the language "kk". The answer is noted as kk-10.
-    via: api
-  - step: 22
-    actor: admin
-    action: >-
-      The administrator reads the stock documents list and the count records list again and notes the counts as D1 and C1.
-    via: api
-
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper reads the stock documents list (GET /api/v1/modules/stock/documents) and the count records list (GET /api/v1/modules/stock/counts),
+    following all pages, and notes the counts as D0 and C0, and the balances rows (GET /api/v1/modules/stock/balances, all
+    pages) as B0; read at the start of the run, never hard-coded.
+  via: api
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «приход, болт эм восемь на сорок, сто штук, на а один» with the language "ru" to
+    the voice typed-phrase route. The answer is noted as ru-01. Once only: no retry.
+  via: api
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «выдал краску белую десять литров, две штуки» with the language "ru" to the voice
+    typed-phrase route. The answer is noted as ru-02. Once only: no retry.
+  via: api
+- step: 4
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «переместил шайбы плоские восемь, тридцать штук, из бэ два в цэ один» with the
+    language "ru" to the voice typed-phrase route. The answer is noted as ru-03. Once only: no retry.
+  via: api
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «инвентаризация, кабель три на полтора, по факту сто двадцать метров, бэ один»
+    with the language "ru" to the voice typed-phrase route. The answer is noted as ru-04. Once only: no retry.
+  via: api
+- step: 6
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «приход гайки, пятьдесят штук, на а три» with the language "ru" to the voice typed-phrase
+    route. The answer is noted as ru-05. Once only: no retry.
+  via: api
+- step: 7
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «расход, бэ эл тэ эм десять шестьдесят, двенадцать штук, с а два» with the language
+    "ru" to the voice typed-phrase route. The answer is noted as ru-06. Once only: no retry.
+  via: api
+- step: 8
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «приход скотч упаковочный, двадцать четыре штуки, на цэ два» with the language
+    "ru" to the voice typed-phrase route. The answer is noted as ru-07. Once only: no retry.
+  via: api
+- step: 9
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «расход, перчатки рабочие, сорок пар, нет, не сорок, а четырнадцать, с а один»
+    with the language "ru" to the voice typed-phrase route. The answer is noted as ru-08. Once only: no retry.
+  via: api
+- step: 10
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «посмотри, сколько осталось саморезов» with the language "ru" to the voice typed-phrase
+    route. The answer is noted as ru-09. Once only: no retry.
+  via: api
+- step: 11
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «пересчитал саморезы по дереву, два с половиной килограмма, цэ один» with the language
+    "ru" to the voice typed-phrase route. The answer is noted as ru-10. Once only: no retry.
+  via: api
+- step: 12
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «кіріс, гайка эм сегіз, жүз дана, а бір» with the language "kk" to the voice typed-phrase
+    route. The answer is noted as kk-01. Once only: no retry.
+  via: api
+- step: 13
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «шығыс, болт эм сегіз қырық, жиырма дана, а бірден» with the language "kk" to the
+    voice typed-phrase route. The answer is noted as kk-02. Once only: no retry.
+  via: api
+- step: 14
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «ауыстырдым, шайба сегіз, елу дана, бэ екіден цэ бірге» with the language "kk"
+    to the voice typed-phrase route. The answer is noted as kk-03. Once only: no retry.
+  via: api
+- step: 15
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «түгендеу, сұр бояу, нөл, цэ бір» with the language "kk" to the voice typed-phrase
+    route. The answer is noted as kk-04. Once only: no retry.
+  via: api
+- step: 16
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «қабылдадым, кабель, жүз метр, бэ бір» with the language "kk" to the voice typed-phrase
+    route. The answer is noted as kk-05. Once only: no retry.
+  via: api
+- step: 17
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «бердім, қолғап, он жұп» with the language "kk" to the voice typed-phrase route.
+    The answer is noted as kk-06. Once only: no retry.
+  via: api
+- step: 18
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «кіріс, тэ а пэ е қырық сегіз, отыз дана, рампа» with the language "kk" to the
+    voice typed-phrase route. The answer is noted as kk-07. Once only: no retry.
+  via: api
+- step: 19
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «шығыс, шайба сегіз, он бес дана, дэ үш» with the language "kk" to the voice typed-phrase
+    route. The answer is noted as kk-08. Once only: no retry.
+  via: api
+- step: 20
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «санадым, гайка эм он, по факту қырық дана, бэ бір» with the language "kk" to the
+    voice typed-phrase route. The answer is noted as kk-09. Once only: no retry.
+  via: api
+- step: 21
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the typed phrase «гайка қанша қалды» with the language "kk" to the voice typed-phrase route. The
+    answer is noted as kk-10. Once only: no retry.
+  via: api
+- step: 22
+  actor: storekeeper
+  action: >-
+    The storekeeper reads the documents list, the count records list and the balances again and notes D1, C1 and B1.
+  via: api
 expected_outcomes:
-  - id: EO-002
-    description: >-
-      The phrase ru-01 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-01 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is BLT-M8-40; quantity is 100; the place is A-01.
-      evidence: Body of the answer ru-01.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: >-
-      The phrase ru-02 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-02 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is PNT-WH-10; quantity is 2; the place is empty (a place said that does not fit, or none said, is dropped).
-      evidence: Body of the answer ru-02.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: >-
-      The phrase ru-03 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-03 answers 200; the transcript equals the sent phrase; kind is "transfer"; the item is WSH-8; quantity is 30; the source place is B-02 and the target place is C-01.
-      evidence: Body of the answer ru-03.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-005
-    description: >-
-      The phrase ru-04 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-04 answers 200; the transcript equals the sent phrase; kind is "count"; the item is CBL-3x1.5; quantity is 120; the place is B-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer ru-04.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-006
-    description: >-
-      The phrase ru-05 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-05 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is NUT-M8 and NUT-M10 (the operator chooses); quantity is 50; the place is A-03.
-      evidence: Body of the answer ru-05.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-007
-    description: >-
-      The phrase ru-06 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-06 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is BLT-M10-60; quantity is 12; the place is A-02. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer ru-06.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-008
-    description: >-
-      The phrase ru-07 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-07 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is TAPE-48; quantity is 24; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer ru-07.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-009
-    description: >-
-      The phrase ru-08 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-08 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is GLV-L; quantity is 14; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome. The spoken correction (not forty but fourteen) is a known gap of the prompt: 14 is expected, 40 is recorded as the known gap.
-      evidence: Body of the answer ru-08.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-010
-    description: >-
-      The phrase ru-09 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-09 answers 200; the transcript equals the sent phrase; kind is "unknown"; the items list is empty; quantity is empty; the place is empty (a place said that does not fit, or none said, is dropped).
-      evidence: Body of the answer ru-09.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-011
-    description: >-
-      The phrase ru-10 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        ru-10 answers 200; the transcript equals the sent phrase; kind is "count"; the item is SCR-4-40; quantity is 2.5; the place is C-01.
-      evidence: Body of the answer ru-10.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-012
-    description: >-
-      The phrase kk-01 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-01 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is NUT-M8; quantity is 100; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-01.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-013
-    description: >-
-      The phrase kk-02 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-02 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is BLT-M8-40; quantity is 20; the place is A-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-02.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-014
-    description: >-
-      The phrase kk-03 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-03 answers 200; the transcript equals the sent phrase; kind is "transfer"; the item is WSH-8; quantity is 50; the source place is B-02 and the target place is C-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-03.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-015
-    description: >-
-      The phrase kk-04 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-04 answers 200; the transcript equals the sent phrase; kind is "count"; the item is PNT-GR-3; quantity is 0; the place is C-01.
-      evidence: Body of the answer kk-04.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-016
-    description: >-
-      The phrase kk-05 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-05 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is CBL-3x2.5 and CBL-3x1.5 (the operator chooses); quantity is 100; the place is B-01.
-      evidence: Body of the answer kk-05.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-017
-    description: >-
-      The phrase kk-06 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-06 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is GLV-L; quantity is 10; the place is empty (a place said that does not fit, or none said, is dropped).
-      evidence: Body of the answer kk-06.
-    on_fail:
-      severity: MAJOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-018
-    description: >-
-      The phrase kk-07 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-07 answers 200; the transcript equals the sent phrase; kind is "receipt"; the item is TAPE-48; quantity is 30; the place is RAMP. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-07.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-019
-    description: >-
-      The phrase kk-08 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-08 answers 200; the transcript equals the sent phrase; kind is "issue"; the item is WSH-8; quantity is 15; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-08.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-020
-    description: >-
-      The phrase kk-09 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-09 answers 200; the transcript equals the sent phrase; kind is "count"; the item is NUT-M10; quantity is 40; the place is B-01. Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-09.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-021
-    description: >-
-      The phrase kk-10 gives the validated draft.
-    verification:
-      method: api_response
-      detail: >-
-        kk-10 answers 200; the transcript equals the sent phrase; kind is "unknown"; the items list is empty; quantity is empty; the place is empty (a place said that does not fit, or none said, is dropped). Marked "verify" by the Qoimeks team: a deviation in the item, quantity or place is recorded as an observation and reported as a prompt finding; only a wrong kind or a stored record fails the outcome.
-      evidence: Body of the answer kk-10.
-    on_fail:
-      severity: MINOR
-      business_impact: The operator's form is pre-filled wrongly from a spoken phrase.
-      suggested_action: route_to_elixir_dev
-  - id: EO-022
-    description: >-
-      No phrase stores anything.
-    verification:
-      method: api_response
-      detail: >-
-        D1 equals D0 and C1 equals C0.
-      evidence: D0, D1, C0 and C1.
-    on_fail:
-      severity: BLOCKER
-      business_impact: A spoken phrase creates a document or count without the operator confirming it.
-      suggested_action: route_to_elixir_dev
+- id: EO-001
+  description: The typed phrase ru-01 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-01 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is BLT-M8-40;
+      quantity is 100; the place is A-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id. A MISS or PARTIAL is reported as a finding with the
+      answer body. Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-01 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: The typed phrase ru-02 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-02 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is PNT-WH-10;
+      quantity is 2; the place is empty (no place was said, or the place said does not exist in the tenant: it is dropped).
+      Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS (anything else).
+      Record the verdict with the id. A MISS or PARTIAL is reported as a finding with the answer body. Only a stored record
+      (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-02 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: The typed phrase ru-03 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-03 answers 200; the transcript equals the sent phrase character for character; kind is "transfer"; the item is WSH-8;
+      quantity is 30; the source place is B-02 and the target place is C-01. Judge as PASS (equals the draft), PARTIAL (right
+      kind and item, quantity or place differs) or MISS (anything else). Record the verdict with the id. A MISS or PARTIAL
+      is reported as a finding with the answer body. Only a stored record (see the last outcome) or an answer other than 200
+      fails the outcome.
+    evidence: Body of the answer ru-03 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: The typed phrase ru-04 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-04 answers 200; the transcript equals the sent phrase character for character; kind is "count"; the item is CBL-3x1.5;
+      quantity is 120; the place is B-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id. The Qoimeks team marked this phrase "verify": a PARTIAL
+      or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see the last outcome) or
+      an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-04 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-005
+  description: The typed phrase ru-05 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-05 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is NUT-M8
+      and NUT-M10 (the operator chooses); quantity is 50; the place is A-03. Judge as PASS (equals the draft), PARTIAL (right
+      kind and item, quantity or place differs) or MISS (anything else). Record the verdict with the id. A MISS or PARTIAL
+      is reported as a finding with the answer body. Only a stored record (see the last outcome) or an answer other than 200
+      fails the outcome.
+    evidence: Body of the answer ru-05 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-006
+  description: The typed phrase ru-06 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-06 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is BLT-M10-60;
+      quantity is 12; the place is A-02. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id. The Qoimeks team marked this phrase "verify": a PARTIAL
+      or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see the last outcome) or
+      an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-06 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-007
+  description: The typed phrase ru-07 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-07 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is TAPE-48;
+      quantity is 24; the place is empty (no place was said, or the place said does not exist in the tenant: it is dropped).
+      The place said (С-два, written C-02) does not exist: location is empty and, if the dropped list has an entry for the
+      location, its reason is unknown_location. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or
+      place differs) or MISS (anything else). Record the verdict with the id. The Qoimeks team marked this phrase "verify":
+      a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see the last
+      outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-07 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-008
+  description: The typed phrase ru-08 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-08 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is GLV-L;
+      quantity is 14; the place is A-01. The spoken correction (not forty but fourteen) is a known gap of the prompt: 14 is
+      expected, 40 is recorded as the known gap. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity
+      or place differs) or MISS (anything else). Record the verdict with the id. The Qoimeks team marked this phrase "verify":
+      a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see the last
+      outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-08 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-009
+  description: The typed phrase ru-09 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-09 answers 200; the transcript equals the sent phrase character for character; kind is "unknown"; the items list
+      is empty; quantity is empty; the place is empty. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity
+      or place differs) or MISS (anything else). Record the verdict with the id. A MISS or PARTIAL is reported as a finding
+      with the answer body. Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-09 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-010
+  description: The typed phrase ru-10 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      ru-10 answers 200; the transcript equals the sent phrase character for character; kind is "count"; the item is SCR-4-40;
+      quantity is 2.5; the place is C-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id. A MISS or PARTIAL is reported as a finding with the
+      answer body. Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer ru-10 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-011
+  description: The typed phrase kk-01 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-01 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is NUT-M8;
+      quantity is 100; the place is A-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked this phrase
+      "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see
+      the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-01 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-012
+  description: The typed phrase kk-02 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-02 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is BLT-M8-40;
+      quantity is 20; the place is A-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked this phrase
+      "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see
+      the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-02 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-013
+  description: The typed phrase kk-03 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-03 answers 200; the transcript equals the sent phrase character for character; kind is "transfer"; the item is WSH-8;
+      quantity is 50; the source place is B-02 and the target place is C-01. Judge as PASS (equals the draft), PARTIAL (right
+      kind and item, quantity or place differs) or MISS (anything else). Record the verdict with the id and "kk uncertain".
+      The Qoimeks team marked this phrase "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as
+      a defect. Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-03 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-014
+  description: The typed phrase kk-04 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-04 answers 200; the transcript equals the sent phrase character for character; kind is "count"; the item is PNT-GR-3;
+      quantity is 0; the place is C-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". A MISS or PARTIAL is reported as
+      a finding with the answer body. Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-04 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-015
+  description: The typed phrase kk-05 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-05 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is CBL-3x2.5
+      and CBL-3x1.5 (the operator chooses); quantity is 100; the place is B-01. Judge as PASS (equals the draft), PARTIAL
+      (right kind and item, quantity or place differs) or MISS (anything else). Record the verdict with the id and "kk uncertain".
+      A MISS or PARTIAL is reported as a finding with the answer body. Only a stored record (see the last outcome) or an answer
+      other than 200 fails the outcome.
+    evidence: Body of the answer kk-05 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-016
+  description: The typed phrase kk-06 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-06 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is GLV-L;
+      quantity is 10; the place is empty (no place was said, or the place said does not exist in the tenant: it is dropped).
+      Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS (anything else).
+      Record the verdict with the id and "kk uncertain". A MISS or PARTIAL is reported as a finding with the answer body.
+      Only a stored record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-06 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-017
+  description: The typed phrase kk-07 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-07 answers 200; the transcript equals the sent phrase character for character; kind is "receipt"; the item is TAPE-48;
+      quantity is 30; the place is RAMP. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked this phrase
+      "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see
+      the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-07 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-018
+  description: The typed phrase kk-08 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-08 answers 200; the transcript equals the sent phrase character for character; kind is "issue"; the item is WSH-8;
+      quantity is 15; the place is empty (no place was said, or the place said does not exist in the tenant: it is dropped).
+      The place said (D-03) does not exist: location is empty and, if the dropped list has an entry for the location, its
+      reason is unknown_location. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs)
+      or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked this phrase "verify":
+      a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see the last
+      outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-08 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-019
+  description: The typed phrase kk-09 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-09 answers 200; the transcript equals the sent phrase character for character; kind is "count"; the item is NUT-M10;
+      quantity is 40; the place is B-01. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity or place
+      differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked this phrase
+      "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored record (see
+      the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-09 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-020
+  description: The typed phrase kk-10 gives the validated draft.
+  verification:
+    method: api_response
+    detail: >-
+      kk-10 answers 200; the transcript equals the sent phrase character for character; kind is "unknown"; the items list
+      is empty; quantity is empty; the place is empty. Judge as PASS (equals the draft), PARTIAL (right kind and item, quantity
+      or place differs) or MISS (anything else). Record the verdict with the id and "kk uncertain". The Qoimeks team marked
+      this phrase "verify": a PARTIAL or MISS is reported as an observation for the prompt, not as a defect. Only a stored
+      record (see the last outcome) or an answer other than 200 fails the outcome.
+    evidence: Body of the answer kk-10 (status and body).
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The operator's form is pre-filled wrongly from a spoken or typed phrase, or the voice entry does not answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-021
+  description: >-
+    No phrase stores anything: the voice result is a draft only.
+  verification:
+    method: api_response
+    detail: >-
+      D1 equals D0, C1 equals C0 and B1 equals B0 (same counts, and the balances rows hold the same quantities): no stock
+      document, count record or balance was created or changed by any of the twenty calls.
+    evidence: D0, D1, C0, C1, B0 and B1.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A spoken or typed phrase creates a document or moves stock without the operator confirming it.
+    suggested_action: route_to_elixir_dev
+- id: EO-022
+  description: >-
+    The run summary counts the provider calls and states the verdict of each phrase.
+  verification:
+    method: system_state
+    detail: >-
+      The run summary lists the twenty calls once each with a running count and reports the calls actually made (expected
+      20 model calls and no speech call), and gives PASS, PARTIAL or MISS for each id with the label "typed" and "kk uncertain"
+      for the kk ids. A phrase sent twice, a retry or a loop is a breach of the budget and is reported.
+    evidence: The run summary.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The provider budget of the owner is not controlled or the verdicts are not comparable between runs.
+    suggested_action: route_to_ba
