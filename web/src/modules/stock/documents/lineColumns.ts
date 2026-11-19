@@ -8,13 +8,24 @@ import type { DocKind } from './documentsModel'
 export const DOCUMENTS_LAYOUT_SCREEN = 'stock.documents'
 
 /** `currency` is the tenant currency code (REQ-828); the price and value headers carry it, or nothing while unknown. */
-export function lineColumns(kind: DocKind, t: (id: string) => string, currency = ''): DocColumn[] {
+export function lineColumns(kind: DocKind | 'quick_count', t: (id: string) => string, currency = ''): DocColumn[] {
   const withCur = (label: string) => (currency === '' ? label : `${label}, ${currency}`)
   const cols: DocColumn[] = [
     { key: 'item', label: t('stock.col.item'), colId: 'item' },
     { key: 'lot', label: t('stock.col.lot'), colId: 'lot' },
     { key: 'quantity', label: `${t('stock.col.quantity')}, ${t('stock.col.unit').toLowerCase()}`, num: true, cls: 'qty', colId: 'qty' },
   ]
+  if (kind === 'quick_count') {
+    // REQ-854 AC1: a quick count shows the book quantity, the counted quantity and the difference, not one quantity.
+    // The unit is in each cell ("7 pcs"), so the headers stay short enough for the narrow detail panel.
+    return [
+      cols[0]!,
+      cols[1]!,
+      { key: 'bookQuantity', label: t('stock.doc.field.bookQuantity'), num: true, cls: 'qty', colId: 'book' },
+      { key: 'countedQuantity', label: t('stock.doc.field.countedQuantity'), num: true, cls: 'qty', colId: 'counted' },
+      { key: 'difference', label: t('stock.doc.field.difference'), num: true, cls: 'qty', colId: 'diff' },
+    ]
+  }
   if (kind === 'opening') {
     // The released CSS gives item and lot 29% + 22% of a fixed-layout table and has no width rule for the opening
     // columns, which would collapse to zero. Without a rule the five text columns share the free width equally.
@@ -42,12 +53,20 @@ const WEIGHT: Record<string, { w: number; min: number }> = {
   item: { w: 29, min: 140 },
   lot: { w: 22, min: 110 },
   qty: { w: 12, min: 80 },
+  book: { w: 22, min: 84 },
+  counted: { w: 18, min: 72 },
+  diff: { w: 16, min: 72 },
   price: { w: 13, min: 80 },
   value: { w: 14, min: 80 },
 }
 
-export function lineColumnSpecs(kind: DocKind): ColSpec[] {
+export function lineColumnSpecs(kind: DocKind | 'quick_count'): ColSpec[] {
   if (kind === 'opening') return []
+  if (kind === 'quick_count') {
+    // Item and lot are narrower here than on the other documents, so five columns fit the detail panel.
+    const narrow: Record<string, { w: number; min: number }> = { item: { w: 24, min: 96 }, lot: { w: 12, min: 56 } }
+    return ['item', 'lot', 'book', 'counted', 'diff'].map((id) => ({ id, ...(narrow[id] ?? WEIGHT[id]!) }))
+  }
   const ids = ['item', 'lot', 'qty', ...(kind === 'receipt' ? ['price', 'value'] : [])]
   return ids.map((id) => ({ id, ...WEIGHT[id]! }))
 }

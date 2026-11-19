@@ -57,6 +57,7 @@ defmodule Letflow.Ledger.Codes do
     "internal_error",
     "invalid_arguments",
     "invalid_request",
+    "master_inactive",
     "movement_not_found",
     "not_found",
     "record_version_conflict",

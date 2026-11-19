@@ -204,6 +204,10 @@ export interface LineForm {
    *  replaces every value of a line (Documents.update_line!). */
   externalRefSystem: string
   externalRefId: string
+  /** Quick count only (REQ-854), read-only: book, counted and difference as the server answers them. */
+  bookQuantity?: string
+  countedQuantity?: string
+  difference?: string
 }
 export interface SideForm {
   orgUnitId: string
@@ -232,7 +236,7 @@ export interface FormState {
   lines: LineForm[]
 }
 
-export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '', externalRefSystem: '', externalRefId: '' })
+export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '', externalRefSystem: '', externalRefId: '', bookQuantity: '', countedQuantity: '', difference: '' })
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
   return {
@@ -255,6 +259,7 @@ export function lineFromDocument(l: DocumentLine): LineForm {
     quantity: editDecimal(l.quantity), unitPrice: editDecimal(l.unit_price), lineValue: editDecimal(l.line_value),
     locationId: s(l.location_id), responsibleId: s(l.responsible_id), receivedOn: s(l.received_on),
     externalRefSystem: s(l.external_ref_system), externalRefId: s(l.external_ref_id),
+    bookQuantity: editDecimal(l.book_quantity), countedQuantity: editDecimal(l.counted_quantity), difference: editDecimal(l.difference),
   }
 }
 

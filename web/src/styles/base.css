@@ -94,6 +94,14 @@ samp {
 }
 .lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 36rem; }
 .lf-doc__lines .lf-le__table--wide { min-width: 74rem; }
+/* Quick count document (T-2290): book, counted and difference take the width the released CSS gives the lot and quantity
+   columns of the other documents (27% and 31% of the saved-lines table), so item and lot stay readable in the detail panel. */
+/* Narrower than this the table scrolls sideways inside its own frame instead of cutting the headers (phone width). */
+.lf-le__table--saved:has(th.is-col-bookQuantity) { min-width: 29rem; }
+.lf-le__table--saved:has(th.is-col-bookQuantity) th.is-col-lot { width: 12%; }
+.lf-le__table--saved:has(th.is-col-bookQuantity) th.is-col-bookQuantity { width: 23%; }
+.lf-le__table--saved:has(th.is-col-bookQuantity) th.is-col-countedQuantity { width: 18%; }
+.lf-le__table--saved:has(th.is-col-bookQuantity) th.is-col-difference { width: 17%; }
 .lf-le__table th.is-grow { width: 30%; }
 .lf-le__table:not(.lf-le__table--saved) th.is-num { width: 6.5rem; }
 .lf-le__table:not(.lf-le__table--saved) th.is-col-quantity { width: 8.5rem; }
@@ -437,3 +445,8 @@ samp {
 .lf-card-name > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .lf-photo-thumb { flex: none; display: inline-flex; }
 .lf-photo-thumb__img { display: inline-flex; align-items: center; justify-content: center; width: var(--space-8); height: var(--space-8); border-radius: var(--radius-sm); object-fit: cover; }
+
+/* Narrow journal card (T-2290): a long cause label ("Opening balance (negative)") wraps instead of running under the quantity. */
+@container lfhost (max-width: 900px) {
+  .lf-jrn__table .lf-jrn__kind { white-space: normal; }
+}

@@ -20,10 +20,12 @@ defmodule Letflow.Definitions.Graph do
 
   ## Purity (AC5)
 
-  This module and everything in its call graph depend on Elixir/Erlang stdlib
-  only (`Enum`, `Map`, `MapSet`, `Kernel`) — no `Letflow.Repo`, no
-  `Ecto.Changeset`, no `Logger.*`, no clock read, no HTTP/file call, no
-  process-mailbox call. `validate_graph/1` cannot fail in the usual
+  The structural `validate_graph/1` and everything in its call graph depend on
+  Elixir/Erlang stdlib only (`Enum`, `Map`, `MapSet`, `Kernel`). The separate
+  node/edge validators also perform no I/O; decision 0093's permission lookup
+  reads the pure `Authorization`/module-manifest tables. No validator uses
+  `Letflow.Repo`, `Ecto.Changeset`, `Logger.*`, a clock, HTTP/files or a process
+  mailbox. `validate_graph/1` cannot fail in the usual
   `:ok | {:error, _}` sense: a structurally-invalid input graph is a
   legitimate output value (`%{valid: false, violations: [...]}`), not a
   function failure — see design doc §4 for why this diverges from
@@ -166,6 +168,7 @@ defmodule Letflow.Definitions.Graph do
   field-existence/type-compatibility contract.
   """
 
+  alias Letflow.Api.Authorization
   alias Letflow.Engine.Expr
 
   @type node_type ::
@@ -273,6 +276,8 @@ defmodule Letflow.Definitions.Graph do
             | :invalid_required_outputs
             | :required_outputs_on_non_human_task
             | :required_output_without_variable_schema
+            | :invalid_required_permission
+            | :required_permission_on_non_human_task
             | :invalid_distinct_from
             | :distinct_from_on_non_human_task
             | :distinct_from_self_reference
@@ -455,6 +460,9 @@ defmodule Letflow.Definitions.Graph do
   plus CHK-25 (`check_required_outputs/1`, REQ-461 — the optional
   `required_outputs` attribute is a duplicate-free list of non-empty strings,
   and only on a HUMAN_TASK)
+  plus decision 0093 F1 (`check_required_permission/1` — the optional
+  `required_permission` attribute is a known tenant-scope permission name,
+  and only on a HUMAN_TASK)
   plus CHK-26 (`check_distinct_from/1`, REQ-464 checks 1 and 2 -- the optional
   `distinct_from` attribute's shape and the existence/type of every listed
   node) and CHK-27 (`check_distinct_from_position/1`, REQ-464 check 3 -- a
@@ -484,6 +492,7 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_escalation/1,
         &check_human_task_reminder/1,
         &check_required_outputs/1,
+        &check_required_permission/1,
         &check_distinct_from/1,
         &check_distinct_from_position/1,
         &check_reserved_node_references/1
@@ -1465,6 +1474,55 @@ defmodule Letflow.Definitions.Graph do
         code: :required_outputs_on_non_human_task,
         message:
           "Node '#{node.id}' (#{node.node_type}) has a 'required_outputs' attribute; it is only allowed on a HUMAN_TASK"
+      }
+    ]
+  end
+
+  # Decision 0093 F1: `required_permission` names one known tenant-scope
+  # permission and is legal only on a HUMAN_TASK. The permission name is data;
+  # look it up in Authorization's closed set instead of creating an atom from it.
+  @spec check_required_permission(t()) :: [Violation.t()]
+  defp check_required_permission(%__MODULE__{nodes: nodes}) do
+    Enum.flat_map(nodes, fn node ->
+      case node.attributes do
+        attrs when is_map(attrs) ->
+          case Map.fetch(attrs, "required_permission") do
+            {:ok, raw} -> required_permission_violations(node, raw)
+            :error -> []
+          end
+
+        _no_attributes ->
+          []
+      end
+    end)
+  end
+
+  @spec required_permission_violations(Node.t(), term()) :: [Violation.t()]
+  defp required_permission_violations(%Node{node_type: :HUMAN_TASK} = node, raw) do
+    permission =
+      if is_binary(raw),
+        do: Enum.find(Authorization.permissions(), &(Atom.to_string(&1) == raw)),
+        else: nil
+
+    if is_atom(permission) and Authorization.permission_scope(permission) == :tenant do
+      []
+    else
+      [
+        %Violation{
+          code: :invalid_required_permission,
+          message:
+            "Node '#{node.id}' (HUMAN_TASK) has an invalid 'required_permission' attribute (#{inspect(raw)}); must name a known tenant-scope permission"
+        }
+      ]
+    end
+  end
+
+  defp required_permission_violations(%Node{} = node, _raw) do
+    [
+      %Violation{
+        code: :required_permission_on_non_human_task,
+        message:
+          "Node '#{node.id}' (#{node.node_type}) has a 'required_permission' attribute; it is only allowed on a HUMAN_TASK"
       }
     ]
   end

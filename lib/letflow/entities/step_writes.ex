@@ -1181,6 +1181,9 @@ defmodule Letflow.Entities.StepWrites do
       :handler_invalid_arguments ->
         {:refused, i, :validation_failed, :handler_invalid_arguments}
 
+      {:handler_refused, code} ->
+        {:refused, i, code, :handler_refused}
+
       shape when shape in [:handler_shape, :handler_raised] ->
         {:failed, i, :handler}
 

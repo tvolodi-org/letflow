@@ -128,7 +128,7 @@ defmodule Letflow.Entities.HandlerWrites do
   @token_key {__MODULE__, :call}
 
   @type write_command :: %{required(:entity_type) => String.t(), required(:field_values) => map()}
-  @type handler_error :: :invalid_arguments | :not_permitted
+  @type handler_error :: :invalid_arguments | :not_permitted | {:refused, atom()}
 
   @typedoc """
   What the platform supplies for one handler call (an atom-keyed map): the `HandlerContext`
@@ -1027,6 +1027,8 @@ defmodule Letflow.Entities.HandlerWrites do
   # has no write state to corrupt. A database or connection error from such a read is NOT
   # reduced here: it is re-raised so the engine's contention mapping around
   # `Repo.transaction` sees it (the transaction rolls back either way).
+  @handler_refusal_codes [:record_version_conflict, :master_inactive]
+
   defp call_handler(handler, ctx, args, plan, extra) do
     case safe_call(handler, ctx, args, plan, extra) do
       {{:ok, %Multi{} = built}, produced} ->
@@ -1038,6 +1040,10 @@ defmodule Letflow.Entities.HandlerWrites do
       {{:error, :not_permitted}, _produced} ->
         {:error, :handler_not_permitted}
 
+      {{:error, {:refused, code}}, _produced}
+      when code in @handler_refusal_codes and is_binary(handler.posts_ledger) ->
+        release_handler_refusal(ctx, handler.posts_ledger, code)
+
       {{:raised, exception_module}, _produced} ->
         Logger.error(
           "module write handler raised at build: module=#{handler.module_id} " <>
@@ -1048,6 +1054,23 @@ defmodule Letflow.Entities.HandlerWrites do
 
       _other ->
         {:error, :handler_shape}
+    end
+  end
+
+  # REQ-901: a dispatch has the existing invalid-arguments classification. On the human
+  # path, use the SAME live credential, role and scope decision as a posting, before
+  # releasing any code. A handler may refuse before building a posting: without leg data
+  # the authority check fails closed for a scoped principal (no scope may be inferred).
+  defp release_handler_refusal(%{origin: {:dispatch, _}}, _registration, _code),
+    do: {:error, :handler_invalid_arguments}
+
+  defp release_handler_refusal(ctx, registration, code) do
+    with {:ok, cap} <-
+           Letflow.Ledger.Capability.mint(ctx, registration, %{command: %{}}, "handler_refusal"),
+         :ok <- Letflow.Ledger.Authority.check(cap) do
+      {:error, {:handler_refused, code}}
+    else
+      _denied -> {:error, :handler_not_permitted}
     end
   end
 

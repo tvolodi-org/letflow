@@ -66,6 +66,11 @@ interface InnerProps {
 function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDetail, initialFiltersOpen }: InnerProps) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
+  // The reason code of a posting comes from a reversal, a write off or a quick count; a code with no label is shown as it is.
+  const reasonLabel = (code?: string | null) => {
+    const id = code ? ['stock.doc.reverseReason', 'stock.doc.writeOffReason', 'stock.qc.reason'].map((p) => `${p}.${code}`).find((m) => m in intl.messages) : undefined
+    return id ? t(id) : (code ?? '')
+  }
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const [search] = useSearchParams()
@@ -286,7 +291,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
             empty: !docQuery.data?.posted_by_label,
           },
           { key: 'cause', label: t('stock.journal.f.cause'), value: selectedOp.kindLabel },
-          { key: 'reason', label: t('stock.journal.f.reason'), value: selectedRow.reason_code ?? '', empty: !selectedRow.reason_code },
+          { key: 'reason', label: t('stock.journal.f.reason'), value: reasonLabel(selectedRow.reason_code), empty: !selectedRow.reason_code },
         ]}
       />
     </RegistrySection>

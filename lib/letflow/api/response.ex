@@ -445,6 +445,7 @@ defmodule Letflow.Api.Response do
 
   defp entity_write_status(:write_not_permitted), do: 403
   defp entity_write_status(:record_version_conflict), do: 409
+  defp entity_write_status(:master_inactive), do: 409
   defp entity_write_status(:entity_write_contention), do: 503
   defp entity_write_status(:trigger_backlog_full), do: 503
 

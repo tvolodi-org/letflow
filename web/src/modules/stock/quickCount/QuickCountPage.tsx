@@ -509,7 +509,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                   // No pending approve task came back: the count still waits for approval, so say where it is done.
                   <>
                     <div data-testid="no-task-hint">
-                      <Banner tone="info">{t('stock.qc.no_task_hint')}</Banner>
+                      <Banner tone="info">{t('stock.qc.four_eyes_hint')}</Banner>
                     </div>
                     <div>
                       <Link to="/tasks" data-testid="my-tasks-link">{t('stock.qc.my_tasks_link')}</Link>
