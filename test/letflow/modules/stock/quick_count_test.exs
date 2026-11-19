@@ -336,6 +336,42 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     P.req(ctx, :post, doc["id"], "post") |> refused!(409, "document_posted")
   end
 
+  # T-2288 / decision 0090: a count works on a negative book.
+  defp negative_book!(ctx, qty) do
+    m = ctx.ma
+    Letflow.LedgerFixture.set_negative_balance!(ctx.schema, "stock", true)
+
+    S.post!(ctx.schema, "issue", %{
+      lines: [
+        S.line(
+          m.item,
+          qty,
+          %{from: S.side(m.unit, m.location, %{responsible: m.employee})},
+          %{unit: m.uom}
+        )
+      ]
+    })
+  end
+
+  test "QC-NB1 book -2 counted 3: difference +5, approval posts it and the key reads 3", ctx do
+    negative_book!(ctx, "2")
+    assert Decimal.eq?(balance(ctx), -2)
+    doc = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "3"}))
+
+    assert [%{"book_quantity" => "-2.000000000", "difference" => "5.000000000"}] = doc["lines"]
+    approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
+    assert Decimal.eq?(balance(ctx), 3)
+  end
+
+  test "QC-NB2 book -2 counted 0: difference +2, the key reads 0", ctx do
+    negative_book!(ctx, "2")
+    doc = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "0"}))
+
+    assert [%{"book_quantity" => "-2.000000000", "difference" => "2.000000000"}] = doc["lines"]
+    approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
+    assert Decimal.eq?(balance(ctx), 0)
+  end
+
   test "QC-6b an item with no balance row counts against 0", ctx do
     doc = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "5"}))
     assert [%{"book_quantity" => "0.000000000", "difference" => "5.000000000"}] = doc["lines"]
