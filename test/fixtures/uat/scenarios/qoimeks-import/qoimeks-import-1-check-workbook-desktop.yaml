@@ -5,6 +5,7 @@
 # 4. Data: Items, places, units, responsible-key balances, QOI-OU-1, downloaded workbook, import history and effective quick-count approval rule: listed in scenario preconditions; responsible-key remarks checked against stock_workbook_import.ex and task baseline. A plain zero-stock item/place and independent approver are conditional fixtures, never presumed present. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
 # 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-import.
+# T-2267 code-reading pass (PM 2026-11-19), EXPECTATION CORRECTIONS 4: (1) the remark count of an unchanged export is no longer 'exactly S' (a lot-tracked article gets the R9 remark, other rules can add remarks), now: 0 changes and every remark names an article of the file; (2) the download button is named by its catalog label 'Stock workbook (Qoimeks layout)' (stock.balances.workbook); (3) the remarks hint is quoted only in English, where it names the Russian language; (4) the check button is disabled until an org unit and a file are chosen (WorkbookImportPage).
 # T-2190: run title UAT qoimeks-import; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
@@ -25,8 +26,8 @@
 # Coverage notes (cases outside this walk and environment requirements): (a) normalising of Cyrillic look-alike letters (Russian remarks R11): covered in scenario 3;
 #   (b) the load write path and document creation: covered in scenarios 4 and 5;
 #   (c) a caller without StockQuickCount navigating to the import screen: actor-qoimeks-qa2-storekeeper is available and lacks StockQuickCount (lib/letflow/modules/stock/stock.ex role_grants); walked as the refusal scenario qoimeks-import-6.
-# Preparation: in the signed-in browser download the whole-stock workbook from Balances; save its exact bytes as uat-wb-exact.xlsx. Select QOI-OU-1 for the check.
-# Source #4696 (T-2171 acceptance): unchanged downloaded workbook has R data rows and S distinct stocked articles (both read from the downloaded file at the start of the run), zero changes and S R7 remarks.
+# Preparation: in the signed-in browser download the whole-stock workbook with the Balances button 'Stock workbook (Qoimeks layout)'; save its exact bytes as uat-wb-exact.xlsx. Select QOI-OU-1 for the check.
+# Source #4696 (T-2171 acceptance): unchanged downloaded workbook has R data rows and S distinct stocked articles (both read from the downloaded file at the start of the run), zero changes and no more than S remarks (R7 for stock held by a responsible employee, R9 for a lot-tracked article).
 # docs/runbooks/stock-workbook-import.md rule (g): responsible balances are skipped per article; this is not a proof of plain-key equality.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
@@ -35,7 +36,7 @@ scope: qoimeks-qa2
 title: >-
   The administrator checks the balances workbook on a desktop width, sees no changes for an exact-match file, and
   is refused when uploading a non-Excel file
-version: '1.1'
+version: '1.2'
 tags:
 - qoimeks
 - import
@@ -46,8 +47,8 @@ description: >-
   On a 1440 px desktop window in English, the administrator navigates from the stock Balances screen to the "Load
   balances from Excel" page. They choose an org unit, upload the xlsx workbook of that org unit's current balances
   (uat-wb-exact.xlsx, downloaded as described in the preparation section above) and press Check. The result shows
-  the sheet name, the number of rows read, 0 changed rows (the file exactly matches the book) and S responsible-stock
-  remarks. The "Write balances from the file" button is not enabled because there is nothing to change. The administrator
+  the sheet name, the number of rows read, 0 changed rows (the file exactly matches the book) and remarks only for
+  articles of the file that the check leaves out. The "Write balances from the file" button is not enabled because there is nothing to change. The administrator
   then tries to drop a plain-text file into the file drop zone: the screen refuses it immediately with the message
   "Only .xlsx files are accepted" without sending any request to the server. This scenario writes nothing: no document,
   no ledger entry and no audit entry.
@@ -92,12 +93,12 @@ preconditions:
     support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
     is not a blocker under this task contract.
 - description: >-
-    Before checking, download a fresh unchanged whole-stock workbook through the Balances workbook button. Select
+    Before checking, download a fresh unchanged whole-stock workbook through the Balances button 'Stock workbook (Qoimeks layout)'. Select
     QOI-OU-1. Verify that this is the unchanged synthetic baseline of R data rows and S distinct stocked articles, both counted from the downloaded file at the start of the run (the seed changes them, so no fixed number is used)
     with responsible balances, as recorded in issue #4696.
   check: runner_prepared
   detail: >-
-    Count the workbook data rows (R) and the distinct stocked articles (S) from the downloaded file and read the matching balances before Check; the expected number of remarks equals S. If another
+    Count the workbook data rows (R) and the distinct stocked articles (S) from the downloaded file and read the matching balances before Check; every remark must name an article of the file, and none may name a quantity, place or zone problem (an unchanged export has none). If another
     run has changed this baseline, report the count outcomes BLOCKED-by-environment and retain the observed
     counts; do not change the fixture to force zero remarks.
 steps:
@@ -151,12 +152,12 @@ expected_outcomes:
     suggested_action: route_to_wf03
 - id: EO-002
   description: >-
-    The unchanged synthetic workbook gives zero changes and S responsible-stock remarks.
+    The unchanged downloaded workbook gives zero changes and remarks only for articles of the file.
   verification:
     method: gui_screen
     detail: >-
-      After step 3 the summary has R rows read, 0 changes and S remarks (R and S as recorded from the downloaded file). Each remark explains in Russian that
-      the article is tracked separately by org units, responsible employees, lots or units and is left unchanged.
+      After step 3 the summary has R rows read, 0 changes and at most S remarks (R and S counted from the downloaded file), each naming an article of that file. For an article held by a responsible employee the remark says in Russian that
+      the article is tracked separately by org units, responsible employees, lots or units and is left unchanged; a lot-tracked article gets the lot remark instead.
       The no-change message is shown and the write button is disabled. The remarks hint is present because remarks
       exist. The hint explains that the remarks are written in Russian.
     evidence: >-

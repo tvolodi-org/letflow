@@ -3,12 +3,13 @@
 # lib/letflow/modules/stock/stock.ex role_grants (STOREKEEPER: StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord; no StockQuickCount); web/src/modules/stock/workbook/workbookMessages.ts ('stock.wb.balancesLink': Load balances from Excel);
 # web/src/components/ui/feedbackMessages.ts (permissionDenied text). Product-question note: whether a real storekeeper should hold StockQuickCount is the PM's open decision; this scenario records today's source behaviour, and the same walk as a storekeeper in qoimeks-move-3 and qoimeks-count-1 reports it as a product defect if the PM decides the storekeeper must count.
 # Read-only: nothing is loaded, nothing is written.
+# T-2267 code-reading pass (PM 2026-11-19), EXPECTATION CORRECTIONS 2: (1) the refusal does not rest on the quick-count right alone: after T-2239 the storekeeper also holds StockQuickCount and CodesRead and the load gets its own permission, so the scenario expects the load refused whichever right guards it (target behavior); today main guards the screen and the load route with StockQuickCount (stock.ex role_grants, stockRoutes.tsx); (2) the check route needs only StockRead, so the storekeeper's refusal is of the screen and the load, not of reading balances.
 ---
 id: qoimeks-import-6-storekeeper-refused-excel-load
 scope: qoimeks-qa2
 title: >-
   The storekeeper is not offered the button "Load balances from Excel" and is refused its screen when typed by hand
-version: '1.0'
+version: '1.1'
 tags:
 - qoimeks
 - stock
@@ -18,7 +19,7 @@ tags:
 - desktop
 - read_only
 description: >-
-  The storekeeper signs in at 1440 px in English and opens Balances. The button "Load balances from Excel" is not there for
+  The storekeeper (a role without the right to load balances from Excel; today the quick count right guards the load, after T-2239 the load has its own permission) signs in at 1440 px in English and opens Balances. The button "Load balances from Excel" is not there for
   a user who does not hold the quick count right. The storekeeper then types the address of the load screen
   (the path /admin/stock/workbook-import) and gets the message "You do not have access to this area. Contact your tenant administrator."
   with no upload field. Nothing is loaded or changed.
