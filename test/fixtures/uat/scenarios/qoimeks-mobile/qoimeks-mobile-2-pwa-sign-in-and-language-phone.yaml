@@ -12,6 +12,12 @@
 # 1 Scope: scope is qoimeks-qa2 (tenant and realm exist). 2 Actors (T-2222): actor-qoimeks-qa2-storekeeper (STOREKEEPER), the phone user.
 # 3 Host and screens: the phone PWA lives at https://pwa.letflow.qa.bizdala.com/ ; the tenant host serves only the web SPA and is not installable, so it is used only for the web screens; the Android app and PWA have no quick count screen (REQ-856 cancelled).
 # 4 Data: the synthetic tenant holds the data these steps read; no data precondition beyond the PWA address. 5 Executable: browser steps with the runner's own script. 6 uat.sh preflight not run by the writer (no QA credentials).
+# T-2264 code-reading pass (group check lines are in file 1 of this group): EXPECTATION CORRECTIONS in this file: 5.
+#   (1) an unknown company code now shows "Company not found" because the tenant-config answer carries company_found false (build commit 98848962e, T-2244, issue 4771 closed); the step is written for that behaviour and the HTTP twin (step 10) proves the answer is the same for every unknown code;
+#   (2) the stock home lists "Counts" (Инвентаризации, Түгендеулер) and "Stock documents", and the empty-state line; the language control is NOT on the stock home (only on the entry page and the tenant home app bar), so the language is changed on the tenant home;
+#   (3) the tenant home also offers "Scan a code" (Сканировать код, Кодты сканерлеу) when the codes module is installed; the storekeeper holds CodesRead only after T-2239 (issue 4764), target behaviour is written as step 3 and EO-001;
+#   (4) the language switch also exists on the entry page, so a first reading in Russian can start before sign-in (step 6 may use it);
+#   (5) one unauthorized-access step added (step 10): an unknown or missing company code gets identical answers and discloses nothing.
 ---
 id: qoimeks-mobile-2-pwa-sign-in-and-language-phone
 scope: qoimeks-qa2
@@ -58,7 +64,7 @@ steps:
   - step: 3
     actor: storekeeper
     action: >
-      Back in the PWA the storekeeper reads the page that opens (the tenant home screen with the entry "Stock") and its address bar, then taps "Stock" and reads the stock home.
+      Back in the PWA the storekeeper reads the page that opens (the tenant home screen with the entry "Stock" and, if the codes module is installed in the company, the entry "Scan a code"; the second one is the target behaviour after T-2239) and its address bar, then taps "Stock" and reads the stock home (entries "Counts" and "Stock documents").
     via: ui
   - step: 4
     actor: storekeeper
@@ -92,13 +98,19 @@ steps:
     action: >
       The storekeeper clears the site data of the PWA address in the browser, so that nobody stays signed in.
     via: ui
+  - step: 10
+    actor: storekeeper
+    action: >
+      With no sign-in, the runner reads the company lookup the PWA uses (the public tenant-config answer of the platform host https://qa.bizdala.com, with the parameter slug) three times: for the code qoimeks-qa2-nosuchcompany, for a second code that does not exist (qoimeks-qa2-missing2) and for no code at all, and once for the real code qoimeks-qa2, then compares the answers.
+    expect_refusal: true
+    via: api
 
 expected_outcomes:
   - id: EO-001
     description: The company code leads to the company's own sign-in page, and a correct sign-in returns to the PWA with the stock home.
     verification:
       method: gui_screen
-      detail: After step 1 the browser shows the sign-in page of the realm of the Qoimeks QA company (not another company's page and no error); after step 3 the PWA shows the tenant home screen with the entry "Stock" and, after tapping it, the stock home with the title "Stock" and the entries for stock documents and counts, with no error banner, and the address bar holds no "code=" or "state=" parameters. The text fits the 390 px width without sideways scrolling.
+      detail: After step 1 the browser shows the sign-in page of the realm of the Qoimeks QA company (not another company's page and no error); after step 3 the PWA shows the tenant home screen with the entry "Stock" and, after tapping it, the stock home with the title "Stock" and the entries "Counts" and "Stock documents", with no error banner, and the address bar holds no "code=" or "state=" parameters. The text fits the 390 px width without sideways scrolling.
       evidence: Screenshots of steps 1, 2 and 3 at 390 px, and of step 5 at 1440 px.
     on_fail:
       severity: BLOCKER
@@ -108,7 +120,8 @@ expected_outcomes:
     description: The stock home and the stock documents entry follow the chosen language.
     verification:
       method: gui_screen
-      detail: Step 4 in Russian shows the entry "Склад" on the tenant home screen and, on the stock home, "Склад" and "Складские документы"; in Kazakh shows "Қойма" and "Қойма құжаттары"; in English shows "Stock" and "Stock documents". No English words stay in the Russian or Kazakh screen except the language labels EN, RU, KK, and no text is shown as a raw key such as "stock.home.title".
+      detail: >-
+        Step 4 in Russian shows the entry "Склад" on the tenant home screen and, on the stock home, "Склад" and "Складские документы"; in Kazakh shows "Қойма" and "Қойма құжаттары"; in English shows "Stock" and "Stock documents". The stock home also lists the entry "Counts" ("Инвентаризации", "Түгендеулер"). Where the codes module is installed, the tenant home shows the entry "Scan a code" ("Сканировать код", "Кодты сканерлеу"); this entry is the target behaviour after T-2239 gives the storekeeper CodesRead (issue 4764): if it is missing, report that product defect, and if the codes module is not installed in the company report the entry as BLOCKED-by-environment, never as passed. No English words stay in the Russian or Kazakh screen except the language labels EN, RU, KK, and no text is shown as a raw key such as "stock.home.title".
       evidence: Screenshots of step 4 in the three languages at 390 px.
     on_fail:
       severity: MAJOR
@@ -118,7 +131,7 @@ expected_outcomes:
     description: A company code that does not exist is refused and does not reach any company's data.
     verification:
       method: gui_screen
-      detail: Step 6 shows "Company not found" with the text "We could not find a company for that code. Check the code and try again." (Russian "Компания не найдена" if the language is Russian), no sign-in page of any company opens, and the entry stays on the company-code field.
+      detail: Step 6 shows "Company not found" with the text "We could not find a company for that code. Check the code and try again." (Russian "Компания не найдена" if the language is Russian), no sign-in page of any company and no sign-in page of the default realm opens (the known defect of issue 4771 is fixed on main; a "Client not found" page of the identity provider is a regression), and the app can be left with the code field available again.
       evidence: Screenshot of step 6.
     on_fail:
       severity: MAJOR
@@ -146,11 +159,24 @@ expected_outcomes:
       severity: MAJOR
       business_impact: Either a phone shows company data to whoever picks it up, or a storekeeper is thrown out and cannot get back in.
       suggested_action: route_to_mobile_dev
+  - id: EO-007
+    description: An unknown company code is refused with one identical answer that discloses nothing about other companies.
+    verification:
+      method: api_response
+      detail: >-
+        In step 10 the three answers for an unknown code, a second unknown code and no code are identical once the trace id is dropped: status 200, the default sign-in address of the platform (realm bpm-default, not any company's realm) and company_found false; no company name, id or realm of a real company appears.
+        The answer for qoimeks-qa2 differs only in that its sign-in address ends with the realm qoimeks-qa2 and company_found is true. If the key company_found is missing from the live answers, the deployed platform is older than the build commit 98848962e: report it as a finding, do not weaken the expectation.
+        No request of this step needs a credential and nothing is created or changed.
+      evidence: The four answers side by side in the run's report.
+    on_fail:
+      severity: MAJOR
+      business_impact: A mistyped or guessed code could lead to another company's sign-in page, or tell a stranger which company codes exist.
+      suggested_action: route_to_elixir_dev
   - id: EO-006
     description: The run leaves no record and no sign-in behind.
     verification:
       method: gui_screen
-      detail: After step 9 opening the PWA address shows the company-code entry again; no stock document, count or other record was created by this scenario.
+      detail: After step 9 opening the PWA address shows the company-code entry again; no stock document, count or other record was created by this scenario (step 10 only read).
       evidence: Screenshot of step 9.
     on_fail:
       severity: MINOR

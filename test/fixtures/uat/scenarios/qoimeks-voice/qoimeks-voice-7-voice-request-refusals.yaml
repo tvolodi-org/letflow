@@ -97,6 +97,14 @@ steps:
 - step: 8
   actor: storekeeper
   action: >-
+    The storekeeper's own client, with the credential left out, sends the typed-phrase route the text «приход, болт эм восемь на сорок, сто штук, на а один» with the language ru and the audio route
+    the file /home/tvolodi/qoimeks-voice-audio/webm/ru-01.webm with the language ru, both with no Authorization header (answers N1 and N2); then the same two requests
+    with a bearer value of 64 letters a to f that was never issued (answers W1 and W2). All four requests are refused.
+  expect_refusal: true
+  via: api
+- step: 9
+  actor: storekeeper
+  action: >-
     The storekeeper reads the documents list, the count records list and the balances again and notes D1, C1 and B1.
   via: api
 expected_outcomes:
@@ -171,15 +179,28 @@ expected_outcomes:
     business_impact: >-
       A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
     suggested_action: route_to_elixir_dev
-- id: EO-007
-  description: >-
-    No provider is called and nothing is stored by the six refusals.
+- id: EO-008
+  description: A caller without a valid credential gets the same plain refusal on both voice routes.
   verification:
     method: api_response
     detail: >-
-      D1 equals D0, C1 equals C0 and B1 equals B0. The six refused requests are refused before the speech and model steps
+      N1, N2, W1 and W2 all answer 401 and the four bodies are identical once the trace_id is dropped (the answer does not tell a missing credential from a wrong one,
+      and does not name the route or the phrase); the authentication step runs before the voice code, so no provider is called and the phrase is not echoed.
+    evidence: N1, N2, W1, W2 bodies and the call count.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      An unauthenticated caller can reach a paid speech or model provider, or learns something about the tenant from the answer.
+    suggested_action: route_to_elixir_dev
+- id: EO-007
+  description: >-
+    No provider is called and nothing is stored by the refusals of steps 2 to 8.
+  verification:
+    method: api_response
+    detail: >-
+      D1 equals D0, C1 equals C0 and B1 equals B0. The refused requests of steps 2 to 8 are refused before the speech and model steps
       (the route checks field, language, size and format first), so the run summary counts 0 speech and 0 model calls for
-      this scenario; a provider call here is reported.
+      this scenario; a provider call here is reported. D1, C1 and B1 are read in step 9.
     evidence: D0, D1, C0, C1, B0, B1 and the call count.
   on_fail:
     severity: BLOCKER

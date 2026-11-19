@@ -1,10 +1,10 @@
-# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# T-2258 code-reading pass (2026-11-19); source checks are not live acceptance evidence.
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads movements, posts and reverses where it holds StockPost and StockReverse (qoimeks-ledger-1, 2, 3, 5); actor-qoimeks-qa2-admin / TENANT_ADMIN stays for the approval and posting tasks in My Tasks (STOREKEEPER does not hold TasksReadAll, docs/roles.md) and for the ledger and approval-rule settings (qoimeks-ledger-4, and the refusal of qoimeks-ledger-6). Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, units, places, responsible employee, QOI-OU-1, starting balance and movements, opening approval rule, pending tasks and report data: listed in scenario preconditions. The L7 issued-document posting-variable harness is not supplied by the synthetic baseline; ledger-3 is BLOCKED-by-environment unless it is prepared first. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
-# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-ledger.
+# 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
+# 3. Host and screens: stockRoutes.tsx, router.tsx and mounted stock, My reports and Approval rules pages read on main; read-only tenant-host HEAD returned 200. Live authenticated screens remain unverified.
+# 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is BLOCKED-by-environment until the invalid-item posting harness described in its precondition is supplied; never assume it exists.
+# 5. Executable: source review covers every group outcome: journal filters/legs, receipt post/reversal, L7 rule order, opening approval/audit, report cards and approval-rule refusal. Browser/HTTP runner supplies its own script. Ledger-6 tests unauthorized reads; missing fixture or credentials blocks affected steps before writes.
+# 6. Dry run: T-2258 ran uat.sh preflight with title UAT qoimeks-ledger; health and realm OK, deployed SHA behind main, both actors NO_PASSWORD, tenant and app-role checks UNKNOWN. Acceptance is BLOCKED-by-environment until credentials, deployed build and data preconditions are verified. Evidence: task T-2258/preflight.json and preflight.log; no UAT scenarios run.
 # T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
@@ -18,17 +18,18 @@
 #   one row per report with number/date/status/text, labels in en/ru/kk, shot matrix at 1440 and 390);
 #   web/src/pages/me/MyProblemReportsPage.tsx (REQ-872: route /me/problem-reports, no permission wrapper);
 #   web/src/pages/me/myProblemReportsMessages.ts (en/ru/kk strings: title "My reports"/"Мои сообщения"/"Менің хабарламаларым";
-#   column headers quoted in EO-003 and EO-004);
+#   rendered card received-date label; colNumber/colStatus/colText are unused catalog entries, not headings);
+#   web/src/pages/admin/problem-reports/problemReportsMessages.ts (rendered received-status translations);
 #   web/src/components/layout/reportProblemMessages.ts (button "Report a problem"/"Сообщить о проблеме"/"Мәселе туралы хабарлау";
 #   after-submit link "See my reports"/"Открыть мои сообщения"/"Менің хабарламаларымды ашу");
 #   web/src/router.tsx (route me/problem-reports confirmed with MyProblemReportsPage).
 # Writes: one problem report with text "UAT qoimeks-ledger-5 test report". It stays in the system (no delete route).
 # Coverage notes (cases outside this walk and environment requirements):
-#   (a) A second user seeing only their own reports and not the admin's is available with actor-qoimeks-qa2-storekeeper; it is outside the existing administrator steps, not blocked by an absent actor. REQ-872 backend test covers AC1.
+#   (a) Cross-user visibility is outside this storekeeper walk; the administrator is a second roster actor, not an absent actor.
 #   (b) has_more (the 50-report limit): requires 50 prior reports; not done in a shared QA environment.
 #   (c) The 503 unavailable state: not forceable without taking the server down; covered by REQ-872 component test (AC3).
-#   (d) The in_work, answered, fixed and not_done statuses: the QA tenant has 0 existing feedback rows and the support
-#       team acts on the new report outside the UAT run; only the initial "received" status is UAT-observable at submission.
+#   (d) Other support statuses require support processing outside this walk. Read existing reports at run time;
+#       only the initial received status is asserted for the newly submitted report, before any support processing.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-ledger-5-my-reports
@@ -36,7 +37,7 @@ scope: qoimeks-qa2
 title: >-
   The Qoimeks QA storekeeper sends a problem report and sees it in My reports, in English, Russian and Kazakh
   and on a phone
-version: '1.1'
+version: '1.2'
 tags:
 - qoimeks
 - my_reports
@@ -75,6 +76,10 @@ preconditions:
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
+    Before dependent writes, obtain administrator read evidence of active stock definitions and shared access
+    enabled, quick-count approval ON and opening approval OFF. Verify the chosen item and base unit, linked place,
+    active responsible employee and absence of a location freeze from current tenant reads; if these prerequisites
+    are absent or unreadable, stop the affected steps BLOCKED-by-environment. Do not infer live settings from the generator.
   check: runner_prepared
   detail: >-
     Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
@@ -94,31 +99,31 @@ steps:
   action: >-
     The storekeeper clicks the "Report a problem" button in the top bar. The report dialog opens. The storekeeper
     fills in the description "UAT qoimeks-ledger-5 test report", gives consent and submits the report. The receipt
-    panel (success message and link) is noted as RC1.
+    panel (success message and link) is noted as RC1. Record the assigned report number from the receipt.
   via: ui
 - step: 2
   actor: storekeeper
   action: >-
-    The storekeeper follows the "See my reports" link in RC1 and reads the My reports screen. The row for the
-    submitted report is noted as ROW1.
+    The storekeeper follows the "See my reports" link in RC1 and reads the My reports screen. Match the card to
+    the assigned report number and submitted text; record its number and received timestamp as CARD1.
   via: ui
 - step: 3
   actor: storekeeper
   action: >-
-    The storekeeper switches the language to Russian and reads the My reports screen title, the column headers
-    and the status label of the report.
+    The storekeeper switches the language to Russian and reads the My reports screen title and CARD1's number,
+    received-date label and formatted date, status and original report text.
   via: ui
 - step: 4
   actor: storekeeper
   action: >-
-    The storekeeper switches the language to Kazakh and reads the My reports screen title, the column headers
-    and the status label.
+    The storekeeper switches the language to Kazakh and reads the My reports screen title and the same card's
+    number, received-date label and formatted date, status and original report text.
   via: ui
 - step: 5
   actor: storekeeper
   action: >-
-    At 390 px width the storekeeper opens the My reports screen in Kazakh and reads whether the report row, the
-    report text and the status column are visible and readable without horizontal scrolling.
+    At 390 px width the storekeeper reads the same card in Russian and then Kazakh. Check its number,
+    received date, status and report text for readability without horizontal scrolling in each language.
   via: ui
 - step: 6
   actor: storekeeper
@@ -147,8 +152,9 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      ROW1 shows the report text "UAT qoimeks-ledger-5 test report", a received date (today's date), and status
-      "Received" in English; the row appears in the list with no error banner.
+      CARD1 matches the receipt's assigned number and the submitted text "UAT qoimeks-ledger-5 test report".
+      Its "Received" date label and formatted date correspond to the received timestamp read for this report;
+      its status is "Received" in English. No error banner appears. Do not compare to the runner's calendar day.
     evidence: >-
       Screenshot of step 2 (My reports screen in English at 1440 px).
   on_fail:
@@ -162,8 +168,9 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 3 shows the title "Мои сообщения", the column headers "Номер", "Получено", "Статус", "Ваше сообщение";
-      the status of the report is shown in Russian; no English text is visible in those elements.
+      Step 3 shows the title "Мои сообщения". CARD1 retains its recorded number and submitted text; its
+      received-date label is "Получено" with the same timestamp formatted for Russian, and its status is
+      "Получено". The title, date label and status show translated text rather than message keys.
     evidence: >-
       Screenshot of step 3.
   on_fail:
@@ -177,8 +184,9 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 4 shows the title "Менің хабарламаларым", the column headers "Нөмір", "Қабылданды", "Мәртебе", "Сіздің
-      хабарламаңыз"; the status is shown in Kazakh; no English or Russian text is visible in those elements.
+      Step 4 shows the title "Менің хабарламаларым". The same card retains its recorded number and submitted text;
+      its received-date label is "Қабылданды" with the same timestamp formatted for Kazakh, and its status is
+      "Қабылданды". The title, date label and status show translated text rather than message keys.
     evidence: >-
       Screenshot of step 4.
   on_fail:
@@ -188,14 +196,14 @@ expected_outcomes:
     suggested_action: route_to_frontend_dev
 - id: EO-005
   description: >-
-    At 390 px width the My reports screen is usable in Kazakh.
+    At 390 px width the My reports screen is readable in Russian and Kazakh.
   verification:
     method: gui_screen
     detail: >-
-      Step 5 shows the report row with its text, date and status; no horizontal scroll bar is needed; the report
-      text does not overlap the status or other columns; the title "Менің хабарламаларым" is visible.
+      Step 5 shows CARD1's number, text, received date and translated status without overlap or horizontal
+      scrolling in both languages. The corresponding title "Мои сообщения" or "Менің хабарламаларым" is visible.
     evidence: >-
-      Screenshot of step 5 at 390 px width.
+      Screenshots of step 5 at 390 px width in Russian and Kazakh.
   on_fail:
     severity: MAJOR
     business_impact: >-

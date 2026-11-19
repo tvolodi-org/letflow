@@ -39,10 +39,11 @@
 # READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
 # 1. Scope: qoimeks-qa2 — the tenant and its realm exist (scope checked against the tenant facts).
 # 2. Actors (T-2222, PM 2026-11-19): the old-address post, retry and reversal are done by the test runner with the shared token, which the administrator (actor-qoimeks-qa2-admin / TENANT_ADMIN) creates and revokes (an admin function); every screen reading (balances, document list, phone width) is done by actor-qoimeks-qa2-storekeeper / STOREKEEPER. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
-# 3. Host and screens: the tenant host answers; the stock balance screen and the stock document list exist at main (read at main; the list filters by kind and state, not by operator, see step 8); the old-app address is a deployment precondition (precondition 2).
-# 4. Data: one item with a posted opening balance greater than 0 in at least one place (seeded; counts are read at the start of the run, not hard-coded); no movement with client id R-RETRY-1 yet; the tenant's scope enforcement is off.
+# 3. Host and screens: the tenant host answers; the stock balance screen and the stock document list exist at main (read at main; the list filters by kind and state, not by operator, see step 8); the old-app address https://qa.bizdala.com/qoimeks/qoimeks-qa2 is a deployment precondition (precondition 2), its five routes read in lib/letflow/routers/shared_stock_access.ex; the labels Posted by, Receipt, Posted exist in ru and kk in web/src/modules/stock/documents/documentsMessages.ts.
+# 4. Data: one item with a posted balance greater than 0 at one place (seeded; item, place and balance counts are read at the start of the run, not hard-coded); the item and place ids come from the run's own catalog and balances reads; the client id is not stored, so none is checked for earlier use; the tenant's scope enforcement is off; no shared access exists at the start (read in step 1).
 # 5. Executable: every step runs with a browser or an HTTP client; the shared access value is created by the walk itself at step 2 and kept only in the run's environment.
 # 6. Dry run: uat.sh preflight not run by the writer (no acceptance environment in this step).
+# T-2265 code-reading pass (PM 2026-11-19), read against origin/main: (a) old-app address stated in full (https://qa.bizdala.com/qoimeks/qoimeks-qa2, routes catalog, balances, movements, post, reverse in lib/letflow/routers/shared_stock_access.ex); (b) the old-address balances read sums responsible, lot and unit rows per item and place (OldAppReads.balances), so the 'first active employee' item-picking rule was removed and all balances are sums; (c) the client id in the post body is not stored and no read shows it, so the 'no earlier movement with this client id' precondition was removed; (d) the shared access admin API needs an interactive sign-in, an API token is refused (shared_access_guarded); (e) ids are assigned from 1 in the order of the first catalog read of this run, never the old Qoimeks ids; (f) retry deduplication at this address is NOT built on main (OldAppWrites moduledoc: the client id is accepted and ignored), so the scenarios keep the documented current behaviour, as the PM task allows only #4764 and #4771 as target-behaviour defects. The 'for another server' refusal of a queued entry is the OLD Qoimeks app (checked by the Qoimeks team) and is not UAT-observable here.
 ---
 id: qoimeks-retry-1-receipt-sent-twice-posts-two-documents
 scope: qoimeks-qa2
@@ -80,7 +81,7 @@ preconditions:
   - description: >
       The qoimeks-qa2 tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
       REQ-858 build #4662), and the old-app address (decision 0091 section 6, REQ-859 build #4664)
-      answers for the tenant slug qoimeks-qa2.
+      answers at https://qa.bizdala.com/qoimeks/qoimeks-qa2 (the slug is qoimeks-qa2).
     check: system_seeded
     detail: >
       The walk creates the shared access itself at step 2, so none needs to exist. If the old-app
@@ -92,9 +93,11 @@ preconditions:
       item used in this run is called ITEM-RETRY-R1 for naming purposes.
     check: system_seeded
     detail: If no item with a positive balance can be identified, report BLOCKED.
-  - description: No movement with client id R-RETRY-1 has been posted in this tenant yet.
+  - description: >
+      The client id the walk sends in the body field id is its own value; it is not stored and no read shows it (the movement rows carry id, kind, sku_id, location_id, quantity, operator, created_at), so the walk cannot and need not check that it was unused.
     check: test_setup
-    detail: If a movement with client id R-RETRY-1 already exists, use a different client id.
+    detail: >
+      Nothing to prepare. The two sends are told apart by the movement ids and the balance, never by the client id.
   - description: The run can drive a real browser.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the balance and document steps.
@@ -123,13 +126,13 @@ steps:
   - step: 3
     actor: storekeeper
     action: >
-      The storekeeper opens the stock balance screen in Russian at 1440 px. The balance of
-      ITEM-RETRY-R1 is noted as B0.
+      The storekeeper opens the stock balance screen in Russian at 1440 px and picks an item with a posted balance above 0 at one place (named ITEM-RETRY-R1 and its place). The balance of
+      ITEM-RETRY-R1 at that place (the sum of its rows there) is noted as B0.
     via: ui
   - step: 4
     actor: admin
     action: >
-      Before the first send the test runner maps the item and the place to the integer ids the old-app address needs: it reads the catalog call (GET /catalog) and the balances call (GET /balances) of the old-app address with Authorization: Bearer V1 and takes the integer sku_id of the item and the integer location_id of the place from them. The old-app post puts the stock under the place's first linked org unit and under the first active employee of the tenant as responsible, while every seeded balance carries its own responsible; so the runner picks an item and a place whose balance row has that first active employee as responsible, and the place must be linked to the org unit QOI-OU-1 (otherwise the post is refused 422 location_not_linked: then pick another place). If no such row exists, the runner compares totals per item and place (all responsible rows of that item at that place added together) before and after, never a single row.  Every balance named B0, B1 or BFINAL in this walk is the total per item and place (all responsible rows added), read the same way each time. The test runner sends a receipt to the old-app address for ITEM-RETRY-R1, quantity 5,
+      Before the first send the test runner maps the item and the place to the integer ids the old-app address needs, from the run's own reads only: it reads GET /catalog and GET /balances at the old-app address (https://qa.bizdala.com/qoimeks/qoimeks-qa2) with Authorization: Bearer V1, finds the item by its name or article and the place by its name, and takes the integer sku_id and location_id from those answers (the integers are assigned from 1 in the order of the first catalog read of this tenant; they are never the ids of the old Qoimeks installation, and none is taken from a file or from memory). The old-address balances read adds up every responsible, lot and unit row of one item at one place, so every balance named B0, B1-api, B1-ui, B1-phone or BFINAL in this walk is that sum: on the Balances screen it is the sum of the item's rows at that place (filter by item and place). If the post is refused 422 location_not_linked (the place is linked to no org unit), pick another place that holds the item. The test runner sends a receipt to the old-app address for ITEM-RETRY-R1, quantity 5,
       operator name "Тест-повтор", client id R-RETRY-1 (the `id` field in the JSON body), presenting
       V1 as the bearer credential (the word Bearer followed by the value). The answer is noted as A1.
     via: api

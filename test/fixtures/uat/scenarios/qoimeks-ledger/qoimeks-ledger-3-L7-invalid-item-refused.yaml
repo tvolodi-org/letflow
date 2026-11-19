@@ -1,10 +1,10 @@
-# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# T-2258 code-reading pass (2026-11-19); source checks are not live acceptance evidence.
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads movements, posts and reverses where it holds StockPost and StockReverse (qoimeks-ledger-1, 2, 3, 5); actor-qoimeks-qa2-admin / TENANT_ADMIN stays for the approval and posting tasks in My Tasks (STOREKEEPER does not hold TasksReadAll, docs/roles.md) and for the ledger and approval-rule settings (qoimeks-ledger-4, and the refusal of qoimeks-ledger-6). Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, units, places, responsible employee, QOI-OU-1, starting balance and movements, opening approval rule, pending tasks and report data: listed in scenario preconditions. The L7 issued-document posting-variable harness is not supplied by the synthetic baseline; ledger-3 is BLOCKED-by-environment unless it is prepared first. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
-# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-ledger.
+# 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
+# 3. Host and screens: stockRoutes.tsx, router.tsx and mounted stock, My reports and Approval rules pages read on main; read-only tenant-host HEAD returned 200. Live authenticated screens remain unverified.
+# 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is BLOCKED-by-environment until the invalid-item posting harness described in its precondition is supplied; never assume it exists.
+# 5. Executable: source review covers every group outcome: journal filters/legs, receipt post/reversal, L7 rule order, opening approval/audit, report cards and approval-rule refusal. Browser/HTTP runner supplies its own script. Ledger-6 tests unauthorized reads; missing fixture or credentials blocks affected steps before writes.
+# 6. Dry run: T-2258 ran uat.sh preflight with title UAT qoimeks-ledger; health and realm OK, deployed SHA behind main, both actors NO_PASSWORD, tenant and app-role checks UNKNOWN. Acceptance is BLOCKED-by-environment until credentials, deployed build and data preconditions are verified. Evidence: task T-2258/preflight.json and preflight.log; no UAT scenarios run.
 # T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
 # Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
 # No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
@@ -30,6 +30,7 @@
 # Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 
+# BLOCKED-by-environment: prerequisite generator task "Prepare a run-owned invalid-item posting harness for Qoimeks ledger L7" (not delivered by this scenario task).
 # NOT UAT-observable on the baseline: L7 requires a prepared posting-variable harness. Unknown items fail issue-time unit validation first (Checks.masters/2), so save/issue of a fabricated item is not an L7 test.
 ---
 id: qoimeks-ledger-3-L7-invalid-item-refused
@@ -66,6 +67,10 @@ preconditions:
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
+    Before dependent writes, obtain administrator read evidence of active stock definitions and shared access
+    enabled, quick-count approval ON and opening approval OFF. Verify the chosen item and base unit, linked place,
+    active responsible employee and absence of a location freeze from current tenant reads; if these prerequisites
+    are absent or unreadable, stop the affected steps BLOCKED-by-environment. Do not infer live settings from the generator.
   check: runner_prepared
   detail: >-
     Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
@@ -87,7 +92,10 @@ preconditions:
   check: runner_prepared
   detail: >-
     This fixture is not present in the supplied synthetic tenant and no supported browser action prepares it. The
-    complete scenario is BLOCKED-by-environment unless a controlled test harness has supplied it. Do not create
+    complete scenario is BLOCKED-by-environment until the prerequisite generator task named in the header supplies it.
+    Preflight the manifest by read-only document, pending-task and item reads; missing manifest or any mismatch stops
+    before step 1. The run owns only this prepared issue; step 4 withdraws its pending task and cancels the issue,
+    retaining its history without modifying shared masters. Do not create
     a receipt with a fake article code, do not mutate shared masters, and do not assume an unknown item will pass
     issuing. Source: documents.ex check_issue, documents/checks.ex masters/2 and lines; the posting-variable test
     setup in REQ-832 criterion 2.

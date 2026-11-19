@@ -1,0 +1,158 @@
+# T-2262 code-reading pass, group qoimeks-count (PM 2026-11-19). Run title: UAT qoimeks-count. QA only, synthetic data, no production.
+# 1. Scope: every scenario has scope qoimeks-qa2, the synthetic QA tenant and its realm (qoimeks-qa2, host in the preconditions); the group directory name is not the scope.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks are routed to the role TENANT_ADMIN, so the storekeeper does not see them in My Tasks: the storekeeper holds no TasksReadAll) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). TARGET state after T-2239 (#4764, not merged on main at writing): the storekeeper also holds StockQuickCount and CodesRead; until then the quick count entry is missing for the storekeeper and the walk reports a PRODUCT defect, no step is moved to the administrator.
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com (answered HTTP 200 on 2026-11-19, T-2190; not re-run here). Read on main: web/src/modules/stock/stockRoutes.tsx (route admin/stock/quick-count), stock/index.ts (nav entry), quickCount/QuickCountPage.tsx, quickCountModel.ts, quickCountMessages.ts, documents/documentsModel.ts (actionsFor), register/stockRegisterModel.ts (CAUSES), pages/tasks/taskMessages.ts and TaskDetail.tsx.
+# 4. Data: no balance, item or place is named by code. Every walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item with no lot tracking, a place of one org unit and not one of the negative balances; it records item, place, org unit, the Responsible employee the row shows (none: the form selector stays at Unassigned stock) and the quantity B. Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those, never to a number written here. Tenant state read, not set: all stock process definitions active, quick count approval four-eyes ON, no formal count order open over the place, shared stock access enabled. No generator task is needed.
+# 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 step 7 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
+# 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and the run title UAT qoimeks-count); parse and schema checks only; acceptance runs the preflight.
+---
+id: qoimeks-count-6-four-eyes-and-access-refusals
+scope: qoimeks-qa2
+title: With four-eyes on, the counter cannot approve the own count, the storekeeper cannot approve an administrator
+  task, and a request without a credential or with a wrong credential is refused alike, with nothing changed
+version: '2.0'
+tags:
+- qoimeks
+- stock
+- quick_count
+- four_eyes
+- refusal
+- desktop
+- en
+description: 'REQ-854 criteria 2 and 10, REQ-855 criterion 5. The administrator makes a quick count with a difference
+  on a key and tries to approve it as the same person: My Tasks shows the hint that a different person must approve,
+  and an attempt is refused. The administrator cancels that document with a reason. The storekeeper makes a count
+  with a difference; the approval task is not offered to the storekeeper (it belongs to the administrator role)
+  and the balance stays B; the storekeeper cancels the document. A request to the quick count service without a
+  credential and one with a wrong credential are refused with the same answer, and no document is created. The balance
+  of the key is B at the end.'
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: Sign in as actor-qoimeks-qa2-storekeeper (STOREKEEPER) at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
+    and confirm the tenant before any action. Read the counts of items, places and posted balances at the start
+    of the run and compare to those later.
+  check: runner_prepared
+  detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
+    seed, grant roles or change approval rules to satisfy a precondition.
+- description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
+    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    shows and B before any count.
+  check: runner_prepared
+  detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
+    selector is set to that employee (the form books against that exact key). If no such row exists, report BLOCKED-by-environment
+    before submitting; do not create stock.
+- description: No formal count order is open over the chosen place for the same org unit, and nobody else posts
+    to the key during the walk.
+  check: system_seeded
+  detail: UAT assumption, to be confirmed by the process owner. If the screen refuses with a message that a count
+    is in progress or the place is frozen, quote it and its order number and report BLOCKED-by-environment. If the
+    posting is refused because the balance changed, keep the evidence, cancel the unposted document, read a fresh
+    B and repeat once.
+- description: 'TARGET state after T-2239 (#4764): the storekeeper sees "Quick count" in the stock navigation and
+    may open it.'
+  check: system_seeded
+  detail: If the entry is missing for the storekeeper, report a PRODUCT defect (#4764) and do not type the address;
+    the walk is not moved to the administrator. Until T-2239 merges the affected outcomes of this scenario FAIL
+    as product defects, they are not weakened.
+- description: 'Four-eyes is ON for the quick count approval (second person approves) and a different person from
+    the counter can complete the approve task: the administrator. The administrator can sign in separately.'
+  check: runner_prepared
+  detail: Read the state through the visible hint after the first submit. If the administrator cannot sign in, the
+    outcomes that need the second person are BLOCKED-by-environment.
+steps:
+- step: 1
+  actor: storekeeper
+  action: The storekeeper opens Balances, notes a row as in the preconditions (item, place, org unit, Responsible
+    employee, B), and the newest document number in the stock documents list as N0.
+  via: ui
+- step: 2
+  actor: admin
+  action: The administrator, signed in separately, opens "Quick count", chooses the same item, place, org unit and
+    Responsible employee, types B plus 1 as counted quantity, chooses the reason "Other", types the note "UAT qoimeks-count-6
+    admin" and presses "Submit count". The administrator reads the result, then opens My Tasks and selects the approval
+    task of this document.
+  via: ui
+- step: 3
+  actor: admin
+  action: 'The administrator reads the task detail: the hint under the task; then presses "Approve" if the screen
+    offers it.'
+  expect_refusal: true
+  via: ui
+- step: 4
+  actor: admin
+  action: The administrator opens the document in the stock documents list, presses "Cancel document", chooses the
+    reason "Other", types the note "UAT qoimeks-count-6 cleanup" and confirms; then reads Balances for the key.
+  via: ui
+- step: 5
+  actor: storekeeper
+  action: The storekeeper opens "Quick count", chooses the same key, types B plus 1, reason "Other", note "UAT qoimeks-count-6
+    storekeeper", presses "Submit count", reads the result, then opens My Tasks and looks for the approval task
+    of that document. The storekeeper then reads Balances for the key.
+  expect_refusal: true
+  via: ui
+- step: 6
+  actor: storekeeper
+  action: The storekeeper opens the document in the stock documents list, presses "Cancel document", chooses the
+    reason "Other", types the note "UAT qoimeks-count-6 cleanup 2" and confirms.
+  via: ui
+- step: 7
+  actor: admin
+  action: 'The test runner sends the same count as step 2 (the item, place and org unit identifiers it read in step
+    1 and counted quantity B plus 1) to the tenant quick count service twice: once without any Authorization header
+    (answer R1) and once with the Authorization header value "Bearer WRONG-TOKEN-VALUE" (answer R2). Then the administrator
+    reads the stock documents list and Balances.'
+  expect_refusal: true
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: The counter cannot approve the own count when four-eyes is on (REQ-854 criterion 2, REQ-855 criterion
+    5).
+  verification:
+    method: gui_screen
+    detail: Step 2 shows the result with state "Issued" and no "Approve" button. Step 3 shows on the task the hint
+      "You issued this document; a different person must approve it." and, when an approval is sent, the refusal
+      "A different person must approve this document."; the task stays open and Balances still shows B.
+    evidence: Screenshots of steps 2 and 3 and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: One person could change stock alone.
+    suggested_action: route_to_backend_dev
+- id: EO-002
+  description: A cancelled unposted count leaves stock untouched.
+  verification:
+    method: gui_screen
+    detail: Step 4 shows the document "Cancelled" and the key at B on Balances.
+    evidence: Screenshot of step 4.
+  on_fail:
+    severity: MAJOR
+    business_impact: A cancelled count would still change stock.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: The storekeeper cannot approve a count (REQ-854 criterion 10; the approval task is routed to the
+    administrator role).
+  verification:
+    method: gui_screen
+    detail: Step 5 shows the result of the storekeeper count with no "Approve" button, My Tasks of the storekeeper
+      listing no approval task for that document, and Balances at B. If an approval task is listed for the storekeeper,
+      that is a FAIL.
+    evidence: Screenshots of step 5.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A counter without approval authority would post.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: A request without a credential and one with a wrong credential are refused alike and create nothing
+    (REQ-854 criterion 10).
+  verification:
+    method: api_response
+    detail: R1 has HTTP status 401, R2 has HTTP status 401, and after removing the trace_id field from both bodies
+      R1 and R2 are byte-identical and say nothing about whether a credential exists. The stock documents list shows
+      no document newer than the cancelled ones of steps 4 and 6 (newest document number is not a new one made by
+      step 7) and the key is at B on Balances.
+    evidence: Status and body of R1 and R2 side by side; screenshots of the documents list and Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: An outsider could tell whether a credential exists, or create a count.
+    suggested_action: route_to_backend_dev

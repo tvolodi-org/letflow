@@ -17,7 +17,7 @@
 # 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
-# 4. Data: the seed has 678 items, 216 with a usual place, so items without one exist (read the counts at the start of the run); the precondition checks it.
+# 4. Data: the seed has items without a usual place (most of the items); the run finds one by opening cards, counts are read at the run and never hard-coded; the precondition checks it.
 # 5. Executable: browser steps only; the data check is read-only.
 # 6. Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
@@ -44,10 +44,9 @@ preconditions:
   - description: An active synthetic item is known to have no usual place assigned.
     check: system_seeded
     detail: >
-      Identify its actual code and name from the synthetic import evidence or the
-      storekeeper's read-only item query, following all pages as needed; save the empty
-      assignment and item code in the run evidence. Do not infer emptiness from a blank
-      screen or an unresolved location name. If no suitable item exists, report BLOCKED
+      Open item cards on the Items screen (search matches code or title, the list is paged) until one shows a dash in the
+      usual-place field; save its code and name in the run evidence. A dash on a fully loaded card is the evidence;
+      do not infer emptiness from a loading card or an unresolved place name. If no suitable item exists, report BLOCKED
       for this scenario; do not alter seeded items or invent a replacement.
 steps:
   - step: 1
@@ -60,7 +59,7 @@ steps:
     actor: storekeeper
     action: >
       Read the section «Обзор» (Russian) or «Шолу» (Kazakh) and capture the article code, name and usual-place field. Read the
-      view-only notice and the link to import; leave the item unchanged.
+      view-only line («Номенклатура загружается через «Импорт данных»; здесь её нельзя изменить.» / «Номенклатура «Деректерді импорттау» арқылы жүктеледі; мұнда өзгертуге болмайды.») and its link; leave the item unchanged.
     via: ui
   - step: 3
     actor: storekeeper
