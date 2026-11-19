@@ -12,7 +12,10 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${ANDROID_RELEASE_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MOBILE_DIR="${ANDROID_RELEASE_MOBILE_DIR:-$REPO_ROOT/apps/mobile}"
-KEY_PROPS="$MOBILE_DIR/android/key.properties"
+BUILD_KEY="$MOBILE_DIR/android/key.properties"
+KEY_PROPS="$BUILD_KEY"
+CUSTOM_KEY=0 BACKUP_KEY=""
+NAME_PREFIX="letflow"
 
 OUT="" BASE_URL="" API_URL="" PLATFORM_HOST="" MIN_CODE="" NOTES_FILE=""
 LAST_PUBLISHED="" FIRST_RELEASE=0 DRY_RUN=0
@@ -30,6 +33,8 @@ while [ $# -gt 0 ]; do
     --last-published) LAST_PUBLISHED="${2:-}"; shift 2 ;;
     --first-release) FIRST_RELEASE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --name-prefix) NAME_PREFIX="${2:-}"; shift 2 ;;
+    --key-properties) KEY_PROPS="${2:-}"; CUSTOM_KEY=1; shift 2 ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -41,6 +46,9 @@ case "$BASE_URL" in https://*) ;; *) die "--base-url must be an https URL" ;; es
 if [ -n "$API_URL" ]; then
   case "$API_URL" in https://*) ;; *) die "--api-base-url must be an https URL" ;; esac
 fi
+
+case "$NAME_PREFIX" in ''|*[!A-Za-z0-9._-]*|-*|.*) die "--name-prefix must be non-empty and use only letters, digits, . _ - (not starting with - or .)" ;; esac
+[ "$CUSTOM_KEY" -eq 0 ] || [ -n "$KEY_PROPS" ] || die "--key-properties needs a file"
 
 mkdir -p "$OUT" || die "cannot create --out"
 OUT="$(cd "$OUT" && pwd -P)"
@@ -80,7 +88,7 @@ if [ -z "$MIN_CODE" ]; then MIN_CODE="${PREV_MIN:-1}"; fi
 case "$MIN_CODE" in ''|*[!0-9]*) die "--min-version-code must be a number" ;; esac
 if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then die "--notes-file not found"; fi
 
-NAME="letflow-$VERSION_NAME-$VERSION_CODE"
+NAME="$NAME_PREFIX-$VERSION_NAME-$VERSION_CODE"
 DEFINES=()
 [ -n "$API_URL" ] && DEFINES+=("--dart-define=LETFLOW_API_BASE_URL=$API_URL")
 if [ -n "$PLATFORM_HOST" ]; then
@@ -98,6 +106,21 @@ fi
 # --- build -------------------------------------------------------------------------------------
 command -v flutter >/dev/null 2>&1 || { echo "android_release_build: flutter not found on PATH" >&2; exit 1; }
 cd "$MOBILE_DIR" || exit 1
+# --key-properties: the file sits at the fixed build path only for the build; an existing file there is
+# put back afterwards. Nothing is printed.
+restore_key() {
+  rm -f "$BUILD_KEY"
+  if [ -n "$BACKUP_KEY" ] && [ -f "$BACKUP_KEY" ]; then mv -f "$BACKUP_KEY" "$BUILD_KEY"; fi
+}
+if [ "$CUSTOM_KEY" -eq 1 ]; then
+  mkdir -p "$(dirname "$BUILD_KEY")"
+  if [ -f "$BUILD_KEY" ]; then
+    BACKUP_KEY="$BUILD_KEY.bak.$$"
+    mv -f "$BUILD_KEY" "$BACKUP_KEY" || exit 1
+  fi
+  trap restore_key EXIT
+  cp "$KEY_PROPS" "$BUILD_KEY" && chmod 600 "$BUILD_KEY" || exit 1
+fi
 flutter build apk --release "${DEFINES[@]}" || { echo "android_release_build: apk build failed" >&2; exit 1; }
 flutter build appbundle --release "${DEFINES[@]}" || { echo "android_release_build: appbundle build failed" >&2; exit 1; }
 
