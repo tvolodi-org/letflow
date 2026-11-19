@@ -181,7 +181,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      After step 4, Previous loads shows the recorded document number as a link in the Number column, the name of the person who loaded in User (a dash only when the name cannot be resolved), file uat-wb-one-change.xlsx,
+      After step 4, Previous loads shows the recorded document number as a link in the Number column, the name of the administrator who made the load in the User column (the label of actor-qoimeks-qa2-admin as the server resolves it: linked employee "code - name", else display name, else username; a dash or an empty cell is a FAIL, because the name is resolvable for this actor), file uat-wb-one-change.xlsx,
       Lines 1, Remarks 0 and state Issued. Cancel is available for this row (the administrator holds the reverse right).
     evidence: >-
       Screenshot of the imports list showing the new entry in state Issued.

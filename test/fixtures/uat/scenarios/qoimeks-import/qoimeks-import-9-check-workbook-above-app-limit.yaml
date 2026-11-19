@@ -1,0 +1,146 @@
+# T-2327 (BA, PM 2026-11-20, infra #4827): size class above the application's limit. Sources as in qoimeks-import-8 (read the header there): app request-body limit 2_097_152 bytes (api_pipeline.ex, decision 0077), the workbook parser Letflow.Plugs.XlsxBodyParser raises Plug.Parsers.RequestTooLargeError (413); per-route nginx limit of the workbook routes 3m.
+# STATE A (before product task T-2328 is merged and deployed): the app's own 413 comes with an EMPTY or non-JSON body (infra probe at 2.5 MiB), the screen shows the generic text 'The operation failed. Try again.' (stock.wb.err.generic, since the model maps no status 413). The MISSING clear message and JSON body are recorded as a DEFECT (issue) by the walk, NOT as a scenario failure: the scenario's refusal and nothing-stored outcomes are what PASS or FAIL in state A.
+# STATE B (after T-2328 is merged and deployed): the answer is JSON with the code request_too_large and the limit, and the screen shows a clear message naming the size limit in en, ru and kk. The texts do not exist on main yet: the runner reads them from the catalog (web/src/modules/stock/workbook/workbookMessages.ts) at that time; never invent a text. The walk says in its result which state it found.
+# Photo note (PM 2026-11-20, point C): a photo upload exists on main only for asset cards (POST of the asset card photos route; Letflow.Modules.Assets.CardPhotos with Letflow.Attachments.Image: original 5_242_880 bytes and 4096 px, thumbnail 102_400, refusal photo_too_large) and nginx 6m for it. No photo upload exists on the stock side (grep 'photo' over web/src/modules/stock and lib/letflow/modules/stock: no hit), so NO photo scenario is written for Client 1 (Qoimeks stock). It is a CMMS note for the future photos part: REQ-895 (photos on a work request, through the shared attachment service) must bring its own size scenario: a 3-4 MB image accepted, a 6 MB image refused with photo_too_large, and nginx 6m above the app's 5 MiB.
+# 1. Scope: qoimeks-qa2, the existing synthetic tenant and realm (same as the rest of this group).
+# 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN (same screen guard as qoimeks-import-8); exists in actors.yaml; live login verified by acceptance.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2; route admin/stock/workbook-import, the check error box (data-testid wb-check-error) read in WorkbookImportPage.tsx; the generic error text read in workbookMessages.ts (en, ru, kk).
+# 4. Data: no tenant data beyond one org unit to select; the generated files carry invented articles; nothing may be stored. Counts of items, places, balances and the list of loads are recorded at the start of the run (Items screen total, Locations total, Balances rows, loads list) and compared at the end.
+# 5. Executable: a browser upload of the generated file, plus the same bytes sent with an HTTP client to the check route for the status, content type and body (the browser does not show them). The classification of the body is mechanical: nginx page = contains '<html' and 'nginx'; the app's answer has neither.
+# 6. Dry run: live preflight not run in this writing step (acceptance credentials); the generator produced 2.5 and 3 MiB files of exactly the asked size; the live status of the 2.5 MiB case (the app's 413) comes from infra's probe quoted in the task text, not from this step.
+# EXPECTATION CORRECTIONS: 3 (no JSON body demanded in state A; the screen text in state A is the generic one, not a size message; 'above 3 MiB' is nginx's own page and informational only, not a refusal expectation of the app).
+---
+id: qoimeks-import-9-check-workbook-above-app-limit
+scope: qoimeks-qa2
+title: >-
+  A generated workbook of 2.5 to 3 MiB is refused by the application itself, not by the proxy page, and nothing is stored
+version: '1.0'
+tags:
+- qoimeks
+- import
+- size
+- refusal
+- proxy
+description: >-
+  The administrator checks a generated synthetic workbook of about 2.5 MiB, above the 2 MiB request limit of the
+  application and below the 3 MiB the proxy lets through on this route. The application refuses it with its own 413
+  (not an HTML page of the proxy) and nothing is stored. In state A (before T-2328) the answer body is empty or not
+  JSON and the screen shows the generic failure text; the missing clear message is recorded as a defect. In state B
+  (after T-2328) the body is JSON with the code request_too_large and the limit, and the screen shows a clear message
+  in English, Russian and Kazakh. A separate informational step sends a file above 3 MiB, which the proxy itself
+  refuses with its HTML page.
+actors:
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: >-
+    The Qoimeks QA tenant exists, the stock module is active, the administrator can sign in, and at least one org
+    unit can be chosen on the import screen. The runner records the item, place and balance counts and the list of
+    loads at the start of the run (Items screen total, Locations total, Balances rows, loads list).
+  check: system_seeded
+  detail: >-
+    If the tenant is not reachable or the login is missing, report BLOCKED for the whole scenario.
+- description: >-
+    The runner has made two files with the generator of the header: one of 2,621,440 bytes (2.5 MiB) and one of
+    3,670,016 bytes (3.5 MiB, for the informational step only), and read their real sizes.
+  check: runner_prepared
+  detail: >-
+    If a file cannot be made, report BLOCKED-by-environment for the steps that use it. The first must be above
+    2,097,152 and below 3,145,728 bytes.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on the tenant's own address in a desktop window, opens the import screen "Load
+    balances from Excel", chooses an org unit, uploads the 2.5 MiB workbook and presses Check. The runner reads the
+    screen after the answer.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The runner sends the same 2.5 MiB bytes with an HTTP client to the check route with the administrator's token
+    and the workbook content type, and records the status, the content type and the first 200 characters of the body.
+  via: api
+- step: 3
+  actor: admin
+  action: >-
+    The administrator switches the screen language to Russian and then to Kazakh, uploads the same file again and
+    reads the message each time (state B only; in state A the runner records the generic text in each language).
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator reads the list of loads and the Balances totals.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    Informational only: the runner sends the 3.5 MiB bytes the same way as in step 2 and records the status, the
+    content type and the first 200 characters of the body.
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The application refuses a workbook above its 2 MiB request limit itself, with 413, and the answer is not the proxy's page.
+  verification:
+    method: api_response
+    detail: >-
+      In step 2 the status is 413 and the body does NOT contain '<html' or 'nginx' (the proxy page does). State A:
+      the body is empty or not JSON, which is accepted. State B: the body is JSON with the code request_too_large and
+      the limit in bytes (2,097,152, decision 0077). No JSON body is demanded in state A.
+    evidence: >-
+      Status, content type and first 200 characters of the body; the state found (A or B) named in the result.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      An oversized file is stopped by the wrong layer or answered in a way the screen cannot explain, so the
+      bookkeeper does not learn that the file is too big.
+    suggested_action: route_to_infra
+- id: EO-002
+  description: >-
+    The screen shows that the operation failed and, in state B, a clear message about the size limit.
+  verification:
+    method: gui_screen
+    detail: >-
+      State A: the check error box shows the generic text (English 'The operation failed. Try again.', Russian
+      'Операция не выполнена. Попробуйте ещё раз.', Kazakh 'Операция орындалмады. Қайталап көріңіз.'); no result
+      panel is shown; the walk records the missing size message as a DEFECT, not as a failure of this outcome.
+      State B: the box shows a message that names the size limit, in each of the three languages (read from the
+      catalog at that time); no result panel is shown.
+    evidence: >-
+      Screenshots of the error box in English, Russian and Kazakh; the state found.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The bookkeeper sees a failure without knowing the file is too big and may retry the same file indefinitely.
+    suggested_action: route_to_frontend_dev
+- id: EO-003
+  description: >-
+    Nothing is stored by the refused uploads.
+  verification:
+    method: gui_screen
+    detail: >-
+      In step 4 the list of loads shows no new load and the Balances totals equal the counts recorded at the start
+      of the run.
+    evidence: >-
+      Screenshot of the list of loads and of the Balances totals.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A refused file must never change stock.
+    suggested_action: route_to_wf03
+- id: EO-004
+  description: >-
+    Informational: above 3 MiB the proxy itself answers with its HTML page.
+  verification:
+    method: api_response
+    detail: >-
+      In step 5 the status is 413 and the body contains '<html' and 'nginx' (the proxy limit of 3m on the workbook
+      routes). This line is reported as information only and never fails the scenario; if the body is the
+      application's, report that as a note.
+    evidence: >-
+      Status, content type and first 200 characters of the body.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      None for the business: the file is refused either way; the note only records which layer answered.
+    suggested_action: none
