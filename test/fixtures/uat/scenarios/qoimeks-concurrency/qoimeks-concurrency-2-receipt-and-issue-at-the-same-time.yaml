@@ -1,86 +1,106 @@
-# T-2310 (BA), group qoimeks-concurrency, scenario 2: GO GATE 2 of 4 (decision 0061). Header lines of the group: see scenario 1 of this group.
-# 1. Scope: qoimeks-qa2 (exists).
-# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) and actor-qoimeks-qa2-admin (TENANT_ADMIN); both hold StockPost (docs/roles.md line 189). Live logins: preconditions for acceptance.
-# 3. Host and screens: stock Documents, Balances and Movements screens at https://qoimeks-qa2.letflow.qa.bizdala.com (web/src/modules/stock/stockRoutes.tsx).
-# 4. Data: an item with at least 20 on hand at one place (read at the start of the run); no fixed numbers.
-# 5. Executable: two sessions at most, one attempt, one shared "go" signal; no loop.
+# T-2310 (BA), reworked T-2339 (issues 4843 and 4844, PM 2026-11-20), group qoimeks-concurrency, scenario 2: GO GATE 2 of 4 (decision 0061). Header lines of the group: see scenario 1 of this group.
+# 1. Scope: qoimeks-qa2 (exists, host https://qoimeks-qa2.letflow.qa.bizdala.com).
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER: creates and issues the two documents, starts the reversals) and the two tenant administrators actor-qoimeks-qa2-admin and actor-qoimeks-qa2-admin2 (TENANT_ADMIN, T-2334 roster entry), who complete one posting task each at the same time (the ledger write; decision 0061). Routing is addressing (0088 D5): the runner finds each task live in My Tasks by the document number and assumes no role chip. Live logins: preconditions for acceptance.
+# 3. Host and screens: stock Documents, Document, Balances, My Tasks and Movements screens at the tenant host (web/src/modules/stock/stockRoutes.tsx, admin/stock/movements; Movements filters: cause, document type, document, from/to posting number, MovementsPage.tsx).
+# 4. Data: an item with at least 20 on hand at one place (read at the start of the run); no fixed numbers; other sessions may take numbers, so only this walk's own documents are compared.
+# 5. Executable: two sessions at most (admin and admin2), one attempt, one shared "go" signal; no loop.
 # 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-concurrency").
-# EXPECTATION CORRECTIONS: 1 the refusal step is a read with no credential (401, auth pipeline), not a reverse of an unknown id, because that route answer was not traced; the negative balance setting is not part of this scenario (the quantity out is small).
+# EXPECTATION CORRECTIONS: 4 (a) the concurrent action is the two task completions by admin and admin2, not the two issues; (b) My Tasks steps added for the post tasks and for the cleanup reversal tasks; (c) EO-003 'NR1 is NR0 plus 1, NI1 is NI0 plus 1' replaced by checks on the walk's own two documents (own prefix, different prefixes, same year); (d) the refusal step is a read with no credential (401, auth pipeline), not a reverse of an unknown id.
 ---
 id: qoimeks-concurrency-2-receipt-and-issue-at-the-same-time
 scope: qoimeks-qa2
 title: >-
-  A receipt and an issue for the same item and place posted at the same time by two people: both succeed and the balance is the exact net
-version: "1.0"
+  A receipt and an issue for the same item and place completed at the same time by two administrators: both succeed and the balance is the exact net
+version: "1.1"
 tags: [qoimeks, concurrency, ledger, lock-order, go-gate]
 
 description: >-
-  The storekeeper issues goods out (kind Issue, quantity Q-OUT, for example 2) while the administrator
-  receives goods in (kind Receipt, quantity Q-IN, for example 4) for the same item at the same place, started
-  at the same moment (decision 0061). Both documents end Posted; the balance is B0 plus Q-IN minus Q-OUT;
-  each document gets the next number of its OWN series (the series of Receipt and of Issue are separate, decision 0056 D2).
-  Cleanup: both are reversed.
+  The storekeeper issues two documents for the same item at the same place: an Issue (quantity Q-OUT, for example 2)
+  and a Receipt (quantity Q-IN, for example 4). Each only starts a posting task. On one "go" signal the
+  administrator completes the Receipt task and the second administrator completes the Issue task at the same
+  moment (decision 0061). Both documents end Posted; the balance is B0 plus Q-IN minus Q-OUT; each document carries a
+  number of its OWN series (the Receipt and Issue series are separate, decision 0056 D2). Cleanup: both are reversed
+  through the reversal tasks, completed by the two administrators.
 
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
   admin: actor-qoimeks-qa2-admin
+  admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
   - description: An item with at least 20 on hand at one place that is linked to an org unit; the stock process definitions are ACTIVE.
     check: system_seeded
     detail: Read the Balances screen at the start; if none, BLOCKED-by-environment.
-  - description: Two sessions can be driven at the same time.
+  - description: Two browser contexts can be driven at the same time, all three accounts can sign in and both posting tasks appear in My Tasks.
     check: system_seeded
-    detail: If not, BLOCKED; never serialise and call it a pass.
+    detail: If not, BLOCKED; never serialise and call it a pass (admin2 is new in the roster, T-2334).
 
 steps:
   - step: 1
     actor: storekeeper
     action: >-
-      The storekeeper reads, at 1440 px in Russian, the balance of one item at one place as B0 (sum of the
-      item's rows there), the highest Receipt number as NR0 and the highest Issue number as NI0 on the
-      Documents screen (zero when there is none).
+      The storekeeper reads, at 1440 px in Russian, the balance of one item at one place as B0 (sum of the item's
+      rows there) on the Balances screen.
     via: ui
   - step: 2
     actor: storekeeper
-    action: The storekeeper prepares a draft Issue of Q-OUT of that item from that place (not issued yet).
+    action: >-
+      The storekeeper creates and issues an Issue of Q-OUT of that item from that place (number NI1), then creates and
+      issues a Receipt of Q-IN of the same item to the same place (number NR1). Both show Issued; the balance is still B0.
     via: ui
   - step: 3
     actor: admin
-    action: The administrator prepares a draft Receipt of Q-IN of the same item to the same place (not issued yet).
+    action: >-
+      The administrator opens My Tasks, finds the posting task of the Receipt NR1 by its number, opens and claims it, without completing it.
     via: ui
   - step: 4
-    actor: storekeeper
+    actor: admin2
     action: >-
-      On one "go" signal the storekeeper issues the Issue draft and the administrator issues the Receipt draft at
-      the same moment. One attempt; a named "busy" answer is repeated once for that request only.
+      The second administrator opens My Tasks in a second browser context, finds the posting task of the Issue NI1
+      by its number, opens and claims it, without completing it.
     via: ui
   - step: 5
-    actor: storekeeper
+    actor: admin
     action: >-
-      When both show Posted (read again each ten seconds, two minutes at most), the storekeeper notes the
-      number of the Issue as NI1, of the Receipt as NR1 and the balance as B1; then opens the Balances screen at
-      390 px in Kazakh and notes the balance as B1-phone.
+      On one "go" signal the administrator completes the Receipt task and the second administrator completes the
+      Issue task at the same moment. One attempt; a named "busy" answer is repeated once for that completion only.
     via: ui
   - step: 6
+    actor: storekeeper
+    action: >-
+      When both show Posted (read again each ten seconds, two minutes at most), the storekeeper notes the balance as
+      B1; then opens the Balances screen at 390 px in Kazakh and notes the balance as B1-phone.
+    via: ui
+  - step: 7
     actor: storekeeper
     action: >-
       The test runner reads the stock balances with no credential at all. It is refused; the balance read
       again on the screen is still B1.
     expect_refusal: true
     via: api
-  - step: 7
+  - step: 8
+    actor: storekeeper
+    action: >-
+      Cleanup, start: the storekeeper uses the action Reverse on the Issue NI1 and on the Receipt NR1. Each starts a reversal task.
+    via: ui
+  - step: 9
     actor: admin
     action: >-
-      Cleanup: both documents are reversed (the Issue by the storekeeper, the Receipt by the administrator); the balance is read as BFINAL.
+      The administrator opens My Tasks, claims and completes the reversal task of the Receipt NR1.
+    via: ui
+  - step: 10
+    actor: admin2
+    action: >-
+      The second administrator opens My Tasks, claims and completes the reversal task of the Issue NI1. The
+      storekeeper reads the balance as BFINAL.
     via: ui
 
 expected_outcomes:
   - id: EO-001
-    description: Both documents succeed at the same time with no deadlock (decision 0061).
+    description: Both completions succeed at the same time with no deadlock (decision 0061).
     verification:
       method: gui_screen
-      detail: Both end Posted within two minutes; no answer is a server error or a time-out.
+      detail: Both documents end Posted within two minutes; no answer is a server error or a time-out.
       evidence: "States of the two documents and the answers."
     on_fail:
       severity: BLOCKER
@@ -91,7 +111,7 @@ expected_outcomes:
     description: The balance is the exact net of the two postings.
     verification:
       method: gui_screen
-      detail: B1 equals B0 plus Q-IN minus Q-OUT; B1-phone equals B1.
+      detail: After step 2 the balance is still B0; B1 equals B0 plus Q-IN minus Q-OUT; B1-phone equals B1.
       evidence: "B0, Q-IN, Q-OUT, B1, B1-phone."
     on_fail:
       severity: BLOCKER
@@ -99,14 +119,17 @@ expected_outcomes:
       suggested_action: route_to_elixir_dev
 
   - id: EO-003
-    description: Each document takes the next number of its own series (decision 0056 D2).
+    description: Each document of the walk carries a number of its own series (decision 0056 D2).
     verification:
       method: gui_screen
-      detail: NR1 is NR0 plus 1 (prefix of the Receipt series) and NI1 is NI0 plus 1 (prefix of the Issue series); the two prefixes differ and both carry the same year.
-      evidence: "NR0, NR1, NI0, NI1."
+      detail: >-
+        NR1 carries the prefix of the Receipt series and NI1 the prefix of the Issue series; the two prefixes differ
+        and both carry the same year. Neither number is compared with a number read before the walk, because other
+        sessions may take numbers of the same tenant.
+      evidence: "NR1 and NI1 as the Documents screen shows them."
     on_fail:
       severity: BLOCKER
-      business_impact: Numbers of different kinds would mix or skip.
+      business_impact: Numbers of different kinds would mix.
       suggested_action: route_to_elixir_dev
 
   - id: EO-004
@@ -114,19 +137,19 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >-
-        Step 6: HTTP status 401 with the standard error shape and no balance in the body (lib/letflow/plugs/auth_pipeline.ex respond_auth_error); the balance read again on the screen is still B1.
-      evidence: "Status and body of step 6; the balance."
+        Step 7: HTTP status 401 with the standard error shape and no balance in the body (lib/letflow/plugs/auth_pipeline.ex respond_auth_error); the balance read again on the screen is still B1.
+      evidence: "Status and body of step 7; the balance."
     on_fail:
       severity: MAJOR
       business_impact: Anyone who knows the address could read the stock.
       suggested_action: route_to_elixir_dev
 
   - id: EO-005
-    description: The cleanup restores the balance.
+    description: The cleanup reversal tasks restore the balance.
     verification:
       method: gui_screen
-      detail: BFINAL equals B0.
-      evidence: "B0 and BFINAL."
+      detail: After step 8 the balance is still B1; after the tasks of steps 9 and 10, BFINAL equals B0.
+      evidence: "B1, B0 and BFINAL."
     on_fail:
       severity: MINOR
       business_impact: Synthetic data left changed.
