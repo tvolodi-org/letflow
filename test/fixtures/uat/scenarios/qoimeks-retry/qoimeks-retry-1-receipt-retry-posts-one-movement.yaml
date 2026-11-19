@@ -1,0 +1,266 @@
+# T-2283: decision 0091 section 9, Retry by client id (including T-2282 amendment),
+# REQ-860 criteria 1-3 and 7; docs/runbooks/pilot-rollout.md shared-access item 3.
+# Unknown numeric map ids cannot be proved unused through the old-address reads alone; scenario 4
+# tests non-integer references instead (ref/int and entry_of in OldAppWrites). Authentication
+# refusals retain the identical old-address 401 contract.
+# Contract verified against lib/letflow/modules/stock/old_app_writes.ex (client_key,
+# post_movement, reverse_movement, movement_hash, stored), routers/shared_stock_access.ex
+# (authenticate before write, created/replayed response), and I-1..I-6 in
+# test/letflow/routers/shared_stock_access_writes_test.exs on origin/main.
+# Protocol for the runner: base https://qa.bizdala.com/qoimeks/qoimeks-qa2;
+# catalog, balances and movements reads; movement creation POST /qoimeks/:slug/movements;
+# reverse POST /qoimeks/:slug/movements/:id/reverse (path id = returned integer movement id).
+# Both write bodies require id = a fresh UUID per operation, unchanged on retries, plus operator.
+# Movement body also has kind, sku_id, location_id, qty; transfer has to_location_id.
+# Returned JSON is the movement itself: id, kind, sku_id, location_id, quantity, operator,
+# created_at (not a wrapper and not an echo of the client's UUID). Compare the whole decoded row.
+# Admin shared-access status/create/revoke: interactive tenant sign-in, not an API token.
+# 1. Scope: actors.yaml declares the existing QA tenant qoimeks-qa2 (T-2219); realm qoimeks-qa2 verified by preflight. Tenant lookup is UNKNOWN without an authenticated token.
+# 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN manages shared access; actor-qoimeks-qa2-storekeeper / STOREKEEPER reads stock screens. Both are in actors.yaml. QA login is an acceptance precondition, not proven by static checks; no login verified in this writing step.
+# 3. Host and screens: stockRoutes.tsx guards balances/documents with StockRead under the module guard; docs/roles.md and stock role_grants grant it to STOREKEEPER. BalancesPage.tsx supports item/place filters; DocumentList.tsx supports kind/state, not operator. Tenant host GET returned 200 during writing; preflight health and deployed SHA passed. Enabled old-address access remains an authenticated acceptance precondition.
+# 4. Data: scripts/pilot/qoimeks_gen.py gen_items/gen_locations/gen_balances supplies candidate items, places and positive opening quantities, not live posting proof. Before acceptance verify imported openings, active masters/base unit, linked active org unit, active employee, active stock definitions, no freeze, scope enforcement off, tenant allow-listed, and no existing shared access. Missing prerequisites are BLOCKED-by-environment; never change production settings. Record item/place/balance counts at the start of the run. UUIDs and all mapped integer ids come from this run; no seed counts or invented item codes.
+# 5. Executable: browser and HTTP client suffice, including concurrent sends; runner creates one shared credential per scenario and keeps it only in memory. Run serially with the token group; never replace an existing credential. OldAppReads.movements is a capped list, with no client pagination: use limit 500 (movement_limit), identical filters and require every snapshot to contain fewer than 500 rows; otherwise BLOCKED-by-environment for movement-count evidence. Snapshot comparisons use all returned ids and values, never only the newest row. No physical APK/phone UI is UAT-observable here; browser phone width is covered.
+# 6. Dry run: preflight with title UAT qoimeks-retry returned ENV_NOT_READY: QA health and deployed SHA OK, realm OK; both actors NO_PASSWORD, tenant/app roles UNKNOWN without tokens. Acceptance is BLOCKED-by-environment until credentials are supplied; no live login verified. No acceptance scenarios run in this writing step.
+# EXPECTATION CORRECTIONS: 11 — receipt replay; issue replay; changed-data conflict; one balance/document; reversal replay; second/reversal-of-reversal refusals; required UUIDs on both writes; concurrent duplicates; stored-row comparison; runtime-derived quantities and malformed references; capped movement-read evidence.
+---
+id: qoimeks-retry-1-receipt-retry-posts-one-movement
+scope: qoimeks-qa2
+title: A receipt retry returns the stored movement and changes stock once
+version: '3.0'
+tags:
+- qoimeks
+- retry
+- old-app
+- receipt
+- balance
+- ru
+- idempotency
+description: >-
+  Decision 0091 section 9 (Retry by client id, T-2282 amendment) and REQ-860 govern this walk. First success
+  returns 201; the same client operation and equal stock data returns the stored movement with 200 and
+  no second posting. Changed stock data is refused with 409. Each reversal has its own operation UUID.
+  The walk restores stock and revokes only the credential it created. The shared credential authorizes
+  runner requests; the administrator manages it and the storekeeper reads screens.
+actors:
+  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: Acceptance environment is ready for the old-app address and stock posting.
+  check: system_seeded
+  detail: >-
+    Verify every Data and Host and screens prerequisite in the header against the tenant before writing.
+    Stock is installed and the deployed build includes retry support. The tenant host is https://qoimeks-qa2.letflow.qa.bizdala.com
+    and the old-app base is https://qa.bizdala.com/qoimeks/qoimeks-qa2. Missing deployment, seed data,
+    settings or logins is BLOCKED-by-environment; request environment preparation first.
+- description: Both roster accounts can sign in and a browser and HTTP client are available.
+  check: system_seeded
+  detail: >-
+    Acceptance verifies the administrator and storekeeper in realm qoimeks-qa2; no live login was verified
+    by the writer. No simultaneous stock activity or token-group walk may affect this item/place during
+    measurements.
+- description: No shared stock credential exists at the start.
+  check: system_seeded
+  detail: >-
+    Read status first; if one exists, stop BLOCKED-by-environment without creating, replacing or revoking
+    it.
+- description: Choose a seeded item/place with a positive posted balance and valid posting masters.
+  check: system_seeded
+  detail: >-
+    Read the item and place at run time; use their actual names and mapped integers, never placeholder
+    item codes. Choose quantity Q equal to half the smallest positive responsible/unit balance row for
+    this item/place, rounded down to its supported quantity precision; Q must remain positive. Confirm
+    the row selected by the old-address active employee/base unit has at least Q for an issue. If no eligible
+    row exists, stop BLOCKED-by-environment.
+- description: Generate fresh operation UUIDs in memory for this scenario.
+  check: test_setup
+  detail: >-
+    Generate U for the movement and R for its reversal, plus fresh UUIDs for independent attempts. Keep
+    each unchanged on retries. The response integer movement id is distinct from these UUIDs; do not expect
+    a client UUID field in reads.
+- description: Movement snapshots can prove unchanged stock history.
+  check: system_seeded
+  detail: >-
+    The old-app movements read has no client pagination. Use limit 500 and the same mapped item/place
+    filters for all snapshots. Verify each read has fewer than 500 rows, including after the planned posts
+    and reversals; otherwise mark movement-count evidence BLOCKED-by-environment and choose an isolated
+    item/place before writing. For unknown movement refusal in the access scenario, require the unfiltered
+    list to be below this limit too. Source: OldAppReads.movement_limit and movements in lib/letflow/modules/stock/old_app_reads.ex.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on the tenant host and reads shared stock access status as S0. Continue
+    only if no access exists. Create access with an empty request, keep its one-time value V only in memory,
+    then read status as S1.
+  via: api
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the balance screen in Russian at 1440 px, selects the eligible item and place
+    and records B0, the sum of all its responsible, lot and unit rows there. Record the item/place/balance
+    counts and the existing stock document list for comparison.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    With V the runner reads the old-app catalog and balances, matches the chosen item/place by actual
+    name or article and records their mapped integers. Confirm the summed balance equals B0. Read all
+    matching movements with the maximum supported limit as L0. Record Q from the eligible balance row.
+    Keep every measured value for later comparisons.
+  via: api
+- step: 4
+  actor: admin
+  action: >-
+    The runner sends a receipt at the old-app address with V, the mapped item/place, quantity Q, the signed-in
+    storekeeper’s display name as operator, and operation UUID U in the body field id. Record the answer
+    as A1.
+  via: api
+- step: 5
+  actor: admin
+  action: >-
+    The runner resends the identical receipt with V and U, unchanged item, place and quantity Q. Record
+    A2. Read the summed balance as B1 and all matching movements as L1.
+  via: api
+- step: 6
+  actor: storekeeper
+  action: >-
+    The storekeeper refreshes the balance screen in Russian at 1440 px and records the sum as B1-ui. Open
+    the document list, filter by the chosen kind and posted state, compare against the starting list and
+    open the single new document to read its posting operator. Record D1. Read the same balance at 390
+    px as B1-phone.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The runner reverses the original movement returned in A1, with V, the same operator and its own new
+    operation UUID R in the body field id. Record REV1. Repeat the identical reversal of that original
+    movement with R and record REV2. Read the summed balance as BFINAL and matching movements as LFINAL.
+  via: api
+- step: 8
+  actor: admin
+  action: >-
+    The runner tries reversing that original movement again, with V, the operator and a fresh operation
+    UUID different from U and R. Record RR1.
+  via: api
+  expect_refusal: true
+- step: 9
+  actor: admin
+  action: >-
+    The runner tries reversing the reversal movement returned by REV1, with V, the operator and another
+    fresh operation UUID. Record RR2.
+  via: api
+  expect_refusal: true
+- step: 10
+  actor: admin
+  action: >-
+    The runner reads the summed balance and all matching movements again as BAFTER and LAFTER. The administrator
+    revokes only the shared access created in this walk, records D3 and reads status as S3.
+  via: api
+- step: 11
+  actor: storekeeper
+  action: >-
+    The storekeeper asks the tenant shared stock access administration service for its status using the
+    storekeeper’s interactive sign-in. Record R-SK.
+  via: api
+  expect_refusal: true
+expected_outcomes:
+- id: EO-001
+  description: Retry returns the stored movement.
+  verification:
+    method: api_response
+    detail: >-
+      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including integer id, kind, sku_id,
+      location_id, quantity, operator and created_at. The quantity magnitude matches Q read at the start.
+    evidence: >-
+      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including integer id, kind, sku_id,
+      location_id, quantity, operator and created_at. The quantity magnitude matches Q read at the start.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-002
+  description: Stock and documents change once.
+  verification:
+    method: api_response
+    detail: >-
+      B1 equals B0 plus Q; L1 differs from L0 by exactly the movement returned in A1, with no duplicate
+      posting.
+    evidence: >-
+      B1 equals B0 plus Q; L1 differs from L0 by exactly the movement returned in A1, with no duplicate
+      posting.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-003
+  description: The storekeeper sees one posted document and the same stock on both widths.
+  verification:
+    method: gui_screen
+    detail: >-
+      B1-ui and B1-phone equal B1, which is B0 plus Q. D1 is exactly one new posted receipt, and its posting
+      operator equals the operator sent. Navigation and field labels use Russian; item names retain their
+      source text. No horizontal clipping at 390 px.
+    evidence: >-
+      B1-ui and B1-phone equal B1, which is B0 plus Q. D1 is exactly one new posted receipt, and its posting
+      operator equals the operator sent. Navigation and field labels use Russian; item names retain their
+      source text. No horizontal clipping at 390 px.
+  on_fail:
+    severity: MAJOR
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-004
+  description: Reversal retry restores stock once.
+  verification:
+    method: api_response
+    detail: >-
+      REV1 is 201 with kind reversal. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
+      equals B0. LFINAL adds only the reversal returned by REV1 to L1.
+    evidence: >-
+      REV1 is 201 with kind reversal. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
+      equals B0. LFINAL adds only the reversal returned by REV1 to L1.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-005
+  description: A second reversal and reversing a reversal are refused.
+  verification:
+    method: api_response
+    detail: >-
+      RR1 is 409 with exactly {"error":"document_reversed"}; RR2 is 409 with exactly {"error":"reversal_cannot_be_reversed"}.
+      BAFTER equals BFINAL and LAFTER equals LFINAL.
+    evidence: >-
+      RR1 is 409 with exactly {"error":"document_reversed"}; RR2 is 409 with exactly {"error":"reversal_cannot_be_reversed"}.
+      BAFTER equals BFINAL and LAFTER equals LFINAL.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-006
+  description: Cleanup leaves no shared access.
+  verification:
+    method: api_response
+    detail: >-
+      S0 and S3 say exists is false, S1 says exists is true; D3 is 204. No credential value appears in
+      saved evidence.
+    evidence: >-
+      S0 and S3 say exists is false, S1 says exists is true; D3 is 204. No credential value appears in
+      saved evidence.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
+- id: EO-007
+  description: The storekeeper cannot administer shared access.
+  verification:
+    method: api_response
+    detail: >-
+      R-SK is 403 and contains no credential status fields. This status read creates or changes nothing;
+      the final stock remains B0.
+    evidence: >-
+      R-SK is 403 and contains no credential status fields. This status read creates or changes nothing;
+      the final stock remains B0.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
+    suggested_action: route_to_wf03
