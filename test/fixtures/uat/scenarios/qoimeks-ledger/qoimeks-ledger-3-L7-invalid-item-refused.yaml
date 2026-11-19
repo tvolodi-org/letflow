@@ -2,7 +2,8 @@
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
 # 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
 # 3. Host and screens: stockRoutes.tsx, router.tsx and mounted stock, My reports and Approval rules pages read on main; read-only tenant-host HEAD returned 200. Live authenticated screens remain unverified.
-# 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is BLOCKED-by-environment until the invalid-item posting harness described in its precondition is supplied; never assume it exists.
+# T-2292 DECISION (PM 2026-11-19, ledger-3 BLOCKED in walk T-2276): NOT WALKABLE, COVERED BY TEST. Reason: the walker has no supported action that gives an issued stock issue whose posting command names an absent item (the posting variable is replaced only inside a test, REQ-832 criterion 2), and the seeded-fixture script would have to live outside this repository's worktree (project/scripts of the engine shell repo), which a scenario task may not edit. Covered by test/letflow/modules/stock/master_posting_test.exs: MP-TYP-1 (unknown uuid as item refused, no entry, no mark, task stays pending), MP-TYP-6 (id of a place given as item), MP-RET-1 (retired item refused), MP-TRF-1 (retired destination place refused). The walk is excluded by the sidecar test/fixtures/uat/scenario-env-limitations/qoimeks-ledger-3-L7-invalid-item-refused.yaml; the steps below stay as the written business script for a later fixture (a script creating the issued issue on qoimeks-qa2 only, refusing any other tenant slug).
+# 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is not walkable and is covered by test (see the T-2292 DECISION line above).
 # 5. Executable: source review covers every group outcome: journal filters/legs, receipt post/reversal, L7 rule order, opening approval/audit, report cards and approval-rule refusal. Browser/HTTP runner supplies its own script. Ledger-6 tests unauthorized reads; missing fixture or credentials blocks affected steps before writes.
 # 6. Dry run: T-2258 ran uat.sh preflight with title UAT qoimeks-ledger; health and realm OK, deployed SHA behind main, both actors NO_PASSWORD, tenant and app-role checks UNKNOWN. Acceptance is BLOCKED-by-environment until credentials, deployed build and data preconditions are verified. Evidence: task T-2258/preflight.json and preflight.log; no UAT scenarios run.
 # T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
@@ -30,7 +31,7 @@
 # Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 
-# BLOCKED-by-environment: prerequisite generator task "Prepare a run-owned invalid-item posting harness for Qoimeks ledger L7" (not delivered by this scenario task).
+# Not walkable (T-2292: covered by master_posting_test.exs; prerequisite generator task, if one is ever built, is "Prepare a run-owned invalid-item posting harness for Qoimeks ledger L7", not delivered)
 # NOT UAT-observable on the baseline: L7 requires a prepared posting-variable harness. Unknown items fail issue-time unit validation first (Checks.masters/2), so save/issue of a fabricated item is not an L7 test.
 ---
 id: qoimeks-ledger-3-L7-invalid-item-refused
@@ -50,8 +51,7 @@ description: >-
   check with an unknown item because issuing checks the item unit first. This scenario therefore requires an environment-prepared
   issued stock issue whose pending posting command carries a verified absent item identifier, with all other masters
   valid. The walk reads that prepared document, attempts its pending posting task, and cancels it after refusal.
-  Without that prepared fixture the whole scenario is BLOCKED-by-environment before any write; the run must not
-  replace this with an earlier request-shape refusal.
+  The scenario is not walked: it is covered by master_posting_test.exs (MP-TYP-1, MP-TYP-6, MP-RET-1, MP-TRF-1) and excluded by a GAP sidecar; no run may replace it with an earlier request-shape refusal.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
   admin: actor-qoimeks-qa2-admin
