@@ -9,6 +9,14 @@
 # D-086); the content of the system prompt sent to the language model (server-internal); the mobile voice panel UI
 # (the Flutter mobile app is not driven by the UAT runner); the log never holding the phrase or the key (a unit test
 # captures the log). Desktop (1440 px) and phone (390 px) widths produce the same API response; this is an API-only scenario.
+# T-2192 rework (issues 4717, 4718; PM 2026-11-19): checks before this group is merged:
+# 1 Scope: scope is qoimeks-qa (tenant and realm exist).
+# 2 Actors: actor-qoimeks-qa-admin (TENANT_ADMIN); the typed-phrase route needs no lower role claim, none is made.
+# 3 Host and screens: API route of the stock voice typed phrase (docs/runbooks/stock-voice.md); no screen.
+# 4 Data: no catalog data is needed; with the language model off the route answers the transcript with notice llm_off (this is the passed path); the lists read in steps 1 and 7 exist on the synthetic tenant.
+# 5 Executable: HTTP steps only. Scenarios that need the speech or the language model are BLOCKED-by-keys: the provider keys
+#   come from the owner at O-015 (not a defect, not counted against the group).
+# 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
 ---
 id: qoimeks-voice-1-typed-phrase-transcript-ru-kk
 scope: qoimeks-qa
@@ -36,7 +44,7 @@ preconditions:
       The stock documents list and the count records list are readable; their counts at the start of the run are
       noted as D0 and C0.
     check: system_seeded
-    detail: If the lists are not readable, report BLOCKED for steps 1 and 5.
+    detail: If the lists are not readable, report BLOCKED for steps 1 and 7.
 
 steps:
   - step: 1
@@ -121,7 +129,7 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        D1 equals D0 and C1 equals C0: no stock document or count record was created by steps 2, 3, 4, 5, 6.
+        D1 equals D0 and C1 equals C0: no stock document or count record was created by steps 2, 3, 4, 5 and 6 (compared in steps 1 and 7).
       evidence: D0, D1, C0, C1.
     on_fail:
       severity: BLOCKER

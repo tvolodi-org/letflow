@@ -182,6 +182,20 @@ is fixed (`--seed 42`) so each run produces identical files. Pass the directory 
 `--in` to `qoimeks_convert.py convert` with `--allow-drops` to proceed through the
 bad rows and verify all 603 non-zero, valid balances are accepted.
 
+With `--with-places` (off by default; the default files are unchanged) `items.csv` also carries
+`home_loc` (the usual place, every 3rd item) and `alt_loc` (a second place, every 9th item), and every
+25th item gets a lettered article code (Latin prefixes such as `AB0025` and Cyrillic ones such as `КС0075`)
+instead of its digits-only code. `balances.csv` uses the same codes. The option draws from its own random
+stream, so locations and the placement of balances are the same with and without it.
+
+`--voice-demo` (off by default; combines with `--with-places`) appends the small fixed demo catalog the
+voice scenarios use: 12 items with lettered codes and Russian names (`BLT-M8-40` Болт М8х40, `BLT-M10-60`,
+`NUT-M8`, `NUT-M10` Гайка, `WSH-8` Шайба плоская 8, `SCR-4-40` Саморез in kg, `PNT-WH-10` and `PNT-GR-3`
+Краска, `CBL-3x2.5` and `CBL-3x1.5` Кабель in m, `GLV-L` Перчатки in pairs, `TAPE-48` Скотч) and 8 places
+under the warehouse root (`A-01`, `A-02`, `A-03`, `B-01`, `B-02`, `C-01`, `RAMP` and the zone-coded `LA3`
+named «Слева A 3»). `C-02` and `D-03` are left out on purpose. Usual places: `PNT-WH-10` -> `C-01`,
+`GLV-L` -> `A-01`. `items.csv` then has the `home_loc`/`alt_loc` columns; no balances are added.
+
 ## Deliberately not here
 
 Tenant and realm creation, users, the cut-over and the read-only switch (steps 4-6 of T-1569 section 5), the

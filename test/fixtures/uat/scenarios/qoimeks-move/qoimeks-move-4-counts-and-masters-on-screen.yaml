@@ -1,117 +1,214 @@
+# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-move.
+# T-2190: run title UAT qoimeks-move; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data (142 places, 666 items, 603 posted opening balances incl. 3 negative), never the real tenant.
 # Requirements covered: REQ-880 (the move rules check list: "counts and hashes per table", "current balances equal"), REQ-881 (master data compare: places, units, items by code and name; the hash tool itself is offline, see below).
 # Sources opened: docs/runbooks/qoimeks-rehearsal.md sections "Move rules (Qoimeks inventory §8.10)" and "Synthetic QA dataset" (134 rack places plus a warehouse and zones = 142 nodes; 666 SKUs, unit pcs; 600 positive rows, 3 negative, 603 accepted balances);
 # scripts/pilot/qoimeks_gen.py (place names "Склад", "Зона <letter>", "Справа <letter> <n>"; item names "<type>-<number>", every 100th with a Cyrillic look-alike letter); scripts/pilot/qoimeks_masters_compare.py (prints ROWS, one sha256 HASH per side and DIFF lines per table).
-# NOT UAT-OBSERVABLE (also recorded in the sidecar test/fixtures/uat/scenario-env-limitations/qoimeks-move-4-counts-and-masters-on-screen.yaml): the three compare tools qoimeks_compare.sh (record counts), qoimeks_balances_compare.py (quantity hash) and qoimeks_masters_compare.py
+# NOT UAT-OBSERVABLE (origin T-2167): the three compare tools qoimeks_compare.sh (record counts), qoimeks_balances_compare.py (quantity hash) and qoimeks_masters_compare.py
 #   (hash per table of places, units and items) are offline command line scripts run by the operator on files; the Qoimeks extract they compare with is outside the QA tenant and outside the browser, and no screen shows a hash.
 #   The observable stand-in is what the administrator sees on screen: the number of places, items and balances, and a few names read by code, which are the same facts the tools compare. Matching hashes cannot be shown here.
 #   Also not walked: the write freeze, ANALYZE after the load, rollback, the working-hours rule, the 30-day copy (operator and infrastructure rules, no screen).
+#   Master and balance comparisons have automated checks in test/scripts/qoimeks_masters_compare_test.exs and test/scripts/qoimeks_balances_compare_test.exs; these do not verify operator rules.
+#   T-2190 rework: removed the whole-scenario GAP sidecar because none of EO-001..EO-005 checks hashes or operator rules; it blocked walkable screen outcomes.
+#   Revisit when an operator-run compare against the generated extract becomes part of the acceptance run.
 # Cleanup: read-only, nothing is written.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-move-4-counts-and-masters-on-screen
 scope: qoimeks-qa
-title: The Qoimeks QA administrator reads the places, items and balances on the screens and finds the counts and the master names the move checks compare, on a desktop and at 390 px
-version: "1.0"
-tags: [qoimeks, move, counts, masters, locations, catalog, balances, desktop, phone, ru, read_only]
-
-description: >
-  After the move rehearsal the tenant must hold the same tables as the Qoimeks extract: 142 places, 666 items and 603 opening balances (3 of them negative). The offline compare tools check this by counts and hashes
-  and cannot be run from a browser (see the header). This scenario walks what the administrator can see: the places screen with the warehouse "Склад", the zones and a rack place, the catalog items screen with item 0001 and item 0100,
-  and the balances screen with its rows including the three negative ones. The administrator reads the numbers the screens show (a total if the screen shows one; otherwise the run pages to the end and counts, and says which way it used),
-  compares them with 142, 666 and 603, and reads two names by code. The same reading is repeated at 390 px in Russian.
-  UAT assumption, to be confirmed by the process owner: the three screens may show no total; the run then counts by paging, and a count by paging that disagrees with the expected number by a few rows is reported with both numbers and not guessed at.
-  The scenario makes no write, so no refusal step belongs to it; the refusal and write-safety checks of the stock screens are in scenario qoimeks-move-3.
-
+title: >-
+  The Qoimeks QA administrator reads the places, items and balances on the screens and finds the counts and the
+  master names the move checks compare, on a desktop and at 390 px
+version: '1.1'
+tags:
+- qoimeks
+- move
+- counts
+- masters
+- locations
+- catalog
+- balances
+- desktop
+- phone
+- ru
+- read_only
+description: >-
+  After the move rehearsal the tenant must hold the same tables as the Qoimeks extract: 142 places, 666 items and
+  603 opening balances (3 of them negative). The offline compare tools check this by counts and hashes and cannot
+  be run from a browser (see the header). This scenario walks what the administrator can see: the places screen
+  with the warehouse "Склад", the zones and a rack place, the catalog items screen with item 0001 and item 0100,
+  and the balances screen with its rows including the three negative ones. The administrator reads the numbers the
+  screens show (a total if the screen shows one; otherwise the run pages to the end and counts, and says which way
+  it used), compares them with 142, 666 and 603, and reads two names by code. The same reading is repeated at 390
+  px in Russian. UAT assumption, to be confirmed by the process owner: the three screens may show no total; the
+  run then counts by paging, and a count by paging that disagrees with the expected number by a few rows is reported
+  with both numbers and not guessed at. The scenario makes no write, so no refusal step belongs to it; the refusal
+  and write-safety checks of the stock screens are in scenario qoimeks-move-3.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: The Qoimeks QA tenant holds the synthetic data of docs/runbooks/qoimeks-rehearsal.md (142 places, 666 items, 603 posted opening balances of which 3 negative) and the modules locations, catalog items and stock are active.
-    check: system_seeded
-    detail: If a screen is empty, report BLOCKED for that screen's steps and say what it showed. If the counts differ because the rehearsal data was reloaded in another shape, report the numbers as found.
-  - description: The run can drive a real browser at 1440 px and at 390 px.
-    check: system_seeded
-    detail: If no browser can be started, report BLOCKED for the whole scenario.
-  - description: The browser language starts as English.
-    check: system_seeded
-    detail: If not, switch to English first.
-
+- description: >-
+    The Qoimeks QA tenant holds the synthetic data of docs/runbooks/qoimeks-rehearsal.md (142 places, 666 items,
+    603 posted opening balances of which 3 negative) and the modules locations, catalog items and stock are active.
+  check: system_seeded
+  detail: >-
+    If a screen is empty, report BLOCKED for that screen's steps and say what it showed. If the counts differ because
+    the rehearsal data was reloaded in another shape, report the numbers as found.
+- description: >-
+    The run can drive a real browser at 1440 px and at 390 px.
+  check: system_seeded
+  detail: >-
+    If no browser can be started, report BLOCKED for the whole scenario.
+- description: >-
+    The browser language starts as English.
+  check: system_seeded
+  detail: >-
+    If not, switch to English first.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    For any before/after count comparison, record the same full traversal of the balance or document list, loading
+    further pages until exhausted. Do not compare a first-page count with a whole-workbook count, and do not compare
+    journal operations with legs.
+  check: runner_prepared
+  detail: >-
+    Retain the traversal/count method and sampled full keys. If another walk posts during the comparison, the equality
+    outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com at 1440 px in English and opens the locations (places) screen. The administrator reads the top of the tree (the warehouse, its zones) and a total if the screen shows one; otherwise expands every zone and counts all places.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator opens the catalog items screen and reads the total of items if the screen shows one; otherwise pages to the end and counts the rows. The administrator then finds the items with the codes 0001 and 0100 and reads their names and unit.
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator opens the Balances screen, reads the total of balance rows if the screen shows one (otherwise pages to the end and counts), and finds the three rows with a negative quantity.
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The window is made 390 px wide and the language is switched to Russian. The administrator opens the locations screen and then the Balances screen and reads the first rows on each.
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      The administrator switches the language back to English.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in on https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa at 1440 px in English
+    and opens the locations (places) screen. The administrator reads the top of the tree (the warehouse, its zones)
+    and a total if the screen shows one; otherwise expands every zone and counts all places.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens the catalog items screen and reads the total of items if the screen shows one; otherwise
+    pages to the end and counts the rows. The administrator then finds the items with the codes 0001 and 0100 and
+    reads their names and unit.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator opens the Balances screen, reads the total of balance rows if the screen shows one (otherwise
+    pages to the end and counts), and finds the three rows with a negative quantity.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The window is made 390 px wide and the language is switched to Russian. The administrator opens the locations
+    screen and then the Balances screen and reads the first rows on each.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The administrator switches the language back to English.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The places screen holds the 142 places of the extract with the Russian names kept whole.
-    verification:
-      method: gui_screen
-      detail: Step 1 shows the warehouse "Склад" at the top with the zones named "Зона <letter>" under it, and rack places named like "Справа <letter> <number>"; the count of all places (total shown, or counted by expanding) is 142; no place name shows a question mark or broken character. If the count is not 142 the run quotes the number found.
-      evidence: Screenshot of the tree and the count method and number, quoted.
-    on_fail:
-      severity: MAJOR
-      business_impact: The master data of the move does not equal the extract, so stock would sit at wrong or missing places.
-      suggested_action: route_to_elixir_dev
-  - id: EO-002
-    description: The catalog holds the 666 items and the names and unit read as in the extract.
-    verification:
-      method: gui_screen
-      detail: Step 2 shows a count of 666 items (total shown or counted by paging); the item 0001 has a name of the form "<type>-0001" and the unit pcs; the item 0100 has a name of the form "<type>-0100" with one Cyrillic letter at its end that looks like a Latin one, not a question mark. The run quotes the names as shown.
-      evidence: Screenshot of the two items and the count, quoted.
-    on_fail:
-      severity: MAJOR
-      business_impact: An item master that differs from the extract makes every stock figure after the move unreliable.
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: The balances screen holds the 603 opening balances with the three negative ones visible.
-    verification:
-      method: gui_screen
-      detail: Step 3 shows a count of 603 balance rows (total shown or counted by paging; if the same item stands at the same place twice with the same unit the screen shows fewer and the run quotes both numbers) and exactly three rows with a negative quantity shown as negative numbers.
-      evidence: Screenshot of a negative row and the count, quoted.
-    on_fail:
-      severity: BLOCKER
-      business_impact: >-
-        The move rule "current balances equal" fails: the stock in the new system differs from the old one.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: At 390 px in Russian the places and balances screens read in Russian and fit the width.
-    verification:
-      method: gui_screen
-      detail: Step 4 shows the Russian screen titles ("Остатки" for balances) and the Russian place names unchanged; nothing is cut off at the right edge, no sideways scrolling is needed to read a row, and no control overlaps another.
-      evidence: Screenshots at 390 px of both screens.
-    on_fail:
-      severity: MINOR
-      business_impact: Phone-width users cannot read the stock after the move.
-      suggested_action: route_to_frontend_dev
-  - id: EO-005
-    description: The language is back to English at the end.
-    verification:
-      method: gui_screen
-      detail: Step 5 shows the English title "Balances" with the language code EN.
-      evidence: Screenshot at step 5.
-    on_fail:
-      severity: MINOR
-      business_impact: The account is left in the wrong language for the next run.
-      suggested_action: route_to_frontend_dev
+- id: EO-001
+  description: >-
+    The places screen holds the 142 places of the extract with the Russian names kept whole.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows the warehouse "Склад" at the top with the zones named "Зона <letter>" under it, and rack places
+      named like "Справа <letter> <number>"; the count of all places (total shown, or counted by expanding) is 142;
+      no place name shows a question mark or broken character. If the count is not 142 the run quotes the number
+      found.
+    evidence: >-
+      Screenshot of the tree and the count method and number, quoted.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The master data of the move does not equal the extract, so stock would sit at wrong or missing places.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: >-
+    The catalog holds the 666 items and the names and unit read as in the extract.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 2 shows a count of 666 items (total shown or counted by paging); the item 0001 has a name of the form
+      "<type>-0001" and the unit pcs; the item 0100 has a name of the form "<type>-0100" with one Cyrillic letter
+      at its end that looks like a Latin one, not a question mark. The run quotes the names as shown.
+    evidence: >-
+      Screenshot of the two items and the count, quoted.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      An item master that differs from the extract makes every stock figure after the move unreliable.
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    The balances screen holds the 603 opening balances with the three negative ones visible.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 shows a count of 603 balance rows (total shown or counted by paging; if the same item stands at the
+      same place twice with the same unit the screen shows fewer and the run quotes both numbers) and exactly three
+      rows with a negative quantity shown as negative numbers.
+    evidence: >-
+      Screenshot of a negative row and the count, quoted.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The move rule "current balances equal" fails: the stock in the new system differs from the old one.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    At 390 px in Russian the places and balances screens read in Russian and fit the width.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 shows the Russian screen titles ("Остатки" for balances) and the Russian place names unchanged; nothing
+      is cut off at the right edge, no sideways scrolling is needed to read a row, and no control overlaps another.
+    evidence: >-
+      Screenshots at 390 px of both screens.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      Phone-width users cannot read the stock after the move.
+    suggested_action: route_to_frontend_dev
+- id: EO-005
+  description: >-
+    The language is back to English at the end.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 5 shows the English title "Balances" with the language code EN.
+    evidence: >-
+      Screenshot at step 5.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The account is left in the wrong language for the next run.
+    suggested_action: route_to_frontend_dev
