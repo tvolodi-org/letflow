@@ -1,6 +1,8 @@
 # T-2205 readiness fixes: (1) scope qoimeks-qa2 exists; (2) actors admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in the roster; (3) screens and routes read at main; (4) data: counts (items, places, balances) are read at the start of the run, not hard-coded; (5) every step is executable with a browser or an HTTP client; (6) preflight not run here (no acceptance environment in this step).
 # T-2161 (BA), rework T-2191 (issues #4703, #4705, #4706, #4707): qoimeks-retry group, scenario 4. QA only, no real data.
-# Covers REQ-857 (decision record), REQ-858 (token lifecycle), REQ-859 (old-app address reads).
+# Covers REQ-857 (decision record), REQ-858 (token lifecycle), REQ-859 (old-app address reads), REQ-860 (old-app address writes; REQ-861 is cancelled).
+# T-2265 (includes cancelled T-2254, issue #4781): refusals of an unauthorized stock release and of a post or reversal with an integer id the run never handed out (steps 5 to 11).
+# The 'for another server' refusal of a queued entry is the behaviour of the OLD Qoimeks app (checked by the Qoimeks team); this server never sees it, so it is not UAT-observable here.
 # Access refusal tests for the old-app address before the retry function can be used.
 #
 # Fix of #4703 (the blocker of the group's audit): no seed, variable or preflight check provides the
@@ -35,9 +37,10 @@
 #   (no Tokens screen, owner 2026-11-16); the token is managed through the admin API only.
 # - The token value: created by the walk at step 3, kept in the run's environment only, never recorded.
 # Role-based refusal (T-2191 rework, gate finding): the lower-role actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2) is refused the admin API of the shared stock access
-# (step 11): the three routes need the permission TokensManage (lib/letflow/routers/identity.ex, authz_get/authz_post/authz_delete "/shared-stock-access"), which only TENANT_ADMIN and
+# (step 19): the three routes need the permission TokensManage (lib/letflow/routers/identity.ex, authz_get/authz_post/authz_delete "/shared-stock-access"), which only TENANT_ADMIN and
 # PLATFORM_ADMIN hold (docs/roles.md, matrix row TokensManage; STOREKEEPER: no), and the handler answers 403 "insufficient permissions" otherwise (shared_access_guarded). The refusal is walked on the
 # READ route (the status), so the walk never probes a write route; the create and revoke routes share the permission.
+# T-2265 code-reading pass (PM 2026-11-19), read against origin/main: (a) old-app address stated in full (https://qa.bizdala.com/qoimeks/qoimeks-qa2, routes catalog, balances, movements, post, reverse in lib/letflow/routers/shared_stock_access.ex); (b) the old-address balances read sums responsible, lot and unit rows per item and place (OldAppReads.balances), so the 'first active employee' item-picking rule was removed and all balances are sums; (c) the client id in the post body is not stored and no read shows it, so the 'no earlier movement with this client id' precondition was removed; (d) the shared access admin API needs an interactive sign-in, an API token is refused (shared_access_guarded); (e) ids are assigned from 1 in the order of the first catalog read of this run, never the old Qoimeks ids; (f) retry deduplication at this address is NOT built on main (OldAppWrites moduledoc: the client id is accepted and ignored), so the scenarios keep the documented current behaviour, as the PM task allows only #4764 and #4771 as target-behaviour defects. The 'for another server' refusal of a queued entry is the OLD Qoimeks app (checked by the Qoimeks team) and is not UAT-observable here.
 ---
 id: qoimeks-retry-4-no-token-and-wrong-token-refused-valid-posts
 scope: qoimeks-qa2
@@ -74,7 +77,7 @@ preconditions:
   - description: >
       The qoimeks-qa2 tenant is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS (REQ-857 build #4658,
       REQ-858 build #4662), and the old-app address (decision 0091 section 6, REQ-859 build #4664)
-      answers for the slug qoimeks-qa2.
+      answers at https://qa.bizdala.com/qoimeks/qoimeks-qa2 (the slug is qoimeks-qa2).
     check: system_seeded
     detail: >
       The walk creates the shared access itself at step 3, so none needs to exist; the refusal
@@ -89,9 +92,11 @@ preconditions:
     check: system_seeded
     detail: >
       Step 3 reads the status first (S0). If a shared access already exists, report BLOCKED (a shared access already exists, so BLOCKED-by-environment): the walk neither replaces nor revokes it, as the header says.
-  - description: No movement with client id A-RETRY-4 has been posted in this tenant.
+  - description: >
+      The client id the walk sends in the body field id is its own value; it is not stored and no read shows it (the movement rows carry id, kind, sku_id, location_id, quantity, operator, created_at), so the walk cannot and need not check that it was unused.
     check: test_setup
-    detail: If a movement with client id A-RETRY-4 exists, use a different client id.
+    detail: >
+      Nothing to prepare. The two sends are told apart by the movement ids and the balance, never by the client id.
   - description: The run can drive a real browser.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the balance steps.
@@ -130,48 +135,88 @@ steps:
   - step: 4
     actor: admin
     action: >
-      The test runner reads the balance of ITEM-RETRY-A4 from the old-app address balances call,
-      presenting V1 as the bearer credential. This is the balance before any posting of this walk;
-      it is noted as B0. This reading is made after the value V1 exists (step 3) and before the posting of step 5, and it is kept: the balance of step 5 and the final balance are compared with it.
+      The test runner reads the balances call of the old-app address (https://qa.bizdala.com/qoimeks/qoimeks-qa2) presenting V1 as the bearer credential and notes the balance of ITEM-RETRY-A4 at the chosen place as B0, the balance before any posting of this walk; it is kept: the later balances are compared with it. Before the first send the test runner maps the item and the place to the integer ids the old-app address needs, from the run's own reads only: it reads GET /catalog and GET /balances at the old-app address (https://qa.bizdala.com/qoimeks/qoimeks-qa2) with Authorization: Bearer V1, finds the item by its name or article and the place by its name, and takes the integer sku_id and location_id from those answers (the integers are assigned from 1 in the order of the first catalog read of this tenant; they are never the ids of the old Qoimeks installation, and none is taken from a file or from memory). The old-address balances read adds up every responsible, lot and unit row of one item at one place, so every balance named B0, B1-api, B1-ui, B1-phone or BFINAL in this walk is that sum: on the Balances screen it is the sum of the item's rows at that place (filter by item and place). If the post is refused 422 location_not_linked (the place is linked to no org unit), pick another place that holds the item. It then reads the movements call with the mapped sku_id and location_id and limit 500, and notes the number of rows and the id of the newest row as L0.
     via: api
   - step: 5
     actor: admin
     action: >
-      Before the first send the test runner maps the item and the place to the integer ids the old-app address needs: it reads the catalog call (GET /catalog) and the balances call (GET /balances) of the old-app address with Authorization: Bearer V1 and takes the integer sku_id of the item and the integer location_id of the place from them. The old-app post puts the stock under the place's first linked org unit and under the first active employee of the tenant as responsible, while every seeded balance carries its own responsible; so the runner picks an item and a place whose balance row has that first active employee as responsible, and the place must be linked to the org unit QOI-OU-1 (otherwise the post is refused 422 location_not_linked: then pick another place). If no such row exists, the runner compares totals per item and place (all responsible rows of that item at that place added together) before and after, never a single row.  Every balance named B0, B1 or BFINAL in this walk is the total per item and place (all responsible rows added), read the same way each time. The test runner sends a receipt to the old-app address for ITEM-RETRY-A4, quantity 2,
-      operator name "Тест-доступ", client id A-RETRY-4 (the `id` field in the JSON body), using V1
-      as the bearer credential. The answer is noted as A1.
+      The test runner sends POST to the movements call of the old-app address with a valid body: kind receipt, the mapped sku_id and location_id, qty 2, operator "Тест-доступ", client id A-RETRY-4 in the field id, and with NO Authorization header. The answer is noted as R4.
+    expect_refusal: true
     via: api
   - step: 6
     actor: admin
     action: >
-      The test runner sends GET /api/v1/modules/stock/balances at the tenant address with the header Authorization: Bearer V1 and expects 401. The answer is noted as R3.
+      The test runner sends the same POST with the header Authorization: Bearer WRONG-TOKEN-VALUE. The answer is noted as R5.
     expect_refusal: true
     via: api
   - step: 7
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper opens the balance screen in Russian at 1440 px. The balance of
-      ITEM-RETRY-A4 is noted as B1-ui.
-    via: ui
+      The test runner sends the same POST with V1 presented at the old-app address of ANOTHER tenant (https://qa.bizdala.com/qoimeks/qoimeks-qa), that is, the shared access value of this tenant used against a tenant it does not belong to. The answer is noted as R6.
+    expect_refusal: true
+    via: api
   - step: 8
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper opens the balance screen at 390 px in Russian. The balance of
-      ITEM-RETRY-A4 is noted as B1-phone.
-    via: ui
+      The test runner sends the same POST at the old-app address of this tenant with the administrator's own interactive sign-in token as the bearer credential (a person's credential, not the shared access value). The answer is noted as R7.
+    expect_refusal: true
+    via: api
   - step: 9
     actor: admin
     action: >
-      The test runner reverses the receipt posted in step 5 with operator name "Тест-откат".
-      The balance after reversal is noted as BFINAL.
+      Precondition read from the run's own answers: the number 999999 is greater than every sku_id of the catalog read of step 4 and every location_id of the balances read of step 4, so the old-app address never handed it out. The test runner sends POST to the movements call with V1 and a body like the valid one but with sku_id 999999. The answer is noted as R8.
+    expect_refusal: true
     via: api
   - step: 10
+    actor: admin
+    action: >
+      The test runner sends POST to the movements call with V1 and a body like the valid one (the mapped sku_id) but with location_id 999999. The answer is noted as R9.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The test runner sends POST to the reverse call of the movement 999999 (a movement id the run's own movements read never handed out) with V1 and operator name "Тест-откат". The answer is noted as R10.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The test runner reads the balances call and the movements call again (same filters and limit as step 4) with V1. The balance is noted as B0b and the number of rows and the id of the newest row as L1.
+    via: api
+  - step: 13
+    actor: admin
+    action: >
+      The test runner sends a receipt to the old-app address for ITEM-RETRY-A4 at the chosen place with a valid body: kind receipt, the mapped sku_id and location_id, qty 2, operator "Тест-доступ", client id A-RETRY-4 in the field id, using V1 as the bearer credential. The answer is noted as A1.
+    via: api
+  - step: 14
+    actor: admin
+    action: >
+      The test runner sends GET /api/v1/modules/stock/balances at the tenant address (https://qoimeks-qa2.letflow.qa.bizdala.com) with the header Authorization: Bearer V1 and the header X-Tenant-Slug: qoimeks-qa2, and expects 401. The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: storekeeper
+    action: >
+      The storekeeper opens the balance screen in Russian at 1440 px. The balance of ITEM-RETRY-A4 at the chosen place (the sum of its rows there) is noted as B1-ui.
+    via: ui
+  - step: 16
+    actor: storekeeper
+    action: >
+      The storekeeper opens the balance screen at 390 px in Russian. The balance of ITEM-RETRY-A4 at the chosen place is noted as B1-phone.
+    via: ui
+  - step: 17
+    actor: admin
+    action: >
+      The test runner reverses the receipt posted in step 13 (movement id from A1) at the old-app address with operator name "Тест-откат". The balance after reversal is noted as BFINAL.
+    via: api
+  - step: 18
     actor: admin
     action: >
       The administrator revokes the shared stock access created in step 3 (the answer is noted as
       D3) and reads the status again (noted as S3), so that the tenant ends with none.
     via: api
-  - step: 11
+  - step: 19
     actor: storekeeper
     action: >
       The storekeeper, signed in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), asks the admin API for the status of the tenant's shared stock access
@@ -199,12 +244,39 @@ expected_outcomes:
         credential exists and whether it is worth brute-forcing.
       suggested_action: route_to_wf03
 
+  - id: EO-009
+    description: >
+      An unauthorized stock release (a post of a receipt) with no token, a wrong token, the shared value used at another tenant's address, or a personal sign-in token is refused 401 with identical answers, and nothing changes.
+    verification:
+      method: api_response
+      detail: >
+        R4, R5, R6 and R7 each have HTTP status 401. After the trace_id field is removed from each body (it differs on every request), the four bodies are byte-identical to each other and to the bodies of R1 and R2: no answer tells which of the four causes it was, or whether this tenant has a credential. B0b equals B0 and L1 equals L0 (same number of rows and the same newest row id): none of the four requests posted anything. If the address answers 429 to a refusal, the failure budget of the caller is spent: wait for the retry-after and repeat once; a 429 is not the expected answer.
+      evidence: "Status and body of R4, R5, R6, R7 side by side (trace_id removed); B0, B0b, L0, L1."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A release that is accepted without the tenant's own credential moves stock for anyone; an answer that differs by cause lets an attacker learn which credentials exist.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-010
+    description: A post or a reversal naming an integer id that this run's own reads never handed out is refused and nothing posts.
+    verification:
+      method: api_response
+      detail: >
+        R8 (unknown item number) has HTTP status 404 with the error text "unknown sku"; R9 (unknown place number) has status 404 with the error text "unknown location"; R10 (unknown movement number) has status 404 with the error text "unknown movement" (the order of the rules in the write handler: operator, kind, quantity, item, place, then the document). B0b equals B0 and L1 equals L0 after all three. The numbers handed out are assigned from 1 in the order of the first catalog read of this tenant, so 999999 is checked against this run's own reads (step 9) and never against a stored list.
+      evidence: "Status and body of R8, R9, R10; B0b equals B0 and L1 equals L0."
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A guessed number that reaches another item, place or tenant's movement would post or reverse stock that nobody chose.
+      suggested_action: route_to_elixir_dev
+
   - id: EO-002
     description: The valid token posts the receipt and answers 201.
     verification:
       method: api_response
       detail: >
-        A1 has HTTP status 201 and contains a movement id. The posted quantity is 2.
+        A1 (step 13) has HTTP status 201 and contains a movement id. The posted quantity is 2, and the balance of step 15 is B0b plus 2.
       evidence: "HTTP status 201 and movement id from A1."
     on_fail:
       severity: BLOCKER
@@ -232,7 +304,7 @@ expected_outcomes:
       method: gui_screen
       detail: >
         B1-ui shows the balance of ITEM-RETRY-A4 increased by 2 compared to B0, the balance
-        recorded in step 4 before the posting. All text is in Russian.
+        recorded in step 4 before the posting (the sum of the item's rows at the chosen place). All text is in Russian.
       evidence: "Screenshot of the balance screen at 1440 px in Russian, with B0 and B1-ui noted."
     on_fail:
       severity: MAJOR
