@@ -27,14 +27,22 @@ import { isSafeRestorePath } from './safeRestorePath'
 export function buildRedirectArgs(
   capturePath?: string,
   options?: { loginHint?: string },
-): { redirect_uri: string; state?: string; login_hint?: string } | undefined {
+): { redirect_uri?: string; state?: string; login_hint?: string } | undefined {
   const slug = resolveRealmFromUrl()
-  if (!slug) return undefined
+  if (!slug) {
+    // Default realm: keep UserManager's configured redirect_uri but still carry the
+    // requested inner path (T-2241), so a reload or typed address returns to it.
+    // '/' is the default landing anyway, so it stays "no args".
+    if (capturePath !== undefined && capturePath !== '/' && isSafeRestorePath(capturePath)) {
+      return { state: capturePath }
+    }
+    return undefined
+  }
 
   const redirect_uri =
     window.location.origin + '/auth/callback?realm=' + encodeURIComponent(slug)
 
-  const args: { redirect_uri: string; state?: string; login_hint?: string } = { redirect_uri }
+  const args: { redirect_uri?: string; state?: string; login_hint?: string } = { redirect_uri }
   if (capturePath !== undefined && isSafeRestorePath(capturePath)) {
     args.state = capturePath
   }

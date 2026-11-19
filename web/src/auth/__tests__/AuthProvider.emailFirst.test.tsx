@@ -148,7 +148,10 @@ describe('session-expired', () => {
     expireSession()
     // Today's behaviour: both AuthProvider and ProtectedRoute redirect (twice).
     await waitFor(() => expect(mockSigninRedirect).toHaveBeenCalled())
-    for (const call of mockSigninRedirect.mock.calls) expect(call[0]).toBeUndefined()
+    // No realm args (default redirect_uri); only the safe restore path may ride as state (T-2241).
+    for (const call of mockSigninRedirect.mock.calls) {
+      expect(call[0]?.redirect_uri).toBeUndefined()
+    }
     expect(screen.queryByTestId('login-stub')).toBeNull()
   })
 
