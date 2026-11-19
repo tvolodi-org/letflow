@@ -13,6 +13,8 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate as formatLocaleDate } from '@/i18n/format'
 import { DateValueHint } from '@/components/ui/DateValueHint'
+import { useUiLocale, type UiLocale } from '@/i18n/uiLocaleStore'
+import { tokensMessages, type TokensMessages } from './tokensMessages'
 
 // NOTE: the pre-existing hand-rolled table rendered 5 <th> over 7 <td>
 // per row (Name/Created/Expires/Status/Actions headers, but
@@ -31,20 +33,20 @@ type TokenRow = ApiToken & {
 }
 
 interface StatusPresentation {
-  label: string
+  label: keyof TokensMessages
   color: string
 }
 
 // GH 2589: one label and one colour per effective status. Only `active` uses
 // the success colour; a Record over ApiTokenStatus keeps this exhaustive.
 const TOKEN_STATUS_PRESENTATION: Record<ApiTokenStatus, StatusPresentation> = {
-  active: { label: 'Active', color: 'var(--color-success-dark)' },
-  revoked: { label: 'Revoked', color: 'var(--text-disabled)' },
-  expired: { label: 'Expired', color: 'var(--color-warning-text)' },
-  owner_inactive: { label: 'Owner inactive', color: 'var(--color-error-dark)' },
+  active: { label: 'statusActive', color: 'var(--color-success-dark)' },
+  revoked: { label: 'statusRevoked', color: 'var(--text-disabled)' },
+  expired: { label: 'statusExpired', color: 'var(--color-warning-text)' },
+  owner_inactive: { label: 'statusOwnerInactive', color: 'var(--color-error-dark)' },
 }
 
-const UNKNOWN_STATUS: StatusPresentation = { label: 'Unknown', color: 'var(--text-secondary)' }
+const UNKNOWN_STATUS: StatusPresentation = { label: 'statusUnknown', color: 'var(--text-secondary)' }
 
 /** The wire value is not trusted to be one of the four: anything else, or a
  *  missing status, is shown as a neutral "Unknown", never as active. */
@@ -67,25 +69,27 @@ function tokenIssuerLabel(token: TokenRow, usersById: Map<string, User>): string
   return usersById.get(issuerId)?.display_name ?? issuerId
 }
 
-function tokenUserLabel(token: TokenRow, usersById: Map<string, User>): string {
+function tokenUserLabel(token: TokenRow, usersById: Map<string, User>, tm: TokensMessages): string {
   const userId = token.user_id ?? ''
   if (token.user_display_name) return token.user_display_name
   const user = usersById.get(userId)
   if (user) return `${user.display_name} <${user.email}>`
-  return userId || 'Unknown user'
+  return userId || tm.unknownUser
 }
 
-function tokenRoleLabel(token: TokenRow): string {
-  return (token.roles ?? []).map((name) => roleLabel(name)).join(', ')
+function tokenRoleLabel(token: TokenRow, uiLocale: UiLocale): string {
+  return (token.roles ?? []).map((name) => roleLabel(name, uiLocale)).join(', ')
 }
 
-function formatDate(value?: string | null): string {
-  if (!value) return 'Never'
+function formatDate(value: string | null | undefined, tm: TokensMessages): string {
+  if (!value) return tm.never
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : formatLocaleDate(parsed)
 }
 
 export default function TokensPage() {
+  const uiLocale = useUiLocale()
+  const tm = tokensMessages[uiLocale]
   const canManage = useAccess().can(P.TokensManage)
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
@@ -118,8 +122,8 @@ export default function TokensPage() {
   const createToken = useMutation({
     mutationFn: () => {
       const roles = form.roles.split(',').map((role) => role.trim()).filter(Boolean)
-      if (!form.user_id) throw new Error('Select a target user')
-      if (roles.length === 0) throw new Error('Enter at least one role')
+      if (!form.user_id) throw new Error(tm.selectUserError)
+      if (roles.length === 0) throw new Error(tm.rolesRequiredError)
       return tokensApi.create({
         user_id: form.user_id,
         roles,
@@ -150,37 +154,38 @@ export default function TokensPage() {
   }
 
   const columns: DataTableColumn<TokenRow>[] = [
-    { id: 'name', header: 'Name', accessor: (token) => <span style={revokedCellStyle(token)}>{tokenUserLabel(token, usersById)}</span> },
+    { id: 'name', header: tm.colName, accessor: (token) => <span style={revokedCellStyle(token)}>{tokenUserLabel(token, usersById, tm)}</span> },
     {
       id: 'roles',
-      header: 'Roles',
-      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{tokenRoleLabel(token)}</span>,
+      header: tm.colRoles,
+      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{tokenRoleLabel(token, uiLocale)}</span>,
     },
     {
       id: 'expires',
-      header: 'Expires',
-      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.expires_at)}</span>,
+      header: tm.colExpires,
+      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.expires_at, tm)}</span>,
     },
     {
       id: 'created',
-      header: 'Created',
-      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.created_at)}</span>,
+      header: tm.colCreated,
+      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.created_at, tm)}</span>,
     },
     {
       id: 'issuer',
-      header: 'Issued by',
+      header: tm.colIssuedBy,
       accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{tokenIssuerLabel(token, usersById)}</span>,
     },
     {
       id: 'revoked',
-      header: 'Revoked',
-      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.revoked_at)}</span>,
+      header: tm.colRevoked,
+      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.revoked_at, tm)}</span>,
     },
     {
       id: 'status',
-      header: 'Status',
+      header: tm.colStatus,
       accessor: (token) => {
-        const { label, color } = tokenStatusPresentation(token.status)
+        const { label: labelKey, color } = tokenStatusPresentation(token.status)
+        const label = tm[labelKey]
         return (
           <span data-testid="token-status" style={{ color, fontWeight: 600, fontSize: 'var(--text-xs)' }}>
             {label}
@@ -190,12 +195,12 @@ export default function TokensPage() {
     },
     {
       id: 'actions',
-      header: 'Actions',
+      header: tm.colActions,
       accessor: (token) => {
         const revoked = Boolean(token.revoked_at)
         return canManage && !revoked ? (
           <Button variant="danger" size="sm" onClick={() => setPendingRevoke(token)}>
-            Revoke
+            {tm.revoke}
           </Button>
         ) : null
       },
@@ -205,19 +210,19 @@ export default function TokensPage() {
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>API Tokens</h2>
+        <h2 style={{ margin: 0 }}>{tm.title}</h2>
         {canManage && (
           <span style={{ marginLeft: 'auto' }}>
             <Button variant="primary" size="sm" onClick={() => { setCreating(true); setIssuedToken(null); setCreateError('') }}>
-              + Issue token
+              {tm.issueAction}
             </Button>
           </span>
         )}
       </div>
 
       {issuedToken && (
-        <div ref={issuedRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Issued token" style={{ background: 'var(--color-success-tint)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginBottom: '1.25rem' }}>
-          <p style={{ fontWeight: 600, marginBottom: '.5rem', color: 'var(--color-success-dark)' }}>This value will not be shown again.</p>
+        <div ref={issuedRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={tm.issuedDialog} style={{ background: 'var(--color-success-tint)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginBottom: '1.25rem' }}>
+          <p style={{ fontWeight: 600, marginBottom: '.5rem', color: 'var(--color-success-dark)' }}>{tm.shownOnce}</p>
           <code data-testid="issued-token-value" style={{ fontSize: '.85rem', wordBreak: 'break-all', display: 'block', marginBottom: '.75rem' }}>{issuedToken.token_value}</code>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
             <Button
@@ -225,13 +230,13 @@ export default function TokensPage() {
               size="sm"
               onClick={() => {
                 void navigator.clipboard.writeText(issuedToken.token_value)
-                toast.success('Copied')
+                toast.success(tm.copied)
               }}
             >
-              Copy token
+              {tm.copyToken}
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setIssuedToken(null)}>
-              Close
+              {tm.close}
             </Button>
           </div>
         </div>
@@ -239,13 +244,13 @@ export default function TokensPage() {
 
       {creating && (
         <div style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Issue token</h3>
+          <h3 style={{ margin: '0 0 1rem' }}>{tm.issueTitle}</h3>
           {createError && <p role="alert" style={{ marginTop: 0, color: 'var(--color-error)', fontSize: '.875rem' }}>{createError}</p>}
           <div style={{ marginBottom: '.75rem' }}>
-            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>Target user</label>
+            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>{tm.targetUser}</label>
             <select value={form.user_id} onChange={(e) => setForm((p) => ({ ...p, user_id: e.target.value }))}
               style={{ width: '100%', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }}>
-              <option value="">Select a user</option>
+              <option value="">{tm.selectUser}</option>
               {(users?.items ?? []).map((user) => {
                 const id = user.id ?? user.user_id ?? ''
                 return <option key={id} value={id}>{user.display_name} ({user.email})</option>
@@ -253,21 +258,21 @@ export default function TokensPage() {
             </select>
           </div>
           <div style={{ marginBottom: '.75rem' }}>
-            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>Role set</label>
+            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>{tm.roleSet}</label>
             <input value={form.roles} onChange={(e) => setForm((p) => ({ ...p, roles: e.target.value }))}
-              placeholder="Comma-separated roles"
+              placeholder={tm.rolesPlaceholder}
               style={{ width: '100%', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }} />
           </div>
           <div style={{ marginBottom: '.75rem' }}>
-            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>Expiry date</label>
+            <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>{tm.expiryDate}</label>
             <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm((p) => ({ ...p, expires_at: e.target.value }))}
               style={{ width: '100%', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }} />
             <DateValueHint value={form.expires_at} kind="datetime" />
           </div>
-          <p style={{ marginTop: 0, color: 'var(--text-secondary)', fontSize: '.875rem' }}>The generated value is shown once and can be copied from the confirmation dialog.</p>
+          <p style={{ marginTop: 0, color: 'var(--text-secondary)', fontSize: '.875rem' }}>{tm.generatedOnce}</p>
           <div style={{ display: 'flex', gap: '.5rem' }}>
-            <Button variant="primary" size="sm" onClick={() => createToken.mutate()}>Issue token</Button>
-            <Button variant="secondary" size="sm" onClick={() => { setCreating(false); setCreateError('') }}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={() => createToken.mutate()}>{tm.issueSubmit}</Button>
+            <Button variant="secondary" size="sm" onClick={() => { setCreating(false); setCreateError('') }}>{tm.cancel}</Button>
           </div>
         </div>
       )}
@@ -283,17 +288,17 @@ export default function TokensPage() {
       <DataTable
         columns={columns}
         data={tokenItems}
-        emptyMessage="No API tokens found."
+        emptyMessage={tm.empty}
       />
       </QueryStateBoundary>
 
       {pendingRevoke && (
-        <div ref={revokeRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Revoke token" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
+        <div ref={revokeRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={tm.revokeDialog} style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
           <div style={{ background: 'var(--surface-card)', width: 'min(520px, 100%)', borderRadius: '12px', padding: '1.25rem' }}>
-            <h3 style={{ marginTop: 0 }}>Revoke token?</h3>
-            <p style={{ color: 'var(--text-secondary)' }}>Revoking this API token immediately removes access for the associated user and roles.</p>
+            <h3 style={{ marginTop: 0 }}>{tm.revokeTitle}</h3>
+            <p style={{ color: 'var(--text-secondary)' }}>{tm.revokeText}</p>
             <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
-              <Button variant="secondary" size="md" onClick={() => setPendingRevoke(null)}>Cancel</Button>
+              <Button variant="secondary" size="md" onClick={() => setPendingRevoke(null)}>{tm.cancel}</Button>
               <Button
                 variant="danger"
                 size="md"
@@ -302,7 +307,7 @@ export default function TokensPage() {
                   setPendingRevoke(null)
                 }}
               >
-                Revoke token
+                {tm.revokeConfirm}
               </Button>
             </div>
           </div>
