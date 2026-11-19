@@ -14,6 +14,25 @@ defmodule Letflow.CiSelectTestsTest do
   @ci_yml Path.join(@root, ".github/workflows/ci.yml")
   @leaf "lib/letflow/modules/locations/tree.ex"
 
+  test "B7: identity risk coverage includes the enforcement family of root-level tests" do
+    code = """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+    s = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s)
+    family = ['test/letflow/scope_enforcement_test.exs',
+              'test/letflow/scope_enforcement_on_e2e_test.exs',
+              'test/letflow/scope_enforcement_flip_authority_test.exs']
+    unrelated = 'test/letflow/scope_node_paths_test.exs'
+    selected = s.risk_tests(['lib/letflow/identity.ex'], family + [unrelated], '.')
+    assert selected == set(family), selected
+    print('enforcement family PASS')
+    """
+
+    assert {"enforcement family PASS\n", 0} =
+             System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+  end
+
   @tag timeout: 120_000
   test "B1: standard fallback cases always produce a bounded plan" do
     for event <- ["pull_request", "merge_group", "push"],

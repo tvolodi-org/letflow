@@ -417,16 +417,18 @@ def risk_tests(changed, all_tests, root):
     groups = []
     for p in changed:
         if "identity" in p or p.startswith("priv/permission_matrix/"):
-            groups.extend(("identity", "api", "scope_enforcement"))
+            groups.extend(("identity", "api", "scope-enforcement"))
         elif "ledger" in p or "event_store" in p or p.startswith("priv/repo/"):
             groups.extend(("ledger", "event_store", "migrations"))
         elif SENSITIVE_LIB_PATH_RE.search(p) or FLOOR_LIB_RE.search(p):
             groups.extend(("engine", "record_triggers", "modules"))
         elif p.startswith(("config/", "mix.", "test/support/")):
             groups.extend(("identity", "engine", "ledger"))
+    # Family labels use hyphens; source paths use underscores. Include root-level
+    # family variants as well as the main test and nested test directory.
     selected = {t for t in all_tests if any(
-        t.startswith("test/letflow/%s/" % g) or t == "test/letflow/%s_test.exs" % g
-        for g in dict.fromkeys(groups)
+        t.startswith(("test/letflow/%s/" % g, "test/letflow/%s_" % g))
+        for g in (label.replace("-", "_") for label in dict.fromkeys(groups))
     )}
     config_modules = set()
     for p in changed:
