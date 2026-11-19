@@ -1,132 +1,216 @@
+# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-count. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 4. Data: Items, places linked to QOI-OU-1, base units, lots, book quantity B, no open formal count and effective quick-count approval rule: listed in scenario preconditions. Task baseline has responsible-key stock; a plain positive key and a second approver are absent baseline fixtures and dependent outcomes are BLOCKED-by-environment. Re-read B before each retry; concurrent postings invalidate the environment precondition. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-count.
+# T-2190: run title UAT qoimeks-count; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2159 (BA): Qoimeks QA walk, quick count. QA only, SYNTHETIC data, no production.
 # Covers: REQ-855 criterion 3 (zero accepted; negative and more than 9 decimals refused before sending; reason "Other" needs a note), REQ-854 criteria 4 (zero allowed here) and 9 (input refusals; the client side only).
 # Sources: docs/requirements.yaml REQ-854 criteria 4 and 9, REQ-855 criterion 3; quickCountMessages.ts (texts: "The quantity cannot be negative.", "No more than 9 decimal places.", 'Enter a note for "Other".', "Enter the counted quantity.").
 # Writes nothing: every step ends before "Submit count" is accepted. The step with zero only reads the difference and is NOT submitted (submitting zero on a positive key would empty the balance of shared QA stock).
 # Not UAT-observable: the server-side refusals (reason_invalid, lot required, serial-tracked item, unknown_kind) because the screen blocks the bad input before sending, and a refused request must not be probed by hand (rules of the BA role);
 # they are covered by REQ-854 criterion 9 tests. Rest of the group list: see qoimeks-count-1.
+# Plain-key coverage requires a prepared balance without a responsible; seeded responsible rows are not that fixture. Missing fixture is BLOCKED-by-environment.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-count-4-input-refusals-and-zero
-scope: qoimeks-count
-title: The quick count form refuses a negative quantity, more than nine decimals, an empty quantity and the reason Other without a note, and accepts zero as a counted quantity
-version: "1.0"
-tags: [qoimeks, stock, quick_count, validation, refusal, zero, desktop, en]
-
-description: >
-  On the quick count form with an item, place and org unit chosen, the administrator tries four bad inputs one after another, each in its own step, and each must be refused with a message at its field and no
-  count recorded: a negative quantity, a quantity with ten decimals, no quantity at all, and the reason "Other" with an empty note. Then, in a step of its own that is not a refusal, the administrator types zero:
-  zero is a valid count (Qoimeks rule: zero is allowed in a count and nowhere else), the form shows the difference as minus the book quantity and shows no field error. The administrator leaves without submitting.
-  The stock documents list gets no new document and the balance of the key is unchanged.
-
+scope: qoimeks-qa
+title: >-
+  The quick count form refuses a negative quantity, more than nine decimals, an empty quantity and the reason Other
+  without a note, and accepts zero as a counted quantity
+version: '1.1'
+tags:
+- qoimeks
+- stock
+- quick_count
+- validation
+- refusal
+- zero
+- desktop
+- en
+description: >-
+  On the quick count form with an item, place and org unit chosen, the administrator tries four bad inputs one after
+  another, each in its own step, and each must be refused with a message at its field and no count recorded: a negative
+  quantity, a quantity with ten decimals, no quantity at all, and the reason "Other" with an empty note. Then, in
+  a step of its own that is not a refusal, the administrator types zero: zero is a valid count (Qoimeks rule: zero
+  is allowed in a count and nowhere else), the form shows the difference as minus the book quantity and shows no
+  field error. The administrator leaves without submitting. The stock documents list gets no new document and the
+  balance of the key is unchanged.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: Same tenant, data, permission and browser as qoimeks-count-1 (desktop 1440 px, English).
-    check: system_seeded
-    detail: Any missing part is BLOCKED for the whole scenario.
-  - description: A key with an item without lots and a positive book quantity B, not one of the three negative balances.
-    check: system_seeded
-    detail: If none exists, report BLOCKED.
-
+- description: >-
+    Same tenant, data, permission and browser as qoimeks-count-1 (desktop 1440 px, English).
+  check: system_seeded
+  detail: >-
+    Any missing part is BLOCKED for the whole scenario.
+- description: >-
+    A key with an item without lots and a positive book quantity B, not one of the three negative balances.
+  check: system_seeded
+  detail: >-
+    If none exists, report BLOCKED.
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
+- description: >-
+    For the existing positive-book-quantity steps, first read the full balance key and confirm it has no responsible,
+    no lot and uses the item base unit at QOI-OU-1. The chosen location must be linked to that org unit. Record
+    item, place, unit, quantity B and the empty responsible slot before any count.
+  check: runner_prepared
+  detail: >-
+    The synthetic opening rows all have a responsible and cannot supply this plain positive key. If no separate
+    prepared plain positive balance exists, mark those steps and dependent outcomes BLOCKED-by-environment before
+    submitting; never compare the form book value 0 with a responsible balance B. Source: QuickCountPage.tsx bookRow
+    and documents.ex book_quantity. Do not create stock to satisfy this precondition.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator opens Balances, notes one row (item, location, org unit, quantity B) and the number of documents in the stock documents list, then opens "Quick count" and chooses that item, location and org unit.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator types -1 as the counted quantity, chooses the reason "Recount" and presses "Submit count".
-    expect_refusal: true
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator types 1.0000000001 (ten decimals) as the counted quantity, keeps the reason "Recount" and presses "Submit count".
-    expect_refusal: true
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator clears the counted quantity field, keeps the reason "Recount" and presses "Submit count".
-    expect_refusal: true
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      The administrator types 1 as the counted quantity, chooses the reason "Other", leaves the note empty and presses "Submit count".
-    expect_refusal: true
-    via: ui
-  - step: 6
-    actor: admin
-    action: >
-      The administrator types 0 as the counted quantity, chooses the reason "Recount" and reads the form. The administrator does NOT press "Submit count".
-    via: ui
-  - step: 7
-    actor: admin
-    action: >
-      The administrator leaves the screen through the stock navigation, reads Balances for the key and the number of documents in the stock documents list.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator opens Balances, notes one row (item, location, org unit, quantity B) and the number of documents
+    in the stock documents list, then opens "Quick count" and chooses that item, location and org unit.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator types -1 as the counted quantity, chooses the reason "Recount" and presses "Submit count".
+  expect_refusal: true
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator types 1.0000000001 (ten decimals) as the counted quantity, keeps the reason "Recount" and
+    presses "Submit count".
+  expect_refusal: true
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator clears the counted quantity field, keeps the reason "Recount" and presses "Submit count".
+  expect_refusal: true
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The administrator types 1 as the counted quantity, chooses the reason "Other", leaves the note empty and presses
+    "Submit count".
+  expect_refusal: true
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The administrator types 0 as the counted quantity, chooses the reason "Recount" and reads the form. The administrator
+    does NOT press "Submit count".
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The administrator leaves the screen through the stock navigation, reads Balances for the key and the number
+    of documents in the stock documents list.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: A negative quantity is refused at its field.
-    verification:
-      method: gui_screen
-      detail: Step 2 shows "The quantity cannot be negative." at the counted quantity field and no result panel.
-      evidence: Screenshot of step 2.
-    on_fail:
-      severity: MAJOR
-      business_impact: A negative count would be sent to the server or recorded.
-      suggested_action: route_to_frontend_dev
-  - id: EO-002
-    description: More than nine decimals are refused at the field.
-    verification:
-      method: gui_screen
-      detail: Step 3 shows "No more than 9 decimal places." and no result panel.
-      evidence: Screenshot of step 3.
-    on_fail:
-      severity: MAJOR
-      business_impact: A quantity the ledger cannot hold would be sent.
-      suggested_action: route_to_frontend_dev
-  - id: EO-003
-    description: An empty quantity is refused at the field.
-    verification:
-      method: gui_screen
-      detail: Step 4 shows "Enter the counted quantity." and no result panel.
-      evidence: Screenshot of step 4.
-    on_fail:
-      severity: MINOR
-      business_impact: An empty count would be sent.
-      suggested_action: route_to_frontend_dev
-  - id: EO-004
-    description: The reason Other needs a note.
-    verification:
-      method: gui_screen
-      detail: Step 5 shows 'Enter a note for "Other".' at the note field and no result panel.
-      evidence: Screenshot of step 5.
-    on_fail:
-      severity: MAJOR
-      business_impact: A count with the reason "Other" and no explanation would enter the record.
-      suggested_action: route_to_frontend_dev
-  - id: EO-005
-    description: Zero is accepted as a counted quantity and shows the difference.
-    verification:
-      method: gui_screen
-      detail: Step 6 shows no field error on the quantity, and Difference equal to minus B (for B 10, -10).
-      evidence: Screenshot of step 6.
-    on_fail:
-      severity: MAJOR
-      business_impact: A storekeeper who finds nothing on the shelf cannot record that the stock is zero.
-      suggested_action: route_to_frontend_dev
-  - id: EO-006
-    description: Nothing was written by the four refusals or the zero look.
-    verification:
-      method: gui_screen
-      detail: Step 7 shows the key at B on Balances and the same number of documents as in step 1.
-      evidence: Screenshot of step 7 and of the list.
-    on_fail:
-      severity: BLOCKER
-      business_impact: A refused count left a trace or changed stock.
-      suggested_action: route_to_backend_dev
+- id: EO-001
+  description: >-
+    A negative quantity is refused at its field.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 2 shows "The quantity cannot be negative." at the counted quantity field and no result panel.
+    evidence: >-
+      Screenshot of step 2.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A negative count would be sent to the server or recorded.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    More than nine decimals are refused at the field.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 shows "No more than 9 decimal places." and no result panel.
+    evidence: >-
+      Screenshot of step 3.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A quantity the ledger cannot hold would be sent.
+    suggested_action: route_to_frontend_dev
+- id: EO-003
+  description: >-
+    An empty quantity is refused at the field.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 shows "Enter the counted quantity." and no result panel.
+    evidence: >-
+      Screenshot of step 4.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      An empty count would be sent.
+    suggested_action: route_to_frontend_dev
+- id: EO-004
+  description: >-
+    The reason Other needs a note.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 5 shows 'Enter a note for "Other".' at the note field and no result panel.
+    evidence: >-
+      Screenshot of step 5.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A count with the reason "Other" and no explanation would enter the record.
+    suggested_action: route_to_frontend_dev
+- id: EO-005
+  description: >-
+    Zero is accepted as a counted quantity and shows the difference.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 6 shows no field error on the quantity, and Difference equal to minus B (for B 10, -10).
+    evidence: >-
+      Screenshot of step 6.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A storekeeper who finds nothing on the shelf cannot record that the stock is zero.
+    suggested_action: route_to_frontend_dev
+- id: EO-006
+  description: >-
+    Nothing was written by the four refusals or the zero look.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 7 shows the key at B on Balances and the same number of documents as in step 1.
+    evidence: >-
+      Screenshot of step 7 and of the list.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A refused count left a trace or changed stock.
+    suggested_action: route_to_backend_dev
