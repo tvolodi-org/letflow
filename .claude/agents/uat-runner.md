@@ -67,13 +67,12 @@ discipline as your "no mocks, no absence-of-error as pass" rule above.
 
 A `pipeline_test:` key at the scenario's top level names the Playwright spec (relative
 to the repo root, e.g. `web/tests/e2e/pipelines/<name>.pipeline.e2e.spec.ts`) to drive
-for GUI-only scenarios this way. If the scenario has no `pipeline_test:` key at all, or
-the named file does not exist, or it carries a `NOTE (ISS-0526)` / `NOTE (ISS-0527)`
-comment marking it an unresolved aspirational forward-reference, record the scenario
-BLOCKED/UNBUILT_FEATURE on its frontend leg rather than skipping it silently or
-inventing a substitute API-only path — that is a real, correctly-reported gap (see
-`docs/issues/ISS-0527.yaml`'s backlog of 27 such files), not something to route around
-by searching for a different tool.
+for GUI-only scenarios this way. If the scenario has no `pipeline_test:` key at all, or the named file does not exist, or it carries a
+`NOTE (ISS-0526)` / `NOTE (ISS-0527)` comment marking it an unresolved aspirational forward-reference, that is
+not a blocker: write your own browser script (a Playwright script run with `npx playwright test`, or an HTTP client for
+`api` steps) from the scenario's business steps and run it, as the acceptance-tester role does. Record BLOCKED only for a
+real obstacle (no browser can be started, the tenant or login is unreachable, a data precondition is missing), and name
+that obstacle; never because there is no `pipeline_test`.
 
 ### Two-phase visual regression for `gui_screen` expected outcomes (REQ-362)
 
