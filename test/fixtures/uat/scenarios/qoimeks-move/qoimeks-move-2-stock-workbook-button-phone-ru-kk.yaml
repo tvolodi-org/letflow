@@ -1,30 +1,22 @@
-# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
-# 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
-# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-move.
-# T-2190: run title UAT qoimeks-move; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
-# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
-# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
-# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
-# Access-refusal checks may use actor-qoimeks-qa2-storekeeper where its actual permissions warrant refusal; its availability is not an environment blocker. Other required roles or restricted org-unit grants must be confirmed before checks that need them. Sources: actors.yaml and docs/roles.md.
-# Do not substitute a platform or another tenant actor. No real data or production.
-# T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data, never the real tenant.
+# T-2266 code-reading pass (PM 2026-11-19), group qoimeks-move; every expectation below was read against origin/main 98848962e.
+# 1. Scope: scope qoimeks-qa2; tenant and realm qoimeks-qa2 exist (actors.yaml, T-2219); the group directory name is not the scope; run title UAT qoimeks-move.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER, holds StockRead which is all the Balances screen and the workbook route need); no administrator step. Roster entry exists; live login is verified by acceptance from the credential source (no credential in any file); a missing credential blocks the outcome, never a PASS.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 answered HTTP 200 on 2026-11-19 (T-2190 header). Read at main: stockRoutes.tsx and BalancesPage.tsx; stockMessages.ts holds the ru and kk strings quoted below (stock.balances.workbook, workbookHint, export, exportFailed), LanguageSwitcher.tsx shows the language code in upper case (aria-label "<language>: <CODE>").
+# 4. Data: the tenant holds the synthetic stock (Balances rows read at the start of the run: the screen shows no total, the run does not need a count here, only a non-empty list); no other data precondition; the file's article cell A1 is the header, so no fixture is needed for it.
+# 5. Executable: browser steps at a window width of 390 px (a browser window setting, not a phone); the run saves downloads and opens the .xlsx; the language menu is a globe button in the top bar. A real phone, the Android app and the PWA install are not UAT-observable here (no device).
+# 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and a live host); static check run, see the task result. Acceptance runs preflight with title "UAT qoimeks-move".
+# EXPECTATION CORRECTIONS (this scenario, 1): (a) the file name carries today's date in the TENANT time zone (StockWorkbook moduledoc), not the host date; step 3 and 5 name that. All ru and kk strings (button, caption, export button, export failure) were looked up in stockMessages.ts and match.
+# Not exercised, with reasons: the wording of the two refusal banners (too many rows; reader of the whole company needed): the tenant cannot reach those states (see scenario qoimeks-move-1). The unauthorized-access refusal step of the group is in scenario qoimeks-move-1 (step 8).
 # Requirements covered: REQ-866 (button, caption and banners in en, ru and kk on the Balances screen), REQ-865 (the workbook the button downloads).
-# Sources opened: web/src/modules/stock/stockMessages.ts (keys stock.balances.workbook and stock.balances.workbookHint in the three languages, quoted below);
-# web/src/components/ui/LanguageSwitcher.tsx via scenario qoimeks-qa-4 (the globe menu).
-# The 390 px width is a browser window setting of the run, not a real phone. A real phone, the Android app and the PWA install are not UAT-observable here (no device in the run).
 # Cleanup: nothing is written; the browser language is put back to English at the last step.
-# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+# Label sources: web/src/modules/stock/stockMessages.ts, web/src/components/ui/LanguageSwitcher.tsx.
 ---
 id: qoimeks-move-2-stock-workbook-button-phone-ru-kk
 scope: qoimeks-qa2
 title: >-
   On a phone width of 390 px the Balances screen of the Qoimeks QA tenant shows the stock workbook button and its
   caption in Russian and Kazakh, fits the width, and the download still works
-version: '1.1'
+version: '1.2'
 tags:
 - qoimeks
 - move
@@ -106,8 +98,8 @@ steps:
 - step: 3
   actor: storekeeper
   action: >-
-    The storekeeper presses the workbook button and checks that a file named stock-<year>-<month>-<day>.xlsx is
-    saved and no error banner appears.
+    The storekeeper presses the workbook button and checks that a file named stock-<year>-<month>-<day>.xlsx (today in
+    the tenant's time zone) is saved and no error banner appears.
   via: ui
 - step: 4
   actor: storekeeper
