@@ -92,7 +92,7 @@ Qoimeks habits kept only if industry practice exists (owner 2026-11-16).
 |---|---|---|---|---|---|---|
 | G1 | Stock module on a real company | n/a | Built: receipt, issue, write-off, transfer, opening, reversal, counts (`stock.ex`, `stock-counts.md`). **Blocked by the PILOT GATE of decision 0073:** not enabled for a customer tenant until L6 (posting scope) and L7 (master checks) are done. `Ledger.authorize/3` has no posting purpose; `stock/access.ex` says "not built (L6)". L7 depends on the OQ-R4 read facade (0073 D6) | **No** | L6 = **T-2021** (about M); OQ-R4 = **T-2022** (about L); L7 = **T-2023**, after T-2022 (about L). Requirement tasks will set the real sizes; update when known. This is the critical path, not built yet. | — |
 | G2 | Items, unit, decimals | 666 SKUs, unit `шт`, quantities up to 3 decimals [§7] | `catalog_item`, `catalog_uom` with xlsx import. The ledger accepts up to 9 decimals (`validate.ex`, `quantity_scale`). The converter builds units from the distinct unit texts; it drops a decimal comma (`quantity_comma_decimal`), so the extract must use a dot | Fit | none | count 6 (units) |
-| G3 | Place codes and the second place (§8.1) | Code = zone letter + rack letter + shelf number, e.g. `RI2`, name «Справа I 2». A SKU has a usual place and a **second place** (Excel column G) | `location_node` with a free-text code and an optional parent: the code scheme fits as text. **No item field for a usual or second place** (search above). The converter writes neither | Fit for codes; **Gap** for the second place | **T-2026**: usual and second place, including the converter path. Required for parity, regardless of counts. | counts 6, 7 |
+| G3 | Place codes and the second place (§8.1) | Code = zone letter + rack letter + shelf number, e.g. `RI2`, name «Справа I 2». A SKU has a usual place and a **second place** in Qoimeks (Excel column G); Letflow keeps a **single usual place** per item (REQ-841/843, owner rewrite 2026-11-16) | `location_node` with a free-text code and an optional parent: the code scheme fits as text. **No item field for a usual place** (search above). The converter writes none | Fit for codes; **Gap** for the single usual place | **T-2026**: one usual place (`default_location_id`), including the converter path (home_loc only; the second place is reported, not imported; single place per REQ-841/843, owner rewrite 2026-11-16). Required for parity, regardless of counts. | counts 6, 7 |
 | G4 | **Negative balances** (§8.3) | Allowed, with the warning «Остаток станет отрицательным» | **Refused by default; REQ-834 to REQ-836 add the per-tenant allow setting.** Without it, an issue below the balance is `insufficient_stock` (`stock.ex`; ledger code `insufficient_balance`, 409, `ledger/codes.ex`). The REQ-837 converter moves negative rows unchanged into all-negative opening files and skips zero rows as `quantity_zero` | **No: the rule differs** | **T-2027**: negative balances with the warning, decided in [decision 0090](../migration/decisions/0090-negative-balances-per-tenant.md) (per-tenant setting, default refuse; parts REQ-834 to REQ-840). Required for parity; the design must explain the change to the Letflow ledger rule and converter. R-2/R-3 are withdrawn. | count 8 (negative and zero rows) |
 | G5 | **Counts that REPLACE the balance** (§8.4) | A count (`adjustment`) is one line that sets the balance to the counted number; qty 0 allowed only for a count | **No one-line "set balance".** Only the formal count order: order, open, count sheet, sign, differences, sign, post task (`stock-counts.md`). It posts the **difference** (counted minus book at the cut-off), not "counted = balance". In the default mode nothing stops movements during counting, so the balance ends at "balance now plus difference" ("Known gaps" 1 and 3). **D-094 freeze mode** (`freeze_locations`, REQ-765) refuses every posting in the frozen places with `409 location_frozen` until the count is posted, cancelled or the limit (default 120 min) runs out. Then the difference equals counted minus current, so the count does replace the balance. A count needs an org unit, a chair with a linked user and signers; STOREKEEPER holds `StockCountOrder` and `StockCountRecord` (`stock.ex`) | **Gap (process)** | **T-2028**: a one-line count that sets the balance. Required for parity; R-4 is withdrawn. The design must explain how this fits or changes the formal count rules. | count 2 (movements per kind: adjustment) |
 | G6 | Append-only ledger, one reversal (§8.5) | DB triggers refuse UPDATE/DELETE/TRUNCATE. A mistake is reversed by a new movement, once; a reversal cannot be reversed | Same rules. Trigger `ledger_entry_guard_update` → `ledger_refuse()` (migration `20261031200001`). A reversal is a new posting; `posting_already_reversed` and `posting_is_reversal`, both 409 (`ledger.ex`, Reversal) | Fit | none | count 2 (reversals per month) |
@@ -128,7 +128,7 @@ The inventory answers the facts that files can show. **Nothing is asked of the c
 | 3 | Movements by source (keyboard / voice), with or without an import number | G15 voice, hand entry |
 | 4 | Imports per month; cancelled imports | G8, G9 (weekly workbook) |
 | 5 | Distinct operator names (count only) | G13, G14 (accounts needed) |
-| 6 | SKUs per unit; SKUs with a barcode; SKUs with a second place | G2, G3, G12 |
+| 6 | SKUs per unit; SKUs with a barcode; SKUs with a second place (reported only, not imported) | G2, G3, G12 |
 | 7 | Places that break the zone + rack + shelf scheme (also `?`) | G3 |
 | 8 | Balance rows negative; zero | G4 |
 | 9 | Feedback rows by kind | G19 |
@@ -143,7 +143,7 @@ The inventory answers the facts that files can show. **Nothing is asked of the c
 | Daily entries or weekly Excel | Both are supported: the weekly workbook path, T-2030, T-2031 | G8, G9 |
 | Stock export used | Export in the import layout, T-2032 | G11 |
 | Barcode column, labels | Barcodes import, T-2033 | G12 |
-| Zone + rack + shelf scheme | Kept as text; usual and second place, T-2026 | G3 |
+| Zone + rack + shelf scheme | Kept as text; single usual place (second place reported, not imported), T-2026 | G3 |
 | Units, decimals, money | Unit `шт`, decimals up to the ledger limit, no money | G2, G21 |
 | Client pays, pause allowed | Not a team question: the move waits for the parity tasks and rehearsals, not for a client answer | C14 |
 | Working hours, who checks | The move runs outside the Qoimeks working hours the inventory shows; the checks of section 2.4 are done by the team and the operator | section 2.5 |
@@ -168,13 +168,13 @@ Source: the PM relay of the owner decision of 2026-11-14, quoted in `docs/design
 
 ### 2.1 What moves, and in which file
 
-This is the **existing T-1616 converter path**, not a complete parity migration. It still drops non-positive balances and omits the second place and history. T-2026, T-2027, T-2033, T-2034, T-2037, T-2038 and T-2039 must settle the missing paths before rehearsal; no completed migration is claimed.
+This is the **existing T-1616 converter path**, not a complete parity migration. It still drops non-positive balances and omits the usual place and history (the second place is reported, not imported: single place per REQ-841/843). T-2026, T-2027, T-2033, T-2034, T-2037, T-2038 and T-2039 must settle the missing paths before rehearsal; no completed migration is claimed.
 
 | Data | Moves? | File (T-1616 converter output) | Letflow importer | Notes |
 |---|---|---|---|---|
 | Places (134) | yes | `01-locations-NN.xlsx`, ≤ 200 rows each (1 file) | `Locations.Import` | code kept as text (G3) |
 | Units | yes | `02-uoms.xlsx` | `CatalogItems.Import` | probably one unit, `шт` (count 6) |
-| Items (666) | yes | `03-items-NN.xlsx`, ≤ 200 rows each (4 files) | `CatalogItems.Import` | the second place is not carried (G3) |
+| Items (666) | yes | `03-items-NN.xlsx`, ≤ 200 rows each (4 files) | `CatalogItems.Import` | the usual place is not carried yet (G3); the second place is never imported (single place per REQ-841/843) |
 | Opening balances (600 rows, positive ones only) | yes | `04-opening-lines-NN.xlsx`, ≤ 100 lines per opening document (6 files), plus `headers/QOI-HDR-NN.json` | `Stock.Documents.OpeningImport` | posted at posting time (0079 D1); needs G1 |
 | Org unit, responsible employee | created by hand | `--org-unit-ext`, `--responsible-ext` | `org` module | "Qoimeks has no such notion" (`qoimeks-rehearsal.md`) |
 | Barcodes | required for parity; path in design | none yet | none (no file import) | G12, T-2033 |
@@ -272,12 +272,12 @@ Automated regression coverage exists; this fresh-tenant QA walk remains **not re
 
 ### 2.7 PM phase order P0–P9 (2026-11-16)
 
-Copied from the PM plan, section 3. **The final parity decision overrides P1's older "extras only if P0" wording:** second place, barcodes, weekly workbook and voice letter words are required, not conditional. P0 is dropped; its "everything is built" means everything must be built, not that it is delivered. P3's formal count with freeze remains a rehearsal check, not a substitute for one-line count parity. P5 sign-in per company follows from the production Keycloak plan (C11); T-1359 (F1b) delivers hostname-to-tenant login configuration, while production setup and the sign-in walk remain open. No phase is marked walked here.
+Copied from the PM plan, section 3. **The final parity decision overrides P1's older "extras only if P0" wording:** the single usual place (not a second one, REQ-841/843), barcodes, weekly workbook and voice letter words are required, not conditional. P0 is dropped; its "everything is built" means everything must be built, not that it is delivered. P3's formal count with freeze remains a rehearsal check, not a substitute for one-line count parity. P5 sign-in per company follows from the production Keycloak plan (C11); T-1359 (F1b) delivers hostname-to-tenant login configuration, while production setup and the sign-in walk remain open. No phase is marked walked here.
 
 | # | Phase | Who | Done when |
 |---|---|---|---|
 | P0 | (dropped, owner 2026-11-16) production counts: not needed, parity means everything is built | - | - |
-| P1 | Product gaps: ledger slices L6 and L7 (the stock module is not allowed for a real company until both are done); quantity compare script; extras only if P0 says they are used (second place, barcodes, weekly workbook, voice letter words) | Letflow team | merged, on QA |
+| P1 | Product gaps: ledger slices L6 and L7 (the stock module is not allowed for a real company until both are done); quantity compare script; extras only if P0 says they are used (usual place, barcodes, weekly workbook, voice letter words; single place per REQ-841/843) | Letflow team | merged, on QA |
 | P2 | Rehearsal 1 on QA with a test set of the same shape (no real data leaves production, D-050) | operator | all 6 reconciliation checks pass; time written down |
 | P3 | Rehearsal 2 on a fresh QA tenant, with four-eyes off and a count with freeze | operator | same result |
 | P4 | (no owner decision left here except the production go, C6; no money, D-152) | - | - |
@@ -297,7 +297,7 @@ Read these conditions alongside the phase order in section 2.7. Parity is decide
 | C2 | Read-only counts (section 1.3 A), formerly P0 | P0 dropped by owner 2026-11-16; PM-held counts may inform sizing, not scope | not a parity prerequisite |
 | C3 | Ledger slices L6 and L7 built and merged, with OQ-R4 before L7 (G1) | L6 = T-2021 (about M); OQ-R4 = T-2022 (about L); L7 = T-2023 after T-2022 (about L). Requirement tasks set real sizes; update when known. Planned, not built | team; the owner's WMS order |
 | C4 | Owner decisions on Qoimeks functionality | **decided by the owner 2026-11-16: parity** | designs explain changes where Letflow rules conflict |
-| C5 | Quantity compare tool (RH-7) and all parity gaps in section 1.2, including inventory §8.10 move rules | quantity compare tool (RH-7) = T-2024 (size S); T-2026–T-2039 assigned to parity gaps, not built. The earlier PM hold on second place, barcodes, weekly workbook and voice letter words pending P0 counts is superseded by parity | team |
+| C5 | Quantity compare tool (RH-7) and all parity gaps in section 1.2, including inventory §8.10 move rules | quantity compare tool (RH-7) = T-2024 (size S); T-2026–T-2039 assigned to parity gaps, not built. The earlier PM hold on the usual place, barcodes, weekly workbook and voice letter words pending P0 counts is superseded by parity | team |
 | C6 | **Production go**: the owner's go, **announced before it runs and never self-started** (D-152). It is the only item left for the owner in the production section | not given | owner |
 | C7 | **Server**: the existing host `ubuntu-16gb-nbg1-1` next to QA, no new VPS, 0 new cost (D-152). Separate compose project, own Postgres and Keycloak, own systemd slice with a 3.84 GiB ceiling, loopback ports; QA is killed first under memory pressure. A pending reboot (uptime 141 days) would stop QA, demo and production together and is scheduled, not left to chance | planned, not built | infra, operator |
 | C8 | **DNS**: the dedicated `ai-letflow.com` zone, `ai-letflow.com` and `*.ai-letflow.com` for company URLs (`<company>.ai-letflow.com`), `auth.ai-letflow.com` for Keycloak, `pwa.ai-letflow.com` for the PWA host. First Qoimeks client URL: `sss.ai-letflow.com`. Cloudflare notes of G17 go to infra here. No DNS or certificate work is performed by T-1359; not yet configured (owner token O-016, infra) | planned, not built | infra |
@@ -325,7 +325,7 @@ Read these conditions alongside the phase order in section 2.7. Parity is decide
 | Four eyes (a second person approves the opening) | Merged, not walked | T-1986–T-1990 merged; C17 rehearsal after infra provides a fresh QA tenant; date not yet recorded | Infra, operator; you (open design questions) |
 | Old history | In design | Movement history parity, T-2037 | Team |
 | Items, places, balances | Half | Quantity check tool RH-7, T-2024 (S); other parity gaps in section 1.2 | Team |
-| Barcodes, second place, voice words | Planned | Required for parity: T-2033, T-2026, T-2035 | Team |
+| Barcodes, single usual place (REQ-841/843), voice words | Planned | Required for parity: T-2033, T-2026, T-2035 | Team |
 | Phone app | In design | Android and iPhone web parity, T-2036 | Team |
 | Voice | Built for OpenAI-style providers | Qoimeks keys reused; ElevenLabs speech needs a new client, T-2035; not built | Team, infra |
 | People sign in | Host lookup coded; production not walked | Production Keycloak per company (C11); T-1359 delivers host-to-company realm and branding selection; DNS, realm setup and each user's sign-in remain | Infra, team |
