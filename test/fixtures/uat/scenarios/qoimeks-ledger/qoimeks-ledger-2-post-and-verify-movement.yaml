@@ -1,3 +1,16 @@
+# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
+# 1. Scope: every scenario parsed as qoimeks-qa; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
+# 2. Actors: actors.yaml maps actor-qoimeks-qa-admin to qoimeks-qa / TENANT_ADMIN; owner task confirms the QOIMEKS_QA_ADMIN QA login. No lower-role actor exists; live login not repeated; missing credentials or roles block affected outcomes.
+# 3. Host and screens: read-only HEAD to https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
+# 4. Data: Items, units, places, responsible employee, QOI-OU-1, starting balance and movements, opening approval rule, pending tasks and report data: listed in scenario preconditions. The L7 issued-document posting-variable harness is not supplied by the synthetic baseline; ledger-3 is BLOCKED-by-environment unless it is prepared first. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (666 items, 134 racks plus 8 hierarchy places, 600 positive plus 3 negative rows); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
+# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
+# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa and sole roster actor); acceptance must use title UAT qoimeks-ledger.
+# T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
+# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Access-refusal coverage needing another role is BLOCKED-by-environment: only actor-qoimeks-qa-admin exists in this realm.
+# Do not substitute a platform or another tenant actor. No real data or production.
 # T-2168 (BA): Qoimeks QA walk, ledger effects L6 and L7: post a new receipt, verify balance and movement, reverse it. QA only, SYNTHETIC data.
 # REQ ids covered: REQ-830 (posting scope: the authority check passes for the TENANT_ADMIN's tenant-wide grant),
 #   REQ-831 (stock document routes accept the full-access admin for create, issue, post, reverse),
@@ -12,149 +25,202 @@
 # NOT UAT-observable here, with reasons:
 #   (a) L6 scope_denied path: no scoped STOREKEEPER in the roster; covered by REQ-830 backend tests.
 #   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; tested in qoimeks-ledger-3.
+# Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
+# Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
+# Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.
+# Opening body: kind:"opening", org_unit_id, note, lines [{catalog_item_id,catalog_uom_id,location_id,responsible_id,received_on:<today YYYY-MM-DD>,quantity:"1"}]. No supplier_document_ref for opening.
+# POST /api/v1/modules/stock/documents/<D1>/issue and /post use {}; /reverse uses {reason_code:"other",reason_text:<step note>}; /cancel uses {reason:<step note>}. GET the same document to verify final state.
+# Use a fresh per-action idempotency-key if supplied; second-post refusal uses a new key, not a replay of the successful posting.
+# Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
+# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-ledger-2-post-and-verify-movement
-scope: qoimeks-ledger
-title: "The administrator creates receipt UAT-LEDGER-REC-01, posts it, sees the balance increase and the movement entry, is refused on a second post, then reverses it"
-version: "1.0"
-tags: [qoimeks, ledger, receipt, posting, balance, movement, reversal, L6, L7, refusal]
-
-description: >
-  The administrator picks an existing item and place from the synthetic data (any row on the Balances screen)
-  and notes the current balance as B0. The administrator creates a new stock receipt named "UAT-LEDGER-REC-01"
-  for 1 unit of that item at that place, issues it and in My Tasks completes the posting task. The balance
-  increases by 1 and the movement history shows the new entry.
-  The administrator then tries to post the same receipt again and is refused (the document is already posted).
-  As cleanup the administrator reverses the receipt: the balance returns to B0 and the reversal entry appears
-  in the movements. Both the original posting and its reversal remain in the movements log.
-
+scope: qoimeks-qa
+title: >-
+  The administrator creates receipt UAT-LEDGER-REC-01, posts it, sees the balance increase and the movement entry,
+  is refused on a second post, then reverses it
+version: '1.1'
+tags:
+- qoimeks
+- ledger
+- receipt
+- posting
+- balance
+- movement
+- reversal
+- L6
+- L7
+- refusal
+description: >-
+  The administrator picks an existing item and place from the synthetic data (any row on the Balances screen) and
+  notes the current balance as B0. The administrator creates a new stock receipt named "UAT-LEDGER-REC-01" for 1
+  unit of that item at that place, issues it and in My Tasks completes the posting task. The balance increases by
+  1 and the movement history shows the new entry. The administrator then tries to post the same receipt again and
+  is refused (the document is already posted). As cleanup the administrator reverses the receipt: the balance returns
+  to B0 and the reversal entry appears in the movements. Both the original posting and its reversal remain in the
+  movements log.
 actors:
   admin: actor-qoimeks-qa-admin
-
 preconditions:
-  - description: >
-      The stock module is active; the administrator knows at least one item code, location and org unit with
-      a positive balance from the synthetic data. Any row on the Balances screen can be used.
-    check: system_seeded
-    detail: If the Balances screen is empty or inaccessible, report BLOCKED.
-  - description: >
-      No existing unposted document with supplier reference "UAT-LEDGER-REC-01" is left from a previous run.
-      If one exists, cancel or discard it first and carry on.
-    check: system_seeded
-
+- description: >-
+    The stock module is active; the administrator knows at least one item code, location and org unit with a positive
+    balance from the synthetic data. Any row on the Balances screen can be used.
+  check: system_seeded
+  detail: >-
+    If the Balances screen is empty or inaccessible, report BLOCKED.
+- description: >-
+    No existing unposted document with supplier reference "UAT-LEDGER-REC-01" is left from a previous run. If one
+    exists, cancel or discard it first and carry on.
+  check: system_seeded
+- description: >-
+    Sign in as actor-qoimeks-qa-admin (QOIMEKS_QA_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa.letflow.qa.bizdala.com/?realm=qoimeks-qa.
+    Confirm the tenant before any action. The baseline is 666 items, 142 places, 603 posted balances, every seeded
+    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
+    only; read the quick-count rule separately.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
+    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
+    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
+    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
+    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
+    is not a blocker under this task contract.
 steps:
-  - step: 1
-    actor: admin
-    action: >
-      The administrator opens the Balances screen, picks any row with a positive balance and notes
-      the item code, location, org unit and quantity as B0.
-    via: ui
-  - step: 2
-    actor: admin
-    action: >
-      The administrator creates a new stock receipt: org unit from B0, location from B0, item from B0,
-      quantity 1, supplier reference "UAT-LEDGER-REC-01". The draft is saved and noted as D1.
-    via: ui
-  - step: 3
-    actor: admin
-    action: >
-      The administrator issues the receipt D1. The document state changes to "Issued" and a document number
-      is assigned. The number is noted as REF-1.
-    via: ui
-  - step: 4
-    actor: admin
-    action: >
-      The administrator opens My Tasks, finds the posting task for REF-1 and completes it.
-      The document state is noted as S1.
-    via: ui
-  - step: 5
-    actor: admin
-    action: >
-      The administrator opens the Balances screen and filters by the item and location from step 1.
-      The balance is noted as B1.
-    via: ui
-  - step: 6
-    actor: admin
-    action: >
-      The administrator opens the Movements screen and filters by the item from step 1.
-      The newest movement entry is noted as M1.
-    via: ui
-  - step: 7
-    actor: admin
-    action: >
-      The administrator sends a second post request for the document REF-1 directly via the API.
-    expect_refusal: true
-    via: api
-  - step: 8
-    actor: admin
-    action: >
-      The administrator reverses the posted receipt REF-1 with reason "UAT reversal of UAT-LEDGER-REC-01".
-      The reversal document number is noted as REV-1.
-    via: api
-  - step: 9
-    actor: admin
-    action: >
-      The administrator opens the Balances screen (same filter as step 5) and the Movements screen (same filter
-      as step 6). The balance is noted as B2 and the two newest movements are noted as M2.
-    via: ui
-
+- step: 1
+  actor: admin
+  action: >-
+    The administrator opens Balances, selects a positive row and records its item, place, QOI-OU-1, responsible
+    employee, unit, empty lot and quantity B0. They retain the exact full key and its identifiers from the signed-in
+    balance response for comparison.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator creates a receipt for the recorded org unit, place and responsible employee, the recorded
+    item and base unit, quantity 1 and current event date and time in the tenant zone. The supplier reference is
+    UAT-LEDGER-REC-01. Save the draft as D1.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator issues the receipt D1. The document state changes to "Issued" and a document number is assigned.
+    The number is noted as REF-1.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, finds the posting task for REF-1 and completes it. The document state is noted
+    as S1.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The administrator opens the Balances screen and filters by the item and location from step 1. The balance is
+    noted as B1.
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The administrator opens Movements and selects the document filter using D1, the recorded document identifier,
+    then reads the receipt operation and its expanded legs as M1.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The administrator sends a second post request for the document REF-1 directly via the API.
+  expect_refusal: true
+  via: api
+- step: 8
+  actor: admin
+  action: >-
+    The administrator starts reversal of REF-1 with reason Other and note UAT reversal of UAT-LEDGER-REC-01, then
+    opens My Tasks and completes its reversal task. Record the resulting document state; starting reversal alone
+    does not restore balances.
+  via: api
+- step: 9
+  actor: admin
+  action: >-
+    The administrator opens the Balances screen (same filter as step 5) and the Movements screen (same filter as
+    step 6). The balance is noted as B2 and the two newest movements are noted as M2.
+  via: ui
 expected_outcomes:
-  - id: EO-001
-    description: The receipt is issued and receives a document number.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 3 shows the document in state "Issued" (Russian: "Выпущен", Kazakh: "Шығарылған") with a
-        non-empty document number; the posting task appears in My Tasks.
-      evidence: Screenshot of step 3 (document detail panel) and My Tasks task list.
-    on_fail:
-      severity: BLOCKER
-      business_impact: Stock documents cannot be issued; no stock postings can be made on the QA tenant.
-      suggested_action: route_to_elixir_dev
-  - id: EO-002
-    description: The posting task completes, the document is posted and the balance increases.
-    verification:
-      method: gui_screen
-      detail: >
-        Step 4 shows the document in state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген");
-        the task is gone from My Tasks. B1 equals B0 plus 1.
-      evidence: Screenshots of step 4 (document state) and step 5 (balance panel).
-    on_fail:
-      severity: BLOCKER
-      business_impact: Posting stock movements is not working; stock accounting is not usable on the QA tenant.
-      suggested_action: route_to_elixir_dev
-  - id: EO-003
-    description: The movement entry appears in the history for the item.
-    verification:
-      method: gui_screen
-      detail: >
-        M1 is a posted entry with document number REF-1 and cause related to the receipt
-        (English: "receipt" or "stock receipt"; the entry has the posted quantity 1).
-      evidence: Screenshot of step 6 (Movements screen filtered to the item, with M1 visible).
-    on_fail:
-      severity: MAJOR
-      business_impact: The movement history is incomplete; the administrator cannot trace the receipt in the ledger.
-      suggested_action: route_to_elixir_dev
-  - id: EO-004
-    description: Trying to post an already-posted document is refused.
-    verification:
-      method: http_status
-      detail: "Step 7 answers 409 with reason \"document_posted\"."
-      evidence: API response of step 7.
-    on_fail:
-      severity: MAJOR
-      business_impact: A posted document could be posted a second time, creating duplicate balance entries.
-      suggested_action: route_to_elixir_dev
-  - id: EO-005
-    description: The reversal restores the balance and appears as a reversed entry in the movements.
-    verification:
-      method: gui_screen
-      detail: >
-        B2 equals B0 (the balance returned to the value before the receipt); M2 shows two entries for the item:
-        the original posting REF-1 (now marked as "Reversed" / "Сторнирован" / "Қайта жазылған") and the
-        reversal entry REV-1.
-      evidence: Screenshots of step 9 (balance panel and Movements screen with both entries visible).
-    on_fail:
-      severity: MAJOR
-      business_impact: Reversals do not restore the balance; stock accounting is unreliable.
-      suggested_action: route_to_elixir_dev
+- id: EO-001
+  description: >-
+    The receipt is issued and receives a document number.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3 shows the document in state "Issued" (Russian: "Выпущен", Kazakh: "Шығарылған") with a non-empty document
+      number; the posting task appears in My Tasks.
+    evidence: >-
+      Screenshot of step 3 (document detail panel) and My Tasks task list.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      Stock documents cannot be issued; no stock postings can be made on the QA tenant.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: >-
+    The posting task completes, the document is posted and the balance increases.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 shows the document in state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген"); the task is gone
+      from My Tasks. B1 equals B0 plus 1.
+    evidence: >-
+      Screenshots of step 4 (document state) and step 5 (balance panel).
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      Posting stock movements is not working; stock accounting is not usable on the QA tenant.
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    The movement entry appears in the history for the item.
+  verification:
+    method: gui_screen
+    detail: >-
+      M1 is a posted entry with document number REF-1 and cause related to the receipt (English: "receipt" or "stock
+      receipt"; the entry has the posted quantity 1).
+    evidence: >-
+      Screenshot of step 6 (Movements screen filtered to the document, with M1 visible).
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      The movement history is incomplete; the administrator cannot trace the receipt in the ledger.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    Trying to post an already-posted document is refused.
+  verification:
+    method: http_status
+    detail: >-
+      Step 7 answers 409 with reason "document_posted".
+    evidence: >-
+      API response of step 7.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A posted document could be posted a second time, creating duplicate balance entries.
+    suggested_action: route_to_elixir_dev
+- id: EO-005
+  description: >-
+    Completing reversal restores the exact original balance and leaves both entries in history.
+  verification:
+    method: gui_screen
+    detail: >-
+      After reversal-task completion B2 equals B0 for the full key including responsible and unit. The journal retains
+      the original receipt entry and a reversal entry that negates it. Keep both entry identifiers and the reversal
+      link; do not require a new reversal document number.
+    evidence: >-
+      Screenshots of step 9 (balance panel and Movements screen with both entries visible).
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Reversals do not restore the balance; stock accounting is unreliable.
+    suggested_action: route_to_elixir_dev

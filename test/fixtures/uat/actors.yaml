@@ -156,7 +156,8 @@ actors:
     tenant: qoimeks-qa
     builtin_roles: [STOREKEEPER]
     routing_roles: []
-    note: "T-2191 task text (PM 2026-11-19): the lower-role account of the Qoimeks QA tenant now exists (username qoimeks-qa-storekeeper, role STOREKEEPER, realm qoimeks-qa); credentials come from the UAT credential source variables UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, never from this file. Per the task text it sees the stock read, post, reverse and count permissions (17 in all), holds no administration right, and GET /api/v1/tenants is refused for it. Closed issues #4702 and #4709 asked for it. Role grants per docs/roles.md and decision 0081."
+    note: "T-2192 (PM 2026-11-19): username qoimeks-qa-storekeeper, realm qoimeks-qa, role STOREKEEPER; credentials come from UAT_QA_ACTOR_QOIMEKS_QA_STOREKEEPER_USER_*, never from this file. Sees stock read, post, reverse and count permissions (17 in all), no admin; GET /api/v1/tenants is refused for it. Closes the gap of issue 4709."
+
   actor-vortex-dirk:
     tenant: vortex
     builtin_roles: [TASK_WORKER]
