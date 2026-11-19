@@ -102,7 +102,7 @@ run again inside the transaction before anything is written.
 `POST /api/v1/modules/stock/stock-workbook/apply?org_unit_id=<id>[&file_name=<text>]`
 
 - Body: same media type and body parser as the check; 2 MiB at most.
-- Permission `StockQuickCount` (held by TENANT_ADMIN and PLATFORM_ADMIN as of REQ-854; STOREKEEPER does not hold it); tenant-wide readers only (a scoped reader gets 404).
+- Permission `StockWorkbookApply` (T-2239; held by TENANT_ADMIN and PLATFORM_ADMIN only: the Excel load is an administrator function; STOREKEEPER holds `StockQuickCount` for the quick count but gets 403 here); tenant-wide readers only (a scoped reader gets 404).
 - `file_name`: optional, 1 to 255 characters, default `workbook.xlsx`.
 - `org_unit_id` and format errors: same as the check.
 - 409 `definition_not_active` if the `stock_quick_count` process definition is not active, or its document type

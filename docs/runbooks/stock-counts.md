@@ -210,10 +210,16 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 |---|---|---|---|
 | `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `book_quantity_negative`, `count_in_progress` with `held_by` |
 
-* **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule) and PLATFORM_ADMIN (core rule). STOREKEEPER does
-  not hold it: the permission matrix check (`mix letflow.permission_matrix --check`) refuses a `role_grants` widening of a role
-  already in the baseline until per-tenant grant snapshots exist (decision 0081 D2), so the spec's STOREKEEPER grant is deferred
-  and is one line in the stock manifest's `role_grants` once the tool allows it. A STOREKEEPER gets 403.
+* **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule), PLATFORM_ADMIN (core rule) and, since stock
+  0.22.0 (T-2239, GH #4764, PM decision D-161), STOREKEEPER (`role_grants`; decision 0081 note, passed through the signed
+  `grants_widening` exception of decision 0055 D7). A STOREKEEPER still does not hold `StockReconcile`, and under four-eyes the
+  approval of its count is another person's (the approve task is routed to TENANT_ADMIN), so it cannot approve its own count.
+  The Excel load (`POST /stock-workbook/apply`) is NOT a quick-count right: it needs `StockWorkbookApply` (administrators only).
+* **Existing tenants (operator, after the merge).** Grants are code-global: the new grant is live for every tenant as soon as the
+  release is deployed. To record the new module versions in `tenant_modules`, run the module upgrade for `stock` (0.21.0 to 0.22.0)
+  and `codes` (0.6.0 to 0.7.0) on each tenant (qoimeks-qa2, qoimeks-client1-qa): plan, read the plan (class: no data steps, an
+  empty step list), take a dump first, then apply with the plan hash. Verify: `GET /api/v1/me/access` of a storekeeper lists
+  `StockQuickCount` and `CodesRead`, and does not list `StockWorkbookApply`, `StockReconcile` or `CodesWrite`.
 
 * **Body.** Flat: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (decimal text, 0 or
   more, at most 9 decimals), `reason_code` (`recount`, `found`, `missing`, `damaged`, `other`), optional `catalog_lot_id`

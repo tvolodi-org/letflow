@@ -26,7 +26,7 @@
 #   the remark-hint text in workbookMessages.ts: "Remarks are written in Russian; they describe issues
 #   in the file and its data." / "Замечания описывают ошибки в файле и его данных.").
 # Coverage notes (cases outside this walk and environment requirements):: (a) the load write path: covered in scenarios 4 and 5;
-#   (b) a caller without StockQuickCount: actor-qoimeks-qa2-storekeeper is available and lacks StockQuickCount (lib/letflow/modules/stock/stock.ex role_grants); walked as the refusal scenario qoimeks-import-6.
+#   (b) a caller without StockWorkbookApply: actor-qoimeks-qa2-storekeeper is available and lacks StockWorkbookApply (lib/letflow/modules/stock/stock.ex permissions; T-2239); walked as the refusal scenario qoimeks-import-6.
 # Runner preparation: same uat-wb-exact.xlsx from scenario 1 (exact-match workbook for one org unit).
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---

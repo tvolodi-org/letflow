@@ -236,9 +236,11 @@ defmodule Letflow.Modules.Stock.StockWorkbookApplyTest do
       conn_admin = apply_request(path, ctx.tok_k, bytes)
       assert conn_admin.status == 201
 
-      # STOREKEEPER (no StockQuickCount) is 403
+      # STOREKEEPER holds StockQuickCount (T-2239) but NOT StockWorkbookApply: the Excel load is an
+      # administrator function, so it is 403 and nothing is written
       conn_sk = apply_request(path, ctx.tok_sk, bytes)
       assert conn_sk.status == 403
+      refute apply_request("/quick-counts", ctx.tok_sk, "{}", "application/json").status == 403
 
       # org_unit_required when no org_unit_id
       conn_no_unit = apply_request("/stock-workbook/apply", ctx.tok_k, bytes)
@@ -655,7 +657,7 @@ defmodule Letflow.Modules.Stock.StockWorkbookApplyTest do
     test "QWA-12 POST /stock-workbook/apply is in the route policies", _ctx do
       manifest = Letflow.Modules.Stock.manifest()
       routes = manifest.route_policies
-      assert {"POST", "/stock-workbook/apply", :StockQuickCount} in routes
+      assert {"POST", "/stock-workbook/apply", :StockWorkbookApply} in routes
     end
   end
 

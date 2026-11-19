@@ -306,14 +306,20 @@ defmodule Letflow.Modules.Stock do
 
   ## Permissions
 
-  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
-  `StockCountRecord` (REQ-701: open, count, add surplus lines, close) and `StockQuickCount` (REQ-854: the
-  quick count). TENANT_ADMIN, PLATFORM_ADMIN and
-  STOREKEEPER (D-093, decision 0081) hold them; STOREKEEPER holds all but `StockReconcile` (an administrative
-  reconciliation view; one line in `role_grants` if the owner wants it) and `StockQuickCount` (REQ-854: a
-  `role_grants` widening of a role already in the baseline is refused by `mix letflow.permission_matrix` until
-  per-tenant grant snapshots exist, decision 0081 D2, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; adding
-  it to STOREKEEPER is one line in `role_grants` once the tool allows it). OQ-11 of decision 0073 stays open.
+  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700),
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close), `StockQuickCount` (REQ-854: the
+  quick count) and `StockWorkbookApply` (T-2239: the Excel load of a balances workbook, REQ-885). TENANT_ADMIN,
+  PLATFORM_ADMIN and STOREKEEPER (D-093, decision 0081) hold them; STOREKEEPER holds all but `StockReconcile`
+  (an administrative reconciliation view; one line in `role_grants` if the owner wants it) and
+  `StockWorkbookApply` (the Excel load is an administrator function, PM decision T-2222: it has its own
+  permission so that the quick count can be given to the storekeeper without it).
+
+  `StockQuickCount` reached STOREKEEPER in 0.22.0 (T-2239, GH #4764, PM decision D-161, which follows the owner's
+  parity rule D-150: the real users of Client 1 are storekeepers). A `role_grants` widening of a role already in
+  the baseline is refused by `mix letflow.permission_matrix` (decision 0055 D7); the signed exception is the
+  `grants_widening` entry below, exactly `{STOREKEEPER, StockQuickCount}` at 0.22.0, and the check stays strict for
+  every other widening. The approval of a quick count under four-eyes stays with another person (TENANT_ADMIN).
+  OQ-11 of decision 0073 stays open.
   """
 
   @behaviour Letflow.Modules.Module
@@ -426,7 +432,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.21.0",
+    version: "0.22.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -438,7 +444,8 @@ defmodule Letflow.Modules.Stock do
       :StockReconcile,
       :StockCountOrder,
       :StockCountRecord,
-      :StockQuickCount
+      :StockQuickCount,
+      :StockWorkbookApply
     ],
     role_grants: %{
       STOREKEEPER: [
@@ -446,9 +453,12 @@ defmodule Letflow.Modules.Stock do
         :StockPost,
         :StockReverse,
         :StockCountOrder,
-        :StockCountRecord
+        :StockCountRecord,
+        :StockQuickCount
       ]
     },
+    # T-2239 / D-161 (decision 0055 D7 amendment): the one signed widening of a baseline role in this version.
+    grants_widening: [{:STOREKEEPER, :StockQuickCount, "0.22.0", "D-161"}],
     required_roles: [],
     settings_schema: %{
       "type" => "object",
@@ -474,7 +484,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/stock-sheet/print", :StockRead},
       {"GET", "/stock-workbook", :StockRead},
       {"POST", "/stock-workbook/check", :StockRead},
-      {"POST", "/stock-workbook/apply", :StockQuickCount},
+      {"POST", "/stock-workbook/apply", :StockWorkbookApply},
       {"GET", "/stock-workbook/imports", :StockRead},
       {"POST", "/stock-workbook/imports/:id/cancel", :StockReverse},
       {"POST", "/documents/:id/post", :StockPost},

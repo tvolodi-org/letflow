@@ -20,7 +20,7 @@
 #   docs/runbooks/stock-workbook-import.md (four-eyes ON default; four-eyes OFF: "loader can complete alone";
 #     after approval one ledger entry of cause count_set; check same file → 0 changes after approval)
 #   web/src/modules/stock/workbook/workbookMessages.ts (kk: title, load.hint, load.success, load.noChange)
-#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin: TENANT_ADMIN; holds StockQuickCount)
+#   test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin: TENANT_ADMIN; holds StockWorkbookApply)
 # #4697: opening approval OFF does not imply quick-count approval OFF. Read the effective quick-count rule first; never switch it here.
 # Approval/posting and post-approval round trip excluded: no independent second actor exists. This walk cancels before approval and preserves the original balance.
 # Workbook cells and zero-stock checks are specified in this scenario preconditions; scenario 4 need not run first if that same single-row fixture is prepared independently.

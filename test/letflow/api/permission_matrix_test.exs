@@ -77,6 +77,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
         core_policy_atoms: MapSet.new(["CoreA"]),
         route_refs: %{"ModX" => ["m"]},
         declarations: %{},
+        signed_widenings: %{},
         module_dirs_present: MapSet.new()
       },
       overrides
@@ -440,16 +441,16 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert refs(manifests) == %{}
     end
 
-    test "T-PM-5: the golden holds the stock atoms for the admins, and STOREKEEPER for all but StockReconcile" do
+    test "T-PM-5: the golden holds the stock atoms for the admins, and STOREKEEPER for all but StockReconcile and StockWorkbookApply" do
       golden = File.read!("priv/permission_matrix/effective.golden")
 
       for atom <-
-            ~w(StockPost StockReverse StockRead StockReconcile StockCountOrder StockCountRecord) do
+            ~w(StockPost StockReverse StockRead StockReconcile StockCountOrder StockCountRecord StockQuickCount StockWorkbookApply) do
         rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
         allowed = for row <- rows, String.contains?(row, " true "), do: hd(String.split(row, " "))
 
         expected =
-          if atom == "StockReconcile",
+          if atom in ["StockReconcile", "StockWorkbookApply"],
             do: ["PLATFORM_ADMIN", "TENANT_ADMIN"],
             else: ["PLATFORM_ADMIN", "STOREKEEPER", "TENANT_ADMIN"]
 
@@ -645,6 +646,169 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       back = PermissionMatrix.classify(computed, baseline(), ctx())
       assert back.core_changes == [{:via_changed, @tw, "ModX", :core, :grant}]
+    end
+  end
+
+  # --- T-2239 / D-161: the signed exception (`grants_widening`) to the baseline-role widening refusal ---
+
+  describe "T-2239 SW: a signed widening is the only exception, exact pair, owner, version" do
+    defp widened(version, roles_atoms),
+      do:
+        mx(
+          %{"m" => version},
+          Map.put(base_owners(), "ModY", {:module, "m"}),
+          Enum.reduce(roles_atoms, Map.put(base_trues(), {@pa, "ModY"}, :core), fn key, acc ->
+            Map.put(acc, key, :grant)
+          end)
+          |> Map.put({@ta, "ModY"}, :core)
+        )
+
+    defp signed(entries), do: ctx(%{signed_widenings: %{"m" => entries}})
+
+    defp base_with_mody,
+      do:
+        mx(
+          %{"m" => "1"},
+          Map.put(base_owners(), "ModY", {:module, "m"}),
+          Map.merge(base_trues(), %{{@pa, "ModY"} => :core, {@ta, "ModY"} => :core})
+        )
+
+    test "SW1: the exact signed pair at the module's version passes as a core change with the banner" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("2", [{@cand, "ModX"}]),
+          signed([{@cand, "ModX", "2", "D-161"}])
+        )
+
+      assert report.failures == []
+      assert report.labels == [:core_change]
+      assert report.core_changes == [{:signed_widening, @cand, "ModX", "m", "D-161"}]
+      text = PermissionMatrix.format_report(report)
+      assert text =~ ~r/\ACORE MATRIX CHANGE: mandatory SECURITY-REVIEWER trigger/
+      assert text =~ "added CANDIDATE ModX by a signed widening (module m grants_widening, D-161)"
+    end
+
+    test "SW2: any OTHER widening in the same change is still refused" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("2", [{@cand, "ModX"}, {@cand, "ModY"}]),
+          signed([{@cand, "ModX", "2", "D-161"}])
+        )
+
+      assert report.failures == [{:widening, @cand, "ModY", :module_grant}]
+      assert report.core_changes == [{:signed_widening, @cand, "ModX", "m", "D-161"}]
+    end
+
+    test "SW2b: the same permission for ANOTHER role is refused" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("2", [{@cand, "ModX"}, {@tw, "ModY"}]),
+          signed([{@cand, "ModX", "2", "D-161"}])
+        )
+
+      assert report.failures == [{:widening, @tw, "ModY", :module_grant}]
+    end
+
+    test "SW3: an entry for another version of the module is inert: the widening is refused" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("3", [{@cand, "ModX"}]),
+          signed([{@cand, "ModX", "2", "D-161"}])
+        )
+
+      assert report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+
+    test "SW4: an entry in another module's manifest does not sign the owner's atom" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("2", [{@cand, "ModX"}]),
+          ctx(%{signed_widenings: %{"other" => [{@cand, "ModX", "2", "D-161"}]}})
+        )
+
+      assert report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+
+    test "SW5: a module whose version did not change is not evaluated: the entry signs nothing" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("1", [{@cand, "ModX"}]),
+          signed([{@cand, "ModX", "1", "D-161"}])
+        )
+
+      assert report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+
+    test "SW6: an entry of an evaluated module at its version that matches no widening fails" do
+      report =
+        PermissionMatrix.classify(
+          base_with_mody(),
+          widened("2", []),
+          signed([{@cand, "ModX", "2", "D-161"}])
+        )
+
+      assert report.failures == [{:unmatched_signed_widening, "m", @cand, "ModX"}]
+      assert PermissionMatrix.describe(hd(report.failures)) =~ "grants_widening entry"
+    end
+
+    test "SW7: a core-policy atom is never signed away" do
+      baseline = mx(%{"m" => "1"}, %{"CoreA" => :core}, %{{@pa, "CoreA"} => :core})
+
+      computed =
+        mx(%{"m" => "2"}, %{"CoreA" => {:module, "m"}}, %{
+          {@pa, "CoreA"} => :core,
+          {@cand, "CoreA"} => :grant
+        })
+
+      report =
+        PermissionMatrix.classify(baseline, computed, signed([{@cand, "CoreA", "2", "D-161"}]))
+
+      assert {:widening, @cand, "CoreA", :core_policy_atom} in report.failures
+    end
+
+    test "SW8: no declaration at all keeps the refusal (the check stays strict)" do
+      report = PermissionMatrix.classify(base_with_mody(), widened("2", [{@cand, "ModX"}]), ctx())
+      assert report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+
+    test "SW9: context_from_manifests keeps only well-formed grants_widening entries" do
+      manifest = fn id, entries ->
+        %{id: id, route_policies: [], grants_widening: entries}
+      end
+
+      context =
+        PermissionMatrix.context_from_manifests(
+          [
+            manifest.("a", :not_a_list),
+            manifest.("b", ["x", {:R, :P}, {:R, :P, "1", "D-1"}, {"R", :P, "1", "D-1"}]),
+            %{id: "c", route_policies: []}
+          ],
+          MapSet.new()
+        )
+
+      assert context.signed_widenings == %{
+               "a" => [],
+               "b" => [{"R", "P", "1", "D-1"}],
+               "c" => []
+             }
+    end
+
+    test "SW10: the shipped manifests declare exactly the two D-161 pairs and nothing else" do
+      declared =
+        for manifest <- Catalog.all_manifests(),
+            entry <- Map.get(manifest, :grants_widening, []),
+            do: {manifest.id, entry}
+
+      assert Enum.sort(declared) == [
+               {"codes", {:STOREKEEPER, :CodesRead, "0.7.0", "D-161"}},
+               {"stock", {:STOREKEEPER, :StockQuickCount, "0.22.0", "D-161"}}
+             ]
     end
   end
 

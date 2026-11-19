@@ -262,6 +262,7 @@ const storekeeper: AccessInfo = {
   roles: ['STOREKEEPER'],
   platform_tenant: false,
   permissions: [
+    'CodesRead',
     'EntitiesDefinitionsRead',
     'EntitiesQuery',
     'EntitiesRecordsImport',
@@ -272,6 +273,7 @@ const storekeeper: AccessInfo = {
     'StockCountOrder',
     'StockCountRecord',
     'StockPost',
+    'StockQuickCount',
     'StockRead',
     'StockReverse',
     'TasksComplete',

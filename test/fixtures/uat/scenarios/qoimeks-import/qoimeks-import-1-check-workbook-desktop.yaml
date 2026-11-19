@@ -25,7 +25,7 @@
 #   test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin: TENANT_ADMIN; TENANT_ADMIN holds StockQuickCount per REQ-854)
 # Coverage notes (cases outside this walk and environment requirements): (a) normalising of Cyrillic look-alike letters (Russian remarks R11): covered in scenario 3;
 #   (b) the load write path and document creation: covered in scenarios 4 and 5;
-#   (c) a caller without StockQuickCount navigating to the import screen: actor-qoimeks-qa2-storekeeper is available and lacks StockQuickCount (lib/letflow/modules/stock/stock.ex role_grants); walked as the refusal scenario qoimeks-import-6.
+#   (c) a caller without StockWorkbookApply navigating to the import screen: actor-qoimeks-qa2-storekeeper is available and lacks StockWorkbookApply (lib/letflow/modules/stock/stock.ex role_grants); walked as the refusal scenario qoimeks-import-6.
 # Preparation: in the signed-in browser download the whole-stock workbook with the Balances button 'Stock workbook (Qoimeks layout)'; save its exact bytes as uat-wb-exact.xlsx. Select QOI-OU-1 for the check.
 # Source #4696 (T-2171 acceptance): unchanged downloaded workbook has R data rows and S distinct stocked articles (both read from the downloaded file at the start of the run), zero changes and no more than S remarks (R7 for stock held by a responsible employee, R9 for a lot-tracked article).
 # docs/runbooks/stock-workbook-import.md rule (g): responsible balances are skipped per article; this is not a proof of plain-key equality.

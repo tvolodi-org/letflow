@@ -130,6 +130,7 @@ The manifest map shape (`t:Letflow.Modules.Module.manifest/0`,
 | `:settings_schema` | `map() \| nil` | JSON-Schema-shaped description of the module's configurable settings |
 | `:route_policies` | `[{method, path_pattern, permission}]` | maps each of the module's own routes, relative to its own mount, to the permission that gates it |
 | `:widens_grants` (optional) | `[{role, permission}]` | declares a NARROWING (a role losing one of this module's atoms) in this version; never authorises a widening. See section 6a |
+| `:grants_widening` (optional) | `[{role, permission, version, decision}]` | the signed exception to the refusal of a widening of a baseline role (D-161); exact pair, owner module, current version. See section 6a |
 
 A module **declares its own permission atoms and grants them only to
 existing platform roles** — it cannot create a role and cannot grant a core
@@ -450,7 +451,13 @@ against the computed matrix. The diff rule:
 - WIDENING `role_grants` (any role gaining an atom it did not hold, an
   existing atom granted to a new role, a new atom granted to any role
   other than PLATFORM_ADMIN/TENANT_ADMIN, an atom a core route policy uses)
-  is REFUSED, with no override, until per-tenant grant snapshots exist.
+  is REFUSED until per-tenant grant snapshots exist, with ONE exception: a signed
+  widening (decision 0055 D7 amendment, D-161), declared in the owner module's
+  manifest as `grants_widening: [{:ROLE, :Atom, "<module version>", "D-<n>"}]`,
+  an exact pair for the current version, named by a decision; it is reported as
+  a CORE MATRIX CHANGE for the SECURITY-REVIEWER and is not a general switch (a
+  third such pair needs a decision, and the pin test SW10 in
+  `permission_matrix_test.exs` lists the ones in force).
   Regenerating the golden in the same PR does not help: classification
   never reads the working-tree golden.
 - NARROWING (a role losing one of your atoms, or an atom removed) is allowed

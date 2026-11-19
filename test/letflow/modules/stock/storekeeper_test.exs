@@ -13,7 +13,14 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
   alias Letflow.Identity.RoleRegistry
   alias Letflow.StockFixture, as: S
 
-  @stock_atoms [:StockRead, :StockPost, :StockReverse, :StockCountOrder, :StockCountRecord]
+  @stock_atoms [
+    :StockRead,
+    :StockPost,
+    :StockReverse,
+    :StockCountOrder,
+    :StockCountRecord,
+    :StockQuickCount
+  ]
   @core_atoms [
     :HelpRead,
     :MembershipsRead,
@@ -31,16 +38,23 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       assert Authorization.roles_from_strings(["STOREKEEPER"]) == [:STOREKEEPER]
 
       granted =
-        for p <- Authorization.permissions() ++ @stock_atoms ++ [:StockReconcile],
+        for p <-
+              Authorization.permissions() ++
+                @stock_atoms ++ [:StockReconcile, :StockWorkbookApply],
             Authorization.role_allows?(:STOREKEEPER, p),
             do: p
 
       # MyModulesRead / MyAccessRead / MyPreferencesSet are role-agnostic
-      expected = @stock_atoms ++ @core_atoms ++ [:MyModulesRead, :MyAccessRead, :MyPreferencesSet]
+      # CodesRead: the scan resolve of the phone count and document forms (T-2239, codes 0.7.0)
+      expected =
+        @stock_atoms ++
+          @core_atoms ++ [:CodesRead, :MyModulesRead, :MyAccessRead, :MyPreferencesSet]
+
       assert Enum.sort(Enum.uniq(granted)) == Enum.sort(expected)
 
       for denied <-
-            ~w(StockReconcile EntitiesRecordsWrite EntitiesRecordsExport UsersGroupsRolesManage
+            ~w(StockReconcile StockWorkbookApply CodesWrite AssetsRead AssetsPost LocationsWrite
+               CatalogLotsWrite EntitiesRecordsWrite EntitiesRecordsExport UsersGroupsRolesManage
                TokensManage AuditRead ModulesManage TenantSettingsManage DefinitionsWrite
                InstancesStart EntitiesDefinitionsWrite RolesManage)a do
         refute Authorization.role_allows?(:STOREKEEPER, denied), inspect(denied)
@@ -71,7 +85,7 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
     end
 
-    test "T-3 allow: the five granted atoms are never 403 for STOREKEEPER; T-4 deny: StockReconcile is",
+    test "T-3 allow: the six granted atoms are never 403 for STOREKEEPER; T-4 deny: StockReconcile is",
          ctx do
       tok = S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-1")
       routes = Letflow.Modules.Stock.Router.__authz_routes__()
@@ -84,8 +98,8 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
           refute conn.status == 403,
                  "#{method} #{path} (#{key}) -> #{conn.status} #{conn.resp_body}"
         else
-          # StockQuickCount (REQ-854) is withheld too: a role_grants widening of an existing role is refused
-          assert key in [:StockReconcile, :StockQuickCount]
+          # StockReconcile and StockWorkbookApply (the Excel load, an administrator function) are withheld
+          assert key in [:StockReconcile, :StockWorkbookApply]
           assert conn.status == 403, "#{method} #{path} -> #{conn.status}"
         end
       end

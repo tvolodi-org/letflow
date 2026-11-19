@@ -85,6 +85,14 @@ defmodule Letflow.Modules.Module do
       version, matched exactly by `mix letflow.permission_matrix --check`
       (GH #2586 / REQ-498, decision 0055 D7). Never authorises a widening.
       Absent means `[]`; clear it at the next version bump.
+    * `:grants_widening` — **optional** (T-2239 / D-161, decision 0055 D7 amendment);
+      `[{role_atom, permission_atom, version, decision}]`, a signed exception to the
+      refusal of a `role_grants` widening of a role already in the permission-matrix
+      baseline. EXACT pairs only; the permission must be this module's own and granted
+      to that role in `role_grants`; `version` must equal the module's version for
+      `mix letflow.permission_matrix --check` to honour it (a stale entry is inert);
+      `decision` is `D-<n>`. Reported as a core change (SECURITY-REVIEWER banner). Not a
+      general switch: any widening not named here stays refused. Absent means `[]`.
     * `:write_handlers` - **optional** (GH #2590 / REQ-501, decision 0054 D4);
       see `t:write_handler_spec/0`. Absent means `[]`. Registration is manifest
       data only, resolved by `Letflow.Modules.Catalog.write_handler/2`. The
@@ -133,6 +141,7 @@ defmodule Letflow.Modules.Module do
           required(:route_policies) => [route_policy()],
           optional(:manages_entity_types) => [String.t()],
           optional(:widens_grants) => [{atom(), atom()}],
+          optional(:grants_widening) => [{atom(), atom(), String.t(), String.t()}],
           optional(:write_handlers) => [write_handler_spec()],
           optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide},
           optional(:document_org_resolver) => module(),
@@ -217,6 +226,7 @@ defmodule Letflow.Modules.Module do
   | `:settings_schema` | `map()` literal or `nil` |
   | `:route_policies` | `[{String.t(), String.t(), atom()}]` literal list |
   | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
+  | `:grants_widening` (optional) | `[{atom(), atom(), String.t(), String.t()}]` literal list (signed widening exceptions, T-2239 / D-161) |
   | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list of `Letflow.Modules.WriteHandlerSpec` structs; `function: {Mod, :fun}` with full aliases (GH #2590) |
   | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
   | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |

@@ -26,8 +26,19 @@ const drawerScreen = (name: string, drawer: 'open' | 'tapped'): HarnessScreen =>
   render: ({ state }) => <Suspense fallback={null}><Shell screen={name} role="admin" state={state} at="/instances" drawer={drawer} /></Suspense>,
 })
 
+/** T-2239: a page a role opens from the menu, shown inside the real shell (phone: drawer tapped, page visible). The storekeeper
+ *  opens Quick count (StockQuickCount) and sees Balances without the Excel load button (StockWorkbookApply is administrators only). */
+const pageScreen = (name: string, role: NavRole, at: string): HarnessScreen => ({
+  name,
+  routes,
+  render: ({ state }) => <Suspense fallback={null}><Shell screen={name} role={role} state={state} at={at} drawer="tapped" /></Suspense>,
+})
+
 export const navRoleScreens: HarnessScreen[] = [
   ...(['admin', 'storekeeper', 'worker', 'scoped'] as const).map(screen),
   drawerScreen('nav-drawer-open', 'open'),
   drawerScreen('nav-drawer-tapped', 'tapped'),
+  pageScreen('nav-role-storekeeper-quick-count', 'storekeeper', '/admin/stock/quick-count'),
+  pageScreen('nav-role-storekeeper-balances', 'storekeeper', '/admin/stock/balances'),
+  pageScreen('nav-role-admin-balances', 'admin', '/admin/stock/balances'),
 ]

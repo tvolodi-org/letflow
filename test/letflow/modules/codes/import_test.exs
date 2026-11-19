@@ -91,7 +91,7 @@ defmodule Letflow.Modules.Codes.ImportTest do
       assert Catalog.import_function("codes", "code_tag") == :ok
       assert Catalog.import_function("codes", "code_assignment") == :ok
       assert Catalog.import_function("codes", "code_value_change") == {:error, :not_found}
-      assert Codes.manifest().version == "0.6.0"
+      assert Codes.manifest().version == "0.7.0"
       assert Codes.manifest().min_upgradable_from == "0.1.0"
 
       assert Codes.manifest().import_functions == [

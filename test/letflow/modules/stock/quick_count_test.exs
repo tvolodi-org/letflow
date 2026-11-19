@@ -34,9 +34,8 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
         tok_sk: S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-1")
       })
 
-    # StockQuickCount is held by TENANT_ADMIN and PLATFORM_ADMIN only: a role_grants widening of an
-    # existing role (STOREKEEPER) is refused by the permission matrix check until per-tenant grant
-    # snapshots exist (decision 0081 D2). The counter is a second TENANT_ADMIN user; a TENANT_ADMIN
+    # StockQuickCount is held by TENANT_ADMIN, PLATFORM_ADMIN and (stock 0.22.0, T-2239) STOREKEEPER.
+    # The counter here is a second TENANT_ADMIN user; a TENANT_ADMIN
     # issues the first quick count of the tenant (it activates the module's process definition), on
     # masters of its own so the tests' keys stay clean (QCT number 1).
     first = D.masters!(ctx.schema)
@@ -651,11 +650,11 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
 
   # -- access (criteria 10 and 11) ----------------------------------------------------------------
 
-  test "QC-10 permission: STOREKEEPER and other roles are 403, the matrix lists two roles",
+  test "QC-10 permission: a STOREKEEPER counts (T-2239), other roles are 403, the matrix lists three roles",
        ctx do
     token = S.token(ctx, :a, ["AUDITOR"], sub: "auditor-1")
     assert count(ctx, qc_body(ctx.ma), token).status == 403
-    assert count(ctx, qc_body(ctx.ma), ctx.tok_sk).status == 403
+    assert count(ctx, qc_body(ctx.ma), ctx.tok_sk).status == 201
     assert count(ctx, qc_body(ctx.ma), ctx.tok_a).status == 201
     assert count(ctx, qc_body(ctx.ma), ctx.tok_k).status == 201
 
@@ -666,7 +665,25 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
           [role, "StockQuickCount", "true" | _] <- [String.split(line, " ")],
           do: role
 
-    assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
+    assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "STOREKEEPER", "TENANT_ADMIN"]
+  end
+
+  test "QC-10e T-2239 a STOREKEEPER submits; four eyes ON: it cannot approve, an admin does; it cannot reconcile or read assets",
+       ctx do
+    receipt!(ctx, "10")
+    doc = count!(ctx, qc_body(ctx.ma), ctx.tok_sk)
+    assert doc["kind"] == "quick_count" and doc["state"] == "issued"
+    assert task(ctx, doc["id"], "approve", :pending)
+
+    # the storekeeper does not approve its own count (the approve task is the administrator's)
+    assert approve_as(ctx, doc["id"], ctx.tok_sk).status == 403
+    assert Decimal.eq?(balance(ctx), 10)
+    approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
+    assert Decimal.eq?(balance(ctx), 7)
+
+    # StockReconcile stays withheld; the assets module is not granted
+    assert api(:get, "/modules/stock/reconcile", ctx.tok_sk, nil).status == 403
+    assert api(:get, "/modules/assets/assets", ctx.tok_sk, nil).status in [403, 404]
   end
 
   test "QC-10b an API token gets the 404 of a tenant without the module and nothing is stored",

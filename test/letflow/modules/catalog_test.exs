@@ -233,6 +233,41 @@ defmodule Letflow.Modules.CatalogTest do
   # GH #2586 / REQ-498 (design gh2586-permission-matrix-golden.md section 7 and section
   # 13 C1-C6): rule 8, the optional widens_grants key, and rule 9, one permission atom per
   # module.
+  # T-2239 / D-161: rule 8b, the optional grants_widening key (a signed widening of a baseline role).
+  describe "T-2239 grants_widening (rule 8b)" do
+    defp with_widening(entries), do: Map.put(valid_manifest(), :grants_widening, entries)
+
+    test "GW1: absent, empty and one exact well-formed entry are valid" do
+      assert Catalog.validate(valid_manifest()) == :ok
+      assert Catalog.validate(with_widening([])) == :ok
+
+      assert Catalog.validate(with_widening([{:TASK_WORKER, :ProbeRead, "0.1.0", "D-161"}])) ==
+               :ok
+    end
+
+    test "GW2: each malformed shape is rejected with the whole value" do
+      for value <- [
+            :not_a_list,
+            ["x"],
+            [{:TASK_WORKER, :ProbeRead}],
+            [{:NOT_A_ROLE, :ProbeRead, "0.1.0", "D-161"}],
+            [{:TASK_WORKER, "ProbeRead", "0.1.0", "D-161"}],
+            [{:TASK_WORKER, :Other, "0.1.0", "D-161"}],
+            [{:CANDIDATE, :ProbeRead, "0.1.0", "D-161"}],
+            [{:TASK_WORKER, :ProbeRead, :v, "D-161"}],
+            [{:TASK_WORKER, :ProbeRead, "0.1.0", "decision"}],
+            [
+              {:TASK_WORKER, :ProbeRead, "0.1.0", "D-161"},
+              {:TASK_WORKER, :ProbeRead, "0.1.0", "D-161"}
+            ]
+          ] do
+        assert Catalog.validate(with_widening(value)) ==
+                 {:error, {:invalid_grants_widening, value}},
+               inspect(value)
+      end
+    end
+  end
+
   describe "GH 2586 widens_grants (rule 8)" do
     test "C1: absent, empty, a known role, and an atom outside the manifest's own permissions are valid" do
       assert Catalog.validate(valid_manifest()) == :ok
