@@ -184,8 +184,9 @@ bad rows and verify all 603 non-zero, valid balances are accepted.
 
 With `--with-places` (off by default; the default files are unchanged) `items.csv` also carries
 `home_loc` (the usual place, every 3rd item) and `alt_loc` (a second place, every 9th item), and every
-25th item gets a lettered article code (Latin prefixes such as `AB0025` and Cyrillic ones such as `КС0075`)
-instead of its digits-only code. `balances.csv` uses the same codes. The option draws from its own random
+25th item gets an additional lettered code (Latin prefixes such as `AB0025` and Cyrillic ones such as `КС0075`)
+in a new `codes.csv` (`object_type` `sku`, `code_type` `manual`). The item code stays the digits-only one in
+`items.csv` and `balances.csv`, so the importer sees the same items, not new ones. The option draws from its own random
 stream, so locations and the placement of balances are the same with and without it.
 
 `--voice-demo` (off by default; combines with `--with-places`) appends the small fixed demo catalog the

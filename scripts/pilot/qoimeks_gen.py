@@ -13,9 +13,10 @@ rules. A few item names embed Cyrillic look-alike letters to test Unicode handli
 
 --with-places (off by default; the default output stays byte-identical to the original) adds
 home_loc and alt_loc columns to items.csv (a usual and a second place for a share of the items)
-and gives a set of items a lettered article code (Latin and Cyrillic letters, as the voice
-scenarios spell them). It uses its own random stream, so locations.csv is identical and the
-balances differ only in the sku value of the lettered items.
+and gives a set of items an additional lettered code (Latin and Cyrillic letters, as the voice
+scenarios spell them) in codes.csv (code_type manual). The item code (sku) is never replaced, so
+items.csv and balances.csv keep the digits-only codes and the importer sees the same items. It uses
+its own random stream, so locations.csv and balances.csv are identical with and without it.
 
 --voice-demo (off by default; the default output stays byte-identical) appends a small fixed
 demo catalog for the voice scenarios: 12 items with lettered codes (BLT-M8-40, NUT-M8, CBL-3x2.5,
@@ -149,9 +150,13 @@ def gen_items(rng):
 
 
 def apply_places(item_rows, leaf_codes, seed):
-    """Add home_loc/alt_loc and lettered codes in place. Own rng: other streams are untouched."""
+    """Add home_loc/alt_loc in place and return the lettered codes as codes.csv rows.
+
+    The sku column is not changed: a lettered code is an additional code of the same item.
+    Own rng: other streams are untouched."""
     prng = random.Random("places-%s" % seed)
     n_letter = 0
+    code_rows = []
     for i, row in enumerate(item_rows, start=1):
         home = ""
         alt = ""
@@ -164,9 +169,11 @@ def apply_places(item_rows, leaf_codes, seed):
         if i % LETTER_EVERY == 0:
             # alternate Latin and Cyrillic prefixes; digits keep the code unique
             prefixes = LATIN_PREFIXES if n_letter % 2 == 0 else CYRILLIC_PREFIXES
-            row["sku"] = prefixes[(n_letter // 2) % len(prefixes)] + str(i).zfill(4)
+            code = prefixes[(n_letter // 2) % len(prefixes)] + str(i).zfill(4)
+            code_rows.append({"object_type": "sku", "object_code": row["sku"],
+                              "code_type": "manual", "code": code})
             n_letter += 1
-    return item_rows
+    return code_rows
 
 
 def apply_voice_demo(loc_rows, leaf_codes, item_rows):
@@ -282,7 +289,7 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
                     help="random seed for reproducibility (default: %(default)s)")
     ap.add_argument("--with-places", action="store_true",
-                    help="add home_loc/alt_loc and lettered article codes to items.csv")
+                    help="add home_loc/alt_loc to items.csv and lettered extra codes in codes.csv")
     ap.add_argument("--voice-demo", action="store_true",
                     help="append the voice demo items and places (separate dataset)")
     a = ap.parse_args(argv)
@@ -298,12 +305,8 @@ def main(argv=None):
     bal_rows = gen_balances(item_codes, leaf_codes, rng)
     item_fields = ["sku", "sku_name", "unit"]
     if a.with_places:
-        # after balances: balances.csv is built from the plain codes, then lettered codes
-        # replace some skus in both files so the files stay consistent
-        apply_places(item_rows, leaf_codes, a.seed)
-        renamed = {old: r["sku"] for old, r in zip(item_codes, item_rows)}
-        for b in bal_rows:
-            b["sku"] = renamed[b["sku"]]
+        # lettered codes go to codes.csv as additional codes; items and balances keep their skus
+        code_rows = apply_places(item_rows, leaf_codes, a.seed)
         item_fields += ["home_loc", "alt_loc"]
     if a.voice_demo:
         # after balances and places: balances only use the generated leaves and items
@@ -318,6 +321,8 @@ def main(argv=None):
     write_csv(out / "locations.csv", ["loc_code", "loc_name", "loc_parent"], loc_rows)
     write_csv(out / "items.csv", item_fields, item_rows)
     write_csv(out / "balances.csv", ["sku", "loc", "qty"], bal_rows)
+    if a.with_places:
+        write_csv(out / "codes.csv", ["object_type", "object_code", "code_type", "code"], code_rows)
 
     n_bad = N_ZERO_ROWS + N_NEG_ROWS + N_COMMA_ROWS
     n_leaf = len(leaf_codes)
