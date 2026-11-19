@@ -16,7 +16,7 @@ or infra item (see "Open owner questions").
 Each customer company signs in through its own tenant and realm. Each statement names its source.
 
 1. Each customer company is its own tenant with its own Keycloak realm (portfolio decision D-016, one realm per tenant).
-2. The realm is made from the versioned template `priv/keycloak/provisioner/v2/tenant-realm.json`.
+2. The realm is made from the versioned template `priv/keycloak/provisioner/v2/tenant-realm.json` (v3, current: `priv/keycloak/provisioner/v3/tenant-realm.json`, adds the `letflow-mobile` client).
 3. The company URL is `https://<company>.ai-letflow.com` (owner decision, 2026-11-18). The SPA's
    `GET /api/tenant-config?host=<company>.ai-letflow.com` resolves the hostname stored at onboarding
    to that company's active tenant, returning its realm and allowlisted pre-authentication branding.
@@ -24,7 +24,7 @@ Each customer company signs in through its own tenant and realm. Each statement 
    a tenant-data prefix; authenticated access still comes from the verified token issuer (T-1359).
 4. Until a production provisioner is approved, the tenant gets its realm by the manual steps of
    `docs/runbooks/onboarding-new-tenant-realm.md` (the QA-only provisioner of
-   `docs/runbooks/tenant-provisioner-credential.md` is not used for production, D-019 item 9).
+   `docs/runbooks/tenant-provisioner-credential.md` is not used for production, D-019 item 9). The ordered procedure is `docs/runbooks/production-tenant-onboarding.md`.
 5. The tenant is then set to `tenant_type` production, as the section "Tenant type (REQ-469)" of
    `docs/runbooks/onboarding-new-tenant-realm.md` says.
 6. D-019 item 7 settles the Keycloak admin rights of the first administrator for demo tenants only (no Keycloak admin
@@ -97,7 +97,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_PLATFORM_TENANT_ID` | no for boot; yes for any platform-scope operation | nothing written; a warning goes to standard error and platform-scope operations are denied for every caller; a malformed value raises | `config/runtime.exs`, `Letflow.PlatformTenant` |
 | `LETFLOW_OWNER_LIST_SHA256` | no; QA only for the owner list import (T-1963) | nothing written; the `/maintenance/v1` owner-list import answers 404 | `config/runtime.exs`, `Letflow.Routers.MaintenanceOwnerListV1`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROBLEM_REPORT_EXPORT_SHA256` | no; QA only for the problem-report handoff (T-1948) | nothing written; the `/maintenance/v1` export answers 404 | `config/runtime.exs`, `Letflow.Plugs.ReportExportAuth`, `docs/runbooks/problem-report-handoff.md` |
-| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
+| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; the provisioner credential stays unset in production until the owner approves production provisioning (D-019 item 9); this suffix list alone opens no provisioner route and is set to `ai-letflow.com` at the production go for the company host (D-158: `PUT /api/v1/tenants/:slug/hostname`, CORS, login mail) | nothing written | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written; the `/admin/v1` provisioner routes answer 404 | `config/runtime.exs`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value: a built-in module list | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 25 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |

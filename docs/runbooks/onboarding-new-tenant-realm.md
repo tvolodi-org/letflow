@@ -1,5 +1,7 @@
 # Runbook: giving a newly onboarded tenant a realm and a first administrator
 
+The whole procedure for a real company (realm, tenant, host, modules, checks, accounts, walk, rollback) is `docs/runbooks/production-tenant-onboarding.md`; this page keeps the realm details it cites.
+
 ISS-1030 / Q-1012 / GH #2312. Design: `lib/letflow/design/iss1030-onboarding-administrator.md`
 (sections 3 and 9; PR 2: sections 4, 5 and 7).
 
