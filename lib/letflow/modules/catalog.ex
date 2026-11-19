@@ -91,7 +91,8 @@ defmodule Letflow.Modules.Catalog do
       :args,
       posts_ledger: nil,
       updates: %{},
-      reads: []
+      reads: [],
+      reads_documents: false
     ]
 
     @type t :: %__MODULE__{
@@ -102,7 +103,8 @@ defmodule Letflow.Modules.Catalog do
             args: %{String.t() => %{required: boolean()}},
             posts_ledger: String.t() | nil,
             updates: %{optional(String.t()) => [String.t()]},
-            reads: [String.t()]
+            reads: [String.t()],
+            reads_documents: boolean()
           }
   end
 
@@ -301,7 +303,8 @@ defmodule Letflow.Modules.Catalog do
          args: spec.args,
          posts_ledger: spec.posts_ledger,
          updates: spec.updates,
-         reads: spec.reads
+         reads: spec.reads,
+         reads_documents: spec.reads_documents
        }, spec.function}
     else
       _ -> :error

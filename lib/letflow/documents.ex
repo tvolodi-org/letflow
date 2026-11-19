@@ -1107,6 +1107,51 @@ defmodule Letflow.Documents do
     end
   end
 
+  @doc """
+  INTERNAL (REQ-902, decision 0073 D6): the one query behind `Letflow.Entities.HandlerWrites.read_document_version/3`,
+  which is its only caller (a scan pins that). Reads ONE version of ONE document by id and version
+  number, only from `documents`, `document_versions` and `document_types` of the schema `prefix`,
+  with bound parameters: no lock, no write. A document whose type's `owner_module` is not `module_id`
+  is `{:error, :not_found}`, the same as an unknown or malformed id, a bad version number or a document
+  of another tenant (INV-1, INV-5). Checks no permission: the handler path is already authorised.
+  """
+  @spec read_version_for_module(String.t(), String.t(), term(), term()) ::
+          {:ok, map()} | {:error, :not_found}
+  def read_version_for_module(prefix, module_id, document_id, version_no)
+      when is_binary(prefix) and is_binary(module_id) and is_integer(version_no) and
+             version_no > 0 do
+    with {:ok, id} <- document_id(document_id),
+         %{} = row <-
+           Repo.one(
+             from(d in Document,
+               join: v in DocumentVersion,
+               on: v.document_id == d.id and v.version_no == ^version_no,
+               join: t in DocumentType,
+               on: t.key == d.type_key,
+               where: d.id == ^id and t.owner_module == ^module_id,
+               select: %{
+                 "document_id" => d.id,
+                 "version_id" => v.id,
+                 "version_no" => v.version_no,
+                 "type_key" => d.type_key,
+                 "status" => v.status,
+                 "current" => d.current_version == v.id,
+                 "issuing_org_unit_id" => d.issuing_org_unit_id,
+                 "content" => v.content,
+                 "content_hash" => v.content_hash
+               }
+             ),
+             prefix: prefix
+           ) do
+      {:ok, Map.update!(row, "status", &Atom.to_string/1)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def read_version_for_module(_prefix, _module_id, _document_id, _version_no),
+    do: {:error, :not_found}
+
   defp verify(prefix, document_id, version_no, content_hash)
        when is_binary(prefix) and is_binary(content_hash) do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
