@@ -84,4 +84,14 @@ describe('AppShell restyle: night nav, active item, drawer', () => {
     expect(screen.getByText('Tasks page')).toBeInTheDocument()
     expect(container.querySelector('.lf-app')).not.toHaveClass('is-nav-open')
   })
+
+  it('drawer closes when the entry of the page already shown is tapped', async () => {
+    const user = userEvent.setup()
+    const { container } = await renderShell()
+    await user.click(screen.getByRole('button', { name: 'Open menu' }))
+    expect(container.querySelector('.lf-app')).toHaveClass('is-nav-open')
+    await user.click(await screen.findByRole('link', { name: 'Instances' }))
+    expect(screen.getByText('Instances page')).toBeInTheDocument()
+    expect(container.querySelector('.lf-app')).not.toHaveClass('is-nav-open')
+  })
 })
