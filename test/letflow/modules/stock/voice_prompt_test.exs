@@ -14,6 +14,21 @@ defmodule Letflow.Modules.Stock.VoicePromptTest do
     %{id: "l4", code: "OLD-L", name: "Old place", active: false}
   ]
 
+  test "VP-letters the prompt names every Latin letter A-Z" do
+    p = VoicePrompt.build(@items, @locations)
+
+    [_, table] = Regex.run(~r/Russian names: (.+?)\.\n/, p)
+    named = table |> String.split(", ") |> Enum.map(&String.last/1)
+
+    for letter <- ?A..?Z do
+      assert <<letter>> in named, "no name for #{<<letter>>}"
+    end
+
+    for s <- ["дубль-вэ", "дабл-ю", "вэ двойное", "йот", "джей", "игрек", "вай", "а A", "эс S"] do
+      assert p =~ s
+    end
+  end
+
   test "VP-1 contains active codes, names, units and kind words" do
     p = VoicePrompt.build(@items, @locations)
 
@@ -68,7 +83,7 @@ defmodule Letflow.Modules.Stock.VoicePromptTest do
     assert p =~ "<locations>\n</locations>\n<skus>\n</skus>"
   end
 
-  @letter_name_line "Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, икс X, зэт Z."
+  @letter_name_line "Latin letters are spoken with their Russian names: а A, бэ B, цэ/си C, дэ D, е E, эф F, гэ/жэ G, аш H, и I, йот/джей J, ка K, эл L, эм M, эн N, о O, пэ P, ку Q, эр R, эс S, тэ T, у U, вэ V, дубль-вэ/дабл-ю/вэ двойное W, икс X, игрек/вай Y, зэт Z."
 
   @letter_pairs [
     "а A",
@@ -92,11 +107,14 @@ defmodule Letflow.Modules.Stock.VoicePromptTest do
     "тэ T",
     "у U",
     "вэ V",
+    "йот/джей J",
+    "дубль-вэ/дабл-ю/вэ двойное W",
     "икс X",
+    "игрек/вай Y",
     "зэт Z"
   ]
 
-  test "VP-6 letter-name line is in the prompt exactly, all 23 pairs present, before <locations>" do
+  test "VP-6 letter-name line is in the prompt exactly, all 26 pairs present, before <locations>" do
     for p <- [VoicePrompt.build(@items, @locations), VoicePrompt.build([], [])] do
       assert p =~ @letter_name_line
 
