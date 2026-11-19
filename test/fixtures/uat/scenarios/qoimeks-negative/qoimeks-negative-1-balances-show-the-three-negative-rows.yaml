@@ -10,6 +10,12 @@
 #   (c) a scoped grant (node-limited STOREKEEPER): the storekeeper account is read as tenant-wide; if its balances differ from the administrator's for that reason the walk reports BLOCKED-by-environment (see the preconditions).
 # Actors (T-2191 rework, issue #4702): the lower-role actor-qoimeks-qa-storekeeper (STOREKEEPER, realm qoimeks-qa) now exists in the roster and reads the same screen (steps 7 and 8).
 #   Sources: docs/roles.md (STOREKEEPER does StockRead: balances), web/src/router.tsx and web/src/components/layout/AppShell.tsx (Balances guarded by the stock read permission, the same entry as for the administrator).
+# 1. Scope: qoimeks-qa — the tenant and its realm exist (scope checked against the tenant facts).
+# 2. Actors: actor-qoimeks-qa-admin (TENANT_ADMIN) and actor-qoimeks-qa-storekeeper (STOREKEEPER) exist in the roster for realm qoimeks-qa and have a login in the acceptance environment.
+# 3. Host and screens: the tenant host answers; the screens Balances and Stock documents exist at main (the navigation names and the guard were read at main).
+# 4. Data: the opening balances (3 of them negative) are seeded by the synthetic generator; the item, place and balance counts are read at the start of the run (Items screen total, Locations total, Balances rows), never hard-coded.
+# 5. Executable: every step runs with a browser or an HTTP client; no step blocks on "no pipeline_test" (the runner writes its own browser script).
+# 6. Dry run: uat.sh preflight not run by the writer (no acceptance environment in this step).
 ---
 id: qoimeks-negative-1-balances-show-the-three-negative-rows
 scope: qoimeks-qa
@@ -18,7 +24,8 @@ version: "2.0"
 tags: [qoimeks, negative_balance, balances, ru, kk, phone_390]
 
 description: >
-  The tenant holds 603 posted opening balances, 3 of which are negative (synthetic data). The administrator opens the Balances screen, finds the rows whose
+  The tenant holds posted opening balances, 3 of them negative (synthetic data); the balance count
+  is the total shown on the Balances screen, read at the start of the run and noted, never taken from this text. The administrator opens the Balances screen, finds the rows whose
   quantity has a minus sign, and checks that there are exactly three, that each shows the minus quantity as loaded (no zero, no sign change, no blank),
   and that the rest of the screen reads normally. The same is checked in Russian, in Kazakh and at a phone width of 390 px.
   Read-only: the scenario creates nothing and changes nothing, so there is nothing to clean up.
@@ -29,7 +36,7 @@ actors:
   storekeeper: actor-qoimeks-qa-storekeeper
 
 preconditions:
-  - description: The tenant's 603 opening balances are posted and 3 of them are negative (synthetic data, as the task states).
+  - description: The tenant's opening balances are posted and 3 of them are negative (synthetic data, as the task states); the count is the Balances total shown on the screen, read at the start of the run, not hard-coded.
     check: system_seeded
     detail: If the count of negative rows is not 3, report BLOCKED and quote the count seen.
   - description: The stock module is installed and active; the administrator may read balances.
