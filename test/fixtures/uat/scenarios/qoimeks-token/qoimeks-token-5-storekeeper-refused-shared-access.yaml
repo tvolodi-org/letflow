@@ -74,7 +74,7 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      R-SK has HTTP status 403 (a 404 is also accepted if the product hides the route from callers without the right) and its body carries no "exists", "created_at" or other status field of the shared access.
+      R-SK has HTTP status 403 and no other status (404 is a FAIL: the requirement for the shared-access routes asks for 403 for a caller without the right) and its body carries no "exists", "created_at" or other status field of the shared access.
     evidence: >-
       HTTP status and body of R-SK.
   on_fail:

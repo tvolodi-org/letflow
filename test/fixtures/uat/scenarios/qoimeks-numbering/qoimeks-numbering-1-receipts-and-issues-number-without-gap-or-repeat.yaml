@@ -148,11 +148,11 @@ expected_outcomes:
       suggested_action: route_to_elixir_dev
 
   - id: EO-005
-    description: The listing without a credential or with a wrong credential is refused, identical answers, nothing changes.
+    description: The listing without a credential or with a wrong credential is refused (401), nothing changes.
     verification:
       method: api_response
       detail: >-
-        Step 8: both answers have status 401 with identical bodies after the trace_id field is removed, and contain no number or document; the highest receipt number read again is R4.
+        Step 8: both answers have status 401, each a plain refusal whose text for a missing credential and for a wrong one may differ (PM 2026-11-19/20: on /api/v1 with bearer tokens identical bodies are not required), and contain no number or document; the highest receipt number read again is R4.
       evidence: "Status and body of both requests."
     on_fail:
       severity: BLOCKER

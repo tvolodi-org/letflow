@@ -1,0 +1,14 @@
+# T-2292 (PM 2026-11-19): ledger-3 was BLOCKED in walk T-2276 (no fixture, no UI action prepares it). Decision: not walkable, covered by backend test.
+scenario_id: qoimeks-ledger-3-L7-invalid-item-refused
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the refusal at posting of an issued stock issue whose posting command names an absent item (REQ-832 criterion 2, ledger effect L7)"
+reason: >
+  The posting variable of an issued document can be replaced by an absent item identifier only inside a backend test (REQ-832 criterion 2: the variable is replaced through the completion's output variables).
+  Issuing a document with an unknown item is refused earlier by the unit check, so no screen or ordinary API call prepares the state. A fixture script for qoimeks-qa2 would have to live in the engine shell's scripts folder, outside this repository.
+  Covered by test/letflow/modules/stock/master_posting_test.exs: MP-TYP-1 (unknown uuid as item refused, no entry, no mark, task stays pending), MP-TYP-6 (place id given as item), MP-RET-1 (retired item refused), MP-TRF-1 (retired destination refused).
+recorded_by: business-analyst
+recorded_at: "2026-11-20"
+issue_ref: "T-2292"
+review: >
+  Revisit when a fixture script exists that creates the issued issue on qoimeks-qa2 only (refusing any other tenant slug); then remove this file.
