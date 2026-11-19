@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads movements, posts and reverses where it holds StockPost and StockReverse (qoimeks-ledger-1, 2, 3, 5); actor-qoimeks-qa2-admin / TENANT_ADMIN stays for the approval and posting tasks in My Tasks (STOREKEEPER does not hold TasksReadAll, docs/roles.md) and for the ledger and approval-rule settings (qoimeks-ledger-4, and the refusal of qoimeks-ledger-6). Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, units, places, responsible employee, QOI-OU-1, starting balance and movements, opening approval rule, pending tasks and report data: listed in scenario preconditions. The L7 issued-document posting-variable harness is not supplied by the synthetic baseline; ledger-3 is BLOCKED-by-environment unless it is prepared first. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -37,7 +37,7 @@
 id: qoimeks-ledger-2-post-and-verify-movement
 scope: qoimeks-qa2
 title: >-
-  The administrator creates receipt UAT-LEDGER-REC-01, posts it, sees the balance increase and the movement entry,
+  The storekeeper creates receipt UAT-LEDGER-REC-01, posts it, sees the balance increase and the movement entry,
   is refused on a second post, then reverses it
 version: '1.1'
 tags:
@@ -52,18 +52,19 @@ tags:
 - L7
 - refusal
 description: >-
-  The administrator picks an existing item and place from the synthetic data (any row on the Balances screen) and
-  notes the current balance as B0. The administrator creates a new stock receipt named "UAT-LEDGER-REC-01" for 1
+  The storekeeper picks an existing item and place from the synthetic data (any row on the Balances screen) and
+  notes the current balance as B0. The storekeeper creates a new stock receipt named "UAT-LEDGER-REC-01" for 1
   unit of that item at that place, issues it and in My Tasks completes the posting task. The balance increases by
-  1 and the movement history shows the new entry. The administrator then tries to post the same receipt again and
-  is refused (the document is already posted). As cleanup the administrator reverses the receipt: the balance returns
+  1 and the movement history shows the new entry. The storekeeper then tries to post the same receipt again and
+  is refused (the document is already posted). As cleanup the storekeeper reverses the receipt: the balance returns
   to B0 and the reversal entry appears in the movements. Both the original posting and its reversal remain in the
   movements log.
 actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
   admin: actor-qoimeks-qa2-admin
 preconditions:
 - description: >-
-    The stock module is active; the administrator knows at least one item code, location and org unit with a positive
+    The stock module is active; the storekeeper knows at least one item code, location and org unit with a positive
     balance from the synthetic data. Any row on the Balances screen can be used.
   check: system_seeded
   detail: >-
@@ -73,7 +74,7 @@ preconditions:
     exists, cancel or discard it first and carry on.
   check: system_seeded
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
@@ -93,23 +94,23 @@ preconditions:
     is not a blocker under this task contract.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens Balances, selects a positive row and records its item, place, QOI-OU-1, responsible
+    The storekeeper opens Balances, selects a positive row and records its item, place, QOI-OU-1, responsible
     employee, unit, empty lot and quantity B0. They retain the exact full key and its identifiers from the signed-in
     balance response for comparison.
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator creates a receipt for the recorded org unit, place and responsible employee, the recorded
+    The storekeeper creates a receipt for the recorded org unit, place and responsible employee, the recorded
     item and base unit, quantity 1 and current event date and time in the tenant zone. The supplier reference is
     UAT-LEDGER-REC-01. Save the draft as D1.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator issues the receipt D1. The document state changes to "Issued" and a document number is assigned.
+    The storekeeper issues the receipt D1. The document state changes to "Issued" and a document number is assigned.
     The number is noted as REF-1.
   via: ui
 - step: 4
@@ -119,34 +120,34 @@ steps:
     as S1.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the Balances screen and filters by the item and location from step 1. The balance is
+    The storekeeper opens the Balances screen and filters by the item and location from step 1. The balance is
     noted as B1.
   via: ui
 - step: 6
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens Movements and selects the document filter using D1, the recorded document identifier,
+    The storekeeper opens Movements and selects the document filter using D1, the recorded document identifier,
     then reads the receipt operation and its expanded legs as M1.
   via: ui
 - step: 7
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator sends a second post request for the document D1 (addressed by the document id D1 recorded when it was saved, not by the number REF-1) directly via the API.
+    The storekeeper sends a second post request for the document D1 (addressed by the document id D1 recorded when it was saved, not by the number REF-1) directly via the API.
   expect_refusal: true
   via: api
 - step: 8
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator starts reversal of the document D1 (by its id, number REF-1) with reason Other and note UAT reversal of UAT-LEDGER-REC-01, then
+    The storekeeper starts reversal of the document D1 (by its id, number REF-1) with reason Other and note UAT reversal of UAT-LEDGER-REC-01, then
     opens My Tasks and completes its reversal task. Record the resulting document state; starting reversal alone
     does not restore balances.
   via: api
 - step: 9
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the Balances screen (same filter as step 5) and the Movements screen (same filter as
+    The storekeeper opens the Balances screen (same filter as step 5) and the Movements screen (same filter as
     step 6). The balance is noted as B2 and the two newest movements are noted as M2.
   via: ui
 expected_outcomes:
@@ -193,7 +194,7 @@ expected_outcomes:
   on_fail:
     severity: MAJOR
     business_impact: >-
-      The movement history is incomplete; the administrator cannot trace the receipt in the ledger.
+      The movement history is incomplete; the storekeeper cannot trace the receipt in the ledger.
     suggested_action: route_to_elixir_dev
 - id: EO-004
   description: >-

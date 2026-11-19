@@ -15,12 +15,12 @@
 ---
 id: qoimeks-negative-4-negative-opening-document-reads-as-loaded
 scope: qoimeks-qa2
-title: The Qoimeks QA administrator finds a posted opening balance document with a negative line and the same figure on the Balances screen
+title: The Qoimeks QA storekeeper finds a posted opening balance document with a negative line and the same figure on the Balances screen
 version: "2.0"
 tags: [qoimeks, negative_balance, opening_balance, stock_documents, ru, kk, phone_390]
 
 description: >
-  The administrator opens the Stock documents list, filters or scans for documents of the kind Opening balance, opens one that holds a negative line (the three negative balances were loaded in documents that
+  The storekeeper opens the Stock documents list, filters or scans for documents of the kind Opening balance, opens one that holds a negative line (the three negative balances were loaded in documents that
   hold only negative lines), reads that its status is posted and that the line shows the negative quantity with its sign, and then checks on the Balances screen that the same item at the same place reads the same negative quantity.
   Then it is checked that one opening document does not mix signs: the opened negative document holds negative lines only, and an opening document of positive lines holds no negative line.
   The same is read in Russian ("Начальный остаток") and Kazakh and at 390 px. Read-only, so nothing to clean up.
@@ -34,58 +34,58 @@ preconditions:
   - description: The tenant's opening balances were loaded as posted documents of the kind Opening balance, and 3 negative lines exist in them (synthetic data); counts are read at the start of the run, not hard-coded.
     check: system_seeded
     detail: If no posted opening document with a negative line can be found, report BLOCKED and say what the Stock documents list holds.
-  - description: The administrator may read stock documents and balances.
+  - description: The storekeeper may read stock documents and balances (StockRead, docs/roles.md).
     check: system_seeded
     detail: If either screen is missing from the navigation, report BLOCKED.
   - description: The run can drive a real browser at 1440 px and 390 px.
     check: system_seeded
     detail: If no browser can be started, report BLOCKED.
-  - description: The storekeeper account of this tenant (actor-qoimeks-qa2-storekeeper, role STOREKEEPER) can sign in and holds stock read tenant-wide.
+  - description: The administrator account of this tenant (actor-qoimeks-qa2-admin, role TENANT_ADMIN) can sign in for the cross-check of steps 7 and 8.
     check: system_seeded
     detail: >
-      If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the administrator steps still run. If the storekeeper's Stock documents list does not hold the
-      negative document the administrator found (a node-limited grant), report steps 7 and 8 as BLOCKED-by-environment and say so.
+      If the sign-in fails, report steps 7 and 8 as BLOCKED-by-environment and name the account; the storekeeper steps still run. If the administrator's Stock documents list does not hold the
+      negative document the storekeeper found (a node-limited grant), report steps 7 and 8 as BLOCKED-by-environment and say so.
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents and finds the documents of the kind Opening balance.
+      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents and finds the documents of the kind Opening balance.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens opening documents one by one until one shows a line with a minus sign, and notes its status, the item, the place and the quantity.
+      The storekeeper opens opening documents one by one until one shows a line with a minus sign, and notes its status, the item, the place and the quantity.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator reads all lines of that document and checks that every line has a minus sign; then opens one opening document with positive lines and checks that none of its lines has a minus sign.
+      The storekeeper reads all lines of that document and checks that every line has a minus sign; then opens one opening document with positive lines and checks that none of its lines has a minus sign.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens Balances and finds the noted item at the noted place.
+      The storekeeper opens Balances and finds the noted item at the noted place.
     via: ui
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator switches the language to Russian, reads the negative document again (kind "Начальный остаток"), then switches to Kazakh and reads it again.
+      The storekeeper switches the language to Russian, reads the negative document again (kind "Начальный остаток"), then switches to Kazakh and reads it again.
     via: ui
   - step: 6
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator narrows the window to 390 px wide, opens the same document and reads its line; then switches the language back to English and widens the window.
+      The storekeeper narrows the window to 390 px wide, opens the same document and reads its line; then switches the language back to English and widens the window.
     via: ui
   - step: 7
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, finds the same opening document that the administrator opened in step 2 and reads its status, the item, the place and the quantity of the negative line.
+      The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com in English at 1440 px, opens Stock documents, finds the same opening document that the administrator opened in step 2 and reads its status, the item, the place and the quantity of the negative line.
     via: ui
   - step: 8
-    actor: storekeeper
+    actor: admin
     action: >
-      The storekeeper opens Balances and finds the same item at the same place.
+      The administrator opens Balances and finds the same item at the same place.
     via: ui
 
 expected_outcomes:
@@ -130,7 +130,7 @@ expected_outcomes:
       business_impact: Users reading in Russian, Kazakh or on a phone may misread a negative quantity as positive.
       suggested_action: route_to_frontend_dev
   - id: EO-005
-    description: The storekeeper reads the same negative document and the same negative balance as the administrator.
+    description: The administrator, as the cross-check reader, reads the same negative document and the same negative balance as the storekeeper.
     verification:
       method: gui_screen
       detail: Step 7 shows the document in the posted status with the minus-sign line, with the same item, place and quantity as step 2; step 8 shows the same item at the same place with the same quantity and minus sign as step 4.

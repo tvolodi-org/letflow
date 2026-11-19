@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -28,7 +28,7 @@
 id: qoimeks-move-4-counts-and-masters-on-screen
 scope: qoimeks-qa2
 title: >-
-  The Qoimeks QA administrator reads the places, items and balances on the screens and finds the counts and the
+  The Qoimeks QA storekeeper reads the places, items and balances on the screens and finds the counts and the
   master names the move checks compare, on a desktop and at 390 px
 version: '1.1'
 tags:
@@ -46,9 +46,9 @@ tags:
 description: >-
   After the move rehearsal the tenant must hold the same tables as the Qoimeks extract: P places, I items and
   B non-zero balances (3 of them negative), where P, I and B are read at the start of the run from the data the tenant was seeded with (the seed changes them, so no fixed number is used). The offline compare tools check this by counts and hashes and cannot
-  be run from a browser (see the header). This scenario walks what the administrator can see: the places screen
+  be run from a browser (see the header). This scenario walks what the storekeeper can see: the places screen
   with the warehouse "Склад", the zones and a rack place, the catalog items screen with item 0001 and item 0100,
-  and the balances screen with its rows including the three negative ones. The administrator reads the numbers the
+  and the balances screen with its rows including the three negative ones. The storekeeper reads the numbers the
   screens show (a total if the screen shows one; otherwise the run pages to the end and counts, and says which way
   it used), compares them with P, I and B, and reads two names by code. The same reading is repeated at 390
   px in Russian. UAT assumption, to be confirmed by the process owner: the three screens may show no total; the
@@ -56,7 +56,7 @@ description: >-
   with both numbers and not guessed at. The scenario makes no write, so no refusal step belongs to it; the refusal
   and write-safety checks of the stock screens are in scenario qoimeks-move-3.
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
     The Qoimeks QA tenant holds the synthetic data of docs/runbooks/qoimeks-rehearsal.md (P places, I items,
@@ -76,7 +76,7 @@ preconditions:
   detail: >-
     If not, switch to English first.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. The item, place and non-zero balance counts are read at the start of the run (the seed changes them); every seeded
     balance carries a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
     only; read the quick-count rule separately.
@@ -103,35 +103,35 @@ preconditions:
     outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 at 1440 px in English
-    and opens the locations (places) screen. The administrator reads the top of the tree (the warehouse, its zones)
+    The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 at 1440 px in English
+    and opens the locations (places) screen. The storekeeper reads the top of the tree (the warehouse, its zones)
     and a total if the screen shows one; otherwise expands every zone and counts all places.
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the catalog items screen and reads the total of items if the screen shows one; otherwise
-    pages to the end and counts the rows. The administrator then finds the items with the codes 0001 and 0100 and
+    The storekeeper opens the catalog items screen and reads the total of items if the screen shows one; otherwise
+    pages to the end and counts the rows. The storekeeper then finds the items with the codes 0001 and 0100 and
     reads their names and unit.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the Balances screen, reads the total of balance rows if the screen shows one (otherwise
+    The storekeeper opens the Balances screen, reads the total of balance rows if the screen shows one (otherwise
     pages to the end and counts), and finds the three rows with a negative quantity.
   via: ui
 - step: 4
-  actor: admin
+  actor: storekeeper
   action: >-
-    The window is made 390 px wide and the language is switched to Russian. The administrator opens the locations
+    The window is made 390 px wide and the language is switched to Russian. The storekeeper opens the locations
     screen and then the Balances screen and reads the first rows on each.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator switches the language back to English.
+    The storekeeper switches the language back to English.
   via: ui
 expected_outcomes:
 - id: EO-001

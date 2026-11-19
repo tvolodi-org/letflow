@@ -13,8 +13,7 @@
 # No approving, paying/releasing or user changes in these read-only synthetic-data walks.
 # T-2192 rework (issues 4708, 4709, 4710): checks before this group is merged:
 # 1. Scope: scope is qoimeks-qa2 (tenant and realm exist); the directory name is only the group name.
-# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) and actor-qoimeks-qa2-storekeeper (STOREKEEPER, realm qoimeks-qa2,
-#   login UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*, added to actors.yaml by this task).
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER reads the item card and its usual place and cannot change it; actor-qoimeks-qa2-admin / TENANT_ADMIN appears only as the cross-check reader in qoimeks-defloc-1 step 5. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes.
 # 3. Host and screens: Items screen and card sections exist (web/src/modules/catalog_items/items/ItemDetails.tsx); section
 #   titles follow catalogItemsItemsMessages.ts: sec.overview Обзор / Шолу, sec.related Остатки по местам хранения /
 #   Сақтау орындары бойынша қалдық. The English words "Overview" and "Related" are not shown in ru/kk (issue 4710).
@@ -36,20 +35,19 @@ description: >
   language and appearance. The storekeeper also attempts to open the platform's company
   list; the whole request must be refused.
 actors:
-  admin: actor-qoimeks-qa2-admin
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
-  - description: The synthetic QA tenant and its administrator are available in a real browser.
+  - description: The synthetic QA tenant and its storekeeper are available in a real browser.
     check: system_seeded
     detail: >
       Use only https://qoimeks-qa2.letflow.qa.bizdala.com, realm qoimeks-qa2, account
-      QOIMEKS_QA2_ADMIN via UAT_QA_ACTOR_QOIMEKS_QA2_ADMIN_USER_*. Record original language
+      QOIMEKS_QA2_STOREKEEPER via UAT_QA_ACTOR_QOIMEKS_QA2_STOREKEEPER_USER_*. Record original language
       and appearance. Missing browser, account or tenant means BLOCKED; never use real data.
   - description: Two existing synthetic items have independently recorded place assignments.
     check: system_seeded
     detail: >
       Use the actual codes/names of one item with a usual place and one without it, identified
-      from synthetic import evidence or this administrator's read-only item query. Record the
+      from synthetic import evidence or this storekeeper's read-only item query. Record the
       populated item's place code/name and its actual stock rows from the read-only stock
       query, following any pages. Choose a populated item with stock at a different place
       when one exists. Pick an item that has a usual place (216 did at the last seed; the count is read at the start of the run); use another item for the empty case. If no item has a usual place, this scenario is BLOCKED-by-environment. If none exists, still compare the actual rows but mark the different-place
@@ -57,21 +55,21 @@ preconditions:
       move stock, edit a place or create records to force this case.
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
       Sign in to QA, set the current display combination, open Items and select the recorded
       item with a usual place. Read the section «Обзор» (Russian) or «Шолу» (Kazakh), then the section «Остатки по местам хранения» (Russian) or «Сақтау орындары бойынша қалдық» (Kazakh), and capture the usual place and
       actual stock locations and quantities.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
       Select the recorded item without a usual place, searching by its own article code.
       At 390 px first return to the list with the card's back control. Capture the new
       item's code and usual-place field together.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
       Return to the list and reopen the first item by its article code. Read its usual
       place and the stock-by-location rows again, then reload and capture the selected card.
@@ -84,9 +82,9 @@ steps:
     via: ui
     expect_refusal: true
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      Sign back in as the administrator if needed and return to Items. After all display combinations, clear the search, close the card
+      Sign back in as the storekeeper if needed and return to Items. After all display combinations, clear the search, close the card
       and restore the initial language and appearance.
     via: ui
 expected_outcomes:

@@ -1,0 +1,84 @@
+# T-2222 (BA, PM decision 2026-11-19): the one refusal scenario of the token group. The shared stock access is an administrator function; a storekeeper is refused it.
+# Sources opened: lib/letflow/routers/identity.ex (authz_get/authz_post/authz_delete "/shared-stock-access", permission TokensManage, tenant-wide, interactive caller only); web/src/router.tsx (admin/tokens guarded by TokensManage);
+# docs/roles.md STOREKEEPER ("Must not: ... administer users, groups, roles, tokens ...") ; web/src/components/ui/feedbackMessages.ts (permissionDenied text); test/fixtures/uat/scenarios/qoimeks-retry/qoimeks-retry-1-*.yaml step 13 (same read, same expected 403).
+# Read-only: only the status read is sent. The create and revoke calls are NOT sent by the storekeeper (a wrongly accepted create would leave a live credential on the tenant); their refusal rests on the same permission and the status read.
+# Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) in the roster of qoimeks-qa2; live login not exercised in this writing step.
+---
+id: qoimeks-token-5-storekeeper-refused-shared-access
+scope: qoimeks-qa2
+title: >-
+  The storekeeper does not find the Tokens page and is refused the status of the shared stock access
+version: '1.0'
+tags:
+- qoimeks
+- shared_stock_access
+- refusal
+- storekeeper
+- desktop
+- read_only
+description: >-
+  The storekeeper, the warehouse clerk, signs in on the tenant address at 1440 px in English. The side navigation offers no
+  Tokens entry. When the storekeeper types the address of the Tokens page by hand, the page is refused with the message
+  "You do not have access to this area. Contact your tenant administrator." and shows no list. The storekeeper's session then
+  asks the server for the status of the tenant's shared stock access (a read; nothing is created or changed): the answer is a
+  refusal and carries no status field of the shared access. Nothing is changed, so there is nothing to clean up.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: >-
+    The storekeeper account can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 (credentials from the acceptance credential source, never from files).
+  check: runner_prepared
+  detail: >-
+    If sign-in fails, report BLOCKED-by-environment for the whole scenario and name the account.
+- description: >-
+    The run can drive a real browser at 1440 px and an HTTP client from the signed-in browser session.
+  check: runner_prepared
+  detail: >-
+    If no browser can be started, report BLOCKED-by-environment. Do not send a create or a revoke request as the storekeeper.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper signs in on the tenant address in English at 1440 px and looks through the side navigation, the Tenant administration group included, for the entry "Tokens".
+  via: ui
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper types the address of the Tokens page (the path /admin/tokens of the tenant host) into the browser.
+  expect_refusal: true
+  via: ui
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper's session asks the server for the status of the tenant's shared stock access (the read only; nothing is created or changed). The answer is noted as R-SK.
+  expect_refusal: true
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The Tokens entry is not offered to the storekeeper and the page is refused when typed by hand.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows no "Tokens" entry in the side navigation. Step 2 shows the message "You do not have access to this area. Contact your tenant administrator." and no list of tokens.
+    evidence: >-
+      Screenshots of steps 1 and 2.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A warehouse clerk could open the page where the credentials of the tenant are managed.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    The server refuses the storekeeper the shared stock access and tells nothing about it.
+  verification:
+    method: api_response
+    detail: >-
+      R-SK has HTTP status 403 (a 404 is also accepted if the product hides the route from callers without the right) and its body carries no "exists", "created_at" or other status field of the shared access.
+    evidence: >-
+      HTTP status and body of R-SK.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A warehouse clerk could learn about, replace or revoke the credential the old app uses to post stock, and cut off or open the tenant's stock.
+    suggested_action: route_to_elixir_dev

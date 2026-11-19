@@ -7,30 +7,30 @@
 # Coverage notes (cases outside this walk and environment requirements):
 #   (a) Voice (speaking a count phrase): needs a microphone and a speech provider key; and the quick count has no voice input after REQ-856 was cancelled.
 #   (b) Scanning an item code with a phone camera into the item field: needs a camera; the screen also takes a typed code or a keyboard scanner, which is what this scenario types.
-#   (c) Posting the count (balance becomes the counted number): with four eyes on, a second user must approve, and actor-qoimeks-qa2-storekeeper is available as a second user, with approval-task eligibility to be confirmed; this phone walk cancels its draft, so the posted balance, the movement entry and the reversal are NOT walked here; they are covered by tests of REQ-854 criteria 1, 2, 5 and 12.
+#   (c) Posting the count (balance becomes the counted number): with four eyes on, a second user must approve, and the second user would be actor-qoimeks-qa2-admin (not used in this phone walk, which runs as the storekeeper only); this phone walk cancels its draft, so the posted balance, the movement entry and the reversal are NOT walked here; they are covered by tests of REQ-854 criteria 1, 2, 5 and 12.
 #   (d) A quick count refused count_in_progress or location_frozen: needs a formal count order opened on the synthetic data; not created by this scenario (it must not change counts of the tenant).
 # Cleanup: every run of this scenario issues exactly one quick count document and ends by cancelling it with the reason "UAT T-2165 cleanup". Cancelled documents cannot be deleted by the product: the document number and the cancel reason are written in the run's report. The balance of the key is never changed.
 # T-2204 rework (issue 4720, task #4740): the Quick count form has a 'Responsible employee' selector (default 'Unassigned stock'). Every seeded balance carries a responsible employee, so the run chooses the responsible of the Balances row it noted and compares B for that same key; there is no B = 0 fallback and no plain-key precondition.
-# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin (TENANT_ADMIN; no lower-role claim for quick count is made); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
+# Checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (STOREKEEPER; holds no StockQuickCount, so the Quick count screen is expected to be refused: a product defect to report); 3 the tenant host and the web Quick count screen exist; the Responsible column exists on the balances screen (stock.col.responsible);
 # 4 data: the synthetic balances all carry a responsible employee, handled by precondition 1 (the form's Responsible employee selector is set to that employee); 5 executable with a browser script; 6 uat.sh preflight not run by the writer (no QA credentials). The independent HTTP 500 finding of issue 4720 is a product finding, not touched here.
 ---
 id: qoimeks-mobile-3-quick-count-on-phone-width
 scope: qoimeks-qa2
-title: The Qoimeks QA administrator records one quick count at a phone width of 390 px and at 1440 px, sees the book quantity and the difference before and after submitting, cannot approve their own count alone, and cancels the test count
+title: The Qoimeks QA storekeeper records one quick count at a phone width of 390 px and at 1440 px, sees the book quantity and the difference before and after submitting, cannot approve their own count alone, and cancels the test count
 version: "1.0"
 tags: [qoimeks, mobile, quick_count, phone, responsive, stock, refusal, cleanup]
 
 description: >
   The Quick count form has a selector "Responsible employee" (default "Unassigned stock"); the count it submits is for the balance row of the chosen employee, and its book quantity is the quantity of that row only (a row held by another employee, or unassigned, is a different row).
-  The administrator therefore looks up, on the stock balances screen, one item at one place and org unit and notes the row to count: its Responsible employee and its quantity B (every seeded balance carries a responsible employee, so the row to count is the employee-assigned one; never read the stock without a responsible as B).
+  The storekeeper therefore looks up, on the stock balances screen, one item at one place and org unit and notes the row to count: its Responsible employee and its quantity B (every seeded balance carries a responsible employee, so the row to count is the employee-assigned one; never read the stock without a responsible as B).
   Then, at a window 390 px wide, they open the Quick count screen from the navigation (the button that unfolds it), choose the same item, place and org unit and the same Responsible employee, and read the book quantity the form shows, which must equal B.
   They type a counted quantity of B plus 1 and read the difference the form shows (1), choose the reason "Recount" and press "Submit count". The screen then shows "Count recorded" with the document number, the book quantity B,
-  the counted quantity B plus 1, the difference 1 and the state, and tells that a second person approves the count in My Tasks. The administrator tries to approve their own count in My Tasks and is not allowed (four eyes: a person cannot approve what they counted).
-  The balances screen still shows B for the row of that employee, and the other rows of the item unchanged (nothing is posted until a second person approves). The administrator opens the stock documents screen, opens the quick count document and cancels it with the reason "UAT T-2165 cleanup"; it reads Cancelled.
+  the counted quantity B plus 1, the difference 1 and the state, and tells that a second person approves the count in My Tasks. The storekeeper tries to approve their own count in My Tasks and is not allowed (four eyes: a person cannot approve what they counted).
+  The balances screen still shows B for the row of that employee, and the other rows of the item unchanged (nothing is posted until a second person approves). The storekeeper opens the stock documents screen, opens the quick count document and cancels it with the reason "UAT T-2165 cleanup"; it reads Cancelled.
   The whole run is repeated at 1440 px. Screens fit the 390 px width: nothing is cut off, no sideways scrolling is needed, no two controls overlap, and the form fields and buttons can be reached with a thumb-sized tap target.
 
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The Qoimeks QA tenant holds the synthetic stock data (read the item, place and balance counts at the start of the run and record them; the seed changes them), the stock module is active, and one balance row that is not lot-tracked or serial-tracked and has a positive quantity can be chosen.
@@ -38,9 +38,9 @@ preconditions:
     detail: >
       Every opening balance carries a responsible employee (QOI-OU-1 is the only org unit). The run reads the balances screen (Responsible column) and chooses one positive row of an item that is not lot-tracked or serial-tracked; B is that row's quantity and its Responsible employee is chosen in the form's "Responsible employee" selector, so the form submits the key of that row (issue 4720, task 4740).
       The run records the combination, its Responsible employee, B, and every other row of the item at that place with its Responsible value. The quick count refuses serial-tracked items and needs a lot for lot-tracked ones; pick another row in that case. If no positive row of such an item exists, report BLOCKED-by-environment; never use a row without a responsible, never set B to 0.
-  - description: The administrator's account has the stock quick count permission and the quick count is on its four-eyes default (no approval rule switched off for the quick count approval step).
+  - description: The storekeeper's account should have the stock quick count permission (the detail says what the source grants) and the quick count is on its four-eyes default (no approval rule switched off for the quick count approval step).
     check: system_seeded
-    detail: The permission StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule (docs/roles.md, stock module). UAT assumption, to be confirmed by the process owner - the four-eyes switch of the quick count in this tenant was not read; the opening approval is known to be off. If the result screen in step 5 offers an "Approve" button instead of the second-person hint, the switch is off, so do NOT press it, report BLOCKED for step 6 and carry on with the cancel in step 8.
+    detail: The permission StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule but is not in the STOREKEEPER role_grants of the stock module (lib/letflow/modules/stock/stock.ex); if the Quick count entry or screen is refused for the storekeeper, report a PRODUCT defect (the PM decision of 2026-11-19), do not move the step to the administrator. UAT assumption, to be confirmed by the process owner - the four-eyes switch of the quick count in this tenant was not read; the opening approval is known to be off. If the result screen in step 5 offers an "Approve" button instead of the second-person hint, the switch is off, so do NOT press it, report BLOCKED for step 6 and carry on with the cancel in step 8.
   - description: No formal count order is open on the chosen item's place and org unit, and the place is not frozen.
     check: system_seeded
     detail: If the submit is refused with a message about a count in progress or a frozen place, choose another place and report the refusal as a finding.
@@ -50,50 +50,50 @@ preconditions:
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, the Responsible employee of the row and B (the quantity of that row), and every other row of the combination with its Responsible value and quantity.
+      In a window 390 px wide the storekeeper signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the stock balances screen through the navigation, chooses an item at a place and org unit as the precondition describes (not lot-tracked), and notes the item, the place, the org unit, the Responsible employee of the row and B (the quantity of that row), and every other row of the combination with its Responsible value and quantity.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the navigation and chooses "Quick count", and reads the empty form.
+      The storekeeper opens the navigation and chooses "Quick count", and reads the empty form.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator chooses the noted item, the noted place, the noted org unit and the noted Responsible employee, and reads what the form shows below the fields.
+      The storekeeper chooses the noted item, the noted place, the noted org unit and the noted Responsible employee, and reads what the form shows below the fields.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator types the counted quantity B plus 1 (for example 11 when B is 10), reads the difference, chooses the reason "Recount" and presses "Submit count".
+      The storekeeper types the counted quantity B plus 1 (for example 11 when B is 10), reads the difference, chooses the reason "Recount" and presses "Submit count".
     via: ui
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator reads the result that appears.
+      The storekeeper reads the result that appears.
     via: ui
   - step: 6
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens My Tasks, finds the approval task of the count just recorded, and tries to approve it (complete it as approved) themselves.
+      The storekeeper opens My Tasks, finds the approval task of the count just recorded, and tries to approve it (complete it as approved) themselves.
     expect_refusal: true
     via: ui
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock balances screen again and reads the quantity of the noted item at the noted place and org unit for the noted Responsible employee.
+      The storekeeper opens the stock balances screen again and reads the quantity of the noted item at the noted place and org unit for the noted Responsible employee.
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock documents screen, opens the quick count document by its number, presses "Cancel document", types the reason "UAT T-2165 cleanup" and confirms.
+      The storekeeper opens the stock documents screen, opens the quick count document by its number, presses "Cancel document", types the reason "UAT T-2165 cleanup" and confirms.
     via: ui
   - step: 9
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator repeats steps 1 to 8 in a window 1440 px wide (a second quick count document, cancelled in the same way).
+      The storekeeper repeats steps 1 to 8 in a window 1440 px wide (a second quick count document, cancelled in the same way).
     via: ui
 
 expected_outcomes:
@@ -128,7 +128,7 @@ expected_outcomes:
       business_impact: A recorded count is lost or shows wrong numbers, so stock is corrected on a false basis.
       suggested_action: route_to_elixir_dev
   - id: EO-004
-    description: The administrator cannot approve their own count alone.
+    description: The storekeeper cannot approve their own count alone.
     verification:
       method: gui_screen
       detail: In step 6 the approval is not completed - the Approve control is missing or disabled with a hint, or pressing it returns a refusal of separation of duties; the task stays open and the document stays not posted. Either form is accepted and the run records which one appeared.

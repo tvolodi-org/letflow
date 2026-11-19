@@ -1,6 +1,6 @@
 # T-2190 group verification (2026-11-19; source checks distinguished from live QA):
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml maps actor-qoimeks-qa2-admin / TENANT_ADMIN and actor-qoimeks-qa2-storekeeper / STOREKEEPER to tenant/realm qoimeks-qa2, as supplied by the T-2219 PM decision. Both actors are available in the roster; live login not repeated; missing credentials block affected outcomes.
+# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
 # 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
 # 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
 # 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
@@ -22,7 +22,7 @@
 id: qoimeks-move-1-stock-workbook-download-desktop
 scope: qoimeks-qa2
 title: >-
-  The Qoimeks QA administrator downloads the whole-stock workbook from the Balances screen on a desktop and finds
+  The Qoimeks QA storekeeper downloads the whole-stock workbook from the Balances screen on a desktop and finds
   the Qoimeks layout, the Cyrillic letters, the three negative balances and the same count as the screen
 version: '1.1'
 tags:
@@ -35,7 +35,7 @@ tags:
 - en
 - file_content
 description: >-
-  On a desktop window (1440 px, English) the administrator opens the stock Balances screen, reads the button "Stock
+  On a desktop window (1440 px, English) the storekeeper opens the stock Balances screen, reads the button "Stock
   workbook (Qoimeks layout)" and the caption under it, presses it, and opens the saved file. The file is named stock-<year>-<month>-<day>.xlsx,
   has one sheet, the ten headers of the Qoimeks import layout in row 1 (Артикул, Номенклатура, Конечный остаток,
   Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes), lists items by code from the lowest up, keeps
@@ -46,7 +46,7 @@ description: >-
   less than 10 000 rows) and the whole-company-reader refusal (no scoped stock reader in the roster for this tenant);
   both are covered by component tests of the screen, not by this walk.
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
     The Qoimeks QA tenant holds the synthetic stock; record the item, place and balance counts at the start of the
@@ -63,12 +63,12 @@ preconditions:
     If the file cannot be opened, report BLOCKED for steps 4 to 6 and still check steps 1 to 3 (button, caption,
     download starts).
 - description: >-
-    The administrator's browser language is English at the start.
+    The storekeeper's browser language is English at the start.
   check: system_seeded
   detail: >-
     If not, switch to English first and carry on.
 - description: >-
-    Sign in as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN), the roster TENANT_ADMIN, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
     balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
@@ -96,40 +96,40 @@ preconditions:
     outcome is BLOCKED-by-environment; do not call the first-page count a total.
 steps:
 - step: 1
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and opens the Balances
+    The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and opens the Balances
     screen from the side navigation (stock section).
   via: ui
 - step: 2
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator reads the buttons above the list and the caption under the button "Stock workbook (Qoimeks
-    layout)". The administrator also notes how many balance rows the screen reports in all, if it reports a total;
-    if it only pages, the administrator pages to the end and counts the rows.
+    The storekeeper reads the buttons above the list and the caption under the button "Stock workbook (Qoimeks
+    layout)". The storekeeper also notes how many balance rows the screen reports in all, if it reports a total;
+    if it only pages, the storekeeper pages to the end and counts the rows.
   via: ui
 - step: 3
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator sets any filter on the screen (for example one place), presses "Stock workbook (Qoimeks layout)"
+    The storekeeper sets any filter on the screen (for example one place), presses "Stock workbook (Qoimeks layout)"
     and saves the file; then clears the filter, presses the same button again and saves the second file.
   via: ui
 - step: 4
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator opens the second file and reads its sheet name, row 1 and the first ten data rows.
+    The storekeeper opens the second file and reads its sheet name, row 1 and the first ten data rows.
   via: ui
 - step: 5
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator counts the data rows with a quantity other than zero in the second file, finds the rows with
+    The storekeeper counts the data rows with a quantity other than zero in the second file, finds the rows with
     a negative quantity, and finds the row of article 0100 (the synthetic data gives every 100th item, 0100, 0200
     and so on, one Cyrillic look-alike letter at the end of its name) and reads its name.
   via: ui
 - step: 6
-  actor: admin
+  actor: storekeeper
   action: >-
-    The administrator compares the first file (taken with a filter on) with the second: same number of data rows.
+    The storekeeper compares the first file (taken with a filter on) with the second: same number of data rows.
   via: ui
 expected_outcomes:
 - id: EO-001

@@ -9,26 +9,26 @@
 #   (c) A sign-out button: no sign-out text exists in the app's three language files on origin/main (grep of apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb for logout, sign out), so this scenario ends by clearing the site data of the PWA address.
 #   (d) Lost-device revocation of a user's offline sessions: an infra step in the identity provider, not a screen of the product.
 # T-2192 rework (issue 4721; PM/infra 2026-11-19): checks before this group is merged:
-# 1 Scope: scope is qoimeks-qa2 (tenant and realm exist). 2 Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN); no lower-role claim is made for the phone screens.
+# 1 Scope: scope is qoimeks-qa2 (tenant and realm exist). 2 Actors (T-2222): actor-qoimeks-qa2-storekeeper (STOREKEEPER), the phone user.
 # 3 Host and screens: the phone PWA lives at https://pwa.letflow.qa.bizdala.com/ ; the tenant host serves only the web SPA and is not installable, so it is used only for the web screens; the Android app and PWA have no quick count screen (REQ-856 cancelled).
 # 4 Data: the synthetic tenant holds the data these steps read; no data precondition beyond the PWA address. 5 Executable: browser steps with the runner's own script. 6 uat.sh preflight not run by the writer (no QA credentials).
 ---
 id: qoimeks-mobile-2-pwa-sign-in-and-language-phone
 scope: qoimeks-qa2
-title: The Qoimeks QA administrator signs in on the phone PWA with the company code, reaches the stock home, reads it in English, Russian and Kazakh, and a wrong company code or wrong password does not get in
+title: The Qoimeks QA storekeeper signs in on the phone PWA with the company code, reaches the stock home, reads it in English, Russian and Kazakh, and a wrong company code or wrong password does not get in
 version: "1.0"
 tags: [qoimeks, mobile, pwa, sign_in, phone, i18n, ru, kk, en, refusal]
 
 description: >
-  The administrator opens the PWA in a window 390 px wide (and again at 1440 px), types the company code "qoimeks-qa2" and presses Continue; the browser goes to the sign-in page of the company's identity provider,
-  the administrator signs in with their own account, and the browser returns to the PWA, which shows the tenant home screen with the entry "Stock" (the install hint and the language control EN, RU, KK are on this screen, not on the stock home). The administrator taps "Stock" and reaches the stock home with the title "Stock" and its entries (stock documents, counts). The address bar no longer holds the sign-in parameters.
-  The administrator then switches the app language to Russian ("Склад") and Kazakh ("Қойма") and back to English with the language control of the tenant home screen (labels EN, RU, KK), and reads the "Stock" entry there and, after tapping it, the stock documents entry in each language.
+  The storekeeper opens the PWA in a window 390 px wide (and again at 1440 px), types the company code "qoimeks-qa2" and presses Continue; the browser goes to the sign-in page of the company's identity provider,
+  the storekeeper signs in with their own account, and the browser returns to the PWA, which shows the tenant home screen with the entry "Stock" (the install hint and the language control EN, RU, KK are on this screen, not on the stock home). The storekeeper taps "Stock" and reaches the stock home with the title "Stock" and its entries (stock documents, counts). The address bar no longer holds the sign-in parameters.
+  The storekeeper then switches the app language to Russian ("Склад") and Kazakh ("Қойма") and back to English with the language control of the tenant home screen (labels EN, RU, KK), and reads the "Stock" entry there and, after tapping it, the stock documents entry in each language.
   Two refusals are walked on their own: a company code that does not exist (the app says "Company not found" and goes no further), and the right company code with a wrong password (the sign-in page refuses and the PWA stays signed out).
   Last, the page is reloaded: with the "stay signed in" build flag off, the app signs in again by itself while the company's sign-in session lives, or asks for the sign-in page again; with the flag on it asks for a PIN, which this scenario does not enter.
-  Cleanup: no record is created; at the end the administrator clears the site data of the PWA address so the next run starts signed out.
+  Cleanup: no record is created; at the end the storekeeper clears the site data of the PWA address so the next run starts signed out.
 
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
   - description: The Flutter phone web app (PWA) is served at https://pwa.letflow.qa.bizdala.com/ (infrastructure fact of 2026-11-19) and the QA identity provider accepts that address for the qoimeks-qa2 mobile sign-in client.
@@ -37,60 +37,60 @@ preconditions:
       Precondition check, read-only: the entry address answers 200 with the web app (not the administration site), its manifest.json answers 200, and the manifest names the app "Letflow".
       The tenant host https://qoimeks-qa2.letflow.qa.bizdala.com serves only the web SPA and is NOT installable: it is never used as the PWA address, and qoimeks-client1-qa is never used.
       For the sign-in scenario: the company-code step must reach the company's sign-in page; an invalid-redirect error from the identity provider means the address is not registered for the mobile sign-in client: report BLOCKED-by-environment for the whole scenario and name issue 4721 (infrastructure registers the redirect and web origin). If the entry address does not answer, report BLOCKED-by-environment and name issue 4721.
-  - description: The administrator account (actor-qoimeks-qa2-admin) can sign in to the company's realm with a user name and password, and its credentials come from the UAT credential source variables, never from this file.
+  - description: The storekeeper account (actor-qoimeks-qa2-storekeeper) can sign in to the company's realm with a user name and password, and its credentials come from the UAT credential source variables, never from this file.
     check: system_seeded
-    detail: If the account cannot sign in, report BLOCKED. The account holds the stock module access the stock home needs (UAT assumption, TENANT_ADMIN; see test/fixtures/uat/actors.yaml); if the stock home shows no entry, report the missing access as the finding of step 3.
+    detail: If the account cannot sign in, report BLOCKED. The account holds the stock module access the stock home needs (STOREKEEPER holds StockRead and the other stock atoms, docs/roles.md; see test/fixtures/uat/actors.yaml); if the stock home shows no entry, report the missing access as the finding of step 3.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px, with a fresh profile (no saved site data for the PWA address).
     check: system_seeded
     detail: If no browser can be started, report BLOCKED for the whole scenario.
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 390 px wide the administrator opens the PWA address, types the company code qoimeks-qa2 in the field "Company code" and presses "Continue".
+      In a window 390 px wide the storekeeper opens the PWA address, types the company code qoimeks-qa2 in the field "Company code" and presses "Continue".
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      On the company's sign-in page the administrator types their own user name and password and signs in.
+      On the company's sign-in page the storekeeper types their own user name and password and signs in.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      Back in the PWA the administrator reads the page that opens (the tenant home screen with the entry "Stock") and its address bar, then taps "Stock" and reads the stock home.
+      Back in the PWA the storekeeper reads the page that opens (the tenant home screen with the entry "Stock") and its address bar, then taps "Stock" and reads the stock home.
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      On the tenant home screen the administrator opens the language control, chooses RU and reads the entry "Склад"; taps it and reads the stock home and the entry for stock documents; goes back to the tenant home screen, chooses KK and repeats the reading ("Қойма"); then chooses EN.
+      On the tenant home screen the storekeeper opens the language control, chooses RU and reads the entry "Склад"; taps it and reads the stock home and the entry for stock documents; goes back to the tenant home screen, chooses KK and repeats the reading ("Қойма"); then chooses EN.
     via: ui
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 1440 px wide the administrator repeats steps 1 to 3 (the browser keeps no sign-in from the narrow window: use a fresh profile or clear the site data first) and reads the stock home.
+      In a window 1440 px wide the storekeeper repeats steps 1 to 3 (the browser keeps no sign-in from the narrow window: use a fresh profile or clear the site data first) and reads the stock home.
     via: ui
   - step: 6
-    actor: admin
+    actor: storekeeper
     action: >
-      After clearing the site data, the administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa2-nosuchcompany and presses "Continue".
+      After clearing the site data, the storekeeper opens the PWA address in the 390 px window, types the company code qoimeks-qa2-nosuchcompany and presses "Continue".
     expect_refusal: true
     via: ui
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the PWA address in the 390 px window, types the company code qoimeks-qa2, presses "Continue" and, on the sign-in page, types their own user name with a wrong password.
+      The storekeeper opens the PWA address in the 390 px window, types the company code qoimeks-qa2, presses "Continue" and, on the sign-in page, types their own user name with a wrong password.
     expect_refusal: true
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator signs in correctly as in steps 1 and 2, then reloads the page of the PWA and reads what appears.
+      The storekeeper signs in correctly as in steps 1 and 2, then reloads the page of the PWA and reads what appears.
     via: ui
   - step: 9
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator clears the site data of the PWA address in the browser, so that nobody stays signed in.
+      The storekeeper clears the site data of the PWA address in the browser, so that nobody stays signed in.
     via: ui
 
 expected_outcomes:
@@ -125,7 +125,7 @@ expected_outcomes:
       business_impact: A mistyped code could lead to another company's sign-in page, or to a blank screen that the storekeeper cannot read.
       suggested_action: route_to_mobile_dev
   - id: EO-004
-    description: A wrong password does not sign the administrator in.
+    description: A wrong password does not sign the storekeeper in.
     verification:
       method: gui_screen
       detail: Step 7 stays on the company's sign-in page with the identity provider's message that the credentials are wrong; the PWA shows no stock home and no tenant data afterwards. The message text is the identity provider's and is not asserted word for word.

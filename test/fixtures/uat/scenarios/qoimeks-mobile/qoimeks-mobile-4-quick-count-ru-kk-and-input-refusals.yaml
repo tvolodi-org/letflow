@@ -7,7 +7,7 @@
 #   (a) The server-side refusal texts (count_in_progress, location_frozen, quick_count_stale, reason_invalid from the server): they need a formal count order or a second user posting at the same time; they are covered by the component tests of REQ-855 criterion 4 (a test per code, per language) and not walked here.
 #   (b) Voice and camera: see scenario qoimeks-mobile-3-quick-count-on-phone-width, (a) and (b).
 #   (c) The Kazakh wording of the long messages is checked by reading them against the file named above; whether the Kazakh is good language is for a Kazakh-speaking reader of the screenshots, not decided by the run.
-# T-2192 rework: checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 the tenant host and the web Quick count screen exist, the labels are the ru/kk texts quoted in the steps; 4 refusal inputs need no balance data (nothing is submitted successfully); 5 browser script; 6 uat.sh preflight not run by the writer (no QA credentials).
+# T-2192 rework: checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-storekeeper (STOREKEEPER; no StockQuickCount in the source role_grants, a refused Quick count screen is a product defect to report); 3 the tenant host and the web Quick count screen exist, the labels are the ru/kk texts quoted in the steps; 4 refusal inputs need no balance data (nothing is submitted successfully); 5 browser script; 6 uat.sh preflight not run by the writer (no QA credentials).
 # This scenario compares no balances, so the responsible-employee key of issue 4720 does not apply here (see qoimeks-mobile-3).
 ---
 id: qoimeks-mobile-4-quick-count-ru-kk-and-input-refusals
@@ -17,20 +17,20 @@ version: "1.0"
 tags: [qoimeks, mobile, quick_count, phone, i18n, ru, kk, validation, refusal]
 
 description: >
-  The administrator switches the language of the screen to Russian (title "Быстрый пересчёт"), opens the Quick count screen in a window 390 px wide, and reads the title, the line under it, the field labels and the reason list.
+  The storekeeper switches the language of the screen to Russian (title "Быстрый пересчёт"), opens the Quick count screen in a window 390 px wide, and reads the title, the line under it, the field labels and the reason list.
   Then four refusals are tried one by one, each ending without anything being sent: the empty form is submitted (the fields item, place and org unit say "Обязательное поле" and the quantity asks for the number);
   a negative quantity is typed; a number with ten decimals is typed; the reason "Другое" is chosen with no note. Each time the screen shows its own message in Russian next to the field and records nothing.
   The same is then done in Kazakh (title "Жылдам санақ"), and the reading is repeated at 1440 px in both languages. Finally the language is put back to English.
   The messages are not raw keys, no English words stay in a Russian or Kazakh screen, and the text fits the 390 px width without sideways scrolling.
 
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
-  - description: The Qoimeks QA tenant has the stock module active and the administrator's account holds the stock quick count permission, so that the Quick count screen is in the navigation.
+  - description: The Qoimeks QA tenant has the stock module active and the storekeeper's account holds the stock quick count permission, so that the Quick count screen is in the navigation.
     check: system_seeded
-    detail: If the entry "Quick count" is missing from the navigation, report BLOCKED for the whole scenario and name the missing permission (StockQuickCount is held by TENANT_ADMIN by the tenant-scope rule, docs/roles.md; UAT assumption, to be confirmed by the process owner - the account's role was not read).
-  - description: The administrator's browser language choice is English at the start (a fresh profile).
+    detail: If the entry "Quick count" is missing from the navigation, report a PRODUCT defect for the whole scenario and name the missing permission (StockQuickCount is not in the STOREKEEPER role_grants of the stock module, lib/letflow/modules/stock/stock.ex; the real storekeeper must be able to count, so the step is not moved to the administrator).
+  - description: The storekeeper's browser language choice is English at the start (a fresh profile).
     check: system_seeded
     detail: If the screen opens in another language, switch to English first and carry on.
   - description: The run can drive a real browser at window widths of 390 px and 1440 px and takes screenshots.
@@ -39,72 +39,72 @@ preconditions:
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 390 px wide the administrator signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the language menu (the globe with the current language code in the top bar) and chooses Russian.
+      In a window 390 px wide the storekeeper signs in on the tenant's own address (https://qoimeks-qa2.letflow.qa.bizdala.com), opens the language menu (the globe with the current language code in the top bar) and chooses Russian.
     via: ui
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the navigation (the button that unfolds it), chooses "Быстрый пересчёт" and reads the screen, and opens the list of reasons without choosing a new one.
+      The storekeeper opens the navigation (the button that unfolds it), chooses "Быстрый пересчёт" and reads the screen, and opens the list of reasons without choosing a new one.
     via: ui
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      With the form empty the administrator presses the submit button ("Отправить пересчёт").
+      With the form empty the storekeeper presses the submit button ("Отправить пересчёт").
     expect_refusal: true
     via: ui
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator types -5 in the field of the counted quantity ("Фактическое количество") and presses the submit button.
+      The storekeeper types -5 in the field of the counted quantity ("Фактическое количество") and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 5
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
+      The storekeeper replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 6
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator replaces the quantity with 1, chooses the reason "Другое", leaves the note ("Примечание к причине") empty and presses the submit button.
+      The storekeeper replaces the quantity with 1, chooses the reason "Другое", leaves the note ("Примечание к причине") empty and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator switches the language to Kazakh, opens the screen "Жылдам санақ" through the navigation and reads it (title, line under it, labels, the list of reasons).
+      The storekeeper switches the language to Kazakh, opens the screen "Жылдам санақ" through the navigation and reads it (title, line under it, labels, the list of reasons).
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      With the form empty the administrator presses the submit button ("Санақты жіберу").
+      With the form empty the storekeeper presses the submit button ("Санақты жіберу").
     expect_refusal: true
     via: ui
   - step: 9
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator types -5 in the field of the counted quantity ("Нақты саны") and presses the submit button.
+      The storekeeper types -5 in the field of the counted quantity ("Нақты саны") and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 10
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
+      The storekeeper replaces the quantity with 1.0123456789 (ten decimals) and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 11
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator replaces the quantity with 1, chooses the reason "Басқа", leaves the note empty and presses the submit button.
+      The storekeeper replaces the quantity with 1, chooses the reason "Басқа", leaves the note empty and presses the submit button.
     expect_refusal: true
     via: ui
   - step: 12
-    actor: admin
+    actor: storekeeper
     action: >
-      In a window 1440 px wide the administrator reads the Quick count screen in Russian and in Kazakh (title, line under it, labels), without submitting anything, and then switches the language back to English.
+      In a window 1440 px wide the storekeeper reads the Quick count screen in Russian and in Kazakh (title, line under it, labels), without submitting anything, and then switches the language back to English.
     via: ui
 
 expected_outcomes:

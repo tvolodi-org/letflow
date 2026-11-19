@@ -116,9 +116,9 @@ steps:
       and noted as S1.
     via: api
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock balance screen. The balance of ITEM-RETRY-I2 is noted as B0,
+      The storekeeper opens the stock balance screen. The balance of ITEM-RETRY-I2 is noted as B0,
       together with the place of that balance.
     via: ui
   - step: 4
@@ -142,22 +142,22 @@ steps:
       The answer is noted as B1-api.
     via: api
   - step: 7
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator switches the browser language to Kazakh and opens the balance screen at
+      The storekeeper switches the browser language to Kazakh and opens the balance screen at
       1440 px. The balance row of ITEM-RETRY-I2 is noted as B1-ui.
     via: ui
   - step: 8
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator opens the stock document list in Kazakh, filters it to the kind Issue and
+      The storekeeper opens the stock document list in Kazakh, filters it to the kind Issue and
       the state Posted, finds the two new issues of this walk and opens each one, reading the row
       "Өткізген". The operator names read are noted as D1.
     via: ui
   - step: 9
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator reads the balance screen at 390 px in Kazakh. The balance of ITEM-RETRY-I2
+      The storekeeper reads the balance screen at 390 px in Kazakh. The balance of ITEM-RETRY-I2
       is noted as B1-phone.
     via: ui
   - step: 10
@@ -179,9 +179,9 @@ steps:
       D3) and reads the status again (noted as S3), so that the tenant ends with none.
     via: api
   - step: 13
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator switches the browser language back to English.
+      The storekeeper switches the browser language back to English.
     via: ui
   - step: 14
     actor: storekeeper

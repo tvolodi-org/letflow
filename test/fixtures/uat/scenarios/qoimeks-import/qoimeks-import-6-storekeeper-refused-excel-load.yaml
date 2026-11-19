@@ -1,0 +1,78 @@
+# T-2222 (BA, PM decision 2026-11-19): the one refusal scenario of the import group. The Excel balance load is an administrator function; a storekeeper without StockQuickCount does not get its screen.
+# Sources opened: web/src/modules/stock/stockRoutes.tsx (admin/stock/workbook-import guarded by StockQuickCount); web/src/modules/stock/register/BalancesPage.tsx (the button to the load screen is for holders of StockQuickCount);
+# lib/letflow/modules/stock/stock.ex role_grants (STOREKEEPER: StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord; no StockQuickCount); web/src/modules/stock/workbook/workbookMessages.ts ('stock.wb.balancesLink': Load balances from Excel);
+# web/src/components/ui/feedbackMessages.ts (permissionDenied text). Product-question note: whether a real storekeeper should hold StockQuickCount is the PM's open decision; this scenario records today's source behaviour, and the same walk as a storekeeper in qoimeks-move-3 and qoimeks-count-1 reports it as a product defect if the PM decides the storekeeper must count.
+# Read-only: nothing is loaded, nothing is written.
+---
+id: qoimeks-import-6-storekeeper-refused-excel-load
+scope: qoimeks-qa2
+title: >-
+  The storekeeper is not offered the button "Load balances from Excel" and is refused its screen when typed by hand
+version: '1.0'
+tags:
+- qoimeks
+- stock
+- workbook
+- refusal
+- storekeeper
+- desktop
+- read_only
+description: >-
+  The storekeeper signs in at 1440 px in English and opens Balances. The button "Load balances from Excel" is not there for
+  a user who does not hold the quick count right. The storekeeper then types the address of the load screen
+  (the path /admin/stock/workbook-import) and gets the message "You do not have access to this area. Contact your tenant administrator."
+  with no upload field. Nothing is loaded or changed.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: >-
+    The storekeeper account can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and the stock module is active.
+  check: runner_prepared
+  detail: >-
+    If sign-in fails, report BLOCKED-by-environment and name the account; credentials come from the acceptance credential source.
+- description: >-
+    The run can drive a real browser at 1440 px in English.
+  check: runner_prepared
+  detail: >-
+    If no browser can be started, report BLOCKED-by-environment.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper signs in, opens Balances from the stock navigation and reads the buttons above the list.
+  via: ui
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper types the address of the load screen (the path /admin/stock/workbook-import of the tenant host) into the browser.
+  expect_refusal: true
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The Excel load is not offered to the storekeeper.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows the Balances screen without the button "Load balances from Excel".
+    evidence: >-
+      Screenshot of step 1.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A clerk would be offered a load that replaces balances for the whole warehouse, or the role does not match the product's own permission table.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    The load screen is refused when typed by hand and shows no upload field.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 2 shows the message "You do not have access to this area. Contact your tenant administrator." and no file drop zone, no org unit select and no "Check" button.
+    evidence: >-
+      Screenshot of step 2.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A warehouse clerk could load a workbook that changes the stock balances of the tenant.
+    suggested_action: route_to_frontend_dev
