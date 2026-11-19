@@ -1,12 +1,13 @@
 /** OIDC Callback Page — processes the authorization code callback from Keycloak */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getOidcManager, oidcManager } from '@/auth/OidcManager'
 import { useAuth } from '@/auth/AuthContext'
 import { setToken } from '@/api/client'
 import { decodeTokenPayload, resolveDisplayName, resolveTenantSlug } from '@/auth/tokenUtils'
-import { resolveRealmFromUrl } from '@/auth/tenantConfig'
+import { clearRealmSlug, resolveRealmFromUrl } from '@/auth/tenantConfig'
+import { CompanyNotFound } from '@/auth/CompanyNotFound'
 import { fetchTenantTypeForSlug } from '@/auth/tenantType'
 import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
@@ -30,6 +31,7 @@ let _callbackStarted = false
 export default function OidcCallbackPage() {
   const { setSession } = useAuth()
   const navigate = useNavigate()
+  const [refused, setRefused] = useState(false)
 
   useEffect(() => {
     if (_callbackStarted) return
@@ -121,12 +123,23 @@ export default function OidcCallbackPage() {
         const destination =
           restoredPath ?? (isPlatformAdmin ? '/platform-dashboard' : '/')
         navigate(destination, { replace: true })
-      } catch {
+      } catch (err) {
+        // T-2350: a refusal from the identity provider (error=...) or a return with no matching
+        // state shows the same "Company not found" page as an unknown code; nothing says which.
+        const hasError = new URLSearchParams(window.location.search).has('error')
+        const noState = err instanceof Error && /state/i.test(err.message)
+        if (hasError || noState) {
+          clearRealmSlug()
+          setRefused(true)
+          return
+        }
         // OIDC callback failed — redirect to root which triggers Keycloak login
         window.location.replace('/')
       }
     })()
   }, [navigate, setSession])
+
+  if (refused) return <CompanyNotFound />
 
   return (
     <div data-testid="page-oidc-callback">

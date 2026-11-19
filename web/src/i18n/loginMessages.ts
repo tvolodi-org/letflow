@@ -32,6 +32,9 @@ export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
     'login.org.label': 'Organisation code',
     'login.org.invalid': 'Enter your organisation code (up to 255 characters).',
     'login.org.submit': 'Go to sign-in',
+    'login.companyNotFound.title': 'Company not found',
+    'login.companyNotFound.body':
+      'We could not find a company for that code. Check the code and try again.',
   },
   ru: {
     'login.title': 'Вход',
@@ -55,6 +58,9 @@ export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
     'login.org.label': 'Код организации',
     'login.org.invalid': 'Введите код организации (не более 255 символов).',
     'login.org.submit': 'Перейти ко входу',
+    'login.companyNotFound.title': 'Компания не найдена',
+    'login.companyNotFound.body':
+      'Не удалось найти компанию по этому коду. Проверьте код и повторите попытку.',
   },
   kk: {
     'login.title': 'Кіру',
@@ -78,5 +84,8 @@ export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
     'login.org.label': 'Ұйым коды',
     'login.org.invalid': 'Ұйым кодын енгізіңіз (ең көбі 255 таңба).',
     'login.org.submit': 'Кіруге өту',
+    'login.companyNotFound.title': 'Компания табылмады',
+    'login.companyNotFound.body':
+      'Бұл кодпен компания табылмады. Кодты тексеріп, қайталап көріңіз.',
   },
 }

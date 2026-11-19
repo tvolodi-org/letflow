@@ -64,6 +64,11 @@ export function storeRealmSlug(slug: string): void {
   sessionStorage.setItem(REALM_STORAGE_KEY, slug)
 }
 
+/** Forgets the remembered slug only (T-2350: a code that named no company). */
+export function clearRealmSlug(): void {
+  sessionStorage.removeItem(REALM_STORAGE_KEY)
+}
+
 let _inflight: Promise<TenantConfig> | null = null
 
 /** True once a real (successful) /api/tenant-config answer is cached. False after a
@@ -174,5 +179,24 @@ export function resetTenantConfigCache(): void {
     const url = new URL(window.location.href)
     url.searchParams.delete('realm')
     window.history.replaceState(window.history.state, '', url.toString())
+  }
+}
+
+/**
+ * T-2350: true when an explicit company code (`?realm=`) resolves to no company of its own.
+ * GET /api/tenant-config answers an unknown, inactive or realm-less slug with the platform
+ * default body (same oidc_authority as the no-parameter answer), so equality with that
+ * default answer means "unknown". Unknown and refused are not told apart. Any read failure
+ * answers false: the sign-in goes on as before and nothing is claimed about the code.
+ */
+export async function isCompanyCodeUnknown(slug: string): Promise<boolean> {
+  try {
+    const [own, fallback] = await Promise.all([
+      client.get<TenantConfig>('/api/tenant-config', { realm: slug }),
+      client.get<TenantConfig>('/api/tenant-config', {}),
+    ])
+    return own.oidc_authority === fallback.oidc_authority
+  } catch {
+    return false
   }
 }
