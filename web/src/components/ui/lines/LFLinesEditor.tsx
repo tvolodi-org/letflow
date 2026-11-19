@@ -603,7 +603,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
                   #
                 </th>
                 {savedCols.map((c) => (
-                  <th key={c.key} scope="col" className={c.num ? 'is-num' : undefined}>
+                  <th key={c.key} scope="col" className={[c.num ? 'is-num' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
                     {c.label}
                   </th>
                 ))}

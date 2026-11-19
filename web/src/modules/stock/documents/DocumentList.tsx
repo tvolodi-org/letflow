@@ -139,7 +139,7 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
                       </StatusPill>
                     </span>
                     <span className="lf-doc__item-sub">
-                      <span>{known(DOC_KINDS, 'stock.doc.kind', r.kind)}</span>
+                      <span>{known([...DOC_KINDS, 'quick_count'], 'stock.doc.kind', r.kind)}</span>
                       <span className="lf-faint" aria-hidden="true">·</span>
                       <span className="mono-s">{formatEventTime(r.event_time, intl.locale, dash)}</span>
                     </span>

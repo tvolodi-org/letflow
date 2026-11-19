@@ -74,7 +74,7 @@ export function scanLines(code: string, lines: LineForm[], resolve: (c: string) 
 }
 
 export function LinesEditor(props: {
-  kind: DocKind
+  kind: DocKind | 'quick_count'
   lines: LineForm[]
   errors: Record<string, string>
   onChange: (lines: LineForm[]) => void
@@ -162,6 +162,10 @@ export function LinesEditor(props: {
         paste: (line, text) => ({ line, reason: text.trim() === '' ? undefined : formatLines(locale, 'r.lotPaste', { x: text }) }),
       },
       quantity: { cell: num('quantity', intl.formatMessage({ id: 'stock.col.quantity' })), view: (l) => (l.quantity === '' ? dash : <QuantityView line={l} />), paste: numPaste('quantity') },
+      // The unit shows once, in the book column, so the five columns fit the detail panel.
+      bookQuantity: { cell: () => null, view: (l) => (!l.bookQuantity ? dash : <QuantityView line={{ ...l, quantity: l.bookQuantity }} />) },
+      countedQuantity: { cell: () => null, view: (l) => (!l.countedQuantity ? dash : formatQuantity(l.countedQuantity, intl.locale)) },
+      difference: { cell: () => null, view: (l) => (!l.difference ? dash : formatQuantity(l.difference, intl.locale)) },
       unitPrice: { savedHidden: true, cell: num('unitPrice', intl.formatMessage({ id: 'stock.doc.field.unitPrice' })), view: (l) => formatMoney(l.unitPrice, intl.locale) || dash, paste: numPaste('unitPrice') },
       lineValue: { savedHidden: true, cell: num('lineValue', intl.formatMessage({ id: 'stock.doc.field.lineValue' })), view: (l) => formatMoney(l.lineValue, intl.locale) || dash },
       location: {
@@ -197,7 +201,7 @@ export function LinesEditor(props: {
   }, [props.errors, locale])
 
   const live = (l: LineForm): LeError[] =>
-    Object.entries(validateLine(kind, l)).map(([field, id]) => ({ col: FIELD_COL[field], message: t(id) }))
+    Object.entries(validateLine(kind as DocKind, l)).map(([field, id]) => ({ col: FIELD_COL[field], message: t(id) }))
 
   const imp = props.importer
   const fileRef = useRef<HTMLInputElement>(null)
@@ -247,7 +251,7 @@ export function LinesEditor(props: {
         columns={columns}
         blank={emptyLine}
         duplicate={(l) => ({ ...l, externalRefSystem: '', externalRefId: '' })}
-        isBlank={(l) => Object.values(l).every((v) => v === '')}
+        isBlank={(l) => Object.values(l).every((v) => v === '' || v === undefined)}
         max={MAX_LINES}
         mode={mode}
         onModeChange={setMode}
