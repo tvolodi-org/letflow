@@ -221,7 +221,7 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
             <div key={g.id} className="lf-sidenav__group" role="group" aria-label={navMessages[uiLocale].groups[g.id]} data-testid={`nav-group-${g.id}`}>
               <div className="lf-sidenav__label">{navMessages[uiLocale].groups[g.id]}</div>
               {g.items.map((n) => (
-                <NavLink key={n.to} to={n.to} className="lf-sidenav__item" title={navLabel(uiLocale, n.to, n.label)}>
+                <NavLink key={n.to} to={n.to} className="lf-sidenav__item" title={navLabel(uiLocale, n.to, n.label)} onClick={() => setNavOpen(false)}>
                   <NavIcon to={n.to} label={navLabel(uiLocale, n.to, n.label)} />
                   <span>{navLabel(uiLocale, n.to, n.label)}</span>
                   {n.to === '/dlq' && dlqSeverity !== 'none' && (
