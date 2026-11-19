@@ -22,6 +22,11 @@ defmodule Letflow.ModuleUpgrade.Boot do
   (the planned row of a plan left for the admin gets the system actor and the fixed rationale; a
   `failed` row when no Apply row exists), both under the tenant's own prefix.
 
+  Already-current modules run `Letflow.Modules.Installs.ensure_module_seeds/4` (the additive
+  `Letflow.Modules.EnsureSeeds` step: missing document types, entity definitions and tables, process
+  drafts) in a tenant-scoped transaction, repairing what older deploys missed; it creates only what
+  is missing and audits each item. The flag still gates all reads and writes.
+
   A module whose newest `done` journal row is a rollback (`Letflow.ModuleUpgrade.Rollback`) is held:
   it counts as `left_for_admin` and nothing is written, until an admin applies an upgrade again.
 
@@ -50,6 +55,7 @@ defmodule Letflow.ModuleUpgrade.Boot do
 
   @system_actor "00000000-0000-0000-0000-000000000000"
   @rationale_prefix "upgrade on deploy to "
+  @repair_rationale "ensure seeds on deploy"
 
   @type outcome :: %{
           tenant_id: term(),
@@ -136,14 +142,34 @@ defmodule Letflow.ModuleUpgrade.Boot do
 
   defp module_outcome(tenant_id, schema, %TenantModule{module_id: module_id} = row) do
     cond do
-      current?(row) -> :skipped
-      rolled_back?(schema, module_id) -> :left_for_admin
-      true -> upgrade_one(tenant_id, schema, module_id, row)
+      current?(row) ->
+        case Catalog.fetch(module_id) do
+          {:ok, entry} -> repair_current_seeds(tenant_id, schema, module_id, row, entry)
+          {:error, :not_found} -> :skipped
+        end
+
+      rolled_back?(schema, module_id) ->
+        :left_for_admin
+
+      true ->
+        upgrade_one(tenant_id, schema, module_id, row)
     end
   rescue
     _exception -> failed(tenant_id, schema, module_id, row, "internal_error")
   catch
     _kind, _reason -> failed(tenant_id, schema, module_id, row, "internal_error")
+  end
+
+  defp repair_current_seeds(tenant_id, schema, module_id, row, _entry) do
+    case Letflow.Modules.Installs.ensure_module_seeds(
+           module_id,
+           @system_actor,
+           @repair_rationale,
+           prefix: schema
+         ) do
+      {:ok, _report} -> :skipped
+      {:error, _reason} -> failed(tenant_id, schema, module_id, row, "seed_repair_failed")
+    end
   end
 
   # An admin rolled this module back (the newest finished journal row is a `done` rollback): the

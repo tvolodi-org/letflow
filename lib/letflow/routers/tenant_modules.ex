@@ -16,6 +16,7 @@ defmodule Letflow.Routers.TenantModules do
   `POST /:module_id/reactivate`. (REQ-768) `POST /:module_id/upgrade/plan` is the read-only upgrade plan report
   (`Letflow.Modules.UpgradePlan`). (Rollback slice, decision 0055 D9) `POST /:module_id/rollback` returns the module to its previous applied version
   (`Letflow.ModuleUpgrade.Rollback`; body `rationale`, `target_version`, optional `dry_run`).
+  (T-2217) `POST /:module_id/ensure-seeds` creates what an older install lacks (`Letflow.Modules.EnsureSeeds`; optional body `rationale`).
   (REQ-770) `POST /:module_id/upgrade` applies a plan without data steps in one
   transaction (`Letflow.ModuleUpgrade.Apply`; body `plan_hash`, `rationale`, optional `ack_destructive`). The uninstall and reactivate routes take `{"rationale": "<non-blank text>"}`, answer
   200 `{module_id, status}`, 404 (not installed / not uninstalled), 409 with a `code`
@@ -85,6 +86,10 @@ defmodule Letflow.Routers.TenantModules do
 
   authz_post "/:module_id/rollback", :ModulesManage do
     handle_rollback(conn, conn.params["module_id"])
+  end
+
+  authz_post "/:module_id/ensure-seeds", :ModulesManage do
+    handle_ensure_seeds(conn, conn.params["module_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -236,6 +241,47 @@ defmodule Letflow.Routers.TenantModules do
   end
 
   defp handle_upgrade(conn, _module_id), do: Response.not_found(conn)
+
+  # ── POST /:module_id/ensure-seeds (T-2217, GH #4752) ────────────────────
+  # The supported repair of a tenant installed at an older module version: creates what the current
+  # build would have installed and the tenant lacks (`Letflow.Modules.EnsureSeeds`), never overwrites or
+  # deletes. `prefix` and actor only from the auth context; the body is read for `rationale` only
+  # (optional, default text). Unknown module and not installed answer the same 404 (INV-5).
+  defp handle_ensure_seeds(conn, module_id) when is_binary(module_id) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+    actor_id = conn.assigns.auth_context.user_id
+
+    rationale =
+      case conn.body_params do
+        %{"rationale" => text} when is_binary(text) and byte_size(text) in 1..2000 ->
+          String.slice(text, 0, 500)
+
+        _other ->
+          "ensure seeds by tenant admin"
+      end
+
+    case Installs.ensure_module_seeds(module_id, actor_id, rationale, prefix: prefix) do
+      {:ok, report} ->
+        Response.ok(conn, Map.put(report, "module_id", module_id))
+
+      {:error, reason} when reason in [:unknown_module, :module_not_installed] ->
+        Response.not_found(conn)
+
+      {:error, {:activation_refused, name, reason}} ->
+        Response.module_upgrade_refused(conn, "ensure_seeds_failed", %{
+          "error_code" => "activation_refused",
+          "entity" => to_string(name),
+          "reason" => to_string(reason)
+        })
+
+      {:error, _other} ->
+        Response.module_upgrade_refused(conn, "ensure_seeds_failed", %{
+          "error_code" => "internal_error"
+        })
+    end
+  end
+
+  defp handle_ensure_seeds(conn, _module_id), do: Response.not_found(conn)
 
   # ── POST /:module_id/rollback (decision 0055 D9) ───────────────────────
   # `prefix` and actor only from the auth context; the body is read for `rationale`, `target_version`

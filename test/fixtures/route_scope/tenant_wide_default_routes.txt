@@ -267,6 +267,7 @@ POST /solution-packs/export DefinitionsRead
 POST /solution-packs/install DefinitionsCreate
 POST /tenant/config-bundle/import TenantSettingsManage
 POST /tenant/modules ModulesManage
+POST /tenant/modules/:module_id/ensure-seeds ModulesManage
 POST /tenant/modules/:module_id/reactivate ModulesManage
 POST /tenant/modules/:module_id/rollback ModulesManage
 POST /tenant/modules/:module_id/uninstall ModulesManage

@@ -49,7 +49,7 @@ defmodule Letflow.Modules.Stock do
   same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
   (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
   `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
-  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
+  types through the additive seed repair on upgrade and boot. No route, permission or
   migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
 
   ## Negative balances (REQ-836 / GH #4545, decision 0090; version 0.19.0)
@@ -189,8 +189,7 @@ defmodule Letflow.Modules.Stock do
 
   The cause `kind_change_out` (negative, one leg per line at `from`) and the write handler
   `post_kind_change_out` post the stock side of an assets change of kind (process definition
-  `assets_kind_change` of module `assets`). `post_document` refuses that cause. A module installed at an
-  earlier version has no upgrade hook for it (reinstall; QA only).
+  `assets_kind_change` of module `assets`). `post_document` refuses that cause.
 
   ## Count print (REQ-736 / GH #3861; version 0.12.0)
 
@@ -287,9 +286,11 @@ defmodule Letflow.Modules.Stock do
   a key that moved since is refused `balance_changed`, stock alias `quick_count_stale`). A count equal to
   the book posts nothing; the document reads `confirmed`. A key inside an opened, unposted, uncancelled
   count order of the same org unit is refused `count_in_progress` at the route and `location_frozen` at
-  approval (`Letflow.Modules.Stock.FreezeGuard`). A tenant installed before 0.20.0 needs a reinstall for
-  the new document type and process (QA only, as for the opening of 0.9.0); until then the quick-count
-  routes answer 409 `definition_not_active` before activating a definition or writing a document.
+  approval (`Letflow.Modules.Stock.FreezeGuard`). A tenant installed earlier is repaired by the ensure step
+  (`Letflow.Modules.EnsureSeeds`, T-2217): upgrade apply, the enabled boot upgrade and `POST
+  /api/v1/tenant/modules/stock/ensure-seeds` create the missing entity tables, process draft and, through
+  this module's `ensure_seeds/2` hook, the document types, never overwriting a tenant row. A missing type still
+  answers 409 `definition_not_active` before activating a definition or writing a document.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -720,12 +721,17 @@ defmodule Letflow.Modules.Stock do
   @impl true
   def on_install(prefix, _settings, ctx) do
     with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types) do
-      Enum.reduce_while(@document_types, :ok, fn attrs, :ok ->
-        case Documents.register_type(prefix, attrs, ctx) do
-          {:ok, _type} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      ensure_seeds(prefix, ctx)
     end
+  end
+
+  @impl true
+  def ensure_seeds(prefix, ctx) do
+    Enum.reduce_while(@document_types, :ok, fn attrs, :ok ->
+      case Documents.register_type(prefix, attrs, Map.put(ctx, :preserve_existing, true)) do
+        {:ok, _type} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 end

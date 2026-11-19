@@ -18,6 +18,7 @@ defmodule Letflow.Modules.ModuleTest do
       assert {:manifest, 0} in callbacks
       assert {:router, 0} in callbacks
       assert {:on_install, 2} in callbacks
+      assert {:ensure_seeds, 2} in callbacks
     end
 
     test "behaviour_info(:optional_callbacks) includes router/0 and on_install/2 but not manifest/0" do
@@ -25,6 +26,7 @@ defmodule Letflow.Modules.ModuleTest do
 
       assert {:router, 0} in optional_callbacks
       assert {:on_install, 2} in optional_callbacks
+      assert {:ensure_seeds, 2} in optional_callbacks
       refute {:manifest, 0} in optional_callbacks
     end
   end
