@@ -1,0 +1,188 @@
+# T-2225 (BA, PM/owner 2026-11-19): the voice provider keys are on QA (speech: ElevenLabs scribe; model: xAI with a JSON schema; read OK by infra), so these scenarios RUN the real function.
+# Voice group of qoimeks-qa2. The Qoimeks team phrases are a draft (ids ru-01..ru-10, kk-01..kk-10; demo catalog, no customer data); the expected result per id is the validated draft, not model accuracy.
+# Judge each phrase as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS; a miss of a phrase the team flags "verify" is reported, not a defect.
+# Audio: 20 SYNTHETIC test files made once with a text-to-speech model from the draft phrases (no real person), OUTSIDE the repository, webm/opus at /home/tvolodi/qoimeks-voice-audio/webm/<id>.webm on the run host. The web client sends webm; phone m4a and Safari audio are NOT tested here. Label every audio result "synthetic audio" and every Kazakh result "kk uncertain" (quality of the Kazakh synthetic speech is uncertain).
+# BUDGET (rule of the owner): each of the 20 phrases goes through each route EXACTLY ONCE per run (20 text calls in qoimeks-voice-5, 20 audio calls in qoimeks-voice-6): no loops, no retries on a provider answer, no repeated runs. Calls that make no provider call (the refusals of qoimeks-voice-7) are not counted. Calls the other scenarios of the group make (qoimeks-voice-1: 2 typed phrases; -2: one; -3: three; -4: four) are counted separately. The run summary lists every call with a running count and reports the number of speech (STT) and model (LLM) calls actually made: expected 20 STT and 40 LLM for voices 5 and 6 plus the typed calls of voices 1 to 4.
+# NOT UAT-observable: the microphone recording on a phone (a headless browser has no microphone); phone m4a/Safari audio; the prompt text sent to the model (server-internal); the log never holding the phrase or the key (a unit test captures the log).
+# Group checks (T-2225; apply to the whole group qoimeks-voice, scenarios 1 to 8; the same lines are in every file):
+# 1. Scope: every scenario has scope qoimeks-qa2, an existing synthetic tenant and realm; the group directory name is not the scope; run title UAT qoimeks-voice.
+# 2. Actors: only actor-qoimeks-qa2-storekeeper (STOREKEEPER of qoimeks-qa2, who does the voice entry in real life; it holds StockPost and StockRead in the stock module role grants, lib/letflow/modules/stock/stock.ex) with the QOIMEKS_QA2_STOREKEEPER login of the acceptance environment. Its live login is NOT verified by this writing step (no QA credentials in the writer session); a missing login makes the steps BLOCKED-by-environment.
+# 3. Host and screens: API routes of the stock voice (docs/runbooks/stock-voice.md; POST draft multipart and POST draft-text JSON); the only screen is the voice panel of the phone PWA https://pwa.letflow.qa.bizdala.com/ on the new receipt, issue or transfer document form (apps/mobile/lib/features/stock/documents/document_form_screen.dart, apps/mobile/lib/features/stock/voice/voice_panel.dart); the web SPA has no voice screen (grep voice in web/src finds none outside the print template fixtures).
+# 4. Data: demo catalog and places of the generator task T-2189 (items BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3, CBL-3x2.5; places A-01, A-02, A-03, B-01, B-02, C-01, RAMP, LA3; no C-02 and no D-03) read in each scenario before use; counts of documents, count records and balances rows are read at the start of the run and compared at the end, never assumed; a missing item or place makes the scenario BLOCKED-by-environment naming T-2189. The BLOCKED-by-keys markers of the earlier version are removed: the keys are set; the precondition is now a check that the settings are on (a typed answer with the notice llm_off means the model is off; a 503 speech_off on the audio route means speech is off; then report BLOCKED-by-environment, do not change settings, do not retry).
+# 5. Executable: HTTP steps (the audio steps upload the webm file with the runner's own HTTP client: multipart field audio and field lang with the value ru or kk) and browser steps with the runner's own script; no step depends on pipeline_test.
+# 6. Dry run: uat.sh preflight with the title UAT qoimeks-voice was not run by the writer (no QA credentials in the writer session); all files of the group were parsed with yaml.safe_load and the static check was run on the group.
+---
+id: qoimeks-voice-7-voice-request-refusals
+scope: qoimeks-qa2
+title: >-
+  The voice routes refuse a text file as audio, a missing audio part, an audio body over 10 MB, a missing or unsupported language,
+  and store nothing
+version: '2.0'
+tags:
+- qoimeks
+- voice
+- api
+- refusal
+- audio-format
+- audio-size
+- bad-language
+description: >-
+  The storekeeper sends six bad requests to the voice routes: a text file as audio, no audio, an audio body one byte over
+  10 MB, the language en on the audio route, no language on the audio route and the language en on the typed route. Each is
+  refused with its reason before any provider is called; nothing is stored. The refusals that need a model answer (a place
+  said that does not exist, a place not said, the phrases that give kind unknown) are judged inside qoimeks-voice-5 and -6
+  on the same single call of each phrase, so no extra provider call is made here.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+preconditions:
+- description: >-
+    The stock module answers the storekeeper on the voice routes (the settings need not be on for these refusals).
+  check: system_seeded
+  detail: >-
+    A 404 for the stock module is BLOCKED. No provider answer is needed: every request of this scenario is refused before
+    a provider is called.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper reads the stock documents list (GET /api/v1/modules/stock/documents) and the count records list (GET /api/v1/modules/stock/counts),
+    following all pages, and notes the counts as D0 and C0, and the balances rows (GET /api/v1/modules/stock/balances, all
+    pages) as B0; read at the start of the run, never hard-coded.
+  via: api
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper uploads a plain text file as the audio: the file holds exactly the ASCII bytes "this is text, not audio"
+    (no line break), named note.webm, in the field audio, with the language ru in the field lang, to the voice audio route.
+    The whole request is refused. The answer is noted as R1.
+  expect_refusal: true
+  via: api
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the voice audio route a multipart form with the language ru in the field lang and no audio part.
+    The whole request is refused. The answer is noted as R2.
+  expect_refusal: true
+  via: api
+- step: 4
+  actor: storekeeper
+  action: >-
+    The storekeeper uploads a body of 10,485,761 bytes as the audio (one byte over the limit of 10 MB): the first four bytes
+    are 1A 45 DF A3 and every other byte is zero, with the language ru, to the voice audio route. The whole request is refused.
+    The answer is noted as R3.
+  expect_refusal: true
+  via: api
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper uploads the synthetic audio file /home/tvolodi/qoimeks-voice-audio/webm/ru-01.webm in the field audio
+    with the language en in the field lang to the voice audio route. The whole request is refused before any provider is called.
+    The answer is noted as R4.
+  expect_refusal: true
+  via: api
+- step: 6
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the voice audio route a multipart form with the file /home/tvolodi/qoimeks-voice-audio/webm/ru-01.webm
+    in the field audio and no field lang. The whole request is refused. The answer is noted as R5.
+  expect_refusal: true
+  via: api
+- step: 7
+  actor: storekeeper
+  action: >-
+    The storekeeper sends the voice typed-phrase route the text «приход, болт эм восемь на сорок, сто штук, на а один» with
+    the language en. The whole request is refused. The answer is noted as R6.
+  expect_refusal: true
+  via: api
+- step: 8
+  actor: storekeeper
+  action: >-
+    The storekeeper reads the documents list, the count records list and the balances again and notes D1, C1 and B1.
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: A text file sent as audio is refused with the format reason.
+  verification:
+    method: api_response
+    detail: >-
+      R1 answers 415 with the reason "audio_format" and source "speech" (the format is read from the first bytes, not from
+      the file name).
+    evidence: R1 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: A request with no audio part is refused.
+  verification:
+    method: api_response
+    detail: >-
+      R2 answers 422 with the reason "field_invalid" and field "audio".
+    evidence: R2 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: An audio body over 10 MB is refused.
+  verification:
+    method: api_response
+    detail: >-
+      R3 answers 413 with the reason "audio_too_large" and source "speech".
+    evidence: R3 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: The language en on the audio route is refused.
+  verification:
+    method: api_response
+    detail: R4 answers 422 with the reason "bad_language".
+    evidence: R4 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-005
+  description: A missing language on the audio route is refused.
+  verification:
+    method: api_response
+    detail: >-
+      R5 answers 422 with the reason "bad_language" (the language is required on the audio route).
+    evidence: R5 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-006
+  description: The language en on the typed route is refused.
+  verification:
+    method: api_response
+    detail: R6 answers 422 with the reason "bad_language".
+    evidence: R6 body.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A bad voice request is accepted or reaches a paid provider, or the operator gets no clear reason.
+    suggested_action: route_to_elixir_dev
+- id: EO-007
+  description: >-
+    No provider is called and nothing is stored by the six refusals.
+  verification:
+    method: api_response
+    detail: >-
+      D1 equals D0, C1 equals C0 and B1 equals B0. The six refused requests are refused before the speech and model steps
+      (the route checks field, language, size and format first), so the run summary counts 0 speech and 0 model calls for
+      this scenario; a provider call here is reported.
+    evidence: D0, D1, C0, C1, B0, B1 and the call count.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A refused voice request still costs a provider call or changes stock data.
+    suggested_action: route_to_elixir_dev

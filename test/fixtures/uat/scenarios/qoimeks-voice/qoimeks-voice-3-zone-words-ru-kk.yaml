@@ -12,63 +12,70 @@
 # NOT UAT-observable: the speech recognition step (requires real audio); the prompt text itself (server-internal;
 # tested by voice_prompt_test.exs VP-1..VP-5); the mobile voice panel (Flutter app is not driven by the UAT runner).
 # Desktop (1440 px) and phone (390 px) produce the same API response; this is an API-only scenario.
-# T-2192 rework (issues 4717, 4718): checks: 1 scope qoimeks-qa2 exists; 2 actor actor-qoimeks-qa2-admin; 3 API route only (docs/runbooks/stock-voice.md);
-# 4 data (T-2206, P17): the seed has the places A-01 A-02 A-03 B-01 B-02 C-01 RAMP LA3 (zone-coded place named «Слева A 3») and the demo items; it has NO place RA3.
-# The scenario uses LA3 only; step 1 reads the locations list and the scenario is BLOCKED-by-environment if LA3 is missing. Right-zone phrases were removed, because no place exists to resolve them to;
-# the second Russian step uses the other spoken form of the same place (эл а три);
-# the language model must be on, BLOCKED-by-keys until the owner supplies the keys at O-015 (not a defect). One literal phrase per step, so the zone word is the only difference between the L and R steps.
-# 5 HTTP steps only; 6 uat.sh preflight not run by the writer (no QA credentials).
+# T-2225 (BA, PM/owner 2026-11-19): the voice provider keys are on QA (speech: ElevenLabs scribe; model: xAI with a JSON schema; read OK by infra), so these scenarios RUN the real function.
+# Voice group of qoimeks-qa2. The Qoimeks team phrases are a draft (ids ru-01..ru-10, kk-01..kk-10; demo catalog, no customer data); the expected result per id is the validated draft, not model accuracy.
+# Judge each phrase as PASS (equals the draft), PARTIAL (right kind and item, quantity or place differs) or MISS; a miss of a phrase the team flags "verify" is reported, not a defect.
+# Audio: 20 SYNTHETIC test files made once with a text-to-speech model from the draft phrases (no real person), OUTSIDE the repository, webm/opus at /home/tvolodi/qoimeks-voice-audio/webm/<id>.webm on the run host. The web client sends webm; phone m4a and Safari audio are NOT tested here. Label every audio result "synthetic audio" and every Kazakh result "kk uncertain" (quality of the Kazakh synthetic speech is uncertain).
+# BUDGET (rule of the owner): each of the 20 phrases goes through each route EXACTLY ONCE per run (20 text calls in qoimeks-voice-5, 20 audio calls in qoimeks-voice-6): no loops, no retries on a provider answer, no repeated runs. Calls that make no provider call (the refusals of qoimeks-voice-7) are not counted. Calls the other scenarios of the group make (qoimeks-voice-1: 2 typed phrases; -2: one; -3: three; -4: four) are counted separately. The run summary lists every call with a running count and reports the number of speech (STT) and model (LLM) calls actually made: expected 20 STT and 40 LLM for voices 5 and 6 plus the typed calls of voices 1 to 4.
+# NOT UAT-observable: the microphone recording on a phone (a headless browser has no microphone); phone m4a/Safari audio; the prompt text sent to the model (server-internal); the log never holding the phrase or the key (a unit test captures the log).
+# Group checks (T-2225; apply to the whole group qoimeks-voice, scenarios 1 to 8; the same lines are in every file):
+# 1. Scope: every scenario has scope qoimeks-qa2, an existing synthetic tenant and realm; the group directory name is not the scope; run title UAT qoimeks-voice.
+# 2. Actors: only actor-qoimeks-qa2-storekeeper (STOREKEEPER of qoimeks-qa2, who does the voice entry in real life; it holds StockPost and StockRead in the stock module role grants, lib/letflow/modules/stock/stock.ex) with the QOIMEKS_QA2_STOREKEEPER login of the acceptance environment. Its live login is NOT verified by this writing step (no QA credentials in the writer session); a missing login makes the steps BLOCKED-by-environment.
+# 3. Host and screens: API routes of the stock voice (docs/runbooks/stock-voice.md; POST draft multipart and POST draft-text JSON); the only screen is the voice panel of the phone PWA https://pwa.letflow.qa.bizdala.com/ on the new receipt, issue or transfer document form (apps/mobile/lib/features/stock/documents/document_form_screen.dart, apps/mobile/lib/features/stock/voice/voice_panel.dart); the web SPA has no voice screen (grep voice in web/src finds none outside the print template fixtures).
+# 4. Data: demo catalog and places of the generator task T-2189 (items BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3, CBL-3x2.5; places A-01, A-02, A-03, B-01, B-02, C-01, RAMP, LA3; no C-02 and no D-03) read in each scenario before use; counts of documents, count records and balances rows are read at the start of the run and compared at the end, never assumed; a missing item or place makes the scenario BLOCKED-by-environment naming T-2189. The BLOCKED-by-keys markers of the earlier version are removed: the keys are set; the precondition is now a check that the settings are on (a typed answer with the notice llm_off means the model is off; a 503 speech_off on the audio route means speech is off; then report BLOCKED-by-environment, do not change settings, do not retry).
+# 5. Executable: HTTP steps (the audio steps upload the webm file with the runner's own HTTP client: multipart field audio and field lang with the value ru or kk) and browser steps with the runner's own script; no step depends on pipeline_test.
+# 6. Dry run: uat.sh preflight with the title UAT qoimeks-voice was not run by the writer (no QA credentials in the writer session); all files of the group were parsed with yaml.safe_load and the static check was run on the group.
 ---
 id: qoimeks-voice-3-zone-words-ru-kk
 scope: qoimeks-qa2
 title: When the language model is on, Russian and Kazakh zone words in a typed phrase resolve to the place with the matching zone letter
-version: "1.1"
-tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on, blocked-by-keys]
+version: "2.0"
+tags: [qoimeks, voice, api, ru, kk, zone-word, llm-on]
 
 description: >
   Place codes may start with a zone letter: L for left (слева, сол жақ), R for right (справа, оң жақ), D for straight ahead (прямо, тура) (REQ-862).
-  The administrator sends three pinned typed phrases for the place LA3 (the seeded place named «Слева A 3»): "слева а три" and "эл а три" in Russian, "сол жақ а үш" in Kazakh; each must give LA3.
+  The storekeeper sends three pinned typed phrases for the place LA3 (the seeded place named «Слева A 3»): "слева а три" and "эл а три" in Russian, "сол жақ а үш" in Kazakh; each must give LA3.
   The place RA3 does not exist in the seed, so the right-zone words are not exercised here.
   The expected result is the validated draft, not model accuracy.
 
 actors:
-  admin: actor-qoimeks-qa2-admin
+  storekeeper: actor-qoimeks-qa2-storekeeper
 
 preconditions:
-  - description: The language model of the platform is on (BLOCKED-by-keys until the owner supplies the provider keys at O-015, issue 4717).
+  - description: The language model of the platform is on (the keys are set on QA; this is a check that the setting is on).
     check: system_seeded
     detail: >
-      Check first: send the phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-keys
+      Check first: send the phrase of step 2. The notice llm_off in the answer means the model step is off; report the whole scenario BLOCKED-by-environment (settings are infra's; change nothing, do not retry)
       (not a defect, not counted against the group). Do not change settings.
   - description: The tenant has the place LA3 (BLOCKED-by-environment if the locations list lacks it).
     check: system_seeded
     detail: >
       Read-only check: the locations list of the tenant, all pages, holds the code LA3 (the seed places are A-01 A-02 A-03 B-01 B-02 C-01 RAMP LA3; read the list, do not rely on this text).
       If LA3 is absent report the whole scenario BLOCKED-by-environment. Do not create places.
-  - description: The stock module is installed and the voice typed-phrase route answers the administrator.
+  - description: The stock module is installed and the voice typed-phrase route answers the storekeeper.
     check: system_seeded
     detail: If the route answers 404 for the stock module, report BLOCKED.
 
 steps:
   - step: 1
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator reads the locations list of the tenant (all pages, read first) and notes that the code LA3 exists; if it is missing, stop and report BLOCKED-by-environment.
+      The storekeeper reads the locations list of the tenant (all pages, read first) and notes that the code LA3 exists; if it is missing, stop and report BLOCKED-by-environment.
     via: api
   - step: 2
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator sends the typed phrase «принял товар слева а три сто единиц» with the language "ru". The answer is noted as V1.
+      The storekeeper sends the typed phrase «принял товар слева а три сто единиц» with the language "ru". The answer is noted as V1.
     via: api
   - step: 3
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator sends the typed phrase «принял товар эл а три сто единиц» with the language "ru". The answer is noted as V2.
+      The storekeeper sends the typed phrase «принял товар эл а три сто единиц» with the language "ru". The answer is noted as V2.
     via: api
   - step: 4
-    actor: admin
+    actor: storekeeper
     action: >
-      The administrator sends the typed phrase «қабылдадым сол жақ а үш жүз дана» with the language "kk". The answer is noted as V3.
+      The storekeeper sends the typed phrase «қабылдадым сол жақ а үш жүз дана» with the language "kk". The answer is noted as V3.
     via: api
 
 expected_outcomes:
