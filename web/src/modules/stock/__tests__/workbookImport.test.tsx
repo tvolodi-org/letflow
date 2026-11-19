@@ -452,6 +452,7 @@ describe('C5 loads and cancel', () => {
     number: 'QCI-2026-000010',
     created_at: '2026-11-18T04:00:00Z',
     created_by: 'aaaaaaaa-0000-0000-0000-000000000001',
+    created_by_label: 'Aigerim S.',
     file_name: 'stock.xlsx',
     sheet: 'Остатки',
     lines: 10,
@@ -465,8 +466,15 @@ describe('C5 loads and cancel', () => {
     await waitFor(() => expect(screen.getByTestId('wb-loads-section')).toBeInTheDocument())
     await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
     expect(screen.getByText('10')).toBeInTheDocument()
-    // User column shows '—' (created_by is a UUID, not resolvable by the client)
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+    // The User column shows who loaded (server label), never the id.
+    expect(screen.getByText('Aigerim S.')).toBeInTheDocument()
+    expect(screen.queryByText(importRow.created_by)).toBeNull()
+  })
+
+  it('shows a dash in the User column when the server gives no name', async () => {
+    renderWB(withQCAndReverse, [{ ...importRow, created_by_label: null }])
+    await waitFor(() => expect(screen.getAllByText('stock.xlsx').length).toBeGreaterThan(0))
+    expect(screen.queryByText('Aigerim S.')).toBeNull()
   })
 
   it('shows the document number linked to the document', async () => {
@@ -668,5 +676,35 @@ describe('C6 i18n', () => {
     expect(wbRu['stock.wb.load']).toBe('Записать остатки из файла')
     expect(wbEn['stock.wb.load']).toBe('Write balances from the file')
     expect(wbKk['stock.wb.load']).toBe('Файлдағы қалдықтарды жазу')
+  })
+})
+
+/** T-2328: the app's own 413 (code request_too_large) shows a clear message with the limit. */
+describe('too large file', () => {
+  it.each(['en', 'ru', 'kk'] as const)('%s: check answer 413 shows the limit message', async (locale) => {
+    useUiLocaleStore.getState().setLocaleTransient(locale)
+    const msgs = locale === 'ru' ? wbRu : locale === 'kk' ? wbKk : wbEn
+    const user = userEvent.setup()
+    renderWB()
+    await waitFor(() => expect(screen.getByTestId('wb-check')).toBeInTheDocument())
+    const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
+    await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
+    fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
+    await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
+    clientMock.postRaw.mockRejectedValueOnce({
+      status: 413,
+      message: 'Content Too Large',
+      code: '413',
+      details: { code: 'request_too_large', limit_bytes: 2097152 },
+    })
+    fireEvent.click(screen.getByTestId('wb-check'))
+    const expected = msgs['stock.wb.err.request_too_large'].replace('{limit}', '2')
+    await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
+    expect(screen.queryByText('stock.wb.err.request_too_large')).not.toBeInTheDocument()
+  })
+
+  it('the three catalogs carry the key with the limit placeholder', () => {
+    for (const m of [wbEn, wbRu, wbKk]) expect(m['stock.wb.err.request_too_large']).toContain('{limit}')
   })
 })

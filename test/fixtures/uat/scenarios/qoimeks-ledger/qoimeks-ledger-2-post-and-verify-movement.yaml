@@ -24,7 +24,7 @@
 # Writes: one stock receipt "UAT-LEDGER-REC-01" and its reversal. Both remain in the ledger (append-only); net balance change is zero.
 # NOT UAT-observable here, with reasons:
 #   (a) L6 scope_denied path: actor-qoimeks-qa2-storekeeper exists, but restricted org-unit grants are not confirmed by actors.yaml; covered by REQ-830 backend tests.
-#   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; tested in qoimeks-ledger-3.
+#   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; covered by master_posting_test.exs (qoimeks-ledger-3 is not walkable, T-2292).
 # Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
 # Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa2.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
 # Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.

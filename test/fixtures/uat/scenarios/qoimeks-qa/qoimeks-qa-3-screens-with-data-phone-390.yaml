@@ -3,7 +3,7 @@
 # Sources: the same screens and titles as scenario qoimeks-qa-2-screens-with-data-desktop (web/src/modules/locations/locationsMessages.ts, catalog_items/catalogItemsItemsMessages.ts,
 # stock/documents/documentsMessages.ts, stock/stockMessages.ts); web/src/components/layout/AppShell.tsx (the side navigation of a narrow window).
 # The 390 px width is a browser window setting of the run, not a device test: no real phone is used.
-# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision).
+# T-2292: the top bar shows the tenant display name (read at run time from the signed-in administrator's own membership entry), not the bare slug qoimeks-qa2.
 ---
 id: qoimeks-qa-3-screens-with-data-phone-390
 scope: qoimeks-qa2
