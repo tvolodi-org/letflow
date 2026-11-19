@@ -237,6 +237,12 @@ Future<BootstrapResult?> runTenantBootstrap(
     return const BootstrapFailure(BootstrapFailureReason.networkUnavailable);
   }
 
+  // GH #4771: an unknown company code answers the default-realm body with
+  // `company_found: false`; never send the user to that realm's sign-in.
+  if (!config.companyFound) {
+    return const BootstrapFailure(BootstrapFailureReason.tenantNotFound);
+  }
+
   // Transport-policy realm_url check (REQ-422 §4.3, MOB-5, AC5) — the
   // `fetchTenantConfig` request above already went through `ApiClient`'s
   // own transport-policy interceptor; this check is additionally required

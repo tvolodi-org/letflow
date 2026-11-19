@@ -252,7 +252,7 @@ defmodule Letflow.Routers.TenantLogoPublicTest do
 
       body = mobile("?slug=" <> q(t.tenant.slug))
       assert body["branding"]["logo_url"] == logo_path(t.tenant.slug)
-      assert map_size(body) == 6
+      assert map_size(body) == 7
 
       default = mobile("")
 

@@ -86,8 +86,13 @@ defmodule Letflow.Routers.MobileTenantConfig do
 
   ## What this endpoint discloses, and what it must never disclose
 
-  It returns exactly six keys: `realm_url`, `locales`, `default_locale`,
-  `branding`, `environment_kind`, `client_id`. All are values the mobile app
+  It returns exactly seven keys: `realm_url`, `locales`, `default_locale`,
+  `branding`, `environment_kind`, `client_id`, `company_found`. `company_found`
+  (T-2244, GH #4771) is a boolean: true only for a resolvable, active tenant with
+  a bound realm; every other branch (unknown, inactive, no realm, lookup error,
+  missing slug) is the same default body with `false`, so it adds no existence
+  signal beyond the non-default `realm_url` a hit already shows. The mobile app
+  shows "Company not found" on `false`. All are values the mobile app
   must learn before it can even start authenticating, and none identifies the
   tenant beyond the realm URL a user of that tenant already sees at login.
   The response map is hand-built with exactly these six keys and is **never**
@@ -225,9 +230,15 @@ defmodule Letflow.Routers.MobileTenantConfig do
     conn = fetch_query_params(conn)
     slug = non_empty(Map.get(conn.query_params, "slug"))
 
-    {realm_id, settings, logo_url} = resolve_tenant_config(slug)
+    {realm_id, settings, logo_url, found?} = resolve_tenant_config(slug)
 
-    body = mobile_config_map(realm_id, settings)
+    # T-2244 / GH #4771: one boolean, true only on a usable-tenant hit. Every
+    # miss branch is identical (false), so it reveals nothing the non-default
+    # realm_url did not already reveal.
+    body =
+      realm_id
+      |> mobile_config_map(settings)
+      |> Map.put("company_found", found?)
 
     Response.ok(
       conn,
@@ -246,17 +257,18 @@ defmodule Letflow.Routers.MobileTenantConfig do
   # not just for realm_url, keeping the resolved-or-not distinction a single
   # boolean rather than split per-field).
   @spec resolve_tenant_config(slug :: String.t() | nil) ::
-          {realm_id :: String.t(), settings :: map() | nil, logo_url :: String.t() | nil}
-  defp resolve_tenant_config(nil), do: {@default_realm, nil, nil}
+          {realm_id :: String.t(), settings :: map() | nil, logo_url :: String.t() | nil,
+           found? :: boolean()}
+  defp resolve_tenant_config(nil), do: {@default_realm, nil, nil, false}
 
   defp resolve_tenant_config(slug) when is_binary(slug) do
     case Identity.safe_get_tenant_by_slug(slug, "mobile-tenant-config") do
       {:ok, %Tenant{idp_realm_id: realm_id, settings: settings, status: status} = tenant}
       when is_binary(realm_id) and realm_id != "" and status != :inactive ->
-        {realm_id, settings, TenantLogo.public_path(tenant, slug)}
+        {realm_id, settings, TenantLogo.public_path(tenant, slug), true}
 
       _miss_or_nil_realm_or_error ->
-        {@default_realm, nil, nil}
+        {@default_realm, nil, nil, false}
     end
   end
 
