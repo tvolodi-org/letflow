@@ -58160,7 +58160,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-686 -- L7 part 2 prerequisite; the build task follows this entry's merge (task T-2308)
+    gh: 4821
     # Source: task T-2308 (PM 2026-11-19, pilot gate rule: L7 is done only when BOTH parts are done). Files read on origin/main 1faffef80: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6, D-P, Consequences rows PILOT GATE and L7, sections "Amended by REQ-829" and "Amended by REQ-832"); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 7.1 (via 12.2), 9.4, 9.5, 12.1, 12.2, 14.6, 17; requirement REQ-832 (gh 4535, its OUT OF SCOPE list); lib/letflow/entities/handler_context.ex (the handler contract); lib/letflow/entities/handler_writes.ex (call_handler/5); lib/letflow/entities/step_writes.ex (interpret_line of :handler_invalid_arguments and :handler_shape); lib/letflow/api/response.ex (entity_write_refused/3, entity_write_status/1); lib/letflow/routers/tasks.ex (handle_complete_result); lib/letflow/ledger/codes.ex (@other_reserved, reserved/0); lib/letflow/ledger/handler_post.ex and lib/letflow/ledger/authority.ex (check/1, check_with_read/1); test/letflow/engine/module_write_failure_codes_test.exs; test/letflow/ledger/codes_test.exs; test/support/modules/fixture_ledger_post.
     description: >
       Why. Slice L7 part 2 needs two typed refusals at posting: record_version_conflict when the posting does
@@ -58206,7 +58206,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-829 -- L7 part 2 prerequisite; the build task follows this entry's merge (task T-2308)
+    gh: 4820
     # Source: task T-2308. Files read on origin/main 1faffef80: requirement REQ-829 (gh 4527) and its build lib/letflow/entities/handler_writes.ex (read/3, active?/3, check_readable/2, the dry mode); lib/letflow/modules/write_handler_spec.ex (optional keys posts_ledger, updates, reads); lib/letflow/modules/catalog.ex (write_handler/2, rule 10); lib/letflow/modules/manifest_hash.ex; lib/letflow/documents.ex (moduledoc: tenant from prefix only, no permission check, the first caller owns permission; issued_summary/2; verify_binding/4); lib/letflow/documents/document.ex (table documents: type_key, issuing_org_unit_id, current_version); lib/letflow/documents/document_version.ex (table document_versions: version_no, status draft/issued/superseded/cancelled/discarded, content, content_hash); lib/letflow/documents/document_type.ex (owner_module); lib/letflow/modules/stock/stock.ex (document types registered with owner_module stock); lib/letflow/modules/stock/documents/posting.ex (issued/2, the read-side posting_check); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md section "Amended by REQ-829"; lib/letflow/design/gh2657-wms-stock-ledger-core.md section 14.6; test/letflow/entities/handler_writes_read_test.exs; test/letflow/entities/handler_writes_callers_test.exs (H4); test/letflow/entities/module_write_owner_path_test.exs; test/letflow/entities/ledger_boundaries_test.exs (T-SC-4e); test/letflow/modules/org/runbook_test.exs and test/letflow/modules/catalog_items/runbook_test.exs (line pins on handler_writes.ex).
     description: >
       Why. REQ-832 says why L7 part 2 is not done: "the versioned document lives in the Letflow.Documents
@@ -58255,7 +58255,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-902 -- needs the typed refusal (REQ-901) and the document read (REQ-902) merged first (task T-2308)
+    gh: 4819
     # Source: task T-2308. Files read on origin/main 1faffef80: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6, Consequences rows PILOT GATE and L7, "Amended by REQ-832"); docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md D5 (binding by workflow order and by detection until L7); requirement REQ-713 (gh 3748: description "Binding gap, stated not hidden", criteria 5, 6 and 8, open questions 1 and 2); requirement REQ-832 (gh 4535); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 9.4 and 13 (row DEFERRED, T-VER-1); lib/letflow/modules/stock/handlers.ex (post_document, run/5, valid_args?/2, check_masters); lib/letflow/modules/stock/stock.ex (write_handlers, version 0.22.0 on origin/main); lib/letflow/modules/stock/documents/posting.ex (start_post/4: variables document_id, document_type, version_no, org_unit_id, mark, posting; post_command/3: client_op_id is the issued version id, client_event_time the header event_time, write_off reason_code; expected_legs/2 and expected_from/2; legs_match?/2; cancel/5 and withdraw_post/3); lib/letflow/modules/stock/documents/kinds.ex (eight kinds, causes/1, sides/2); lib/letflow/modules/stock/documents.ex (view org_unit_id is documents.issuing_org_unit_id); docs/runbooks/wms-foundation.md items 1 and 18; test/letflow/modules/stock/posting_test.exs; test/letflow/modules/stock/master_posting_test.exs.
     description: >
       Why. Decision 0073 (Consequences, rows PILOT GATE and L7) keeps the stock module off customer tenants
@@ -58319,7 +58319,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-901 -- needs the typed handler refusal of REQ-901 merged first (task T-2308)
+    gh: 4818
     # Source: task T-2308. Files read on origin/main 1faffef80: requirement REQ-832 (gh 4535, criteria 2, 3, 6 and 9, OUT OF SCOPE); lib/letflow/modules/stock/handlers.ex (moduledoc section "Master checks at posting", check_masters); lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 9.5 and 12.2 (master_inactive, details keys from slot names); lib/letflow/design/gh2658-wms-stock-dimensions.md (master_inactive for a retired lot or owner on adding legs); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md section "Amended by REQ-832"; lib/letflow/modules/locations/locations.ex (linked?/3 finds a link record by field values, not by id); lib/letflow/modules/stock/documents/checks.ex (not_linked at issue); test/letflow/modules/stock/master_posting_test.exs; docs/runbooks/wms-foundation.md item 1.
     description: >
       Why. REQ-832 refuses a retired master on a stock-adding side, but with the same untyped answer as a
@@ -58353,7 +58353,7 @@ requirements:
     owner: TEST-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-903 -- tests of REQ-903 and REQ-904; written after both merge (task T-2308)
+    gh: 4817
     # Source: task T-2308 (PM: "then the cross-tenant and double-post tests"). Files read on origin/main 1faffef80: requirement REQ-713 (gh 3748, criterion 5: a second instance with the same variables gets the ledger's duplicate result and no second entry); lib/letflow/modules/stock/handlers.ex moduledoc (a second mark of the same kind for one document violates the unique constraint of the mark type, so the completion rolls back before any ledger write); requirement REQ-832 criterion 9 (a tenant B master in a tenant A posting); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); test/letflow/modules/stock/posting_test.exs; test/support/platform_tenant_fixture.ex.
     description: >
       Why. The binding of REQ-903 and the typed codes of REQ-901 and REQ-904 change what a completer can learn
@@ -58380,7 +58380,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-904 -- the server codes come from REQ-903 and REQ-904 (task T-2308)
+    gh: 4816
     # Source: task T-2308. Files read on origin/main 1faffef80: web/src/pages/tasks/taskErrors.ts (taskErrorText: record_version_conflict is recognised only as a problem type of status 409; a plain entity write refusal body names the code in its error field, which today falls to the generic text; insufficient_stock and location_frozen are matched in the body text); web/src/pages/tasks/taskMessages.ts (errInsufficientStock, errConflict in en, ru and kk); web/src/pages/tasks/TaskDetail.tsx (uses taskErrorText); lib/letflow/api/response.ex (entity_write_refused/3: body error and line_index, no problem type).
     description: >
       Why. The post task is completed on the task screen (web/src/pages/tasks/TaskDetail.tsx), and a refusal
