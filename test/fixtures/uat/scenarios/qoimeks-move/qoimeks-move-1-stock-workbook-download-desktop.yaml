@@ -1,30 +1,23 @@
-# T-2190 group verification (2026-11-19; source checks distinguished from live QA):
-# 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-move. Live authenticated tenant enumeration not repeated.
-# 2. Actors (T-2222, PM 2026-11-19): actor-qoimeks-qa2-storekeeper / STOREKEEPER runs every step (what a storekeeper sees of the stock workbook and the compare screen); the administrator is not used. Both exist in actors.yaml for tenant/realm qoimeks-qa2 (T-2219 PM decision); the live login was not exercised in this writing step (acceptance verifies it; credentials come from the acceptance credential source, never from files); missing credentials block the affected outcomes. Source fact (lib/letflow/modules/stock/stock.ex role_grants, docs/roles.md): STOREKEEPER holds StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord but NOT StockQuickCount; the Quick count and workbook-import screens need StockQuickCount, so for the storekeeper they are expected to be refused. The walk runs them as the storekeeper anyway and reports a PRODUCT defect; no step is moved to the administrator to make it pass.
-# 3. Host and screens: read-only HEAD to https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 returned HTTP 200 on 2026-11-19. stockRoutes.tsx and referenced web/src/modules/stock pages checked on main; this verifies source availability, not authenticated live rendering.
-# 4. Data: Items, places, responsible-key balances, downloaded workbook bytes, QOI-OU-1, master totals and current screen counts: listed in scenario preconditions. Responsible-key workbook remarks are expected; usual-place and no-stock cases require verified existing rows. Offline compare tools and operator rules remain outside the visible walk as recorded in move-4. Counts come from the owner task and scripts/pilot/qoimeks_gen.py (counts read at the start of the run, not hard-coded); live data/flags must be read before writes, otherwise BLOCKED-by-environment.
-# 5. Executable: browser/HTTP-client steps reviewed against the referenced pages and routers; runner supplies its own script without pipeline_test. Unsupported controls and missing token/baseline preparation were corrected in T-2190; missing fixtures stop before writes, never become product FAIL.
-# 6. Dry run: live uat.sh preflight not run in this scenario-writing step, explicitly permitted by the technical answer to T-2190; authenticated QA preflight belongs to acceptance. Static parse_scenario check passed for all 25 scenarios (qoimeks-qa2 and the administrator used by these steps; the roster also includes STOREKEEPER); acceptance must use title UAT qoimeks-move.
-# T-2190: run title UAT qoimeks-move; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
-# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script.
-# No pipeline_test is required for this walk. Retain screenshots per step/width/language and downloaded files.
-# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
-# Access-refusal checks may use actor-qoimeks-qa2-storekeeper where its actual permissions warrant refusal; its availability is not an environment blocker. Other required roles or restricted org-unit grants must be confirmed before checks that need them. Sources: actors.yaml and docs/roles.md.
-# Do not substitute a platform or another tenant actor. No real data or production.
-# T-2167 (BA): Qoimeks QA walk, group qoimeks-move. QA only, synthetic data (item, place and balance counts recorded at the start of the run; some opening balances negative), never the real tenant.
-# Requirements covered: REQ-865 (whole-stock workbook in the Qoimeks import layout, module stock), REQ-866 (the "Stock workbook (Qoimeks layout)" button on the Balances screen).
-# Context: the move rules (REQ-880, docs/runbooks/qoimeks-rehearsal.md section "Move rules") say counts and current balances must be equal after the move; this workbook is what the bookkeepers open to see the whole stock after the move.
-# Sources opened: docs/requirements.yaml REQ-865/866; web/src/modules/stock/stockMessages.ts (stock.balances.workbook, workbookHint); lib/letflow/modules/stock/router.ex (GET /stock-workbook, file name stock-YYYY-MM-DD.xlsx).
-# Not UAT-observable here: the 10 000 row refusal (workbook_too_large) and the "scoped reader gets not found" answer: the tenant holds far fewer balances than that limit and the roster has no scoped stock reader of this tenant.
-# Cleanup: nothing is written; the only trace is a downloaded file in the run's download folder, which the run deletes at the end.
-# Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+# T-2266 code-reading pass (PM 2026-11-19), group qoimeks-move; every expectation below was read against origin/main 98848962e.
+# 1. Scope: scope qoimeks-qa2 in all four scenarios; tenant and realm qoimeks-qa2 exist (roster actors.yaml, T-2219); the group directory name is not the scope; run title UAT qoimeks-move.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER: StockRead, StockPost, StockReverse, StockCountOrder, StockCountRecord) runs every step here, because the workbook route needs StockRead only (lib/letflow/modules/stock/router.ex, GET stock-workbook; the Balances route has no other guard); the administrator is used only where the function is admin-only (scenarios 3 and 4). Both actors are in actors.yaml for qoimeks-qa2; login not exercised in this writing step: acceptance verifies it with the credential source (no credential in any file); a missing credential blocks the affected outcomes and is never a PASS.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 answered HTTP 200 on 2026-11-19 (T-2190 header, not repeated). Routes read at main: web/src/modules/stock/stockRoutes.tsx (Balances, guard StockRead), BalancesPage.tsx (button data-testid stock-workbook-button, caption workbook-hint, button Export), stockMessages.ts (labels quoted below exist in en, ru, kk). Balances shows NO total of rows: the screen pages with a "Load more" button (stock.common.loadMore), so counts are made by loading every page.
+# 4. Data: record at the start of the run: Items screen total (all items), Balances rows (all pages, rows with a non-zero quantity), the rows with a negative quantity, the Locations total (admin, scenario 4). Seed baseline per the owner task (678 items incl. 12 demo items, 150 places, 224 items with a usual place, 603 posted balances of which 3 negative) is read, never hard-coded; scripts/pilot/qoimeks_gen.py gives every 100th item (0100, 0200, ...) one Cyrillic look-alike letter at the END of its name. Every seeded balance carries a responsible employee and the org unit QOI-OU-1. All 10 stock definitions ACTIVE, allow_negative ON: read, not changed. No generator task is needed; if an item or place named by a step is missing, the step is BLOCKED-by-environment.
+# 5. Executable: every step is a browser step or an HTTP call a runner can make with its own script (no pipeline_test); the saved .xlsx is read as a zip of XML cells. Corrections made in this pass are listed below; a step that depends on a control the screen lacks was removed.
+# 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and a live host, not available to the writer); static check run, see the task result. Acceptance runs preflight with title "UAT qoimeks-move".
+# EXPECTATION CORRECTIONS (this scenario, 9): (a) the screen has no total, so the balances count is made by loading every page (old text said "if it reports a total"); (b) a Balances row is one item/place/org unit/responsible/lot/unit (BalancesPage rowId) while the workbook adds those up per item, place and unit (REQ-865 criterion on rows), so the old "non-zero rows equal the screen rows" is now "equal the distinct item/place/unit with a non-zero sum, counted from the loaded screen, and never more than the screen rows"; (c) zero-quantity rows exist by rule (usual place with nothing, item with no stock), so every item has at least one row and article 0100 always has a row: the old "if 0100 has no row take 0200" is removed; (d) the number of negative rows is taken from the screen, not fixed at 3; (e) file name and sheet name carry today's date in the TENANT time zone (StockWorkbook moduledoc), not the host date; the sheet is named "Остатки YYYY-MM-DD"; (f) the first ten rows: column A is in ascending byte order, the same article may stand on several adjacent rows (usual place first, REQ-865); (g) new check that column J lists the codes of the item (REQ-850..852 carry codes in; the workbook writes them out); (h) new check that every item has a row (distinct articles equal the Items total, UAT assumption: all items active); (i) one unauthorized-access refusal step added (no credential, wrong credential).
+# Not UAT-observable here: the 10 000 row refusal (workbook_too_large) and the refusal for a scoped stock reader (no scoped reader in the roster of this tenant, the tenant holds far less than 10 000 rows); both are covered by component tests of BalancesPage and tests of the stock router.
+# Requirements covered: REQ-865 (the whole-stock workbook in the Qoimeks import layout), REQ-866 (the "Stock workbook (Qoimeks layout)" button and its caption), REQ-850..852 (codes carried in the move are written back out in column J), REQ-880 (move rule "current balances equal": this workbook is what the bookkeepers compare after the move).
+# Cleanup: nothing is written; the only trace is the downloaded files in the run's download folder, which the run deletes at the end.
+# Label sources: web/src/modules/stock/stockMessages.ts (stock.balances.workbook, workbookHint, export, exportFailed), web/src/modules/catalog_items/catalogItemsItemsMessages.ts (items.search, sec.codes), rendered via stockRoutes.tsx and catalogItemsRoutes.tsx.
 ---
 id: qoimeks-move-1-stock-workbook-download-desktop
 scope: qoimeks-qa2
 title: >-
   The Qoimeks QA storekeeper downloads the whole-stock workbook from the Balances screen on a desktop and finds
-  the Qoimeks layout, the Cyrillic letters, the three negative balances and the same count as the screen
-version: '1.1'
+  the Qoimeks layout, the Cyrillic letters, the negative balances, every item and the codes, and a caller without a
+  credential is refused
+version: '1.2'
 tags:
 - qoimeks
 - move
@@ -34,85 +27,70 @@ tags:
 - desktop
 - en
 - file_content
+- refusal
 description: >-
   On a desktop window (1440 px, English) the storekeeper opens the stock Balances screen, reads the button "Stock
-  workbook (Qoimeks layout)" and the caption under it, presses it, and opens the saved file. The file is named stock-<year>-<month>-<day>.xlsx,
-  has one sheet, the ten headers of the Qoimeks import layout in row 1 (Артикул, Номенклатура, Конечный остаток,
-  Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes), lists items by code from the lowest up, keeps
-  the Cyrillic look-alike letter that the synthetic data puts in every 100th item name whole, shows the three negative
-  opening balances as negative numbers, and the number of rows with a non-zero quantity matches the number of balances
-  the screen shows. The screen's own filters and page do not change the file (step 3 repeats the download with a
-  filter set and compares the row count). Not exercised, with reasons: the too-many-rows refusal (tenant holds far
-  less than 10 000 rows) and the whole-company-reader refusal (no scoped stock reader in the roster for this tenant);
-  both are covered by component tests of the screen, not by this walk.
+  workbook (Qoimeks layout)" and its caption, presses it and opens the saved file. The file is named
+  stock-<year>-<month>-<day>.xlsx (today in the tenant's time zone), has one sheet named "Остатки" followed by the same
+  date, the ten headers of the Qoimeks import layout in row 1, lists items by code from the lowest up, has a row for
+  every item (an item with no stock has a row with quantity 0), keeps the Cyrillic look-alike letter at the end of every
+  100th item name whole, shows the negative balances as negative numbers, lists the item's codes in column J, and the
+  number of its non-zero rows agrees with the Balances screen read to the end. A filter set on the screen does not
+  change the file (REQ-865, REQ-866). A last step sends the same download request with no credential and with a wrong
+  credential: both refused with the same answer and no file. Expected values are derived at run time from the
+  screen and the file; none is fixed in advance.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
-    The Qoimeks QA tenant holds the synthetic stock; record the item, place and balance counts at the start of the
-    run (Items screen total, Locations total, Balances rows), some opening balances are negative, and the stock
-    module is active.
+    The Qoimeks QA tenant holds the synthetic stock and the stock module is active; record the item total (Items
+    screen), and the Balances rows at the start of the run (loading every page, counting the rows with a quantity other
+    than zero and the rows with a negative quantity).
   check: system_seeded
   detail: >-
-    If the Balances screen is empty, report BLOCKED for the whole scenario and say what the screen showed.
+    If the Balances screen is empty, report BLOCKED-by-environment for the whole scenario and say what the screen
+    showed.
 - description: >-
-    The run can drive a real browser at 1440 px width in English, can save a download and can open an .xlsx file
-    to read its cells.
+    The run can drive a real browser at 1440 px in English, save a download, open an .xlsx file to read its cells and
+    send an HTTP request with a chosen Authorization header.
+  check: runner_prepared
+  detail: >-
+    If the file cannot be opened, report BLOCKED-by-environment for steps 4 to 7 and still check steps 1 to 3 (button,
+    caption, download starts) and the refusal step.
+- description: >-
+    Sign in as actor-qoimeks-qa2-storekeeper (STOREKEEPER) at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2
+    and confirm the tenant before any action. The browser language is English at the start (switch first if not).
+  check: runner_prepared
+  detail: >-
+    Missing login or credential means BLOCKED-by-environment for the affected steps. Do not seed, grant roles or
+    change any rule to satisfy a precondition.
+- description: >-
+    Step 7 needs at least one item that has a code in the tenant (a non-empty cell in column J of the downloaded file).
   check: system_seeded
   detail: >-
-    If the file cannot be opened, report BLOCKED for steps 4 to 6 and still check steps 1 to 3 (button, caption,
-    download starts).
-- description: >-
-    The storekeeper's browser language is English at the start.
-  check: system_seeded
-  detail: >-
-    If not, switch to English first and carry on.
-- description: >-
-    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
-    Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
-    (Items screen total, Locations total, Balances rows) and compare to those; every seeded
-    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
-    only; read the quick-count rule separately.
-  check: runner_prepared
-  detail: >-
-    Check the signed-in tenant and existing stock before walking. Missing login, modules, browser, or required fixture
-    means BLOCKED-by-environment for the affected steps. Record actual baseline counts if an earlier UAT write has
-    changed them. Do not seed, grant roles or alter approval rules to satisfy a precondition.
-- description: >-
-    The acceptance runner can execute these business steps with its own real-browser script, capture the requested
-    viewport and language, and retain screenshots and any workbook bytes in the run evidence.
-  check: runner_prepared
-  detail: >-
-    Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
-    support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
-    is not a blocker under this task contract.
-- description: >-
-    For any before/after count comparison, record the same full traversal of the balance or document list, loading
-    further pages until exhausted. Do not compare a first-page count with a whole-workbook count, and do not compare
-    journal operations with legs.
-  check: runner_prepared
-  detail: >-
-    Retain the traversal/count method and sampled full keys. If another walk posts during the comparison, the equality
-    outcome is BLOCKED-by-environment; do not call the first-page count a total.
+    If column J is empty in every row, step 7 is BLOCKED-by-environment (no codes in this tenant); this is a data gap
+    and not a product failure.
 steps:
 - step: 1
   actor: storekeeper
   action: >-
-    The storekeeper signs in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and opens the Balances
+    The storekeeper signs in at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and opens the Balances
     screen from the side navigation (stock section).
   via: ui
 - step: 2
   actor: storekeeper
   action: >-
-    The storekeeper reads the buttons above the list and the caption under the button "Stock workbook (Qoimeks
-    layout)". The storekeeper also notes how many balance rows the screen reports in all, if it reports a total;
-    if it only pages, the storekeeper pages to the end and counts the rows.
+    The storekeeper reads the buttons above the list and the caption of the button "Stock workbook (Qoimeks layout)".
+    The Balances screen shows no total, so the storekeeper presses the "Load more" button until it is no longer offered,
+    counts the rows with a quantity other than zero (N) and the rows with a negative quantity (Neg), and notes how many
+    of those rows share the same item, place and unit (D). Then the storekeeper opens the Items screen and notes the
+    total shown in the range text (I).
   via: ui
 - step: 3
   actor: storekeeper
   action: >-
-    The storekeeper sets any filter on the screen (for example one place), presses "Stock workbook (Qoimeks layout)"
-    and saves the file; then clears the filter, presses the same button again and saves the second file.
+    On the Balances screen the storekeeper sets one filter (for example one place), presses "Stock workbook (Qoimeks
+    layout)" and saves the file; then clears the filter, presses the same button again and saves the second file.
   via: ui
 - step: 4
   actor: storekeeper
@@ -122,25 +100,42 @@ steps:
 - step: 5
   actor: storekeeper
   action: >-
-    The storekeeper counts the data rows with a quantity other than zero in the second file, finds the rows with
-    a negative quantity, and finds the row of article 0100 (the synthetic data gives every 100th item, 0100, 0200
-    and so on, one Cyrillic look-alike letter at the end of its name) and reads its name.
+    In the second file the storekeeper counts the data rows, the distinct article codes in column A, the data rows with a
+    quantity other than zero in column C, and the data rows with a negative quantity; finds the row of article 0100
+    (every 100th item has one Cyrillic look-alike letter at the end of its name) and reads its name.
   via: ui
 - step: 6
   actor: storekeeper
   action: >-
-    The storekeeper compares the first file (taken with a filter on) with the second: same number of data rows.
+    The storekeeper compares the first file (taken with a filter on) with the second: the number of data rows and the
+    cells of column A.
   via: ui
+- step: 7
+  actor: storekeeper
+  action: >-
+    In the second file the storekeeper takes the first data row whose column J is not empty, reads the article and the
+    codes in column J, then on the Items screen searches for that article ("Search by code or title"), opens the item and
+    reads the values in its section "Codes".
+  via: ui
+- step: 8
+  actor: storekeeper
+  action: >-
+    The test runner sends GET /api/v1/modules/stock/stock-workbook at the tenant address twice: first with no
+    Authorization header (answer R1), then with the header value "Bearer WRONG-TOKEN-VALUE" (the word Bearer, a space,
+    then a value that was never issued; answer R2). Each request is refused as a whole.
+  expect_refusal: true
+  via: api
 expected_outcomes:
 - id: EO-001
   description: >-
-    The button and its caption are on the Balances screen and say that the file always holds the whole current stock.
+    The button and its caption are on the Balances screen and say that the file always holds the whole current stock
+    (REQ-866).
   verification:
     method: gui_screen
     detail: >-
-      Step 2 shows the button "Stock workbook (Qoimeks layout)" next to the existing export button, and under it
-      the caption "The workbook always holds the whole current stock, whatever the filters and the page on this
-      screen."; no error banner.
+      Step 2 shows the button "Stock workbook (Qoimeks layout)" in the row of buttons next to the button "Export to
+      Excel", and the caption "The workbook always holds the whole current stock, whatever the filters and the page on
+      this screen."; no error banner.
     evidence: >-
       Screenshot of the Balances screen at step 2.
   on_fail:
@@ -150,12 +145,13 @@ expected_outcomes:
     suggested_action: route_to_frontend_dev
 - id: EO-002
   description: >-
-    The download works and the file is named by date.
+    The download works and the file is named by date (REQ-865, REQ-866).
   verification:
     method: file_content
     detail: >-
-      Step 3 saves two files named stock-YYYY-MM-DD.xlsx with today's date (QA host date); each opens as an .xlsx
-      workbook with one sheet; no error banner "The file could not be exported" was shown.
+      Step 3 saves two files named stock-YYYY-MM-DD.xlsx where the date is today in the tenant's time zone (near
+      midnight it may differ from the host date: take the tenant zone date from the page or the file's sheet name);
+      each opens as an .xlsx workbook with one sheet; the banner "The file could not be exported. Try again." is not shown.
     evidence: >-
       The file names and a screenshot of the screen after each download.
   on_fail:
@@ -165,15 +161,17 @@ expected_outcomes:
     suggested_action: route_to_frontend_dev
 - id: EO-003
   description: >-
-    The file has the Qoimeks layout and lists items by code.
+    The file has the Qoimeks layout and lists items by code (REQ-865).
   verification:
     method: file_content
     detail: >-
-      Step 4 shows row 1 with the headers Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе
-      место, Место, Ед. изм., Коды / Codes in columns A to J, and the article codes of the first ten data rows in
-      ascending byte order of the code.
+      Step 4 shows a sheet name that starts with "Остатки" followed by the same date as the file name, row 1 with the
+      headers Артикул, Номенклатура, Конечный остаток, Зона, Стеллаж, Полка, Второе место, Место, Ед. изм., Коды / Codes in
+      columns A to J, and the article codes of the data rows in ascending byte order of the code (the same code may stand
+      on adjacent rows; the code never goes down reading from the top). The run checks this over the whole column A, not
+      only the first ten rows.
     evidence: >-
-      The cells of row 1 and column A of the first ten rows, quoted.
+      The cells of row 1 and the first ten values of column A, quoted, and the result of the whole-column check.
   on_fail:
     severity: MAJOR
     business_impact: >-
@@ -181,34 +179,33 @@ expected_outcomes:
     suggested_action: route_to_elixir_dev
 - id: EO-004
   description: >-
-    Names keep their Cyrillic letters, and the three negative opening balances show as negative numbers; the row
-    count matches the screen.
+    Names keep their Cyrillic letters, negative balances are negative numbers, every item has a row and the quantities
+    agree with the screen (REQ-865).
   verification:
     method: file_content
     detail: >-
-      Step 5 finds the name of article 0100 ending in a Cyrillic letter (it looks like a Latin one), with no question
-      mark or broken character; if article 0100 holds no stock and has no row, the run takes another article numbered
-      0200, 0300 and so on that has a row; exactly three data rows hold a negative quantity in column C (the synthetic
-      data has 3 negative opening balances; if the run finds another number, report it as found and do not call
-      it a pass); the count of rows with a non-zero quantity equals the balance count read at step 2. UAT assumption,
-      to be confirmed by the process owner (the QA operator who seeded the tenant): no item stands twice at one
-      place with the same unit, so the number of balances read at the start of the run gives the same number of rows; if the counts differ, the run reports both numbers
-      and does not guess the cause.
+      Step 5: the name of article 0100 ends in one Cyrillic letter that looks like a Latin one, with no question mark or
+      broken character, and article 0100 has at least one row (an item with no stock has a row with quantity 0); the
+      number of data rows with a negative quantity equals Neg read at step 2 when no two negative screen rows share an item,
+      place and unit, and is otherwise lower (report both numbers; the run does not guess the cause of a difference); the
+      number of data rows with a quantity other than zero is not more than N and not less than N minus D (the workbook adds
+      balance rows of one item, place and unit, REQ-865); the distinct article codes equal I read at step 2. UAT
+      assumption, to be confirmed by the process owner (the QA operator who seeded the tenant): all items are active, so
+      each has a row; if I differs, the run reports both numbers and the state of the items that differ.
     evidence: >-
-      The counts and the three negative rows (article and quantity), quoted.
+      N, D, Neg, I and the file counts, quoted, and the negative rows (article and quantity).
   on_fail:
     severity: MAJOR
     business_impact: >-
-      After the move the stock in the workbook would differ from the stock on the screen, so nobody could trust
-      either.
+      After the move the stock in the workbook would differ from the stock on the screen, so nobody could trust either.
     suggested_action: route_to_elixir_dev
 - id: EO-005
   description: >-
-    A filter on the screen does not change the file.
+    A filter on the screen does not change the file (REQ-865, REQ-866).
   verification:
     method: file_content
     detail: >-
-      Step 6 finds the same number of data rows in both files.
+      Step 6 finds the same number of data rows and the same column A in both files.
     evidence: >-
       Both row counts, quoted.
   on_fail:
@@ -216,3 +213,35 @@ expected_outcomes:
     business_impact: >-
       A bookkeeper who filtered the screen would get a partial stock without knowing it.
     suggested_action: route_to_frontend_dev
+- id: EO-006
+  description: >-
+    Column J lists the item's codes as the Codes section of the item shows them (REQ-865, REQ-850..852).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 7 finds in the item's section "Codes" every code that column J of the file lists for that article, and no other;
+      several codes in J are joined by a semicolon and a space. If the section shows no codes, the item has none and the
+      cell would have been empty, so a non-empty J with an empty section is the defect.
+    evidence: >-
+      The J cell and a screenshot of the Codes section, quoted side by side.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      Codes carried in by the move would not come back out of the workbook, so a bookkeeper could not check them.
+    suggested_action: route_to_elixir_dev
+- id: EO-007
+  description: >-
+    A caller with no credential and a caller with a wrong credential are refused alike and receive no file.
+  verification:
+    method: api_response
+    detail: >-
+      R1 has HTTP status 401. R2 has HTTP status 401. After the trace_id field is removed from both bodies (it differs on
+      every request), R1's body is byte-identical to R2's body. Neither answer carries a spreadsheet content type or any
+      stock data, and neither names the tenant's accounts. Nothing was written (the run writes nothing in this scenario).
+    evidence: >-
+      HTTP status, content type and body of R1 and R2 side by side.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The stock of the whole company could be downloaded by someone who is not signed in.
+    suggested_action: route_to_elixir_dev
