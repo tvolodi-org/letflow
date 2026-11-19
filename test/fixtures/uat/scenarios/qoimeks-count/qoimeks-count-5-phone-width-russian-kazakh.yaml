@@ -35,7 +35,7 @@ preconditions:
   detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
     seed, grant roles or change approval rules to satisfy a precondition.
 - description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
-    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    one org unit, not one of the negative balances, and no OTHER Responsible employee holds non-zero stock of the same item at the same place, org unit and lot (T-2286 rule - after a count the item/place total IS the counted number, so read every Balances row of the item at that place and choose a key whose total T equals B; if none exists, BLOCKED-by-environment, create no stock). Record item, place, org unit, the Responsible employee the row
     shows and B before any count.
   check: runner_prepared
   detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the

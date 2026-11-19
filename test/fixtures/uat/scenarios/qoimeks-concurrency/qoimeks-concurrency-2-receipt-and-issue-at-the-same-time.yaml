@@ -5,13 +5,16 @@
 # 4. Data: an item with at least 20 on hand at one place (read at the start of the run); no fixed numbers; other sessions may take numbers, so only this walk's own documents are compared.
 # 5. Executable: two sessions at most (admin and admin2), one attempt, one shared "go" signal; no loop.
 # 6. Dry run: not run in this step (no acceptance environment; preflight title "UAT qoimeks-concurrency").
+# Reserved for concurrency (T-2341 walk, PM 2026-11-20): the item and the place of this group are found AT RUN TIME and are reserved for the groups qoimeks-concurrency-1 and -2 only. Selection rule, read on the Balances screen at the start: an item with a round on-hand sum (a multiple of 10, at least 20) at one place linked to an org unit, that is NOT item ФЛАНЕЦ-0036 at place RC12, that no other scenario group names or uses in the same run, and of which no other responsible holds stock at that place. The runner writes the chosen item and place in the run notes as ITEM-C and PLACE-C and uses the same pair in both scenarios of the group; the group qoimeks-numbering must pick a different item and place.
+# Not at the same time: the groups qoimeks-concurrency and qoimeks-numbering must NOT run at the same time on the tenant (the operator chains them: one finishes, with its cleanup, before the other starts). In the T-2341 walk the first two attempts of concurrency-2 were spoiled because the numbering walk posted on the same item 0036 at the same moment.
+# Known offset: item ФЛАНЕЦ-0036 at place RC12 carries a net offset of +1 left by foreign writes (T-2341 walk): no scenario relies on its start value being 617 or on any fixed start value; every balance is read at the start of the run and compared only with this walk's own changes.
 # EXPECTATION CORRECTIONS: 4 (a) the concurrent action is the two task completions by admin and admin2, not the two issues; (b) My Tasks steps added for the post tasks and for the cleanup reversal tasks; (c) EO-003 'NR1 is NR0 plus 1, NI1 is NI0 plus 1' replaced by checks on the walk's own two documents (own prefix, different prefixes, same year); (d) the refusal step is a read with no credential (401, auth pipeline), not a reverse of an unknown id.
 ---
 id: qoimeks-concurrency-2-receipt-and-issue-at-the-same-time
 scope: qoimeks-qa2
 title: >-
   A receipt and an issue for the same item and place completed at the same time by two administrators: both succeed and the balance is the exact net
-version: "1.1"
+version: "1.2"
 tags: [qoimeks, concurrency, ledger, lock-order, go-gate]
 
 description: >-
@@ -28,9 +31,9 @@ actors:
   admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
-  - description: An item with at least 20 on hand at one place that is linked to an org unit; the stock process definitions are ACTIVE.
+  - description: The item and place reserved for concurrency (ITEM-C at PLACE-C of scenario 1, with a round on-hand sum of at least 20, not ФЛАНЕЦ-0036 at RC12, not used by another group); the stock process definitions are ACTIVE.
     check: system_seeded
-    detail: Read the Balances screen at the start; if none, BLOCKED-by-environment.
+    detail: Read the Balances screen at the start; if none, BLOCKED-by-environment. The group qoimeks-numbering is not running at the same time; a foreign posting on the pair during the walk makes the attempt void, to be repeated once.
   - description: Two browser contexts can be driven at the same time, all three accounts can sign in and both posting tasks appear in My Tasks.
     check: system_seeded
     detail: If not, BLOCKED; never serialise and call it a pass (admin2 is new in the roster, T-2334).
@@ -39,7 +42,7 @@ steps:
   - step: 1
     actor: storekeeper
     action: >-
-      The storekeeper reads, at 1440 px in Russian, the balance of one item at one place as B0 (sum of the item's
+      The storekeeper reads, at 1440 px in Russian, the balance of the reserved item ITEM-C at the reserved place PLACE-C (the pair of scenario 1, never ФЛАНЕЦ-0036 at RC12) as B0 (sum of the item's
       rows there) on the Balances screen.
     via: ui
   - step: 2

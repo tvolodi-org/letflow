@@ -34,7 +34,7 @@ preconditions:
   detail: Missing login, module, browser or fixture means BLOCKED-by-environment for the affected steps. Do not
     seed, grant roles or change approval rules to satisfy a precondition.
 - description: A Balances row exists with a positive quantity B, no lot, an item without lot tracking, a place of
-    one org unit, not one of the negative balances. Record item, place, org unit, the Responsible employee the row
+    one org unit, not one of the negative balances, and no OTHER Responsible employee holds non-zero stock of the same item at the same place, org unit and lot (T-2286 rule - after a count the item/place total IS the counted number, so read every Balances row of the item at that place and choose a key whose total T equals B; if none exists, BLOCKED-by-environment, create no stock). Record item, place, org unit, the Responsible employee the row
     shows and B before any count.
   check: runner_prepared
   detail: If the row shows no Responsible employee the form selector stays at "Unassigned stock", otherwise the
@@ -54,7 +54,7 @@ steps:
 - step: 1
   actor: storekeeper
   action: The storekeeper opens Balances and notes a row as in the preconditions (item, place, org unit, Responsible
-    employee, B) and the newest document number in the stock documents list as N0, then opens "Quick count" and
+    employee, B) and opens the history of the balance of that row (button "Show the history of this balance" on the row) and notes how many lines it lists as H0, then opens "Quick count" and
     chooses that item, place, org unit and Responsible employee.
   via: ui
 - step: 2
@@ -91,8 +91,7 @@ steps:
   via: ui
 - step: 8
   actor: storekeeper
-  action: The storekeeper leaves the screen through the stock navigation, reads the key on Balances and the newest
-    document number in the stock documents list.
+  action: The storekeeper leaves the screen through the stock navigation, reads the key on Balances and opens the history of its balance again.
   via: ui
 expected_outcomes:
 - id: EO-001
@@ -159,7 +158,7 @@ expected_outcomes:
   description: Nothing was written by the refusals or by the zero preview.
   verification:
     method: gui_screen
-    detail: Step 8 shows the key at B on Balances and the newest document number equal to N0.
+    detail: Step 8 shows the key at B on Balances and the history of the balance of the key with exactly H0 lines (the refusals and the zero preview created no document and no movement for the key; the check does not depend on what others post elsewhere).
     evidence: Screenshot of step 8.
   on_fail:
     severity: BLOCKER
