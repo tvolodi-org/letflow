@@ -6,7 +6,7 @@
 # Sources: web/src/modules/locations/locationsMessages.ts ('locations.tree.title': Locations), web/src/modules/catalog_items/catalogItemsItemsMessages.ts ('catalog_items.items.title': Items),
 # web/src/modules/stock/documents/documentsMessages.ts ('stock.doc.title': Stock documents), web/src/modules/stock/stockMessages.ts ('stock.balances.title': Balances),
 # web/src/modules/locations/locationsRoutes.tsx, catalog_items/catalogItemsRoutes.tsx, stock/stockRoutes.tsx (the screen paths).
-# The top bar shows the slug qoimeks-qa2 as the tenant name: accepted (operator decision), not a defect.
+# T-2292: the top bar shows the tenant's display name (the administrator's own membership entry, read at run time), not the slug; a bare slug is a defect.
 # Not UAT-observable here: exact row counts (see above); the error banner of a failed request cannot be forced from the roster, only its absence is judged.
 ---
 id: qoimeks-qa-2-screens-with-data-desktop
@@ -116,10 +116,10 @@ expected_outcomes:
       business_impact: The storekeeper cannot tell what is in stock.
       suggested_action: route_to_frontend_dev
   - id: EO-005
-    description: Navigation by the menu is repeatable, and the top bar shows the tenant slug.
+    description: Navigation by the menu is repeatable, and the top bar shows the tenant's display name.
     verification:
       method: gui_screen
-      detail: Step 6 shows the locations screen with its rows again, the same as step 2. In every step the top bar shows the slug qoimeks-qa2 as the tenant name, which is accepted for this tenant.
+      detail: Step 6 shows the locations screen with its rows again, the same as step 2. In every step the top bar shows the tenant's display name (the one read from the membership entry of the signed-in administrator), not the bare slug qoimeks-qa2.
       evidence: Screenshots of step 6 and of the top bar.
     on_fail:
       severity: MINOR
