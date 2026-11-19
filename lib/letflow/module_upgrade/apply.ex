@@ -18,7 +18,10 @@ defmodule Letflow.ModuleUpgrade.Apply do
   A repeat of a `done` plan answers the stored body with no write. The definition writing lives in
   `Letflow.Modules.Installs.apply_upgrade_pack/5` (caller-scan fences keep module-owner calls there).
 
-  Not done here: `on_install/3` seeds are not re-run (a new seed is a step); the partial
+  `on_install/3` is not re-run; the additive `Letflow.Modules.EnsureSeeds` step (T-2217) creates the
+  document types, entity definitions and tables, and process drafts the new version added and the
+  tenant lacks, inside the same transaction, one audit entry per created item.
+  Not done here: the partial
   unique index on `running` rows (no `running` row is ever committed by a one-transaction apply; the
   transaction-level advisory lock is the exclusion).
 
@@ -339,6 +342,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
       "upgrade_id" => report["plan_id"],
       "entity_versions_created" => pack_result.entity_versions,
       "process_drafts_created" => pack_result.process_drafts,
+      "seeds" => pack_result.seeds,
       "ledger_ids_ensured" => pack_result.ledger_ids,
       "accepted_hash_appended" => appended?,
       "failing_definitions" => failing,

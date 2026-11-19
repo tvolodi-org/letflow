@@ -39,7 +39,12 @@ defmodule Letflow.Modules.Module do
     entity definitions (0052 D2), which needs an activator and a rationale. Preferred
     over `on_install/2`: when a module exports both, ONLY `on_install/3` runs.
 
-  `router/0`, `on_install/2` and `on_install/3` are declared `@optional_callbacks` — Elixir's
+  * `ensure_seeds/2` — **optional**. Receives `prefix` and a map with `actor_id`. Runs inside
+    upgrade and repair transactions. Creates missing install seeds only, auditing every insertion;
+    must preserve existing rows and never delete or write tenant business data. Packed definitions
+    and entity tables are handled by the shared ensure step, not by this hook.
+
+  `ensure_seeds/2`, `router/0`, `on_install/2` and `on_install/3` are declared `@optional_callbacks` — Elixir's
   `@callback`/`@optional_callbacks` machinery auto-generates
   `behaviour_info/1`, so no separate introspection function is written here.
   """
@@ -181,7 +186,13 @@ defmodule Letflow.Modules.Module do
   @callback on_install(prefix :: String.t(), settings :: map(), ctx :: install_ctx()) ::
               :ok | {:error, term()}
 
-  @optional_callbacks router: 0, on_install: 2, on_install: 3
+  @doc """
+  Additive, idempotent seeds shared by install and the ensure step (`Letflow.Modules.EnsureSeeds`: upgrade, boot, the ensure-seeds route). Must never overwrite or
+  delete tenant rows. Each inserted row must be audited. Does not activate packed definitions.
+  """
+  @callback ensure_seeds(String.t(), map()) :: :ok | {:error, term()}
+
+  @optional_callbacks ensure_seeds: 2, router: 0, on_install: 2, on_install: 3
 
   @doc """
   Compile-time manifest declaration macro — opt-in syntactic sugar that

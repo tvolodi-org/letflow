@@ -238,7 +238,8 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 * **Setup.** A tenant whose installed pack lacks the quick-count document type receives 409
   `definition_not_active`, with no document or number stored. The tenant must have the `stock_quick_count`
   document type registered before retrying. This refusal does not alter existing tenant definitions or
-  balances; an ordinary module upgrade does not rerun `on_install/3` seeds (`Letflow.ModuleUpgrade.Apply`).
+  balances. A module upgrade runs the additive ensure step (`Letflow.Modules.EnsureSeeds`, T-2217) in its
+  transaction; see "Old installs: the ensure step" below.
 
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
   issue, `approve` (role TENANT_ADMIN like every stock posting task, `distinct_from submit`) posts. Four eyes are ON by
@@ -269,9 +270,50 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   adjustments (G8), a client retry id (G7: a retried create makes a second document, whose approval is refused
   `quick_count_stale` once the first posted).
 
-An install older than 0.20.0 needs a reinstall for the new document type and process (QA only). Until then
-quick-count and workbook-apply requests answer 409 `definition_not_active`; no definition is activated and no
-document is written.
+### Old installs: the ensure step (T-2217, GH #4752)
+
+A tenant installed before a module version added something (the quick count came with 0.20.0) lacks it,
+because `on_install/3` runs only at install. No reinstall and no hand-written row is needed. The ensure
+step creates, and only creates, what the current build's install would have made and the tenant lacks:
+
+1. the module's document types (`stock_quick_count`, prefix `QCT`; insert-only, an existing row is never
+   changed; one `document.type_registered` audit entry each);
+2. entity definitions the pack ships and the tenant has no row of (created and activated);
+3. the entity tables of the active definitions that have none (`entity_stock_quick_count`,
+   `entity_stock_quick_count_line`), through the install's own promotion path; a table that exists is
+   never altered, no row is touched. Existing promotion registrations can replay their DDL when the
+   table is absent. A table present without its entity definition is refused rather than changed;
+4. process definitions whose graph and current module version the tenant holds in no row, as stamped DRAFTS, never activated.
+
+Items 2 to 4 write one `module.seed_created` audit entry each (resource type `entity_definition`,
+`entity_table`, `process_definition`). Nothing is overwritten, deactivated or deleted, and a repeat creates
+nothing. It runs (a) inside every module upgrade apply, (b) at boot for already-current modules when
+`LETFLOW_MODULE_UPGRADE_ON_BOOT=true`, and (c) on request by the tenant admin (`ModulesManage`; the platform
+admin of the platform tenant): `POST /api/v1/tenant/modules/stock/ensure-seeds` with an optional
+`{"rationale": "..."}`. The answer lists what it created: `entity_definitions`, `entity_tables`,
+`document_types`, `process_drafts` (`"key@version"`) and `process_activation_needed`.
+
+**What happens to an ACTIVE process definition:** nothing is replaced. If the active definition of a
+process (for example `stock_quick_count` stamped `0.21.0`) carries an older graph or owner module version than the build, the step
+creates the new graph as a draft and lists the process under `process_activation_needed` (name, active
+version, new version) on every call until the draft is activated. The activation belongs to a user with
+`DefinitionsActivate` (the definitions screen or `Definitions.activate`), because it deprecates the active
+version; instances already running stay on their version. An unchanged graph stamped with an older `owner_module_version` also gets a new draft; the old stamp stays immutable. A tenant-created definition of the
+same name is never shadowed. Re-activation on a QA tenant (for example qoimeks-qa2) uses the existing
+`POST /api/v1/definitions/:id/activate` admin route with the new draft's id, by a user, after the call.
+
+Stock's permissions and role grants come from the compiled manifest; its install hook seeds no
+permission or role-binding rows to replay. Module-specific install seeds belong in the additive
+`ensure_seeds/2` hook, whose contract requires insert-only behavior and an audit for each insertion.
+
+Readiness check after the call (tenant schema): the `document_types` row with key `stock_quick_count`
+exists (owner `stock`), both `entity_stock_quick_count*` tables exist, and process `stock_quick_count`
+has the build's `owner_module_version`, active or an untouched draft. Complete any
+`process_activation_needed` action through the activation route before the QA count walk
+(`Letflow.Release.tenant_onboarding_check/2` reports the document type and the process definitions; the tables are read
+in the tenant schema with `\dt entity_stock_quick_count*`). Then issue a quick count through the
+normal screen/API. If the type is absent, requests still answer 409 `definition_not_active` without taking
+a number; call the route and read its answer.
 
 ## Stock process activation (T-2253)
 

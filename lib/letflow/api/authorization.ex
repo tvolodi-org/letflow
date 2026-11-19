@@ -1569,6 +1569,7 @@ defmodule Letflow.Api.Authorization do
 
   # Rollback slice (decision 0055 D9) — back to the previous applied version, per tenant, admin only.
   def endpoint_policy_key("POST", "/tenant/modules/:module_id/rollback"), do: :ModulesManage
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/ensure-seeds"), do: :ModulesManage
 
   # REQ-415 — solution install: one atomic call installs a bundle of modules
   # in dependency order. Same :ModulesManage gate as the per-module install

@@ -73,6 +73,70 @@ defmodule Letflow.Modules.EntityActivation do
     end
   end
 
+  @doc """
+  Upgrade and repair counterpart of `activate_and_promote/3` (T-2217): creates the per-entity-type
+  table of every named type that has an ACTIVE definition but no table yet, by promoting its promoted
+  columns exactly as install does. Never activates, never touches a type whose table exists (no
+  `ALTER`, no drop), never writes a data row. Idempotent: a second call finds every table present.
+  Returns the entity types whose table was created, in `names` order. A promotion left `pending` or
+  `ddl_failed` is `{:error, {:promotion_incomplete, rows}}` (D5), so the caller rolls back.
+  """
+  @spec ensure_promoted(prefix :: String.t(), names :: [String.t()]) ::
+          {:ok, [String.t()]} | {:error, error_reason()}
+  def ensure_promoted(prefix, names) when is_binary(prefix) and is_list(names) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, created} <- promote_missing_tables(names, prefix, tenant_id),
+         :ok <- check_promotions_complete(tenant_id, created) do
+      {:ok, created}
+    end
+  end
+
+  defp promote_missing_tables(names, prefix, tenant_id) do
+    names
+    |> Enum.reduce_while({:ok, []}, fn name, {:ok, created} ->
+      with {:ok, table} <- TenantProvisioning.table_name_for_entity_type(name),
+           false <- TenantProvisioning.entity_table_exists?(prefix, table),
+           %EntityDefinition{} = active <- active_row(name, prefix),
+           :ok <- replay_promotions(name, tenant_id),
+           :ok <- promote_columns(active, tenant_id) do
+        if TenantProvisioning.entity_table_exists?(prefix, table),
+          do: {:cont, {:ok, [name | created]}},
+          else: {:cont, {:ok, created}}
+      else
+        {:error, _reason} = error -> {:halt, error}
+        _skip -> {:cont, {:ok, created}}
+      end
+    end)
+    |> case do
+      {:ok, created} -> {:ok, Enum.reverse(created)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # A previous activation may already have registered promotions while the table is still absent.
+  # Replaying their DDL uses the install path and never scans or changes an existing business row.
+  # This helper is reached only for a table absent at the start of this type's repair.
+  defp replay_promotions(name, tenant_id) do
+    from(p in ColumnPromotion,
+      where: p.tenant_id == ^tenant_id and p.entity_type == ^name,
+      order_by: p.attribute
+    )
+    |> Repo.all()
+    |> Enum.reduce_while(:ok, fn row, :ok ->
+      case TenantProvisioning.run_column_promotion(row.id) do
+        {:ok, %ColumnPromotion{}} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:promotion_failed, name, row.attribute, reason}}}
+      end
+    end)
+  end
+
+  defp active_row(name, prefix) do
+    Repo.one(
+      from(d in EntityDefinition, where: d.name == ^name and d.status == :active, limit: 1),
+      prefix: prefix
+    )
+  end
+
   defp walk(names, prefix, tenant_id, ctx, pack_ids) do
     Enum.reduce_while(names, :ok, fn name, :ok ->
       with {:ok, own_id} <- own_id(pack_ids, name),

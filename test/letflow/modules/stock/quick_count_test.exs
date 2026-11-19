@@ -399,6 +399,388 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert {stored(ctx), O.counts(ctx.schema)} == before
   end
 
+  @tag :missing_quick_count_type
+  test "QC-4752 upgrade repairs missing seeds without overwriting existing types", ctx do
+    alias Letflow.Documents.DocumentType
+    alias Letflow.Modules.TenantModule
+    alias Letflow.Modules.UpgradePlan
+    alias Letflow.ModuleUpgrade.Apply
+
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(from(t in DocumentType, where: t.key == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+
+      Repo.update_all(
+        from(t in DocumentType, where: t.key == "stock_receipt"),
+        [set: [number_prefix: "CUSTOM"]],
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types ENABLE TRIGGER USER|)
+    end
+
+    existing_types = Repo.all(from(t in DocumentType, order_by: t.key), prefix: ctx.schema)
+    other_types = Repo.all(from(t in DocumentType, order_by: t.key), prefix: ctx.b.schema_name)
+
+    Repo.update_all(
+      from(m in TenantModule, where: m.module_id == "stock"),
+      [set: [version: "0.17.0"]],
+      prefix: ctx.schema
+    )
+
+    audits = fn ->
+      Repo.aggregate(from(e in Entry, where: e.action == "document.type_registered"), :count,
+        prefix: ctx.schema
+      )
+    end
+
+    before = audits.()
+    {:ok, report} = UpgradePlan.plan("stock", ctx.holder.id, prefix: ctx.schema)
+    params = %{"rationale" => "repair old install", "plan_hash" => report["plan_hash"]}
+
+    assert {:ok, upgraded} =
+             Apply.apply_upgrade("stock", ctx.holder.id, params, prefix: ctx.schema)
+
+    assert Repo.get_by(DocumentType, [key: "stock_quick_count"], prefix: ctx.schema)
+
+    assert Repo.all(from(t in DocumentType, where: t.key != "stock_quick_count", order_by: t.key),
+             prefix: ctx.schema
+           ) == existing_types
+
+    assert Repo.all(from(t in DocumentType, order_by: t.key), prefix: ctx.b.schema_name) ==
+             other_types
+
+    assert audits.() == before + 1
+
+    assert Repo.get_by!(DocumentType, [key: "stock_receipt"], prefix: ctx.schema).number_prefix ==
+             "CUSTOM"
+
+    assert {:ok, ^upgraded} =
+             Apply.apply_upgrade("stock", ctx.holder.id, params, prefix: ctx.schema)
+
+    assert audits.() == before + 1
+    count!(ctx, qc_body(ctx.ma))
+
+    # Already-current tenants also get repaired on boot, without a version change.
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(from(t in DocumentType, where: t.key == "stock_transfer"),
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".document_types ENABLE TRIGGER USER|)
+    end
+
+    old_flag = Application.get_env(:letflow, :module_upgrade_on_boot)
+
+    try do
+      Application.put_env(:letflow, :module_upgrade_on_boot, true)
+      assert :ignore = Letflow.ModuleUpgrade.Boot.start_link([])
+      assert Repo.get_by(DocumentType, [key: "stock_transfer"], prefix: ctx.schema)
+      assert audits.() == before + 2
+      assert :ignore = Letflow.ModuleUpgrade.Boot.start_link([])
+      assert audits.() == before + 2
+    after
+      if is_nil(old_flag),
+        do: Application.delete_env(:letflow, :module_upgrade_on_boot),
+        else: Application.put_env(:letflow, :module_upgrade_on_boot, old_flag)
+    end
+  end
+
+  # T-2217: a tenant installed before the quick count: no document type, no process definition, no
+  # entity tables (the install step creates them, an upgrade did not).
+  defp strip_to_old_install!(ctx) do
+    alias Letflow.Documents.DocumentType
+    alias Letflow.Definitions.ProcessDefinition
+    alias Letflow.Modules.TenantModule
+
+    schema = ctx.schema
+    tables = ~w(entity_stock_quick_count_line entity_stock_quick_count)
+
+    for t <- ["document_types", "process_definitions"],
+        do: Repo.query!(~s|ALTER TABLE "#{schema}".#{t} DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(from(t in DocumentType, where: t.key == "stock_quick_count"),
+        prefix: schema
+      )
+
+      Repo.delete_all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        prefix: schema
+      )
+    after
+      for t <- ["document_types", "process_definitions"],
+          do: Repo.query!(~s|ALTER TABLE "#{schema}".#{t} ENABLE TRIGGER USER|)
+    end
+
+    for t <- tables, do: Repo.query!(~s|DROP TABLE "#{schema}"."#{t}"|)
+
+    # A genuinely old pack did not ship the entity definitions either.
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".entity_definitions DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(
+        from(d in Letflow.Entities.EntityDefinition,
+          where: d.name in ["stock_quick_count", "stock_quick_count_line"]
+        ),
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".entity_definitions ENABLE TRIGGER USER|)
+    end
+
+    Repo.query!(
+      "DELETE FROM entity_column_promotions WHERE tenant_id = $1 AND entity_type = ANY($2)",
+      [Ecto.UUID.dump!(ctx.a.tenant_id), ["stock_quick_count", "stock_quick_count_line"]]
+    )
+
+    Repo.update_all(
+      from(m in TenantModule, where: m.module_id == "stock"),
+      [set: [version: "0.17.0"]],
+      prefix: schema
+    )
+  end
+
+  defp seed_audits(schema) do
+    Repo.aggregate(
+      from(e in Entry, where: e.action in ["module.seed_created", "document.type_registered"]),
+      :count,
+      prefix: schema
+    )
+  end
+
+  @tag :missing_quick_count_type
+  test "QC-T2217a upgrade of an old install registers type, tables and process; a count is accepted",
+       ctx do
+    alias Letflow.Definitions.ProcessDefinition
+    alias Letflow.Modules.UpgradePlan
+    alias Letflow.ModuleUpgrade.Apply
+    alias Letflow.TenantProvisioning
+
+    strip_to_old_install!(ctx)
+    refute TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count")
+    count(ctx, qc_body(ctx.ma)) |> refused!(409, "definition_not_active")
+
+    before_b = {seed_audits(ctx.b.schema_name), O.counts(ctx.b.schema_name)}
+    before_audits = seed_audits(ctx.schema)
+    {:ok, report} = UpgradePlan.plan("stock", ctx.holder.id, prefix: ctx.schema)
+    params = %{"rationale" => "old install", "plan_hash" => report["plan_hash"]}
+
+    assert {:ok, upgraded} =
+             Apply.apply_upgrade("stock", ctx.holder.id, params, prefix: ctx.schema)
+
+    assert TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count")
+    assert TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count_line")
+
+    assert [%{status: :draft, owner_module: "stock"}] =
+             Repo.all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+               prefix: ctx.schema
+             )
+
+    # Two entity definitions, two tables, the type and process draft: one audit each.
+    assert seed_audits(ctx.schema) == before_audits + 6
+
+    assert {:ok, ^upgraded} =
+             Apply.apply_upgrade("stock", ctx.holder.id, params, prefix: ctx.schema)
+
+    assert seed_audits(ctx.schema) == before_audits + 6
+
+    assert [%{after_state: %{"counts" => %{"process_drafts" => 1}}}] =
+             Repo.all(from(e in Entry, where: e.action == "module.upgrade"), prefix: ctx.schema)
+
+    doc = count!(ctx, qc_body(ctx.ma))
+    assert doc["number"] =~ "QCT"
+
+    # tenant b is untouched (INV-1)
+    assert {seed_audits(ctx.b.schema_name), O.counts(ctx.b.schema_name)} == before_b
+  end
+
+  @tag :missing_quick_count_type
+  test "QC-T2217b ensure-seeds route repairs a current tenant, lists what it made, then changes nothing",
+       ctx do
+    alias Letflow.Definitions.ProcessDefinition
+
+    strip_to_old_install!(ctx)
+
+    Repo.update_all(
+      from(m in Letflow.Modules.TenantModule, where: m.module_id == "stock"),
+      [set: [version: Letflow.Modules.Stock.manifest().version]],
+      prefix: ctx.schema
+    )
+
+    path = "/tenant/modules/stock/ensure-seeds"
+
+    api(:post, path, ctx.tok_sk, %{}) |> P.status!(403)
+
+    # another tenant's admin repairs only its own tenant
+    other =
+      api(:post, path, ctx.tok_b, %{"rationale" => "check", "prefix" => ctx.schema})
+      |> P.status!(200)
+
+    assert other["entity_tables"] == [] and other["document_types"] == []
+    refute Letflow.TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count")
+
+    audits = seed_audits(ctx.schema)
+    body = api(:post, path, ctx.tok_a, %{"rationale" => "repair"}) |> P.status!(200)
+    assert body["module_id"] == "stock"
+    assert body["document_types"] == ["stock_quick_count"]
+
+    assert body["entity_tables"] == ["stock_quick_count", "stock_quick_count_line"] or
+             Enum.sort(body["entity_tables"]) == ["stock_quick_count", "stock_quick_count_line"]
+
+    assert [<<_::binary>> = draft] = body["process_drafts"]
+    assert draft =~ "stock_quick_count@"
+
+    assert Enum.sort(body["entity_definitions"]) ==
+             ["stock_quick_count", "stock_quick_count_line"]
+
+    assert seed_audits(ctx.schema) == audits + 6
+
+    again = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+
+    assert again["entity_tables"] == [] and again["document_types"] == [] and
+             again["process_drafts"] == [] and again["entity_definitions"] == []
+
+    assert seed_audits(ctx.schema) == audits + 6
+
+    assert Repo.aggregate(
+             from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+             :count,
+             prefix: ctx.schema
+           ) == 1
+
+    count!(ctx, qc_body(ctx.ma))
+
+    # not installed / unknown: the same 404
+    api(:post, "/tenant/modules/nope/ensure-seeds", ctx.tok_a, %{}) |> P.status!(404)
+  end
+
+  test "QC-T2217c an ACTIVE older process definition is offered a draft, never replaced", ctx do
+    alias Letflow.Definitions.ProcessDefinition
+
+    # The first count activated the process. Keep its graph unchanged: an older owner version alone
+    # must offer a current draft too (the stale 0.21.0 stamp reported on qoimeks-qa2).
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".process_definitions DISABLE TRIGGER USER|)
+
+    try do
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        [set: [owner_module_version: "0.21.0"]],
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".process_definitions ENABLE TRIGGER USER|)
+    end
+
+    old_active =
+      Repo.one!(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+
+    before_audits = seed_audits(ctx.schema)
+    path = "/tenant/modules/stock/ensure-seeds"
+
+    Repo.update_all(
+      from(m in Letflow.Modules.TenantModule, where: m.module_id == "stock"),
+      [set: [version: "0.21.0"]],
+      prefix: ctx.schema
+    )
+
+    plan = api(:post, "/tenant/modules/stock/upgrade/plan", ctx.tok_a, %{}) |> P.status!(200)
+
+    upgraded =
+      api(:post, "/tenant/modules/stock/upgrade", ctx.tok_a, %{
+        "rationale" => "offer current definitions",
+        "plan_hash" => plan["plan_hash"]
+      })
+      |> P.status!(200)
+
+    body = upgraded["seeds"]
+    assert [<<"stock_quick_count@", _::binary>>] = body["process_drafts"]
+
+    assert [%{"name" => "stock_quick_count", "active_version" => "0.21.0"}] =
+             body["process_activation_needed"]
+
+    rows =
+      Repo.all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+
+    assert Enum.sort(Enum.map(rows, & &1.status)) == [:active, :draft]
+    assert Enum.find(rows, &(&1.status == :active)) == old_active
+    assert seed_audits(ctx.schema) == before_audits + 1
+
+    assert Enum.find(rows, &(&1.status == :draft)).owner_module_version ==
+             Letflow.Modules.Stock.manifest().version
+
+    # a second call creates nothing more; the offer stays listed until a user activates the draft
+    again = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+    assert again["process_drafts"] == []
+    assert [%{"name" => "stock_quick_count"}] = again["process_activation_needed"]
+    assert seed_audits(ctx.schema) == before_audits + 1
+
+    assert Repo.aggregate(
+             from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+             :count,
+             prefix: ctx.schema
+           ) == 2
+
+    draft = Enum.find(rows, &(&1.status == :draft))
+    api(:post, "/definitions/#{draft.id}/activate", ctx.tok_a, %{}) |> P.status!(200)
+    activated = Repo.get!(ProcessDefinition, draft.id, prefix: ctx.schema)
+    assert activated.status == :active
+    assert activated.owner_module_version == Letflow.Modules.Stock.manifest().version
+    repaired = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+    assert repaired["process_activation_needed"] == []
+    assert repaired["process_drafts"] == []
+  end
+
+  test "QC-T2217d a pre-existing table without its definition is preserved", ctx do
+    alias Letflow.Entities.EntityDefinition
+
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".entity_definitions DISABLE TRIGGER USER|)
+
+    try do
+      Repo.delete_all(from(d in EntityDefinition, where: d.name == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".entity_definitions ENABLE TRIGGER USER|)
+    end
+
+    before = {stored(ctx), seed_audits(ctx.schema)}
+    api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(409)
+    assert {stored(ctx), seed_audits(ctx.schema)} == before
+
+    refute Repo.exists?(from(d in EntityDefinition, where: d.name == "stock_quick_count"),
+             prefix: ctx.schema
+           )
+
+    assert Letflow.TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count")
+  end
+
+  @tag :missing_quick_count_type
+  test "QC-T2217e missing tables are repaired even when promotions are already registered", ctx do
+    for table <- ~w(entity_stock_quick_count_line entity_stock_quick_count),
+        do: Repo.query!(~s|DROP TABLE "#{ctx.schema}"."#{table}"|)
+
+    before = seed_audits(ctx.schema)
+    path = "/tenant/modules/stock/ensure-seeds"
+    report = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+
+    assert Enum.sort(report["entity_tables"]) ==
+             ["stock_quick_count", "stock_quick_count_line"]
+
+    assert seed_audits(ctx.schema) == before + 2
+    assert (api(:post, path, ctx.tok_a, %{}) |> P.status!(200))["entity_tables"] == []
+    assert seed_audits(ctx.schema) == before + 2
+    count!(ctx, qc_body(ctx.ma))
+  end
+
   test "QC-T2286a unassigned count while an employee holds stock is refused, nothing stored",
        ctx do
     receipt!(ctx, "96.5")
