@@ -152,6 +152,12 @@ actors:
     routing_roles: []
     note: "T-2219, PM decision 2026-11-19: username qoimeks-qa2-admin, realm qoimeks-qa2, role TENANT_ADMIN; provisioner-created fresh QA tenant. Credentials come from the acceptance credential source, never from this file."
 
+  actor-qoimeks-qa2-admin2:
+    tenant: qoimeks-qa2
+    builtin_roles: [TENANT_ADMIN]
+    routing_roles: []
+    note: "T-2334 (issue 4836): second tenant administrator, a different person from actor-qoimeks-qa2-admin, for the four-eyes steps (the creator of a document may not approve it while the rule is ON). Username qoimeks-qa2-admin2, realm qoimeks-qa2, role TENANT_ADMIN. UAT assumption, to be confirmed by the process owner: the account must be provisioned and have a login in the acceptance credential source; until then every step of admin2 is BLOCKED-by-environment. Credentials come from the acceptance credential source, never from this file."
+
   actor-qoimeks-qa2-storekeeper:
     tenant: qoimeks-qa2
     builtin_roles: [STOREKEEPER]

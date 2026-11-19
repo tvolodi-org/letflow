@@ -25,7 +25,8 @@
 # NOT UAT-observable here, with reasons:
 #   (a) L6 scope_denied path: actor-qoimeks-qa2-storekeeper exists, but restricted org-unit grants are not confirmed by actors.yaml; covered by REQ-830 backend tests.
 #   (b) L7 retired-master check: requires retiring a master in the shared synthetic catalog; tested in qoimeks-ledger-3.
-# Runner API adapter: obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
+# T-2334 (issue 4836): documents are created, issued and reversed on the screens (New document form, Issue, Reverse, My Tasks claim and complete); the API is used for reads and verification only. EO-002 keeps the expectation that after completion the document panel shows Posted (product defect 4835 is queued separately; this walk fails until it merges, intended).
+# Runner API adapter (reads and verification only): obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it.
 # Send Authorization: Bearer <access_token> (exactly one Bearer prefix), Content-Type: application/json; base is https://qoimeks-qa2.letflow.qa.bizdala.com. No tenant id is accepted from another realm.
 # Stock routes (router.ex): POST /api/v1/modules/stock/documents creates a draft; kind, org_unit_id, location_id, responsible_id, event_time (current ISO8601 with offset), lines [{catalog_item_id,catalog_uom_id,quantity:"1"}] for receipt/issue. All ids are read from this tenant; never article codes.
 # Opening body: kind:"opening", org_unit_id, note, lines [{catalog_item_id,catalog_uom_id,location_id,responsible_id,received_on:<today YYYY-MM-DD>,quantity:"1"}]. No supplier_document_ref for opening.
@@ -39,7 +40,7 @@ scope: qoimeks-qa2
 title: >-
   The storekeeper creates receipt UAT-LEDGER-REC-01, posts it, sees the balance increase and the movement entry,
   is refused on a second post, then reverses it
-version: '1.2'
+version: '1.3'
 tags:
 - qoimeks
 - ledger
@@ -138,15 +139,17 @@ steps:
 - step: 7
   actor: storekeeper
   action: >-
-    The storekeeper sends a second post request for the document D1 (addressed by the document id D1 recorded when it was saved, not by the number REF-1) directly via the API.
+    The storekeeper opens the posted document D1 on the document screen and looks for any way to post it again. The
+    screen offers no posting action for a posted document (only Reverse); the runner reads D1 afterwards through the
+    API (read only) to verify state and balance.
   expect_refusal: true
-  via: api
+  via: ui
 - step: 8
   actor: storekeeper
   action: >-
-    The storekeeper starts reversal of the document D1 (by its id, number REF-1) with reason Other and note UAT reversal of UAT-LEDGER-REC-01. Record the request result and pending task;
-    starting reversal alone does not restore balances.
-  via: api
+    The storekeeper opens D1 on the document screen, uses the Reverse action with reason Other and note UAT reversal
+    of UAT-LEDGER-REC-01. Record the pending task shown; starting reversal alone does not restore balances.
+  via: ui
 - step: 9
   actor: admin
   action: >-
@@ -208,12 +211,14 @@ expected_outcomes:
   description: >-
     Trying to post an already-posted document is refused.
   verification:
-    method: http_status
+    method: gui_screen
     detail: >-
-      Step 7 answers 409 with reason "document_posted". Before reversal, re-read D1, its movements and full-key balance:
-      the document stays posted, there is only the original posting entry and the balance remains B1.
+      Step 7: the document screen offers no posting action for the posted document D1 (only Reverse). Before reversal,
+      re-read D1 through the API (read only), its movements and full-key balance: the document stays posted, there is
+      only the original posting entry and the balance remains B1. The API refusal is not probed: writes go only
+      through the screens.
     evidence: >-
-      API response of step 7.
+      Screenshot of step 7 (document screen with its actions) and the read-only API responses.
   on_fail:
     severity: MAJOR
     business_impact: >-
