@@ -26,6 +26,7 @@ defmodule Letflow.Release do
 
   T-2220 adds `tenant_onboarding_check/2`, the read-only check of one onboarded tenant
   (`Letflow.Release.TenantOnboardingCheck`, `docs/runbooks/production-tenant-onboarding.md`).
+  T-2257 extends it to the complete first-use report, with stable text and JSON output.
 
   REQ-792 adds `backfill_event_types/1`, which registers the NODE_ENTERED event type for
   tenants that predate it.
@@ -344,16 +345,30 @@ defmodule Letflow.Release do
   end
 
   @doc """
-  T-2220 -- read-only check of one onboarded tenant (tenant, realm, host, modules at the build
-  version, stock document types and tables); prints one line per check and a verdict line and
-  halts non-zero on failure. See `Letflow.Release.TenantOnboardingCheck` for the options.
+  T-2220 -- read-only first-use report of one onboarded tenant (tenant, realm, host, modules,
+  stock definitions/types/tables, roles, organisation links and settings); prints stable text,
+  or one JSON object with `format: :json`, and halts non-zero on a RED check.
+  See `Letflow.Release.TenantOnboardingCheck` for the options.
   Test options: `:halt`, `:start` (both default `true`).
   """
   @spec tenant_onboarding_check(term(), keyword()) :: {:ok | :error, map()}
   def tenant_onboarding_check(slug, opts \\ []) do
     maybe_start(opts)
-    result = Letflow.Release.TenantOnboardingCheck.run(slug, Keyword.drop(opts, [:start, :halt]))
-    Enum.each(Letflow.Release.TenantOnboardingCheck.format_lines(elem(result, 1)), &IO.puts/1)
+
+    result =
+      Letflow.Release.TenantOnboardingCheck.run(
+        slug,
+        Keyword.drop(opts, [:start, :halt, :format])
+      )
+
+    report = elem(result, 1)
+
+    case Keyword.get(opts, :format, :text) do
+      :json -> IO.puts(Letflow.Release.TenantOnboardingCheck.format_json(report))
+      "json" -> IO.puts(Letflow.Release.TenantOnboardingCheck.format_json(report))
+      _ -> Enum.each(Letflow.Release.TenantOnboardingCheck.format_lines(report), &IO.puts/1)
+    end
+
     halt_or_return(result, opts)
   end
 
