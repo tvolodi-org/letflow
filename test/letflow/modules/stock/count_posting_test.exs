@@ -580,9 +580,13 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
 
       opts = %{actor_id: x.chair_user.id, scope: :all}
 
-      # no activator here, so the call stops at the definition step, i.e. after the early check
-      assert {:error, :definition_not_active} =
+      # no ledger read: the early check is skipped, so the call goes on past it, to the definition
+      # step (the unmodified stock draft is activated by the internal activator, T-2253) and starts
+      # the post instance; with a ledger read the same call is the 422 shortage_exceeds_balance above
+      assert {:ok, _} =
                Letflow.Modules.Stock.CountPosting.post(x.s, id, Map.put(opts, :authorized, nil))
+
+      assert task!(x, id, "post")
     end
 
     test "an old signing time is refused at completion (96 hours)", ctx do

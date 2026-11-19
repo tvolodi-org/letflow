@@ -138,7 +138,7 @@ that a movement made meanwhile stays valid and the balance ends at balance-now p
 | `POST /counts/:id/posting-record` (empty body) | `StockCountRecord` | 200 order view, status `posted` | 404; 409 `count_not_posted`, `count_reversed`, `posting_record_exists`; 422 `not_chair`, `count_state_invalid` |
 | `GET /counts/:id/posting-document` | `StockRead` | 200 number label, version, time, hash | 404; 422 `count_not_posted` |
 
-Flow: **Post** starts one `stock_count_posting` instance (activated lazily with the caller's own activator) with a
+Flow: **Post** starts one `stock_count_posting` instance (activated lazily with the internal stock activator when the caller lacks activation authority) with a
 pending `post` task, built only from the issued differences version. Whoever holds the ledger posting authority
 (`StockPost`, OIDC credential) completes the task in the task inbox: the entry and one `stock_posting_mark` commit
 together. Handlers create records only, so the stored status stays `signed`; the read shows `posting_state` (`none`,
@@ -208,7 +208,7 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 
 | Route | Permission | Ok | Refusals |
 |---|---|---|---|
-| `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `book_quantity_negative`, `count_in_progress` with `held_by` |
+| `POST /api/v1/modules/stock/quick-counts` | `StockQuickCount` | 201 issued document, kind `quick_count`, number `QCT`, one line with `book_quantity`, `counted_quantity`, `difference` | 404 (an API token, a scoped caller, a caller without the stock read authority); 403 without the permission; 409 `definition_not_active`; 422 shape reasons (`field_required`, `field_not_allowed`, `field_invalid`, `quantity_invalid`, `reason_invalid`), master reasons (`not_linked`, `employee_not_active`, `unit_not_valid`, `lot_required`, `lot_not_allowed`, `lot_not_valid`, `tracking_policy_not_supported`), `book_quantity_negative`, `balance_in_other_rows`, `count_in_progress` with `held_by` |
 
 * **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule), PLATFORM_ADMIN (core rule) and, since stock
   0.22.0 (T-2239, GH #4764, PM decision D-161), STOREKEEPER (`role_grants`; decision 0081 note, passed through the signed
@@ -243,13 +243,18 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
   issue, `approve` (role TENANT_ADMIN like every stock posting task, `distinct_from submit`) posts. Four eyes are ON by
   default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
-  it OFF one person counts and approves (one `task.self_approved` audit entry). The first quick count of a tenant must
-  be issued by a user who may activate definitions (the lazy activation is as for every stock kind).
+  it OFF one person counts and approves (one `task.self_approved` audit entry). An untouched stock process draft activates automatically on first use; no administrator activation step is required.
 * **Stale.** The posting carries `expected_on_hand` = the book quantity (REQ-853). If anything moved the key between the
   count and the approval the core refuses `balance_changed` (stock alias `quick_count_stale`, 409), the task stays
   pending: cancel the document and count again. The balance never ends as "old plus difference" by accident.
 * **Equal.** A count equal to the book makes no process instance and no ledger entry; the document reads `confirmed`
   (who and when are still recorded).
+* **Total of the item at the place (T-2286).** After posting, the item/place total IS the counted number. The key
+  is (item, place, org unit, responsible, lot); the ledger is append-only, so a count of one key while the same item,
+  place, org unit and lot holds stock under ANOTHER responsible would add a parallel row (total = old + counted).
+  That count is refused 422 `balance_in_other_rows` (nothing stored, no number); count the row that holds the stock
+  or use the count sheet. Lots stay separate: counting one lot never touches another lot.
+
 * **Negative book.** A key whose book quantity is negative (tenant setting) is refused `book_quantity_negative`: the
   compare-and-set value is at least 0 (decision 0073, REQ-853).
 * **Formal count rule.** A quick count on a key inside the scope of a count order of the same org unit that has been
@@ -267,6 +272,29 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 An install older than 0.20.0 needs a reinstall for the new document type and process (QA only). Until then
 quick-count and workbook-apply requests answer 409 `definition_not_active`; no definition is activated and no
 document is written.
+
+## Stock process activation (T-2253)
+
+A fresh install ships ten stock process drafts. On first use, `Posting.ensure_active/3` activates an
+untouched stock-owned draft with the caller's authority when available, otherwise with a tenant-local
+internal stock activator. A shared-token receipt or issue and a STOREKEEPER receipt therefore need no
+administrator to activate the process first. Existing installations use the same path; no reinstall,
+seed replay or manual database update is needed for an already-present, compatible stock process.
+Missing process definitions still require the normal module upgrade.
+
+The internal activator has no password, roles, memberships or login-directory entry. Its authority is
+constructed only after checking the closed stock process names, all ownership stamps and graph hashes.
+The normal activation validators, signature and `definition.activate` audit entry run in the same
+transaction. Repeated requests leave the active version and activation audit unchanged. Posting and
+ledger authority still belong to the request's credential; activation grants the caller no permission.
+
+When a process needs activation, a tenant-created version, changed graph, deprecated definition or
+deactivated internal activator is not repaired automatically: activation is refused with 409
+`definition_not_active` before taking a number. An already-active process whose signer is later
+deactivated follows the engine's normal reactivation checks at task completion.
+Review that tenant's process with its administrator; never overwrite it or reactivate it by raw SQL.
+The onboarding product check reports each process as `active` or `active=false auto_activation=ready`;
+a process that fails the ownership/status checks is `process_not_active`.
 
 ## The count worksheet (T-1905; no version bump)
 
