@@ -29,13 +29,34 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   * The responsible employee is the first active employee of the tenant (`Org.first_active_employee_id/1`);
     none is refused `no_responsible_employee` (422).
   * The event time is now. The item's unit is its base unit of measure.
-  * Kind `adjustment` (a count), a balance below zero and a retry with the same client id answer as
-    Letflow does today for the stock routes: `adjustment` is `invalid kind` (400); the negative-balance
-    setting and the freeze guard refuse as they do for a personal account; the client `id` field is
-    accepted and ignored (a retry posts a second document).
+  * Kind `adjustment` (a count) and a balance below zero answer as Letflow does today for the stock
+    routes: `adjustment` is `invalid kind` (400); the negative-balance setting and the freeze guard
+    refuse as they do for a personal account.
   * Untouched module-owned process drafts are activated on first use by the internal stock activator
     (`Posting.ensure_active/3`); the shared access needs no admin activation step. Tenant-created,
     changed or deprecated definitions are refused `definition_not_active` (409) before a number is taken.
+
+  ## The client operation id (T-2282, decision 0091 "Retry by client id")
+
+  Both writes REQUIRE the body field `id` (constant `@client_id_field`), a UUID string the phone makes
+  once per operation and sends again unchanged on every retry (also from its offline queue). Missing or
+  not a UUID is `{:error, {400, "id is required"}}` and nothing is written. The id is unique per tenant:
+  it is bound, in the tenant's `stock_create_idempotency` table (primary key = the namespaced key
+  `client:stock_old_movement:<id>`, the table of `ActionIdempotency`), to the document and to a hash of
+  the COMPARED data, only after the whole post (document, issue and posting task) succeeded, under a
+  per-key advisory lock held for the whole call.
+
+  * First use: the post runs; the answer is `{:ok, row, :created}` (201).
+  * A repeat with the same id and equal data (post: kind, sku, place, destination place, quantity,
+    compared as numbers; NOT operator; reverse: the original movement) writes nothing and answers the
+    STORED row `{:ok, row, :replayed}` (200); stock is not doubled. A concurrent duplicate waits on the
+    lock and then replays, so one document and one set of balances result.
+  * The same id with other data, an id that belongs to a reversal used for a post (or the reverse), or
+    a post id used for a reverse: `{:error, {409, "this operation was already posted with different data"}}`
+    (the `idempotency_key_reuse` of `ActionIdempotency`), nothing changed.
+  * A reversal takes its own new id. The original already reversed by ANOTHER id is refused as before
+    (409 `document_reversed`); a reversal cannot be reversed (409 `reversal_cannot_be_reversed`).
+  * A refused request binds nothing, so the same id can be sent again after the cause is fixed.
 
   Refusals are `{:error, {status, text}}`; the text is a closed code, never a value. A failed posting
   leaves no half document: a refused issue discards the draft, a refused ledger posting cancels the
@@ -51,16 +72,33 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
   alias Letflow.Modules.Stock.Documents
+  alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.OldAppReads
   alias Letflow.SharedStockAccess.IntIds
 
   @operator_max 200
+  # The request-body field of the client operation id (the old Qoimeks protocol: `id`, a UUID string).
+  @client_id_field "id"
+  @client_id ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
+  @key_prefix "client:stock_old_movement:"
+  @reuse_text "this operation was already posted with different data"
   @kinds ~w(receipt issue transfer)
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
-  @type result :: {:ok, map()} | {:error, {pos_integer(), String.t()}}
+  @type result ::
+          {:ok, map(), :created | :replayed} | {:error, {pos_integer(), String.t()}}
+
+  @doc "The client operation id of a write: `{:ok, key}` (the namespaced key) or the 400 refusal."
+  @spec client_key(term()) :: {:ok, String.t()} | {:error, {400, String.t()}}
+  def client_key(params) do
+    value = if is_map(params), do: Map.get(params, @client_id_field), else: nil
+
+    if is_binary(value) and Regex.match?(@client_id, value),
+      do: {:ok, @key_prefix <> String.downcase(value)},
+      else: {:error, {400, "id is required"}}
+  end
 
   @doc "The operator name of a write: `{:ok, name}` or the 400 refusal (see the moduledoc)."
   @spec operator(map(), String.t() | nil) :: {:ok, String.t()} | {:error, {400, String.t()}}
@@ -83,24 +121,30 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   @doc """
   The movement post. `actor_id` is the credential's actor, `authorized` the tenant-wide ledger read
   value of the shared access, `params` the decoded JSON body, `header` the `X-Operator` value or nil.
-  `{:ok, movement}` (the Qoimeks movement fields) answers 201.
+  `{:ok, movement, :created}` (the Qoimeks movement fields) answers 201, `{:ok, movement, :replayed}`
+  (the stored movement of a repeated client id) answers 200; see the moduledoc.
   """
   @spec post_movement(String.t(), String.t(), map(), term(), String.t() | nil) :: result()
   def post_movement(prefix, actor_id, authorized, params, header) do
-    with {:ok, operator} <- operator(params, header),
-         {:ok, movement} <- movement_params(prefix, params),
-         :ok <- active(prefix, movement.kind),
-         {:ok, body} <- document_body(prefix, movement),
-         {:ok, view} <- save(prefix, body, actor_id),
-         {:ok, _issued} <- issue(prefix, view.id, actor_id, authorized),
-         :ok <- complete(prefix, view, "post", actor_id, operator) do
-      case Enum.find(
-             OldAppReads.movements_of_document(authorized, view.id),
-             &(&1.kind != "reversal")
-           ) do
-        nil -> {:error, {500, "internal error"}}
-        row -> {:ok, row}
-      end
+    with {:ok, key} <- client_key(params),
+         {:ok, operator} <- operator(params, header),
+         {:ok, movement} <- movement_params(prefix, params) do
+      bound(
+        prefix,
+        key,
+        movement_hash(movement),
+        &stored(authorized, &1, :post),
+        fn ->
+          with :ok <- active(prefix, movement.kind),
+               {:ok, body} <- document_body(prefix, movement),
+               {:ok, view} <- save(prefix, body, actor_id),
+               {:ok, _issued} <- issue(prefix, view.id, actor_id, authorized),
+               :ok <- complete(prefix, view, "post", actor_id, operator),
+               {:ok, row} <- stored(authorized, view.id, :post) do
+            {:ok, view.id, row}
+          end
+        end
+      )
     end
   rescue
     exception ->
@@ -110,30 +154,81 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
 
   @doc """
   The movement reverse of the movement whose Qoimeks integer id is `int_id` (the path). `{:ok,
-  movement}` is the reversal's own movement row (201); reversing it again is a 409.
+  movement, :created}` is the reversal's own movement row (201); the same reversal `id` again answers
+  its stored row `{:ok, row, :replayed}` (200); reversing the original under another id, or reversing a
+  reversal, is a 409. See the moduledoc.
   """
   @spec reverse_movement(String.t(), String.t(), map(), term(), term(), String.t() | nil) ::
           result()
   def reverse_movement(prefix, actor_id, authorized, int_id, params, header) do
-    with {:ok, operator} <- operator(params, header),
+    with {:ok, key} <- client_key(params),
+         {:ok, operator} <- operator(params, header),
          {:ok, entry} <- entry_of(prefix, authorized, int_id),
-         :ok <- not_a_reversal(entry),
-         {:ok, _view} <- reverse(prefix, actor_id, authorized, entry.document_id),
-         :ok <-
-           complete(prefix, %{id: entry.document_id}, "reverse", actor_id, operator) do
-      case Enum.find(
-             OldAppReads.movements_of_document(authorized, entry.document_id),
-             &(&1.kind == "reversal")
-           ) do
-        nil -> {:error, {500, "internal error"}}
-        row -> {:ok, row}
-      end
+         :ok <- not_a_reversal(entry) do
+      bound(
+        prefix,
+        key,
+        hash(["reverse", entry.document_id]),
+        &stored(authorized, &1, :reversal),
+        fn ->
+          with {:ok, _view} <- reverse(prefix, actor_id, authorized, entry.document_id),
+               :ok <-
+                 complete(prefix, %{id: entry.document_id}, "reverse", actor_id, operator),
+               {:ok, row} <- stored(authorized, entry.document_id, :reversal) do
+            {:ok, entry.document_id, row}
+          end
+        end
+      )
     end
   rescue
     exception ->
       Logger.error("old_app_reverse_failed #{inspect(exception.__struct__)}")
       {:error, {500, "internal error"}}
   end
+
+  # -- the client operation id -----------------------------------------------------------------------
+
+  defp bound(prefix, key, hash, replay, action) do
+    case ActionIdempotency.run_bound(prefix, key, hash, replay, action) do
+      {:ok, how, row} -> {:ok, row, how}
+      {:error, :idempotency_key_reuse} -> {:error, {409, @reuse_text}}
+      {:error, {status, _text}} = refusal when is_integer(status) -> refusal
+      {:error, _other} -> {:error, {500, "internal error"}}
+    end
+  end
+
+  # The movement row of document `document_id` that the call answers: the document's own movement for
+  # a post, the reversal's for a reverse.
+  defp stored(authorized, document_id, which) do
+    rows = OldAppReads.movements_of_document(authorized, document_id)
+
+    row =
+      case which do
+        :post -> Enum.find(rows, &(&1.kind != "reversal"))
+        :reversal -> Enum.find(rows, &(&1.kind == "reversal"))
+      end
+
+    if row, do: {:ok, row}, else: {:error, {500, "internal error"}}
+  end
+
+  # What a repeat of a post must equal: kind, sku, place, destination place and quantity (as a
+  # number: 100 and 100.0 are equal). NOT the operator (nor, in the old protocol, source or transcript).
+  defp movement_hash(movement) do
+    quantity =
+      movement.quantity |> Decimal.new() |> Decimal.normalize() |> Decimal.to_string(:normal)
+
+    hash([
+      "post",
+      movement.kind,
+      movement.sku,
+      movement.location,
+      movement.to_location || "",
+      quantity
+    ])
+  end
+
+  defp hash(parts),
+    do: :crypto.hash(:sha256, Enum.join(parts, <<31>>)) |> Base.encode16(case: :lower)
 
   # -- the request ---------------------------------------------------------------------------------
 
