@@ -140,7 +140,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      After step 3 the summary has R rows read, 0 changes and at most S remarks (R and S counted from the downloaded file), each naming an article of that file. For an article held by a responsible employee the remark says in Russian that
+      After step 3 the summary has R rows read, 0 changes and remarks counted from the downloaded file (R7 for each stocked article without a negative row, R12 for each row with a negative quantity, no R1; R, S, the negative rows and their articles are all counted from the file, never a fixed number), each naming an article of that file. For an article held by a responsible employee the remark says in Russian that
       the article is tracked separately by org units, responsible employees, lots or units and is left unchanged; a lot-tracked article gets the lot remark instead.
       The no-change message is shown and the write button is disabled. The remarks hint is present because remarks
       exist. The hint reads "Замечания описывают ошибки в файле и его данных." and the summary labels include "Прочитано
