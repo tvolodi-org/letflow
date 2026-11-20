@@ -1224,8 +1224,10 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert doc["kind"] == "quick_count" and doc["state"] == "issued"
     assert task(ctx, doc["id"], "approve", :pending)
 
-    # the storekeeper does not approve its own count (the approve task is the administrator's)
-    assert approve_as(ctx, doc["id"], ctx.tok_sk).status == 403
+    # the storekeeper does not approve its own count (the approve task is the administrator's): the approve
+    # node requires StockApprove (decision 0093 F1/F2), the storekeeper does not hold it, so the task is
+    # indistinguishable from a missing one (INV-5: 404, not 403)
+    assert approve_as(ctx, doc["id"], ctx.tok_sk).status == 404
     assert Decimal.eq?(balance(ctx), 10)
     approve_as(ctx, doc["id"], ctx.tok_u2) |> P.status!(200)
     assert Decimal.eq?(balance(ctx), 7)
