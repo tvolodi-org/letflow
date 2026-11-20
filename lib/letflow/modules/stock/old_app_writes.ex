@@ -82,9 +82,27 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     `OldAppReads.confirmed_count_row/2` (an `id` of the document, `operator` `""`), is not in the
     movement history, and its repeat answers the same row (the `balances` of the replay is the balance
     at that moment). A ZERO count at an empty key instead stores the old server's real, reversible zero
-    movement, with the typed operator and a history row.
-  * No row, a row `true` or an unreadable setting (ON): until REQ-913 the answer stays
-    `{:error, {400, "invalid kind"}}` and nothing is written.
+    movement, with the typed operator and a history row (it takes the same approval path as any other
+    count, under either switch).
+  * No row, a row `true` or an unreadable setting (ON, REQ-913, K6b): the count is made exactly as above
+    and the shared access does NOT complete approve. The answer is
+    `{:error, {400, "Подсчёт принят и ждёт подтверждения администратора"}}`; the count document stays
+    issued with one pending approve task in My Tasks of a user who holds `StockApprove` (the tenant
+    administrator, not the storekeeper). One administrator is enough: the counter is the shared access
+    actor, so `distinct_from submit` passes and no `task.self_approved` is written. The balance does not
+    change and the count is not in the movement history until it is approved. If the key moves before the
+    approval, the approval is refused `quick_count_stale`, the task stays pending, and the administrator
+    cancels the count document (`POST /documents/:id/cancel`, `StockReverse`). A non-zero count equal to
+    the book is answered at once (201), as above; a zero count at an empty key waits like any other.
+
+  The client id of a waiting count is bound to its document (a waiting count is a success of the call,
+  not a refusal), under the same per-key lock and compared data. A repeat with the same id and data never
+  makes a second count; it answers from the state of the count document: approval pending, the same
+  waiting 400; posted (or confirmed), 200 with the count's movement row (`qty` = the counted quantity,
+  `operator` = the typed name, `balances` as of that moment); cancelled, 400 "Подсчёт отменён. Посчитайте
+  ещё раз". A zero count reads `confirmed` while its approval is pending (every line has a zero
+  difference), so for a zero count `confirmed` is the waiting state, not a posted one. The same id with
+  other data is the 409 of every write. A refusal when the count is made (below) binds no id.
 
   Every refusal of a count is a 400 (the old app reads a 409 as "already posted" and a 422 as "heard
   nothing"), with the old server's Russian texts: `count_in_progress` "На этом месте идёт пересчёт по
@@ -153,6 +171,9 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
       "Остаток изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз"
   }
   @count_cancelled "Подсчёт отменён. Посчитайте ещё раз"
+  # REQ-913: the answer of a count that waits for the administrator. A 400, as every answer of a count
+  # that is not a movement: the phone shows «Ошибка: <text>» and keeps the form filled.
+  @count_waiting "Подсчёт принят и ждёт подтверждения администратора"
   @quantity_max 40
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
@@ -202,7 +223,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
         prefix,
         key,
         movement_hash(movement),
-        &stored(authorized, &1, :post),
+        &replay_post(prefix, authorized, movement.kind, &1),
         fn ->
           if movement.kind == "adjustment",
             do: post_count(prefix, actor_id, authorized, movement, operator),
@@ -231,32 +252,82 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   # -- the count (REQ-912) ------------------------------------------------------------------------
 
   # A quick count document made through `Documents.quick_count/4` with the shared access as the counter.
-  # With the tenant's four-eyes switch for counts OFF the shared access completes the approve task of
-  # its own count in the same call (the engine records `task.self_approved`); with it ON the count
-  # keeps today's answer, 400 `invalid kind`, and nothing is written (REQ-913 builds that path).
+  # The tenant's four-eyes switch for counts decides what happens next (REQ-912, REQ-913): OFF, the
+  # shared access completes the approve task of its own count in the same call (the engine records
+  # `task.self_approved`); ON, the count is left issued with its approve task pending for one
+  # administrator in My Tasks and the call answers the waiting 400 (a waiting count is a success of the
+  # call, so its client id is bound to it). A count equal to the book is `confirmed`: it needs no
+  # approval and is answered at once under either switch.
   defp post_count(prefix, actor_id, authorized, movement, operator) do
+    off? = ApprovalRules.four_eyes_off?(prefix, @count_definition, @count_node)
     # The old server stored even 0 = 0 as a movement. Other equal-book counts keep the confirmed
     # shortcut; an old-address zero must start the process and write its reversible zero entry.
     record_zero = Decimal.eq?(Decimal.new(movement.quantity), 0)
 
-    with :ok <- count_switch_off(prefix),
-         :ok <- count_active(prefix),
+    with :ok <- count_active(prefix),
          {:ok, body} <- count_body(prefix, movement),
          {:ok, view} <- make_count(prefix, body, actor_id, authorized, operator, record_zero),
-         :ok <- count_seam(prefix),
-         :ok <- approve_count(prefix, view, actor_id, operator, record_zero),
-         {:ok, row} <- stored(authorized, view.id, :post) do
-      {:ok, view.id, row}
+         {:ok, outcome} <- settle_count(prefix, view, off?, actor_id, operator, record_zero) do
+      case outcome do
+        :posted ->
+          with {:ok, row} <- stored(authorized, view.id, :post), do: {:ok, view.id, row}
+
+        :waiting ->
+          {:ok, view.id, :waiting}
+      end
     end
   end
 
-  # The switch: a stored `four_eyes: false` of stock_quick_count / approve is OFF. No row, a row `true`
-  # or an unreadable setting is ON (fails closed). Read in the proved tenant's schema only (INV-1).
-  defp count_switch_off(prefix) do
-    if ApprovalRules.four_eyes_off?(prefix, @count_definition, @count_node),
-      do: :ok,
-      else: {:error, {400, "invalid kind"}}
+  # Confirmed (equal to the book): nothing to approve, except the zero count of the old address
+  # (`record_zero`), which reads `confirmed` too but has a real approve task, so it follows the switch.
+  # Switch OFF: the shared access approves now.
+  # Switch ON (no row, a row `true` or an unreadable setting: fails closed): the count waits.
+  defp settle_count(_prefix, %{state: "confirmed"}, _off?, _actor_id, _operator, false),
+    do: {:ok, :posted}
+
+  defp settle_count(prefix, view, true, actor_id, operator, _record_zero) do
+    :ok = count_seam(prefix)
+
+    with :ok <- approve_count(prefix, view, actor_id, operator), do: {:ok, :posted}
   end
+
+  defp settle_count(_prefix, _view, false, _actor_id, _operator, _record_zero),
+    do: {:ok, :waiting}
+
+  # What a repeat of a bound client id answers (REQ-913 point 2): a count answers from the state of its
+  # document and never makes a second one. Approval pending is the waiting 400, a cancelled count the
+  # cancelled 400, a posted (or confirmed) one its stored row (200). The other kinds answer their row.
+  # A zero count reads `confirmed` while its approval is pending (`pending_zero?/1`): that is waiting.
+  defp replay_post(prefix, authorized, "adjustment", document_id) do
+    case Documents.fetch(prefix, document_id) do
+      {:ok, %{state: "issued"}} ->
+        {:error, {400, @count_waiting}}
+
+      {:ok, %{state: "cancelled"}} ->
+        {:error, {400, @count_cancelled}}
+
+      {:ok, %{state: "confirmed"} = view} ->
+        if pending_zero?(view),
+          do: {:error, {400, @count_waiting}},
+          else: stored(authorized, document_id, :post)
+
+      {:ok, _posted} ->
+        stored(authorized, document_id, :post)
+
+      {:error, _reason} ->
+        {:error, {500, "internal error"}}
+    end
+  end
+
+  defp replay_post(_prefix, authorized, _kind, document_id),
+    do: stored(authorized, document_id, :post)
+
+  # Every count bound to a client id came through `post_count`; a zero one is made with `record_zero`
+  # and so has a real approve task, while a posted one reads `posted`. A `confirmed` zero is pending.
+  defp pending_zero?(%{lines: [_ | _] = lines}),
+    do: Enum.all?(lines, &Decimal.eq?(Decimal.new(&1.counted_quantity), 0))
+
+  defp pending_zero?(_view), do: false
 
   # Test seam, like `:stock_post_start_fail?` of `Posting`: a function in the application environment
   # (set only by tests) runs between the issue of the count and its approval, so a test can move the
@@ -307,11 +378,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     end
   end
 
-  # A count equal to the book is `confirmed`: no approval, no ledger entry (REQ-912 point 6), except
-  # the old address's zero count, which the old server stored as a real reversible movement.
-  defp approve_count(_prefix, %{state: "confirmed"}, _actor_id, _operator, false), do: :ok
-
-  defp approve_count(prefix, view, actor_id, operator, _record_zero) do
+  defp approve_count(prefix, view, actor_id, operator) do
     case complete(prefix, view, "approve", actor_id, operator) do
       :ok ->
         :ok
@@ -374,6 +441,8 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
 
   defp bound(prefix, key, hash, replay, action) do
     case ActionIdempotency.run_bound(prefix, key, hash, replay, action) do
+      # A waiting count (REQ-913) is a success of the call, bound to its id, answered as a refusal text.
+      {:ok, _how, :waiting} -> {:error, {400, @count_waiting}}
       {:ok, how, row} -> {:ok, row, how}
       {:error, :idempotency_key_reuse} -> {:error, {409, @reuse_text}}
       {:error, {status, _text}} = refusal when is_integer(status) -> refusal

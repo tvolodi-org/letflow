@@ -6,9 +6,11 @@ defmodule Letflow.Routers.SharedStockAccessCountTest do
   count of the old Qoimeks app (`POST /qoimeks/:slug/api/movements`, kind `adjustment`) with the
   tenant's four-eyes switch for counts OFF, through the full `Letflow.Router` over a committed tenant
   with real ledger postings. IDs follow the acceptance criteria: K6a-1 posts at once, K6a-2 zero and
-  negative, K6a-3 the audit, K6a-5 the switch ON keeps `invalid kind`, K6a-6 a count equal to the
+  negative, K6a-3 the audit, K6a-6 a count equal to the
   book, K6a-7 a negative book, K6a-8 the refusal texts, K6a-9 the client id, K6a-10 the history rows.
-  Criterion 4 (the narrow widening) is in `test/letflow/engine/separation_of_duties_test.exs`.
+  REQ-913 / GH #4907 (K6b): K6b-1..K6b-7 are the switch-ON path (the waiting 400, the bound client id, one
+  administrator's approval, the stale rule, a count equal to the book, the refusals); they replace
+  K6a-5. Criterion 4 of REQ-912 (the narrow widening) is in `test/letflow/engine/separation_of_duties_test.exs`.
   `async: false`: committed tenants, VM-global config.
   """
 
@@ -330,29 +332,264 @@ defmodule Letflow.Routers.SharedStockAccessCountTest do
     end
   end
 
-  # -- K6a-5 ----------------------------------------------------------------------------------------
+  # -- K6b-1 .. K6b-7 (REQ-913): the switch ON -------------------------------------------------------
 
-  describe "switch ON" do
-    test "K6a-5 no row: a count is still 400 invalid kind and writes nothing", t do
+  describe "switch ON: the count waits for one administrator" do
+    @waiting "Подсчёт принят и ждёт подтверждения администратора"
+    @cancelled "Подсчёт отменён. Посчитайте ещё раз"
+
+    defp admin_token(t), do: S.token(t.ctx, :a, ["TENANT_ADMIN"], sub: "second-admin")
+
+    defp complete_as(token, task) do
+      Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", Jason.encode!(%{}))
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> put_req_header("content-type", "application/json")
+      |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+    end
+
+    defp approve_task!(t, doc_id),
+      do: P.pending_task(t.ctx, doc_id, "approve") || flunk("no pending approve task")
+
+    defp movement_rows(t), do: history(t) |> Enum.filter(&(&1["kind"] == "adjustment"))
+
+    test "K6b-1 a count of 7 against a book of 5 waits: 400, one issued document, one pending task",
+         t do
       receive!(t, 5)
       before = written(t.ctx.schema)
 
-      assert %{"error" => "invalid kind"} ==
+      assert %{"error" => @waiting} ==
                post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
 
-      assert written(t.ctx.schema) == before
+      assert [doc_id] = count_documents(t.ctx.schema)
+      assert P.get!(t.ctx, doc_id)["state"] == "issued"
+      assert %{node_id: "approve"} = approve_task!(t, doc_id)
+      {entries, {_r, documents}, pending} = written(t.ctx.schema)
+      {before_entries, {_r0, before_documents}, 0} = before
+      assert {entries, documents, pending} == {before_entries, before_documents + 1, 1}
+      assert balance(t) == 5
+      assert movement_rows(t) == []
+      assert audit(t.ctx.schema, "task.self_approved") == []
+
+      submit =
+        Repo.one!(
+          from(k in EngineTask, where: k.node_id == "submit" and k.status == :completed),
+          prefix: t.ctx.schema
+        )
+
+      assert submit.output_variables == %{"operator" => "Айгуль"}
+    end
+
+    test "K6b-1b a row four_eyes true waits too", t do
+      switch!(t, true)
+      receive!(t, 5)
+
+      assert %{"error" => @waiting} ==
+               post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
+
+      assert [_doc] = count_documents(t.ctx.schema)
+      assert pending_tasks(t.ctx.schema) == 1
       assert balance(t) == 5
     end
 
-    test "K6a-5b a row four_eyes true is ON too", t do
-      switch!(t, true)
+    test "K6b-2 a repeat while waiting answers the waiting 400 and makes no second count", t do
+      receive!(t, 5)
+      body = movement(t, "adjustment", 7)
+
+      for _repeat <- 1..3 do
+        assert %{"error" => @waiting} == post_movement(t, body) |> status!(400)
+      end
+
+      assert [_one] = count_documents(t.ctx.schema)
+      assert pending_tasks(t.ctx.schema) == 1
+      before = written(t.ctx.schema)
+
+      assert %{"error" => "this operation was already posted with different data"} ==
+               post_movement(t, Map.put(body, "qty", 8)) |> status!(409)
+
+      assert written(t.ctx.schema) == before
+    end
+
+    test "K6b-3 one administrator approves; the repeat answers 200 with the movement row", t do
+      receive!(t, 5)
+      body = movement(t, "adjustment", 7)
+      post_movement(t, body) |> status!(400)
+      [doc_id] = count_documents(t.ctx.schema)
+
+      complete_as(admin_token(t), approve_task!(t, doc_id)) |> P.status!(200)
+
+      assert balance(t) == 7
+      assert audit(t.ctx.schema, "task.self_approved") == []
+
+      row = post_movement(t, body) |> status!(200)
+      assert %{"kind" => "adjustment", "qty" => 7, "operator" => "Айгуль"} = row
+      assert [%{"qty" => 7, "sku_id" => sku, "location_id" => loc}] = row["balances"]
+      assert {sku, loc} == {t.sku, t.loc}
+      assert [^row] = Enum.map(movement_rows(t), &Map.put(&1, "balances", row["balances"]))
+      assert [_one] = count_documents(t.ctx.schema)
+    end
+
+    test "K6b-4 the storekeeper cannot approve the waiting count", t do
+      receive!(t, 5)
+      post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
+      [doc_id] = count_documents(t.ctx.schema)
+      task = approve_task!(t, doc_id)
+
+      keeper = S.token(t.ctx, :a, ["STOREKEEPER"], sub: "keeper-x")
+      conn = complete_as(keeper, task)
+      assert conn.status >= 400, "expected a refusal, got #{conn.status}"
+
+      assert balance(t) == 5
+      assert %{id: id} = approve_task!(t, doc_id)
+      assert id == task.id
+    end
+
+    test "K6b-5 stale: refused at the approval; the task stays; cancel; then a new count", t do
+      receive!(t, 5)
+      id = Ecto.UUID.generate()
+      body = movement(t, "adjustment", 7, %{"id" => id})
+      post_movement(t, body) |> status!(400)
+      [doc_id] = count_documents(t.ctx.schema)
+
+      # an issue of 1 at the place, posted from a phone: the key moves
+      post_movement(t, movement(t, "issue", 1)) |> status!(201)
+      assert balance(t) == 4
+
+      conn = complete_as(admin_token(t), approve_task!(t, doc_id))
+      assert conn.status >= 400 and conn.resp_body =~ "quick_count_stale"
+      assert balance(t) == 4
+      assert %{node_id: "approve"} = approve_task!(t, doc_id)
+      assert %{"error" => @waiting} == post_movement(t, body) |> status!(400)
+
+      P.req(t.ctx, :post, doc_id, "cancel", %{"reason" => "stale"}) |> P.status!(200)
+      assert %{"error" => @cancelled} == post_movement(t, body) |> status!(400)
+      assert balance(t) == 4
+
+      # a new operation counts again and has its own pending task
+      assert %{"error" => @waiting} ==
+               post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
+
+      assert [^doc_id, second] = count_documents(t.ctx.schema)
+      assert second != doc_id
+      assert %{node_id: "approve"} = approve_task!(t, second)
+    end
+
+    test "K6b-6 a count equal to the book answers at once and starts no approval", t do
       receive!(t, 5)
       before = written(t.ctx.schema)
 
-      assert %{"error" => "invalid kind"} ==
+      row = post_movement(t, movement(t, "adjustment", 5)) |> status!(201)
+
+      assert %{"kind" => "adjustment", "qty" => 5} = row
+      assert [%{"qty" => 5}] = row["balances"]
+      assert {entries, _docs, 0} = written(t.ctx.schema)
+      assert {before_entries, _bdocs, 0} = before
+      assert entries == before_entries
+      assert audit(t.ctx.schema, "task.self_approved") == []
+    end
+
+    test "K6b-6b a zero count at an empty key waits too: 400, no entry, one task, same 400 on repeat",
+         t do
+      body = movement(t, "adjustment", 0)
+      before = written(t.ctx.schema)
+
+      assert %{"error" => @waiting} == post_movement(t, body) |> status!(400)
+
+      assert [doc_id] = count_documents(t.ctx.schema)
+      assert %{node_id: "approve"} = approve_task!(t, doc_id)
+      assert {entries, {_r, documents}, 1} = written(t.ctx.schema)
+      assert {before_entries, {_r0, before_documents}, 0} = before
+      assert {entries, documents} == {before_entries, before_documents + 1}
+      assert balance(t) == 0
+      assert movement_rows(t) == []
+      assert audit(t.ctx.schema, "task.self_approved") == []
+
+      # The document reads `confirmed` (zero difference) while the approval is pending; the repeat
+      # must not answer a stored row for it.
+      for _repeat <- 1..2 do
+        assert %{"error" => @waiting} == post_movement(t, body) |> status!(400)
+      end
+
+      assert [^doc_id] = count_documents(t.ctx.schema)
+      assert pending_tasks(t.ctx.schema) == 1
+      assert movement_rows(t) == []
+
+      complete_as(admin_token(t), approve_task!(t, doc_id)) |> P.status!(200)
+
+      row = post_movement(t, body) |> status!(200)
+      assert %{"kind" => "adjustment", "qty" => 0, "operator" => "Айгуль"} = row
+      assert Enum.any?(movement_rows(t), &(&1["id"] == row["id"]))
+    end
+
+    test "K6b-7a refused when made: inside an opened count order", t do
+      receive!(t, 5)
+      count_order!(t.ctx, t.m, "counting")
+      before = written(t.ctx.schema)
+
+      assert %{"error" => @in_progress} ==
                post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
 
       assert written(t.ctx.schema) == before
+    end
+
+    test "K6b-7b refused when made: stock under another responsible", t do
+      other =
+        Letflow.OrgFixture.create!(
+          t.ctx.schema,
+          "org_employee",
+          Letflow.OrgFixture.values("org_employee", "E3-#{System.unique_integer([:positive])}", %{
+            "org_unit_id" => t.m.unit
+          })
+        )
+
+      first = Letflow.Modules.Org.first_active_employee_id(t.ctx.schema)
+      holder = Enum.find([t.m.employee, other.record_id], &(&1 != first))
+
+      S.post!(t.ctx.schema, "receipt", %{
+        lines: [
+          S.line(
+            t.m.item,
+            "3",
+            %{to: S.side(t.m.unit, t.m.location, %{responsible: holder})},
+            %{unit: t.m.uom}
+          )
+        ]
+      })
+
+      before = written(t.ctx.schema)
+
+      assert %{"error" => @other_rows} ==
+               post_movement(t, movement(t, "adjustment", 7)) |> status!(400)
+
+      assert written(t.ctx.schema) == before
+    end
+
+    test "K6b-7c refused when made: a negative qty, and the id is free to use again", t do
+      receive!(t, 5)
+      id = Ecto.UUID.generate()
+      before = written(t.ctx.schema)
+
+      assert %{"error" => "quantity must be positive"} ==
+               post_movement(t, movement(t, "adjustment", -1, %{"id" => id})) |> status!(400)
+
+      assert written(t.ctx.schema) == before
+
+      assert %{"error" => @waiting} ==
+               post_movement(t, movement(t, "adjustment", 7, %{"id" => id})) |> status!(400)
+
+      assert [_doc] = count_documents(t.ctx.schema)
+    end
+
+    test "K6b-8 the id of a waiting count is bound in the proved tenant table", t do
+      receive!(t, 5)
+      body = movement(t, "adjustment", 7)
+      post_movement(t, body) |> status!(400)
+      assert [_doc] = count_documents(t.ctx.schema)
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 ~s|SELECT count(*)::int FROM "#{t.ctx.schema}".stock_create_idempotency WHERE key = $1|,
+                 ["client:stock_old_movement:" <> String.downcase(body["id"])]
+               )
     end
   end
 
