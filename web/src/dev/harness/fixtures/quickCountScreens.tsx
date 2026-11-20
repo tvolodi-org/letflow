@@ -330,4 +330,20 @@ export const quickCountScreens: HarnessScreen[] = [
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialResult={confirmedDoc} />),
   },
+  // 18. Refusal: balance_in_other_rows (GH 4872), filled form so the banner sits under real fields
+  {
+    name: 'stock-quick-count-refusal-other-rows',
+    routes: [entitiesRoute(), balanceRoute('96.500000000')],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={FILLED_FORM} initialSubmitError={{ reason: 'balance_in_other_rows' }} />),
+  },
+  // 19. Generic refusal (a reason the screen does not know): the "could not be submitted" banner, for comparison
+  {
+    name: 'stock-quick-count-refusal-generic',
+    routes: [entitiesRoute(), balanceRoute('96.500000000')],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness initialForm={FILLED_FORM} initialSubmitError={{ reason: 'not_a_known_reason' }} />),
+  },
 ]
