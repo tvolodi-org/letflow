@@ -3,7 +3,7 @@
  *  C4 error codes in en/ru/kk, C5 four-eyes, C6 reference, C7 field widths. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
@@ -413,6 +413,29 @@ describe('C3 quantity validation', () => {
     fireEvent.click(screen.getByTestId('submit-quick-count'))
     expect(await screen.findByText(qcEn['stock.qc.err.reason_text_required'])).toBeInTheDocument()
     expect(clientMock.post.mock.calls.filter(([p]: string[]) => p === '/api/v1/modules/stock/quick-counts').length).toBe(0)
+  })
+})
+
+// --- GH 4892: validation texts follow the language switch without a reload ---
+describe('validation texts follow the language switch', () => {
+  it('ru -> kk -> en re-translates the shown errors', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    setupCombinedPostMock()
+    renderQC()
+    await waitFor(() => expect(sel('reason_code')).not.toBeNull())
+    fireEvent.change(sel('reason_code'), { target: { value: 'other' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    expect((await screen.findAllByText(qcRu['stock.qc.error.field_required'])).length).toBeGreaterThan(0)
+    expect(screen.getByText(qcRu['stock.qc.err.reason_text_required'])).toBeInTheDocument()
+    act(() => useUiLocaleStore.getState().setLocaleTransient('kk'))
+    expect((await screen.findAllByText(qcKk['stock.qc.error.field_required'])).length).toBeGreaterThan(0)
+    expect(screen.getByText(qcKk['stock.qc.err.reason_text_required'])).toBeInTheDocument()
+    expect(screen.queryByText(qcRu['stock.qc.error.field_required'])).toBeNull()
+    expect(screen.queryByText(qcRu['stock.qc.err.reason_text_required'])).toBeNull()
+    act(() => useUiLocaleStore.getState().setLocaleTransient('en'))
+    expect((await screen.findAllByText(qcEn['stock.qc.error.field_required'])).length).toBeGreaterThan(0)
+    expect(screen.getByText(qcEn['stock.qc.err.reason_text_required'])).toBeInTheDocument()
+    expect(screen.queryByText(qcKk['stock.qc.error.field_required'])).toBeNull()
   })
 })
 

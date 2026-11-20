@@ -605,7 +605,16 @@ defmodule Letflow.Modules.Assets.CountSheetTest do
 
   describe "open refusals and audit" do
     test "K2-D1: an open outside the planned period is refused", ctx do
-      {:ok, %{"id" => id}} = Counts.create(ctx.schema, F.input(ctx.sw.w), F.opts())
+      # A period fixed in the future by the clock: the fixture's literal dates become "today"
+      # on 2026-11-20 and the open would be due.
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      period = %{
+        "planned_start" => DateTime.to_iso8601(DateTime.add(now, 5 * 86_400)),
+        "planned_end" => DateTime.to_iso8601(DateTime.add(now, 6 * 86_400))
+      }
+
+      {:ok, %{"id" => id}} = Counts.create(ctx.schema, F.input(ctx.sw.w, period), F.opts())
       {:ok, _} = Counts.issue(ctx.schema, id, F.opts())
       opts = %{actor_id: ctx.sw.chair_user, authorized: authorized!(ctx)}
       assert {:error, :count_not_due} = CountSheet.open(ctx.schema, id, opts)

@@ -79,16 +79,18 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
   const toast = useToast()
 
   const [form, setForm] = useState<QuickCountForm>(() => ({ ...EMPTY_FORM, ...initialForm }))
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>(
+  // GH 4892: the state holds message ids, translated at render, so a language switch re-renders the texts.
+  const [fieldErrorKeys, setFieldErrors] = useState<Partial<Record<keyof QuickCountForm, string>>>(
     Object.fromEntries(
-      Object.entries(initialFieldErrors ?? {}).filter(([, v]) => v !== undefined).map(([k, v]) => [k, t(v!)])
+      Object.entries(initialFieldErrors ?? {}).filter(([, v]) => v !== undefined)
     ) as Partial<Record<keyof QuickCountForm, string>>
   )
+  const fieldErrors = Object.fromEntries(
+    Object.entries(fieldErrorKeys).filter(([, v]) => v).map(([k, v]) => [k, t(v!)])
+  ) as Partial<Record<keyof QuickCountForm, string>>
   const [result, setResult] = useState<QuickCountDocument | null>(initialResult ?? null)
   const [approvedSuccessfully, setApprovedSuccessfully] = useState<boolean>(initialApproved ?? false)
-  const [approveError, setApproveError] = useState<string | null>(
-    initialApproveError ? t(initialApproveError) : null
-  )
+  const [approveError, setApproveError] = useState<string | null>(initialApproveError ?? null)
   const [submitError, setSubmitError] = useState<{ reason?: string; heldBy?: string } | null>(initialSubmitError ?? null)
 
   const items = usePickerOptions('catalog_item', NONE)
@@ -190,7 +192,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
       } else {
         const field = errorReasonToField(reason)
         if (field) {
-          setFieldErrors((fe) => ({ ...fe, [field]: t(errorReasonToMessageId(reason)) }))
+          setFieldErrors((fe) => ({ ...fe, [field]: errorReasonToMessageId(reason) }))
         } else {
           setSubmitError({ reason })
         }
@@ -206,20 +208,20 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
       setApproveError(null)
     },
     onError: () => {
-      setApproveError(t('stock.qc.error.approve_failed'))
+      setApproveError('stock.qc.error.approve_failed')
     },
   })
 
   function validate(): boolean {
     const errs: Partial<Record<keyof QuickCountForm, string>> = {}
     const qErr = validateQuantity(form.countedQuantity)
-    if (qErr) errs.countedQuantity = t(qErr)
-    if (!form.itemId) errs.itemId = t('stock.qc.error.field_required')
-    if (!form.locationId) errs.locationId = t('stock.qc.error.field_required')
-    if (!form.orgUnitId) errs.orgUnitId = t('stock.qc.error.field_required')
+    if (qErr) errs.countedQuantity = qErr
+    if (!form.itemId) errs.itemId = 'stock.qc.error.field_required'
+    if (!form.locationId) errs.locationId = 'stock.qc.error.field_required'
+    if (!form.orgUnitId) errs.orgUnitId = 'stock.qc.error.field_required'
     if (form.reasonCode === 'other') {
-      if (!form.reasonText.trim()) errs.reasonText = t('stock.qc.err.reason_text_required')
-      else if (form.reasonText.length > 500) errs.reasonText = t('stock.qc.err.reason_text_too_long')
+      if (!form.reasonText.trim()) errs.reasonText = 'stock.qc.err.reason_text_required'
+      else if (form.reasonText.length > 500) errs.reasonText = 'stock.qc.err.reason_text_too_long'
     }
     setFieldErrors(errs)
     return Object.keys(errs).length === 0
@@ -487,7 +489,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                   <>
                     {approveError && (
                       <div data-testid="approve-error-banner">
-                        <Banner tone="danger">{approveError}</Banner>
+                        <Banner tone="danger">{t(approveError)}</Banner>
                       </div>
                     )}
                     <div className="lf-form__actions" data-testid="approve-section">

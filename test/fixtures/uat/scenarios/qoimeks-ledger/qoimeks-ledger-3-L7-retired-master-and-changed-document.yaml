@@ -1,0 +1,396 @@
+# T-2321 (BA, 2026-11-20): ledger-3 rewritten after the L7 part 2 build (REQ-901..906, merged on main). It replaces the T-2292 "not walkable, covered by test" state of the old invalid-item scenario.
+# 1. Scope: every scenario of the group has scope qoimeks-qa2 (actors.yaml names actor-qoimeks-qa2-admin and actor-qoimeks-qa2-storekeeper with tenant qoimeks-qa2, the synthetic QA tenant and realm); the directory name qoimeks-ledger is only the run title UAT qoimeks-ledger. The fixture script named below refuses every other tenant slug.
+# 2. Actors: storekeeper = actor-qoimeks-qa2-storekeeper (STOREKEEPER: creates, issues, reverses and cancels documents); admin = actor-qoimeks-qa2-admin (TENANT_ADMIN: creates and retires the place, completes the posting and reversal tasks, holds StockApprove). Source: actors.yaml, docs/roles.md, the post task of priv/modules/stock/pack.json (required_permission StockApprove, routed to the role TENANT_ADMIN). Live logins are NOT verified here: the T-2258 preflight found NO_PASSWORD for both; a working login of both is a precondition of the acceptance run.
+# 3. Host and screens: read on main: web/src/modules/locations/locationsRoutes.tsx (Locations screen and its Location links screen, TENANT_ADMIN write), web/src/modules/stock/stockRoutes.tsx (Documents, New document, Balances, Movements), web/src/router.tsx (My Tasks; web/src/pages/tasks/TaskInboxPage.tsx takes the task from the address parameter task), web/src/pages/tasks/taskErrors.ts and taskMessages.ts (the two new texts errDocumentChanged and errMasterRetired, en, ru, kk). Host https://qoimeks-qa2.letflow.qa.bizdala.com answered 200 to a read-only HEAD in T-2258; not repeated here.
+# 4. Data: no seed counts are written in the text; the run records the item, place and balance counts at the start (Items screen total, Locations total, Balances rows) and compares only what this walk did. Needs: stock definitions ACTIVE, shared access enabled, an item with a positive balance at an active place with an active responsible employee under one org unit, a second user pair (user ids read on the Users screen) for the reassign request. The new place of part A is created by the walk through the Locations screen (no generator). Part B needs ONE fixture the tenant lacks: scripts/qoimeks_qa2_fixture_ledger3.sh (planned, not yet on main), contract in the header block below; part B is BLOCKED-by-environment until a developer task builds it and it merges. Generator task to queue FIRST: "Build scripts/qoimeks_qa2_fixture_ledger3.sh, the run-owned changed-posting fixture of Qoimeks ledger-3 (slug guard qoimeks-qa2 only)".
+# 5. Executable: part A is only screens (Locations, Location links, New document, My Tasks, Documents, Balances, Movements) plus one plain HTTP reassign request as in ledger-2; the runner writes its own browser script, no pipeline_test is needed. A step with a text check uses a text that exists in web/src/pages/tasks/taskMessages.ts or web/src/modules/*/ messages (see Label sources below). Items cannot be retired on any screen (web/src/modules/catalog_items/items/ItemsPage.tsx: no retire route yet), so the retired master of part A is a PLACE, which the Locations screen can retire.
+# 6. Dry run: T-2321 could not run uat.sh preflight with the title UAT qoimeks-ledger (it needs the engine environment and the QA credentials); no live walk was done. Static check run on this group before return (result in the task summary). Acceptance stays BLOCKED-by-environment until credentials, a deployed build with REQ-901..906 and the part B fixture are present.
+# EXPECTATION CORRECTIONS (T-2321, 5): (1) the task text names "an issued issue whose item was retired": REQ-904 and decision 0073 (Amended by REQ-904, note 9.5) refuse a retired master ONLY on a side that adds stock; an issue only removes stock and still posts, so part A uses a transfer whose TO place is retired. (2) The item cannot be retired on any screen, so the retired master is the place (Locations screen, Retire). (3) A receipt with a pending post task cannot be cancelled (Kinds.withdrawable?/1 lists issue, write_off, transfer, hand_over, return, quick_count), so the cleanup of part A uses a transfer, not a receipt. (4) "Cancelled after issue with the post pending" cannot be produced through the module routes (cancel withdraws the post instance first, Posting.cancel/5) and documents are never re-versioned; the changed document of part B is the REQ-903 criterion 3 case (a post task whose posting differs from the issued content), prepared by the fixture script. (5) The old header said L7 needs a prepared posting variable; with REQ-901..904 the retired-master half is walkable on screens, only the unknown-item case (422 validation_failed, MP-TYP-1) stays covered by test/letflow/modules/stock/master_posting_test.exs.
+# Fixture script contract (planned, not yet on main): scripts/qoimeks_qa2_fixture_ledger3.sh, run by the OPERATOR with the Bearer token of actor-qoimeks-qa2-admin in QA_AUTH_TOKEN, like scripts/qoimeks_qa2_fixture_count.sh (same slug guard before the token is read: TENANT_SLUG must be qoimeks-qa2, the host of QA_URL must be that tenant's host, qoimeks-qa and qoimeks-client1-qa are refused by name). Argument: the identifier of the issued receipt D of this walk. It checks D is an issued receipt with a pending posting task, then starts ONE extra stock receipt posting instance for D through the instance start route (the generic start of REQ-903 criterion 5), with the posting variables of D except that the quantity of the first line is raised by one unit, so its content differs from the issued content; it carries the correlation key uat-ledger3-<D> and a fixed idempotency key, so a second run prints the same manifest. It prints the manifest (instance id, task id, document id) and nothing secret. With --cleanup <instance id> it cancels only an instance that carries that correlation key. It writes no stock and no document.
+# Not UAT-observable here (not a gap of the walk, covered by tests): the unknown-item refusal (422 validation_failed, master_posting_test.exs MP-TYP-1); the concurrent double post and the cross-tenant postings (REQ-905, version_binding_concurrency_test.exs); the cancel of the version through the Documents context directly (REQ-903 criterion 5, no module route does it).
+# T-2190: run title UAT qoimeks-ledger; tenant and realm qoimeks-qa2 only. QA only; synthetic data.
+# Execution contract (T-2190 owner task): the acceptance runner supplies its own real-browser script. Retain screenshots per step, width and language.
+# Before writes, evaluate preconditions using reads; an unmet environment need is BLOCKED-by-environment, never PASS or a product failure.
+# Do not substitute a platform or another tenant actor. No real data or production.
+# REQ ids covered: REQ-901 (typed refusal, released only to a completer who holds the posting authority), REQ-903 (posting that differs from the issued version: record_version_conflict; unchanged posting still posts), REQ-904 (retired master on an adding side: master_inactive; removing sides and reversals unchanged), REQ-906 (clear en, ru, kk messages on the task screen).
+# Sources opened: docs/requirements.yaml REQ-901, REQ-903, REQ-904, REQ-906 (acceptance criteria); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6; "Amended by REQ-903"; "Amended by REQ-904"); lib/letflow/modules/stock/handlers.ex (moduledoc "Master checks at posting"; check order item, unit, lot, to location, org unit, responsible); lib/letflow/modules/locations/tree.ex retire_node/3 (a leaf place can be retired, no un-retire); lib/letflow/modules/stock/documents/posting.ex (reverse/6 reads no master; cancel/5 withdraws the pending post); lib/letflow/modules/stock/documents/kinds.ex (withdrawable kinds); web/src/pages/tasks/taskErrors.ts (409 with error record_version_conflict or master_inactive; 403 and role texts).
+# Runner API adapter (reads and the one reassign request only): obtain the current admin session token from the Authorization header of a successful read in the signed-in browser; keep it in memory, never log or save it. Send Authorization: Bearer <access_token> (exactly one Bearer prefix), base https://qoimeks-qa2.letflow.qa.bizdala.com. The reassign request is the one of ledger-2 (tenant task service, user id of the target read on the Users screen).
+# Label sources: web/src/modules/stock/documents/documentsMessages.ts (kinds Transfer / Перемещение, actions Issue, Reverse, Cancel document / Отменить документ, states), web/src/modules/locations/locationsMessages.ts (Retire / Вывести, Link, Show retired, Retire this location?), web/src/pages/tasks/taskMessages.ts (My Tasks, Claim, Complete, the two refusal texts), rendered by the real pages via stockRoutes.tsx, locationsRoutes.tsx and router.tsx.
+---
+id: qoimeks-ledger-3-L7-retired-master-and-changed-document
+scope: qoimeks-qa2
+title: >-
+  A post task is refused with a clear message when a place on the document was retired after issue, and when the posting differs from the issued document; nothing is posted and old postings can still be reversed
+version: '2.0'
+tags:
+- qoimeks
+- ledger
+- L7
+- master_inactive
+- record_version_conflict
+- refusal
+- ui
+- i18n
+description: >-
+  Part A (REQ-904, REQ-901, REQ-906, decision 0073 note 9.5). The administrator creates a new place and links it to the
+  org unit. The storekeeper moves stock from an existing place to it (transfer T0) and the administrator posts it. The
+  storekeeper issues a second transfer T1 to the same place. The administrator retires the place. The post task of T1
+  is now refused on the task screen with the clear "retired" text in English, Russian and Kazakh; T1 stays issued, its
+  task stays pending and no balance moves. A user without the posting permission is not told the reason (authority
+  first). The old posting T0 can still be reversed although its place is retired (a removing side is unchanged); the
+  storekeeper cancels T1, which withdraws its pending task. Part B (REQ-903, REQ-901, REQ-906). The storekeeper issues a
+  receipt D. An extra posting task for D whose content differs from the issued content (prepared by the fixture script)
+  is refused with the clear "document changed" text in English, Russian and Kazakh; D stays issued and nothing is
+  posted. The genuine posting task of D (unchanged variables) still posts once. Cleanup reverses D and removes the extra
+  task. The retired place stays retired (a retired place cannot be activated again); it is a run-owned synthetic place.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: >-
+    The stock module and the locations module are active; the storekeeper can read one balance row with a positive
+    quantity, with an item, an unit, an active place F, the org unit QOI-OU-1 and an active responsible employee E.
+  check: system_seeded
+  detail: >-
+    If the Balances screen is empty or inaccessible, report BLOCKED.
+- description: >-
+    Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER) and as actor-qoimeks-qa2-admin (QOIMEKS_QA2_ADMIN) at
+    https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2. Confirm the tenant before any action. Record the item,
+    place and balance counts at the start of the run (Items screen total, Locations total, Balances rows) and compare to
+    those. Before dependent writes read: stock definitions ACTIVE, shared access enabled, no location freeze on the chosen
+    place. If a prerequisite is absent or unreadable, stop the affected steps BLOCKED-by-environment. Do not seed, grant
+    roles or alter approval rules to satisfy a precondition.
+  check: runner_prepared
+  detail: >-
+    Check the signed-in tenant and existing stock before walking. The quick-count rule is not used here.
+- description: >-
+    The acceptance runner can execute these business steps with its own real-browser script, switch the screen language
+    between English, Russian and Kazakh, capture the requested viewport and language, and retain the screenshots.
+  check: runner_prepared
+  detail: >-
+    Prepare the script before the walk; no pipeline_test dependency. The language choice is kept by the browser for the
+    account: the last step of each language block puts it back to English.
+- description: >-
+    The user ids of the storekeeper and of the administrator are read at run time from the Users screen of the
+    administrator (the reassign request needs them). The runner's HTTP client uses the administrator's own credential
+    from the acceptance credential source, never one from a file.
+  check: runner_prepared
+  detail: >-
+    If an id or the credential is not available, the reassignment steps are BLOCKED-by-environment and the rest of the
+    walk is not moved or weakened. A reassign request is sent only for the task of this walk.
+- description: >-
+    Part B only: the fixture script scripts/qoimeks_qa2_fixture_ledger3.sh (planned, not yet on main, contract in the
+    header) exists on the deployed or checked-out repository and the operator can run it with the administrator's token.
+  check: runner_prepared
+  detail: >-
+    Until it merges, steps of part B are BLOCKED-by-environment; part A is walked and judged on its own. The task of this
+    walk that the script creates is the only one the cleanup step may cancel.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the Balances screen, chooses one row with a positive quantity and records its item, unit, place
+    F, org unit, responsible employee E and quantity BF0. The storekeeper decides a transfer quantity q that is a positive
+    whole number not above BF0 and uses the same q in every document of this walk. The storekeeper also records the counts
+    named in the preconditions.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens the Locations screen and creates a new place with a code and name of the run (prefix UAT-L7),
+    leaving the parent as the screen proposes, and saves it as P. Then the administrator opens the Location links screen,
+    chooses the org unit recorded in step 1 and links P to it ("Link"). The administrator reads that the org unit now lists P.
+  via: ui
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the New document form, chooses the kind Transfer, sets the From side (the recorded org unit,
+    place F and employee E) and the To side (the same org unit, place P and employee E), one line with the recorded item,
+    its unit and quantity q, and the current date and time. The storekeeper saves the draft and issues it as T0. The state is
+    Issued and the document number is noted as N0.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the posting task of N0, takes it ("Claim") and completes it ("Complete").
+    The administrator then reads T0 (state Posted) and filters Balances by the recorded item: the quantity at F is noted
+    as BF1 and the quantity at P as BP1.
+  via: ui
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper creates and issues a second transfer T1 exactly as in step 3 (From F, To P, the same item and quantity q).
+    The state is Issued and the number is noted as N1. The posting task of N1 is pending.
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The administrator opens the Locations screen, selects P and presses "Retire", then confirms in the dialog "Retire this
+    location?". P is shown as retired (visible under "Show retired") and no longer listed among the active places.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The test runner, with the administrator's credential, sends a reassign request for the posting task of N1 of this walk
+    (found in My Tasks by the document number) to the user id of the storekeeper read at the start. The request is
+    accepted: the task is now assigned to the storekeeper by name.
+  via: api
+- step: 8
+  actor: storekeeper
+  action: >-
+    The storekeeper opens My Tasks, selects the reassigned posting task of N1, takes it ("Claim") if the screen offers it and
+    presses the completing button.
+  expect_refusal: true
+  via: ui
+- step: 9
+  actor: admin
+  action: >-
+    The test runner sends the reassign request again, with the administrator's credential, giving the posting task of N1
+    back to the administrator's own user id. The request is accepted.
+  via: api
+- step: 10
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the task of N1 (it is still pending), takes it ("Claim") and presses
+    "Complete". The screen language is English. The refusal text is read and noted as E1.
+  expect_refusal: true
+  via: ui
+- step: 11
+  actor: admin
+  action: >-
+    The administrator reads T1 on the document screen, Balances filtered by the recorded item (the quantities at F and at
+    P) and Movements filtered by the document T1, as left by steps 8 and 10.
+  via: ui
+- step: 12
+  actor: admin
+  action: >-
+    The administrator switches the screen language to Russian and presses "Complete" on the same pending task of N1 again;
+    the refusal text is noted as E2 (Russian). The administrator switches to Kazakh, presses the completing button again and
+    notes the refusal text as E3 (Kazakh). The administrator switches the language back to English.
+  expect_refusal: true
+  via: ui
+- step: 13
+  actor: storekeeper
+  action: >-
+    The storekeeper opens T0 (state Posted) on the document screen and presses "Reverse" with the reason Other and the note
+    UAT reversal of the run transfer. A reversal task is pending; it is recorded as RV0.
+  via: ui
+- step: 14
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the reversal task RV0, takes it ("Claim") and completes it ("Complete"). It
+    completes although P is retired. The administrator then filters Balances by the recorded item and notes the quantities
+    at F as BF2 and at P as BP2.
+  via: ui
+- step: 15
+  actor: storekeeper
+  action: >-
+    The storekeeper opens T1 (state Issued) and presses "Cancel document" with the reason UAT test cancel. The document
+    state becomes Cancelled and its posting task leaves My Tasks. The storekeeper reads Movements filtered by the document T1.
+  via: ui
+- step: 16
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the New document form, chooses the kind Receipt, the recorded org unit, the active place F, the
+    employee E, one line with the recorded item, its unit and quantity q, the current date and time and the supplier
+    reference UAT-L7-REC. The storekeeper saves it and issues it as D; the number is noted as ND. The quantity at F is
+    noted as BF3.
+  via: ui
+- step: 17
+  actor: admin
+  action: >-
+    The operator runs the fixture script with the administrator's token and the identifier of D. It prints the manifest: the
+    extra posting task XT of D, whose posting quantity differs from the issued content, and its instance. The administrator
+    reads in My Tasks that two posting tasks for ND are now pending, the genuine one (GT) and XT (identified by the
+    identifier in the manifest).
+  via: api
+- step: 18
+  actor: admin
+  action: >-
+    The administrator opens My Tasks with the task XT selected by its identifier, takes it ("Claim") and presses "Complete".
+    The screen language is English; the refusal text is noted as E4.
+  expect_refusal: true
+  via: ui
+- step: 19
+  actor: admin
+  action: >-
+    The administrator reads D on the document screen (still Issued), the quantity at F in Balances (compared with BF3) and
+    Movements filtered by the document D.
+  via: ui
+- step: 20
+  actor: admin
+  action: >-
+    The administrator switches the screen language to Russian and presses "Complete" on XT again (refusal text E5), then to
+    Kazakh and presses it again (refusal text E6), then switches back to English.
+  expect_refusal: true
+  via: ui
+- step: 21
+  actor: admin
+  action: >-
+    The administrator selects the genuine task GT of ND in My Tasks, takes it ("Claim") and completes it ("Complete"). D is
+    Posted. The administrator reads the quantity at F as BF4 and Movements filtered by the document D.
+  via: ui
+- step: 22
+  actor: storekeeper
+  action: >-
+    The storekeeper opens D and presses "Reverse" with the reason Other and the note UAT reversal of the run receipt. A
+    reversal task is pending.
+  via: ui
+- step: 23
+  actor: admin
+  action: >-
+    The administrator opens My Tasks and completes the reversal task of D ("Claim", then "Complete"). The administrator
+    reads the quantity at F as BF5.
+  via: ui
+- step: 24
+  actor: admin
+  action: >-
+    The operator runs the fixture script with the option --cleanup and the instance identifier from the manifest. The
+    administrator reads in My Tasks that XT is gone and reads Balances for the recorded item at F and at P.
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: >-
+    Before the place is retired, a transfer into it posts normally and moves the stock (control for the refusal below).
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 3 and 4 (REQ-904 criterion 3 reads the unchanged cases; REQ-903 criterion 2, a posting with no change still
+      posts): T0 is Issued with number N0, then Posted. BF1 equals BF0 minus q and BP1 equals the quantity at P before
+      plus q (the place had no stock of the item before, so BP1 equals q; read the figures, do not assume).
+    evidence: >-
+      Screenshots of step 3 (document panel, state Issued) and step 4 (document state Posted, Balances rows at F and P).
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A transfer of stock to an active place does not post; the retired-master check cannot be told apart from a
+      general posting fault.
+    suggested_action: route_to_elixir_dev
+- id: EO-002
+  description: >-
+    The post task of a transfer into a place that was retired after issue is refused with the clear "retired" text in
+    English, Russian and Kazakh; nothing is posted and the task stays pending.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 10, 11 and 12 (REQ-904 criterion 1, REQ-906 criteria 1 to 3, decision 0073 note 9.5 and "Amended by REQ-904"):
+      the completion is refused and the task screen shows, in English (E1), "An item, unit, lot, place, department or
+      person on this document has been retired since it was issued. Ask an administrator to restore it, or cancel the
+      document."; in Russian (E2) "Номенклатура, единица, партия, место, подразделение или сотрудник из этого документа
+      выведены из использования после выпуска. Попросите администратора восстановить запись или отмените документ.";
+      in Kazakh (E3) "Бұл құжаттағы тауар, өлшем бірлігі, партия, орын, бөлім немесе қызметкер шығарылғаннан кейін қолданыстан
+      шығарылды. Әкімшіден жазбаны қалпына келтіруін сұраңыз немесе құжаттан бас тартыңыз." (web/src/pages/tasks/taskMessages.ts,
+      key errMasterRetired). T1 is still Issued, the task of N1 is still pending, the quantities at F and at P equal BF1
+      and BP1, and Movements for T1 shows no entry. The texts of the screen do not contain the words master_inactive or an
+      identifier.
+    evidence: >-
+      Screenshots of steps 10 and 12 (task screen with the refusal in the three languages, 1440 and 390 px) and of the step 11 reads of the document, Balances and Movements.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      Stock could be added to a retired place, or the storekeeper would see a generic failure and could not tell what
+      to do (the pilot gate of decision 0073 says L7 is done only when both typed refusals work).
+    suggested_action: route_to_elixir_dev
+- id: EO-003
+  description: >-
+    A user without the posting permission is not told the reason: authority comes first.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 8 and 11 (REQ-901 criterion 3, REQ-904 criterion 4): the storekeeper, who does not hold StockApprove, cannot complete the
+      reassigned task; the screen shows the not-permitted text "You do not have permission to do this. Ask your tenant
+      administrator." or "You do not hold the role this task is for." (taskMessages.ts errForbidden, errNotHeld) or offers
+      no completing action. The retired-place text of EO-002 is not shown to the storekeeper. T1 stays Issued and the
+      quantities are those of BF1 and BP1 (the same reads as in step 11).
+    evidence: >-
+      Screenshot of step 8 and the document and Balances reads.
+  on_fail:
+    severity: MAJOR
+    business_impact: >-
+      A person who may not post learns the state of masters of a document (a leak of the reason and of the existence of
+      a retired record).
+    suggested_action: route_to_elixir_dev
+- id: EO-004
+  description: >-
+    An old posting into the retired place can still be reversed; the removing side is unchanged.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 13 and 14 (REQ-904 criterion 3, decision 0073 note 9.5: "Sides that only remove stock and reversals are
+      unchanged"): the reversal task of T0 completes while P is retired. BF2 equals BF1 plus q and BP2 equals BP1 minus q
+      (compare only what this walk changed). The journal keeps the original entry and a reversal entry that negates it.
+    evidence: >-
+      Screenshots of step 14 (reversal completed, Balances at F and P) and Movements.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      Stock sitting in a retired place could not be moved out again through a reversal; the stock would be stuck.
+    suggested_action: route_to_elixir_dev
+- id: EO-005
+  description: >-
+    Cancelling the refused transfer withdraws its pending task and keeps its history.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 15 (decision 0078 D5 failure table, cancel the document; nothing to reverse): T1 shows Cancelled, the task of
+      N1 is gone from My Tasks, Movements for T1 shows no entry; BF2 and BP2 are unchanged by the cancel (re-read Balances after it).
+    evidence: >-
+      Screenshots of the document panel and My Tasks after step 15.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      A stuck issued document stays in the QA tenant and keeps a pending task nobody can complete.
+    suggested_action: route_to_elixir_dev
+- id: EO-006
+  description: >-
+    A post task whose content differs from the issued document is refused with the clear "document changed" text in
+    English, Russian and Kazakh; nothing is posted.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 18, 19 and 20 (REQ-903 criterion 3 as read at the screen, REQ-906 criteria 1 to 3): the completion of XT is
+      refused and the task screen shows, in English (E4), "This document was changed or cancelled after it was issued.
+      Reopen the document and check its current state."; in Russian (E5) "Документ изменён или отменён после выпуска. Откройте
+      документ заново и проверьте его текущее состояние."; in Kazakh (E6) "Құжат шығарылғаннан кейін өзгертілді немесе бас
+      тартылды. Құжатты қайта ашып, ағымдағы күйін тексеріңіз." (taskMessages.ts, key errDocumentChanged). D is still
+      Issued, the quantity at F equals BF3, Movements for D shows no entry, and the texts do not contain the words
+      record_version_conflict or an identifier. BLOCKED-by-environment while the fixture script is not on main.
+    evidence: >-
+      Screenshots of steps 18 and 20 (task screen in the three languages, 1440 and 390 px) and of the document, Balances and
+      Movements reads; the manifest printed by the script (no token).
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      A holder of the posting permission could post stock that is not the issued document (the binding gap of decision
+      0078 D5), or the storekeeper would see a generic failure.
+    suggested_action: route_to_elixir_dev
+- id: EO-007
+  description: >-
+    The genuine, unchanged posting task of the same document still posts exactly once.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 21 (REQ-903 criterion 2): D is Posted, BF4 equals BF3 plus q, Movements for D shows one receipt entry (one
+      journal entry for this document, not two).
+    evidence: >-
+      Screenshots of the document state and Movements after step 21.
+  on_fail:
+    severity: BLOCKER
+    business_impact: >-
+      The new binding check also refuses or doubles the normal posting; receipts cannot be booked.
+    suggested_action: route_to_elixir_dev
+- id: EO-008
+  description: >-
+    The cleanup restores the stock and leaves no stray task.
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 22, 23 and 24: after the reversal BF5 equals BF3 (the quantity at F as before D); the extra task XT is gone; the
+      quantity at P is the one of BP2. The retired place P stays retired (documented synthetic data of this run).
+    evidence: >-
+      Screenshots of Balances at F and P and My Tasks after step 24.
+  on_fail:
+    severity: MINOR
+    business_impact: >-
+      The QA tenant keeps a changed balance or a pending task from this walk; later walks see the wrong baseline.
+    suggested_action: route_to_elixir_dev

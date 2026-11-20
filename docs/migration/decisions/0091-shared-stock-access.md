@@ -493,6 +493,36 @@ build choices are recorded here (decision 0073 note 16.2 said the credential mus
   receipt has no realistic ledger refusal. A refused issue, transfer or reversal is discarded, cancelled
   or withdrawn.
 
+## 11c. Amendment (REQ-907, as built)
+
+The real old Qoimeks app (web build 0.1.2, the production APK version) was run against the address and
+stopped on its first call. `Letflow.Routers.SharedStockAccess` therefore serves the five calls at two path
+forms, and four statements of the "Sources" text above (and of sections 6 and 7) are corrected. The build
+and the real app rule over the earlier text:
+
+- **The `/api` path segment.** The app adds `/api` in front of every path (`Qoimeks mobile/lib/api.dart`).
+  `GET /qoimeks/<slug>/api/catalog`, `GET .../api/balances`, `GET .../api/movements`,
+  `POST .../api/movements` and `POST .../api/movements/:id/reverse` give exactly the answer of the same
+  call without `/api`; the paths without `/api` keep answering (the UAT groups `qoimeks-token` and
+  `qoimeks-retry` use them). Both forms run the same handler after the same plugs: failure counting,
+  authentication, the per-credential request token and the scope enforcement refusal run once per
+  request, in the order of the router's moduledoc, so an `/api` path spends the same token as the plain
+  one. Every other path under the prefix, with or without `/api` (`/api/voice`, `/api/parse`,
+  `/api/feedback`, `/api/codes`, `/api/codes/lookup`), stays 404 `{"error": "not found"}` after
+  authentication; those calls are sized in `docs/status/qoimeks-old-client-compat.md` section 5.
+- **Correction 1, the paths carry `/api`.** Sources and sections 6 and 7 write them without it.
+- **Correction 2, the header is `Authorization: Bearer <code>`.** The text says "the raw value, not
+  Bearer"; the app sends `Bearer <code>` (`api.dart` `ApiClient`), and the build accepts exactly that.
+- **Correction 3, the catalog is an object.** The old server answers `{"skus": [...], "locations": [...]}`
+  with a `code` per item (`store.go` `Catalog`), not a flat list of `id, name, article, unit, barcode`.
+  The shape itself is built by REQ-908; this task changes no answer shape.
+- **Correction 4, a movement id is text and the quantity field is `qty`.** The id is a UUID on the old
+  server and the app reads it as text, not an integer; the quantity of a movement is named `qty`. REQ-909
+  builds this; this task changes no answer shape.
+
+Out of scope here: the calls not served (count, codes, voice, feedback, parse), the pairing call, and any
+change to the credential or its rules.
+
 ## 12. Owner table
 
 Every assumption marked "assumption, owner may change" in the sections above:
