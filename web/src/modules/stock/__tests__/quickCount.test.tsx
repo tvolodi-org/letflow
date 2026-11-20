@@ -346,6 +346,17 @@ describe('C2c exact difference', () => {
     expect(screen.getByTestId('difference-display').textContent).toBe('0')
   })
 
+  it('groups the difference with the language separators in Russian', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    setupGetMock({ balance: '857.000000000' })
+    renderQC()
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity').textContent).toBe('857'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '12345678901.123456789' } })
+    // The Russian group separator is a no-break space (U+00A0) and the decimal separator a comma.
+    expect(screen.getByTestId('difference-display').textContent).toBe('12\u00A0345\u00A0678\u00A0044,123')
+  })
+
   it('subtractDecimal is exact and trims trailing zeros', () => {
     expect(subtractDecimal('7', '10')).toBe('-3')
     expect(subtractDecimal('10.3', '10.1')).toBe('0.2')

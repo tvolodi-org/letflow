@@ -247,6 +247,62 @@ describe('C2 check', () => {
     expect(screen.getByText('ART-2')).toBeInTheDocument()
   })
 
+  // T-2364: the server sends up to 9 decimals; the table shows the Balances format (trimmed, grouped by language).
+  it('shows the book and the difference in the Balances format, not the raw nine decimals', async () => {
+    const user = userEvent.setup()
+    renderWB()
+    await waitFor(() => expect(screen.getByTestId('wb-check')).toBeInTheDocument())
+
+    const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
+    await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
+    fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
+    await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
+
+    clientMock.postRaw.mockResolvedValueOnce({
+      sheet: 'S', rows_read: 1, remarks: [],
+      changes: [{
+        row: 1, item_code: 'ART-1', item_name: 'Name 1', place_code: 'A-01',
+        book_quantity: '857.000000000', file_quantity: '12345678901.123456789', difference: '12345678044.123456789',
+      }],
+      unchanged_count: 0, too_many_changes: false,
+    })
+    fireEvent.click(screen.getByTestId('wb-check'))
+    await waitFor(() => expect(screen.getByTestId('wb-check-result')).toBeInTheDocument())
+
+    // The raw text is nowhere on the screen: the book reads 857 and the difference is grouped and trimmed.
+    expect(screen.queryByText('857.000000000')).not.toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '857' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '12,345,678,044.123' })).toBeInTheDocument()
+  })
+
+  it('groups the difference with the language separators in Russian', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    const user = userEvent.setup()
+    renderWB()
+    await waitFor(() => expect(screen.getByTestId('wb-check')).toBeInTheDocument())
+
+    const orgUnitSelect = screen.getByTestId('wb-org-unit').querySelector('select')!
+    await waitFor(() => expect(orgUnitSelect.options.length).toBeGreaterThan(1))
+    fireEvent.change(orgUnitSelect, { target: { value: 'ou1' } })
+    await user.upload(screen.getByTestId('dropzone-input'), xlsxFile())
+    await waitFor(() => expect(screen.getByTestId('wb-check')).not.toBeDisabled())
+
+    clientMock.postRaw.mockResolvedValueOnce({
+      sheet: 'S', rows_read: 1, remarks: [],
+      changes: [{
+        row: 1, item_code: 'ART-1', item_name: 'Name 1', place_code: 'A-01',
+        book_quantity: '857.000000000', file_quantity: '12345678901.123456789', difference: '12345678044.123456789',
+      }],
+      unchanged_count: 0, too_many_changes: false,
+    })
+    fireEvent.click(screen.getByTestId('wb-check'))
+    await waitFor(() => expect(screen.getByTestId('wb-check-result')).toBeInTheDocument())
+
+    // The Russian group separator is a no-break space (U+00A0) and the decimal separator a comma.
+    expect(screen.getByRole('cell', { name: '12\u00A0345\u00A0678\u00A0044,123' })).toBeInTheDocument()
+  })
+
   it('marks a row-null change as emptied', async () => {
     const user = userEvent.setup()
     renderWB()
