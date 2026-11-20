@@ -264,7 +264,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 4 is accepted. Step 5 shows the action is refused (the screen shows an error or the task is no longer offered; it does not show "Approved" or the completed state); the document REF-1 is still "Issued" and Balances still reads B0 (nothing posted). After step 6 the administrator completes the posting and the balance moves as in the later steps.
+      Step 4 is accepted. Step 5 shows the action is refused with the uniform not-found answer (HTTP 404, INV-5 and decision 0093: a caller who cannot act on the task is answered as for a missing task) and the generic text "The action failed. Try again." (not the "not permitted" text), or the task is no longer offered (the screen it does not show "Approved" or the completed state); the document REF-1 is still "Issued" and Balances still reads B0 (nothing posted). After step 6 the administrator completes the posting and the balance moves as in the later steps.
     evidence: Status of step 4, screenshots of step 5 and of Balances.
   on_fail:
     severity: BLOCKER
