@@ -1,6 +1,6 @@
 # T-2258 code-reading pass (2026-11-19); source checks are not live acceptance evidence.
 # 1. Scope: every scenario parsed as qoimeks-qa2; existing synthetic tenant/realm confirmed by the owner task; directory and run title remain UAT qoimeks-ledger. Live authenticated tenant enumeration not repeated.
-# 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, admin completes their routed tasks (priv/modules/stock/pack.json). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
+# 2. Actors: actors.yaml names qoimeks-qa2 admin (TENANT_ADMIN) and storekeeper (STOREKEEPER) in this realm; storekeeper requests posting/reversal, the completer of the posting and reversal tasks must hold the permission StockApprove (the administrator holds it, the storekeeper does not; in a one-person company that person is the tenant admin and holds it, docs/design/four-eyes-switch.md section 6); the tasks are only addressed to the administrator role for My Tasks (priv/modules/stock/pack.json, decision 0093). Preflight found NO_PASSWORD for both: no live login or effective permissions verified; acceptance credentials are a precondition.
 # 3. Host and screens: stockRoutes.tsx, router.tsx and mounted stock, My reports and Approval rules pages read on main; read-only tenant-host HEAD returned 200. Live authenticated screens remain unverified.
 # 4. Data: read counts, full stock keys, active masters, linked places, responsible employees, pending tasks and report data at run time. Read stock definitions ACTIVE, shared access enabled, quick-count four-eyes ON and opening approval OFF before dependent writes; generator qoimeks_gen.py does not establish live settings. Ledger-3 is BLOCKED-by-environment until the invalid-item posting harness described in its precondition is supplied; never assume it exists.
 # 5. Executable: source review covers every group outcome: journal filters/legs, receipt post/reversal, L7 rule order, opening approval/audit, report cards and approval-rule refusal. Browser/HTTP runner supplies its own script. Ledger-6 tests unauthorized reads; missing fixture or credentials blocks affected steps before writes.
@@ -34,6 +34,7 @@
 # Use a fresh per-action idempotency-key if supplied; second-post refusal uses a new key, not a replay of the successful posting.
 # Reverse starts a task: complete it in My Tasks before claiming restoration. Refusal is not a reachability probe; writes are only the named scenario actions.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
+# Not UAT-observable (decision 0093 test T3, covered by the product tests): the refusal after the routing role of a process is renamed or removed; a UAT walk must not edit the shipped stock process definitions of the tenant. Reassignment (decision 0093 T2) IS walked: a role-routed task is reassigned by the administrator to the storekeeper through the tenant task service (reassign request with the user id, a plain HTTP client; the Users screen of the administrator shows the user ids; the web app has no reassign screen).
 ---
 id: qoimeks-ledger-2-post-and-verify-movement
 scope: qoimeks-qa2
@@ -55,7 +56,7 @@ tags:
 description: >-
   The storekeeper picks an existing item and place from the synthetic data (any row on the Balances screen) and
   notes the current balance as B0. The storekeeper creates a new stock receipt named "UAT-LEDGER-REC-01" for a positive quantity
-  of that item at that place, issues it and the administrator completes the posting task in My Tasks. The balance increases by
+  of that item at that place, issues it. The administrator hands the posting task to the storekeeper and the storekeeper is refused (the storekeeper lacks the approve permission StockApprove); the administrator takes the task back and completes the posting task in My Tasks. The balance increases by
   the issued quantity read at run time and the movement history shows the new entry. The storekeeper then tries to post the same receipt again and
   is refused (the document is already posted). As cleanup the storekeeper requests reversal and the administrator completes its task: the balance returns
   to B0 and the reversal entry appears in the movements. Both the original posting and its reversal remain in the
@@ -97,6 +98,9 @@ preconditions:
     Prepare the script before the walk; no pipeline_test dependency. If browser, workbook reading or file upload
     support is unavailable, report the affected outcomes BLOCKED-by-environment; the absence of pipeline_test alone
     is not a blocker under this task contract.
+- description: The user ids of the storekeeper and of the administrator are read at run time from the Users screen of the administrator (the ids the reassign request needs). The runner's HTTP client uses the administrator's own credential from the acceptance credential source for the reassign requests, never one from a file.
+  check: runner_prepared
+  detail: If an id or the credential for the request is not available, the reassignment steps are BLOCKED-by-environment and the rest of the walk is not moved or weakened. A reassign request is sent only for the task of this walk.
 steps:
 - step: 1
   actor: storekeeper
@@ -121,22 +125,37 @@ steps:
 - step: 4
   actor: admin
   action: >-
-    The administrator opens My Tasks, finds the posting task for REF-1 and completes it. The document state is noted
+    The test runner, with the administrator's credential, sends a reassign request for the posting task of REF-1 of this walk
+    (identified in My Tasks or in the tenant task list by the document number noted before) to the user id of
+    the storekeeper read at the start. The request is accepted: the task is now assigned to the storekeeper by name.
+  via: api
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper opens My Tasks; the reassigned task is now listed there (it is assigned to the storekeeper by name).
+    The storekeeper selects it, takes it ("Claim") if the screen offers it, and presses the completing button of the
+    task. Then the storekeeper reads the document REF-1 and Balances: the document is still "Issued" and the balance still reads B0.
+  expect_refusal: true
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The administrator first has the task given back, the test runner sends the same reassign request, with the administrator's credential, to the administrator's own user id read at the start. The administrator, who holds the approve permission StockApprove, opens My Tasks, finds the posting task for REF-1 and completes it. The document state is noted
     as S1.
   via: ui
-- step: 5
+- step: 7
   actor: storekeeper
   action: >-
     The storekeeper opens the Balances screen and filters by the item and location from step 1. The balance is
     noted as B1.
   via: ui
-- step: 6
+- step: 8
   actor: storekeeper
   action: >-
     The storekeeper opens Movements and selects the document filter using D1, the recorded document identifier,
     then reads the receipt operation and its expanded legs as M1.
   via: ui
-- step: 7
+- step: 9
   actor: storekeeper
   action: >-
     The storekeeper opens the posted document D1 on the document screen and looks for any way to post it again. The
@@ -144,22 +163,22 @@ steps:
     API (read only) to verify state and balance.
   expect_refusal: true
   via: ui
-- step: 8
+- step: 10
   actor: storekeeper
   action: >-
     The storekeeper opens D1 on the document screen, uses the Reverse action with reason Other and note UAT reversal
     of UAT-LEDGER-REC-01. Record the pending task shown; starting reversal alone does not restore balances.
   via: ui
-- step: 9
+- step: 11
   actor: admin
   action: >-
     The administrator opens My Tasks and completes the reversal task for D1. Record the resulting document state.
   via: ui
-- step: 10
+- step: 12
   actor: storekeeper
   action: >-
-    The storekeeper opens the Balances screen (same filter as step 5) and the Movements screen (same filter as
-    step 6). The balance is noted as B2 and the two newest movements are noted as M2.
+    The storekeeper opens the Balances screen (same filter as step 7) and the Movements screen (same filter as
+    step 8). The balance is noted as B2 and the two newest movements are noted as M2.
   via: ui
 expected_outcomes:
 - id: EO-001
@@ -183,10 +202,10 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 4 shows the document in state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген"); the task is gone
+      Step 6 shows the document in state "Posted" (Russian: "Проведён", Kazakh: "Өткізілген"); the task is gone
       from My Tasks. B1 equals B0 plus Q for the recorded full stock key.
     evidence: >-
-      Screenshots of step 4 (document state) and step 5 (balance panel).
+      Screenshots of step 6 (document state) and step 7 (balance panel).
   on_fail:
     severity: BLOCKER
     business_impact: >-
@@ -201,7 +220,7 @@ expected_outcomes:
       M1 is a posted receipt operation with document number REF-1 and the issued line item, location, unit and
       quantity Q. The displayed English cause is "Receipt".
     evidence: >-
-      Screenshot of step 6 (Movements screen filtered to the document, with M1 visible).
+      Screenshot of step 8 (Movements screen filtered to the document, with M1 visible).
   on_fail:
     severity: MAJOR
     business_impact: >-
@@ -213,12 +232,12 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 7: the document screen offers no posting action for the posted document D1 (only Reverse). Before reversal,
+      Step 9: the document screen offers no posting action for the posted document D1 (only Reverse). Before reversal,
       re-read D1 through the API (read only), its movements and full-key balance: the document stays posted, there is
       only the original posting entry and the balance remains B1. The API refusal is not probed: writes go only
       through the screens.
     evidence: >-
-      Screenshot of step 7 (document screen with its actions) and the read-only API responses.
+      Screenshot of step 9 (document screen with its actions) and the read-only API responses.
   on_fail:
     severity: MAJOR
     business_impact: >-
@@ -234,9 +253,20 @@ expected_outcomes:
       the original receipt entry and a reversal entry that negates it. Keep both entry identifiers and the reversal
       link; do not require a new reversal document number.
     evidence: >-
-      Screenshots of step 10 (balance panel and Movements screen with both entries visible).
+      Screenshots of step 12 (balance panel and Movements screen with both entries visible).
   on_fail:
     severity: MAJOR
     business_impact: >-
       Reversals do not restore the balance; stock accounting is unreliable.
     suggested_action: route_to_elixir_dev
+- id: EO-006
+  description: A posting task handed to the storekeeper still cannot be completed by the storekeeper, because completing a posting needs the approve permission (decision 0093 D2 and D4).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 is accepted. Step 5 shows the action is refused (the screen shows an error or the task is no longer offered; it does not show "Approved" or the completed state); the document REF-1 is still "Issued" and Balances still reads B0 (nothing posted). After step 6 the administrator completes the posting and the balance moves as in the later steps.
+    evidence: Status of step 4, screenshots of step 5 and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could post stock alone by being handed the task.
+    suggested_action: route_to_backend_dev
