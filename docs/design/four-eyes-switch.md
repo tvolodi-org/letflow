@@ -229,6 +229,18 @@ own suites.
 
 ## 6. Pilot note: Qoimeks Client 1 (stock only)
 
+**Permission guard (stock 0.23.0, decision 0093).** Stock approve, post and reverse tasks require
+`StockApprove` on claim and completion, held by TENANT_ADMIN through its tenant-scope catch-all, not by
+STOREKEEPER. The routing label only addresses the task; reassignment cannot supply the permission.
+Four eyes answers whether the preparer and approver may be the same person; it does not grant approval
+authority. In a one-person company the tenant admin is the approver and can self-approve only with the
+applicable four-eyes rule OFF; the self-approval is audited. A storekeeper remains refused with it ON or OFF.
+Decision 0093 intends delegation to a tenant-defined role; this is not available yet (no tenant-defined
+permission roles, and `Authorization.grantable/0` excludes `StockApprove`). Use the tenant administrator
+until that feature is delivered; a routing-role binding alone does not delegate approval. Existing pinned
+definitions keep their old addressing checks until replaced; see `docs/runbooks/stock-counts.md`,
+"Who may approve, post and reverse".
+
 Approvals in the stock module (section 2, rows 3 and 14, V): **two four-eyes approvals exist: the stock opening
 (`stock_opening`, step `approve` apart from `submit`) and the quick count (`stock_quick_count`, step `approve`
 kept apart from `submit` by `distinct_from`, `priv/modules/stock/generate_pack.exs`, REQ-854). An Excel load that
