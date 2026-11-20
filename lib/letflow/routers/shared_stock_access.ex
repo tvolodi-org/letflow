@@ -6,8 +6,8 @@ defmodule Letflow.Routers.SharedStockAccess do
 
   | Route | Answer |
   |---|---|
-  | `GET /catalog` | 200 JSON array: `id, name, article, unit, barcode` |
-  | `GET /balances[?sku_id&location_id]` | 200 JSON array: `sku_id, location_id, quantity, sku_name, location_name` |
+  | `GET /catalog` | 200 JSON object (REQ-908, the old app's shape): `skus` (sorted by code: `id, code, name, unit` (`""` when none), `location_id` and `barcode` only when present) and `locations` (sorted by code: `id, code, name`) |
+  | `GET /balances[?sku_id&location_id]` | 200 JSON array of the non-zero balances sorted by place code (REQ-908): `sku_id, location_id, location_code, qty` |
   | `GET /movements[?sku_id&location_id&limit]` | 200 JSON array, newest first, `limit` 50 when missing or outside 1..500: `id, kind, sku_id, location_id, quantity, operator, created_at` |
   | `POST /movements` | 201 one movement (the row of `GET /movements`) of the posted document; 200 the STORED row when the same `id` is sent again with equal data; body `kind` (`receipt`, `issue`, `transfer`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (REQUIRED: the client operation id, a UUID string; missing or not a UUID is 400 `id is required`; the same `id` with other data is 409) |
   | `POST /movements/:id/reverse` | 201 the reversal's own movement row, 200 its stored row for the same reversal `id` sent again; body `id` (REQUIRED, the reversal's own new UUID), `operator` (or `X-Operator`) |

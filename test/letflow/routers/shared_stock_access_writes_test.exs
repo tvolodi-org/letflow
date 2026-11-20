@@ -166,7 +166,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
     rows = call(:get, t.a.tenant.slug, "/balances", t.value) |> status!(200)
 
     case Enum.filter(rows, &(&1["location_id"] == location and &1["sku_id"] == t.sku)) do
-      [row] -> row["quantity"]
+      [row] -> row["qty"]
       [] -> 0
     end
   end
