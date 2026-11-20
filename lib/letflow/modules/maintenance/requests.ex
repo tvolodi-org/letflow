@@ -44,6 +44,7 @@ defmodule Letflow.Modules.Maintenance.Requests do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Attachments.Link
   alias Letflow.Audit
   alias Letflow.Documents
   alias Letflow.Entities.ManagedTypes
@@ -217,6 +218,23 @@ defmodule Letflow.Modules.Maintenance.Requests do
   @spec get(String.t(), term()) :: {:ok, map()} | {:error, :not_found}
   def get(prefix, id) when is_binary(prefix) do
     with {:ok, row} <- fetch(prefix, id), do: {:ok, view(prefix, row)}
+  end
+
+  @doc """
+  REQ-895: the attachment owner of a request and whether it is still `new`. An unknown, malformed
+  or other tenant's id is `{:error, :not_found}`, as `get/2`.
+  """
+  @spec photo_owner(String.t(), term()) ::
+          {:ok, %{owner: %{kind: String.t(), id: String.t()}, new?: boolean()}}
+          | {:error, :not_found}
+  def photo_owner(prefix, id) when is_binary(prefix) do
+    with {:ok, row} <- fetch(prefix, id) do
+      {:ok,
+       %{
+         owner: %{kind: @type_name, id: row.record_id},
+         new?: row.field_values["status"] == "new"
+       }}
+    end
   end
 
   defp list_params(params) do
@@ -440,8 +458,19 @@ defmodule Letflow.Modules.Maintenance.Requests do
       "reported_by" => fv["reported_by"],
       "reject_reason" => fv["reject_reason"],
       "order" => nil,
+      "photo_count" => photo_count(prefix, row.record_id),
       "created_at" => DateTime.to_iso8601(row.inserted_at)
     }
+  end
+
+  defp photo_count(prefix, record_id) do
+    Repo.aggregate(
+      from(l in Link,
+        where: l.owner_kind == @type_name and l.owner_id == ^record_id and l.purpose == "photo"
+      ),
+      :count,
+      prefix: prefix
+    )
   end
 
   defp number(prefix, document_id) do

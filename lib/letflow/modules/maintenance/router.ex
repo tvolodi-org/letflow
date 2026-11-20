@@ -10,6 +10,9 @@ defmodule Letflow.Modules.Maintenance.Router do
   | `GET /requests` (`status`, `limit`, `cursor`) | `MaintenanceRead` | `Requests.list/2` | 200 `rows, next_cursor` |
   | `GET /requests/:id` | `MaintenanceRead` | `Requests.get/2` | 200 request view |
   | `POST /requests/:id/reject` (body `reason`) | `MaintenanceOrderManage` | `Requests.reject/4` | 200 request view |
+  | `POST /requests/:id/photos` (multipart, REQ-895) | `MaintenanceRequestCreate` | `Photos.upload/1` | 201 photo |
+  | `GET /requests/:id/photos` (REQ-895) | `MaintenanceRead` | `Photos.list/1` | 200 `photos` |
+  | `GET /requests/:id/photos/:photo_id/original`, `.../thumbnail` (REQ-895) | `MaintenanceRead` | `Photos.content/2` | 200 stored bytes |
 
   Guards, in this order: the release flag (`Letflow.Modules.Maintenance.enabled?/0`; off answers the
   404 of an unknown path on every route, also for a tenant that installed the module while the flag
@@ -24,7 +27,7 @@ defmodule Letflow.Modules.Maintenance.Router do
   `request_not_new` and `idempotency_key_reuse`; 422 with a fixed `reason` (`asset_card_not_found`,
   `asset_card_inactive`, `asset_card_no_org_unit`, `description_required`, `description_too_long`,
   `invalid_urgency`, `reason_required`, `invalid_filter`, `field_not_allowed`, `field_invalid`);
-  `audit_failed` is 500.
+  `audit_failed` is 500. The photo routes' own refusals are in `Letflow.Modules.Maintenance.Photos`.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -33,6 +36,7 @@ defmodule Letflow.Modules.Maintenance.Router do
   alias Letflow.Api.Response
   alias Letflow.Modules.Maintenance
   alias Letflow.Modules.Maintenance.Access
+  alias Letflow.Modules.Maintenance.Photos
   alias Letflow.Modules.Maintenance.Requests
   alias Letflow.Modules.RouterKit
 
@@ -92,6 +96,24 @@ defmodule Letflow.Modules.Maintenance.Router do
           render(conn, error, 200)
       end
     end)
+  end
+
+  # REQ-895: photos of a request; Photos owns the guard order (flag, tenant-wide guard, lookup) and
+  # the refusal map (409 request_not_new on an upload after the request left `new`).
+  authz_post "/requests/:id/photos", :MaintenanceRequestCreate do
+    Photos.upload(conn)
+  end
+
+  authz_get "/requests/:id/photos", :MaintenanceRead do
+    Photos.list(conn)
+  end
+
+  authz_get "/requests/:id/photos/:photo_id/original", :MaintenanceRead do
+    Photos.content(conn, :original)
+  end
+
+  authz_get "/requests/:id/photos/:photo_id/thumbnail", :MaintenanceRead do
+    Photos.content(conn, :thumbnail)
   end
 
   authz_unmatched(:ordinary)

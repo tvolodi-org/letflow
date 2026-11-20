@@ -16,6 +16,8 @@ defmodule Letflow.Attachments.Owners do
     "catalog_item" => %{purposes: %{"photo" => %{max: 10, main: true}}},
     "catalog_lot" => %{purposes: %{"photo" => %{max: 10, main: true}}},
     "location_node" => %{purposes: %{"photo" => %{max: 10, main: true}}},
+    # REQ-895 (CMMS slice 1 part 3): the photos of a maintenance work request (UAT assumption: 5).
+    "maintenance_work_request" => %{purposes: %{"photo" => %{max: 5, main: false}}},
     "problem_report" => %{
       purposes: %{"screenshot" => %{max: 3, main: false, retain_days: 30}}
     }
