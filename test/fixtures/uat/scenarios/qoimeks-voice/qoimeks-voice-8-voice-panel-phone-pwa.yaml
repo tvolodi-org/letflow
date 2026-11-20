@@ -10,6 +10,7 @@
 # 3. Host and screens: API routes of the stock voice (docs/runbooks/stock-voice.md; POST draft multipart and POST draft-text JSON); the only screen is the voice panel of the phone PWA https://pwa.letflow.qa.bizdala.com/ on the new receipt, issue or transfer document form (apps/mobile/lib/features/stock/documents/document_form_screen.dart, apps/mobile/lib/features/stock/voice/voice_panel.dart); the web SPA has no voice screen (grep voice in web/src finds none outside the print template fixtures).
 # 4. Data: demo catalog and places of the generator task T-2189 (items BLT-M8-40, PNT-WH-10, WSH-8, CBL-3x1.5, NUT-M8, NUT-M10, BLT-M10-60, TAPE-48, GLV-L, SCR-4-40, PNT-GR-3, CBL-3x2.5; places A-01, A-02, A-03, B-01, B-02, C-01, RAMP, LA3; no C-02 and no D-03) read in each scenario before use; counts of documents, count records and balances rows are read at the start of the run and compared at the end, never assumed; a missing item or place makes the scenario BLOCKED-by-environment naming T-2189. The BLOCKED-by-keys markers of the earlier version are removed: the keys are set; the precondition is now a check that the settings are on (a typed answer with the notice llm_off means the model is off; a 503 speech_off on the audio route means speech is off; then report BLOCKED-by-environment, do not change settings, do not retry).
 # 5. Executable: HTTP steps (the audio steps upload the webm file with the runner's own HTTP client: multipart field audio and field lang with the value ru or kk) and browser steps with the runner's own script; no step depends on pipeline_test.
+# EXPECTATION CORRECTIONS (T-2370): 3 - English shows the language chips, the hint and 'Send phrase' and no 'Speak' until a chip is tapped (voice_panel.dart c.lang == null branch; ru/kk walked PASS without chips); EO-003 derives from the walker's own request log, not tenant-wide counts; step 2 text and description aligned.
 # 6. Dry run: uat.sh preflight with the title UAT qoimeks-voice was not run by the writer (no QA credentials in the writer session); all files of the group were parsed with yaml.safe_load and the static check was run on the group.
 ---
 id: qoimeks-voice-8-voice-panel-phone-pwa
@@ -26,7 +27,7 @@ tags:
 - ru
 - kk
 description: >-
-  On the phone PWA the storekeeper opens a new receipt document and finds the voice panel (the voice button and the typed-phrase field; in English also the language choice). The panel is only looked at: recording needs a microphone and a send would spend a provider
+  On the phone PWA the storekeeper opens a new receipt document and finds the voice panel (in Russian and Kazakh the voice button and the typed-phrase field; in English the language choice and the typed-phrase field, the voice button only after a language is chosen). The panel is only looked at: recording needs a microphone and a send would spend a provider
   call outside the budget. The texts follow the interface language and nothing is stored.
 actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
@@ -55,9 +56,7 @@ steps:
 - step: 2
   actor: storekeeper
   action: >-
-    The storekeeper looks at the voice panel above the lines of the form: the button «Сказать» (Russian; «Speak» in English,
-    «Айту» in Kazakh) and the typed-phrase field with the hint «Или введите фразу» and the button «Отправить фразу» (English
-    «Or type the phrase» and «Send phrase»; Kazakh «Немесе сөйлемді теріңіз» and «Сөйлемді жіберу»). In Russian and in Kazakh there is no language choice: the phrase language is the app language (the language chips are shown only when the app language is neither Russian nor Kazakh, apps/mobile/lib/features/stock/voice/voice_language.dart and voice_panel.dart). The storekeeper does not press the button, does not type a phrase and does not
+    The storekeeper looks at the voice panel above the lines of the form. In Russian: the button «Сказать», the typed-phrase field with the hint «Или введите фразу» and the button «Отправить фразу». In Kazakh: «Айту», «Немесе сөйлемді теріңіз» and «Сөйлемді жіберу». In Russian and in Kazakh there is no language choice: the app language is the phrase language. In English (neither Russian nor Kazakh) the panel shows instead the title «Language of the phrase» with the chips «Russian» and «Kazakh», the hint «Or type the phrase» and the button «Send phrase», and NO «Speak» button until a chip is chosen (apps/mobile/lib/features/stock/voice/voice_language.dart and voice_panel.dart). The storekeeper may tap a language chip in English to see that «Speak» then appears (a selection on the screen, no provider call). The storekeeper never presses «Speak», does not type a phrase and does not
     send one: a headless browser has no microphone, and the provider budget of qoimeks-voice-5 and -6 allows no extra call.
   via: gui_screen
 - step: 3
@@ -87,7 +86,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      In Kazakh the button reads «Айту», the field hint «Немесе сөйлемді теріңіз» and the send button «Сөйлемді жіберу», with no language choice. In English the button reads «Speak» and the panel shows the language choice titled «Language of the phrase» with the chips «Russian» and «Kazakh» (the only language in which the chips appear). Back in Russian the Russian texts return and the chips are gone.
+      In Kazakh the button reads «Айту», the field hint «Немесе сөйлемді теріңіз» and the send button «Сөйлемді жіберу», with no language choice. In English the panel shows the language choice titled «Language of the phrase» with the chips «Russian» and «Kazakh», the hint «Or type the phrase» and the button «Send phrase», and no «Speak» button (the only language in which the chips appear; the button «Speak» shows only after a chip is tapped, and then the chips are replaced by it). Back in Russian the Russian texts return and the chips are gone.
     evidence: Screenshot in Kazakh.
   on_fail:
     severity: MINOR
@@ -99,8 +98,8 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      D1 equals D0: opening the form and leaving it without saving creates no document.
-    evidence: D0 and D1.
+      Other sessions use the tenant, so no tenant-wide count is compared. The runner keeps a request log of its own browser and HTTP client for this walk: it holds no request to the voice routes (neither the audio route nor the typed-phrase route) and no request that creates a document. The counts D0 and D1 are shown as information only; a difference caused by another session is not a defect.
+    evidence: The walker's own request log with zero voice-route requests and zero document creations (D0 and D1 for information).
   on_fail:
     severity: MAJOR
     business_impact: Opening the voice form creates stray draft documents.
