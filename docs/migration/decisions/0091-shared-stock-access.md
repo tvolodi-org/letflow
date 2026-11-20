@@ -516,6 +516,10 @@ and the real app rule over the earlier text:
 - **Correction 3, the catalog is an object.** The old server answers `{"skus": [...], "locations": [...]}`
   with a `code` per item (`store.go` `Catalog`), not a flat list of `id, name, article, unit, barcode`.
   The shape itself is built by REQ-908; this task changes no answer shape.
+  REQ-908 as built: a sku row has `id, code, name, unit` (`""` when the item has no base unit),
+  `location_id` (the integer of the item's default place, absent when none or not active) and `barcode`
+  (absent when none); a location row has `id, code, name`; a balance row has `sku_id, location_id,
+  location_code, qty`, sorted by place code. The second place (`alt_location_id`) is not served (D-150).
 - **Correction 4, a movement id is text and the quantity field is `qty`.** The id is a UUID on the old
   server and the app reads it as text, not an integer; the quantity of a movement is named `qty`. REQ-909
   builds this; this task changes no answer shape.
