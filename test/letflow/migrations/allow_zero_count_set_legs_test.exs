@@ -1,4 +1,4 @@
-defmodule Letflow.AllowZeroCountLedgerLegsTest do
+defmodule Letflow.AllowZeroCountSetLegsTest do
   @moduledoc """
   T-2415: the tenant migration that lets the old Qoimeks empty-shelf count store its zero count_set
   leg. The core validator keeps zero refused for every other cause. Up and down run in a test schema.
@@ -6,7 +6,7 @@ defmodule Letflow.AllowZeroCountLedgerLegsTest do
   use Letflow.DataCase, async: false
 
   alias Letflow.{Repo, TenantFixture, TenantProvisioning}
-  alias Letflow.Repo.Migrations.AllowZeroCountLedgerLegs
+  alias Letflow.Repo.Migrations.AllowZeroCountSetLegs
 
   @version 20_261_121_100_001
 
@@ -25,7 +25,7 @@ defmodule Letflow.AllowZeroCountLedgerLegsTest do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "t2415-mig")
     schema = fx.schema_name
 
-    assert {@version, AllowZeroCountLedgerLegs} =
+    assert {@version, AllowZeroCountSetLegs} =
              List.last(TenantProvisioning.tenant_scoped_migrations())
 
     assert constraints(schema) == []
@@ -42,10 +42,10 @@ defmodule Letflow.AllowZeroCountLedgerLegsTest do
     Application.put_env(:letflow, :allow_ledger_migration_down, true)
     opts = [prefix: schema, log: false]
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, AllowZeroCountLedgerLegs, opts)
+    assert :ok = Ecto.Migrator.down(Repo, @version, AllowZeroCountSetLegs, opts)
     assert constraints(schema) != []
 
-    assert :ok = Ecto.Migrator.up(Repo, @version, AllowZeroCountLedgerLegs, opts)
+    assert :ok = Ecto.Migrator.up(Repo, @version, AllowZeroCountSetLegs, opts)
     assert constraints(schema) == []
   end
 end

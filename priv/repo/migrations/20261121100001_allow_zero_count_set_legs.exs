@@ -1,4 +1,4 @@
-# Letflow.Repo.Migrations.AllowZeroCountLedgerLegs
+# Letflow.Repo.Migrations.AllowZeroCountSetLegs
 #
 # Qoimeks old-client parity (T-2415): the old server stored an empty-shelf count (book 0, counted 0)
 # as a real reversible movement. Such a count_set entry has one zero leg. The stock policy and the
@@ -16,7 +16,7 @@
 #
 # down/0 refuses unless :allow_ledger_migration_down is true (dev/test only), then restores the old
 # check. Postgres refuses that restore while a zero leg exists; no ledger row is rewritten.
-defmodule Letflow.Repo.Migrations.AllowZeroCountLedgerLegs do
+defmodule Letflow.Repo.Migrations.AllowZeroCountSetLegs do
   use Ecto.Migration
 
   def up do
@@ -49,7 +49,7 @@ defmodule Letflow.Repo.Migrations.AllowZeroCountLedgerLegs do
 
   def down do
     unless Application.get_env(:letflow, :allow_ledger_migration_down, false) == true do
-      raise "ledger tables are append-only: AllowZeroCountLedgerLegs.down refused " <>
+      raise "ledger tables are append-only: AllowZeroCountSetLegs.down refused " <>
               "(set :allow_ledger_migration_down for dev/test only)"
     end
 
