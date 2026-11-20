@@ -71,6 +71,11 @@ defmodule Letflow.ApprovalRulesDefaultTest do
   defp audit(schema, action),
     do: Entry |> where([a], a.action == ^action) |> Repo.all(prefix: schema)
 
+  defp stamp_registry!(tenant_id, at) do
+    from(r in Letflow.TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
+    |> Repo.update_all(set: [migrations_applied_at: at])
+  end
+
   defp actor, do: %{user_id: Ecto.UUID.generate(), trace_id: nil}
 
   test "D1 a new tenant has the marker and every four-eyes step defaults OFF" do
@@ -216,12 +221,36 @@ defmodule Letflow.ApprovalRulesDefaultTest do
     assert marker_count(schema2) == 0
     assert [%{four_eyes: false}] = Repo.all(ApprovalRuleSetting, prefix: schema2)
 
-    # a fresh schema (no definition, no setting) is marked: the new-tenant default
-    schema3 = TenantFixture.provisioned_tenant!(slug_prefix: "t2391-fresh").schema_name
+    # an ALREADY-PROVISIONED tenant (registry row stamped) with no definition and no setting yet, for example
+    # an onboarded tenant that has not installed a module: NOT marked, it keeps ON (security_deep blocker)
+    fx3 = TenantFixture.provisioned_tenant!(slug_prefix: "t2391-fresh")
+    schema3 = fx3.schema_name
     opts3 = [prefix: schema3, log: false]
+    stamp_registry!(fx3.tenant_id, ~N[2026-01-01 00:00:00])
+    assert :ok = Ecto.Migrator.down(Repo, @version, CreateApprovalRuleDefaults, opts3)
+    assert :ok = Ecto.Migrator.up(Repo, @version, CreateApprovalRuleDefaults, opts3)
+    assert marker_count(schema3) == 0
+
+    # the FIRST provisioning (registry row not yet stamped) of an empty schema is marked
+    stamp_registry!(fx3.tenant_id, nil)
     assert :ok = Ecto.Migrator.down(Repo, @version, CreateApprovalRuleDefaults, opts3)
     assert :ok = Ecto.Migrator.up(Repo, @version, CreateApprovalRuleDefaults, opts3)
     assert marker_count(schema3) == 1
+
+    # a schema with no registry row at all (a sandbox-pool schema) is not marked
+    sandbox = "sandbox_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    Repo.query!(~s|CREATE SCHEMA "#{sandbox}"|)
+    on_exit(fn -> Repo.query!(~s|DROP SCHEMA IF EXISTS "#{sandbox}" CASCADE|) end)
+    Repo.query!(~s|CREATE TABLE "#{sandbox}".process_definitions (id int)|)
+    Repo.query!(~s|CREATE TABLE "#{sandbox}".approval_rule_settings (id int)|)
+
+    assert :ok =
+             Ecto.Migrator.up(Repo, @version, CreateApprovalRuleDefaults,
+               prefix: sandbox,
+               log: false
+             )
+
+    assert marker_count(sandbox) == 0
 
     # the manifest knows it, last
     assert {@version, CreateApprovalRuleDefaults} =

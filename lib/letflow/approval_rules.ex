@@ -46,8 +46,8 @@ defmodule Letflow.ApprovalRules do
 
   @doc """
   T-1987: would the engine let this caller approve their own task? True only for an interactive
-  (`:oidc`) credential and a stored OFF row for the task's step in the instance's definition: the
-  condition `Letflow.Engine.SeparationOfDuties.check/6` uses. Any read failure answers false (the
+  (`:oidc`) credential and an effective OFF for the task's step in the instance's definition (a stored
+  OFF row, or no row on a tenant whose new-tenant default is OFF, T-2391): the condition `Letflow.Engine.SeparationOfDuties.check/6` uses. Any read failure answers false (the
   web keeps showing its hint; the server still decides at completion). Used by `GET /tasks/:id`.
   """
   @spec self_approval_allowed?(String.t(), Letflow.Engine.Task.t(), term()) :: boolean()
@@ -61,9 +61,9 @@ defmodule Letflow.ApprovalRules do
   def self_approval_allowed?(_prefix, _task, _credential), do: false
 
   @doc """
-  REQ-912: is the four-eyes switch of one step stored OFF in tenant schema `prefix`? True only for a
-  stored `four_eyes: false` row. No row, a row `true` and an unreadable setting are all false (ON, fails
-  closed). The old Qoimeks address reads it before it makes a count (`Letflow.Modules.Stock.OldAppWrites`).
+  REQ-912: is the four-eyes switch of one step OFF in tenant schema `prefix`? True for a stored
+  `four_eyes: false` row, and for a step with no row on a tenant whose new-tenant default is OFF (T-2391).
+  No row on any other tenant, a row `true` and an unreadable setting are all false (ON, fails closed). The old Qoimeks address reads it before it makes a count (`Letflow.Modules.Stock.OldAppWrites`).
   """
   @spec four_eyes_off?(String.t(), String.t(), String.t()) :: boolean()
   def four_eyes_off?(prefix, definition_name, node_id) when is_binary(prefix) do
@@ -263,7 +263,11 @@ defmodule Letflow.ApprovalRules do
   # T-2391 (D-165): the value of a step with no stored row: OFF on a tenant with the new-tenant default
   # marker, ON otherwise and when the marker is unreadable (fails closed).
   defp default_four_eyes(prefix) do
-    case ApprovalRuleSetting.default_off(Repo, prefix) do
+    # Under a savepoint inside a transaction (do_put): a missing marker table on a lagging tenant must not
+    # poison the enclosing transaction (INV-8).
+    opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+    case ApprovalRuleSetting.default_off(Repo, prefix, opts) do
       {:ok, true} -> false
       _ -> true
     end

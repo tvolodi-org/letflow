@@ -7,14 +7,17 @@
 # How the default is carried (chosen over writing explicit ON rows for existing tenants): a creation-time
 # marker. The table `approval_rule_defaults` holds AT MOST one row (unique index on `((true))`). A row
 # means "a step with no explicit `approval_rule_settings` row is OFF"; no row means ON (today's rule).
-# This migration inserts the row only into a FRESH schema (no process definition and no approval rule
-# setting yet, which is every schema at the moment it is provisioned). A schema that already has either
-# gets no row, so nothing about an existing tenant changes, and an upgrade writes no ON rows and no
-# data into settings. A step that a tenant has switched explicitly (a row in approval_rule_settings,
-# `four_eyes` true or false) always wins over the marker. Why not "write explicit ON rows for every
-# existing tenant": rows are keyed by (definition, step), so a step added later (a new process version,
-# a module upgrade) would have no row and flip to OFF in a tenant that never chose that; the marker is
-# per tenant and cannot drift.
+# This migration inserts the row only on the FIRST provisioning of a schema: the tenant's registry row
+# in `public.tenant_schemas` has `migrations_applied_at IS NULL` (it is set only after the first replay
+# finishes, `TenantProvisioning.replay_migrations/2`), and the schema has no process definition and no
+# approval rule setting yet. An already-provisioned tenant (registry row stamped, whether or not it has
+# installed a module yet) is never marked: an existing tenant with no row keeps ON, so an upgrade writes
+# no ON rows and no data into settings. A schema with NO registry row (a sandbox-pool schema, a test
+# clone) is not marked either. A step that a tenant has switched explicitly (a row in
+# approval_rule_settings, `four_eyes` true or false) always wins over the marker. Why not "write
+# explicit ON rows for every existing tenant": rows are keyed by (definition, step), so a step added
+# later (a new process version, a module upgrade) would have no row and flip to OFF in a tenant that
+# never chose that; the marker is per tenant and cannot drift.
 #
 # PLACEMENT: PER-TENANT (schema-per-tenant via `prefix()`); no tenant_id column (0006 D2).
 #
@@ -43,7 +46,12 @@ defmodule Letflow.Repo.Migrations.CreateApprovalRuleDefaults do
       execute("""
       INSERT INTO "#{schema}".approval_rule_defaults (id, four_eyes_default, inserted_at)
       SELECT gen_random_uuid(), false, now()
-      WHERE NOT EXISTS (SELECT 1 FROM "#{schema}".process_definitions)
+      WHERE EXISTS (
+              SELECT 1 FROM public.tenant_schemas ts
+              WHERE ts.schema_name = '#{String.replace(schema, "'", "''")}'
+                AND ts.migrations_applied_at IS NULL
+            )
+        AND NOT EXISTS (SELECT 1 FROM "#{schema}".process_definitions)
         AND NOT EXISTS (SELECT 1 FROM "#{schema}".approval_rule_settings)
       """)
     end
