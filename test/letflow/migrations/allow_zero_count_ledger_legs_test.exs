@@ -8,7 +8,7 @@ defmodule Letflow.AllowZeroCountLedgerLegsTest do
   alias Letflow.{Repo, TenantFixture, TenantProvisioning}
   alias Letflow.Repo.Migrations.AllowZeroCountLedgerLegs
 
-  @version 20_261_120_100_001
+  @version 20_261_121_100_001
 
   defp constraints(schema) do
     {:ok, %{rows: rows}} =

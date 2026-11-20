@@ -383,7 +383,7 @@ defmodule Letflow.Ledger.Validate do
 
   # count_set alone may record the old Qoimeks empty-shelf count as a zero leg; all other movements
   # keep refusing zero. The stock policy has the same cause-specific rule, so both layers agree. The
-  # database no longer backs this rule: migration 20261120100001 dropped the cause-blind
+  # database no longer backs this rule: migration 20261121100001 dropped the cause-blind
   # `ledger_leg_quantity_check` (quantity <> 0), so this function is the only guard of zero legs.
   defp check_quantity(%Decimal{coef: coef} = q, n, cause) when is_integer(coef) do
     normal = Decimal.normalize(q)
