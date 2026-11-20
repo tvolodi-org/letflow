@@ -8,8 +8,10 @@
 # (authenticate before write, created/replayed response), and I-1..I-6 in
 # test/letflow/routers/shared_stock_access_writes_test.exs on origin/main.
 # Protocol for the runner: base https://qa.bizdala.com/qoimeks/qoimeks-qa2;
-# catalog, balances and movements reads; movement creation POST /qoimeks/:slug/movements;
-# reverse POST /qoimeks/:slug/movements/:id/reverse (path id = returned integer movement id).
+# T-2385 (K15, old-client compatibility batch, decision 0091 section 11c, REQ-907..909): every call is made the way the old app makes it, at the old address WITH the /api prefix:
+# GET <base>/api/catalog (an object {skus: [{id, code, name, unit, location_id}], locations: [{id, code, name}]}), GET <base>/api/balances?sku_id=<id> (a list of {sku_id, location_id, location_code, qty}),
+# GET <base>/api/movements?limit=500, POST <base>/api/movements, POST <base>/api/movements/<id>/reverse (the path id = the TEXT id of the movement row, which is the movement number written as text).
+# Refusals follow the OLD server: the retry of a changed body stays 409 (decision 0091 section 9), the reversal and quantity refusals are 400 with the old texts; the 401 body is unchanged (the app reads only the status).
 # Both write bodies require id = a fresh UUID per operation, unchanged on retries, plus operator.
 # Movement body also has kind, sku_id, location_id, qty; transfer has to_location_id.
 # Returned JSON is the movement itself (REQ-909): id (text), kind (receipt, issue, transfer), sku_id, sku_code, sku_name, unit,
@@ -131,8 +133,7 @@ steps:
 - step: 4
   actor: admin
   action: >-
-    With V1 the runner reads the old-app catalog and balances, matches the chosen item/place by name or
-    article and records their mapped integer ids. Record the summed item/place balance as B0 and choose
+    With V1 the runner reads the old-app catalog and balances, matches the chosen item by its code and name (skus) and the chosen place by its code and name (locations) and records their mapped integer ids. Record the summed item/place balance as B0 and choose
     Q from a positive balance row. Read the matching movements at the maximum supported limit and record
     the complete set as L0, including ids and values. Later balance comparisons use the same sum across
     responsible, lot and unit rows. Generate operation UUID U once now; every receipt attempt in this

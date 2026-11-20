@@ -8,8 +8,10 @@
 # (authenticate before write, created/replayed response), and I-1..I-6 in
 # test/letflow/routers/shared_stock_access_writes_test.exs on origin/main.
 # Protocol for the runner: base https://qa.bizdala.com/qoimeks/qoimeks-qa2;
-# catalog, balances and movements reads; movement creation POST /qoimeks/:slug/movements;
-# reverse POST /qoimeks/:slug/movements/:id/reverse (path id = returned integer movement id).
+# T-2385 (K15, old-client compatibility batch, decision 0091 section 11c, REQ-907..909): every call is made the way the old app makes it, at the old address WITH the /api prefix:
+# GET <base>/api/catalog (an object {skus: [{id, code, name, unit, location_id}], locations: [{id, code, name}]}), GET <base>/api/balances?sku_id=<id> (a list of {sku_id, location_id, location_code, qty}),
+# GET <base>/api/movements?limit=500, POST <base>/api/movements, POST <base>/api/movements/<id>/reverse (the path id = the TEXT id of the movement row, which is the movement number written as text).
+# Refusals follow the OLD server: the retry of a changed body stays 409 (decision 0091 section 9), the reversal and quantity refusals are 400 with the old texts; the 401 body is unchanged (the app reads only the status).
 # Both write bodies require id = a fresh UUID per operation, unchanged on retries, plus operator.
 # Movement body also has kind, sku_id, location_id, qty; transfer has to_location_id.
 # Returned JSON is the movement itself (REQ-909): id (text), kind (receipt, issue, transfer), sku_id, sku_code, sku_name, unit,
@@ -21,7 +23,7 @@
 # 4. Data: scripts/pilot/qoimeks_gen.py gen_items/gen_locations/gen_balances supplies candidate items, places and positive opening quantities, not live posting proof. Before acceptance verify imported openings, active masters/base unit, linked active org unit, active employee, active stock definitions, no freeze, scope enforcement off, tenant allow-listed, and no existing shared access. Missing prerequisites are BLOCKED-by-environment; never change production settings. Record item/place/balance counts at the start of the run. UUIDs and all mapped integer ids come from this run; no seed counts or invented item codes.
 # 5. Executable: browser and HTTP client suffice, including concurrent sends; runner creates one shared credential per scenario and keeps it only in memory. Run serially with the token group; never replace an existing credential. OldAppReads.movements is a capped list, with no client pagination: use limit 500 (movement_limit), identical filters and require every snapshot to contain fewer than 500 rows; otherwise BLOCKED-by-environment for movement-count evidence. Snapshot comparisons use all returned ids and values, never only the newest row. No physical APK/phone UI is UAT-observable here; browser phone width is covered.
 # 6. Dry run: preflight with title UAT qoimeks-retry returned ENV_NOT_READY: QA health and deployed SHA OK, realm OK; both actors NO_PASSWORD, tenant/app roles UNKNOWN without tokens. Acceptance is BLOCKED-by-environment until credentials are supplied; no live login verified. No acceptance scenarios run in this writing step.
-# EXPECTATION CORRECTIONS: 11 — receipt replay; issue replay; changed-data conflict; one balance/document; reversal replay; second/reversal-of-reversal refusals; required UUIDs on both writes; concurrent duplicates; stored-row comparison; runtime-derived quantities and malformed references; capped movement-read evidence.
+# EXPECTATION CORRECTIONS: 14 — /api prefix on every call; catalog and balances read in the old shape (code, location_code, qty); reverse path id is the text id; receipt replay; issue replay; changed-data conflict; one balance/document; reversal replay; second/reversal-of-reversal refusals; required UUIDs on both writes; concurrent duplicates; stored-row comparison; runtime-derived quantities and malformed references; capped movement-read evidence.
 ---
 id: qoimeks-retry-3-changed-data-refused-concurrent-duplicates-post-once
 scope: qoimeks-qa2
@@ -75,7 +77,7 @@ preconditions:
   check: test_setup
   detail: >-
     Generate U for the movement and R for its reversal, plus fresh UUIDs for independent attempts. Keep
-    each unchanged on retries. The response integer movement id is distinct from these UUIDs; do not expect
+    each unchanged on retries. The response movement id (the movement number written as text) is distinct from these UUIDs; do not expect
     a client UUID field in reads.
 - description: Movement snapshots can prove unchanged stock history.
   check: system_seeded
@@ -103,8 +105,7 @@ steps:
 - step: 3
   actor: admin
   action: >-
-    With V the runner reads the old-app catalog and balances, matches the chosen item/place by actual
-    name or article and records their mapped integers. Confirm the summed balance equals B0. Read all
+    With V the runner reads the old-app catalog and balances, matches the chosen item by its code and name (skus) and the chosen place by its code and name (locations) and records their mapped integer ids. Confirm the summed balance equals B0. Read all
     matching movements with the maximum supported limit as L0. Record Q from the eligible balance row.
     Keep every measured value for later comparisons.
   via: api
