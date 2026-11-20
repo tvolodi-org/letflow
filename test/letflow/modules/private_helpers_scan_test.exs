@@ -15,6 +15,8 @@ defmodule Letflow.Modules.PrivateHelpersScanTest do
   @root Path.expand("..", __DIR__)
 
   # Files that kept a private request builder (other shapes or arities than `ModuleConnCase.call/6`).
+  # maintenance/request_photos_router_test.exs (T-2400): multipart uploads, bodiless GETs and a bare
+  # OIDC bearer token without a slug header, none of which `ModuleConnCase.call/6` can send.
   @call_exceptions ~w(
     modules/asset_stock_isolation_test.exs
     modules/assets/card_import_test.exs
@@ -24,6 +26,7 @@ defmodule Letflow.Modules.PrivateHelpersScanTest do
     modules/codes/resolve_router_test.exs
     modules/codes/router_test.exs
     modules/locations/router_test.exs
+    modules/maintenance/request_photos_router_test.exs
     modules/org/router_test.exs
     modules/procurement/attachment_routes_test.exs
     modules/procurement/line_cancel_test.exs
