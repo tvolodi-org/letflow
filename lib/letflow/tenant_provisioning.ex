@@ -1041,7 +1041,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-859 / GH #4572 (decision 0091 section 7): the three uuid-to-integer mapping tables of
     # the old-app address, created empty; existing tenants get them from the boot replay.
     {20_261_118_100_001, Letflow.Repo.Migrations.CreateQoimeksIntIds,
-     "20261118100001_create_qoimeks_int_ids.exs"}
+     "20261118100001_create_qoimeks_int_ids.exs"},
+    # T-2415: the old Qoimeks empty-shelf count is a real zero count_set movement. The core validator
+    # keeps zero refused for every other cause; the leg table's cause-blind CHECK is removed.
+    {20_261_120_100_001, Letflow.Repo.Migrations.AllowZeroCountLedgerLegs,
+     "20261120100001_allow_zero_count_movements.exs"}
   ]
 
   @doc """

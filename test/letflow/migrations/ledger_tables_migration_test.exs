@@ -408,8 +408,9 @@ defmodule Letflow.LedgerTablesMigrationTest do
 
     tol = %{reference_quantity: q.("5"), tolerance_abs: q.("1"), tolerance_state: "within"}
 
+    # T-2415 removes the cause-blind quantity <> 0 CHECK in a later tenant migration: count_set alone
+    # may store the old client's empty-shelf zero, and the core validator refuses zero elsewhere.
     for {over, name} <- [
-          {%{quantity: q.("0")}, "quantity"},
           {%{k1: ""}, "k1_present"},
           {%{k2: String.duplicate("a", 129)}, "k2"},
           {%{quantity_original: q.("2")}, "conversion_group"},

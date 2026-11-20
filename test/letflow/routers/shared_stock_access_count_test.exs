@@ -234,6 +234,57 @@ defmodule Letflow.Routers.SharedStockAccessCountTest do
       assert written(t.ctx.schema) == before
     end
 
+    test "K6a-2b a zero count with no balance row is a stored movement and can be reversed", t do
+      switch!(t, false)
+
+      body = movement(t, "adjustment", 0)
+      row = post_movement(t, body) |> status!(201)
+
+      assert %{"kind" => "adjustment", "qty" => 0, "operator" => "Айгуль"} = row
+      assert [%{"qty" => 0, "sku_id" => sku, "location_id" => loc}] = row["balances"]
+      assert {sku, loc} == {t.sku, t.loc}
+      assert Enum.any?(history(t), &(&1["id"] == row["id"]))
+      assert post_movement(t, body) |> status!(200) == row
+
+      assert [doc_id] = count_documents(t.ctx.schema)
+      assert %{"state" => "posted", "posting_check" => "ok"} = P.get!(t.ctx, doc_id)
+
+      reversal =
+        call(:post, t.a.tenant.slug, "/api/movements/#{row["id"]}/reverse", t.value, %{
+          "id" => Ecto.UUID.generate(),
+          "operator" => "Ерлан"
+        })
+        |> status!(201)
+
+      assert %{"kind" => "adjustment", "qty" => 0, "reverses" => reverses} = reversal
+      assert reverses == row["id"]
+      assert [%{"qty" => 0}] = reversal["balances"]
+      assert balance(t) == 0
+      assert %{"state" => "reversed", "posting_check" => "ok"} = P.get!(t.ctx, doc_id)
+    end
+
+    test "K6a-2c a zero count with stock is a stored movement and reversing restores the stock",
+         t do
+      switch!(t, false)
+      receive!(t, 4)
+
+      row = post_movement(t, movement(t, "adjustment", 0)) |> status!(201)
+      assert Enum.any?(history(t), &(&1["id"] == row["id"]))
+      assert balance(t) == 0
+
+      reversal =
+        call(:post, t.a.tenant.slug, "/api/movements/#{row["id"]}/reverse", t.value, %{
+          "id" => Ecto.UUID.generate(),
+          "operator" => "Ерлан"
+        })
+        |> status!(201)
+
+      assert %{"kind" => "adjustment", "qty" => 4, "reverses" => reverses} = reversal
+      assert reverses == row["id"]
+      assert [%{"qty" => 4}] = reversal["balances"]
+      assert balance(t) == 4
+    end
+
     test "K6a-6 a count equal to the book answers at once and writes no entry, audit or history row",
          t do
       switch!(t, false)

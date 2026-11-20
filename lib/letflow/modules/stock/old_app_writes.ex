@@ -77,10 +77,12 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     it self-approve; the engine writes `task.self_approved`, "self-approved, four-eyes off", with the
     shared access actor), so the count posts cause `count_set` and the balance becomes the counted
     quantity. The answer is the count's movement row (kind `adjustment`, `qty` = the counted quantity,
-    `balances` = one entry, the balance after the posting). A count equal to the book starts no process
-    and writes no ledger entry: it is answered at once with its row from `OldAppReads.confirmed_count_row/2`
-    (an `id` of the document, `operator` `""`), is not in the movement history, and its repeat answers
-    the same row (the `balances` of the replay is the balance at that moment).
+    `balances` = one entry, the balance after the posting). A NON-ZERO count equal to the book starts
+    no process and writes no ledger entry: it is answered at once with its row from
+    `OldAppReads.confirmed_count_row/2` (an `id` of the document, `operator` `""`), is not in the
+    movement history, and its repeat answers the same row (the `balances` of the replay is the balance
+    at that moment). A ZERO count at an empty key instead stores the old server's real, reversible zero
+    movement, with the typed operator and a history row.
   * No row, a row `true` or an unreadable setting (ON): until REQ-913 the answer stays
     `{:error, {400, "invalid kind"}}` and nothing is written.
 
@@ -233,12 +235,16 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   # its own count in the same call (the engine records `task.self_approved`); with it ON the count
   # keeps today's answer, 400 `invalid kind`, and nothing is written (REQ-913 builds that path).
   defp post_count(prefix, actor_id, authorized, movement, operator) do
+    # The old server stored even 0 = 0 as a movement. Other equal-book counts keep the confirmed
+    # shortcut; an old-address zero must start the process and write its reversible zero entry.
+    record_zero = Decimal.eq?(Decimal.new(movement.quantity), 0)
+
     with :ok <- count_switch_off(prefix),
          :ok <- count_active(prefix),
          {:ok, body} <- count_body(prefix, movement),
-         {:ok, view} <- make_count(prefix, body, actor_id, authorized, operator),
+         {:ok, view} <- make_count(prefix, body, actor_id, authorized, operator, record_zero),
          :ok <- count_seam(prefix),
-         :ok <- approve_count(prefix, view, actor_id, operator),
+         :ok <- approve_count(prefix, view, actor_id, operator, record_zero),
          {:ok, row} <- stored(authorized, view.id, :post) do
       {:ok, view.id, row}
     end
@@ -290,17 +296,22 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     end
   end
 
-  defp make_count(prefix, body, actor_id, authorized, operator) do
-    case Documents.quick_count(prefix, body, actor_id, authorized: authorized, operator: operator) do
+  defp make_count(prefix, body, actor_id, authorized, operator, record_zero) do
+    case Documents.quick_count(prefix, body, actor_id,
+           authorized: authorized,
+           operator: operator,
+           record_zero: record_zero
+         ) do
       {:ok, view} -> {:ok, view}
       {:error, reason} -> {:error, count_refusal(reason)}
     end
   end
 
-  # A count equal to the book is `confirmed`: no approval, no ledger entry (REQ-912 point 6).
-  defp approve_count(_prefix, %{state: "confirmed"}, _actor_id, _operator), do: :ok
+  # A count equal to the book is `confirmed`: no approval, no ledger entry (REQ-912 point 6), except
+  # the old address's zero count, which the old server stored as a real reversible movement.
+  defp approve_count(_prefix, %{state: "confirmed"}, _actor_id, _operator, false), do: :ok
 
-  defp approve_count(prefix, view, actor_id, operator) do
+  defp approve_count(prefix, view, actor_id, operator, _record_zero) do
     case complete(prefix, view, "approve", actor_id, operator) do
       :ok ->
         :ok
