@@ -58546,3 +58546,94 @@ requirements:
       - "5. Client-id rules unchanged: the T-2282 retry tests in test/letflow/routers/shared_stock_access_writes_test.exs (201, 200 replay, 409 changed data, 400 id is required, one document for concurrent duplicates) pass. Only their expectations of the answer's field names, and the two reverse refusals of criterion 4 (today asserted as 409 document_reversed and reversal_cannot_be_reversed), are updated."
       - "6. Documents: the moduledocs of Letflow.Modules.Stock.OldAppReads, Letflow.Modules.Stock.OldAppWrites and Letflow.Routers.SharedStockAccess describe the row, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the movement fields and the kind mapping, and one bullet naming the three old refusal texts of point (6) as superseding point (5) of the T-2282 row for the old address."
     depends_on: [REQ-908, REQ-860]
+  - id: REQ-910
+    title: "Old Qoimeks client compatibility part 4: the old address answers the scan lookup GET /api/codes/lookup?code= over Codes resolve, read only, and finds an item by its legacy barcode loaded through the code imports"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4902
+    # Source: task T-2381 (PM GO 2026-11-20 for the old-client compatibility batch, task K7: "the scan to find GET /api/codes/lookup?code= (404 code_not_found means nothing found) over Letflow's Codes resolve (CodesRead, read only) at the old address"; Qoimeks team fact 2026-11-20 and PM confirmation the same day, both quoted in the task text: production Client 1 has only the LEGACY plain barcode column per item, set by the old Excel import column «Штрихкод», the codes API of Qoimeks migration 011 was never released to production, so the lookup MUST resolve that legacy barcode, with a test on an item whose barcode came from the import). Qoimeks repository at commit 01e8780, read only: mobile/lib/api.dart lookupCode (GET /api/codes/lookup?code=<encoded>, a 404 whose reason is code_not_found is "nothing found", any other error is rethrown) and CodeInfo.fromJson (reads object_type 'sku' or 'location', object_id int, object_code, object_name, code; copy in state/tasks/T-2374/sources/qoimeks-mobile-api.dart); server/internal/api/codes.go lookupCode (code = strings.TrimSpace of the query value; empty is 400 {"error": "code is required", "reason": "invalid_request"}; not found is codeError -> 404 {"error": "not found", "reason": "code_not_found", "code": <code>}; found is 200 with the Code row) and server/internal/store/codes.go LookupCode ("finds the object an active code points at. The match is case-sensitive"); extract in state/tasks/T-2381/sources/qoimeks-codes-lookup.go.txt. Letflow files read on origin/main 1717b330e: lib/letflow/routers/shared_stock_access.ex (routes, plug order, "any other method or path" 404 {"error": ...}, 403 scope_enforcement_active), lib/letflow/modules/codes/codes.ex (resolve/2: exact case-sensitive match on the live code_tag value, {:error, :not_found | :code_retired | :assignment_conflict}, ok map keys code_id, value, kind, status, target_type, target_id, assignment_id; storable?/1 refuses invalid UTF-8 and NUL), lib/letflow/modules/codes/router.ex (POST /resolve under CodesRead; render_resolve/4 answers 404 for a target type whose ScopeDeclaration.for_type/2 is not :tenant_wide), lib/letflow/modules/stock/old_app_reads.ex (catalog/1, barcode/2 over Codes.codes_for/3), lib/letflow/modules/catalog.ex (old_app_catalog/1 and the other old_app_* delegates), lib/letflow/shared_stock_access/int_ids.ex (assign/3, kinds :sku and :location), lib/letflow/modules/catalog_items/catalog_items.ex (lookup/2; scope_declarations catalog_item and catalog_lot :tenant_wide), lib/letflow/modules/locations/locations.ex (lookup/2; location_node :tenant_wide), priv/modules/catalog_items/entity_definitions/catalog_item.json (no barcode field; code, name, active), priv/modules/locations/entity_definitions/location_node.json (code, name, active), lib/letflow/modules/codes/import.ex (REQ-850, POST /api/v1/entities/records/code_tag/import, code received not_assigned) and lib/letflow/modules/codes/import_assignment.ex (REQ-851, POST /api/v1/entities/records/code_assignment/import, code_id holds the code VALUE, target_id the external id, assigns through assign_code/5), scripts/pilot/qoimeks_convert.py collect_codes (REQ-852: the items barcode column becomes a code of kind barcode with target catalog_item), docs/runbooks/qoimeks-rehearsal.md step 1 (barcode from Qoimeks «Штрихкод»), REQ-890 description ("Not in this part ... codes from a «Штрихкод» column"), docs/migration/decisions/0091-shared-stock-access.md sections 2 (closed list of three permissions), 7 (codes not served), 9 and 11a/11b, docs/status/qoimeks-old-client-compat.md sections 2 (row C7), 3 (row C7) and 5.3 (K7, K8). Written by the business analyst (T-2381) 2026-11-20. Not yet validated.
+    description: >
+      Why. The old Qoimeks phone app finds an item or a place by scanning or typing its code: the scan to
+      find and the unknown-code path of the operation form call GET <base>/api/codes/lookup?code=<text>
+      (Qoimeks mobile/lib/api.dart lookupCode). The old address does not serve it: REQ-907 point (4) keeps
+      it 404 {"error": "not found"}, a body without reason code_not_found, so the app rethrows it as an
+      error instead of showing "nothing found" (docs/status/qoimeks-old-client-compat.md section 3, row C7).
+      On production Client 1 every item code staff can scan is the LEGACY plain barcode of the item, set by
+      the old Excel import column «Штрихкод»; the Qoimeks codes API was never released there (task text,
+      Qoimeks team fact and PM confirmation 2026-11-20). In Letflow that value has no field of its own
+      (priv/modules/catalog_items/entity_definitions/catalog_item.json has no barcode field) and the stock
+      workbook Excel load does not read a «Штрихкод» column (REQ-890, "Not in this part"). It enters Letflow
+      only as a code: the cutover converter scripts/pilot/qoimeks_convert.py (REQ-852) turns the barcode
+      column of items.csv into a code_tag of kind barcode (code_tag import, REQ-850) and an open
+      code_assignment to the item (code_assignment import, REQ-851). So Letflow.Modules.Codes.resolve/2
+      already finds the legacy barcode, and this requirement adds no barcode field and no second lookup
+      source; criterion 3 proves it with an item whose barcode came from the two imports.
+      (1) Route. Letflow.Routers.SharedStockAccess serves GET /api/codes/lookup and GET /codes/lookup (the two
+      path forms of REQ-907), each with the same answer. Authentication, the per-credential request limit
+      and the scope enforcement refusal (403 {"error": "scope_enforcement_active"}) run first, in the order
+      of the router's moduledoc, and an accepted request spends one request token, as for the other calls.
+      (2) Input. The query value code is trimmed of leading and trailing whitespace, as the old server does
+      (Qoimeks server/internal/api/codes.go lookupCode, strings.TrimSpace). A missing code, or one that is
+      empty after trimming, is 400 {"error": "code is required", "reason": "invalid_request"}, the old
+      server's text.
+      (3) Match. The trimmed text is resolved with Letflow.Modules.Codes.resolve/2 on the prefix of the proved
+      tenant only (INV-1): an exact, case-sensitive match on the live code_tag value, as the old server's
+      LookupCode. A code is found only when resolve answers status assigned with one open assignment whose
+      target_type is catalog_item or location_node, the scope declaration of that type is :tenant_wide
+      (Letflow.Entities.ScopeDeclaration.for_type/2, fail closed as Letflow.Modules.Codes.Router does), and
+      the target record exists with active true. An inactive target is not found because the old-address
+      catalog of REQ-908 lists only active items and places, so the app would get an id it cannot show.
+      (4) Found: 200 with a JSON object of exactly five keys, the ones CodeInfo.fromJson reads.
+          - object_type: "sku" for a catalog_item, "location" for a location_node.
+          - object_id: the integer of Letflow.SharedStockAccess.IntIds (kind :sku or :location, assigned when
+            missing), the same integer the old-address catalog gives that item or place (REQ-908 point (5)).
+          - object_code: the item's or place's code.
+          - object_name: its name.
+          - code: the stored code value.
+          The old server's other keys (id, code_type, created_by, created_at) are not served: the app reads
+          none of them.
+      (5) Not found: every other outcome answers 404 with the body {"error": "not found", "reason":
+      "code_not_found"}, byte-identical for all of them (INV-5): an unknown value, a code that is
+      not_assigned, a retired code, an assignment conflict, a code assigned to a catalog_lot (the old app
+      knows only sku and location), an inactive target, a target type that is not :tenant_wide, and a value
+      with a NUL byte (Codes.resolve/2 answers not found for it; the request must not crash, INV-8). A
+      query that is not valid UTF-8 (code=%FF) never reaches the lookup: Plug.Conn.fetch_query_params/2
+      raises Plug.Conn.InvalidQueryError (plug_status 400), as it does today for the other reads of the old
+      address; this requirement does not change that. Difference from the old server, stated: its 404 also
+      echoes "code"; Letflow does not, because the app does not read it (CodeInfo is built only from a
+      200).
+      (6) Read only. The lookup writes nothing except, when missing, the IntIds mapping row of the found item
+      or place (as the catalog read does): no code, assignment, audit, stock document or ledger row. The
+      code writes (assign and remove, C8 to C10 of the status note) stay out; the shared access gains no
+      write.
+      (7) Layer. The answer is built in Letflow.Modules.Stock.OldAppReads by a new public function
+      code_lookup/2 (planned, not yet on main), reached only through a new delegate
+      Letflow.Modules.Catalog.old_app_code_lookup/2 (planned, not yet on main) called from
+      Letflow.Routers.SharedStockAccess, which keeps holding no Repo call. Letflow.Modules.Codes,
+      Letflow.Modules.Codes.Router (POST /api/v1/modules/codes/resolve) and Letflow's other /api/v1 routes
+      do not change.
+      (8) Decision record. Decision 0091 section 2 closes the shared access to three permissions (StockRead,
+      StockPost, StockReverse) and says no atom is added without a new decision record. The build adds to
+      docs/migration/decisions/0091-shared-stock-access.md a section headed "Amendment (REQ-910, as built):
+      code lookup at the old address", numbered with the next free number after 11c and placed before
+      section 12. It states that the shared access gains one read, the code lookup, the read-only
+      equivalent of CodesRead on the /api/v1 codes routes, on the PM GO of 2026-11-20; that CodesWrite and
+      every other codes permission stay excluded; and the rules (2) to (6). The section 7 row "GET /codes
+      and barcode scanning" is marked as served for the lookup only.
+      Size: the build is M (one route, one builder function, one delegate, one test file, the amendment).
+      Risk: a new read on a shared-secret path, so security review is mandatory (INV-1, INV-5, INV-8,
+      INV-10). OUT OF SCOPE: the code list, assign and remove calls (K11, K12), voice, feedback, count, the
+      pairing call, the UAT scenario groups qoimeks-token and qoimeks-retry (a later uat_design task), and
+      any change to the credential, its activation setting or its limits.
+    acceptance_criteria:
+      - "1. Item found: in a new router test file test/letflow/routers/shared_stock_access_codes_test.exs (planned, not yet on main), with a listed tenant, a valid shared credential and module codes installed, an active catalog_item A-1 named 'Болт' that holds a barcode code '4870001112223' (received and assigned with Letflow.Modules.Codes.receive_codes/3 and assign_code/5), GET /qoimeks/<slug>/api/codes/lookup?code=4870001112223 gives 200 with a JSON object whose key set is exactly object_type, object_id, object_code, object_name and code, with the values 'sku', the id of A-1 in the skus list of GET /qoimeks/<slug>/api/catalog, 'A-1', 'Болт' and '4870001112223'. GET /qoimeks/<slug>/codes/lookup?code=4870001112223 gives the same status and body."
+      - "2. Place found: an active location_node RI2 holding a qr code 'LOC-RI2' gives 200 with object_type 'location', object_id equal to the id of RI2 in the locations list of GET /qoimeks/<slug>/api/catalog, object_code 'RI2', the place name and code 'LOC-RI2'."
+      - "3. Legacy barcode from the import: a TENANT_ADMIN imports, as the files of scripts/pilot/qoimeks_convert.py are loaded, one CSV row of kind barcode and value '4870001112224' through POST /api/v1/entities/records/code_tag/import?upsert_by=external_ref and one CSV row with code_id '4870001112224', target_type catalog_item and target_id the external id of item B-1 through POST /api/v1/entities/records/code_assignment/import?upsert_by=external_ref (the route form of test/letflow/modules/codes/import_assignment_test.exs). Then GET /qoimeks/<slug>/api/codes/lookup?code=4870001112224 gives 200 with object_type 'sku', object_id equal to the id of B-1 in the catalog skus list, object_code 'B-1' and code '4870001112224', and the B-1 row of that catalog has barcode '4870001112224'."
+      - "4. Not found is one answer: each of these gives 404 with a body byte-identical to {\"error\": \"not found\", \"reason\": \"code_not_found\"} and never 500: an unknown value '0000000000000'; a code received but not assigned; a retired code; a code assigned to a catalog_lot; a code assigned to an item that is then made inactive; the stored value 'QR-ABC' sent as 'qr-abc' (case-sensitive); and the value %00. A request with code=%FF raises Plug.Conn.InvalidQueryError, whose Plug.Exception.status/1 is 400, before any lookup, the same as GET /qoimeks/<slug>/api/balances?sku_id=%FF."
+      - "5. Input: code=%204870001112223%20 (spaces around the value) gives the 200 of criterion 1; a request with no code parameter, with code= and with code=%20%20 each gives 400 with the body {\"error\": \"code is required\", \"reason\": \"invalid_request\"}."
+      - "6. Access and tenancy (INV-1, INV-5, INV-10): with tenants A and B, each listed with its own credential, a lookup with no Authorization header, with a wrong value, or with A's credential at B's slug gives the byte-identical 401 that GET /qoimeks/<slug>/api/catalog gives for the same request; B's credential at B's slug asking for a value that exists only in A gives the 404 of criterion 4; while A's scope enforcement is on, a lookup with A's credential gives 403 {\"error\": \"scope_enforcement_active\"}."
+      - "7. Read only: after the lookups of criteria 1 to 6, the tenant's counts of code_tag and code_assignment records, audit entries, stock documents and ledger entries equal the counts taken before the first lookup; only rows of catalog_item_int_ids and location_node_int_ids may be added."
+      - "8. Unchanged elsewhere: test/letflow/modules/codes/resolve_router_test.exs and the other tests under test/letflow/modules/codes/ pass without edits. No test expectation outside the old-address router tests (test/letflow/routers/shared_stock_access*_test.exs) and the old-app builder tests changes; in those, the only changed expectation is the 'not served' assertion of REQ-907 for /api/codes/lookup, which is replaced by this entry's expectations (the other not-served paths stay 404)."
+      - "9. Documents: the route table of the moduledoc of Letflow.Routers.SharedStockAccess lists GET /api/codes/lookup and GET /codes/lookup with the 200, 400 and 404 bodies; the moduledoc of Letflow.Modules.Stock.OldAppReads describes code_lookup/2; docs/migration/decisions/0091-shared-stock-access.md has the section headed \"Amendment (REQ-910, as built): code lookup at the old address\" before section 12, naming the added read, the excluded CodesWrite and the rules (2) to (6)."
+    depends_on: [REQ-907, REQ-908, REQ-859, REQ-850, REQ-851]
