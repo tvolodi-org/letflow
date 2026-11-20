@@ -425,6 +425,9 @@ switches one.
 the phone at the warehouse and the company has one administrator, so the count has to post at once. Switch the
 count rule OFF once, before the first count.
 
+With the count switch OFF the storekeeper's count posts at once on the phone and on the web. The audit shows one `task.self_approved` entry with the note "self-approved, four-eyes off" for each such count. A count issued while the rule was ON stays pending until an administrator approves it in My Tasks (T-2410): turning the switch OFF later does not post it by itself.
+
+
 Do it as the company administrator in the browser, on Admin > Approval rules: turn off "Require a different
 person to approve" for the step `stock_quick_count / approve`, type the reason, save. The screen asks for the
 reason in both directions and keeps it in the audit log with the administrator's name. The route behind the
@@ -554,6 +557,8 @@ Open `https://<host>` and sign in as the company administrator. The menu group "
    This is the exact text decided by the owner and the PM (D-164); the same text is used in step 20 and pinned by
    the runbook tests.
 5. Click "Save" / «Сохранить». The toast "Approval rule saved" / «Правило утверждения сохранено» appears.
+
+With the count switch OFF the storekeeper's count posts at once on the phone and on the web. The count shows as posted, not pending; a count issued while the rule was ON stays pending until an administrator approves it (T-2410).
 
 **Read-back:** (a) the row shows "Off" / «Выключено»; the panel shows the rule text "The issuer may approve their
 own document..." and "Last change": your name, the time, "Reason: ..." / «Причина: ...». (b) Reload the page
