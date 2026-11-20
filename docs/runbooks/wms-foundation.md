@@ -487,11 +487,17 @@ as it is on main: one ledger registration, a pure posting policy, two views and 
 names the GH issue or the code that holds it; paths are cited without line numbers. Numbers marked
 "assumption, owner may change at GATE B" are owner assumptions, not decisions.
 
-1. **Master checks at posting since REQ-832 (slice L7 part 1, stock 0.18.0); `expected_document_version` is still
-   owed (L7 part 2).** `post_document`, `post_count` and `post_kind_change_out` read each master named by a posting
+1. **Master checks at posting since REQ-832 (slice L7 part 1, stock 0.18.0); `expected_document_version` is done at
+   posting since REQ-903 (slice L7 part 2c, stock 0.24.0).** `post_document`, `post_count` and `post_kind_change_out` read each master named by a posting
    line through the read facade (`HandlerWrites.read/3`) before they add a step: a mistyped or foreign id is refused
    as `validation_failed` (audit detail `handler_invalid_arguments`) and nothing commits (decision 0073 D6, D7 D-P
    and OQ-20, GH #3707, GH #4535). A retired master blocks only a side that adds stock; a reversal reads nothing.
+   Since REQ-904 (slice L7 part 2d, GH #4818) the two refusals differ: a master that is a live record of its type but
+   retired (item, unit, a given lot, the to location, the org unit, a given responsible) on a side that adds stock is
+   refused with 409 `master_inactive` (no details: no slot name, no id); every other refusal (a non-uuid or unknown id,
+   a record of another type, a soft-deleted record, a unit that is not the item's base unit, a lot of another item)
+   stays 422 `validation_failed`. The org unit to location link (`not_linked`) is checked at issue only, not at posting:
+   `Letflow.Modules.Locations.linked?/3` finds the link record by field values and the read facade reads by id only.
 2. **Pilot gate, quoted from decision 0073:** "The stock module is NOT enabled for a customer tenant until L6
    AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved." No seed, pack or
    QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
@@ -549,15 +555,18 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     routes `post`, `reverse` and `cancel`; the module is installed on no tenant, so no upgrade of installed rows is
     needed, and a tenant that installed 0.2.0 takes the new type and definitions through the module upgrade path
     (`lib/letflow/modules/tenant_module_upgrade.ex`, GH #3748).
-18. **The binding gap: posting is detected, not enforced, until slice L7 part 2.** The handler reads only the masters
-    (item 13), not the issued document, and the
-    engine merges the `output_variables` of a completion without a per-node allowlist, so a holder of `StockPost`
-    could complete the post task with changed posting variables, or start the definition through the generic
-    instance start route with variables of its own, also for a draft or a cancelled document. The document read
+18. **The binding gap of `post_document` is closed at posting since REQ-903 (slice L7 part 2c, stock 0.24.0); `post_count` and
+    `post_kind_change_out` stay detected only.** `post_document` first reads the version named by its arguments
+    (`HandlerWrites.read_document_version/3`, before the master checks of item 13) and refuses with 409
+    `record_version_conflict` a posting that is not the issued current version of its document or whose content
+    differs (version id, type, document id, org unit, cause, event time, write-off reason, legs), also when a holder of `StockPost` completes
+    the post task with changed variables or starts the definition through the generic instance start route for a
+    draft or a cancelled document; an unknown document is the closed 422 `validation_failed`. The legs comparison is
+    one pure module, `Letflow.Modules.Stock.Documents.Legs`, shared with the read side. The document read still
     answers `posting_check` `mismatch` (no detail) whenever the legs of its ledger entries differ from the issued
-    content, a draft has an entry, a mark has no entry, or a cancelled document has a receipt with no reversal;
-    prevention is slice L7 part 2 with its expected-document-version check, which is still owed (decision 0073 D6,
-    decision 0078 D5, GH #3748). Master checks also run at posting since REQ-832 (item 13).
+    content, a draft has an entry, a mark has no entry, or a cancelled document has a receipt with no reversal; that
+    detection is all that guards `post_count` (count.differences documents) and `post_kind_change_out` (change of kind
+    in assets). Master checks also run at posting since REQ-832 (item 13) (decision 0073 D6, decision 0078 D5, GH #3748, GH #4819).
 19. **The post and reverse tasks have no assignee.** Both nodes carry the role label `TENANT_ADMIN` (the graph needs a
     role), any user may open them, and the ledger authority step refuses a completer without `StockPost` or
     `StockReverse`, an API token included; the task then stays pending (`lib/letflow/ledger/handler_post.ex`,

@@ -414,6 +414,27 @@ part 2 (REQ-831).
   `{:error, :dry_build}` without a query. A fact read is data, never authority, and may be stale at commit (note 14.6).
   A ledger policy file cannot reach it (scan T-SC-4e): `declare/2` stays pure.
 
+## Amended by REQ-903 (slice L7 part 2c, expected_document_version at posting)
+
+- The stock handler `post_document` (it alone declares `reads_documents`) reads the version named by its arguments
+  through `HandlerWrites.read_document_version/3` before its master checks, and refuses with the typed 409
+  `record_version_conflict` a posting that is not the issued current version of its document or whose content
+  (type, document id, org unit, cause, event time, write-off reason, legs) differs. The binding gap of D6 is prevented
+  for that handler, not only detected. The legs comparison is one pure module shared with the read-side `posting_check`.
+  `post_count`, `post_kind_change_out` and reversals stay as before. The read takes no lock: stock documents are never
+  re-versioned, and a cancel and a post of one document are serialised by the post instance.
+
+## Amended by REQ-904 (slice L7 part 2d, typed master_inactive at posting)
+
+- The stock handlers `post_document`, `post_count` and `post_kind_change_out` answer `{:error, {:refused, :master_inactive}}`
+  (409 `master_inactive`, REQ-901's closed list) for a master that is a live record of its type but not active, on a side
+  that adds stock. A non-uuid or unknown id, a record of another type or tenant, a soft-deleted record, a unit that is not the
+  item's base unit and a lot of another item stay `validation_failed` (422). Sides that only remove stock and reversals are
+  unchanged (note 9.5). No manifest change.
+- `not_linked` (the org unit to location link) at posting is NOT part of L7 part 2: it is not listed in D6 or in the L7 row,
+  and it cannot be built on the current read facade (it reads by id; the link record is found by field values). It stays
+  checked at issue only.
+
 ## Waived for a one-site customer (owner/PM 2026-11-19)
 
 Two items are WAIVED for the one-site pilot. REQ-901..906 (L7 part 2) specify `expected_document_version`, the binding of a posting to the issued document version and the typed `master_inactive` refusal, and exclude these two:

@@ -57,7 +57,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.23.0"
+    assert m.version == "0.24.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -297,7 +297,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # documents/quick_count_posting.ex (pure) make 53.
     # REQ-859: old_app_reads.ex (reads through Ledger and the master read APIs, no Repo) makes 54.
     # REQ-860: old_app_writes.ex (the old app's movement post and reverse, through the document and ledger functions, no Repo) makes 55.
-    assert length(files) == 55
+    # REQ-903: documents/legs.ex (pure, no Repo) makes 56.
+    assert length(files) == 56
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

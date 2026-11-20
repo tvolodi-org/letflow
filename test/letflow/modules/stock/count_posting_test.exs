@@ -444,7 +444,24 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       retire_item!(x, item)
       post!(x, id)
       task = task!(x, id, "post")
-      assert {:error, _} = P.complete(x, task)
+      # REQ-904: a retired master on the adding side is the typed 409, not the untyped 422
+      assert {:error, {:entity_write_refused, 0, :master_inactive}} = P.complete(x, task)
+      assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
+      assert marks(x, id) == 0
+      assert movements(x, id) == []
+    end
+
+    test "M6-3 an unknown sku on a count posting stays untyped (REQ-904 criterion 2)", ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      post!(x, id)
+      task = task!(x, id, "post")
+      inst = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s)
+      posting = inst.variables["posting"]
+      lines = List.update_at(posting["lines"], 0, &Map.put(&1, "sku", Ecto.UUID.generate()))
+      out = %{"posting" => Map.put(posting, "lines", lines)}
+      result = P.complete(x, task, output: out)
+      assert {:error, {:entity_write_refused, 0, :validation_failed}} = result
       assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
       assert marks(x, id) == 0
       assert movements(x, id) == []

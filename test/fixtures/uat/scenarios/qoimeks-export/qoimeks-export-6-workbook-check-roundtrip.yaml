@@ -16,7 +16,7 @@
 # Sources: docs/requirements.yaml REQ-865 criterion 4 (round trip), REQ-884 and REQ-887 (titles: check a Qoimeks-layout workbook, write nothing; screen to check a workbook and show the Russian remarks); web/src/modules/stock/workbook/workbookMessages.ts (en: "Load balances from Excel", button "Check workbook", "Check", "Remarks", "No balance differs from the file.", "Write balances from the file"; ru: title "Загрузка остатков из Excel", "No differences" text "В файле нет отличий от текущих остатков.");
 # web/src/modules/stock/stockRoutes.tsx (route admin/stock/workbook-import).
 # This scenario NEVER presses "Write balances from the file" (the write creates a stock document, so it would change tenant data); the run stops after the check.
-# #4696 / #4784 (T-2260): the unchanged downloaded workbook has R data rows. The first applicable rule wins per article (REQ-884 criterion 3; StockWorkbookImport.process/4 and placed/6): an article with a quantity that is not a quantity gets rule R1 first, and the download keeps the signed quantity of a negative balance (the synthetic data has three negative balances on distinct articles, scripts/pilot/qoimeks_gen.py), so every negative row gives an R1 remark and never an R7 remark for that article. Every other article that is not stopped earlier (unknown article R8, lot/serial/expiry R9, amount without place R5, place without zone R3, unknown place R6) and whose stock is held with a responsible employee gets one R7 remark at its first row. Zero changes. Responsible stock is excluded, so this does not prove plain-key equality. The numbers are derived from the downloaded file at the start of the run, never hard-coded.
+# #4696 / #4784 (T-2260): the unchanged downloaded workbook has R data rows. The first applicable rule wins per article (REQ-884 criterion 3; StockWorkbookImport.process/4 and placed/6): since T-2303 (#4809, #4824) an article with a bad quantity gets that rule first (bad_qty_remark/2: R12 for a negative quantity, R1 for text), and the download keeps the signed quantity of a negative balance (negative rows are counted from the downloaded file, scripts/pilot/qoimeks_gen.py seeds a few), so every negative row gives an R12 remark (no R1) and never an R7 remark for that article (T-2367, #4888). Every other article that is not stopped earlier (unknown article R8, lot/serial/expiry R9, amount without place R5, place without zone R3, unknown place R6) and whose stock is held with a responsible employee gets one R7 remark at its first row. Zero changes. Responsible stock is excluded, so this does not prove plain-key equality. The numbers are derived from the downloaded file at the start of the run, never hard-coded.
 # Label sources: web/src/modules/stock/stockMessages.ts, workbook/workbookMessages.ts, quickCount/quickCountMessages.ts, documents/documentsMessages.ts under web/src/modules/stock; rendered by the corresponding real page via stockRoutes.tsx.
 ---
 id: qoimeks-export-6-workbook-check-roundtrip
@@ -35,9 +35,10 @@ tags:
 - en
 description: >-
   The storekeeper downloads the unchanged whole-stock workbook; the administrator checks it against QOI-OU-1. The
-  workbook has R data rows (read from the file). The check shows zero changes, one remark of rule R1 for every row
-  whose quantity is negative (the quantity of a negative balance is not accepted as a quantity, and R1 comes before the
-  responsible-stock rule R7) and one remark of rule R7 for every other stocked article with a responsible employee that
+  workbook has R data rows (read from the file). The check shows zero changes, one remark of rule R12 for every row
+  whose quantity is negative (a negative balance is not loaded and the system balance stays as it is; since the
+  bad-quantity rule runs before the responsible-stock rule R7, such an article has no R7 remark), no remark of rule R1,
+  and one remark of rule R7 for every other stocked article with a responsible employee that
   no earlier rule stops. The write control stays disabled; no load is made. Record the history before and after and re-read balances. This is an exclusion check
   for responsible stock, not evidence that the import can set those balances. Repeat the required language and viewport
   checks with the same bytes.
@@ -81,7 +82,7 @@ preconditions:
     counted from the downloaded file at the start of the run (the seed changes them, so no fixed number is used), with responsible balances in QOI-OU-1.
   check: runner_prepared
   detail: >-
-    Record from the downloaded file: R (data rows), the data rows with a negative quantity and their articles (N1 rows, N2 distinct articles), and the stocked articles that hold a responsible employee and are not stopped by an earlier rule (read the place, zone and tracking columns; items tracked by lot, serial or expiry give R9, so read their tracking on the item card). The expected R1 remarks equal N1; the expected R7 remarks equal the number of those articles that have no negative row (one per article). If another run changed the baseline so that the file cannot be classified, BLOCKED-by-environment for the count outcomes. Keep actual counts
+    Record from the downloaded file: R (data rows), the data rows with a negative quantity and their articles (N1 rows, N2 distinct articles), and the stocked articles that hold a responsible employee and are not stopped by an earlier rule (read the place, zone and tracking columns; items tracked by lot, serial or expiry give R9, so read their tracking on the item card). The expected R12 remarks equal N1 and the expected R1 remarks equal 0; the expected R7 remarks equal the number of those articles that have no negative row (one per article). If another run changed the baseline so that the file cannot be classified, BLOCKED-by-environment for the count outcomes. Keep actual counts
     in evidence; do not remove responsible employees or alter stock to make the check clean.
 - description: >-
     For any before/after count comparison, record the same full traversal of the balance or document list, loading
@@ -114,7 +115,7 @@ steps:
   actor: admin
   action: >-
     The administrator reads the check summary (rows read, changed, unchanged, remarks), the remarks and the list
-    of changes if shown, and counts the remarks that name a quantity that is not a quantity (R1) and those that say the
+    of changes if shown, and counts the remarks that say a negative balance is not loaded (R12), those that name a quantity that is not a quantity (R1) and those that say the
     stock is kept separately by units, responsible employees, lots or units of measure (R7).
   via: ui
 - step: 5
@@ -168,8 +169,8 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      The check reads R data rows (REQ-884) and finds zero changes. Each negative-quantity row has an R1 remark in Russian
-      (as many as N1, read from the file) and its article has no R7 remark (the first applicable rule wins, REQ-884
+      The check reads R data rows (REQ-884) and finds zero changes. Each negative-quantity row has an R12 remark in Russian
+      (as many as N1, read from the file; wording: отрицательный остаток "<value>" не загружается, учётный остаток остаётся как есть. Остатки этого товара в системе не изменяются), there is no R1 remark (0 of them), and its article has no R7 remark (the first applicable rule wins, REQ-884
       criterion 3). Each other article that holds a responsible employee and is not stopped by an earlier rule has exactly one
       R7 remark in Russian (as many as derived from the file in the preconditions). Any other remark (R3, R5, R6, R8, R9) is
       explained by the file or the item card; none is unexplained. The no-change message is shown and writing is
