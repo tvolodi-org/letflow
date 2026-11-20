@@ -1,6 +1,7 @@
 /** T-2290 harness screens: the quick count document (book, counted, difference) and the Movements journal with
  *  labelled cause codes (count_set, opening_negative). Invented data only. */
 import DocumentPage from '@/modules/stock/documents/DocumentPage'
+import DocumentsPage from '@/modules/stock/documents/DocumentsPage'
 import MovementsPage from '@/modules/stock/register/MovementsPage'
 import type { FixtureRoute, HarnessScreen } from '../types'
 import { journalRoutes } from './stockJournal'
@@ -23,6 +24,30 @@ const qcRoutes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/modules/stock/documents/doc-qc' && method === 'GET',
     reply: () => ({ status: 200, body: QC_DOC }),
+  },
+  ...documentRoutes,
+]
+
+// GH 4873: a count equal to the book (difference 0) is `confirmed` on the screen AND in the list.
+const QC_CONFIRMED_DOC = {
+  ...QC_DOC, id: 'doc-qc0', state: 'confirmed', number: 'QCT-2026-000043',
+  lines: [qcLine(1, 'i1', '10.000', '10.000', '0.000')],
+}
+const QC_LIST_ROWS = [
+  { id: 'doc-qc0', kind: 'quick_count', state: 'confirmed', number: 'QCT-2026-000043', org_unit_id: 'u1', event_time: '2026-11-18T03:00:00Z' },
+  { id: 'doc-qc', kind: 'quick_count', state: 'issued', number: 'QCT-2026-000042', org_unit_id: 'u1', event_time: '2026-11-18T02:00:00Z' },
+]
+const qcConfirmedRoutes: FixtureRoute[] = [
+  {
+    match: (path, method) => path === '/api/v1/modules/stock/documents/doc-qc0' && method === 'GET',
+    reply: () => ({ status: 200, body: QC_CONFIRMED_DOC }),
+  },
+  ...documentRoutes,
+]
+const qcListRoutes: FixtureRoute[] = [
+  {
+    match: (path, method) => path === '/api/v1/modules/stock/documents' && method === 'GET',
+    reply: () => ({ status: 200, body: { next_cursor: null, rows: QC_LIST_ROWS } }),
   },
   ...documentRoutes,
 ]
@@ -50,6 +75,8 @@ const causeRoutes: FixtureRoute[] = journalRoutes.map((r) =>
 
 export const quickCountDocumentScreens: HarnessScreen[] = [
   { name: 'stock-qc-document', routes: qcRoutes, initialPath: '/doc-qc', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
+  { name: 'stock-qc-document-confirmed', routes: qcConfirmedRoutes, initialPath: '/doc-qc0', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
+  { name: 'stock-qc-documents-list', routes: qcListRoutes, render: () => withAuth(<DocumentsPage />) },
   { name: 'stock-qc-movements', routes: causeRoutes, render: () => withAuth(<MovementsPage initialSelectedId="jr-c1" />) },
   { name: 'stock-qc-movements-filters', routes: causeRoutes, render: () => withAuth(<MovementsPage initialFiltersOpen />) },
 ]

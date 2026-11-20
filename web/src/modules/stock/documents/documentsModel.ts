@@ -18,6 +18,9 @@ export const isTwoSide = (kind: string): boolean => (TWO_SIDE_KINDS as readonly 
 /** REQ-725: the opening balance kind (no event time, location and responsible per line, real receipt date per line). */
 export const isOpening = (kind: string): boolean => kind === 'opening'
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
+/** States a document may be shown in: DOC_STATES plus `confirmed` (GH 4873), the state of a quick count whose
+ *  counted quantity equals the book. It is derived by the server, is not a list filter value and is never posted. */
+export const DISPLAY_STATES = [...DOC_STATES, 'confirmed'] as const
 export const WRITE_OFF_REASONS = ['lost', 'damaged', 'used_up', 'other'] as const
 export const REVERSE_REASONS = ['wrong_document', 'wrong_quantity', 'wrong_master_data', 'other'] as const
 /** Mirrors `Shape.max_lines` of the server (1000, REQ-774): the one web declaration of the line cap. */

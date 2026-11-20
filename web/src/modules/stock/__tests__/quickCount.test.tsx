@@ -248,6 +248,22 @@ describe('C2 core flow', () => {
     expect(balanceCall![1]).toEqual({ sku: 'i1', location: 'l1', org_unit: 'u1' })
   })
 
+  it('GH 4874: the result panel shows the chosen location when the document header carries none', async () => {
+    setupGetMock({ balance: '10' })
+    const line = { ...quickCountDoc().lines[0], location_id: 'l1' }
+    setupCombinedPostMock({ doc: { location_id: null, lines: [line] } })
+    renderQC()
+    await waitFor(() => expect(screen.getByTestId('quick-count-form')).toBeInTheDocument())
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('10'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '7' } })
+    fireEvent.click(screen.getByTestId('submit-quick-count'))
+    await waitFor(() => expect(screen.getByTestId('quick-count-result')).toBeInTheDocument())
+    const loc = screen.getByTestId('result-location')
+    expect(loc).not.toHaveTextContent('—')
+    expect(loc.textContent?.trim()).not.toBe('')
+  })
+
   it('books against the slot with no responsible, not another slot of the same key', async () => {
     setupGetMock({
       balance: '10',

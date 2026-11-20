@@ -330,6 +330,17 @@ export const quickCountScreens: HarnessScreen[] = [
     routePattern: '/admin/stock/quick-count',
     render: () => withQCAuth(<QuickCountPageHarness initialResult={confirmedDoc} />),
   },
+  // 20. GH 4874: the header has no location, only the line carries it; the panel must show the chosen place
+  {
+    name: 'stock-quick-count-result-line-location',
+    routes: [entitiesRoute(), tasksListRoute(), taskDetailRoute(true)],
+    initialPath: '/admin/stock/quick-count',
+    routePattern: '/admin/stock/quick-count',
+    render: () => withQCAuth(<QuickCountPageHarness
+      initialForm={FILLED_FORM}
+      initialResult={{ ...quickCountDoc, location_id: null, lines: [{ ...quickCountDoc.lines[0], location_id: 'l1' }] }}
+    />),
+  },
   // 18. Refusal: balance_in_other_rows (GH 4872), filled form so the banner sits under real fields
   {
     name: 'stock-quick-count-refusal-other-rows',

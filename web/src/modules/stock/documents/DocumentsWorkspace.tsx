@@ -39,7 +39,7 @@ import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
 import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import {
   DOC_KINDS,
-  DOC_STATES,
+  DISPLAY_STATES,
   documentPrintable,
   formatEventTime,
   isOpening,
@@ -176,7 +176,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
         }
         status={
           <StatusPill tone={tone.tone} glyph={tone.glyph}>
-            {known(DOC_STATES, 'stock.doc.state', doc.state)}
+            {known(DISPLAY_STATES, 'stock.doc.state', doc.state)}
           </StatusPill>
         }
         onBack={onBack}

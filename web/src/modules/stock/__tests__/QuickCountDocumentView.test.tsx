@@ -31,6 +31,16 @@ afterEach(() => {
 })
 
 describe('document screen of a quick count', () => {
+  it('GH 4873: a count equal to the book reads Confirmed on the screen, as in the list', async () => {
+    fakeDocument(clientMock, stockDoc({
+      kind: 'quick_count', state: 'confirmed', number: 'QCT-2026-000002', event_time: null, note: null,
+      lines: [{ line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: null, quantity: '10', book_quantity: '10', counted_quantity: '10', difference: '0' }],
+    }))
+    renderStock(`${LIST}/d1`, withPost)
+    expect((await screen.findAllByText(stockMessages.en['stock.doc.state.confirmed']!)).length).toBeGreaterThan(0)
+    expect(screen.queryByText('confirmed')).not.toBeInTheDocument()
+  })
+
   it('shows the book quantity, the counted quantity and the difference of the line', async () => {
     fakeDocument(clientMock, stockDoc({
       kind: 'quick_count', state: 'issued', number: 'QCT-2026-000001', event_time: null, note: null,
