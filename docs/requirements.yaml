@@ -58401,3 +58401,148 @@ requirements:
       - "3. Screen: the task screen shows each text after a refused completion (a component test with the refusal answer), and the screenshot matrix of the design-system rules covers both states."
       - "4. Checks: npm run check passes."
     depends_on: [REQ-903, REQ-904]
+  - id: REQ-907
+    title: "Old Qoimeks client compatibility part 1: the old address serves its calls also under the /api path segment the real old app uses (/qoimeks/<slug>/api/catalog and the four others)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4897
+    # Source: task T-2374 (PM 2026-11-20, go gate "real old client compatibility"). Real-client run of the Qoimeks team against qoimeks-qa2, 2026-11-20 (web build 0.1.2, the production APK version): the first call GET <base>/api/catalog answered 404 and the app stopped on the catalog screen. Qoimeks mobile/lib/api.dart at Qoimeks commit 01e8780: every call is base + "/api/..." (catalog, balances, movements, reverse, voice, codes, feedback). Copies of both in the task folder state/tasks/T-2374/sources/. Letflow files read on origin/main c771ff74e: lib/letflow/router.ex (forward "/qoimeks/:tenant_slug"), lib/letflow/routers/shared_stock_access.ex (the five routes without /api; plug order AuthAttemptLimit, authenticate, match, dispatch), docs/migration/decisions/0091-shared-stock-access.md sections 6, 7, 11a, 11b. Analysis: docs/status/qoimeks-old-client-compat.md (this task).
+    description: >
+      Why. The cutover keeps the old Qoimeks phone app and only changes its server address to
+      https://<host>/qoimeks/<tenant-slug> (decision 0091 section 6). The app adds "/api" in front of every
+      path (Qoimeks mobile/lib/api.dart), but lib/letflow/routers/shared_stock_access.ex serves /catalog,
+      /balances, /movements and /movements/:id/reverse without it. So the real client got 404 on its first
+      call, and nothing works (docs/status/qoimeks-old-client-compat.md section 3, row C1).
+      (1) Letflow.Routers.SharedStockAccess also serves GET /api/catalog, GET /api/balances,
+      GET /api/movements, POST /api/movements and POST /api/movements/:id/reverse under the same prefix.
+      Each gives exactly the answer of the same call without /api.
+      (2) The paths without /api keep answering as today, because the UAT scenario groups qoimeks-token and
+      qoimeks-retry and the existing router tests use them.
+      (3) Authentication, rate limits and the scope enforcement refusal run once per request, in the order
+      the moduledoc gives. A path with /api spends the same failure or request token as the path without it.
+      (4) Every other path under the prefix stays 404 {"error": "not found"} after authentication. That
+      includes /api/voice, /api/parse, /api/feedback, /api/codes and /api/codes/lookup: the calls not served
+      yet are sized in the status note, section 5.
+      (5) Decision 0091 gains a section "11c. Amendment (REQ-907, as built)". It records the /api segment
+      and the four corrections of the record's Sources text listed in section 6 of the status note:
+      the paths carry /api, the app sends "Bearer <code>", the catalog is an object of skus and locations,
+      and a movement id is text with the quantity field named qty.
+      Size S. Risk: low, with no new data path, but the change is on a credential path, so it goes to
+      security review. OUT OF SCOPE: answer shapes (REQ-908 and REQ-909), the calls not served (count,
+      codes, voice, feedback), the pairing call, and any change to the credential or its rules.
+    acceptance_criteria:
+      - "1. Same answer: in test/letflow/routers/shared_stock_access_address_test.exs, with a valid credential, each of GET /qoimeks/<slug>/api/catalog, GET .../api/balances, GET .../api/movements, POST .../api/movements and POST .../api/movements/<id>/reverse gives the same status and the same JSON body as the same call without /api. For the two writes, two separate operations are compared on status and keys, and a repeat of an /api post with the same client id gives 200 with the stored movement."
+      - "2. One authentication per request: a request to an /api path with no Authorization header, with a wrong value or with an unlisted slug gives the byte-identical 401 that the path without /api gives. Failure tokens are counted the same way: the same number of wrong-value requests to an /api path as to a path without /api reaches the 429 of AuthAttemptLimit.send_rate_limited/2. An accepted request spends exactly one request token (the per-credential bucket reaches 429 after request_capacity accepted requests mixed across both path forms)."
+      - "3. Not served: after authentication, GET /api/codes/lookup?code=x, GET /api/codes, POST /api/codes, POST /api/voice, POST /api/parse and POST /api/feedback under the prefix give 404 with the body {\"error\": \"not found\"}, and the tenant's stock document count and movement_int_ids row count are unchanged."
+      - "4. Unchanged: the existing tests in test/letflow/routers/shared_stock_access_test.exs, test/letflow/routers/shared_stock_access_writes_test.exs and test/letflow/routers/shared_stock_access_address_test.exs pass without edits to their expectations."
+      - "5. Documents: the route table in the moduledoc of Letflow.Routers.SharedStockAccess lists the /api paths. docs/migration/decisions/0091-shared-stock-access.md has a section headed \"11c. Amendment (REQ-907, as built)\", placed before section 12, which states the /api segment and the four Sources corrections. Every runbook line under docs/runbooks/ that names an old-address path is checked against the new table, and test/letflow/pilot_rollout_runbook_test.exs passes."
+    depends_on: [REQ-859, REQ-860]
+  - id: REQ-908
+    title: "Old Qoimeks client compatibility part 2: the catalog and balances calls of the old address answer in the old app's shape (catalog object of skus and locations, balance rows with location_code and qty)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4896
+    # Source: task T-2374 (PM 2026-11-20: "if the real client breaks on the response SHAPE, the shapes must follow the old app's, overriding kept our shapes"). Real-client run of the Qoimeks team, 2026-11-20, rows 2 and 9 (catalog is a flat list with no code and no places; balances have quantity and no location_code), and their message to T-2374: no screen survives a different shape. Qoimeks mobile/lib/api.dart (Sku.fromJson, Location.fromJson, Catalog, BalanceRow.fromJson) and server/internal/store/store.go (SKU, Location, Catalog with json keys skus and locations, Balance; catalog and places sorted by code, balances non-zero and sorted by place code), Qoimeks commit 01e8780; copies in state/tasks/T-2374/sources/. Letflow files read on origin/main c771ff74e: lib/letflow/modules/stock/old_app_reads.ex (catalog/1, balances/2), lib/letflow/modules/catalog.ex (old_app_catalog/1, old_app_balances/2), lib/letflow/shared_stock_access/int_ids.ex, lib/letflow/modules/locations/locations.ex (list_active/1, lookup/2), priv/modules/catalog_items/entity_definitions/catalog_item.json (code, name, base_uom_id, default_location_id), priv/modules/locations/entity_definitions/location_node.json (code, name, active).
+    description: >
+      Why. The old app reads the catalog as an object with two lists, items ("skus") and places ("locations"),
+      and casts every field strictly. Letflow.Modules.Stock.OldAppReads.catalog/1 answers a flat list of
+      items with no item code under the name "code" and no places. The balance rows say quantity and
+      location_name, where the app reads qty and location_code. So the app fails on its first screen
+      (docs/status/qoimeks-old-client-compat.md section 3, rows C1 and C2).
+      (1) GET catalog, on both path forms of REQ-907, answers {"skus": [...], "locations": [...]}.
+      (2) A sku row has these fields:
+          - id: the sku integer, as today.
+          - code: the item's code.
+          - name.
+          - unit: the code of the base unit of measure, or "" when the item has none, because the app reads
+            unit as text that is never null.
+          - location_id: the place integer of the item's default_location_id (REQ-841). The key is absent
+            when the item has none or that place is not active.
+          - barcode: the first code value, as today. The key is absent when there is none.
+          The second place (alt_location_id) is not served: owner pruning D-150. Rows are the active items,
+          sorted by code.
+      (3) A location row covers every active location_node: id (its integer in location_node_int_ids,
+      assigned here when missing), code and name. Rows are sorted by code.
+      (4) A balance row has exactly sku_id, location_id, location_code and qty (a JSON number). Only
+      non-zero balances are listed, sorted by location code. The optional integer filters sku_id and
+      location_id, the empty list for an unknown integer and the 400 for a malformed filter stay as today.
+      (5) One place has one integer everywhere: the place integer in a sku's location_id, in a locations
+      row, and in balance and movement rows is the same.
+      Size M. Risk: low; this is a read of the proved tenant only (INV-1, unchanged). The known QA limit of
+      decision 0091 section 11a (one lookup per row) stays and is not widened beyond one lookup per row.
+      OUT OF SCOPE: movement rows (REQ-909), the calls not served, and the personal-account stock routes.
+      The UAT scenario groups qoimeks-token and qoimeks-retry, whose expectations name the current fields,
+      are updated by a later uat_design task, not here.
+    acceptance_criteria:
+      - "1. Catalog shape: in a router test of the old address with a tenant that has two active items (one with a base unit and a default location, one with neither), one inactive item, two active places and one inactive place, GET /qoimeks/<slug>/api/catalog gives 200 with a JSON object whose key set is exactly skus and locations. skus holds the two active items sorted by code. The first has the keys id, code, name, unit (its unit code), location_id and barcode (when a code is assigned). The second has unit equal to the empty string and no location_id key. No row has alt_location_id. locations holds the two active places sorted by code, each with exactly id, code and name."
+      - "2. Same integer: the location_id of the first sku equals the id of its place in locations, and after a receipt posted at that place through the old address, the location_id of that place's balance row and of the movement row both equal the same integer."
+      - "3. Balance shape: GET /qoimeks/<slug>/api/balances?sku_id=<n> gives rows whose key set is exactly sku_id, location_id, location_code and qty. qty is a JSON number equal to the ledger balance of that item and place. A place whose balance is zero is not listed. Rows are sorted by location_code."
+      - "4. Filters unchanged: an unknown integer sku_id gives 200 with an empty list, and sku_id=abc gives 400 {\"error\": \"invalid filter\"}, on both path forms."
+      - "5. Documents: the moduledocs of Letflow.Modules.Stock.OldAppReads and Letflow.Routers.SharedStockAccess describe the new shapes, and section 11c of docs/migration/decisions/0091-shared-stock-access.md (added by REQ-907) gains one bullet naming the catalog and balance fields. The existing catalog and balances expectations in test/letflow/routers/shared_stock_access_test.exs are updated to the new keys, and no other test of that file changes."
+    depends_on: [REQ-907]
+  - id: REQ-909
+    title: "Old Qoimeks client compatibility part 3: movement rows of the old address in the old app's shape for the history list and the post and reverse answers (text id, old kind names, codes, unit, qty, balances after the movement)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4895
+    # Source: task T-2374 (PM 2026-11-20, shape rule as REQ-908). Real-client run of the Qoimeks team, 2026-11-20, rows 5, 8 and 10: a post that succeeded still ends in an app error, because the movement answer has an integer id, kind stock_receipt, quantity, and no sku_code, unit, location code or balances, and reverses is not returned. Qoimeks mobile/lib/api.dart Movement.fromJson (id read as String; sku_code, sku_name, unit, location_code, qty, operator as non-null values; balances as a required list) and server/internal/store/store.go (Movement json keys; the list query leaves balances empty; post and reverse answer the balance rows of that movement; Reverse copies the kind of the original and sets reverses), and server/internal/store/import.go line 281 (imported balances are kind adjustment), and server/internal/store/store.go Post and reverse with server/internal/api/api.go writeError (400 {error} texts "quantity must be positive", "already reversed", "a reversal cannot be reversed; post a new operation instead"; real-client run row 10), Qoimeks commit 01e8780; copies in state/tasks/T-2374/sources/ (qoimeks-store-post-reverse-errors.go.txt for the refusal texts). Letflow files read on origin/main c771ff74e: lib/letflow/modules/stock/old_app_reads.ex (build_rows/2, kind/1, movement/2, movements_of_document/2), lib/letflow/modules/stock/old_app_writes.ex (post_movement/5, the reverse, the 201 and 200 replay), lib/letflow/ledger.ex (balances/4 with {:posting_seq, n}).
+    description: >
+      Why. The history screen, the success message after a post and the cancel action read a movement in
+      the old app's shape (docs/status/qoimeks-old-client-compat.md section 3, rows C3 to C5). Today
+      Letflow.Modules.Stock.OldAppReads builds a row with an integer id, Letflow's document type as kind,
+      quantity, and null operator for a personal account's movement. It has no item or place code, no
+      unit, no balances and no reversal links, so the app fails on every row.
+      (1) One movement row is built once in OldAppReads and used for GET movements and for the 201 and 200
+      answers of POST movements and POST movements/:id/reverse. It has these fields:
+          - id: TEXT, the decimal digits of the movement's existing integer in movement_int_ids, so the
+            reverse path takes the same text.
+          - kind (see (2)).
+          - sku_id, sku_code (the item code), sku_name.
+          - unit: the base unit code, or "" when there is none.
+          - location_id, location_code.
+          - qty: a positive JSON number, the absolute quantity.
+          - operator: text, "" when the movement has no typed operator name.
+          - created_at: the posting time as ISO 8601 UTC.
+          - balances (see (4)).
+          - to_location_id and to_location_code: only on a transfer.
+          - reverses: only on a reversal, the id text of the reversed movement.
+          - reversed_by: only on a reversed movement, the id text of its reversal.
+      (2) Kind uses the old app's names. Document type stock_receipt is receipt, stock_issue is issue,
+      stock_transfer is transfer, and every other document type (for example a quick count or an opening
+      balance) is adjustment, as the old server writes imported balances. A reversal carries the kind of
+      the movement it reverses, plus reverses.
+      (3) A transfer is one row. location_id and location_code are the place whose leg decreases, and
+      to_location_id and to_location_code are the place whose leg increases.
+      (4) Balances is [] on every row of the history list, as on the old server. In a post or reverse
+      answer it holds one entry per place the movement touched: sku_id, location_id, location_code and
+      qty, where qty is the balance of that item at that place as of this movement's posting. Entries are
+      sorted by location_id. A 200 replay gives the same values as the first 201, even after later
+      movements.
+      (5) The client-id rules of decision 0091 "Retry by client id: implemented (T-2282)" are unchanged:
+      201, 200 replay, 409 with the old text, 400 id is required.
+      (6) Refusal texts follow the old server (Qoimeks server/internal/store/store.go Post and reverse,
+      answered as 400 {"error": text} by api.go writeError). At the old address only, OldAppWrites
+      answers: a movement already reversed under another client id is 400 {"error": "already reversed"}
+      (today 409 document_reversed); reversing a reversal is 400 {"error": "a reversal cannot be
+      reversed; post a new operation instead"} (today 409 reversal_cannot_be_reversed); a quantity that
+      is zero or negative is 400 {"error": "quantity must be positive"} (today "invalid quantity"). Why:
+      the app shows every 409 as "already posted" (Qoimeks mobile/lib/l10n.dart error()), which is the
+      wrong message for a cancel; a 400 shows the server's text.
+      Nothing is written on any of these refusals. Decision 0091 row "Retry by client id: implemented
+      (T-2282)" point (5) is superseded for the old address by section 11c.
+      Size M. Risk: medium. A balance read is added to the write answer, and it runs after the posting,
+      under the tenant prefix the router proved (INV-1, unchanged). OUT OF SCOPE: posting kind adjustment
+      (a count needs a rule first; status note section 5, tasks K4 to K6), the calls not served, the catalog and
+      balances (REQ-908), and the personal-account routes.
+    acceptance_criteria:
+      - "1. Row keys: in a router test of the old address, after a receipt at place A, a transfer from A to B and a reversal of the receipt, all posted through POST /qoimeks/<slug>/api/movements and POST .../api/movements/<id>/reverse, GET .../api/movements gives three rows, newest first. Each has id as a JSON string of digits, plus kind, sku_id, sku_code, sku_name, unit, location_id, location_code, qty (a positive number), operator (the typed name), created_at and balances equal to the empty list. Only the transfer row has to_location_id and to_location_code."
+      - "2. Kinds and links: the receipt row has kind receipt and reversed_by equal to the id of the reversal row. The reversal row has kind receipt and reverses equal to the receipt row's id. The transfer row has kind transfer, location_id of A and to_location_id of B. A quick count document posted by a personal account appears as kind adjustment with operator equal to the empty string."
+      - "3. Post answer: POST .../api/movements for a receipt of 3 at place A of an item with an existing balance of 2 at A gives 201 with the row of criterion 1. Its balances is exactly one entry, sku_id, location_id of A, location_code of A and qty 3 + 2 = 5. For a transfer of 1 from A to B, balances has two entries, sorted by location_id, with the balances at A and B right after the transfer. Repeating the first post with the same client id after another receipt at A gives 200 with the same body as the first 201, still showing qty 5."
+      - "4. Reverse with the text id: POST .../api/movements/<id text from GET>/reverse with a new client id gives 201 with the reversal row (its own id, reverses set, balances after the reversal). A repeat with the same client id gives 200 with the same body. Reversing the same movement under another client id gives 400 {\"error\": \"already reversed\"}, reversing the reversal row gives 400 {\"error\": \"a reversal cannot be reversed; post a new operation instead\"}, and after both the tenant's stock document count and the item's balances are unchanged."
+      - "4b. Quantity text: POST .../api/movements for a receipt with qty 0, and again with qty -1, each gives 400 {\"error\": \"quantity must be positive\"} and writes nothing."
+      - "5. Client-id rules unchanged: the T-2282 retry tests in test/letflow/routers/shared_stock_access_writes_test.exs (201, 200 replay, 409 changed data, 400 id is required, one document for concurrent duplicates) pass. Only their expectations of the answer's field names, and the two reverse refusals of criterion 4 (today asserted as 409 document_reversed and reversal_cannot_be_reversed), are updated."
+      - "6. Documents: the moduledocs of Letflow.Modules.Stock.OldAppReads, Letflow.Modules.Stock.OldAppWrites and Letflow.Routers.SharedStockAccess describe the row, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the movement fields and the kind mapping, and one bullet naming the three old refusal texts of point (6) as superseding point (5) of the T-2282 row for the old address."
+    depends_on: [REQ-908, REQ-860]
