@@ -37,7 +37,7 @@ The numbers are the BA's UAT assumptions. **Production values are the process ow
 
 ## The old-app address (shared stock access)
 
-`/qoimeks/<slug>/catalog`, `/balances` and `/movements` (decision 0091, `Letflow.Routers.SharedStockAccess`) use the keys above in two ways. `failure_capacity` and `failure_refill_per_sec` count the failed values per address (mode `:failures`); `request_capacity` and `request_refill_per_sec` (defaults 60 and 1, `AuthAttemptLimit.defaults/0`) limit the ACCEPTED requests per credential, so all phones of one tenant share one bucket and another tenant has its own. No setting is new. A phone that is refused with 429 waits the `retry-after` seconds; a warehouse with many operators raises `request_capacity` (an owner decision, not a team one).
+`/qoimeks/<slug>/catalog`, `/balances` and `/movements`, each also with `/api` in front (REQ-907; one failure or request token per request, whichever form) (decision 0091, `Letflow.Routers.SharedStockAccess`) use the keys above in two ways. `failure_capacity` and `failure_refill_per_sec` count the failed values per address (mode `:failures`); `request_capacity` and `request_refill_per_sec` (defaults 60 and 1, `AuthAttemptLimit.defaults/0`) limit the ACCEPTED requests per credential, so all phones of one tenant share one bucket and another tenant has its own. No setting is new. A phone that is refused with 429 waits the `retry-after` seconds; a warehouse with many operators raises `request_capacity` (an owner decision, not a team one).
 
 ## Behind a proxy
 

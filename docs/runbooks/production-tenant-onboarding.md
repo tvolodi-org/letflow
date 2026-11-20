@@ -240,7 +240,7 @@ with `{}` to generate, or `{"value": ...}` read from a file to keep the old valu
 file for the phones. Infra turns the grant OFF again and probes that a password grant is refused.
 
 **Check:** `GET /api/v1/identity/shared-stock-access` shows `enabled: true, exists: true`;
-`https://<host>/qoimeks/<slug>/catalog` answers 401 without the value and 200 with it; scope enforcement is off.
+`https://<host>/qoimeks/<slug>/catalog` (and `.../api/catalog`, the form the real old app sends) answers 401 without the value and 200 with it; scope enforcement is off.
 
 **Rollback:** `DELETE /api/v1/identity/shared-stock-access`, and remove the slug from the setting.
 
