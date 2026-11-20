@@ -58,6 +58,19 @@ defmodule Letflow.ApprovalRules do
 
   def self_approval_allowed?(_prefix, _task, _credential), do: false
 
+  @doc """
+  REQ-912: is the four-eyes switch of one step stored OFF in tenant schema `prefix`? True only for a
+  stored `four_eyes: false` row. No row, a row `true` and an unreadable setting are all false (ON, fails
+  closed). The old Qoimeks address reads it before it makes a count (`Letflow.Modules.Stock.OldAppWrites`).
+  """
+  @spec four_eyes_off?(String.t(), String.t(), String.t()) :: boolean()
+  def four_eyes_off?(prefix, definition_name, node_id) when is_binary(prefix) do
+    match?(
+      {:ok, %ApprovalRuleSetting{four_eyes: false}},
+      ApprovalRuleSetting.read(Repo, prefix, definition_name, node_id)
+    )
+  end
+
   @doc "Every four-eyes step of the tenant with its current value, sorted by definition name and node id."
   @spec list(prefix :: String.t()) :: [item()]
   def list(prefix) do

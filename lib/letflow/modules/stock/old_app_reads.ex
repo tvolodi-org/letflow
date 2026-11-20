@@ -31,7 +31,12 @@ defmodule Letflow.Modules.Stock.OldAppReads do
     entry's integer in `movement_int_ids`), `kind` (`receipt`, `issue`, `transfer`; any other document
     type is `adjustment`), `sku_id, sku_code, sku_name, unit` (`""` when none), `location_id,
     location_code`, `qty` (positive), `operator` (`""` when the movement has no typed name),
-    `created_at` (ISO 8601 UTC) and `balances`. A transfer is one row: `location_*` is the place whose
+    `created_at` (ISO 8601 UTC) and `balances`. A count row (cause `count_set`: an old-address count, a
+    web quick count or a workbook load) has `qty` = the `counted_quantity` of the count document line
+    that movement posts, 0 included (REQ-912; a reversal of it keeps the difference taken back), and
+    its `operator` is the typed name of the count's submit task when a shared access actor completed it.
+    A count equal to the book has no ledger entry: its row (`confirmed_count_row/2`) is answered by
+    the post only and is not in this list. A transfer is one row: `location_*` is the place whose
     leg decreases, `to_location_id` and `to_location_code` the place whose leg increases (only a transfer
     has them). A reversal row takes kind, places and quantity from the movement it reverses and has
     `reverses` (that movement's id text); a reversed movement has `reversed_by`. `balances` is `[]` in the
@@ -54,6 +59,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   alias Letflow.Modules.Codes
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.Documents.QuickCountPosting
   alias Letflow.SharedStockAccess.IntIds
 
   @page 200
@@ -300,6 +306,9 @@ defmodule Letflow.Modules.Stock.OldAppReads do
         entries |> Enum.map(& &1.document_id) |> Enum.reject(&is_nil/1)
       )
 
+    # REQ-912: a count row shows the counted quantity of the document line, not the difference.
+    counts = Posting.count_contents(prefix, count_document_ids(entries))
+
     lookup = %{ids: ids, skus: skus, locs: locs, items: items, places: places}
 
     for %{entry: entry, base: base, from: from, to: to} <- shapes,
@@ -317,7 +326,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
         unit: Map.get(item, :unit, ""),
         location_id: leg_ref(from, 1, locs),
         location_code: Map.get(places, loc_uuid, ""),
-        qty: leg_quantity(from),
+        qty: count_quantity(entry, from, counts) || leg_quantity(from),
         operator: Map.get(operators, {entry.document_id, operator_step(entry)}) || "",
         created_at: iso(entry.posting_time),
         balances: if(balances?, do: balances_after(authorized, entry, lookup), else: [])
@@ -328,6 +337,40 @@ defmodule Letflow.Modules.Stock.OldAppReads do
       |> put_present(:reversed_by, text_id(ids, Map.get(reversed_by, entry.entry_id)))
     end
   end
+
+  # The documents of the `count_set` entries (a reversal row keeps the difference taken back, REQ-909).
+  defp count_document_ids(entries) do
+    for %{cause: "count_set", document_id: id} <- entries,
+        match?({:ok, _}, is_binary(id) && Ecto.UUID.cast(id)),
+        uniq: true,
+        do: id
+  end
+
+  # REQ-912: the `counted_quantity` of the line of the count document that `leg` posts (matched on
+  # item, place, responsible and lot), as a number; nil when the entry is not a count or no line matches.
+  defp count_quantity(%{cause: "count_set", document_id: id}, %{k: k}, counts) when is_list(k) do
+    with %{content: %{"lines" => lines}} when is_list(lines) <- Map.get(counts, id),
+         %{"counted_quantity" => text} <- Enum.find(lines, &line_of_leg?(&1, k)),
+         {%Decimal{} = counted, ""} <- Decimal.parse(to_string(text)) do
+      number(counted)
+    else
+      _no_count_line -> nil
+    end
+  end
+
+  defp count_quantity(_entry, _leg, _counts), do: nil
+
+  defp line_of_leg?(line, [sku, loc, _unit, responsible, lot | _]) do
+    uuid(Map.get(line, "catalog_item_id")) == uuid(sku) and
+      uuid(Map.get(line, "location_id")) == uuid(loc) and
+      blank(Map.get(line, "responsible_id")) == blank(responsible) and
+      blank(Map.get(line, "catalog_lot_id")) == blank(lot)
+  end
+
+  defp line_of_leg?(_line, _k), do: false
+
+  defp blank(nil), do: ""
+  defp blank(text), do: to_string(text)
 
   defp text_id(_ids, nil), do: nil
 
@@ -514,6 +557,59 @@ defmodule Letflow.Modules.Stock.OldAppReads do
     case Ledger.entries(authorized, %{"document_id" => document_id}, %{limit: 100}) do
       {:ok, %{rows: rows}} -> build_rows(authorized, rows, true)
       _error -> []
+    end
+  end
+
+  @doc """
+  REQ-912: the Qoimeks movement row of a quick count document that CONFIRMED the book (counted equal
+  to the book: no process, no ledger entry), or `nil` when document `document_id` is not such a count.
+  `kind` adjustment, `qty` the counted quantity, `id` the digits of the integer `movement_int_ids`
+  holds for the DOCUMENT id (so it never equals an entry's id and is not in the history list),
+  `created_at` the time of the issue, `balances` the one entry of the place with its balance now,
+  `operator` `""` (no process starts for it, so the typed name is stored nowhere; the replay shows the
+  same row).
+  """
+  @spec confirmed_count_row(map(), String.t()) :: map() | nil
+  def confirmed_count_row(authorized, document_id) do
+    prefix = authorized.prefix
+
+    with {:ok, _uuid} <- Ecto.UUID.cast(document_id),
+         %{content: content, issued_at: issued_at} <-
+           Map.get(Posting.count_contents(prefix, [document_id]), document_id),
+         true <- QuickCountPosting.confirmed?(content),
+         [line] <- Map.get(content, "lines"),
+         {%Decimal{} = counted, ""} <- Decimal.parse(to_string(line["counted_quantity"])) do
+      sku = uuid(line["catalog_item_id"])
+      loc = uuid(line["location_id"])
+      [movement_id] = Map.values(IntIds.assign(prefix, :movement, [document_id]))
+      sku_id = IntIds.assign(prefix, :sku, [sku]) |> Map.get(sku)
+      loc_id = IntIds.assign(prefix, :location, [loc]) |> Map.get(loc)
+      item = item_names(prefix, sku)
+      place = location_code(Locations.lookup(prefix, loc))
+
+      %{
+        id: Integer.to_string(movement_id),
+        kind: "adjustment",
+        sku_id: sku_id,
+        sku_code: Map.get(item, :code, ""),
+        sku_name: Map.get(item, :name, ""),
+        unit: Map.get(item, :unit, ""),
+        location_id: loc_id,
+        location_code: place,
+        qty: number(counted),
+        operator: "",
+        created_at: iso(issued_at),
+        balances: [
+          %{
+            sku_id: sku_id,
+            location_id: loc_id,
+            location_code: place,
+            qty: balance_at(authorized, nil, sku, loc)
+          }
+        ]
+      }
+    else
+      _not_a_confirmed_count -> nil
     end
   end
 
