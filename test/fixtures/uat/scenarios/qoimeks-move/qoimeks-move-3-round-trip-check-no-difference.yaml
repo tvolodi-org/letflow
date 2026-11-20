@@ -2,10 +2,10 @@
 # 1. Scope: scope qoimeks-qa2; tenant and realm qoimeks-qa2 exist (actors.yaml, T-2219); the group directory name is not the scope; run title UAT qoimeks-move.
 # 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) downloads the workbook (StockRead); actor-qoimeks-qa2-admin (TENANT_ADMIN) loads and checks it, because the Excel load screen is admin-only here: web/src/modules/stock/stockRoutes.tsx guards admin/stock/workbook-import with StockQuickCount, BalancesPage.tsx shows the button "Load balances from Excel" only with StockQuickCount, and lib/letflow/modules/stock/stock.ex role_grants for STOREKEEPER does not hold it (task T-2239 may add it later; this scenario does not depend on that). Both actors are in actors.yaml for qoimeks-qa2; live logins are verified by acceptance from the credential source (no credential in any file); a missing credential blocks the outcome, never a PASS.
 # 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 answered HTTP 200 on 2026-11-19 (T-2190). Read at main: WorkbookImportPage.tsx (select "Org unit", drop zone, button "Check", tally Rows read / Changed / Unchanged / Remarks, button "Write balances from the file" enabled only when the check has at least one change, card "Previous loads"), workbookMessages.ts (every en, ru, kk text quoted below exists), StockWorkbookImport (lib/letflow/modules/stock/stock_workbook_import.ex) for the check rules.
-# 4. Data: R (data rows) and S (distinct articles with a non-zero quantity) are counted from the downloaded file at the start of the run. Every seeded balance carries a responsible employee and the org unit QOI-OU-1 (converter requires both), so by the check rule R7 (stock held per responsible is not touched) each stocked article is left out of the comparison. Four-eyes OFF for the opening approval and ON for the quick count is the tenant state: read, not changed. No write is done: the group does not load, approve or cancel (it would change the 603 opening balances); the write path is walked in group qoimeks-import.
+# 4. Data: R (data rows), S (distinct articles with a non-zero quantity), N (rows with a negative quantity) and S_neg (distinct articles having such a row) are counted from the downloaded file at the start of the run. Every seeded balance carries a responsible employee and the org unit QOI-OU-1 (converter requires both), so by the check rule R7 (stock held per responsible is not touched) each stocked article is left out of the comparison. Four-eyes OFF for the opening approval and ON for the quick count is the tenant state: read, not changed. No write is done: the group does not load, approve or cancel (it would change the 603 opening balances); the write path is walked in group qoimeks-import.
 # 5. Executable: browser steps at 1440 px and 390 px, file drop of a file saved from disk, a small text file made by the run with exactly the bytes given in step 8. The write button's disabled state is read, never forced.
 # 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and a live host); static check run, see the task result. Acceptance runs preflight with title "UAT qoimeks-move".
-# EXPECTATION CORRECTIONS (this scenario, 6): (a) the load screen is run by the administrator, not the storekeeper (route guard StockQuickCount; the old text ran it as the storekeeper and expected a product defect); (b) Remarks are S (one R7 remark per stocked article, on its first row) PLUS any place-read remark (R11: a place text read as another code) that the file raises: the old "Remarks = S" is now "S R7 remarks plus the R11 count the run reports"; (c) Unchanged is not predicted: R7 articles are left out so it does not count them, it is recorded as shown and must not exceed R; (d) the org unit is chosen by the label the select shows (the run reads the org unit list and picks the one that received the opening balances, QOI-OU-1 in the seed), no label is quoted; (e) the "Check" button is pressed only after the unit and file are set (disabled otherwise): step order made explicit; (f) the Russian and Kazakh remark hints differ (ru: describes errors; kk: says remarks are Russian), only the kk claim is made.
+# EXPECTATION CORRECTIONS (this scenario, 7): (a) the load screen is run by the administrator, not the storekeeper (route guard StockQuickCount; the old text ran it as the storekeeper and expected a product defect); (b) T-2367 (#4888, after T-2303): StockWorkbookImport runs the bad-quantity branch before R7 and a negative quantity gets remark R12, so the remarks are: R7 = S minus the articles that have a negative row (S_neg), R12 = N (the rows whose quantity in column C is below 0, counted from the downloaded file, never a fixed number), R1 = 0, plus any place-read remark (R11); total Remarks = (S minus S_neg) + N + R11 count the run reports (sources: bad_qty_remark/2 in lib/letflow/modules/stock/stock_workbook_import.ex, docs/runbooks/stock-workbook-import.md table of remarks); (c) Unchanged is not predicted: R7 articles are left out so it does not count them, it is recorded as shown and must not exceed R; (d) the org unit is chosen by the label the select shows (the run reads the org unit list and picks the one that received the opening balances, QOI-OU-1 in the seed), no label is quoted; (e) the "Check" button is pressed only after the unit and file are set (disabled otherwise): step order made explicit; (g) steps 9 and 10 compare with the same three counts (R7, R12, R1) instead of "the same remark count as step 5"; (f) the Russian and Kazakh remark hints differ (ru: describes errors; kk: says remarks are Russian), only the kk claim is made.
 # Not UAT-observable here: the SHA-256 of the uploaded file (no screen shows a hash); the write, the approval and the cancel of a load (they change the 603 opening balances; see qoimeks-import); the offline compare tools (see qoimeks-move-4).
 # The unauthorized-access refusal step of the group is in scenario qoimeks-move-1 (step 8); step 8 here is the refusal of a wrong file type.
 # Requirements covered: REQ-865 (the workbook), REQ-884 (the check writes nothing), REQ-880 (move rule "current balances equal": an unchanged round trip shows no difference).
@@ -31,7 +31,7 @@ tags:
 description: >-
   The storekeeper downloads the unchanged whole-stock workbook; the administrator checks it on the Load balances from
   Excel screen against the org unit that holds the opening balances. On the synthetic baseline the check reads R data
-  rows, finds zero changes and one responsible-stock remark per stocked article (S of them, plus any place-read remarks
+  rows, finds zero changes and one responsible-stock remark per stocked article without a negative row, one negative-balance remark per negative row, and no remark that a quantity is not a quantity (plus any place-read remarks
   the run reports). The write button stays disabled and the list of previous loads is the same before and after. A
   text file is refused. The same check is repeated at 390 px in Russian and Kazakh with the same bytes. This proves
   that responsible stock is left out of a round trip; it is not evidence that the import can set those balances.
@@ -81,7 +81,8 @@ steps:
   actor: storekeeper
   action: >-
     From the saved file the run counts the data rows (the rows under the header row) and notes R, and counts the distinct
-    article codes that have a quantity other than zero and notes S.
+    article codes that have a quantity other than zero and notes S, counts the rows whose quantity in column C is below
+    zero and notes N, and counts the distinct articles of those rows and notes S_neg.
   via: ui
 - step: 3
   actor: admin
@@ -156,13 +157,18 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 5 shows Rows read equal to R and Changed 0. Remarks is at least S: one remark per stocked article, naming the
-      article and saying in Russian that the stock is kept separately by org unit, responsible, lot or unit and that the
-      stock of this article in the system is not changed; the run counts the remarks of that kind (must equal S) and
-      separately any remark that says a place was read as another code (R11): on this UNCHANGED export an R11 remark is a FAIL, because the workbook was written from the system's own places and must read back as the same places (REQ-865 round trip; product defect). Unchanged is recorded as
+      Step 5 shows Rows read equal to R and Changed 0. The remarks are counted by kind from the list: R7 remarks (name
+      the article and say in Russian that the stock is kept separately by org unit, responsible, lot or unit and that the
+      stock of this article in the system is not changed) equal S minus S_neg, one per stocked article that has no
+      negative row; R12 remarks equal N, one per negative row, each reading "строка <row>: <article>: отрицательный
+      остаток "<value>" не загружается, учётный остаток остаётся как есть. Остатки этого товара в системе не изменяются"
+      (the negative balance is not loaded; the system balance stays as it is; the article has no R7 remark because the
+      quantity rule runs first); R1 remarks (остаток "<value>" не является количеством) equal 0, because a negative
+      balance is an R12 case and the unchanged export holds no text quantity. Total Remarks equals (S minus S_neg) + N
+      plus the R11 count. Separately the run counts any remark that says a place was read as another code (R11): on this UNCHANGED export an R11 remark is a FAIL, because the workbook was written from the system's own places and must read back as the same places (REQ-865 round trip; product defect). Any other remark kind is a FAIL. Unchanged is recorded as
       shown (not more than R). The text "No balance differs from the file." is shown.
     evidence: >-
-      Screenshot at step 5 with R, S, the remark counts and Unchanged quoted.
+      Screenshot at step 5 with R, S, S_neg, N, the R7, R12 and R1 counts and Unchanged quoted.
   on_fail:
     severity: BLOCKER
     business_impact: >-
@@ -220,7 +226,7 @@ expected_outcomes:
     method: gui_screen
     detail: >-
       Step 9 at 390 px shows "Загрузка остатков из Excel", "Подразделение", "Проверить", and the same R rows, 0 changes
-      and the same remark count as step 5. The remark list is readable and nothing is cut off at the right edge.
+      and the same three counts as step 5 (R7 = S minus S_neg, R12 = N, R1 = 0). The remark list is readable and nothing is cut off at the right edge.
     evidence: >-
       Screenshot at step 9 at 390 px.
   on_fail:
@@ -234,7 +240,7 @@ expected_outcomes:
   verification:
     method: gui_screen
     detail: >-
-      Step 10 shows "Excel-ден қалдықтарды жүктеу", "Бөлімше", "Тексеру", and the same counts as step 5. The remarks stay
+      Step 10 shows "Excel-ден қалдықтарды жүктеу", "Бөлімше", "Тексеру", and the same three counts as step 5 (R7 = S minus S_neg, R12 = N, R1 = 0). The remarks stay
       in Russian and the Kazakh hint says so ("Ескертпелер орыс тілінде жазылған; олар файлдағы мәселелерді сипаттайды.").
       English is restored at the end.
     evidence: >-

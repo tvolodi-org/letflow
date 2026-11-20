@@ -85,6 +85,7 @@ import { taskInboxScreens } from './fixtures/taskInbox'
 import { taskInboxAssetsScreens } from './fixtures/taskInboxAssets'
 import { taskInboxHandoverScreens } from './fixtures/taskInboxHandover'
 import { taskUpgradeScreens } from './fixtures/taskUpgrade'
+import { taskRefusalScreens } from './fixtures/taskRefusals'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
@@ -433,5 +434,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...tokensT2187Screens,
     ...quickCountDocumentScreens,
     ...companyNotFoundScreens,
+    ...taskRefusalScreens,
   ].map(s => [s.name, s]),
 )

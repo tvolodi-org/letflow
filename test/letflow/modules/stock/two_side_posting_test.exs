@@ -120,7 +120,7 @@ defmodule Letflow.Modules.Stock.TwoSidePostingTest do
     assert {qty(ctx, a), qty(ctx, ctx.m2)} == {"6", "0"}
   end
 
-  test "BIND-1 a changed to side on the post task: posted + mismatch, no detail; untouched: ok",
+  test "BIND-1 a changed to side on the post task is refused (REQ-903); untouched: ok",
        ctx do
     a = ctx.ma
     T.receive!(ctx, a, "10")
@@ -134,8 +134,8 @@ defmodule Letflow.Modules.Stock.TwoSidePostingTest do
     instance =
       Repo.get!(Letflow.EventStore.InstanceProjection, task.instance_id, prefix: ctx.schema)
 
-    # REQ-832: an unknown location is refused at posting now (master_posting_test); a changed but LIVE
-    # location still posts, and the posting check on read is what detects it.
+    # REQ-832: an unknown location is refused by the master checks (master_posting_test); a changed but
+    # LIVE location is refused since REQ-903 by the binding check, before the master checks.
     other = T.b2!(ctx)
 
     lines =
@@ -144,9 +144,12 @@ defmodule Letflow.Modules.Stock.TwoSidePostingTest do
       end)
 
     output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}
-    assert {:ok, _} = P.complete(ctx, task, output: output)
+
+    assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
+             P.complete(ctx, task, output: output)
+
     read = P.get!(ctx, doc["id"])
-    assert read["state"] == "posted" and read["posting_check"] == "mismatch"
+    assert read["state"] == "issued" and read["posting_check"] == nil
     refute inspect(read) =~ "mismatch_detail"
   end
 

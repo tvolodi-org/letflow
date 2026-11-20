@@ -374,7 +374,10 @@ defmodule Letflow.Modules.Stock.PostingTest do
       posting = Map.put(instance.variables["posting"], "lines", changed)
       {:ok, _} = start_generic(ctx, %{instance.variables | "posting" => posting}, "chg")
 
-      assert {:error, _} = P.complete(ctx, P.pending_task(ctx, id, "post"))
+      # REQ-903: the binding check refuses the changed content before the ledger's idempotency conflict
+      assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
+               P.complete(ctx, P.pending_task(ctx, id, "post"))
+
       assert P.counts(ctx, id) == %{entries: %{"receipt" => 1}, marks: 1}
     end
 
@@ -735,8 +738,8 @@ defmodule Letflow.Modules.Stock.PostingTest do
     Letflow.Router.call(conn, Letflow.Router.init([]))
   end
 
-  describe "binding check on read (criterion 6)" do
-    test "B-CHK-1 output variables that change a quantity give posted + mismatch, no detail",
+  describe "binding check (criterion 6; refused at posting since REQ-903)" do
+    test "B-CHK-1 output variables that change a quantity are refused; the read shows no posting",
          ctx do
       doc = P.issue!(ctx)
       id = doc["id"]
@@ -750,13 +753,16 @@ defmodule Letflow.Modules.Stock.PostingTest do
 
       output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}
 
-      assert {:ok, _} = P.complete(ctx, task, output: output)
+      assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
+               P.complete(ctx, task, output: output)
+
       read = P.get!(ctx, id)
-      assert read["state"] == "posted" and read["posting_check"] == "mismatch"
+      assert read["state"] == "issued" and read["posting_check"] == nil
       refute inspect(read) =~ "mismatch_detail"
     end
 
-    test "B-CHK-2 a posting started for a draft's document id shows mismatch on the draft", ctx do
+    test "B-CHK-2 a posting started for a draft's document id is refused; the draft stays a draft",
+         ctx do
       issued = P.issue!(ctx)
       task = P.pending_task(ctx, issued["id"], "post")
 
@@ -773,10 +779,13 @@ defmodule Letflow.Modules.Stock.PostingTest do
 
       vars = Map.merge(instance.variables, %{"document_id" => draft["id"], "posting" => posting})
       {:ok, _} = start_generic(ctx, vars, "draft")
-      assert {:ok, _} = P.complete(ctx, pending_for_instance(ctx, draft["id"], exclude: task.id))
+
+      assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
+               P.complete(ctx, pending_for_instance(ctx, draft["id"], exclude: task.id))
 
       read = P.get!(ctx, draft["id"])
-      assert read["state"] == "draft" and read["posting_check"] == "mismatch"
+      assert read["state"] == "draft" and read["posting_check"] == nil
+      assert P.counts(ctx, draft["id"]) == %{entries: %{}, marks: 0}
     end
 
     test "B-CHK-3 the document read carries exactly the documented keys", ctx do
