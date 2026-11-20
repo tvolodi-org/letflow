@@ -32,7 +32,18 @@ export interface TenantSettingsPatchResponse {
   settings: Record<string, unknown> // full merged settings map (REQ-382 §3 step 9b)
 }
 
+/** T-2403 — `GET /api/v1/tenant/settings`: the effective company name (null when never set) and time zone. */
+export interface TenantSettingsAnswer {
+  tenant_id: string
+  app_name: string | null
+  timezone: string
+}
+
 export const tenantSettingsApi = {
+  get: () => client.get<TenantSettingsAnswer>('/api/v1/tenant/settings'),
+  /** T-2403 — company name and time zone through the same PATCH (flat top-level keys). */
+  patchCompany: (body: { app_name: string; timezone: string }) =>
+    client.patch<TenantSettingsPatchResponse>('/api/v1/tenant/settings', body),
   patchBrandColorPrimary: (primary: string) =>
     client.patch<TenantSettingsPatchResponse>('/api/v1/tenant/settings', {
       brand_colors: { primary },

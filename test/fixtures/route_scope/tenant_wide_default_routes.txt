@@ -118,6 +118,7 @@ GET /script-rules/:key/versions/:version/audit ScriptRulesAuditRead
 GET /services ServicesRead
 GET /solution-packs/:pack_id/overrides DefinitionsRead
 GET /tenant/config-bundle TenantSettingsManage
+GET /tenant/settings TenantSettingsManage
 GET /tenants TenantsManage
 GET /tenants/:slug TenantsManage
 GET /tenants/:slug/script-policy TenantsManage
