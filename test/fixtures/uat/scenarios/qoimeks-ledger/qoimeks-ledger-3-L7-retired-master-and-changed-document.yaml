@@ -37,7 +37,7 @@ description: >-
   storekeeper issues a second transfer T1 to the same place. The administrator retires the place. The post task of T1
   is now refused on the task screen with the clear "retired" text in English, Russian and Kazakh; T1 stays issued, its
   task stays pending and no balance moves. A user without the posting permission is not told the reason (authority
-  first). The old posting T0 can still be reversed although its place is retired (a removing side is unchanged); the
+  first: the answer is the uniform 404 and the generic action-failed text, INV-5 and decision 0093, not a defect). The old posting T0 can still be reversed although its place is retired (a removing side is unchanged); the
   storekeeper cancels T1, which withdraws its pending task. Part B (REQ-903, REQ-901, REQ-906). The storekeeper issues a
   receipt D. An extra posting task for D whose content differs from the issued content (prepared by the fixture script)
   is refused with the clear "document changed" text in English, Russian and Kazakh; D stays issued and nothing is
@@ -293,17 +293,21 @@ expected_outcomes:
     suggested_action: route_to_elixir_dev
 - id: EO-003
   description: >-
-    A user without the posting permission is not told the reason: authority comes first.
+    A user without the posting permission is not told the reason: authority comes first, and the task is answered as if
+    it were not there (INV-5, decision 0093).
   verification:
     method: gui_screen
     detail: >-
-      Steps 8 and 11 (REQ-901 criterion 3, REQ-904 criterion 4): the storekeeper, who does not hold StockApprove, cannot complete the
-      reassigned task; the screen shows the not-permitted text "You do not have permission to do this. Ask your tenant
-      administrator." or "You do not hold the role this task is for." (taskMessages.ts errForbidden, errNotHeld) or offers
-      no completing action. The retired-place text of EO-002 is not shown to the storekeeper. T1 stays Issued and the
-      quantities are those of BF1 and BP1 (the same reads as in step 11).
+      Steps 8 and 11 (REQ-901 criterion 3, REQ-904 criterion 4; decision 0093 and INV-5: a caller who cannot act on a task
+      gets the same answer as for a missing task). The storekeeper, who does not hold StockApprove, cannot claim or complete
+      the reassigned task: the product answers "not found" (HTTP 404) and the screen shows the generic text "The action
+      failed. Try again." (taskMessages.ts errGeneric; Russian "Не удалось выполнить действие. Повторите попытку.",
+      Kazakh "Әрекет орындалмады. Қайталап көріңіз."), or offers no completing action. The screen does NOT show the
+      "not permitted" texts (errForbidden, errNotHeld) and does NOT show the retired-place text of EO-002 or any other
+      reason: nothing about the retired place leaks. T1 stays Issued and the quantities are those of BF1 and BP1 (the same
+      reads as in step 11). This is the designed answer, not a product defect (issue 4917).
     evidence: >-
-      Screenshot of step 8 and the document and Balances reads.
+      Screenshot of step 8 (generic text) and the document and Balances reads.
   on_fail:
     severity: MAJOR
     business_impact: >-

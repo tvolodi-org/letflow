@@ -40,6 +40,11 @@ actors:
   admin2: actor-qoimeks-qa2-admin2
 preconditions:
 - description: >-
+    Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). Before the walk the operator has set stock_quick_count / approve ON (the qa2 tenant keeps explicit ON rows) and stock_opening / approve OFF. A workbook load creates an issued quick count; this scenario needs stock_quick_count / approve ON so that the loader cannot approve it and a second administrator does. It does not switch the rule.
+  check: system_seeded
+  detail: >-
+    Read both rules on the Approval rules screen at the start (administrator) and record them. If a rule is not in the stated state or cannot be read, report BLOCKED-by-environment; do not switch a rule to make the walk pass and do not take the default as the state. This scenario never changes a rule.
+- description: >-
     The Qoimeks QA tenant is reachable, the stock module is active, and the credentials of both administrators
     (actor-qoimeks-qa2-admin and actor-qoimeks-qa2-admin2, different persons, TENANT_ADMIN, same tenant and realm) are
     available in the acceptance credential source.

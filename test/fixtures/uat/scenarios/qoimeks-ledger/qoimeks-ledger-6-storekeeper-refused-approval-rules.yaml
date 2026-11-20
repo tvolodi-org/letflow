@@ -27,6 +27,11 @@ actors:
   admin: actor-qoimeks-qa2-admin
 preconditions:
 - description: >-
+    Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). Set by the operator before the walk: stock_opening / approve OFF and stock_quick_count / approve ON. The administrator records both at the start; the refusal steps must leave them exactly so.
+  check: system_seeded
+  detail: >-
+    If a rule is not in the stated state or cannot be read by the administrator, report BLOCKED-by-environment. The storekeeper never sends a change of a rule; at the end the administrator reads both rules again and they equal the start values.
+- description: >-
     Both roster accounts can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     The administrator can read the approval rules; the storekeeper's effective permissions exclude their management.
   check: runner_prepared
