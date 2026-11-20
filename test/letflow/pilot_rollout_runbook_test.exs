@@ -35,6 +35,9 @@ defmodule Letflow.PilotRolloutRunbookTest do
   @columns ["Order", "Record type", "Module", "File import", "How it comes in", "Source"]
   @forms ~w(Z-1 Z-2 Z-3 Z-4 Z-5 Z-6 Z-7 Inv-1 Inv-3 Inv-7 Inv-10 Inv-18 DA-1 DA-2 DA-3 DA-4 Inv-8 Inv-16)
 
+  # The reason the owner gave for the count rule of Client 1 (D-164).
+  @reason "Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
+
   defp manifests do
     for mod <- Catalog.entry_modules(),
         m = mod.manifest(),
@@ -311,5 +314,46 @@ defmodule Letflow.PilotRolloutRunbookTest do
     assert section =~ "owner"
     assert section =~ "operator"
     assert section =~ "X-Operator"
+  end
+
+  test "D164 the Client 1 count rule is decided OFF with the reason; the opening rule stays a choice",
+       %{
+         md: md
+       } do
+    onboarding = section(md, "Onboarding")
+
+    assert onboarding =~ "D-164"
+    assert onboarding =~ "stock_quick_count / approve"
+    assert onboarding =~ "stock_opening / approve"
+    assert onboarding =~ @reason
+    assert onboarding =~ "approval_rule.changed"
+    assert onboarding =~ "self-approved, four-eyes off"
+
+    # the opening rule is a separate choice, not part of the count decision
+    assert onboarding =~ "is **not** part of that decision"
+
+    # the same reason text, and the step it points at, in the onboarding runbook
+    runbook = File.read!(Path.join(@root, "docs/runbooks/production-tenant-onboarding.md"))
+    assert runbook =~ "### Step 20."
+    assert onboarding =~ "docs/runbooks/production-tenant-onboarding.md"
+
+    # every runbook that carries the decision carries the same reason text. The two record
+    # docs that repeat it (docs/design/four-eyes-switch.md section 6 and
+    # docs/status/qoimeks-migration-readiness.md section 1.4) are not read here: a test that
+    # opens a doc the backend gate does not cover would leave that doc ungated, and adding it
+    # to BACKEND_PATHS_RE is a change of the CI path rules, outside this docs-only task.
+    for path <- [
+          "docs/runbooks/pilot-rollout.md",
+          "docs/runbooks/production-tenant-onboarding.md"
+        ] do
+      text = @root |> Path.join(path) |> File.read!()
+      # the reason is copied as it stands: it must stay on ONE line, because the product's reason
+      # rule refuses a line break (it would answer 422 invalid_reason)
+      assert text =~ @reason, "#{path} does not carry the reason text of D-164"
+      assert text =~ "D-164", "#{path} does not name the owner decision"
+    end
+
+    # the reason is one the product's own reason rule accepts
+    assert Letflow.Audit.Reason.validate(@reason) == {:ok, @reason}
   end
 end

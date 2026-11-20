@@ -2,15 +2,24 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
   @moduledoc """
   T-2220: `docs/runbooks/production-tenant-onboarding.md` keeps its module order, checked names, repo paths
   and step structure in step with the code. No database. R1 and R5 are shown to bite on an in-memory copy.
+
+  T-2388 (owner decision D-164): step 20 sets the count four-eyes rule of the sss tenant OFF with the
+  reason text the owner gave, names the audit entries and the readiness check that shows the value, and
+  keeps the other rules a separate choice. The rules the runbook names are the shipped stock pack's own
+  four-eyes steps, and the reason text is one the product's own reason rule accepts.
   """
 
   use ExUnit.Case, async: true
 
+  alias Letflow.Audit.Reason
   alias Letflow.Modules.Catalog
   alias Letflow.Release.TenantOnboardingCheck
 
   @root Path.expand("../..", __DIR__)
   @runbook Path.join(@root, "docs/runbooks/production-tenant-onboarding.md")
+
+  # The reason the owner gave for the count rule of Client 1 (D-164).
+  @reason "Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
 
   defp text, do: File.read!(@runbook)
 
@@ -48,6 +57,8 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
   end
 
   defp who_line(section), do: Regex.run(~r/^\*\*Who:\*\*.*$/m, section) |> hd()
+
+  defp step(src, n), do: Enum.at(steps(src), n)
 
   test "R1: the module line equals the check's default list and is a valid dependency order" do
     ids = module_line(text())
@@ -99,5 +110,108 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     # bite: a copy with one Check line removed, and one with a step missing, fail
     refute steps_ok?(String.replace(src, "**Check:** 404, default realm", "404, default realm"))
     refute steps_ok?(String.replace(src, "### Step 13. Handover", "### Step 15. Handover"))
+  end
+
+  test "R6 (D-164): step 20 sets the count rule OFF with the reason, the audit entries and the check" do
+    s20 = step(text(), 20)
+
+    assert s20 =~ "D-164"
+    assert s20 =~ "PUT /api/v1/approval-rules/stock_quick_count/approve"
+    assert s20 =~ "{\"four_eyes\": false, \"reason\": \"" <> @reason <> "\"}"
+
+    # the two audit entries the product writes for the switch and for each self-approval
+    assert s20 =~ "approval_rule.changed"
+    assert s20 =~ "self-approved, four-eyes off"
+
+    # the readiness check that shows the value, and the line to read
+    assert s20 =~ "Letflow.Release.tenant_onboarding_check"
+
+    assert s20 =~
+             "INFO four-eyes on=1 off=1 steps=stock_opening.approve=on,stock_quick_count.approve=off"
+
+    # the reason is required: the runbook says so, and the product's rule says so
+    assert s20 =~ "invalid_reason"
+    assert Reason.validate("") == :error
+    assert Reason.validate(nil) == :error
+  end
+
+  test "R6b (D-164): the runbook says the switch is an interactive act, like the route requires" do
+    s20 = step(text(), 20)
+
+    # the route accepts only a person signed in in the browser; an API token is refused
+    assert s20 =~ "insufficient permissions"
+
+    Code.ensure_loaded!(Letflow.Routers.ApprovalRules)
+
+    {:docs_v1, _, :elixir, _, %{"en" => moduledoc}, _, _} =
+      Code.fetch_docs(Letflow.Routers.ApprovalRules)
+
+    assert moduledoc =~ ":oidc"
+  end
+
+  test "R7 (D-164): the reason text of the runbook is the owner's text and the product accepts it" do
+    src = text()
+    assert Regex.run(~r/\{"four_eyes": false, "reason": "([^"]+)"\}/, src)
+
+    [_call, reason] = Regex.run(~r/\{"four_eyes": false, "reason": "([^"]+)"\}/, src)
+    assert reason == @reason
+    assert Reason.validate(reason) == {:ok, reason}
+  end
+
+  test "R8 (D-164): step 20 holds the decision table: every document kind, its rule, the default ON" do
+    rows =
+      step(text(), 20)
+      |> String.split("\n")
+      |> Enum.filter(&String.starts_with?(&1, "| "))
+      |> Enum.map(fn line ->
+        line |> String.trim() |> String.trim("|") |> String.split("|") |> Enum.map(&String.trim/1)
+      end)
+
+    assert [header | data] = rows
+
+    assert header == ["Document kind", "Rule", "Default", "Client 1 (sss)", "What the staff see"]
+
+    assert length(data) == 3
+
+    for [_kind, rule, default, _client1, effect] <- data do
+      assert default == "ON"
+      assert effect != ""
+      assert rule =~ "/ approve"
+    end
+
+    kinds = Enum.map(data, &hd/1)
+    assert "Opening balance (`stock_opening`)" in kinds
+    assert "Count from the phone (`stock_quick_count`)" in kinds
+    assert "Excel load that creates counts" in kinds
+
+    # the count rule is OFF for Client 1 (D-164); the opening rule stays a separate choice
+    [opening, count, workbook] = data
+
+    assert count |> Enum.at(3) =~ "OFF"
+    assert count |> Enum.at(3) =~ "D-164"
+    assert workbook |> Enum.at(3) =~ "OFF"
+    assert workbook |> Enum.at(3) =~ "D-164"
+    assert opening |> Enum.at(3) =~ "separate choice"
+    refute opening |> Enum.at(3) =~ "D-164"
+
+    # the count rule is the owner's decision; the opening rule stays a separate choice
+    s20 = step(text(), 20)
+    assert s20 =~ "The opening rule stays a separate choice"
+    assert s20 =~ "The default is ON"
+  end
+
+  test "R9 (D-164): the rules the runbook names are the shipped stock pack's own four-eyes steps" do
+    pack = Jason.decode!(File.read!(Path.join(@root, "priv/modules/stock/pack.json")))
+
+    rules =
+      for definition <- pack["definitions"],
+          node <- definition["graph"]["nodes"],
+          get_in(node, ["attributes", "distinct_from"]) not in [nil, []],
+          do: "#{definition["process_key"]} / #{node["id"]}"
+
+    assert Enum.sort(rules) == ["stock_opening / approve", "stock_quick_count / approve"]
+
+    src = text()
+    for rule <- rules, do: assert(src =~ rule, "the runbook does not name #{rule}")
   end
 end
