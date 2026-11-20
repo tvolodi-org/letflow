@@ -19,7 +19,7 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
   @runbook Path.join(@root, "docs/runbooks/production-tenant-onboarding.md")
 
   # The reason the owner gave for the count rule of Client 1 (D-164).
-  @reason "Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
+  @reason "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"
 
   defp text, do: File.read!(@runbook)
 

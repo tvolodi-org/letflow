@@ -36,7 +36,7 @@ defmodule Letflow.PilotRolloutRunbookTest do
   @forms ~w(Z-1 Z-2 Z-3 Z-4 Z-5 Z-6 Z-7 Inv-1 Inv-3 Inv-7 Inv-10 Inv-18 DA-1 DA-2 DA-3 DA-4 Inv-8 Inv-16)
 
   # The reason the owner gave for the count rule of Client 1 (D-164).
-  @reason "Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
+  @reason "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"
 
   defp manifests do
     for mod <- Catalog.entry_modules(),

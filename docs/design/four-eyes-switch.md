@@ -263,7 +263,7 @@ company has one administrator, so the count posts at once. The count rule (`stoc
 switched OFF once, before the first count, with this reason (one line: the product's reason rule refuses a line
 break):
 
-"Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
+"Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"
 
 The switch writes one `approval_rule.changed` audit entry and every count the same person then approves writes
 one `task.self_approved` entry with the note "self-approved, four-eyes off". The decision covers the count and
