@@ -31,7 +31,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance; header `idempotency-key` as on issue: a retry replays the document, REQ-847) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
-  | `POST /quick-counts` (REQ-854; flat body: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (0 allowed), `reason_code`, optional `catalog_lot_id`, `responsible_id`, `reason_text`) | `StockQuickCount` | 201 issued `quick_count` document (`book_quantity`, `counted_quantity`, `difference` on its line); 422 `count_in_progress` with `held_by`, 409 `definition_not_active` (also a missing document type on a pre-0.20 install) |
+  | `POST /quick-counts` (REQ-854; flat body: `org_unit_id`, `location_id`, `catalog_item_id`, `catalog_uom_id`, `counted_quantity` (0 allowed), `reason_code`, optional `catalog_lot_id`, `responsible_id`, `reason_text`) | `StockQuickCount` | 201 issued `quick_count` document (`book_quantity`, `counted_quantity`, `difference` on its line); 422 `count_in_progress` with `held_by`, 409 `definition_not_active` (also a missing document type on a pre-0.20 install); with the count rule OFF an interactive caller's own count is approved by the system in the same call and answers `posted` (T-2410) |
   | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `StockRead` | 200 document |
 
@@ -669,7 +669,11 @@ defmodule Letflow.Modules.Stock.Router do
   # read authorization is the book-quantity read, a refusal of it is the unknown-document 404.
   authz_post "/quick-counts", :StockQuickCount do
     with_access(conn, :quick_count, fn conn, access ->
-      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+      opts = [
+        activator: Letflow.Api.Context.activator(conn),
+        authorized: read_authorized(conn),
+        self_approve: self_approve_credential(conn)
+      ]
 
       render_document(
         conn,
@@ -677,6 +681,15 @@ defmodule Letflow.Modules.Stock.Router do
         201
       )
     end)
+  end
+
+  # T-2410 (D-164): only an interactive caller (`:oidc`) can have its own count approved by the system
+  # when the count switch is OFF; an API token, or a context without a credential, never.
+  defp self_approve_credential(conn) do
+    case conn.assigns[:auth_context] do
+      %{credential: :oidc} -> :oidc
+      _other -> nil
+    end
   end
 
   authz_post "/documents/:id/cancel", :StockReverse,

@@ -816,6 +816,40 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   def pending_task_id(prefix, id, "approve"),
     do: pending_node_task(prefix, id, "approve", [Kinds.get("quick_count").definition])
 
+  @doc """
+  T-2410 (owner D-164): the system completes the pending `approve` task of quick count `id`, the
+  counter's OWN count, with the counter as the actor and the literal credential `:system_self_approval`.
+  `Letflow.Engine.SeparationOfDuties` lets that credential through only on `stock_quick_count` /
+  `approve` with the tenant's switch stored OFF (it re-reads the setting under the task lock), and
+  the engine audits `task.self_approved`, "self-approved, four-eyes off", exactly as for the old
+  Qoimeks address. The caller (`Documents.quick_count/4`) has read the switch and passes only the
+  document it just made. `:ok`, `{:error, :no_pending_task}` or the engine's own refusal (a switch
+  turned ON in between is `{:error, :separation_of_duties}`).
+  """
+  @spec self_approve_count(String.t(), String.t(), String.t()) ::
+          :ok | {:error, :no_pending_task} | {:error, term()}
+  def self_approve_count(prefix, id, actor_id) do
+    case pending_task_id(prefix, id, "approve") do
+      nil ->
+        {:error, :no_pending_task}
+
+      task_id ->
+        attrs = %{
+          output_variables: %{},
+          actor_id: actor_id,
+          idempotency_key: "stock-self-approve:#{task_id}"
+        }
+
+        case Engine.complete_task(task_id, attrs,
+               prefix: prefix,
+               credential: :system_self_approval
+             ) do
+          {:ok, _result} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   defp pending_node_task(prefix, id, node, definition_names) do
     ids = Enum.flat_map(definition_names, &definition_ids(prefix, &1))
 

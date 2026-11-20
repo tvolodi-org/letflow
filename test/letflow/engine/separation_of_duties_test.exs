@@ -336,6 +336,41 @@ defmodule Letflow.Engine.SeparationOfDutiesTest do
       assert refused == check6(ctx, built2, recheck, u.id, "stock_quick_count", :shared_access)
     end
 
+    test "E12b T-2410 OFF: :system_self_approval is self-approved on the one step and says so" do
+      {ctx, u, approve, built} = quick_count_case!()
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, false)
+
+      assert {:self_approved,
+              %{
+                definition_name: "stock_quick_count",
+                node_id: @approve,
+                same_person_as: [@submit],
+                approved_by: "system"
+              }} =
+               check6(ctx, built, approve, u.id, "stock_quick_count", :system_self_approval)
+
+      # the old address and the interactive person keep today's info (no `approved_by`)
+      assert {:self_approved, info} =
+               check6(ctx, built, approve, u.id, "stock_quick_count", :shared_access)
+
+      refute Map.has_key?(info, :approved_by)
+    end
+
+    test "E13b T-2410 :system_self_approval is as narrow as :shared_access: other process, no row, row true" do
+      {ctx, u, approve, built} = quick_count_case!()
+      refused = {:error, {:separation_of_duties, [@submit]}}
+      credential = :system_self_approval
+
+      # no row (rule ON by default) and a stored true
+      assert refused == check6(ctx, built, approve, u.id, "stock_quick_count", credential)
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, true)
+      assert refused == check6(ctx, built, approve, u.id, "stock_quick_count", credential)
+
+      # another process, even with its own OFF row
+      put_setting!(ctx.schema_name, "stock_opening", @approve, false)
+      assert refused == check6(ctx, built, approve, u.id, "stock_opening", credential)
+    end
+
     test "E14 no row and a row four_eyes true refuse :shared_access (fails closed)" do
       {ctx, u, approve, built} = quick_count_case!()
       refused = {:error, {:separation_of_duties, [@submit]}}

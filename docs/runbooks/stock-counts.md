@@ -246,7 +246,13 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
   issue, `approve` (`required_permission: StockApprove`, routing role TENANT_ADMIN, `distinct_from submit`) posts. Four eyes are ON by
   default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
-  it OFF one tenant admin counts and approves (one `task.self_approved` audit entry). An untouched stock process draft activates automatically on first use; no administrator activation step is required.
+  it OFF one tenant admin counts and approves (one `task.self_approved` audit entry). T-2410 (owner D-164): with it OFF
+  at the moment of the count, `POST /quick-counts` itself has the system complete the approve step of the counter's OWN
+  count (an interactive caller only, no `StockApprove` needed, none granted): the count posts at once, the audit entry
+  `task.self_approved` (actor = the counter, `approved_by` = `system`, `same_person_as` = `["submit"]`) says "self-approved,
+  four-eyes off". A count made while the switch was ON stays pending when the switch is turned OFF later, and a count of
+  another user is never approved this way. A refusal of the approval (stale, frozen place, balance in other rows) cancels
+  the issued count and answers the refusal. An untouched stock process draft activates automatically on first use; no administrator activation step is required.
 * **Stale.** The posting carries `expected_on_hand` = the book quantity (REQ-853). If anything moved the key between the
   count and the approval the core refuses `balance_changed` (stock alias `quick_count_stale`, 409), the task stays
   pending: cancel the document and count again. The balance never ends as "old plus difference" by accident.

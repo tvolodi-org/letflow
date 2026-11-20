@@ -152,7 +152,7 @@ the same Multi as `task.complete` (`Audit.append_multi/4`, so both commit or nei
 | `action` | `task.self_approved` |
 | `resource_type`, `resource_id` | `task`, the task id |
 | `actor_id` | the approving user |
-| `after_state` | `%{"note" => "self-approved, four-eyes off", "four_eyes" => "off", "definition_name" => ..., "node_id" => ..., "same_person_as" => [blocking node ids], "setting_changed_at" => ...}` |
+| `after_state` | `%{"note" => "self-approved, four-eyes off", "four_eyes" => "off", "definition_name" => ..., "node_id" => ..., "same_person_as" => [blocking node ids], "setting_changed_at" => ...}`; T-2410 adds `"approved_by" => "system"` when the system completed the approval of the counter's own quick count (credential `:system_self_approval`, actor = the counter) |
 
 The text "self-approved, four-eyes off" is the stored value, as the owner asked; the audit screen
 (`web/src/pages/admin/AuditLogPage.tsx`) shows the action and the note. A failed audit write fails the completion
