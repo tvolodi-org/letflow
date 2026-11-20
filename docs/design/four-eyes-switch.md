@@ -187,6 +187,26 @@ is OFF.
   a process (a new approval step): that slice bumps the module version and carries the upgrade test.
 - Seeds: none. A tenant that wants it off switches it on the screen.
 
+### 3.6 Amendment (T-2391, owner D-165, 2026-11-20): the default is OFF for NEW tenants
+
+Owner, D-165: "the rule of four eyes is now more exception than direct rule, at least in KZ". Rows 5 and the
+"no row = ON" statements of sections 3.1 and 3.2 now hold for **existing tenants only**.
+
+| Question | Answer |
+|---|---|
+| Default of a NEW tenant | OFF for every step that names `distinct_from` (stock opening, count, workbook load, asset opening, tenant-authored steps): a step with no row in `approval_rule_settings` is OFF |
+| Where the default lives | New tenant table `approval_rule_defaults` (at most one row, unique on `((true))`, `four_eyes_default` always false). A row means "no stored setting = OFF"; no row means "no stored setting = ON" (today's rule). Read by `Letflow.Engine.ApprovalRuleSetting.default_off/3` and `effective/5` |
+| Who writes the marker | Migration `20261120100001_create_approval_rule_defaults.exs`, only into a FRESH schema (no `process_definitions` row and no `approval_rule_settings` row), which is every schema at provisioning. Existing tenants get the table empty |
+| Existing tenants | No marker, no data written: every one keeps its rows and, with no row, ON. An upgrade flips nothing (test D6) |
+| Why a marker, not explicit ON rows for existing tenants | Rows are keyed by (definition, step). A step added later (new process version, module upgrade) has no row and would silently flip to OFF in a tenant that never chose it. The marker is per tenant and cannot drift. A tenant with no definitions at upgrade time is treated as new (nothing to change for it) |
+| Explicit rows | Always win, both ways. ON then OFF keeps `reason`, `changed_by` and one `approval_rule.changed` audit entry per change; the first ON on a new tenant audits `before four_eyes: false` |
+| Reason text | Still required for every switch (ON or OFF), unchanged: the reason is the audit record of who decided. Dropping it for ON is possible later and is not part of this change |
+| Audit of a self-approval on the default | `task.self_approved` as before, plus `setting_source: "tenant_default"` and `setting_changed_at: null` (no row, so no change time) |
+| Fails closed | A missing or unreadable marker table means ON, as an unreadable row does |
+| One-admin tenant | A new tenant with ONE administrator issues and approves an opening, a count and a workbook load with no second person and no switch |
+| Known limit | The publish-time advisory `distinct_from_single_member_role` (section 2 row 5) still shows for a default-OFF step; it refuses nothing |
+| Operator step | Before this lands, set EXPLICIT rows on `qoimeks-qa2` to their current values |
+
 ## 4. Implementation slices (in order)
 
 | # | Slice | Contents | Effort |
