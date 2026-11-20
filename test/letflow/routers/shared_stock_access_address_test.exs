@@ -95,7 +95,8 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
     value
   end
 
-  # Two items, two places, three receipts (10 and 5 of Z-1, 4.5 of Z-2), one barcode on Z-1.
+  # Two items, two places, three receipts (10 and 5 of Z-1, 4.5 of Z-2), one barcode on Z-1,
+  # A1 the default place of Z-1.
   defp seed!(fx, unit) do
     s = fx.schema_name
     opts = fn -> %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()} end
@@ -118,7 +119,13 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
     for node <- [a1, b1],
         do: {:ok, _} = Locations.link_unit_location(s, unit, node["record_id"], opts.())
 
-    z1 = Cat.item!(s, "Z-1", uom.record_id, %{"kind" => "material", "name" => "Lock"})
+    z1 =
+      Cat.item!(s, "Z-1", uom.record_id, %{
+        "kind" => "material",
+        "name" => "Lock",
+        "default_location_id" => a1["record_id"]
+      })
+
     z2 = Cat.item!(s, "Z-2", uom.record_id, %{"kind" => "material", "name" => "Button"})
     tag = K.tag!(s, "4600000000017", %{"status" => "assigned"})
     K.assign!(s, tag, "catalog_item", z1.record_id)
@@ -135,6 +142,8 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
 
     %{z1: z1, z2: z2, a1: a1, b1: b1, uom: uom}
   end
+
+  defp fresh, do: %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
 
   defp request(method, slug, path, value, opts \\ []) do
     conn = Plug.Test.conn(method, "/qoimeks/#{slug}#{path}")
@@ -156,14 +165,63 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
   # -- C1 -----------------------------------------------------------------------------------------
 
   describe "C1 the three reads in the Qoimeks shape" do
-    test "C1 catalog: exactly id, name, article, unit, barcode", %{a: a, va: v} do
-      rows = ok!(get(a, "/catalog", v))
-      assert length(rows) == 2
-      assert Enum.all?(rows, &(Map.keys(&1) |> Enum.sort() == ~w(article barcode id name unit)))
-      z1 = Enum.find(rows, &(&1["article"] == "Z-1"))
+    test "C1 catalog: an object of exactly skus and locations (REQ-908 K1)", %{a: a, va: v} do
+      cat = ok!(get(a, "/catalog", v))
+      assert cat |> Map.keys() |> Enum.sort() == ~w(locations skus)
+      assert [z1, z2] = cat["skus"]
+      assert [z1["code"], z2["code"]] == ["Z-1", "Z-2"]
+      assert Map.keys(z1) |> Enum.sort() == ~w(barcode code id location_id name unit)
       assert %{"name" => "Lock", "unit" => "pcs", "barcode" => "4600000000017"} = z1
       assert is_integer(z1["id"]) and z1["id"] > 0
-      assert Enum.find(rows, &(&1["article"] == "Z-2"))["barcode"] == nil
+      # a sku with no code value has no barcode key; with no default place no location_id key
+      assert Map.keys(z2) |> Enum.sort() == ~w(code id name unit)
+      refute Enum.any?(cat["skus"], &Map.has_key?(&1, "alt_location_id"))
+
+      assert [l1, l2] = cat["locations"]
+      assert [l1["code"], l2["code"]] == ["A1", "B1"]
+      assert Enum.all?(cat["locations"], &(Map.keys(&1) |> Enum.sort() == ~w(code id name)))
+      assert [l1["name"], l2["name"]] == ["Rack A1", "Rack B1"]
+    end
+
+    test "C1 REQ-908 catalog edge cases: unit empty, inactive items and places are left out",
+         %{a: a, va: v, seeded: sd} do
+      s = a.schema_name
+      # an item whose base unit is unknown, and an inactive item
+      Cat.item!(s, "Z-0", Ecto.UUID.generate(), %{"name" => "Nounit", "kind" => "material"})
+      off = Cat.item!(s, "Z-9", sd.uom.record_id, %{"name" => "Off", "kind" => "material"})
+      Cat.update!(s, off, Map.put(off.field_values, "active", false))
+
+      {:ok, c1} =
+        Locations.create_node(
+          s,
+          %{"code" => "C1", "name" => "Rack C1", "node_kind" => "zone"},
+          fresh()
+        )
+
+      {:ok, _} = Locations.retire_node(s, c1["record_id"], fresh())
+
+      cat = ok!(get(a, "/catalog", v))
+      assert Enum.map(cat["skus"], & &1["code"]) == ["Z-0", "Z-1", "Z-2"]
+      assert Enum.find(cat["skus"], &(&1["code"] == "Z-0"))["unit"] == ""
+      assert Enum.map(cat["locations"], & &1["code"]) == ["A1", "B1"]
+    end
+
+    test "C1 REQ-908 default place: location_id is the place's integer, absent when retired",
+         %{a: a, va: v, seeded: sd} do
+      s = a.schema_name
+      cat = ok!(get(a, "/catalog", v))
+      z1 = Enum.find(cat["skus"], &(&1["code"] == "Z-1"))
+      place = Enum.find(cat["locations"], &(&1["code"] == "A1"))
+      assert z1["location_id"] == place["id"]
+
+      # the same integer in the balance rows of that place
+      bal = ok!(get(a, "/balances?sku_id=#{z1["id"]}", v))
+      assert Enum.find(bal, &(&1["location_code"] == "A1"))["location_id"] == place["id"]
+
+      {:ok, _} = Locations.retire_node(s, sd.a1["record_id"], fresh())
+      cat = ok!(get(a, "/catalog", v))
+      refute Map.has_key?(Enum.find(cat["skus"], &(&1["code"] == "Z-1")), "location_id")
+      assert Enum.map(cat["locations"], & &1["code"]) == ["B1"]
     end
 
     test "C1 balances equal the TENANT_ADMIN read of GET /modules/stock/balances",
@@ -172,42 +230,43 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
 
       assert Enum.all?(
                old,
-               &(Map.keys(&1) |> Enum.sort() ==
-                   ~w(location_id location_name quantity sku_id sku_name))
+               &(Map.keys(&1) |> Enum.sort() == ~w(location_code location_id qty sku_id))
              )
 
       admin = S.get("/balances", tok) |> S.json()
-      catalog = ok!(get(a, "/catalog", v)) |> Map.new(&{&1["article"], &1["id"]})
+      cat = ok!(get(a, "/catalog", v))
+      skus = Map.new(cat["skus"], &{&1["code"], &1["id"]})
+      places = Map.new(cat["locations"], &{&1["code"], &1["id"]})
 
       assert length(old) == length(admin["rows"]) and length(old) == 3
 
-      for row <- old do
-        assert row["sku_id"] ==
-                 Map.fetch!(catalog, if(row["sku_name"] == "Lock", do: "Z-1", else: "Z-2"))
-      end
+      # sorted by place code, one integer per place and per sku, qty is a number
+      assert Enum.map(old, & &1["location_code"]) == ["A1", "A1", "B1"]
 
-      old_set = for r <- old, do: {r["sku_name"], r["location_name"], r["quantity"]}
+      for row <- old, do: assert(row["location_id"] == Map.fetch!(places, row["location_code"]))
+
+      old_set =
+        for r <- old,
+            do:
+              {Enum.find_value(skus, fn {c, i} -> i == r["sku_id"] && c end), r["location_code"],
+               r["qty"]}
 
       assert Enum.sort(old_set) ==
-               Enum.sort([
-                 {"Lock", "Rack A1", 10},
-                 {"Lock", "Rack B1", 5},
-                 {"Button", "Rack A1", 4.5}
-               ])
+               Enum.sort([{"Z-1", "A1", 10}, {"Z-1", "B1", 5}, {"Z-2", "A1", 4.5}])
 
       admin_total =
         admin["rows"] |> Enum.map(&Decimal.new(&1["quantity"])) |> Enum.reduce(&Decimal.add/2)
 
       old_total =
-        old |> Enum.map(&Decimal.from_float(&1["quantity"] / 1)) |> Enum.reduce(&Decimal.add/2)
+        old |> Enum.map(&Decimal.from_float(&1["qty"] / 1)) |> Enum.reduce(&Decimal.add/2)
 
       assert Decimal.eq?(admin_total, old_total)
     end
 
     test "C1 balances filter by sku_id and an unknown integer answers an empty list",
          %{a: a, va: v} do
-      catalog = ok!(get(a, "/catalog", v))
-      z1 = Enum.find(catalog, &(&1["article"] == "Z-1"))
+      catalog = ok!(get(a, "/catalog", v))["skus"]
+      z1 = Enum.find(catalog, &(&1["code"] == "Z-1"))
       assert [_, _] = ok!(get(a, "/balances?sku_id=#{z1["id"]}", v))
       assert [] = ok!(get(a, "/balances?sku_id=999999", v))
       assert get(a, "/balances?sku_id=abc", v).status == 400
@@ -266,7 +325,8 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
     test "C1 the integers are stable: a second read answers the same ids", %{a: a, va: v} do
       first = ok!(get(a, "/catalog", v))
       assert ok!(get(a, "/catalog", v)) == first
-      assert Enum.map(first, & &1["id"]) |> Enum.sort() == [1, 2]
+      assert Enum.map(first["skus"], & &1["id"]) |> Enum.sort() == [1, 2]
+      assert Enum.map(first["locations"], & &1["id"]) |> Enum.sort() == [1, 2]
     end
 
     test "C1 INV-1 the mapping rows live in the tenant's own schema only", %{a: a, b: b, va: v} do

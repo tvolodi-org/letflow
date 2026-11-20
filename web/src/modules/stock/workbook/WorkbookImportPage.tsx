@@ -19,6 +19,7 @@ import { StatusPill, type StatusTone, type StatusGlyph } from '@/components/ui/S
 import { Tally } from '@/components/ui/Tally'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError } from '@/utils/classifyError'
+import { formatQuantity } from '@/lib/formatQuantity'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockQueryKeys } from '../register/stockQueryKeys'
@@ -229,9 +230,9 @@ const STATE_PILL: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
           ? `${r.place_code} ${t('stock.wb.emptied')}`
           : r.place_code,
     },
-    { key: 'book_quantity', label: t('stock.wb.col.book'), align: 'end', mono: true, render: (r) => r.book_quantity },
-    { key: 'file_quantity', label: t('stock.wb.col.file'), align: 'end', mono: true, render: (r) => r.file_quantity },
-    { key: 'difference', label: t('stock.wb.col.difference'), align: 'end', mono: true, render: (r) => r.difference },
+    { key: 'book_quantity', label: t('stock.wb.col.book'), align: 'end', mono: true, render: (r) => formatQuantity(r.book_quantity, intl.locale) },
+    { key: 'file_quantity', label: t('stock.wb.col.file'), align: 'end', mono: true, render: (r) => formatQuantity(r.file_quantity, intl.locale) },
+    { key: 'difference', label: t('stock.wb.col.difference'), align: 'end', mono: true, render: (r) => formatQuantity(r.difference, intl.locale) },
   ]
 
   const importRows = harness?.importRows ?? (harness?.cancelDialogOpen ? [HARNESS_IMPORT_ROW] : importsQuery.data?.rows ?? [])

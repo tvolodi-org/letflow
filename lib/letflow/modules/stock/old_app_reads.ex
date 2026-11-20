@@ -12,12 +12,19 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   (`old_app_catalog/1`, `old_app_balances/2`, `old_app_movements/2`), the one core file the boundary
   check lets name a module file.
 
-  * `catalog/1`: every active catalog item: `id` (the sku integer), `name`, `article` (the item
-    code), `unit` (code of the base unit of measure, or null), `barcode` (the first code value
-    assigned to the item, or null).
+  * `catalog/1` (REQ-908, the old app's `Catalog`): an object `%{skus: [...], locations: [...]}`.
+    A sku row (every active catalog item, sorted by code): `id` (the sku integer), `code`, `name`,
+    `unit` (code of the base unit of measure, `""` when there is none: the app reads it as text that is
+    never null), `location_id` (the place integer of the item's `default_location_id`; the key is absent
+    when the item has none or that place is not active) and `barcode` (the first code value assigned to
+    the item; the key is absent when there is none). The second place (`alt_location_id`) is not served
+    (owner pruning D-150). A location row (every active `location_node`, sorted by code): `id` (its
+    integer in `location_node_int_ids`, assigned here when missing), `code`, `name`.
   * `balances/2`: one row per sku and place with a non-zero quantity (summed over org unit,
-    responsible, lot and unit of measure): `sku_id`, `location_id`, `quantity`, `sku_name`,
-    `location_name`. Optional integer filters `sku_id`, `location_id`.
+    responsible, lot and unit of measure): exactly `sku_id`, `location_id`, `location_code`, `qty`,
+    sorted by place code (then sku integer). Optional integer filters `sku_id`, `location_id`.
+    One place has one integer everywhere: in a sku's `location_id`, a `locations` row, and balance and
+    movement rows.
   * `movements/2`: the newest `limit` ledger entries (50 when `limit` is missing or outside 1..500),
     newest first: `id`, `kind` (the document type, `reversal` for a reversal), `sku_id`,
     `location_id` (null when the entry has no place), `quantity` (absolute value of the first leg),
@@ -44,40 +51,63 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   @default_limit 50
   @max_limit 500
 
-  @doc "The Qoimeks catalog list of the tenant schema `prefix`."
-  @spec catalog(String.t()) :: {:ok, [map()]} | {:error, :unavailable}
+  @doc "The Qoimeks catalog (`skus` and `locations`) of the tenant schema `prefix`."
+  @spec catalog(String.t()) ::
+          {:ok, %{skus: [map()], locations: [map()]}} | {:error, :unavailable}
   def catalog(prefix) do
-    case CatalogItems.list_active(prefix) do
-      {:ok, items} ->
-        ids = IntIds.assign(prefix, :sku, Enum.map(items, & &1["record_id"]))
+    with {:ok, items} <- CatalogItems.list_active(prefix),
+         {:ok, places} <- Locations.list_active(prefix) do
+      loc_ids = IntIds.assign(prefix, :location, Enum.map(places, & &1["record_id"]))
+      sku_ids = IntIds.assign(prefix, :sku, Enum.map(items, & &1["record_id"]))
 
-        rows =
-          items
-          |> Enum.flat_map(fn item ->
-            case Map.fetch(ids, item["record_id"]) do
-              {:ok, int} ->
-                [
-                  %{
-                    id: int,
-                    name: item["name"],
-                    article: item["code"],
-                    unit: uom_code(prefix, item["base_uom_id"]),
-                    barcode: barcode(prefix, item["record_id"])
-                  }
-                ]
-
-              :error ->
-                []
-            end
-          end)
-          |> Enum.sort_by(& &1.id)
-
-        {:ok, rows}
-
-      _other ->
-        {:error, :unavailable}
+      {:ok,
+       %{
+         skus: sku_rows(prefix, items, sku_ids, loc_ids),
+         locations: location_rows(places, loc_ids)
+       }}
+    else
+      _other -> {:error, :unavailable}
     end
   end
+
+  defp sku_rows(prefix, items, sku_ids, loc_ids) do
+    items
+    |> Enum.flat_map(fn item ->
+      case Map.fetch(sku_ids, item["record_id"]) do
+        {:ok, int} ->
+          row = %{
+            id: int,
+            code: item["code"],
+            name: item["name"],
+            unit: uom_code(prefix, item["base_uom_id"])
+          }
+
+          [
+            row
+            |> put_present(:location_id, Map.get(loc_ids, item["default_location_id"]))
+            |> put_present(:barcode, barcode(prefix, item["record_id"]))
+          ]
+
+        :error ->
+          []
+      end
+    end)
+    |> Enum.sort_by(&{&1.code, &1.id})
+  end
+
+  defp location_rows(places, loc_ids) do
+    places
+    |> Enum.flat_map(fn place ->
+      case Map.fetch(loc_ids, place["record_id"]) do
+        {:ok, int} -> [%{id: int, code: place["code"], name: place["name"]}]
+        :error -> []
+      end
+    end)
+    |> Enum.sort_by(&{&1.code, &1.id})
+  end
+
+  defp put_present(row, _key, nil), do: row
+  defp put_present(row, key, value), do: Map.put(row, key, value)
 
   @doc "The Qoimeks balances list."
   @spec balances(map(), map()) ::
@@ -176,13 +206,12 @@ defmodule Letflow.Modules.Stock.OldAppReads do
           %{
             sku_id: sku_id,
             location_id: loc_id,
-            quantity: number(qty),
-            sku_name: name_of(CatalogItems.lookup(prefix, sku)),
-            location_name: name_of(Locations.lookup(prefix, loc))
+            location_code: location_code(Locations.lookup(prefix, loc)),
+            qty: number(qty)
           }
         end
 
-      {:ok, Enum.sort_by(out, &{&1.sku_id, &1.location_id})}
+      {:ok, Enum.sort_by(out, &{&1.location_code, &1.sku_id})}
     end
   end
 
@@ -352,15 +381,15 @@ defmodule Letflow.Modules.Stock.OldAppReads do
 
   # -- names --------------------------------------------------------------------------------------
 
-  defp name_of({:ok, record}), do: record["name"]
-  defp name_of(_other), do: nil
+  defp location_code({:ok, record}), do: record["code"] || ""
+  defp location_code(_other), do: ""
 
-  defp uom_code(_prefix, nil), do: nil
+  defp uom_code(_prefix, nil), do: ""
 
   defp uom_code(prefix, id) do
     case CatalogItems.lookup(prefix, id) do
-      {:ok, uom} -> uom["code"]
-      _other -> nil
+      {:ok, uom} -> uom["code"] || ""
+      _other -> ""
     end
   end
 
