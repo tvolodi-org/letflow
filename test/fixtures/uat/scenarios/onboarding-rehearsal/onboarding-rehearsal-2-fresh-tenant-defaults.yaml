@@ -1,0 +1,205 @@
+# T-2420 (PM 2026-11-21, second rehearsal on a clean replay). Run title: UAT onboarding-rehearsal. QA rehearsal tenant only, synthetic data, never production, never qoimeks-qa2, qoimeks-qa or qoimeks-client1-qa.
+# Purpose: rehearse a FRESH tenant under owner decision D-165 (approval rules default OFF for new tenants) and D-164 (count from the phone by one administrator). First the defaults are read and used WITHOUT any browser setup (the storekeeper's count posts at once), then the administrator sets the count row explicitly with the reason, as production will do. Sibling of onboarding-rehearsal-1 (tenant sss-rehearsal, default ON at the time).
+# 1. Scope: sss-rehearsal2 (tenant slug, realm sss-rehearsal2, legal entity code SSS 'SSS Rehearsal 2 LLC'; per infra's statement of 2026-11-21: clean replay on QA at b4e527f6f, approval rules UNTOUCHED = 0 rows). Never qoimeks-qa2, qoimeks-qa or qoimeks-client1-qa. The group name has no qoimeks- prefix on purpose.
+# 2. Actors: actor-sss-rehearsal2-admin (TENANT_ADMIN: ApprovalRulesManage, LedgerSettingsManage, AuditRead, StockApprove) and actor-sss-rehearsal2-storekeeper (STOREKEEPER: StockQuickCount, StockRead, StockPost, StockReverse; no ApprovalRulesManage, no StockApprove; docs/roles.md, decision 0093). Both are in test/fixtures/uat/actors.yaml since T-2420; existence and roles come from infra's statement of 2026-11-21; a live login is verified by acceptance (credentials in UAT_QA_ACTOR_SSS_REHEARSAL2_*_USER_*, none written here). The administrator MUST sign in through the browser: the approval rule accepts only a person signed in through the browser, not an API token.
+# 3. Host and screens: tenant host https://sss-rehearsal2.letflow.qa.bizdala.com (created by infra; answer verified by acceptance). Read on main: web/src/router.tsx (admin/approval-rules guarded by ApprovalRulesManage, admin/audit by AuditRead), pages/admin/approval-rules (ApprovalRulesPage, ApprovalRuleDetail, approvalRulesMessages), pages/admin/AuditLogPage.tsx, modules/stock/quickCount (QuickCountPage), stock documents, Balances, My Tasks. Texts copied from those catalogs; the preparation steps repeat onboarding-rehearsal-1 steps 1 to 8 (lab file project/sss-rehearsal-click-path.md step 8).
+# 4. Data: the tenant holds NO items, places or balances (fresh). Steps 1 to 8 make one site, one org unit, one location, the link, one Responsible employee, one unit of measure, one item (xlsx prepared outside by the walker) and one posted receipt of quantity B. The walk records item, place, org unit, employee, B and the count of pending approval tasks of the administrator (P0) at run time; no value is named in advance. START state: the approval rules of the tenant are untouched (infra: 0 stored rows). If the walk finds any row already changed (a "Last change" with a user), it is BLOCKED-by-environment; nothing is switched to prepare it. No generator task is needed.
+# 5. Executable: every step is done in a real browser by the runner's own script (no pipeline_test); no API step. The storekeeper's count (step 11) uses a 390 px wide window. A row of the approval rules screen may be listed only once the stock process definitions are active (as in onboarding-rehearsal-1 step 9): if the three rows are not listed in step 9, step 9 is repeated after step 13 (the count activates them) and the rows are read then, before step 14.
+# 6. Dry run: uat.sh preflight not run in this writing step (no acceptance credential source here); roster check by the static check (actors and scope exist in actors.yaml). Acceptance runs it once infra confirms the logins.
+# EXPECTATION CORRECTIONS: 3. (a) The task text names the status text 'never changed (default: off)'; on main the catalog key approvalRules.change.never reads 'Never changed (default: on)' (ru 'Не менялось (по умолчанию: включено)') for every row, so the text for a default-OFF row does not exist yet: the scenario keeps the expectation of D-165 (the row says the default is off) and the walk fails on it until the screen follows D-165 (DEFECT, reported in findings; not weakened). (b) The approval rules screen has display names only for assets_opening and stock_opening and the step 'Approval'; the quick count and workbook load rows show the name the screen resolves, so rows are identified by the step 'Approval' and the process name (stock_quick_count, stock_opening, the workbook-load process) or its translation, whichever the screen shows. (c) The audit screen has no filter by action: entries are found with the filter "User" and the action text, as in onboarding-rehearsal-1.
+# Not UAT-observable: the engine default marker itself (a server table, no screen); the 403 of an API token on the approval rule route (a write probe, not done here).
+---
+id: onboarding-rehearsal-2-fresh-tenant-defaults
+scope: sss-rehearsal2
+title: >-
+  On a fresh tenant the approval rules read Off by default, the storekeeper's count from a phone-width window posts at once without any setup,
+  and the administrator then sets the count rule explicitly with a reason
+version: '1.0'
+tags:
+- onboarding
+- rehearsal
+- stock
+- quick_count
+- approval_rules
+- default_off
+- refusal
+- phone
+- en
+- ru
+description: >-
+  Fresh-tenant variant of the rehearsal (owner decisions D-165, approval rules default Off for new tenants, and D-164, the storekeeper counts from the phone
+  with one administrator; decision 0093, the approve guard is the permission StockApprove; REQ-854 quick count; docs/design/four-eyes-switch.md section 3.6).
+  On a tenant whose approval rules were never touched, the administrator reads that the rows for the quick count, the opening balances and the workbook load are
+  Off, show that the default is off and have no user, no time and no reason. Without any browser setup the storekeeper counts one unit more than the book from
+  a 390 px window: the count posts at once, no approval task waits for the administrator and the audit log has task.self_approved. The storekeeper reverses the count
+  for cleanup and the administrator completes the reversal task. Then the browser setup: the administrator sets the count row explicitly with the exact reason
+  "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164" (if the screen cannot save a change that equals the shown value, the administrator first
+  switches it On with a reason and then Off with the exact reason); after a reload the row reads Off with the user, the time and the exact reason, and the audit log has
+  approval_rule.changed. The storekeeper has no access to the approval rules screen.
+actors:
+  admin: actor-sss-rehearsal2-admin
+  storekeeper: actor-sss-rehearsal2-storekeeper
+preconditions:
+- description: >-
+    The fresh tenant sss-rehearsal2 (host https://sss-rehearsal2.letflow.qa.bizdala.com; not qoimeks-qa2, not qoimeks-qa, not qoimeks-client1-qa, not sss-rehearsal) exists with its company administrator actor-sss-rehearsal2-admin and one storekeeper actor-sss-rehearsal2-storekeeper, both with a login in the acceptance credential source; the approval rules are untouched.
+  check: runner_prepared
+  detail: >-
+    If the tenant, a login or the host is missing, or any approval rule already shows a user and a time in "Last change", every step is BLOCKED-by-environment. Do not use another tenant to make the walk pass.
+- description: >-
+    The tenant has no data at the start; the Balances row of the walk (item, place, org unit, Responsible employee, positive quantity B, no lot) is made by the preparation steps 1 to 8. P0, the number of pending approval tasks of the administrator, is recorded in step 9.
+  check: runner_prepared
+  detail: >-
+    The xlsx files for units and items are prepared outside by the walker. If a preparation step is refused, the later steps are BLOCKED: needs data. Nobody else posts to the key during the walk.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    PREPARATION (the tenant is fresh; the click path of the rehearsal walk is the source). The company administrator signs in through the browser, opens Sites, presses "Create site" and creates one site (code, name, legal company SSS). The administrator records the site code.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens Org units, presses "Create unit" and creates one org unit (code, name, legal company, the site of step 1). The administrator records the org unit code.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator opens Locations, presses "Create" and creates one location (code, name, Kind, Segment without a dash, Location type, a free-text address). The administrator records the location code.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator opens Location links, chooses the mode "By org unit", chooses the org unit of step 2, chooses the location of step 3 in "Location to link" and presses the link button.
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The administrator opens Employees, presses "Create employee" and creates the Responsible employee (code, name, the org unit of step 2, the user account of actor-sss-rehearsal2-storekeeper). The administrator records the employee name.
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    The units of measure and the item are loaded from an xlsx file that is PREPARED OUTSIDE the scenario, by a script or file made by the walker; no screen creates items except Import data. The file holds one unit of measure and one item (column active = true, kind material, no lot tracking), in the column layout that the Import data screen offers for each type. The administrator opens Import data, loads the units of measure file first and then the items file, and reads the result of each load (rows accepted, none refused). The administrator records the item code.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The administrator opens Stock documents, presses "New document", chooses Receipt, chooses the org unit of step 2, the location of step 3 and the Responsible employee of step 5, presses the line row, chooses the item of step 6 and types a positive quantity B (the walker chooses and records it), presses "Save and close", then "Save draft", then "Issue" and confirms "Issue". Issuing only starts the posting task.
+  via: ui
+- step: 8
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the Post task of that receipt, presses "Claim" and then "Post". The administrator reads Balances: one row for the item and location with the quantity B. This row is the data row of the walk.
+  via: ui
+- step: 9
+  actor: admin
+  action: >-
+    The administrator opens My Tasks and records the number of pending approval tasks as P0. The administrator then opens the Approval rules screen (Admin, Approval rules; title "Approval rules" / "Правила утверждения") and reads every listed row: the rows of the quick count, of the opening balances ("Stock opening balances" / "Ввод начальных остатков запасов") and of the workbook load. For each row the administrator reads the column "Different person" and, after selecting the row, the line "Last change". If these rows are not listed yet, this step is repeated after step 13 (see the header, point 5).
+  via: ui
+- step: 10
+  actor: admin
+  action: >-
+    The administrator reads, for the rows of step 9: the rule reads "Off" / "Выключено", the line "Last change" says that the rule was never changed and that the default is off (the D-165 wording), and shows no user name, no time and no "Reason: ..." / "Причина: ..." line. The administrator records the exact line shown.
+  via: ui
+- step: 11
+  actor: storekeeper
+  action: >-
+    WITHOUT any browser setup of the rules. The storekeeper signs in through the browser with a window 390 px wide, opens Balances, notes the row of the walk (item, place, org unit, Responsible employee, B), opens "Quick count" / "Быстрый пересчёт", chooses that item, place, org unit and Responsible employee, types B plus 1 as the counted quantity, chooses the reason "Other" / "Другое", types the note UAT onboarding-rehearsal-2 and presses "Submit count" / "Отправить пересчёт". The storekeeper reads the result: document number, book quantity, counted quantity, difference, state, and whether the hint "A second person needs to approve this count in My Tasks." / "Второй сотрудник должен утвердить этот пересчёт в разделе «Мои задачи»." is shown. The storekeeper records the document number and reads Balances for the key.
+  via: ui
+- step: 12
+  actor: admin
+  action: >-
+    The administrator, signed in separately, opens My Tasks and reads the pending approval tasks: their number compared to P0, and whether any task belongs to the document number of step 11. The administrator opens the stock documents list and reads the state of that document.
+  via: ui
+- step: 13
+  actor: admin
+  action: >-
+    The administrator opens the Audit log (Admin, Audit log; "Audit log" / "Журнал аудита"), sets the filter "User" to the storekeeper, expands with the button "+" the entry with the action task.self_approved for the document of step 11 and reads its before and after state (the note "self-approved, four-eyes off"). If step 9 was postponed, the administrator now repeats steps 9 and 10.
+  via: ui
+- step: 14
+  actor: storekeeper
+  action: >-
+    CLEANUP of the count. The storekeeper opens the document of step 11 in the stock documents list, presses "Reverse" / "Сторнировать", chooses the reason "Other", types the note UAT onboarding-rehearsal-2 undo and confirms. The document still reads Posted until the reversal task is done.
+  via: ui
+- step: 15
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the reversal task of that document, takes it ("Claim") if the screen offers it and completes it. The storekeeper then reads the document and Balances for the key. The pending task count is compared to P0. The balance of the key returns to B, so the browser setup that follows starts from the state of step 8.
+  via: ui
+- step: 16
+  actor: admin
+  action: >-
+    BROWSER SETUP. The administrator opens the Approval rules screen, selects the row of the quick count and reads "Different person" (Off). The administrator turns the switch "Require a different person to approve" / "Требовать утверждения другим человеком" to the state Off. If the screen offers no way to save because the value already reads Off, the administrator first turns it On, types a reason (for example Client 1 rehearsal, switch on first) and presses "Save" / "Сохранить", reads the toast, and then turns it Off. At the Off change the screen asks for the reason ("Reason" / "Причина"): the administrator first presses "Save" with the reason empty and reads the message, then types exactly Client 1, storekeeper counts from the phone, one administrator, owner decision D-164 and presses "Save". The screen shows the toast "Approval rule saved" / "Правило утверждения сохранено".
+  via: ui
+- step: 17
+  actor: admin
+  action: >-
+    The administrator reloads the browser page, opens the Approval rules screen again, selects the same row and reads it: "Off" / "Выключено", the line "Last change" names the administrator and a time, and the line "Reason: ..." / "Причина: ..." shows the exact text typed in step 16 (not the temporary On reason). The rows of the opening balances and of the workbook load keep the never-changed line of step 10. The administrator opens the Audit log, sets the filter "User" to the administrator and expands the entry with the action approval_rule.changed.
+  via: ui
+- step: 18
+  actor: storekeeper
+  action: >-
+    The storekeeper, signed in, opens the Approval rules screen by its address (the path /admin/approval-rules) and reads what the screen shows. The storekeeper also looks at the side navigation for an entry "Approval rules". The administrator afterwards reads the rule again: still "Off" with the reason of step 16.
+  expect_refusal: true
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    On a fresh tenant the approval rules for the quick count, the opening balances and the workbook load read Off, say that the default is off, and carry no user, no time and no reason (owner decision D-165; docs/design/four-eyes-switch.md section 3.6).
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 9 and 10 show, for every listed row of those three, "Off" / "Выключено" and a "Last change" line that says never changed with the default off; no user name, no time, no "Reason" line. If the screen says "default: on" or "On", that is a FAIL: DEFECT against D-165 (on main the catalog text for the never-changed line reads default: on for every row); the expectation is not weakened.
+    evidence: Screenshots of steps 9 and 10 (en and ru).
+  on_fail:
+    severity: MAJOR
+    business_impact: The administrator would be told the opposite of what the system does on a new tenant.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    Without any browser setup the storekeeper's count from the phone posts at once, with no pending approval task and the self-approval in the audit (D-165, D-164; decision 0093; REQ-854).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 11 shows no hint about a second person, the state Posted and, on Balances, the quantity B plus 1. Step 12 shows the pending approval count equal to P0, no task for the document, and the document Posted. Step 13 shows the entry task.self_approved for the document with the note "self-approved, four-eyes off". A waiting task or a balance still at B is a FAIL: DEFECT against D-165, not weakened.
+    evidence: Screenshots of steps 11, 12 and 13 at 390 px for the count and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A new client with one administrator could not finish a phone count without a browser setup.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: >-
+    The cleanup reverses the count; the administrator completes the reversal task and the balance returns to B (decision 0093: StockApprove decides).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 14 starts the reversal and the document stays Posted. Step 15 shows the document Reversed, the key at B on Balances, and the pending task count equal to P0.
+    evidence: Screenshots of steps 14 and 15.
+  on_fail:
+    severity: MAJOR
+    business_impact: The rehearsal would leave a changed balance on the tenant.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: >-
+    The explicit setting of the count row works on a default-Off tenant: after a reload it reads Off with the user, the time and the exact reason, and the audit holds approval_rule.changed (owner decision D-164; design section 3.6 rows "Explicit rows" and "Reason text").
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 16 refuses saving with an empty reason and then shows the toast "Approval rule saved" / "Правило утверждения сохранено". Step 17, after a reload, shows "Off" / "Выключено", the administrator's name and a time, and the line with the exact reason Client 1, storekeeper counts from the phone, one administrator, owner decision D-164; the audit entry approval_rule.changed by the administrator shows the reason and four_eyes false in its after state. If the screen cannot save an Off row on a default-Off tenant even through the On-then-Off path, that is a FAIL: DEFECT.
+    evidence: Screenshots of steps 16 and 17 (en and ru) and of the expanded audit entry.
+  on_fail:
+    severity: MAJOR
+    business_impact: Production could not record who decided and why, which the owner asks for.
+    suggested_action: route_to_frontend_dev
+- id: EO-005
+  description: >-
+    The storekeeper has no access to the approval rules screen and the rule is unchanged by the attempt (INV-2; docs/roles.md).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 18: the side navigation of the storekeeper has no "Approval rules" entry, the address does not show the screen content (a refusal page or a redirect), and the administrator's read-back shows the rule Off with the reason of step 16, unchanged.
+    evidence: Screenshots of step 18 and of the read-back.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could change who must approve stock documents.
+    suggested_action: route_to_frontend_dev
