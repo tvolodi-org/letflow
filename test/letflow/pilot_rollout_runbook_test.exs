@@ -158,6 +158,34 @@ defmodule Letflow.PilotRolloutRunbookTest do
     {:ok, md: File.read!(@runbook), mans: manifests()}
   end
 
+  test "0093 F3 docs name the approval permission, holder and delegation limit" do
+    for path <- [
+          "docs/roles.md",
+          "docs/runbooks/pilot-rollout.md",
+          "docs/runbooks/production-tenant-onboarding.md",
+          "docs/runbooks/stock-counts.md"
+        ] do
+      text = @root |> Path.join(path) |> File.read!() |> String.replace(~r/\s+/, " ")
+
+      for wording <- [
+            "StockApprove",
+            "TENANT_ADMIN",
+            "STOREKEEPER",
+            "approve, post and reverse tasks",
+            "In a one-person company the tenant admin is the approver",
+            "not available yet"
+          ] do
+        assert text =~ wording, "#{path} misses #{wording}"
+      end
+    end
+
+    # Keep the documented limitation honest: routing bindings cannot grant this atom.
+    refute :StockApprove in Map.get(Letflow.Api.Authorization.grantable(), :STOREKEEPER, [])
+    assert :StockApprove in Letflow.Modules.Stock.manifest().permissions
+    assert Letflow.Api.Authorization.role_allows?(:TENANT_ADMIN, :StockApprove)
+    refute Letflow.Api.Authorization.role_allows?(:STOREKEEPER, :StockApprove)
+  end
+
   test "T1 the level-2 headings are the seven of the requirement plus the REQ-860 section, in order",
        %{md: md} do
     headings =
