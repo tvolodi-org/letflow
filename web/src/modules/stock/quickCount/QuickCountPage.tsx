@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
 import { documentStateTone } from '@/lib/documentStateTone'
+import { formatQuantity } from '@/lib/formatQuantity'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { usePickerOptions } from '../register/stockPickers'
 import { buildCatalog } from '../documents/linesCatalog'
@@ -342,12 +343,12 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
                 {bookQuantity !== null && (
                   <div data-testid="balance-display">
                     <span>{t('stock.qc.balance')}: </span>
-                    <span data-testid="book-quantity" className="mono">{bookQuantity}</span>
+                    <span data-testid="book-quantity" className="mono">{formatQuantity(bookQuantity, intl.locale)}</span>
                     {difference !== null && (
                       <>
                         <span>{' · '}</span>
                         <span>{t('stock.qc.difference')}: </span>
-                        <span data-testid="difference-display" className="mono">{difference}</span>
+                        <span data-testid="difference-display" className="mono">{formatQuantity(difference, intl.locale)}</span>
                       </>
                     )}
                   </div>
@@ -436,11 +437,11 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
               <dt>{t('stock.qc.result.number')}</dt>
               <dd data-testid="result-number"><span className="mono">{result.number ?? '—'}</span></dd>
               <dt>{t('stock.qc.result.book')}</dt>
-              <dd data-testid="result-book"><span className="mono">{result.lines[0]?.book_quantity ?? '—'}</span></dd>
+              <dd data-testid="result-book"><span className="mono">{formatQuantity(result.lines[0]?.book_quantity, intl.locale) || '—'}</span></dd>
               <dt>{t('stock.qc.result.counted')}</dt>
-              <dd data-testid="result-counted"><span className="mono">{result.lines[0]?.counted_quantity ?? '—'}</span></dd>
+              <dd data-testid="result-counted"><span className="mono">{formatQuantity(result.lines[0]?.counted_quantity, intl.locale) || '—'}</span></dd>
               <dt>{t('stock.qc.result.difference')}</dt>
-              <dd data-testid="result-difference"><span className="mono">{result.lines[0]?.difference ?? '—'}</span></dd>
+              <dd data-testid="result-difference"><span className="mono">{formatQuantity(result.lines[0]?.difference, intl.locale) || '—'}</span></dd>
               <dt>{t('stock.qc.result.state')}</dt>
               <dd data-testid="result-state">
                 {approvedSuccessfully ? (
