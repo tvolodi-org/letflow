@@ -179,7 +179,7 @@ it('counts the selected responsible employee exact key', async () => {
   renderQC()
   await selectFields()
   await pickSelect('responsible_id', 'e1')
-  expect(await screen.findByTestId('book-quantity')).toHaveTextContent('96.500000000')
+  expect(await screen.findByTestId('book-quantity')).toHaveTextContent('96.5')
   fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '97.5' } })
   expect(screen.getByTestId('difference-display').textContent).toBe('1')
   expect(clientMock.get).toHaveBeenCalledWith('/api/v1/modules/stock/balances', { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1' })
@@ -328,13 +328,33 @@ describe('C2c exact difference', () => {
     expect(screen.getByTestId('difference-display').textContent).toBe('0.2')
   })
 
-  it('a 9-decimal count beyond float precision is exact', async () => {
+  it('a large 9-decimal count is shown in the Balances format (3 decimals, trimmed, grouped)', async () => {
     setupGetMock({ balance: '0.000000001' })
     renderQC()
     await selectFields()
-    await waitFor(() => expect(screen.getByTestId('book-quantity')).toHaveTextContent('0.000000001'))
+    await waitFor(() => expect(screen.getByTestId('book-quantity').textContent).toBe('0'))
     fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '12345678901.123456789' } })
-    expect(screen.getByTestId('difference-display').textContent).toBe('12345678901.123456788')
+    expect(screen.getByTestId('difference-display').textContent).toBe('12,345,678,901.123')
+  })
+
+  it('shows the book quantity as 857, not 857.000000000', async () => {
+    setupGetMock({ balance: '857.000000000' })
+    renderQC()
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity').textContent).toBe('857'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '857' } })
+    expect(screen.getByTestId('difference-display').textContent).toBe('0')
+  })
+
+  it('groups the difference with the language separators in Russian', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    setupGetMock({ balance: '857.000000000' })
+    renderQC()
+    await selectFields()
+    await waitFor(() => expect(screen.getByTestId('book-quantity').textContent).toBe('857'))
+    fireEvent.change(screen.getByTestId('counted-quantity-input'), { target: { value: '12345678901.123456789' } })
+    // The Russian group separator is a no-break space (U+00A0) and the decimal separator a comma.
+    expect(screen.getByTestId('difference-display').textContent).toBe('12\u00A0345\u00A0678\u00A0044,123')
   })
 
   it('subtractDecimal is exact and trims trailing zeros', () => {
