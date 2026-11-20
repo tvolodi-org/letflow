@@ -273,7 +273,7 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       assert %{"error" => _} = body(get(a, "/balances?location_id=0", v))
     end
 
-    test "C1 movements: exactly the section 7 fields, newest first, numbers equal the admin read",
+    test "C1 movements: the old app's row (REQ-909), newest first, numbers equal the admin read",
          %{a: a, va: v, tok_a: tok} do
       rows = ok!(get(a, "/movements", v))
       assert length(rows) == 3
@@ -281,13 +281,18 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       assert Enum.all?(
                rows,
                &(Map.keys(&1) |> Enum.sort() ==
-                   ~w(created_at id kind location_id operator quantity sku_id))
+                   ~w(balances created_at id kind location_code location_id operator qty sku_code sku_id sku_name unit))
              )
 
-      assert Enum.map(rows, & &1["quantity"]) == [4.5, 5, 10]
+      assert Enum.map(rows, & &1["qty"]) == [4.5, 5, 10]
       assert rows |> Enum.map(& &1["id"]) |> Enum.uniq() |> length() == 3
-      assert Enum.all?(rows, &(&1["kind"] == "receipt" or is_binary(&1["kind"])))
-      assert Enum.all?(rows, &is_nil(&1["operator"]))
+      assert Enum.all?(rows, &(is_binary(&1["id"]) and &1["id"] =~ ~r/\A[0-9]+\z/))
+
+      # the seed posts to the ledger directly (no document type): every other type is an adjustment
+      assert Enum.all?(rows, &(&1["kind"] == "adjustment"))
+      assert Enum.all?(rows, &(&1["operator"] == "" and &1["balances"] == []))
+      assert Enum.map(rows, & &1["sku_code"]) == ["Z-2", "Z-1", "Z-1"]
+      assert Enum.map(rows, & &1["location_code"]) == ["A1", "B1", "A1"]
 
       admin = S.get("/movements", tok) |> S.json()
       assert length(admin["rows"]) == 3
@@ -304,7 +309,7 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
         )
         |> Enum.sort()
 
-      assert admin_qty == rows |> Enum.map(&(&1["quantity"] / 1)) |> Enum.sort()
+      assert admin_qty == rows |> Enum.map(&(&1["qty"] / 1)) |> Enum.sort()
     end
 
     test "C1 movements limit: 50 when missing or out of 1..500, otherwise as asked", %{

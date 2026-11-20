@@ -12,8 +12,8 @@
 # reverse POST /qoimeks/:slug/movements/:id/reverse (path id = returned integer movement id).
 # Both write bodies require id = a fresh UUID per operation, unchanged on retries, plus operator.
 # Movement body also has kind, sku_id, location_id, qty; transfer has to_location_id.
-# Returned JSON is the movement itself: id, kind, sku_id, location_id, quantity, operator,
-# created_at (not a wrapper and not an echo of the client's UUID). Compare the whole decoded row.
+# Returned JSON is the movement itself (REQ-909): id (text), kind (receipt, issue, transfer), sku_id, sku_code, sku_name, unit,
+# location_id, location_code, qty, operator, created_at, balances (not a wrapper and not an echo of the client's UUID). Compare the whole decoded row.
 # Admin shared-access status/create/revoke: interactive tenant sign-in, not an API token.
 # 1. Scope: actors.yaml declares the existing QA tenant qoimeks-qa2 (T-2219); realm qoimeks-qa2 verified by preflight. Tenant lookup is UNKNOWN without an authenticated token.
 # 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN manages shared access; actor-qoimeks-qa2-storekeeper / STOREKEEPER reads stock screens. Both are in actors.yaml. QA login is an acceptance precondition, not proven by static checks; no login verified in this writing step.

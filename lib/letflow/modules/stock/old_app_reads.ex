@@ -25,11 +25,20 @@ defmodule Letflow.Modules.Stock.OldAppReads do
     sorted by place code (then sku integer). Optional integer filters `sku_id`, `location_id`.
     One place has one integer everywhere: in a sku's `location_id`, a `locations` row, and balance and
     movement rows.
-  * `movements/2`: the newest `limit` ledger entries (50 when `limit` is missing or outside 1..500),
-    newest first: `id`, `kind` (the document type, `reversal` for a reversal), `sku_id`,
-    `location_id` (null when the entry has no place), `quantity` (absolute value of the first leg),
-    `operator` (the typed operator name of a movement made through the shared access, null for a personal account's), `created_at` (posting time).
-    Optional integer filters `sku_id`, `location_id`.
+  * `movements/2` (REQ-909, the old app's `Movement`): the newest `limit` ledger entries (50 when `limit`
+    is missing or outside 1..500), newest first, optional integer filters `sku_id`, `location_id`. A row
+    (also the answer of a post and of a reverse, see `OldAppWrites`): `id` (TEXT, the digits of the
+    entry's integer in `movement_int_ids`), `kind` (`receipt`, `issue`, `transfer`; any other document
+    type is `adjustment`), `sku_id, sku_code, sku_name, unit` (`""` when none), `location_id,
+    location_code`, `qty` (positive), `operator` (`""` when the movement has no typed name),
+    `created_at` (ISO 8601 UTC) and `balances`. A transfer is one row: `location_*` is the place whose
+    leg decreases, `to_location_id` and `to_location_code` the place whose leg increases (only a transfer
+    has them). A reversal row takes kind, places and quantity from the movement it reverses and has
+    `reverses` (that movement's id text); a reversed movement has `reversed_by`. `balances` is `[]` in the
+    history list, as on the old server; in the answer of a post or reverse (`movement/2`,
+    `movements_of_document/2`) it holds one entry per (item, place) the movement touched, `sku_id,
+    location_id, location_code, qty`, sorted by `location_id`, with `qty` read at the movement's own
+    posting number, so a replay repeats the same values.
 
   Quantities are JSON numbers (the old app reads them as numbers). An unknown integer filter
   answers an empty list. A malformed filter is `{:error, :invalid_filter}` (the router answers 400).
@@ -255,45 +264,224 @@ defmodule Letflow.Modules.Stock.OldAppReads do
            Ledger.balances(authorized, {:posting_seq, :latest}, %{}, %{limit: 1}),
          {:ok, rows} <- widen(authorized, filters, limit, latest || 0, limit, 0) do
       newest = rows |> Enum.sort_by(& &1.posting_seq, :desc) |> Enum.take(limit)
-      {:ok, build_rows(authorized, newest)}
+      {:ok, build_rows(authorized, newest, false)}
     else
       {:error, :invalid_filter} -> {:error, :invalid_filter}
       {:error, _other} -> {:error, :unavailable}
     end
   end
 
-  # The Qoimeks movement rows of ledger entries `newest` (as `Ledger.entries/3` answers them), in order.
-  defp build_rows(authorized, newest) do
+  # The Qoimeks movement rows (REQ-909) of ledger entries `entries` (as `Ledger.entries/3` answers
+  # them), in order. A row is built from the entry, or from the ORIGINAL entry for a reversal (the old
+  # server copies kind, place, destination place and quantity of the reversed movement).
+  # `balances?` adds the balances after each movement (post and reverse answers); the history list
+  # leaves them empty, as the old server does.
+  defp build_rows(authorized, entries, balances?) do
     prefix = authorized.prefix
-    entry_ids = IntIds.assign(prefix, :movement, Enum.map(newest, & &1.entry_id))
 
-    legs = Enum.map(newest, &first_leg/1)
-    skus = IntIds.assign(prefix, :sku, for(%{k: [sku | _]} <- legs, do: sku))
-    locs = IntIds.assign(prefix, :location, for(%{k: [_, loc | _]} <- legs, do: loc))
+    shapes = Enum.map(entries, &shape(authorized, &1))
+    reversed_by = reversed_by(authorized, entries)
+
+    all_legs = Enum.flat_map(shapes, &(&1.entry.legs ++ &1.base.legs))
+
+    movement_refs =
+      Enum.flat_map(shapes, &[&1.entry.entry_id, &1.base.entry_id, &1.entry.reverses_entry_id]) ++
+        Map.values(reversed_by)
+
+    ids = IntIds.assign(prefix, :movement, movement_refs)
+    skus = IntIds.assign(prefix, :sku, for(%{k: [sku | _]} <- all_legs, do: sku))
+    locs = IntIds.assign(prefix, :location, for(%{k: [_, loc | _]} <- all_legs, do: loc))
+    items = items(prefix, for(%{k: [sku | _]} <- all_legs, uniq: true, do: uuid(sku)))
+    places = places(prefix, for(%{k: [_, loc | _]} <- all_legs, uniq: true, do: uuid(loc)))
 
     operators =
       Posting.shared_operators(
         prefix,
-        newest |> Enum.map(& &1.document_id) |> Enum.reject(&is_nil/1)
+        entries |> Enum.map(& &1.document_id) |> Enum.reject(&is_nil/1)
       )
 
-    for {row, leg} <- Enum.zip(newest, legs),
-        id = Map.get(entry_ids, uuid(row.entry_id)),
+    lookup = %{ids: ids, skus: skus, locs: locs, items: items, places: places}
+
+    for %{entry: entry, base: base, from: from, to: to} <- shapes,
+        id = Map.get(ids, uuid(entry.entry_id)),
         not is_nil(id) do
+      item = Map.get(items, leg_uuid(from, 0), %{})
+      loc_uuid = leg_uuid(from, 1)
+
       %{
-        id: id,
-        kind: kind(row),
-        sku_id: leg_ref(leg, 0, skus),
-        location_id: leg_ref(leg, 1, locs),
-        quantity: leg_quantity(leg),
-        operator: Map.get(operators, {row.document_id, operator_step(row)}),
-        created_at: row.posting_time
+        id: Integer.to_string(id),
+        kind: kind(base),
+        sku_id: leg_ref(from, 0, skus),
+        sku_code: Map.get(item, :code, ""),
+        sku_name: Map.get(item, :name, ""),
+        unit: Map.get(item, :unit, ""),
+        location_id: leg_ref(from, 1, locs),
+        location_code: Map.get(places, loc_uuid, ""),
+        qty: leg_quantity(from),
+        operator: Map.get(operators, {entry.document_id, operator_step(entry)}) || "",
+        created_at: iso(entry.posting_time),
+        balances: if(balances?, do: balances_after(authorized, entry, lookup), else: [])
       }
+      |> put_present(:to_location_id, leg_ref(to, 1, locs))
+      |> put_present(:to_location_code, to && Map.get(places, leg_uuid(to, 1), ""))
+      |> put_present(:reverses, text_id(ids, entry.reverses_entry_id))
+      |> put_present(:reversed_by, text_id(ids, Map.get(reversed_by, entry.entry_id)))
+    end
+  end
+
+  defp text_id(_ids, nil), do: nil
+
+  defp text_id(ids, entry_uuid) do
+    case Map.get(ids, uuid(entry_uuid)) do
+      nil -> nil
+      int -> Integer.to_string(int)
+    end
+  end
+
+  # `%{entry, base, from, to}`: `base` is the entry whose data the row shows (the reversed entry for a
+  # reversal), `from` the leg of the place (a transfer: the leg that decreases), `to` the leg of the
+  # destination place (a transfer only).
+  defp shape(authorized, entry) do
+    base = original(authorized, entry)
+    legs = Enum.sort_by(base.legs, & &1.leg_no)
+
+    {from, to} =
+      if kind(base) == "transfer" do
+        {Enum.find(legs, &(sign(&1) < 0)) || Enum.at(legs, 0),
+         Enum.find(legs, &(sign(&1) > 0)) || Enum.at(legs, 1)}
+      else
+        {Enum.at(legs, 0) || %{}, nil}
+      end
+
+    %{entry: entry, base: base, from: from || %{}, to: to}
+  end
+
+  defp original(authorized, %{cause: "reversal", reverses_entry_id: original_id} = entry)
+       when is_binary(original_id),
+       do: entry(authorized, original_id) || entry
+
+  defp original(_authorized, entry), do: entry
+
+  defp sign(%{quantity: q}) when not is_nil(q) do
+    case q |> to_decimal() |> Decimal.compare(0) do
+      :lt -> -1
+      :gt -> 1
+      :eq -> 0
+    end
+  end
+
+  defp sign(_leg), do: 0
+
+  # The old app's kind names (REQ-909 point 2): every document type that is not a receipt, an issue or a
+  # transfer (a quick count, an opening balance) is an adjustment, as the old server writes imported balances.
+  defp kind(%{document_type: "stock_receipt"}), do: "receipt"
+  defp kind(%{document_type: "stock_issue"}), do: "issue"
+  defp kind(%{document_type: "stock_transfer"}), do: "transfer"
+  defp kind(_entry), do: "adjustment"
+
+  # The entry id of the reversal of each given movement, `%{original_entry_id => reversal_entry_id}`.
+  # A reversal is newer than its original, so the reversals from the oldest given original on hold them all.
+  defp reversed_by(authorized, entries) do
+    case entries |> Enum.reject(&(&1.cause == "reversal")) |> Enum.map(& &1.posting_seq) do
+      [] -> %{}
+      seqs -> reversal_pages(authorized, Enum.min(seqs), nil, %{})
+    end
+  end
+
+  defp reversal_pages(authorized, from, cursor, acc) do
+    page = if cursor, do: %{limit: @page, cursor: cursor}, else: %{limit: @page}
+
+    case Ledger.entries(authorized, %{"cause" => "reversal", "from_seq" => from}, page) do
+      {:ok, %{rows: rows, next_cursor: next}} ->
+        acc =
+          Enum.reduce(rows, acc, fn row, map ->
+            Map.put(map, uuid(row.reverses_entry_id), row.entry_id)
+          end)
+
+        if next, do: reversal_pages(authorized, from, next, acc), else: acc
+
+      {:error, _reason} ->
+        raise "old_app_reversal_read_failed"
     end
   end
 
   defp operator_step(%{cause: "reversal"}), do: :reversed
   defp operator_step(_row), do: :posted
+
+  # -- the balances after a movement (post and reverse answers) ---------------------------------------
+
+  # One entry per (item, place) the movement touched: the balance of that item at that place as of the
+  # movement's own posting number (so a replay shows the same values), sorted by place integer.
+  defp balances_after(authorized, entry, lookup) do
+    pairs =
+      for %{k: [sku, loc | _]} <- entry.legs, uniq: true, do: {uuid(sku), uuid(loc)}
+
+    pairs
+    |> Enum.reject(fn {sku, loc} -> is_nil(sku) or is_nil(loc) end)
+    |> Enum.uniq()
+    |> Enum.flat_map(fn {sku, loc} ->
+      sku_id = Map.get(lookup.skus, sku)
+      loc_id = Map.get(lookup.locs, loc)
+
+      if is_nil(sku_id) or is_nil(loc_id),
+        do: [],
+        else: [
+          %{
+            sku_id: sku_id,
+            location_id: loc_id,
+            location_code: Map.get(lookup.places, loc, ""),
+            qty: balance_at(authorized, entry.posting_seq, sku, loc)
+          }
+        ]
+    end)
+    |> Enum.sort_by(& &1.location_id)
+  end
+
+  defp balance_at(authorized, seq, sku, loc) do
+    case balance_pages(authorized, %{"sku" => sku, "location" => loc}, seq, nil, []) do
+      {:ok, []} -> 0
+      {:ok, rows} -> rows |> Enum.map(& &1.quantity) |> sum() |> number()
+      _error -> raise "old_app_balance_read_failed"
+    end
+  end
+
+  # -- item and place names for the rows ------------------------------------------------------------
+
+  defp items(prefix, sku_uuids) do
+    Map.new(for(sku <- sku_uuids, not is_nil(sku), do: {sku, item_names(prefix, sku)}))
+  end
+
+  defp item_names(prefix, sku) do
+    case CatalogItems.lookup(prefix, sku) do
+      {:ok, item} ->
+        %{
+          code: item["code"] || "",
+          name: item["name"] || "",
+          unit: uom_code(prefix, item["base_uom_id"])
+        }
+
+      _other ->
+        %{}
+    end
+  end
+
+  defp places(prefix, loc_uuids) do
+    Map.new(
+      for(
+        loc <- loc_uuids,
+        not is_nil(loc),
+        do: {loc, location_code(Locations.lookup(prefix, loc))}
+      )
+    )
+  end
+
+  defp leg_uuid(%{k: k}, idx) when is_list(k), do: uuid(Enum.at(k, idx))
+  defp leg_uuid(_leg, _idx), do: nil
+
+  # The posting time as ISO 8601 UTC text.
+  defp iso(%DateTime{} = at), do: at |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+  defp iso(%NaiveDateTime{} = at), do: NaiveDateTime.to_iso8601(at) <> "Z"
+  defp iso(other), do: other
 
   @doc """
   REQ-860: the Qoimeks movement row of ledger entry `entry_uuid` (a uuid), or `nil` when there is none.
@@ -302,7 +490,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   @spec movement(map(), String.t()) :: map() | nil
   def movement(authorized, entry_uuid) do
     case Ledger.entries(authorized, %{"entry_id" => entry_uuid}, %{limit: 1}) do
-      {:ok, %{rows: [row]}} -> authorized |> build_rows([row]) |> List.first()
+      {:ok, %{rows: [row]}} -> authorized |> build_rows([row], true) |> List.first()
       _none -> nil
     end
   end
@@ -324,7 +512,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   @spec movements_of_document(map(), String.t()) :: [map()]
   def movements_of_document(authorized, document_id) do
     case Ledger.entries(authorized, %{"document_id" => document_id}, %{limit: 100}) do
-      {:ok, %{rows: rows}} -> build_rows(authorized, rows)
+      {:ok, %{rows: rows}} -> build_rows(authorized, rows, true)
       _error -> []
     end
   end
@@ -363,10 +551,6 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   defp entry_filters(filters) when filters == %{}, do: %{}
   defp entry_filters(filters), do: %{"leg_slots" => filters}
 
-  defp first_leg(%{legs: legs}) do
-    legs |> Enum.sort_by(& &1.leg_no) |> List.first() || %{}
-  end
-
   defp leg_ref(%{k: k}, idx, map) when is_list(k), do: Map.get(map, uuid(Enum.at(k, idx)))
   defp leg_ref(_leg, _idx, _map), do: nil
 
@@ -374,10 +558,6 @@ defmodule Letflow.Modules.Stock.OldAppReads do
     do: q |> to_decimal() |> Decimal.abs() |> number()
 
   defp leg_quantity(_leg), do: nil
-
-  defp kind(%{cause: "reversal"}), do: "reversal"
-  defp kind(%{document_type: type}) when is_binary(type), do: type
-  defp kind(%{cause: cause}), do: cause
 
   # -- names --------------------------------------------------------------------------------------
 

@@ -12,8 +12,8 @@
 # reverse POST /qoimeks/:slug/movements/:id/reverse (path id = returned integer movement id).
 # Both write bodies require id = a fresh UUID per operation, unchanged on retries, plus operator.
 # Movement body also has kind, sku_id, location_id, qty; transfer has to_location_id.
-# Returned JSON is the movement itself: id, kind, sku_id, location_id, quantity, operator,
-# created_at (not a wrapper and not an echo of the client's UUID). Compare the whole decoded row.
+# Returned JSON is the movement itself (REQ-909): id (text), kind (receipt, issue, transfer), sku_id, sku_code, sku_name, unit,
+# location_id, location_code, qty, operator, created_at, balances (not a wrapper and not an echo of the client's UUID). Compare the whole decoded row.
 # Admin shared-access status/create/revoke: interactive tenant sign-in, not an API token.
 # 1. Scope: actors.yaml declares the existing QA tenant qoimeks-qa2 (T-2219); realm qoimeks-qa2 verified by preflight. Tenant lookup is UNKNOWN without an authenticated token.
 # 2. Actors: actor-qoimeks-qa2-admin / TENANT_ADMIN manages shared access; actor-qoimeks-qa2-storekeeper / STOREKEEPER reads stock screens. Both are in actors.yaml. QA login is an acceptance precondition, not proven by static checks; no login verified in this writing step.
@@ -169,11 +169,11 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including integer id, kind, sku_id,
-      location_id, quantity, operator and created_at. The quantity magnitude matches Q read at the start.
+      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including text id, kind, sku_id,
+      location_id, qty, operator, created_at and balances. The quantity magnitude matches Q read at the start.
     evidence: >-
-      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including integer id, kind, sku_id,
-      location_id, quantity, operator and created_at. The quantity magnitude matches Q read at the start.
+      A1 is 201; A2 is 200 and its entire decoded movement equals A1, including text id, kind, sku_id,
+      location_id, qty, operator, created_at and balances. The quantity magnitude matches Q read at the start.
   on_fail:
     severity: BLOCKER
     business_impact: Stock may be duplicated, lost or reported incorrectly; retry safety cannot be accepted.
@@ -213,10 +213,10 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      REV1 is 201 with kind reversal. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
+      REV1 is 201 with its own id and reverses set to the reversed id. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
       equals B0. LFINAL adds only the reversal returned by REV1 to L1.
     evidence: >-
-      REV1 is 201 with kind reversal. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
+      REV1 is 201 with its own id and reverses set to the reversed id. REV2 is 200 and its entire decoded movement equals REV1. BFINAL
       equals B0. LFINAL adds only the reversal returned by REV1 to L1.
   on_fail:
     severity: BLOCKER
@@ -227,10 +227,10 @@ expected_outcomes:
   verification:
     method: api_response
     detail: >-
-      RR1 is 409 with exactly {"error":"document_reversed"}; RR2 is 409 with exactly {"error":"reversal_cannot_be_reversed"}.
+      RR1 is 400 with exactly {"error":"already reversed"}; RR2 is 400 with exactly {"error":"a reversal cannot be reversed; post a new operation instead"}.
       BAFTER equals BFINAL and LAFTER equals LFINAL.
     evidence: >-
-      RR1 is 409 with exactly {"error":"document_reversed"}; RR2 is 409 with exactly {"error":"reversal_cannot_be_reversed"}.
+      RR1 is 400 with exactly {"error":"already reversed"}; RR2 is 400 with exactly {"error":"a reversal cannot be reversed; post a new operation instead"}.
       BAFTER equals BFINAL and LAFTER equals LFINAL.
   on_fail:
     severity: BLOCKER
