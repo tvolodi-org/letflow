@@ -31,6 +31,13 @@ defmodule Letflow.Engine.SeparationOfDuties do
       query counts). A stored `four_eyes: false` for the step lets the same person through
       when the caller signed in interactively (`credential == :oidc`) and the definition name is
       known; API tokens, service principals, scripts and timers still need a second person.
+      REQ-912 widens this for exactly ONE more case: the credential `:shared_access` (the shared stock
+      access of the old Qoimeks address, `Letflow.Routers.SharedStockAccess`) on the step `approve` of
+      the definition `stock_quick_count`, again only with a stored `four_eyes: false` (the old app's
+      count posts at once when the tenant switched four eyes OFF for counts; the audit entry
+      `task.self_approved` carries the shared access actor). Every other credential, process or step
+      keeps the rule above, and for the shared access no row, a row `true` or an unreadable setting
+      refuses (fails closed).
       The admin-flagged service-principal user flag is deliberately NOT read. No row, a
       row `true`, a missing name or a failed read all refuse (fails closed; a failed read logs
       one warning). Completion returns `{:self_approved, info}` so the engine audits it.
@@ -50,6 +57,10 @@ defmodule Letflow.Engine.SeparationOfDuties do
   alias Letflow.Engine.ApprovalRuleSetting
   alias Letflow.Engine.Task
   alias Letflow.Repo
+
+  # REQ-912: the one step the shared stock access may self-approve when its switch is stored OFF.
+  @shared_access_definition "stock_quick_count"
+  @shared_access_node "approve"
 
   @doc """
   The completion-time check. `:ok`, or `{:error, {:separation_of_duties,
@@ -80,7 +91,8 @@ defmodule Letflow.Engine.SeparationOfDuties do
   @doc """
   The completion-time check with the four-eyes switch: as `check/5`, but a would-be refusal is
   turned into `{:self_approved, info}` when the step is switched OFF and `context.credential`
-  is `:oidc`. Anything else refuses (fails closed).
+  is `:oidc`, or `:shared_access` on `stock_quick_count` / `approve` only (REQ-912). Anything else
+  refuses (fails closed).
   """
   @spec check(
           repo :: module(),
@@ -96,7 +108,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
   def check(repo, graph, %Task{} = task, actor_id, prefix, context) when is_map(context) do
     case run_check(repo, graph, task, actor_id, prefix, []) do
       {:error, {:separation_of_duties, blocking}} = refusal ->
-        if Map.get(context, :credential) == :oidc and
+        if self_approval_credential?(context, task) and
              non_empty_binary?(Map.get(context, :definition_name)) do
           name = Map.fetch!(context, :definition_name)
 
@@ -127,6 +139,24 @@ defmodule Letflow.Engine.SeparationOfDuties do
   end
 
   defp non_empty_binary?(value), do: is_binary(value) and value != ""
+
+  # The credentials that may be let through on a stored OFF row: an interactive person (`:oidc`, any
+  # step), and the shared stock access of the old Qoimeks address (`:shared_access`) for exactly one
+  # step, the approval of a quick count (REQ-912, PM decision 2026-11-20). No other credential, process
+  # or step.
+  defp self_approval_credential?(context, task) do
+    case Map.get(context, :credential) do
+      :oidc ->
+        true
+
+      :shared_access ->
+        Map.get(context, :definition_name) == @shared_access_definition and
+          task.node_id == @shared_access_node
+
+      _other ->
+        false
+    end
+  end
 
   @doc """
   The claim-time check: loads the instance snapshot graph itself, then applies

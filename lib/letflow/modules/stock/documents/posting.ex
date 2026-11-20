@@ -194,8 +194,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   Starts one `stock_receipt` instance for the issued document `view` (as `Documents.fetch/2`
   renders it) with `issued` (from `issued/2`). `{:ok, instance_id}` or `{:error, reason}`.
   """
-  @spec start_post(String.t(), map(), map(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def start_post(prefix, view, issued, actor) do
+  @spec start_post(String.t(), map(), map(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, term()}
+  def start_post(prefix, view, issued, actor, submit_output \\ %{}) do
     spec = Kinds.get(view.kind)
 
     with :ok <- start_seam(),
@@ -221,7 +222,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
                view.org_unit_id
              ) do
         if view.kind in ["opening", "quick_count"],
-          do: complete_submit(prefix, instance_id, actor)
+          do: complete_submit(prefix, instance_id, actor, submit_output)
 
         {:ok, instance_id}
       end
@@ -234,7 +235,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   # REQ-726: the issuing user is the preparer. A failure is logged by tag and is NOT an error of the
   # start: the instance and its pending `submit` task stay (the runbook says whoever completes it
   # becomes the preparer for `distinct_from`).
-  defp complete_submit(prefix, instance_id, actor) do
+  defp complete_submit(prefix, instance_id, actor, output) do
     task =
       Repo.one(
         from(t in Task,
@@ -245,7 +246,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       )
 
     attrs = %{
-      output_variables: %{},
+      output_variables: output,
       actor_id: actor,
       idempotency_key: "stock-submit:#{instance_id}"
     }
@@ -803,16 +804,20 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   end
 
   @doc """
-  REQ-860: the id of the pending task of `node` ("post" or "reverse") of the active instance of
-  document `id`, or nil. The shared access completes it itself (`Letflow.Modules.Stock.OldAppWrites`).
+  REQ-860: the id of the pending task of `node` ("post", "reverse", or REQ-912 "approve" for a quick
+  count) of the active instance of document `id`, or nil. The shared access completes it itself
+  (`Letflow.Modules.Stock.OldAppWrites`).
   """
   @spec pending_task_id(String.t(), String.t(), String.t()) :: String.t() | nil
-  def pending_task_id(prefix, id, node) when node in ["post", "reverse"] do
-    ids =
-      Enum.flat_map(
-        Kinds.definition_names() ++ [@reversal_definition],
-        &definition_ids(prefix, &1)
-      )
+  def pending_task_id(prefix, id, node) when node in ["post", "reverse"],
+    do: pending_node_task(prefix, id, node, Kinds.definition_names() ++ [@reversal_definition])
+
+  # REQ-912: the approval of the quick count the old address just made, in no other process.
+  def pending_task_id(prefix, id, "approve"),
+    do: pending_node_task(prefix, id, "approve", [Kinds.get("quick_count").definition])
+
+  defp pending_node_task(prefix, id, node, definition_names) do
+    ids = Enum.flat_map(definition_names, &definition_ids(prefix, &1))
 
     Repo.one(
       from(t in Task,
@@ -827,6 +832,31 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       ),
       prefix: prefix
     )
+  end
+
+  @doc """
+  REQ-912 (decision 0091, the old app's count rows): `%{document_id => %{content, issued_at}}` of the
+  live issued version of each quick count document in `ids` (a document of another type is left out).
+  `content` is the frozen content (`"header"`, `"lines"` with `counted_quantity`); the old address shows
+  the counted quantity as the `qty` of a count row, and answers a count equal to the book (no ledger
+  entry) from it. One query; the tenant is `prefix` only.
+  """
+  @spec count_contents(String.t(), [String.t()]) :: %{String.t() => map()}
+  def count_contents(_prefix, []), do: %{}
+
+  def count_contents(prefix, ids) when is_list(ids) do
+    type_key = Kinds.get("quick_count").type_key
+
+    query =
+      from(v in DocumentVersion,
+        join: d in Document,
+        on: d.id == v.document_id,
+        where: v.document_id in ^ids and v.status == :issued and d.type_key == ^type_key,
+        order_by: [asc: v.version_no],
+        select: {v.document_id, %{content: v.content, issued_at: v.issued_at}}
+      )
+
+    prefix |> then(&Repo.all(query, prefix: &1)) |> Map.new()
   end
 
   @doc false

@@ -29,9 +29,8 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   * The responsible employee is the first active employee of the tenant (`Org.first_active_employee_id/1`);
     none is refused `no_responsible_employee` (422).
   * The event time is now. The item's unit is its base unit of measure.
-  * Kind `adjustment` (a count) and a balance below zero answer as Letflow does today for the stock
-    routes: `adjustment` is `invalid kind` (400); the negative-balance setting and the freeze guard
-    refuse as they do for a personal account.
+  * A balance below zero: the negative-balance setting and the freeze guard refuse as they do for a
+    personal account. Kind `adjustment` is the count, see "The count" below.
   * Untouched module-owned process drafts are activated on first use by the internal stock activator
     (`Posting.ensure_active/3`); the shared access needs no admin activation step. Tenant-created,
     changed or deprecated definitions are refused `definition_not_active` (409) before a number is taken.
@@ -61,6 +60,42 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     is zero or negative `{:error, {400, "quantity must be positive"}}` (`"invalid quantity"` stays for a
     value that is not a number). Nothing is written.
 
+  ## The count (REQ-912, K6a; decision 0091 section 9 amended by the PM decision of 2026-11-20)
+
+  Kind `adjustment`: the storekeeper types the counted number (`qty`, a JSON number or decimal text, 0
+  or more, at most 9 decimals; a negative one is `{:error, {400, "quantity must be positive"}}`, and
+  receipt, issue and transfer keep refusing 0). The old server REPLACED the balance at once; here the
+  count is a quick count document (`Documents.quick_count/4`, the shared access actor is the counter,
+  the typed operator name is the output variable `operator` of its submit task, the reason code is
+  `recount`). The org unit, the responsible and the unit are filled in as for the other writes.
+
+  The tenant's four-eyes switch for counts decides (the approval rule of process `stock_quick_count`,
+  step `approve`, `Letflow.ApprovalRules.four_eyes_off?/3`):
+
+  * Stored `four_eyes: false` (OFF): in the same call the shared access completes the approve task of
+    its own count (credential `:shared_access`, the one step `Letflow.Engine.SeparationOfDuties` lets
+    it self-approve; the engine writes `task.self_approved`, "self-approved, four-eyes off", with the
+    shared access actor), so the count posts cause `count_set` and the balance becomes the counted
+    quantity. The answer is the count's movement row (kind `adjustment`, `qty` = the counted quantity,
+    `balances` = one entry, the balance after the posting). A count equal to the book starts no process
+    and writes no ledger entry: it is answered at once with its row from `OldAppReads.confirmed_count_row/2`
+    (an `id` of the document, `operator` `""`), is not in the movement history, and its repeat answers
+    the same row (the `balances` of the replay is the balance at that moment).
+  * No row, a row `true` or an unreadable setting (ON): until REQ-913 the answer stays
+    `{:error, {400, "invalid kind"}}` and nothing is written.
+
+  Every refusal of a count is a 400 (the old app reads a 409 as "already posted" and a 422 as "heard
+  nothing"), with the old server's Russian texts: `count_in_progress` "На этом месте идёт пересчёт по
+  приказу. Подсчёт не принят", `location_frozen` (at the approval) "Место заморожено пересчётом. Подсчёт
+  не принят", `balance_in_other_rows` "Этот товар на этом месте числится за другим ответственным или в
+  другой партии. Попросите администратора провести пересчёт по ведомости", `quick_count_stale` "Остаток
+  изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз", and for any other refusal of the
+  approval "Подсчёт отменён. Посчитайте ещё раз". A refusal at the approval cancels the issued count
+  (`undo/4`), so nothing is left pending and no balance changes; a refusal binds no client id. The client
+  id of a count is bound and compared (kind, item, place, quantity) exactly as for the other writes.
+  A test seam (`:old_app_count_between` in the application environment, set only by tests) runs a
+  function between the issue and the approval of a count.
+
   ## The answer (REQ-909)
 
   Both writes answer the Qoimeks movement row of `Letflow.Modules.Stock.OldAppReads` (text `id`, old
@@ -79,6 +114,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
 
   require Logger
 
+  alias Letflow.ApprovalRules
   alias Letflow.Engine
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Locations
@@ -96,7 +132,25 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   @client_id ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
   @key_prefix "client:stock_old_movement:"
   @reuse_text "this operation was already posted with different data"
-  @kinds ~w(receipt issue transfer)
+  @kinds ~w(receipt issue transfer adjustment)
+  # REQ-912: the count at the old address (kind adjustment). The reason code is `recount` (UAT
+  # assumption A2 of the T-2378 note, to be confirmed by the process owner); the switch is the tenant's
+  # approval rule of the quick count, step approve.
+  @count_reason "recount"
+  @count_definition "stock_quick_count"
+  @count_node "approve"
+  # The old server's own words and the old app's reading of the status (REQ-912 point 7): every
+  # refusal of a count is a 400 with a text; a 409 would read as "already posted", a 422 as "heard nothing".
+  @count_texts %{
+    "count_in_progress" => "На этом месте идёт пересчёт по приказу. Подсчёт не принят",
+    "location_frozen" => "Место заморожено пересчётом. Подсчёт не принят",
+    "balance_in_other_rows" =>
+      "Этот товар на этом месте числится за другим ответственным или в другой партии. " <>
+        "Попросите администратора провести пересчёт по ведомости",
+    "quick_count_stale" =>
+      "Остаток изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз"
+  }
+  @count_cancelled "Подсчёт отменён. Посчитайте ещё раз"
   @quantity_max 40
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
@@ -148,14 +202,9 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
         movement_hash(movement),
         &stored(authorized, &1, :post),
         fn ->
-          with :ok <- active(prefix, movement.kind),
-               {:ok, body} <- document_body(prefix, movement),
-               {:ok, view} <- save(prefix, body, actor_id),
-               {:ok, _issued} <- issue(prefix, view.id, actor_id, authorized),
-               :ok <- complete(prefix, view, "post", actor_id, operator),
-               {:ok, row} <- stored(authorized, view.id, :post) do
-            {:ok, view.id, row}
-          end
+          if movement.kind == "adjustment",
+            do: post_count(prefix, actor_id, authorized, movement, operator),
+            else: post_document(prefix, actor_id, authorized, movement, operator)
         end
       )
     end
@@ -164,6 +213,117 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
       Logger.error("old_app_post_failed #{inspect(exception.__struct__)}")
       {:error, {500, "internal error"}}
   end
+
+  # The receipt, issue and transfer: one document, issued and posted by the shared access.
+  defp post_document(prefix, actor_id, authorized, movement, operator) do
+    with :ok <- active(prefix, movement.kind),
+         {:ok, body} <- document_body(prefix, movement),
+         {:ok, view} <- save(prefix, body, actor_id),
+         {:ok, _issued} <- issue(prefix, view.id, actor_id, authorized),
+         :ok <- complete(prefix, view, "post", actor_id, operator),
+         {:ok, row} <- stored(authorized, view.id, :post) do
+      {:ok, view.id, row}
+    end
+  end
+
+  # -- the count (REQ-912) ------------------------------------------------------------------------
+
+  # A quick count document made through `Documents.quick_count/4` with the shared access as the counter.
+  # With the tenant's four-eyes switch for counts OFF the shared access completes the approve task of
+  # its own count in the same call (the engine records `task.self_approved`); with it ON the count
+  # keeps today's answer, 400 `invalid kind`, and nothing is written (REQ-913 builds that path).
+  defp post_count(prefix, actor_id, authorized, movement, operator) do
+    with :ok <- count_switch_off(prefix),
+         :ok <- count_active(prefix),
+         {:ok, body} <- count_body(prefix, movement),
+         {:ok, view} <- make_count(prefix, body, actor_id, authorized, operator),
+         :ok <- count_seam(prefix),
+         :ok <- approve_count(prefix, view, actor_id, operator),
+         {:ok, row} <- stored(authorized, view.id, :post) do
+      {:ok, view.id, row}
+    end
+  end
+
+  # The switch: a stored `four_eyes: false` of stock_quick_count / approve is OFF. No row, a row `true`
+  # or an unreadable setting is ON (fails closed). Read in the proved tenant's schema only (INV-1).
+  defp count_switch_off(prefix) do
+    if ApprovalRules.four_eyes_off?(prefix, @count_definition, @count_node),
+      do: :ok,
+      else: {:error, {400, "invalid kind"}}
+  end
+
+  # Test seam, like `:stock_post_start_fail?` of `Posting`: a function in the application environment
+  # (set only by tests) runs between the issue of the count and its approval, so a test can move the
+  # key or open a count order inside the call. Never set outside tests; read here only.
+  defp count_seam(prefix) do
+    case Application.get_env(:letflow, :old_app_count_between) do
+      fun when is_function(fun, 1) ->
+        fun.(prefix)
+        :ok
+
+      _none ->
+        :ok
+    end
+  end
+
+  defp count_active(prefix) do
+    case Posting.ensure_active(prefix, Kinds.get("quick_count").definition, nil) do
+      :ok -> :ok
+      :error -> {:error, {400, "definition_not_active"}}
+    end
+  end
+
+  defp count_body(prefix, movement) do
+    with {:ok, item} <- item(prefix, movement.sku),
+         {:ok, unit} <- org_unit(prefix, movement.location),
+         {:ok, employee} <- employee(prefix) do
+      {:ok,
+       %{
+         "org_unit_id" => unit,
+         "location_id" => movement.location,
+         "responsible_id" => employee,
+         "catalog_item_id" => movement.sku,
+         "catalog_uom_id" => item["base_uom_id"],
+         "counted_quantity" => movement.quantity,
+         "reason_code" => @count_reason
+       }}
+    end
+  end
+
+  defp make_count(prefix, body, actor_id, authorized, operator) do
+    case Documents.quick_count(prefix, body, actor_id, authorized: authorized, operator: operator) do
+      {:ok, view} -> {:ok, view}
+      {:error, reason} -> {:error, count_refusal(reason)}
+    end
+  end
+
+  # A count equal to the book is `confirmed`: no approval, no ledger entry (REQ-912 point 6).
+  defp approve_count(_prefix, %{state: "confirmed"}, _actor_id, _operator), do: :ok
+
+  defp approve_count(prefix, view, actor_id, operator) do
+    case complete(prefix, view, "approve", actor_id, operator) do
+      :ok ->
+        :ok
+
+      # The approval was never started: nothing may stay issued and pending.
+      {:error, {503, _text}} ->
+        undo(prefix, view.id, "approve", actor_id)
+        {:error, {400, @count_cancelled}}
+
+      # `complete/5` already cancelled the issued count; the text is the old server's for the cause
+      # (the freeze guard, a key that moved), else the cancel text.
+      {:error, {_status, wire}} ->
+        {:error, {400, Map.get(@count_texts, wire, @count_cancelled)}}
+    end
+  end
+
+  # A refusal when the count is made: the old server's text for the known ones, else the closed
+  # code of the refusal (never a value), always a 400.
+  defp count_refusal({code, _extras}) when is_binary(code),
+    do: {400, Map.get(@count_texts, code, code)}
+
+  defp count_refusal(:definition_not_active), do: {400, "definition_not_active"}
+  defp count_refusal(reason), do: refusal(reason)
 
   @doc """
   The movement reverse of the movement whose Qoimeks integer id is `int_id` (the path). `{:ok,
@@ -218,8 +378,13 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     # A reversal row carries the kind of the movement it reverses (REQ-909), so it is told by `reverses`.
     row =
       case which do
-        :post -> Enum.find(rows, &(not Map.has_key?(&1, :reverses)))
-        :reversal -> Enum.find(rows, &Map.has_key?(&1, :reverses))
+        # A count equal to the book has no ledger entry: its row comes from the count document (REQ-912).
+        :post ->
+          Enum.find(rows, &(not Map.has_key?(&1, :reverses))) ||
+            OldAppReads.confirmed_count_row(authorized, document_id)
+
+        :reversal ->
+          Enum.find(rows, &Map.has_key?(&1, :reverses))
       end
 
     if row, do: {:ok, row}, else: {:error, {500, "internal error"}}
@@ -248,7 +413,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
 
   defp movement_params(prefix, params) when is_map(params) do
     with {:ok, kind} <- kind(params),
-         {:ok, quantity} <- quantity(params),
+         {:ok, quantity} <- quantity(params, kind),
          {:ok, sku} <- ref(prefix, params, "sku_id", :sku, "unknown sku"),
          {:ok, location} <- ref(prefix, params, "location_id", :location, "unknown location"),
          {:ok, to_location} <- to_location(prefix, kind, params) do
@@ -262,7 +427,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   defp kind(%{"kind" => kind}) when kind in @kinds, do: {:ok, kind}
   defp kind(_params), do: {:error, {400, "invalid kind"}}
 
-  defp quantity(params) do
+  defp quantity(params, kind) do
     value = Map.get(params, "qty", Map.get(params, "quantity"))
 
     text =
@@ -276,8 +441,9 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     with true <- is_binary(text) and byte_size(text) <= @quantity_max,
          {%Decimal{coef: coef} = d, ""} when is_integer(coef) <- Decimal.parse(text) do
       cond do
-        # The old server's text for a quantity that is zero or negative (REQ-909 point 6).
-        not Decimal.gt?(d, 0) -> {:error, {400, "quantity must be positive"}}
+        # The old server's text for a quantity that is zero or negative (REQ-909 point 6); a count
+        # (kind adjustment) may be 0 (REQ-912 point 1), never negative.
+        zero_or_less?(d, kind) -> {:error, {400, "quantity must be positive"}}
         Regex.match?(@quantity, text) -> {:ok, Decimal.to_string(d, :normal)}
         true -> {:error, {400, "invalid quantity"}}
       end
@@ -285,6 +451,9 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
       _bad -> {:error, {400, "invalid quantity"}}
     end
   end
+
+  defp zero_or_less?(d, "adjustment"), do: Decimal.lt?(d, 0)
+  defp zero_or_less?(d, _kind), do: not Decimal.gt?(d, 0)
 
   # An integer (or integer text) that is a mapped id of THIS tenant; another tenant's number is just an
   # unknown number here (the mapping tables live in the tenant schema, INV-1).
@@ -443,7 +612,8 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   defp undo(prefix, document_id, "reverse", actor_id),
     do: Posting.withdraw_reversal(prefix, document_id, actor_id)
 
-  defp undo(prefix, document_id, "post", actor_id) do
+  # A refused count approval (REQ-912) cancels the issued count the same way as a refused post.
+  defp undo(prefix, document_id, node, actor_id) when node in ["post", "approve"] do
     fetch = fn p, id -> Documents.fetch(p, id) end
 
     case Posting.cancel(

@@ -250,6 +250,123 @@ defmodule Letflow.Engine.SeparationOfDutiesTest do
     end
   end
 
+  # REQ-912: the shared stock access of the old Qoimeks address may self-approve ONE step, the approval
+  # of a quick count, and only when the tenant stored four_eyes false for it.
+  describe "REQ-912 the shared access and the quick count approval" do
+    @submit "submit"
+    @approve "approve"
+
+    defp quick_count_case! do
+      graph = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          S.human(@submit, "role-a", %{}),
+          S.human(@approve, "role-b", %{"distinct_from" => [@submit]}),
+          S.human("recheck", "role-b", %{"distinct_from" => [@submit]}),
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => @submit},
+          %{"id" => "e2", "source" => @submit, "target" => @approve},
+          %{"id" => "e3", "source" => @approve, "target" => "recheck"},
+          %{"id" => "e4", "source" => "recheck", "target" => "end"}
+        ]
+      }
+
+      ctx = S.new_case!(graph, %{}, %{"seed" => "value"})
+      u = S.insert_user!(ctx.schema_name, "u")
+      S.complete_node!(ctx, @submit, u.id, %{})
+      approve = S.pending_task!(ctx, @approve)
+
+      {:ok, snapshot} =
+        Letflow.Definitions.SnapshotStore.get_by_instance_id(ctx.instance_id,
+          prefix: ctx.schema_name
+        )
+
+      {:ok, built} = Engine.build_graph(snapshot.graph)
+      {ctx, u, approve, built}
+    end
+
+    defp check6(ctx, built, task, actor, name, credential) do
+      SeparationOfDuties.check(Repo, built, task, actor, ctx.schema_name, %{
+        definition_name: name,
+        credential: credential
+      })
+    end
+
+    test "E12 OFF: :shared_access on stock_quick_count / approve is self-approved" do
+      {ctx, u, approve, built} = quick_count_case!()
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, false)
+
+      assert {:self_approved,
+              %{
+                definition_name: "stock_quick_count",
+                node_id: @approve,
+                same_person_as: [@submit]
+              }} =
+               check6(ctx, built, approve, u.id, "stock_quick_count", :shared_access)
+    end
+
+    test "E13 the widening is narrow: another process, credential, no row and a row true refuse" do
+      {ctx, u, approve, built} = quick_count_case!()
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, false)
+      put_setting!(ctx.schema_name, "stock_opening", @approve, false)
+      refused = {:error, {:separation_of_duties, [@submit]}}
+
+      # the same credential on another process, even with its own OFF row
+      assert refused == check6(ctx, built, approve, u.id, "stock_opening", :shared_access)
+      # another non-interactive credential on the quick count
+      for credential <- [:api_token, :service_principal, nil] do
+        assert refused == check6(ctx, built, approve, u.id, "stock_quick_count", credential)
+      end
+
+      # a step of the quick count that is not `approve`, even with its own OFF row
+      put_setting!(ctx.schema_name, "stock_quick_count", "recheck", false)
+      v = S.insert_user!(ctx.schema_name, "v")
+      S.complete_node!(ctx, @approve, v.id, %{})
+      recheck = S.pending_task!(ctx, "recheck")
+
+      {:ok, snapshot} =
+        Letflow.Definitions.SnapshotStore.get_by_instance_id(ctx.instance_id,
+          prefix: ctx.schema_name
+        )
+
+      {:ok, built2} = Engine.build_graph(snapshot.graph)
+
+      assert refused == check6(ctx, built2, recheck, u.id, "stock_quick_count", :shared_access)
+    end
+
+    test "E14 no row and a row four_eyes true refuse :shared_access (fails closed)" do
+      {ctx, u, approve, built} = quick_count_case!()
+      refused = {:error, {:separation_of_duties, [@submit]}}
+      assert refused == check6(ctx, built, approve, u.id, "stock_quick_count", :shared_access)
+
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, true)
+      assert refused == check6(ctx, built, approve, u.id, "stock_quick_count", :shared_access)
+    end
+
+    test "E15 an unreadable setting refuses :shared_access" do
+      {ctx, u, approve, built} = quick_count_case!()
+      put_setting!(ctx.schema_name, "stock_quick_count", @approve, false)
+      schema = ctx.schema_name
+
+      Repo.query!(
+        ~s|ALTER TABLE "#{schema}".approval_rule_settings RENAME TO approval_rule_settings_x|
+      )
+
+      try do
+        capture_log(fn ->
+          assert {:error, {:separation_of_duties, [@submit]}} =
+                   check6(ctx, built, approve, u.id, "stock_quick_count", :shared_access)
+        end)
+      after
+        Repo.query!(
+          ~s|ALTER TABLE "#{schema}".approval_rule_settings_x RENAME TO approval_rule_settings|
+        )
+      end
+    end
+  end
+
   defp count_queries(fun) do
     test_pid = self()
     ref = make_ref()

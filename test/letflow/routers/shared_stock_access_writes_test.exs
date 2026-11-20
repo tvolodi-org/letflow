@@ -929,7 +929,8 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       |> P.status!(200)
 
       assert [adj, personal] = history(t)
-      assert %{"kind" => "adjustment", "operator" => "", "qty" => 3} = adj
+      # REQ-912 point 9: a count row shows the counted quantity (7), not the difference (3)
+      assert %{"kind" => "adjustment", "operator" => "", "qty" => 7} = adj
       assert %{"kind" => "receipt", "operator" => "", "qty" => 10, "balances" => []} = personal
     end
   end

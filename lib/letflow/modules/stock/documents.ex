@@ -251,8 +251,9 @@ defmodule Letflow.Modules.Stock.Documents do
   counted like any other, decision 0090: book -2 counted 3 posts +5), the draft, the header and the
   line (`book_quantity`, `difference` = counted minus book) and the issue. Nothing is stored and no number is
   taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
-  is zero (then the document reads `confirmed`: no instance, no ledger entry). Returns the issued document
-  as `fetch/3` renders it.
+  is zero (then the document reads `confirmed`: no instance, no ledger entry). `opts[:operator]` (REQ-912,
+  the old Qoimeks address only) is stored as the output variable `operator` of the count's submit task.
+  Returns the issued document as `fetch/3` renders it.
   """
   @spec quick_count(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def quick_count(prefix, body, actor, opts \\ []) when is_binary(prefix) do
@@ -265,8 +266,17 @@ defmodule Letflow.Modules.Stock.Documents do
          :ok <- activate(prefix, spec, Keyword.get(opts, :activator)),
          {:ok, id} <- quick_count_tx(prefix, spec, doc, actor, authorized) do
       view = fetch!(prefix, id)
-      unless view.state == "confirmed", do: start_posting(prefix, id, actor)
+      unless view.state == "confirmed", do: start_posting(prefix, id, actor, submit_output(opts))
       fetch(prefix, id, authorized)
+    end
+  end
+
+  # REQ-912: the typed operator name of the old Qoimeks address is stored as the output variable
+  # `operator` of the count's submit task (the only caller that passes `opts[:operator]`).
+  defp submit_output(opts) do
+    case Keyword.get(opts, :operator) do
+      name when is_binary(name) -> %{"operator" => name}
+      _none -> %{}
     end
   end
 
@@ -1022,10 +1032,10 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # A failed start after the issue committed is not an error: the number is spent (gap-free
   # numbering) and the retry route `post` starts the posting.
-  defp start_posting(prefix, id, actor) do
+  defp start_posting(prefix, id, actor, submit_output \\ %{}) do
     with {:ok, view} <- fetch(prefix, id),
          %{} = version <- Posting.issued(prefix, id),
-         {:ok, _instance} <- Posting.start_post(prefix, view, version, actor) do
+         {:ok, _instance} <- Posting.start_post(prefix, view, version, actor, submit_output) do
       :ok
     else
       other ->
