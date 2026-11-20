@@ -414,6 +414,16 @@ part 2 (REQ-831).
   `{:error, :dry_build}` without a query. A fact read is data, never authority, and may be stale at commit (note 14.6).
   A ledger policy file cannot reach it (scan T-SC-4e): `declare/2` stays pure.
 
+## Amended by REQ-903 (slice L7 part 2c, expected_document_version at posting)
+
+- The stock handler `post_document` (it alone declares `reads_documents`) reads the version named by its arguments
+  through `HandlerWrites.read_document_version/3` before its master checks, and refuses with the typed 409
+  `record_version_conflict` a posting that is not the issued current version of its document or whose content
+  (type, document id, org unit, cause, event time, write-off reason, legs) differs. The binding gap of D6 is prevented
+  for that handler, not only detected. The legs comparison is one pure module shared with the read-side `posting_check`.
+  `post_count`, `post_kind_change_out` and reversals stay as before. The read takes no lock: stock documents are never
+  re-versioned, and a cancel and a post of one document are serialised by the post instance.
+
 ## Waived for a one-site customer (owner/PM 2026-11-19)
 
 Two items are WAIVED for the one-site pilot. REQ-901..906 (L7 part 2) specify `expected_document_version`, the binding of a posting to the issued document version and the typed `master_inactive` refusal, and exclude these two:

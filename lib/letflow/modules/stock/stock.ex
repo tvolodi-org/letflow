@@ -442,7 +442,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.23.0",
+    version: "0.24.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -599,6 +599,7 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock",
+        reads_documents: true,
         reads: [
           "catalog_item",
           "catalog_uom",
