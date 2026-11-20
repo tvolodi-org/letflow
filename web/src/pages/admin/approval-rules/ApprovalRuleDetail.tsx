@@ -83,7 +83,8 @@ export function ApprovalRuleDetail({
   const dash = '—'
   let lastChange: string
   if (rule.changed_at == null) {
-    lastChange = t('approvalRules.change.never')
+    // With no stored row the effective value IS the tenant default (D-165): do not claim ON for a fresh tenant.
+    lastChange = t(rule.four_eyes ? 'approvalRules.change.never' : 'approvalRules.change.never.off')
   } else {
     const who = rule.changed_by_name ?? t('approvalRules.change.unknownUser')
     lastChange = t('approvalRules.change.by', { name: who, when: formatDateTime(rule.changed_at) })
