@@ -102,6 +102,15 @@ defmodule Letflow.Routers.TenantSettingsTest do
     |> Letflow.Routers.Audit.call(@audit_opts)
   end
 
+  # The key-rejection audit view: the T-2403 `tenant_settings.updated` entries are filtered out so the
+  # older tests keep counting only rejection entries.
+  defp get_rejection_audit(tenant_fixture, fields) do
+    resp = get_audit(tenant_fixture, fields)
+    body = Jason.decode!(resp.resp_body)
+    items = Enum.reject(body["items"], &(&1["action"] == "tenant_settings.updated"))
+    %{resp | resp_body: Jason.encode!(%{body | "items" => items, "count" => length(items)})}
+  end
+
   # ═══════════════════════════════════════════════════════════════════════
   # AC1 — authenticated PATCH round-trips through GET /api/tenant-config
   # ═══════════════════════════════════════════════════════════════════════
@@ -289,6 +298,88 @@ defmodule Letflow.Routers.TenantSettingsTest do
   # GET /api/v1/audit surfaces it with zero frontend change
   # ═══════════════════════════════════════════════════════════════════════
 
+  describe "T-2403: audit entry for a changing PATCH, readable timezone" do
+    test "A1: a changing PATCH writes one tenant_settings.updated entry with before/after of changed keys only" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2403-a1")
+      assert patch_settings(tenant, body: %{"app_name" => "First"}).status == 200
+
+      resp =
+        patch_settings(tenant,
+          body: %{"app_name" => "Second", "timezone" => "Europe/Berlin"}
+        )
+
+      assert resp.status == 200
+
+      items =
+        get_audit(tenant, query_string: "resource_type=tenant_settings").resp_body
+        |> Jason.decode!()
+        |> Map.fetch!("items")
+        |> Enum.filter(&(&1["action"] == "tenant_settings.updated"))
+
+      assert length(items) == 2
+      latest = Enum.find(items, &(&1["after_state"]["app_name"] == "Second"))
+      assert latest["before_state"] == %{"app_name" => "First", "timezone" => nil}
+      assert latest["after_state"] == %{"app_name" => "Second", "timezone" => "Europe/Berlin"}
+      refute is_nil(latest["actor_id"])
+    end
+
+    test "A2: a PATCH that changes nothing writes no updated entry; unchanged keys are not listed" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2403-a2")
+      assert patch_settings(tenant, body: %{"app_name" => "Same"}).status == 200
+      assert patch_settings(tenant, body: %{"app_name" => "Same"}).status == 200
+
+      items =
+        get_audit(tenant, query_string: "resource_type=tenant_settings").resp_body
+        |> Jason.decode!()
+        |> Map.fetch!("items")
+        |> Enum.filter(&(&1["action"] == "tenant_settings.updated"))
+
+      assert length(items) == 1
+    end
+
+    test "A3: a refused value writes no updated entry" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2403-a3")
+      assert patch_settings(tenant, body: %{"timezone" => "Mars/Base"}).status == 422
+
+      body =
+        Jason.decode!(get_audit(tenant, query_string: "resource_type=tenant_settings").resp_body)
+
+      assert body["count"] == 0
+    end
+
+    test "G1: GET returns app_name and the effective timezone, default Asia/Almaty" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2403-g1")
+
+      resp =
+        build_conn(:get, "/", tenant, []) |> Letflow.Routers.TenantSettings.call(@settings_opts)
+
+      assert resp.status == 200
+      body = Jason.decode!(resp.resp_body)
+      assert body["tenant_id"] == tenant.tenant_id
+      assert body["timezone"] == "Asia/Almaty"
+      assert body["app_name"] == nil
+
+      patch_settings(tenant, body: %{"app_name" => "Acme Co", "timezone" => "Europe/Berlin"})
+
+      resp =
+        build_conn(:get, "/", tenant, []) |> Letflow.Routers.TenantSettings.call(@settings_opts)
+
+      body = Jason.decode!(resp.resp_body)
+      assert body["timezone"] == "Europe/Berlin"
+      assert body["app_name"] == "Acme Co"
+    end
+
+    test "G2: GET is refused for a role without TenantSettingsManage" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2403-g2")
+
+      resp =
+        build_conn(:get, "/", tenant, roles: ["TENANT_USER"])
+        |> Letflow.Routers.TenantSettings.call(@settings_opts)
+
+      assert resp.status in [403, 404]
+    end
+  end
+
   describe "AC4: exactly one audit entry for a rejected-key request, surfaced via GET /api/v1/audit" do
     test "records tenant/actor/rejected top-level key+value and rejected brand_colors sub-key+value in one entry" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req382-ac4")
@@ -304,7 +395,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
 
       assert resp.status == 200
 
-      audit_resp = get_audit(tenant, query_string: "resource_type=tenant_settings")
+      audit_resp = get_rejection_audit(tenant, query_string: "resource_type=tenant_settings")
       assert audit_resp.status == 200
       audit_body = Jason.decode!(audit_resp.resp_body)
 
@@ -340,7 +431,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
       reloaded = Repo.get!(Tenant, tenant.tenant_id)
       assert reloaded.settings == %{"brand_colors" => %{"secondary" => "#1971C2"}}
 
-      audit_resp = get_audit(tenant, query_string: "resource_type=tenant_settings")
+      audit_resp = get_rejection_audit(tenant, query_string: "resource_type=tenant_settings")
       audit_body = Jason.decode!(audit_resp.resp_body)
       assert audit_body["count"] == 1
       assert [item] = audit_body["items"]
@@ -354,7 +445,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
       resp = patch_settings(tenant, body: %{"app_name" => "All Clean"})
       assert resp.status == 200
 
-      audit_resp = get_audit(tenant, query_string: "resource_type=tenant_settings")
+      audit_resp = get_rejection_audit(tenant, query_string: "resource_type=tenant_settings")
       assert audit_resp.status == 200
       assert Jason.decode!(audit_resp.resp_body)["count"] == 0
     end
@@ -367,7 +458,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
 
       assert resp.status == 422
 
-      audit_resp = get_audit(tenant, query_string: "resource_type=tenant_settings")
+      audit_resp = get_rejection_audit(tenant, query_string: "resource_type=tenant_settings")
       assert Jason.decode!(audit_resp.resp_body)["count"] == 0
     end
   end
@@ -419,7 +510,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
       refute Map.has_key?(settings, "signatory_role")
 
       audit_body =
-        get_audit(tenant, query_string: "resource_type=tenant_settings").resp_body
+        get_rejection_audit(tenant, query_string: "resource_type=tenant_settings").resp_body
         |> Jason.decode!()
 
       assert audit_body["count"] == 1

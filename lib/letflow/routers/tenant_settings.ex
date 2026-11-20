@@ -37,6 +37,11 @@ defmodule Letflow.Routers.TenantSettings do
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantSettings
+  alias Letflow.Identity.TenantTimezone
+
+  authz_get "/", :TenantSettingsManage do
+    handle_get(conn)
+  end
 
   authz_patch "/", :TenantSettingsManage do
     handle_patch(conn)
@@ -45,6 +50,23 @@ defmodule Letflow.Routers.TenantSettings do
   authz_unmatched(:ordinary)
 
   # ── PATCH /tenant/settings (design §3) ──────────────────────────────────
+
+  # T-2403: the effective company name and time zone (default Asia/Almaty) of the caller's own tenant.
+  defp handle_get(conn) do
+    case Identity.get_tenant(conn.assigns.auth_context.tenant_id) do
+      {:ok, tenant} ->
+        settings = tenant.settings || %{}
+
+        Response.ok(conn, %{
+          "tenant_id" => tenant.id,
+          "app_name" => Map.get(settings, "app_name"),
+          "timezone" => TenantTimezone.of(tenant)
+        })
+
+      {:error, :not_found} ->
+        Response.internal_error(conn)
+    end
+  end
 
   defp handle_patch(%Plug.Conn{body_params: raw} = conn) when is_map(raw) do
     tenant_id = conn.assigns.auth_context.tenant_id
@@ -70,6 +92,8 @@ defmodule Letflow.Routers.TenantSettings do
 
     case Identity.update_tenant_settings(tenant.slug, %{"settings" => merged_settings}) do
       {:ok, updated_tenant} ->
+        record_settings_updated(conn, tenant, updated_tenant, recognized_top)
+
         maybe_record_rejected_keys(
           conn,
           tenant,
@@ -115,6 +139,43 @@ defmodule Letflow.Routers.TenantSettings do
   # existing "brand_colors must be a map" changeset error fires downstream
   # unchanged; this is not a key-rejection case, design §3 step 4).
   defp partition_brand_colors(recognized_top), do: {recognized_top, []}
+
+  # T-2403: one `tenant_settings.updated` entry per PATCH that changed a value: the changed top-level
+  # keys only, before and after. Settings hold no secrets (closed key vocabulary). Best effort, like
+  # the rejected-keys entry: the committed update must not turn into a 500.
+  defp record_settings_updated(conn, %Tenant{} = tenant, %Tenant{} = updated, recognized_top) do
+    old = tenant.settings || %{}
+    new = updated.settings || %{}
+    changed = for {k, _} <- recognized_top, Map.get(old, k) != Map.get(new, k), do: k
+
+    if changed != [] do
+      attrs = %{
+        actor_id: conn.assigns.auth_context.user_id,
+        action: "tenant_settings.updated",
+        resource_type: "tenant_settings",
+        resource_id: tenant.id,
+        before_state: Map.new(changed, &{&1, Map.get(old, &1)}),
+        after_state: Map.new(changed, &{&1, Map.get(new, &1)}),
+        trace_id: conn.assigns[:trace_id]
+      }
+
+      prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+      case Audit.insert_entry(Letflow.Repo, attrs, prefix) do
+        {:ok, _entry} ->
+          :ok
+
+        {:error, _reason} ->
+          Logger.error("tenant_settings.updated audit write failed (tenant_id=#{tenant.id})")
+      end
+    end
+
+    :ok
+  rescue
+    _exception ->
+      Logger.error("tenant_settings.updated audit write raised (tenant_id=#{tenant.id})")
+      :ok
+  end
 
   defp maybe_record_rejected_keys(_conn, _tenant, _raw, [], []), do: :ok
 

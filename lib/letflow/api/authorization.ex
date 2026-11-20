@@ -1076,6 +1076,8 @@ defmodule Letflow.Api.Authorization do
   # dedicated :TenantSettingsManage permission (it was :TenantsManage, which is
   # now the PLATFORM-scope registry permission).
   def endpoint_policy_key("PATCH", "/tenant/settings"), do: :TenantSettingsManage
+  # T-2403 -- the effective app_name and timezone, same permission as the write.
+  def endpoint_policy_key("GET", "/tenant/settings"), do: :TenantSettingsManage
 
   # REQ-552 -- tenant configuration bundle (Letflow.Routers.TenantConfigBundle), own tenant only.
   def endpoint_policy_key("GET", "/tenant/config-bundle"), do: :TenantSettingsManage

@@ -25,6 +25,7 @@ import { applyBrandingColors } from '@/theming/applyBranding'
 import { BRAND_COLOR_CSS_PROPERTY } from '@/theming/brandingDefaults'
 import { Button } from '@/components/ui/Button'
 import { TenantLayoutDefault } from './TenantLayoutDefault'
+import { CompanyNameTimezone } from './CompanyNameTimezone'
 import { useToast } from '@/hooks/useToast'
 import type { ApiError } from '@/types/api'
 
@@ -181,6 +182,7 @@ export default function AppearanceSettingsPage() {
         </div>
       </form>
 
+      <CompanyNameTimezone />
       <TenantLayoutDefault />
     </div>
   )
