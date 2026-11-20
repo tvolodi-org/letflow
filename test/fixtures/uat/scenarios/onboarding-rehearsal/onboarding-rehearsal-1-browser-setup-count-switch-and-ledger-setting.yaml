@@ -1,0 +1,195 @@
+# T-2405 (PM 2026-11-20, sss onboarding config list). Run title: UAT onboarding-rehearsal. QA rehearsal tenant only, synthetic data, never production, never qoimeks-qa2, qoimeks-qa or qoimeks-client1-qa.
+# Purpose: rehearse the production browser setup (runbook docs/runbooks/production-tenant-onboarding.md steps 19 and 20, decision 0090 for allow_negative, decision 0093 for who approves, owner decision D-164 for the count switch) so that the production run is a replay.
+# BLOCKED-by-environment until the operator names the tenant: no fresh rehearsal tenant, no company administrator and no storekeeper of it exist in test/fixtures/uat/actors.yaml or in the acceptance credential source today (read 2026-11-20). The operator queues the walk after infra's onboarding script created the tenant, and then adds the two roster actors (request: roster entries for the administrator and the storekeeper of that tenant) and replaces the scope value and the two actor values below by the tenant slug and the two roster ids. Until then the actor values are role placeholders, not roster ids, on purpose: no actor is invented.
+# 1. Scope: the scope value rehearsal-fresh-tenant is a PLACEHOLDER for the fresh rehearsal tenant the operator names in the walk task (a tenant created by infra's onboarding script; never qoimeks-qa2, qoimeks-qa, qoimeks-client1-qa); it does not exist yet, so the walk is BLOCKED-by-environment until the operator sets the real slug and realm here. The group directory name is not the scope. The group name has no qoimeks- prefix on purpose: the static check forces every qoimeks- group to the tenant qoimeks-qa2, which this scenario must not use.
+# 2. Actors: rehearsal-company-admin (TENANT_ADMIN of the rehearsal tenant: holds ApprovalRulesManage, LedgerSettingsManage, AuditRead, StockApprove) and rehearsal-storekeeper (STOREKEEPER: StockQuickCount, StockRead, StockPost, StockReverse; no ApprovalRulesManage, no LedgerSettingsManage, no StockApprove; docs/roles.md, decision 0093, docs/runbooks/stock-counts.md "Who may approve, post and reverse"). Neither is in the roster yet (see above): live login is verified by acceptance once the operator adds them; no credential is written here. The administrator MUST sign in through the browser: the approval rule and the ledger setting accept only a person signed in through the browser, not an API token (runbook step 20).
+# 3. Host and screens: tenant host https://<slug>.letflow.qa.bizdala.com with the slug the operator names (not answered yet: the tenant does not exist). Read on main: web/src/router.tsx (routes admin/approval-rules guarded by ApprovalRulesManage, admin/ledger-settings guarded by LedgerSettingsManage, admin/audit guarded by AuditRead), pages/admin/approval-rules (ApprovalRulesPage, ApprovalRuleDetail, approvalRulesMessages), pages/admin/ledger-settings (LedgerSettingsPage, ledgerSettingsMessages), pages/admin/AuditLogPage.tsx (row expand button, JsonDiffView of before and after), i18n/auditMessages.ts, modules/stock/quickCount (QuickCountPage, quickCountMessages), modules/stock stock documents and Balances screens. en and ru texts below were copied from those catalogs.
+# 4. Data: no item, place or balance is named by code. The walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item without lot tracking, a place of one org unit and no other Responsible employee holding stock of the same item at that place (the rule of qoimeks-count); it records item, place, org unit, the Responsible employee the row shows and the quantity B. The walk needs a rehearsal tenant that already holds posted balances (the data load of the runbook, steps 8 to 10, is done) and whose stock_quick_count process is already ACTIVE, which is the case after one quick count was made on it (runbook step 14 says the Approval rules row exists only after that first use). Record the count of pending approval tasks in My Tasks at the start. START state, explicit (owner D-165 may change the default, so it is stated and read, not assumed): the row for the quick count shows "On" and "Never changed (default: on)". If the row is missing, or already "Off", or was changed before, the walk is BLOCKED-by-environment: nothing is switched to make it pass. No generator task is needed.
+# 5. Executable: every step is done in a real browser by the runner's own script (no pipeline_test); no API step. Steps 5 to 7 use a phone-width window of 390 px.
+# 6. Dry run: uat.sh preflight not run in this writing step: the rehearsal tenant and its roster entries do not exist and the run title needs the acceptance credential source; parse, schema and static checks only; acceptance runs the preflight once the operator has named the tenant.
+# EXPECTATION CORRECTIONS: 3. (a) The task text and runbook say the storekeeper's count posts at once and the administrator sees no pending task; on main the storekeeper cannot even see the approval task (it is addressed to the administrator role) and cannot complete it (StockApprove, decision 0093), and a count by the storekeeper leaves an approve task that only the administrator can complete, whether the rule is On or Off. The scenario keeps the expectation of D-164 and the runbook (posts at once, no task, audit task.self_approved) and a defect is reported: the walk is expected to FAIL on it until the product matches D-164. (b) The audit screen has no filter by action and its type filter lists the type "task" but not "approval_rule" or "ledger_setting": the changes of steps 2 and 4 are found by the filter "User" (the administrator) and the action text. (c) The approval rules screen has no catalog name for the quick count document type: the row shows the name the screen resolves, so the row is identified by its step "Approval" and the process name stock_quick_count or its translated label, whichever the screen shows.
+# Not UAT-observable: the readiness report line "four-eyes" of the onboarding check (runs on the server, no screen); the 403 of the setup API token on the approval rule route (an API probe of a write route, not done here).
+---
+id: onboarding-rehearsal-1-browser-setup-count-switch-and-ledger-setting
+scope: rehearsal-fresh-tenant
+title: >-
+  On a fresh rehearsal tenant the company administrator switches the count approval Off and allows negative balances
+  on screen, the storekeeper counts from a phone-width window and the count posts at once, and the storekeeper cannot open the settings
+version: '1.0'
+tags:
+- onboarding
+- rehearsal
+- stock
+- quick_count
+- approval_rules
+- ledger_settings
+- refusal
+- phone
+- en
+- ru
+description: >-
+  Rehearsal of the production browser setup (runbook production-tenant-onboarding steps 19 and 20; owner decision D-164;
+  decision 0090 allow_negative per tenant with a reason; decision 0093 the approve guard is the permission StockApprove, not the address;
+  REQ-854 quick count and its four-eyes rule, REQ-855 the quick count screen; the approval rules and ledger settings screens
+  of stock 0.23.0). Everything is done on screens. Start state read and stated: the quick count rule is On. The administrator switches it Off
+  with the exact reason "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164", reads it back
+  after a reload (Off and the reason), allows negative balances for the stock register with a reason, and reads that back.
+  The storekeeper then counts one more unit than the book from a 390 px wide window. Expected by D-164 and the runbook: the count posts at once, no
+  approval task is waiting for the administrator, the audit log has an entry task.self_approved with the note "self-approved, four-eyes off" for the document, and
+  the balance is the counted quantity. The storekeeper reverses the count for cleanup and the administrator completes the reversal task; the
+  balance returns to B. The storekeeper has no access to the approval rules screen or the ledger settings screen. The rehearsal tenant keeps the Off rule and the allowed negative setting: that is the state the production run replays.
+actors:
+  admin: rehearsal-company-admin
+  storekeeper: rehearsal-storekeeper
+preconditions:
+- description: >-
+    A fresh rehearsal tenant created by infra's onboarding script exists, named by the operator in the walk task (not qoimeks-qa2, not qoimeks-qa, not qoimeks-client1-qa), with its company administrator and one storekeeper, both with a login in the acceptance credential source.
+  check: runner_prepared
+  detail: >-
+    If the tenant, either login or the host is missing, every step is BLOCKED-by-environment (currently the case: no such tenant and no roster actor exist). Do not use another tenant to make the walk pass.
+- description: >-
+    START state of the rule, explicit: the Approval rules screen lists the row of the quick count with the step "Approval", the rule "On" and the last change "Never changed (default: on)". The stock_quick_count definition is active (one quick count was made on the tenant before the walk).
+  check: system_seeded
+  detail: >-
+    Read it in step 1 and record it. Any other start state (row missing, "Off", changed before) is BLOCKED-by-environment; nothing is switched to prepare it.
+- description: >-
+    The Balances screen holds a row as described in the data header (positive quantity B, no lot, one org unit, no other Responsible employee holds the item at that place). The count of pending approval tasks in My Tasks of the administrator is recorded as P0 at the start.
+  check: runner_prepared
+  detail: >-
+    If no such row exists the count steps are BLOCKED-by-environment; create no stock. Nobody else posts to the key during the walk.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The company administrator signs in through the browser on the tenant host, confirms the tenant name in the header, opens My Tasks and records the number of pending approval tasks as P0, then opens the Approval rules screen (Admin, Approval rules; title "Approval rules" / "Правила утверждения"). The administrator finds the row of the quick count (step "Approval" / "Утверждение") and reads the column "Different person" and, after selecting the row, the line "Last change". The administrator records the start state.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator selects that row and turns off the switch "Require a different person to approve" / "Требовать утверждения другим человеком". The screen shows the warning "One person will be able to issue and approve" / "Один человек сможет оформлять и утверждать" and asks for the reason ("Reason" / "Причина"). The administrator first tries to save with the reason field empty and reads the message, then types exactly Client 1, storekeeper counts from the phone, one administrator, owner decision D-164 and presses "Save" / "Сохранить". The screen shows the toast "Approval rule saved" / "Правило утверждения сохранено".
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator reloads the browser page, opens the Approval rules screen again, selects the same row and reads it: the rule column shows "Off" / "Выключено", the line "Last change" names the administrator and a time, and the line "Reason: ..." / "Причина: ..." shows the exact text typed in step 2. The administrator also reads that the row of the opening balances rule, if listed, was not touched by this walk.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator opens the Ledger settings screen (Admin, Ledger settings; title "Negative balances" / "Отрицательные остатки"), finds the register "Stock" / "Запасы" and reads its value. The administrator presses "Allow" / "Разрешить" on that row. The dialog "Allow negative balance: Stock" / "Разрешить отрицательный остаток: Запасы" shows the warning under "What changes" / "Что изменится". The administrator first presses "Save" / "Сохранить" with the reason empty and reads the message "A reason is required." / "Укажите причину.", then types the reason Qoimeks rehearsal, load negative opening balances and presses "Save". The screen shows "The setting was saved." / "Настройка сохранена."
+  via: ui
+- step: 5
+  actor: admin
+  action: >-
+    The administrator reloads the page, opens the Ledger settings screen again and reads the register "Stock": the value is "Allowed" / "Разрешено" and the last change and reason columns show the administrator and the reason typed in step 4.
+  via: ui
+- step: 6
+  actor: storekeeper
+  action: >-
+    The storekeeper signs in through the browser with a window 390 px wide, opens Balances, notes a row as in the data header (item, place, org unit, Responsible employee, B), opens "Quick count" / "Быстрый пересчёт", chooses that item, place, org unit and Responsible employee, types B plus 1 as the counted quantity, chooses the reason "Other" / "Другое" (the catalog entry of the quick count reasons), types the note UAT onboarding-rehearsal and presses "Submit count" / "Отправить пересчёт". The storekeeper reads the result: document number, book quantity, counted quantity, difference, state, and whether a hint "A second person needs to approve this count in My Tasks." / "Второй сотрудник должен утвердить этот пересчёт в разделе «Мои задачи»." is shown. The storekeeper records the document number and then reads Balances for the key.
+  via: ui
+- step: 7
+  actor: admin
+  action: >-
+    The administrator, signed in separately, opens My Tasks and reads the pending approval tasks: their number compared to P0, and whether any task belongs to the document number of step 6. The administrator then opens the stock documents list and reads the state of that document.
+  via: ui
+- step: 8
+  actor: admin
+  action: >-
+    The administrator opens the Audit log (Admin, Audit log; "Audit log" / "Журнал аудита"), sets the filter "User" to the storekeeper (and, in a second look, to the administrator), and for the entries of this walk expands the row with the button "+" to read the before and after state. The administrator finds the entry with the action task.self_approved for the document of step 6, and the entries approval_rule.changed (step 2) and ledger_setting.changed (step 4) made by the administrator.
+  via: ui
+- step: 9
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the document of step 6 in the stock documents list, presses "Reverse" / "Сторнировать", chooses the reason "Other", types the note UAT onboarding-rehearsal undo and confirms. The document still reads Posted until the reversal task is done.
+  via: ui
+- step: 10
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the reversal task of that document, takes it ("Claim") if the screen offers it and completes it. The storekeeper then reads the document and Balances for the key. The pending task count is compared to P0 again.
+  via: ui
+- step: 11
+  actor: storekeeper
+  action: >-
+    The storekeeper, signed in, opens the Approval rules screen by its address (the path /admin/approval-rules) and reads what the screen shows. The storekeeper also looks at the side navigation for an entry "Approval rules". The administrator afterwards reads the rule again: still "Off" with the reason of step 2.
+  expect_refusal: true
+  via: ui
+- step: 12
+  actor: storekeeper
+  action: >-
+    The storekeeper opens the Ledger settings screen by its address (the path /admin/ledger-settings) and reads what the screen shows. The administrator afterwards reads the register "Stock": still "Allowed" with the reason of step 4.
+  expect_refusal: true
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The start state is stated and read, and the Off switch is saved with the exact reason, then read back after a reload (owner decision D-164; runbook step 20; approval rules screen of stock 0.23.0).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 1 shows the row On with "Never changed (default: on)". Step 2 shows the warning, refuses saving with an empty reason (the message "Enter a reason to save." / "Укажите причину, чтобы сохранить.") and then shows the toast "Approval rule saved" / "Правило утверждения сохранено". Step 3, after a reload, shows "Off" / "Выключено", the administrator's name and the line with the exact reason Client 1, storekeeper counts from the phone, one administrator, owner decision D-164.
+    evidence: Screenshots of steps 1, 2 and 3 (en), and one of step 3 in ru.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Client 1 would start with a rule that holds every phone count for a second person, or with no reason in the audit.
+    suggested_action: route_to_frontend_dev
+- id: EO-002
+  description: >-
+    Negative balances are allowed for the stock register through the screen with a reason, and read back after a reload (decision 0090; runbook step 19).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 shows the value before, the warning, the refusal "A reason is required." / "Укажите причину." for an empty reason, and the toast "The setting was saved." / "Настройка сохранена.". Step 5, after a reload, shows "Allowed" / "Разрешено" with the administrator and the reason.
+    evidence: Screenshots of steps 4 and 5 (en and ru).
+  on_fail:
+    severity: MAJOR
+    business_impact: The negative opening balances of the Client 1 data could not be loaded, or the change would not be traceable.
+    suggested_action: route_to_frontend_dev
+- id: EO-003
+  description: >-
+    With the count rule Off, the storekeeper's count from the phone posts at once and no approval task waits for the administrator (owner decision D-164; runbook step 20 table row "Count from the phone"; REQ-854).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 6 shows no hint about a second person and no waiting state; Balances for the key shows B plus 1. Step 7 shows the pending approval task count equal to P0, no task for the document of step 6, and the document in the state Posted. If an approval task is waiting, or the key still shows B, that is a FAIL: DEFECT against D-164, the walk is not weakened (on main the approve task requires StockApprove, which the storekeeper does not hold, decision 0093, so the count waits).
+    evidence: Screenshots of steps 6 and 7 at 390 px and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: The storekeeper at the warehouse could not finish a count alone, which is the reason for the owner decision D-164.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: >-
+    The audit shows the self-approval and the two setting changes (runbook step 20 audit paragraph).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 8 shows an entry with the action task.self_approved for the document of step 6, whose expanded state contains the note "self-approved, four-eyes off"; an entry approval_rule.changed by the administrator whose after state has four_eyes false and the reason of step 2; an entry ledger_setting.changed by the administrator with the reason of step 4.
+    evidence: Screenshots of the three expanded entries.
+  on_fail:
+    severity: MAJOR
+    business_impact: The owner could not show who switched the control off, and why.
+    suggested_action: route_to_backend_dev
+- id: EO-005
+  description: >-
+    The cleanup reverses the count and returns the balance to B, with the administrator completing the reversal task (decision 0093: StockApprove decides).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 9 starts the reversal and the document stays Posted. Step 10 shows the document Reversed, the key at B on Balances, and the pending task count equal to P0.
+    evidence: Screenshots of steps 9 and 10.
+  on_fail:
+    severity: MAJOR
+    business_impact: The rehearsal would leave a changed balance on the tenant.
+    suggested_action: route_to_backend_dev
+- id: EO-006
+  description: >-
+    The storekeeper has no access to the approval rules and the ledger settings screens, and nothing was changed by the attempt (INV-2; docs/roles.md).
+  verification:
+    method: gui_screen
+    detail: >-
+      Steps 11 and 12: the side navigation of the storekeeper has no "Approval rules" entry, the two addresses do not show the screen content (no rules, no switches; a refusal page or a redirect), and the administrator's read-back shows the rule Off with the reason of step 2 and the register Allowed with the reason of step 4, unchanged.
+    evidence: Screenshots of steps 11 and 12 and of the read-backs.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could change who must approve stock documents.
+    suggested_action: route_to_frontend_dev
