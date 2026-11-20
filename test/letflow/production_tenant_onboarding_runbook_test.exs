@@ -214,4 +214,45 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     src = text()
     for rule <- rules, do: assert(src =~ rule, "the runbook does not name #{rule}")
   end
+
+  test "R10 (T-2404): the browser setup part has the click path, reason, read-back, en and ru, and the nothing-to-set lines" do
+    src = text()
+    i = :binary.match(src, "## Browser setup by the company administrator") |> elem(0)
+    part = binary_part(src, i, byte_size(src) - i)
+    [part, _] = String.split(part, "## Rollback summary", parts: 2)
+
+    assert part =~ "/admin/approval-rules"
+    assert part =~ "/admin/ledger-settings"
+    assert part =~ "stock_quick_count"
+    assert part =~ @reason
+    assert part =~ "approval_rule.changed"
+    assert part =~ "owner to decide"
+    assert part =~ "stock_opening"
+
+    # the real screen labels, English and Russian, from the shipped catalogs
+    for label <- [
+          "Require a different person to approve",
+          "Требовать утверждения другим человеком",
+          "Правила утверждения",
+          "Negative balances",
+          "Отрицательные остатки",
+          "Сохранить"
+        ] do
+      assert part =~ label
+
+      assert File.read!(
+               Path.join(@root, "web/src/pages/admin/approval-rules/approvalRulesMessages.ts")
+             ) <>
+               File.read!(
+                 Path.join(@root, "web/src/pages/admin/ledger-settings/ledgerSettingsMessages.ts")
+               ) =~
+               label
+    end
+
+    # the nothing-to-set lines
+    assert part =~ "Default location"
+    assert part =~ "Document numbering"
+    assert part =~ "Asia/Almaty"
+    assert Reason.validate(@reason) == {:ok, @reason}
+  end
 end

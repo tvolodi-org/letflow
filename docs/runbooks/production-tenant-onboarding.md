@@ -521,6 +521,86 @@ page: it does not replace step 8 (`tenant_onboarding_check`), it adds the first-
 
 **Rollback:** none needed (read-only).
 
+## Browser setup by the company administrator
+
+PM 2026-11-20 (T-2404). The two switches below are done in the browser: their routes
+(`PUT /api/v1/approval-rules/...` and `PUT /api/v1/ledger-settings/...`) accept only a person signed in with
+OIDC, so the setup token of step 6 is refused (403). They are steps 19 and 20 of this page, written as a click
+path. Who signs in is decided by the PM in the go summary; the account must be a TENANT_ADMIN of the tenant (the
+company administrator, or the setup administrator before handover; never PLATFORM_ADMIN). Do this after the
+first opening and the first quick count (their definitions are active then, step 14). Screen labels are the
+shipped ones (catalogs `approvalRulesMessages.ts` and `ledgerSettingsMessages.ts`); the Kazakh wording is a
+machine draft and is not repeated here.
+
+### 1. Sign in
+
+Open `https://<host>` and sign in as the company administrator. The menu group "Tenant administration" /
+«Администрирование организации» holds both screens.
+
+### 2. Count rule OFF (owner decision D-164)
+
+1. Open `/admin/approval-rules`: title "Approval rules" / «Правила утверждения».
+2. In the list, columns "Document type" / «Тип документа», "Step" / «Шаг», "Different person" / «Другой человек»,
+   find the row `stock_quick_count`, step `approve` ("Approval" / «Утверждение»). The pill shows "On" /
+   «Включено» before the change. Click the row; the panel on the right opens.
+3. Switch OFF "Require a different person to approve" / «Требовать утверждения другим человеком». The warning
+   "One person will be able to issue and approve" / «Один человек сможет оформлять и утверждать» appears.
+4. In the box "Reason" / «Причина» type EXACTLY, on one line (a line break is refused):
+
+   ```
+   Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164
+   ```
+
+   This is the owner's D-164 text used in step 20 (the PM's short form "Client 1, storekeeper counts from the phone,
+   one administrator, owner decision D-164" is the same decision; the long text above is the one the runbook
+   tests pin, so use it).
+5. Click "Save" / «Сохранить». The toast "Approval rule saved" / «Правило утверждения сохранено» appears.
+
+**Read-back:** (a) the row shows "Off" / «Выключено»; the panel shows the rule text "The issuer may approve their
+own document..." and "Last change": your name, the time, "Reason: ..." / «Причина: ...». (b) Reload the page
+(F5): the row is still Off with the same reason, and `GET /api/v1/approval-rules` (the approver's own browser
+session, or the screen) shows `four_eyes` false for `stock_quick_count / approve` with the reason. (c) The audit
+(`GET /api/v1/audit`, `AuditRead`) has one `approval_rule.changed` entry with before `four_eyes: true`, after
+`four_eyes: false` and the reason. (d) The readiness report line `INFO four-eyes on=1 off=1
+steps=stock_opening.approve=on,stock_quick_count.approve=off` (step 20).
+
+### 3. Negative balances (decision 0090, runbook step 19)
+
+1. Open `/admin/ledger-settings`: title "Negative balances" / «Отрицательные остатки».
+2. Find the row "Stock" / «Запасы». Its pill is "Refused" / «Запрещено» (the default: no row means refuse).
+3. Owner's choice for Client 1: **allow** (`allow_negative` ON), as step 19 states. If the owner has not
+   confirmed it for the go, leave the row "Refused" and write "owner to decide" in the go record: the default is
+   safe and nothing breaks.
+4. Click "Allow" / «Разрешить». The dialog "Allow negative balance: Stock" / «Разрешить отрицательный остаток:
+   Запасы» shows "What changes" / «Что изменится»: issues larger than the balance will be posted and the balance
+   shown below zero. Read it to the owner or the administrator.
+5. Type the "Reason" / «Причина» (one line, 1 to 500 characters of plain text), for example
+   `Client 1 (Smart Security Systems): negative balances allowed, owner decision`, then "Save" / «Сохранить». The
+   toast "The setting was saved." / «Настройка сохранена.» appears.
+
+**Read-back:** the pill shows "Allowed" / «Разрешено»; "Last change" shows your name and time, and "Reason" your
+text; after a reload (F5) the same; `GET /api/v1/ledger-settings` shows `allow_negative` true for `stock`, with
+`changed_by_name` and `reason`; the audit has the matching ledger-setting entry. Switching back is the "Refuse" /
+«Запретить» button with its own reason.
+
+### 4. Opening rule `stock_opening / approve`: owner decision pending
+
+The opening rule is NOT decided (D-164 decides the count only). Leave the row `stock_opening` / `approve` ON
+until the owner decides: with ON and one administrator the opening cannot be confirmed alone (a second
+administrator approves it in My Tasks). To switch it OFF later, use the same click path as in part 2 on that row,
+with its own reason; it writes its own `approval_rule.changed` entry. Record "opening rule: owner to decide" in
+the go summary.
+
+### 5. Nothing to set
+
+| Item | Setting | What to do |
+|---|---|---|
+| Default location | per item, set by the item import (step 10) | Nothing to set in the browser: there is no tenant-wide default location. |
+| Document numbering | the types are registered on install of the stock module; the first number is 1 per year | Nothing to set: history stays in the old Qoimeks; check that the first document of the year has number 1 (step 19). |
+| Timezone | the tenant default is `Asia/Almaty` | Nothing to set: a different zone is changed only if the company asks for one. |
+
+**Rollback:** switch each setting back in the same screen with a new reason; documents already posted stay posted.
+
 ## Rollback summary
 
 | Step | How to undo | What cannot be undone |
