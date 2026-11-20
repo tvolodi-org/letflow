@@ -492,6 +492,12 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    line through the read facade (`HandlerWrites.read/3`) before they add a step: a mistyped or foreign id is refused
    as `validation_failed` (audit detail `handler_invalid_arguments`) and nothing commits (decision 0073 D6, D7 D-P
    and OQ-20, GH #3707, GH #4535). A retired master blocks only a side that adds stock; a reversal reads nothing.
+   Since REQ-904 (slice L7 part 2d, GH #4818) the two refusals differ: a master that is a live record of its type but
+   retired (item, unit, a given lot, the to location, the org unit, a given responsible) on a side that adds stock is
+   refused with 409 `master_inactive` (no details: no slot name, no id); every other refusal (a non-uuid or unknown id,
+   a record of another type, a soft-deleted record, a unit that is not the item's base unit, a lot of another item)
+   stays 422 `validation_failed`. The org unit to location link (`not_linked`) is checked at issue only, not at posting:
+   `Letflow.Modules.Locations.linked?/3` finds the link record by field values and the read facade reads by id only.
 2. **Pilot gate, quoted from decision 0073:** "The stock module is NOT enabled for a customer tenant until L6
    AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved." No seed, pack or
    QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).

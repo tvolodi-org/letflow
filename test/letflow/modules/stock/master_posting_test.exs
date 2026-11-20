@@ -5,6 +5,8 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
   @moduledoc """
   REQ-832 / GH #4535 (ledger slice L7 part 1): master checks at posting.
   Criteria 1..9 of the requirement. Committed tenants, Sandbox `:auto`, `async: false`.
+  REQ-904 / GH #4818 (L7 part 2d) adds MI-RET-1..6, MI-TRF-1, MI-TYP-1..4, MI-FROM-1..2, MI-AUTH-1, MI-MAN-1:
+  a retired master on a stock-adding side is 409 `master_inactive`; every other refusal stays 422.
   Tests MP-REG-1, MP-TYP-1..7, MP-RET-1..6, MP-RET-5b, MP-FROM-1..2, MP-TRF-1..2,
   MP-CD-1..4, MP-REV-1..2, MP-DED-1, MP-ISO-1.
   """
@@ -15,6 +17,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
 
   alias Letflow.CatalogItemsFixture, as: Cat
   alias Letflow.Entities.Record.Latest
+  alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.CatalogItems
@@ -440,6 +443,241 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
     for master_id <- [ctx.ma.item, ctx.ma.uom, ctx.ma.location, ctx.ma.unit, ctx.ma.employee] do
       assert length(latest_reads(queries, master_id)) == 1,
              "expected exactly one read of #{master_id} on entity_record_latest"
+    end
+  end
+
+  # -- REQ-904: typed master_inactive at posting ---------------------------------------------------
+
+  defp complete_route(task, token, body) do
+    conn =
+      Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", Jason.encode!(body))
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+
+    Letflow.Router.call(conn, Letflow.Router.init([]))
+  end
+
+  defp strip_trace(body), do: body |> Jason.decode!() |> Map.drop(["trace_id"]) |> Jason.encode!()
+
+  # The completion is refused with the typed 409 and nothing commits; the body names no slot and no id.
+  defp assert_inactive(ctx, id, ids) do
+    task = P.pending_task(ctx, id, "post")
+    conn = complete_route(task, ctx.tok_a, %{})
+    assert conn.status == 409, "expected 409, got #{conn.status}: #{conn.resp_body}"
+    assert %{"error" => "master_inactive"} = body = Jason.decode!(conn.resp_body)
+    refute Map.has_key?(body, "details")
+
+    for master_id <- ids,
+        do: refute(conn.resp_body =~ master_id, "the body names #{master_id}")
+
+    assert_refused(ctx, id)
+    [entry | _] = Enum.reverse(Fx.audit_rows(ctx.schema, "entity_write.refused"))
+    assert entry.after_state["detail"] == "handler_refused"
+  end
+
+  # The master record flagged deleted after the document was issued (a master the read facade no longer finds).
+  defp soft_delete!(schema, record_id) do
+    Repo.query!(
+      ~s|UPDATE "#{schema}".entity_record_latest SET deleted = true WHERE record_id = $1|,
+      [Ecto.UUID.dump!(record_id)]
+    )
+  end
+
+  describe "MI-RET REQ-904 criterion 1: retired master on an adding side is 409 master_inactive" do
+    test "MI-RET-1 retired item", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      retire_item!(ctx.schema, ctx.ma.item)
+      assert_inactive(ctx, doc["id"], [ctx.ma.item])
+    end
+
+    test "MI-RET-2 retired unit", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      retire_uom!(ctx.schema, ctx.ma.uom)
+      assert_inactive(ctx, doc["id"], [ctx.ma.uom])
+    end
+
+    test "MI-RET-3 retired lot", ctx do
+      doc = P.issue!(ctx, lot_line_body(ctx))
+      {:ok, _} = CatalogItems.retire_lot(ctx.schema, ctx.ma.lot, opts())
+      assert_inactive(ctx, doc["id"], [ctx.ma.lot])
+    end
+
+    test "MI-RET-4 retired to location", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      {:ok, _} = Locations.retire_node(ctx.schema, ctx.ma.location, opts())
+      assert_inactive(ctx, doc["id"], [ctx.ma.location])
+    end
+
+    test "MI-RET-5 retired org unit (its staff retired first)", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      {:ok, _} = Org.retire_employee(ctx.schema, ctx.ma.employee, opts())
+      {:ok, _} = Org.retire_unit(ctx.schema, ctx.ma.unit, opts())
+      assert_inactive(ctx, doc["id"], [ctx.ma.unit])
+    end
+
+    test "MI-RET-6 retired responsible", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      {:ok, _} = Org.retire_employee(ctx.schema, ctx.ma.employee, opts())
+      assert_inactive(ctx, doc["id"], [ctx.ma.employee])
+    end
+
+    test "MI-RET-7 the same through the engine: the typed refusal rolls back, the task stays pending",
+         ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      retire_item!(ctx.schema, ctx.ma.item)
+
+      assert {:error, {:entity_write_refused, 0, :master_inactive}} =
+               P.complete(ctx, P.pending_task(ctx, doc["id"], "post"))
+
+      assert_refused(ctx, doc["id"])
+    end
+  end
+
+  describe "MI-TRF REQ-904 criterion 1: the to side of a transfer" do
+    setup ctx do
+      Map.put(ctx, :m2, T.b2!(ctx))
+    end
+
+    test "MI-TRF-1 retired to-location of a transfer is 409; the from side stays live-only",
+         ctx do
+      T.receive!(ctx, ctx.ma, "5")
+      body = T.body("transfer", ctx.ma, ctx.ma, ctx.m2, %{"lines" => T.plain(ctx.ma, "3")})
+      doc = T.issue!(ctx, body)
+      {:ok, _} = Locations.retire_node(ctx.schema, ctx.m2.location, opts())
+      assert_inactive(ctx, doc["id"], [ctx.m2.location])
+    end
+  end
+
+  describe "MI-TYP REQ-904 criterion 2: what is not an inactive live record stays 422" do
+    # REQ-903 binds every master id of a posting to the issued legs, so a changed posting variable answers
+    # 409 record_version_conflict before the master checks. A master that no longer exists after the issue
+    # reaches the checks with the issued legs: that is the path these tests use.
+    defp assert_untyped(ctx, id) do
+      task = P.pending_task(ctx, id, "post")
+      conn = complete_route(task, ctx.tok_a, %{})
+      assert conn.status == 422, "expected 422, got #{conn.status}: #{conn.resp_body}"
+      refute conn.resp_body =~ "master_inactive"
+      assert_refused(ctx, id)
+      [entry | _] = Enum.reverse(Fx.audit_rows(ctx.schema, "entity_write.refused"))
+      assert entry.after_state["detail"] == "handler_invalid_arguments"
+    end
+
+    test "MI-TYP-1 a soft-deleted item", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      soft_delete!(ctx.schema, ctx.ma.item)
+      assert_untyped(ctx, doc["id"])
+    end
+
+    test "MI-TYP-2 a soft-deleted unit", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      soft_delete!(ctx.schema, ctx.ma.uom)
+      assert_untyped(ctx, doc["id"])
+    end
+
+    test "MI-TYP-3 a soft-deleted lot", ctx do
+      doc = P.issue!(ctx, lot_line_body(ctx))
+      soft_delete!(ctx.schema, ctx.ma.lot)
+      assert_untyped(ctx, doc["id"])
+    end
+
+    test "MI-TYP-4 a soft-deleted to location", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      soft_delete!(ctx.schema, ctx.ma.location)
+      assert_untyped(ctx, doc["id"])
+    end
+
+    test "MI-TYP-5 a retired item AND a soft-deleted location: the item is checked first (409)",
+         ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      retire_item!(ctx.schema, ctx.ma.item)
+      soft_delete!(ctx.schema, ctx.ma.location)
+      assert_inactive(ctx, doc["id"], [ctx.ma.item])
+    end
+
+    test "MI-TYP-6 a soft-deleted item AND a retired location: the item is checked first (422)",
+         ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      soft_delete!(ctx.schema, ctx.ma.item)
+      {:ok, _} = Locations.retire_node(ctx.schema, ctx.ma.location, opts())
+      assert_untyped(ctx, doc["id"])
+    end
+  end
+
+  describe "MI-FROM REQ-904 criterion 3: removing sides and reversals are unchanged" do
+    test "MI-FROM-1 retired item and from-location: a write-off still posts", ctx do
+      receipt = P.issue!(ctx, one_line_body(ctx))
+      P.post_and_complete!(ctx, receipt["id"])
+      wof = P.issue!(ctx, writeoff_body(ctx))
+      retire_item!(ctx.schema, ctx.ma.item)
+      {:ok, _} = Locations.retire_node(ctx.schema, ctx.ma.location, opts())
+
+      conn = complete_route(P.pending_task(ctx, wof["id"], "post"), ctx.tok_a, %{})
+      assert conn.status == 200, "expected 200, got #{conn.status}: #{conn.resp_body}"
+      assert P.counts(ctx, wof["id"]).marks == 1
+    end
+
+    test "MI-FROM-2 a reversal of a posting whose masters were retired still posts", ctx do
+      doc = P.issue!(ctx, one_line_body(ctx))
+      P.post_and_complete!(ctx, doc["id"])
+      retire_item!(ctx.schema, ctx.ma.item)
+      {:ok, _} = Locations.retire_node(ctx.schema, ctx.ma.location, opts())
+
+      D.request(:post, "/documents/#{doc["id"]}/reverse", ctx.tok_a, %{
+        "reason_code" => "wrong_document"
+      })
+      |> P.status!(200)
+
+      conn = complete_route(P.pending_task(ctx, doc["id"], "reverse"), ctx.tok_a, %{})
+      assert conn.status == 200, "expected 200, got #{conn.status}: #{conn.resp_body}"
+      assert Map.has_key?(P.counts(ctx, doc["id"]).entries, "reversal")
+    end
+  end
+
+  describe "MI-AUTH REQ-904 criterion 4: authority before release" do
+    test "MI-AUTH-1 a TASK_WORKER gets the same bytes for a retired item as for an active one",
+         ctx do
+      worker = S.token(ctx, :a, ["TASK_WORKER"], sub: "mi-worker")
+
+      active_doc = P.issue!(ctx, one_line_body(ctx))
+      baseline = complete_route(P.pending_task(ctx, active_doc["id"], "post"), worker, %{})
+
+      retired_doc = P.issue!(ctx, one_line_body(ctx))
+      retire_item!(ctx.schema, ctx.ma.item)
+      denied = complete_route(P.pending_task(ctx, retired_doc["id"], "post"), worker, %{})
+
+      assert baseline.status in [403, 404], inspect(baseline.status)
+      assert denied.status == baseline.status
+      refute denied.resp_body =~ "master_inactive"
+      assert strip_trace(denied.resp_body) == strip_trace(baseline.resp_body)
+      assert_refused(ctx, retired_doc["id"])
+    end
+  end
+
+  describe "MI-ISO REQ-904 INV-1: another tenant's master state is not revealed" do
+    test "MI-ISO-1 a master retired in tenant B and named in A's posting is 422/409 by A's state",
+         ctx do
+      extra = P.tenant_b!(ctx)
+      retire_item!(extra.b.schema_name, extra.mb.item)
+
+      doc = P.issue!(ctx, one_line_body(ctx))
+      task = P.pending_task(ctx, doc["id"], "post")
+      output = posting_with(get_instance!(ctx, task), "sku", extra.mb.item)
+      conn = complete_route(task, ctx.tok_a, output)
+
+      # REQ-903 refuses the changed legs first; either way tenant B's retired state never surfaces as master_inactive
+      assert conn.status in [409, 422]
+      refute conn.resp_body =~ "master_inactive"
+      assert_refused(ctx, doc["id"])
+    end
+  end
+
+  describe "MI-MAN REQ-904 criterion 5: the manifest is unchanged" do
+    test "MI-MAN-1 the stock manifest hash and version equal the pinned values" do
+      m = Stock.manifest()
+      assert m.version == "0.24.0"
+      # the hash on origin/main at implement time (1b05e0a03); REQ-904 changes no declaration
+      assert Catalog.manifest_hash("stock") ==
+               {:ok, "6ab71e9063c9dd8be544e9c6d32bde9c05e47ea8e0f3da56c4650f9ea438bf59"}
     end
   end
 
