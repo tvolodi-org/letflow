@@ -6,7 +6,7 @@ import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 export const MODULE_ATOMS_TENANT_ADMIN = [
   'ApprovalRulesManage', 'AssetsCardWrite', 'AssetsCountOrder', 'AssetsCountRecord', 'AssetsPost', 'AssetsRead', 'AssetsReconcile', 'AssetsReverse', 'CatalogLotsWrite', 'CodesRead', 'CodesWrite', 'CurrenciesManage',
   'DataExport', 'DocumentHold', 'DocumentsRetentionManage', 'EntitiesExtensionsManage', 'EntitiesRecordsImportAnyType', 'EntitiesViewsManage', 'ExamGradingRead', 'ExamGradingWrite',
-  'IntegrationMappingsManage', 'LabelsManage', 'LedgerSettingsManage', 'LocationsWrite', 'NotificationTemplatesManage', 'NumberSequencesManage',
+  'IntegrationMappingsManage', 'LabelsManage', 'LedgerSettingsManage', 'LocationsWrite', 'MaintenanceOrderManage', 'MaintenanceRead', 'MaintenanceRequestCreate', 'NotificationTemplatesManage', 'NumberSequencesManage',
   'OfficialFormTemplatesManage', 'OrgEmployeesWrite', 'OrgStructureWrite', 'PhotosAdd', 'PhotosDelete', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
   'ProcurementRequestWrite', 'ScheduledJobsManage', 'StockApprove', 'StockCountOrder', 'StockCountRecord', 'StockPost', 'StockQuickCount', 'StockRead', 'StockReconcile',
   'StockReverse', 'StockWorkbookApply', 'TasksReadAll', 'TasksReassignRouted', 'TenantSecurityManage',
