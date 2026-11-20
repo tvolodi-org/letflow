@@ -58546,6 +58546,86 @@ requirements:
       - "5. Client-id rules unchanged: the T-2282 retry tests in test/letflow/routers/shared_stock_access_writes_test.exs (201, 200 replay, 409 changed data, 400 id is required, one document for concurrent duplicates) pass. Only their expectations of the answer's field names, and the two reverse refusals of criterion 4 (today asserted as 409 document_reversed and reversal_cannot_be_reversed), are updated."
       - "6. Documents: the moduledocs of Letflow.Modules.Stock.OldAppReads, Letflow.Modules.Stock.OldAppWrites and Letflow.Routers.SharedStockAccess describe the row, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the movement fields and the kind mapping, and one bullet naming the three old refusal texts of point (6) as superseding point (5) of the T-2282 row for the old address."
     depends_on: [REQ-908, REQ-860]
+  - id: REQ-911
+    title: "Old Qoimeks client compatibility part 4: the old address serves POST /api/voice over the existing voice draft and answers the old app's Draft (transcript, kind, skus, location, to_location, qty) with the old texts and source speech or llm on a failure, no count by voice"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4904
+    # Source: task T-2383 (K9 of docs/status/qoimeks-old-client-compat.md section 5.3; PM GO 2026-11-20: the old app works unchanged at the old address, a thin layer only; refusals follow the OLD server's texts; D-150 pruning: no voice count phrase). Qoimeks commit 01e8780, copies in state/tasks/T-2383/sources/: server/internal/api/api.go (maxAudioBytes = 10 << 20 on the whole body; parseVoice: 503 {"error": "speech recognition is not configured on the server", "source": "speech"}, 400 {"error": "audio file is required (max 10 MB)"}, 400 {"error": "could not read audio"}, 502 {"error": "speech recognition failed", "source": "speech"}, 200 {transcript, skus: []} when speech works and no parser is set; draft: 422 {"error": "nothing was said"} for an empty text, 502 {"error": "could not understand the phrase", "source": "llm"}; DraftResponse json keys transcript, kind omitempty, skus, location omitempty, to_location omitempty, qty omitempty; resolve keeps only catalog-confirmed codes, best match first), mobile/lib/api.dart (Draft.fromJson: transcript, kind, skus as Sku rows, location and to_location as Location rows or null, qty as a number; ApiException.source; voice() sends the multipart fields lang and audio), mobile/lib/l10n.dart error() (source speech or llm is read before the status; 422 is the silence text; 502, 503 and 504 without a source are the network text), mobile/lib/voice.dart (phones record AAC in .m4a, the web build Opus in .webm), mobile/lib/operation_screen.dart _applyDraft (an absent kind, place or qty leaves the form field as it was). Letflow files read on origin/main 1717b330e: lib/letflow/modules/stock/voice_service.ex (draft_audio/2: allowed keys audio and lang, the refusals and their source extras, model_off/1 with notice llm_off), lib/letflow/modules/stock/voice_draft.ex (check/3: kinds receipt, issue, transfer, count and unknown; items as id, code, name; quantity as decimal text), lib/letflow/modules/stock/router.ex (POST /voice/draft under StockPost), lib/letflow/routers/shared_stock_access.ex (authenticate, accept, with_authorized, read_json with @max_body 8192, match _ 404), lib/letflow/router.ex (forward "/qoimeks/:tenant_slug", no Plug.Parsers before it), lib/letflow/modules/catalog.ex (old_app_* delegates), test/support/voice_doubles.ex (install!/1), docs/migration/decisions/0091-shared-stock-access.md sections 2, 7, 11a, 11b.
+    description: >
+      Why. The old app's microphone button sends POST <base>/api/voice (multipart: the text field lang, ru
+      or kk, and the file audio) and fills the operation form from the Draft it gets back. The old address
+      does not serve the call, so the button fails (docs/status/qoimeks-old-client-compat.md section 3,
+      row C6). Letflow already has the same flow for personal accounts:
+      Letflow.Modules.Stock.VoiceService.draft_audio/2 takes the same form keys audio and lang, answers
+      Letflow's draft and marks a provider failure with source speech or llm. This requirement puts that
+      flow behind the old address in the old app's shape. VoiceService, VoiceDraft, the /api/v1 voice
+      routes and the web SPA do not change.
+      (1) Route. Letflow.Routers.SharedStockAccess serves POST /api/voice under the prefix
+      /qoimeks/<slug>. Only the /api form is served: the app never calls /voice, so POST /voice stays 404
+      {"error": "not found"}. Authentication, the failure and request tokens and the scope enforcement
+      403 run first and unchanged, as for every call of the moduledoc's "Order of work". The shared access
+      keeps exactly StockRead, StockPost and StockReverse (decision 0091 section 2); the personal voice
+      route needs StockPost, and the voice draft writes nothing.
+      (2) Body. The multipart body is parsed inside the route, AFTER authentication, by
+      Plug.Parsers.MULTIPART with length 10_485_760 for the whole body (the old server's maxAudioBytes,
+      10 << 20, also on the whole body). Only the parts audio and lang are passed to
+      VoiceService.draft_audio/2 with the proved tenant's prefix; other parts are ignored, as the old
+      server ignored them.
+      (3) Builder. One new builder module, Letflow.Modules.Stock.OldAppVoice in
+      lib/letflow/modules/stock/old_app_voice.ex (planned, not yet on main), reached only through a new
+      delegate Letflow.Modules.Catalog.old_app_voice/2 (planned, not yet on main), translates the result.
+      The 200 body has these keys:
+          - transcript: the draft's transcript (text, always present).
+          - skus: a list, always present. One row per draft item, in the draft's order (best match
+            first), built by the same row builder as the skus of GET /api/catalog (REQ-908): id (the
+            integer of catalog_item_int_ids), code, name, unit, location_id when set, barcode when set.
+          - kind: receipt, issue or transfer when the draft has that kind. The key is absent for kind
+            unknown and for kind count.
+          - location and to_location: the place as a row of the locations of GET /api/catalog (REQ-908):
+            id (the integer of location_node_int_ids), code and name. Each key is absent when the draft
+            has no such place.
+          - qty: the draft quantity as a JSON number. The key is absent when the draft has none, and for
+            kind count.
+      No other key is answered (not dropped, notice, items or quantity).
+      (4) No count by voice (owner pruning D-150). A draft of kind count is answered without kind and
+      without qty, so the form keeps its kind and the counted number never becomes a movement quantity.
+      The items and the place it names are kept.
+      (5) Refusals follow the old server (copies in state/tasks/T-2383/sources/), as {"error": text},
+      plus "source" where the old server sent one. Nothing is stored for any of them:
+          - not multipart, no audio part, a body over the cap, or audio_too_large or field_invalid from
+            VoiceService: 400 {"error": "audio file is required (max 10 MB)"}.
+          - bad_language (lang missing, or not ru or kk): 400 {"error": "lang must be ru or kk"}.
+          - speech_off: 503 {"error": "speech recognition is not configured on the server", "source": "speech"}.
+          - audio_format, or any provider refusal with source speech (provider_timeout, refused,
+            truncated, provider_error): 502 {"error": "speech recognition failed", "source": "speech"}.
+          - a 200 draft whose transcript is empty after trimming spaces: 422 {"error": "nothing was said"}.
+          - any refusal with source llm (bad_answer, provider_timeout, refused, truncated,
+            provider_error): 502 {"error": "could not understand the phrase", "source": "llm"}.
+          - {:error, :not_found}, or a raised exception: 500 {"error": "internal error"} with no detail
+            (INV-8).
+      With no model configured (VoiceService answers notice llm_off) and a non-empty transcript, the
+      answer is 200 {"transcript": <text>, "skus": []}, as the old server answered when speech worked and
+      no parser was set.
+      (6) Nothing about the phrase is logged: the router and OldAppVoice log no transcript, no audio and no
+      item or place name. A provider's message never reaches the answer (INV-4, INV-8; VoiceService
+      already drops it).
+      Size M. Risk: medium. A new route on the shared-secret path reads the proved tenant's item and place
+      lists (INV-1, through VoiceService with the router's prefix) and spends a paid provider call per
+      request, which only the per-credential request limit bounds. So it goes to security review.
+      Decision 0091 section 7 lists POST /voice as not served (G15); section 11c (added by REQ-907) records
+      the change. OUT OF SCOPE: POST /api/parse (the app never calls it), the typed draft, any change to
+      VoiceService, VoiceDraft, VoicePrompt or the old prompt of the predecessor's voice, the count at the
+      old address (status note section 5, tasks K4 to K6), and the code, feedback and pairing calls.
+    acceptance_criteria:
+      - "1. Draft shape: in test/letflow/routers/shared_stock_access_voice_test.exs (planned, not yet on main), with Letflow.Support.VoiceDoubles.install!/1 faking the speech answer and the model answer (no real provider is called), a tenant with two active items X and Y and two active places A and B, and a valid credential, POST /qoimeks/<slug>/api/voice with lang ru and an m4a audio part gives 200. The key set is exactly transcript, kind, skus, location, to_location and qty for a faked transfer of 3 of X from A to B. kind is transfer, skus is one row equal to X's row in GET /qoimeks/<slug>/api/catalog, location and to_location equal A's and B's rows in its locations, and qty is the JSON number 3. For a faked receipt naming X and Y with no place and no quantity, the key set is exactly transcript, kind and skus, and skus lists X then Y in the model's order."
+      - "2. No count by voice: a faked count of 5 of X at A gives 200 with skus equal to X's row and location equal to A's row, and with no kind key and no qty key. A faked answer of kind unknown gives no kind key."
+      - "3. Old refusal texts: each case gives exactly the status and body that point (5) of the description gives for it. The cases are a part with no audio, a body that is not multipart, a body over 10_485_760 bytes, lang kk2, speech settings off, a speech double answering {:error, :provider_timeout}, audio bytes that are neither MP4 nor WebM, a speech double answering an empty transcript, and a model double answering a non-JSON text. With the model settings off and a non-empty transcript, the answer is 200 with exactly the keys transcript and skus, skus being []."
+      - "4. Authentication first: POST /qoimeks/<slug>/api/voice with no Authorization header, with a wrong value or with an unlisted slug, each with a body over 10_485_760 bytes, gives the byte-identical 401 of the other old-address calls, and the speech double is never called. A wrong value spends one failure token, as REQ-907 criterion 2 counts. An accepted voice call spends exactly one request token, and with scope enforcement on the answer is 403 {\"error\": \"scope_enforcement_active\"} with no speech call. POST /qoimeks/<slug>/voice stays 404 {\"error\": \"not found\"}."
+      - "5. Own tenant only and nothing stored: when the model double names the code of an item that exists only in a second tenant, that item is not in skus. After each call of criteria 1 to 3 the tenant's stock document count and the balances of X and Y are unchanged. Under ExUnit capture_log the faked transcript text and item names do not appear in the log."
+      - "6. Unchanged and documented: no test expectation outside the old-address router tests (test/letflow/routers/shared_stock_access*_test.exs) and the old-app builder tests changes. In particular test/letflow/modules/stock/voice_router_test.exs, voice_draft_test.exs, voice_audio_regression_test.exs and voice_regression_test.exs pass unedited. The only edit to an old-address test is that the not-served list of REQ-907 criterion 3 no longer contains POST /api/voice. The moduledoc route table of Letflow.Routers.SharedStockAccess lists POST /api/voice, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the route, the Draft keys, the no-count rule and the refusal texts of point (5)."
+    depends_on: [REQ-908, REQ-741]
   - id: REQ-910
     title: "Old Qoimeks client compatibility part 4: the old address answers the scan lookup GET /api/codes/lookup?code= over Codes resolve, read only, and finds an item by its legacy barcode loaded through the code imports"
     owner: ELIXIR-DEV
@@ -58637,3 +58717,171 @@ requirements:
       - "8. Unchanged elsewhere: test/letflow/modules/codes/resolve_router_test.exs and the other tests under test/letflow/modules/codes/ pass without edits. No test expectation outside the old-address router tests (test/letflow/routers/shared_stock_access*_test.exs) and the old-app builder tests changes; in those, the only changed expectation is the 'not served' assertion of REQ-907 for /api/codes/lookup, which is replaced by this entry's expectations (the other not-served paths stay 404)."
       - "9. Documents: the route table of the moduledoc of Letflow.Routers.SharedStockAccess lists GET /api/codes/lookup and GET /codes/lookup with the 200, 400 and 404 bodies; the moduledoc of Letflow.Modules.Stock.OldAppReads describes code_lookup/2; docs/migration/decisions/0091-shared-stock-access.md has the section headed \"Amendment (REQ-910, as built): code lookup at the old address\" before section 12, naming the added read, the excluded CodesWrite and the rules (2) to (6)."
     depends_on: [REQ-907, REQ-908, REQ-859, REQ-850, REQ-851]
+  - id: REQ-912
+    title: "Old Qoimeks client compatibility part 5a: the count at the old address (kind adjustment, 0 allowed, qty = the counted quantity) posts at once when the tenant's four-eyes switch for counts is OFF, with the old app's answer shape and the Russian 400 texts"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4908
+    # Source: task T-2379 (K5 of docs/status/qoimeks-old-client-compat.md section 5.3), PM DECISION 2026-11-20 on K4 (option 1, the count follows the tenant's four-eyes switch for counts; the switch state for Client 1 is the owner's, O-006; the build supports both states), docs/uat/ba-decisions/T-2378.md (facts F1 to F11, sections 3.1, 5 and 9). Qoimeks server/internal/store/store.go Post (adjustment sets the balance to the sent quantity; 0 allowed only for adjustment; a negative quantity is 400 "quantity must be positive") and mobile/lib/l10n.dart error() (409 shows "already posted", 422 shows "Ничего не слышно. Повторите", any other status shows "Ошибка" and the server text), Qoimeks commit 01e8780, copies in state/tasks/T-2378/sources/ and state/tasks/T-2374/sources/ as quoted in section 11 of the T-2378 note. Letflow files read on origin/main 90ca90ac3: lib/letflow/modules/stock/old_app_writes.ex (kind/1 and @kinds, quantity/1, movement_hash/1, complete/5, undo/4, completion_refusal/1, refusal/1, employee/1, org_unit/2), lib/letflow/modules/stock/documents.ex (quick_count/4, quick_count_tx/5, other_rows_refusal!/4, with_book!/2), lib/letflow/modules/stock/documents/quick_count_shape.ex (required keys, reason codes, counted_quantity 0 allowed), lib/letflow/modules/stock/documents/quick_count_posting.ex (count_set, expected_on_hand, a count equal to the book has no leg), lib/letflow/modules/stock/documents/posting.ex (complete_submit/3 with empty output variables), lib/letflow/engine/separation_of_duties.ex (check/6, the credential == :oidc condition), lib/letflow/engine.ex (self_approved_audit_multi/3, action task.self_approved, note "self-approved, four-eyes off"), lib/letflow/engine/approval_rule_setting.ex (read/5), lib/letflow/modules/stock/stock.ex (count_set with post permission StockPost; error alias balance_changed to quick_count_stale and posting_held to location_frozen), lib/letflow/shared_stock_access.ex (may_post?/4 for StockPost and StockReverse), priv/modules/stock/generate_pack.exs (stock_quick_count: submit, then approve with distinct_from submit). The Russian wording follows the stock.qc.error.* ru texts of web/src/modules/stock/quickCount/quickCountMessages.ts (пересчёт, ведомость пересчёта).
+    description: >
+      Why. The old Qoimeks app counts with kind adjustment: the storekeeper types the counted number (0
+      allowed) and the old server REPLACED the balance at once and answered with the movement. Letflow's
+      old address answers 400 "invalid kind" today (lib/letflow/modules/stock/old_app_writes.ex @kinds).
+      Letflow's count is the quick count (REQ-854): the counter issues it and an approve step (four eyes,
+      distinct_from submit) posts the cause count_set. The PM decided on 2026-11-20 (K4, option 1) that a
+      count at the old address follows the tenant's four-eyes switch for counts, the approval rule of
+      process stock_quick_count, step approve. This entry builds the switch-OFF path, the answer shape
+      and the refusal texts; REQ-913 (the next entry) builds the switch-ON path. The two are separate
+      build tasks (K6a, K6b).
+      (1) Kind adjustment is accepted by POST movements of the old address. Its qty is the counted
+      quantity: a JSON number or decimal text, 0 or more, at most 9 decimals. 0 is allowed for
+      adjustment only; receipt, issue and transfer keep refusing 0. A negative qty is 400 {"error":
+      "quantity must be positive"} (the old server's text) and nothing is written.
+      (2) The count is a quick count document made through Documents.quick_count/4, with the shared
+      access actor as the counter. What the app does not send is filled in as for the other old-address
+      writes: the org unit is the first active org unit of the place, the responsible is the first
+      active employee of the tenant, and the unit is the item's base unit. The reason code is recount
+      (UAT assumption A2 of the T-2378 note, to be confirmed by the process owner). The typed operator
+      name is stored as the output variable operator of the count's submit task (today
+      Posting.complete_submit/3 stores no output variables).
+      (3) The switch is read with Letflow.Engine.ApprovalRuleSetting for definition stock_quick_count,
+      node approve, before the count is made. A stored four_eyes false is OFF. No row, a row with
+      four_eyes true, or an unreadable setting is ON. While REQ-913 is not built, a count with the switch
+      ON keeps today's answer, 400 {"error": "invalid kind"}, and nothing is written.
+      (4) Switch OFF. In the same call, the shared access completes the approve task of its own count
+      (credential :shared_access), so the count posts cause count_set at once: the balance of the key
+      becomes the counted quantity. Letflow.Engine.SeparationOfDuties.check/6 is widened for exactly one
+      case: credential :shared_access, definition stock_quick_count, node approve, and a stored
+      four_eyes false. That case returns {:self_approved, info}, so the engine writes the existing audit
+      entry task.self_approved with the note "self-approved, four-eyes off" and the shared access actor
+      as actor. Every other credential, process or step keeps today's rule: only credential :oidc may
+      self-approve, and no row, ON or an unreadable setting refuses (fails closed). The permission check
+      is unchanged: count_set posts with StockPost, which SharedStockAccess.may_post?/4 already allows.
+      (5) The answer of a posted count is 201 with the movement row of REQ-909: kind adjustment, qty =
+      the counted quantity (not the difference), operator = the typed name, and balances = one entry for
+      the place with qty = the balance after the posting, which equals the counted quantity (stock under
+      other rows is refused by (7)). A negative book is never refused: a count ends at the counted
+      quantity, which is 0 or more (decision 0090 section 4 row Count; book -2 counted 3 posts +5).
+      (6) A count equal to the book posts nothing and starts no approval (QuickCountPosting.confirmed?/1),
+      so with the switch OFF it is answered at once: 201 with a row of kind adjustment, qty = the
+      counted quantity, balances = the unchanged balance, and id = the digits of the integer
+      movement_int_ids assigns to the count document's id. It has no ledger entry, so it does NOT appear
+      in GET movements (UAT assumption A4 of the T-2378 note). REQ-913 point (5) gives the same answer
+      with the switch ON.
+      (7) Refusal texts. At the old address every refusal of a count is 400 {"error": text}, never 409 or
+      422: the old app shows a 409 as "already posted" and clears the form, and a 422 as "Ничего не
+      слышно. Повторите"; any other status it shows as «Ошибка: <text>». The texts, exactly:
+          - count_in_progress (CountHold, when the count is made): "На этом месте идёт пересчёт по
+            приказу. Подсчёт не принят"
+          - location_frozen (the freeze guard, at the approval): "Место заморожено пересчётом. Подсчёт
+            не принят"
+          - balance_in_other_rows (T-2286): "Этот товар на этом месте числится за другим ответственным
+            или в другой партии. Попросите администратора провести пересчёт по ведомости"
+          - quick_count_stale (the key moved between the book read and the approval in the same call):
+            "Остаток изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз"
+          - any other refusal of the approve completion (for example the switch turned ON between the
+            read and the completion): "Подсчёт отменён. Посчитайте ещё раз"
+          - a negative qty: "quantity must be positive"
+      A refusal at the approval cancels the issued count (as OldAppWrites.undo/4 does for a refused
+      post), so nothing is left pending and no balance changes. Every refusal binds no client id.
+      (8) The client id. The body id is required and bound as for every old-address write (decision 0091
+      row "Retry by client id: implemented (T-2282)"), after the count posted or was confirmed. The
+      compared data are kind, item, place and qty. The same id with the same data answers 200 with the
+      body of the first 201 and writes nothing; the same id with other data is 409 {"error": "this
+      operation was already posted with different data"}.
+      (9) History rows. This amends REQ-909 point (1) ("qty: a positive JSON number, the absolute
+      quantity") and its criterion 1 for count rows: a movement of cause count_set (an old-address count,
+      a web quick count or a workbook load alike) has kind adjustment and qty = the counted_quantity of
+      the document line that movement posts, 0 included. Its operator is the operator output variable of
+      the count's submit task when that task was completed by a shared access actor of the tenant, else
+      the empty string. A reversal of a count row keeps REQ-909's reversal rule: kind adjustment,
+      reverses set, qty = the absolute quantity taken back (the difference), and it does not restore the
+      old number (UAT assumption A5 of the T-2378 note).
+      Size M (3.5 h, K6a). Risk: high: a shared-secret credential gains a self-approval, limited to one
+      step and only when the tenant switched four eyes OFF; security review mandatory (INV-1: the tenant
+      is the prefix the router proved; the switch is read in that prefix only). This supersedes decision
+      0091 section 9 row "One-line count" and A12 for the old address, and owner row 7 of
+      docs/design/four-eyes-switch.md for this one step, by the PM decision of 2026-11-20; the 0091
+      section 11d amendment is a separate docs task after REQ-913 (not part of this entry). OUT OF SCOPE:
+      the switch-ON path (REQ-913), Letflow's own /api/v1 routes, the web SPA, count orders (cause
+      count_difference), the second place (alt_location_id), and the other refusals of the old address
+      (unknown sku, location_not_linked, no_responsible_employee, item_has_no_unit), which stay as today.
+    acceptance_criteria:
+      - "1. Switch OFF posts at once: in a router test of the old address on a tenant whose approval rule stock_quick_count / approve is stored four_eyes false, with a book of 5 for an item at place A, POST /qoimeks/<slug>/api/movements with kind adjustment, qty 7 and a new client id gives 201. The body is a movement row with kind adjustment, qty 7, operator equal to the typed name and balances equal to exactly one entry for place A with qty 7. GET .../api/balances then shows 7 for that item at A, and the tenant has one new quick count document in state posted."
+      - "2. Zero and negative: with the switch OFF and a book of 4, a count with qty 0 gives 201 with qty 0 and balances qty 0, and the balance at A is 0. A count with qty -1 gives 400 {\"error\": \"quantity must be positive\"} and the tenant's stock document count is unchanged. A receipt with qty 0 still gives 400 {\"error\": \"quantity must be positive\"}."
+      - "3. Audit: after criterion 1 the tenant's audit has exactly one task.self_approved entry for the count's approve task, with actor_id equal to the shared access actor, after_state note \"self-approved, four-eyes off\", definition_name stock_quick_count and node_id approve. The count's submit task has the output variable operator equal to the typed name."
+      - "4. The widening is narrow: in test/letflow/engine/separation_of_duties_test.exs, with four_eyes false stored for the step, check/6 returns {:self_approved, _} for credential :shared_access on stock_quick_count / approve, and returns the separation_of_duties refusal for credential :shared_access on stock_opening / approve, for credential :api_token on stock_quick_count / approve, and for credential :shared_access on stock_quick_count / approve with no setting row and with a row four_eyes true. The existing tests of that file pass unchanged."
+      - "5. Switch ON before REQ-913: on a tenant with no approval rule row for stock_quick_count / approve, a count gives 400 {\"error\": \"invalid kind\"} and the tenant's stock document count and the balance are unchanged."
+      - "6. Count equal to the book: with the switch OFF and a book of 5, a count with qty 5 gives 201 with kind adjustment, qty 5 and balances qty 5, and id a JSON string of digits. The balance is unchanged, no task.self_approved entry and no ledger entry are written, and GET .../api/movements does not contain a row with that id. Repeating it with the same client id gives 200 with the same body."
+      - "7. Negative book: with the switch OFF and a book of -2 (the tenant's negative-balance setting allows it, decision 0090), a count with qty 3 gives 201 with balances qty 3, and the posted ledger movement is +5."
+      - "8. Refusal texts, each answered 400 and leaving the stock document count, the pending tasks and the balance unchanged: a count at a place inside an opened count order of the same org unit gives {\"error\": \"На этом месте идёт пересчёт по приказу. Подсчёт не принят\"}; a count of an item that has stock at A under another responsible than the first active employee gives {\"error\": \"Этот товар на этом месте числится за другим ответственным или в другой партии. Попросите администратора провести пересчёт по ведомости\"}. In a test that makes the approval refuse location_frozen, and in one that makes it refuse quick_count_stale (the key moved after the book read), the answers are {\"error\": \"Место заморожено пересчётом. Подсчёт не принят\"} and {\"error\": \"Остаток изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз\"}, and the count document is cancelled. No answer of a count in this test file is 409 or 422 except the 409 of criterion 9."
+      - "9. Client id: repeating criterion 1 with the same client id and the same data gives 200 with the same body as the first 201, also after a receipt of 1 at A was posted in between (the 200 body still shows balances qty 7). The same client id with qty 8 gives 409 {\"error\": \"this operation was already posted with different data\"} and nothing changes. A count without id gives 400 {\"error\": \"id is required\"}."
+      - "10. History rows: after criterion 1, GET .../api/movements has the count's row with kind adjustment, qty 7 and operator equal to the typed name. In a separate test, a quick count posted through Letflow's own quick count route by a personal account (approved by a second user), counted 2 against a book of 7, appears with kind adjustment, qty 2 and operator equal to the empty string. In a third test, after criterion 1 (book 5, counted 7), reversing the old-address count through POST .../api/movements/<id>/reverse gives 201 with kind adjustment, reverses set, qty 2 (the difference 7 - 5 taken back) and balances qty 5 when nothing else moved."
+      - "11. Unchanged elsewhere: the receipt, issue, transfer and reverse tests of test/letflow/routers/shared_stock_access_writes_test.exs pass unchanged, and no test expectation outside the old-address router tests, the old-app builder tests and the new cases of separation_of_duties_test.exs changes."
+      - "12. Documents: the moduledocs of Letflow.Modules.Stock.OldAppWrites, Letflow.Routers.SharedStockAccess and Letflow.Engine.SeparationOfDuties describe the count, the switch-OFF self-approval of the shared access for stock_quick_count / approve only, and the 400 texts of point (7)."
+    depends_on: [REQ-909, REQ-854, REQ-860]
+  - id: REQ-913
+    title: "Old Qoimeks client compatibility part 5b: the count at the old address with the tenant's four-eyes switch for counts ON waits for one administrator in My Tasks, answers the Russian waiting text as a 400, and binds the client id to the waiting count"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4907
+    # Source: task T-2379 (K5 of docs/status/qoimeks-old-client-compat.md section 5.3), PM DECISION 2026-11-20 on K4 (option 1; the switch state for Client 1 is the owner's, O-006), docs/uat/ba-decisions/T-2378.md sections 3.2, 5 and 9 (F2 a count equal to the book starts no process; F6 approve tasks need StockApprove, held by the tenant administrator, not the storekeeper; F7 the old app shows any status other than 401, 409, 422, 0 and 502-504 as «Ошибка: <text>», and its 0.1.3 offline queue retries 401, 404, 408, 429 and 5xx). Letflow files read on origin/main 90ca90ac3: lib/letflow/modules/stock/old_app_writes.ex (bound/5 over ActionIdempotency.run_bound/5, stored/3), lib/letflow/modules/stock/documents.ex (quick_count/4), lib/letflow/modules/stock/documents/posting.ex (cancel/5: a quick_count may be cancelled while its task is pending, Kinds.withdrawable?/1), lib/letflow/modules/stock/documents/kinds.ex (@withdrawable includes quick_count), lib/letflow/modules/stock/router.ex (POST /documents/:id/cancel with StockReverse), lib/letflow/modules/stock/stock.ex (error alias balance_changed to quick_count_stale), priv/modules/stock/generate_pack.exs (stock_quick_count approve: role TENANT_ADMIN, distinct_from submit), lib/letflow/modules/stock/access.ex (permission(:approve) is StockApprove), test/fixtures/uat/actors.yaml (actor-qoimeks-qa2-admin).
+    description: >
+      Why. With the tenant's four-eyes switch for counts ON (the default when no rule row exists), a
+      count needs a second person (PM decision 2026-11-20, K4 option 1). The old app can show only a
+      movement (always as a green "Проведено") or an error text (red «Ошибка: <text>»); a 409 shows
+      "already posted" and clears the form, a 422 shows "Ничего не слышно. Повторите", and 404, 408, 429
+      and 5xx are retried by its offline queue. So the only honest answer for a count that waits is 400
+      {"error": text} (UAT assumption A1 of the T-2378 note, to be confirmed by the process owner).
+      This entry replaces the interim answer of REQ-912 point (3) (400 "invalid kind" with the switch ON).
+      (1) Switch ON (no rule row, a row four_eyes true, or an unreadable setting) and a count that differs
+      from the book. The old address makes the quick count exactly as REQ-912 points (1) and (2) say
+      (the shared access is the counter, the submit task carries the typed operator name) and does NOT
+      complete approve. The answer is 400 {"error": "Подсчёт принят и ждёт подтверждения
+      администратора"}; the phone shows «Ошибка: Подсчёт принят и ждёт подтверждения администратора»
+      and keeps the form filled. The balance does not change and the count is not in GET movements
+      until it is approved.
+      (2) The client id is bound to the issued count (a waiting count is a success of the call, not a
+      refusal), under the same per-key lock and compared data as REQ-912 point (8). A repeat with the
+      same id and the same data never makes a second count; it answers from the count document's state:
+          - the approve task is still pending: the same 400 waiting text;
+          - posted: 200 with the count's movement row (kind adjustment, qty = the counted quantity,
+            balances as of that posting);
+          - cancelled: 400 {"error": "Подсчёт отменён. Посчитайте ещё раз"}.
+      The same id with other data is 409 {"error": "this operation was already posted with different
+      data"}, as for every old-address write.
+      (3) The approval. The approve task is in My Tasks of a user who holds StockApprove (the tenant
+      administrator; the storekeeper role does not hold it, decision 0093). One administrator is enough:
+      the counter is the shared access actor, not the administrator, so distinct_from submit passes and
+      no task.self_approved entry is written. Completing approve posts cause count_set: the balance of
+      the key becomes the counted quantity.
+      (4) The stale rule. If the key moves between the count and the approval (for example an issue at
+      that place posted from a phone), the approval is refused quick_count_stale (the count_set leg
+      carries expected_on_hand = the stored book quantity, REQ-853), the balance does not change and the
+      approve task stays pending. The administrator then cancels the count document (the document
+      cancel, permission StockReverse), and the storekeeper counts again with a new operation. Until the
+      administrator cancels it, a repeat of the phone's id answers the waiting text; after the cancel it
+      answers the cancelled text of point (2).
+      (5) A count equal to the book answers at once also with the switch ON, as REQ-912 point (6) says
+      (201, no approval, not in GET movements).
+      (6) The refusal texts of REQ-912 point (7) apply unchanged when the count is made (count_in_progress,
+      balance_in_other_rows, a negative qty): 400, nothing written, no id bound.
+      Size S/M (2.5 h, K6b). Risk: medium: no new authority (the approval is by a person who holds
+      StockApprove); a waiting document is now created from the shared-secret path, so the security
+      review checks the id binding and INV-1 (the tenant is the prefix the router proved). The decision
+      0091 section 11d amendment is a separate docs task after this entry is built (not part of this
+      entry). OUT OF SCOPE: notifying the phone when the count is approved (the old app has no such
+      call), the web SPA, Letflow's own /api/v1 routes.
+    acceptance_criteria:
+      - "1. Waiting answer: in a router test of the old address on a tenant with no approval rule row for stock_quick_count / approve and a book of 5 for an item at place A, POST /qoimeks/<slug>/api/movements with kind adjustment, qty 7 and a new client id gives 400 {\"error\": \"Подсчёт принят и ждёт подтверждения администратора\"}. The tenant then has exactly one new quick count document, issued, with one pending approve task; the balance at A is still 5; GET .../api/movements has no new row; the count's submit task has the output variable operator equal to the typed name. The same holds for a tenant whose row is stored four_eyes true."
+      - "2. Repeat while waiting: repeating criterion 1 three times with the same client id and the same data gives the same 400 body each time, and the tenant still has exactly one such quick count document and one pending approve task. The same client id with qty 8 gives 409 {\"error\": \"this operation was already posted with different data\"} and nothing changes."
+      - "3. One administrator approves: completing the pending approve task through Letflow's task completion route as a user with role TENANT_ADMIN of that tenant (not the shared access) succeeds; the balance at A becomes 7; the tenant's audit has no task.self_approved entry for that task. A repeat of the phone's client id then gives 200 with a movement row of kind adjustment, qty 7, operator equal to the typed name and balances one entry for A with qty 7, and GET .../api/movements now contains that row."
+      - "4. The storekeeper cannot approve: completing the same pending approve task as a user with role STOREKEEPER is refused, and the balance and the task stay unchanged."
+      - "5. Stale: after criterion 1, an issue of 1 at A is posted through the old address; completing the approve task as the TENANT_ADMIN user is then refused with quick_count_stale, the balance at A is 4 and the approve task is still pending; a repeat of the phone's client id still gives the waiting 400 body. After the administrator cancels the count document through POST /documents/<id>/cancel of the stock routes, a repeat of the phone's client id gives 400 {\"error\": \"Подсчёт отменён. Посчитайте ещё раз\"}, and a new count with a new client id and qty 7 makes a second quick count document with its own pending approve task."
+      - "6. Count equal to the book with the switch ON: on the tenant of criterion 1, a count with qty 5 gives 201 with kind adjustment, qty 5 and balances qty 5, starts no approve task and writes no ledger entry."
+      - "7. Refusals when the count is made, with the switch ON: a count at a place inside an opened count order of the same org unit, a count of an item with stock at A under another responsible, and a count with qty -1 each give the 400 text of REQ-912 point (7) and leave the stock document count and the pending tasks unchanged; the same client id can then be used again."
+      - "8. Unchanged elsewhere: the switch-OFF tests of REQ-912 and the receipt, issue, transfer and reverse tests of test/letflow/routers/shared_stock_access_writes_test.exs pass unchanged, except the REQ-912 criterion 5 test (400 invalid kind with the switch ON), which this entry replaces by criterion 1; no test expectation outside the old-address router tests and the old-app builder tests changes."
+      - "9. Documents: the moduledocs of Letflow.Modules.Stock.OldAppWrites and Letflow.Routers.SharedStockAccess describe the waiting answer, the id bound to the waiting count and the three repeat answers of point (2)."
+    depends_on: [REQ-912, REQ-909, REQ-854, REQ-860]
