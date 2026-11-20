@@ -11,7 +11,8 @@ defmodule Letflow.Routers.SharedStockAccess do
   | `GET /movements[?sku_id&location_id&limit]` | 200 JSON array, newest first, `limit` 50 when missing or outside 1..500: `id, kind, sku_id, location_id, quantity, operator, created_at` |
   | `POST /movements` | 201 one movement (the row of `GET /movements`) of the posted document; 200 the STORED row when the same `id` is sent again with equal data; body `kind` (`receipt`, `issue`, `transfer`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (REQUIRED: the client operation id, a UUID string; missing or not a UUID is 400 `id is required`; the same `id` with other data is 409) |
   | `POST /movements/:id/reverse` | 201 the reversal's own movement row, 200 its stored row for the same reversal `id` sent again; body `id` (REQUIRED, the reversal's own new UUID), `operator` (or `X-Operator`) |
-  | any other method or path | 404 `{"error": ...}` (the codes, feedback, voice and parse calls are not served) |
+  | the same five calls with `/api` in front: `GET /api/catalog`, `GET /api/balances`, `GET /api/movements`, `POST /api/movements`, `POST /api/movements/:id/reverse` | REQ-907: exactly the answer of the call without `/api` (the real old app adds `/api` to every path; decision 0091 section 11c) |
+  | any other method or path | 404 `{"error": "not found"}`, with or without `/api` (the codes, feedback, voice and parse calls are not served) |
 
   Order of work for every request, and nothing else runs before it:
 
@@ -34,6 +35,12 @@ defmodule Letflow.Routers.SharedStockAccess do
   4. While the tenant's scope enforcement is `on` or `shadow` the shared access answers 403
      `{"error": "scope_enforcement_active"}` (decision 0091 section 9; personal accounts are not
      affected: this router is not theirs).
+
+  The `/api` form (REQ-907) is one plug, `strip_api/2`, that runs AFTER step 4 and before `:match`: it
+  removes ONE leading `api` path segment, so both forms reach the same five routes and the plugs above
+  run once per request (a path with `/api` spends the same failure or request token as the plain one).
+  The router declares no second set of routes. A path that is not one of the five stays 404 after
+  authentication, and so does `/api/api/catalog`.
 
   Writes (REQ-860, `Letflow.Modules.Stock.OldAppWrites`): the body is read here, AFTER authentication,
   capped at #{8192} bytes (413 over it, 400 when it is not a JSON object); an operator name that is
@@ -66,6 +73,7 @@ defmodule Letflow.Routers.SharedStockAccess do
 
   plug(AuthAttemptLimit, mode: :failures)
   plug(:authenticate)
+  plug(:strip_api)
   plug(:match)
   plug(:dispatch)
 
@@ -112,6 +120,13 @@ defmodule Letflow.Routers.SharedStockAccess do
   match _ do
     json(conn, 404, %{error: "not found"})
   end
+
+  # REQ-907: after authentication, the `/api` form is the plain form (one segment is removed, once).
+  @doc false
+  def strip_api(%Plug.Conn{path_info: ["api" | rest]} = conn, _opts),
+    do: %{conn | path_info: rest}
+
+  def strip_api(conn, _opts), do: conn
 
   # -- authentication -----------------------------------------------------------------------------
 

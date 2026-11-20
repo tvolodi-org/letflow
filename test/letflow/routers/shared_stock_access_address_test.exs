@@ -2,6 +2,7 @@ Code.require_file("../modules/stock/stock_fixture.exs", __DIR__)
 Code.require_file("../modules/stock/documents_fixture.exs", __DIR__)
 Code.require_file("../modules/codes/codes_fixture.exs", __DIR__)
 Code.require_file("../modules/catalog_items/catalog_items_fixture.exs", __DIR__)
+Code.require_file("../modules/org/org_fixture.exs", __DIR__)
 
 defmodule Letflow.Routers.SharedStockAccessAddressTest do
   @moduledoc """
@@ -10,7 +11,7 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
   postings. IDs follow the acceptance criteria: C1 the three reads in the Qoimeks shape, C2 one 401
   for every unproven request (INV-5, INV-10), C3 wrong values counted per address, C4 accepted
   requests limited per credential, C5 never an API token and no writes, C6 scope enforcement,
-  C7 static pins. `async: false`: committed tenants, VM-global config and buckets.
+  C7 static pins; R1..R3 (REQ-907) the same calls under the `/api` path segment. `async: false`: committed tenants, VM-global config and buckets.
   """
 
   # impl_order: REQ-859
@@ -24,6 +25,7 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
   alias Letflow.Identity.Tenant
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Stock.OldAppReads
+  alias Letflow.OrgFixture
   alias Letflow.Plugs.AuthAttemptLimit
   alias Letflow.Plugs.AuthAttemptLimit.Bucket
   alias Letflow.Repo
@@ -484,6 +486,208 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       |> Repo.update_all(set: [scope_enforcement: :off])
 
       assert 200 == get(a, "/catalog", v).status
+    end
+  end
+
+  # -- REQ-907: the same five calls under the /api path segment ------------------------------------
+
+  @api_pairs [
+    {"/catalog", "/api/catalog"},
+    {"/balances", "/api/balances"},
+    {"/movements", "/api/movements"}
+  ]
+
+  defp post(fx, path, value, body) do
+    conn = Plug.Test.conn(:post, "/qoimeks/#{fx.tenant.slug}#{path}", Jason.encode!(body))
+    conn = if value, do: put_req_header(conn, "authorization", "Bearer " <> value), else: conn
+    Letflow.Router.call(conn, Letflow.Router.init([]))
+  end
+
+  defp receipt_body(sku, loc, id) do
+    %{
+      "id" => id,
+      "kind" => "receipt",
+      "sku_id" => sku,
+      "location_id" => loc,
+      "qty" => 2,
+      "operator" => "Aigul"
+    }
+  end
+
+  describe "R1 (REQ-907) the /api form gives the same answer" do
+    test "R1 the three reads: same status and same body with and without /api", %{a: a, va: v} do
+      for {plain, api} <- @api_pairs do
+        plain_conn = get(a, plain, v)
+        api_conn = get(a, api, v)
+        assert plain_conn.status == 200 and api_conn.status == 200, api
+        assert plain_conn.resp_body == api_conn.resp_body, api
+        assert byte_size(api_conn.resp_body) > 2
+      end
+
+      # the query string rides along on the /api form too
+      assert get(a, "/movements?limit=1", v).resp_body ==
+               get(a, "/api/movements?limit=1", v).resp_body
+
+      assert get(a, "/balances?sku_id=999999", v).resp_body ==
+               get(a, "/api/balances?sku_id=999999", v).resp_body
+
+      assert 400 == get(a, "/api/balances?sku_id=x", v).status
+    end
+
+    test "R1 the two writes: 201 with the same keys, a repeat of an /api post is 200 with the stored row",
+         %{a: a, va: v, seeded: seeded, ua: ua} do
+      # the old app names no responsible employee: the write takes the first active one
+      OrgFixture.create!(
+        a.schema_name,
+        "org_employee",
+        OrgFixture.values("org_employee", "E907", %{"org_unit_id" => ua})
+      )
+
+      sku = IntIds.assign(a.schema_name, :sku, [seeded.z1.record_id]) |> Map.values() |> hd()
+
+      loc =
+        IntIds.assign(a.schema_name, :location, [seeded.a1["record_id"]]) |> Map.values() |> hd()
+
+      plain = post(a, "/movements", v, receipt_body(sku, loc, Ecto.UUID.generate()))
+      id = Ecto.UUID.generate()
+      body = receipt_body(sku, loc, id)
+      api = post(a, "/api/movements", v, body)
+      assert plain.status == 201 and api.status == 201, api.resp_body
+      assert Map.keys(body(plain)) |> Enum.sort() == Map.keys(body(api)) |> Enum.sort()
+
+      repeat = post(a, "/api/movements", v, body)
+      assert repeat.status == 200
+      assert body(repeat) == body(api)
+
+      # the reverse, on each form, of the movement the other form made
+      rev_api =
+        post(a, "/api/movements/#{body(plain)["id"]}/reverse", v, %{
+          "id" => Ecto.UUID.generate(),
+          "operator" => "Aigul"
+        })
+
+      rev_id = Ecto.UUID.generate()
+      rev_body = %{"id" => rev_id, "operator" => "Aigul"}
+      rev_plain = post(a, "/movements/#{body(api)["id"]}/reverse", v, rev_body)
+
+      assert rev_api.status == 201 and rev_plain.status == 201,
+             rev_api.resp_body <> rev_plain.resp_body
+
+      assert Map.keys(body(rev_api)) |> Enum.sort() == Map.keys(body(rev_plain)) |> Enum.sort()
+
+      # a repeat of the reversal with its own id on the /api form is the stored row
+      repeat_rev = post(a, "/api/movements/#{body(api)["id"]}/reverse", v, rev_body)
+      assert repeat_rev.status == 200
+      assert body(repeat_rev) == body(rev_plain)
+    end
+  end
+
+  describe "R2 (REQ-907) one authentication per request" do
+    test "R2 no header, a wrong value and an unlisted slug: the 401 of /api is byte-identical",
+         %{a: a, va: v} do
+      wrong = String.duplicate("z", 64)
+
+      cases = [
+        {"no header", fn path -> get(a, path, nil) end},
+        {"wrong value", fn path -> get(a, path, wrong) end},
+        {"unlisted slug", fn path -> request(:get, "nope-q907", path, v) end}
+      ]
+
+      for {label, call} <- cases, {plain, api} <- @api_pairs do
+        p = call.(plain)
+        q = call.(api)
+        assert p.status == 401 and q.status == 401, "#{label} #{api}"
+        assert p.resp_body == q.resp_body, "#{label} #{api}"
+        assert Enum.sort(p.resp_headers) == Enum.sort(q.resp_headers), "#{label} #{api}"
+      end
+
+      for path <- [
+            "/movements",
+            "/api/movements",
+            "/movements/1/reverse",
+            "/api/movements/1/reverse"
+          ] do
+        assert 401 == request(:post, a.tenant.slug, path, nil).status
+      end
+    end
+
+    test "R2 wrong values count the same on both forms and reach the 429 of AuthAttemptLimit",
+         %{a: a} do
+      Application.put_env(:letflow, AuthAttemptLimit,
+        failure_capacity: 3,
+        failure_refill_per_sec: 0.0001
+      )
+
+      Bucket.reset()
+      wrong = String.duplicate("z", 64)
+
+      # plain-only and /api-only runs each hit the 429 after exactly three failures
+      for {path, ip} <- [{"/catalog", {10, 9, 7, 1}}, {"/api/catalog", {10, 9, 7, 2}}] do
+        for _ <- 1..3, do: assert(get(a, path, wrong, ip: ip).status == 401)
+        limited = get(a, path, wrong, ip: ip)
+        assert limited.status == 429
+        assert String.to_integer(header(limited, "retry-after")) >= 1
+      end
+
+      # mixed across the forms: the same single bucket of the address
+      ip = {10, 9, 7, 3}
+      assert 401 == get(a, "/catalog", wrong, ip: ip).status
+      assert 401 == get(a, "/api/catalog", wrong, ip: ip).status
+      assert 401 == get(a, "/api/movements", wrong, ip: ip).status
+      mixed = get(a, "/catalog", wrong, ip: ip)
+      assert mixed.status == 429
+      assert get(a, "/api/catalog", wrong, ip: ip).resp_body == mixed.resp_body
+    end
+
+    test "R2 an accepted request spends exactly one request token, mixed across the forms",
+         %{a: a, va: v} do
+      Application.put_env(:letflow, AuthAttemptLimit,
+        request_capacity: 4,
+        request_refill_per_sec: 0.0001
+      )
+
+      Bucket.reset()
+
+      for path <- ["/catalog", "/api/catalog", "/api/balances", "/movements"],
+          do: assert(200 == get(a, path, v).status, path)
+
+      limited = get(a, "/api/catalog", v)
+      assert limited.status == 429
+      assert String.to_integer(header(limited, "retry-after")) >= 1
+      assert 429 == get(a, "/catalog", v).status
+    end
+  end
+
+  describe "R3 (REQ-907) the calls not served stay 404" do
+    test "R3 codes, voice, parse and feedback under /api are 404 and write nothing", %{
+      a: a,
+      va: v
+    } do
+      count = fn ->
+        {SD.counts(a.schema_name),
+         Repo.aggregate("movement_int_ids", :count, prefix: a.schema_name)}
+      end
+
+      before = count.()
+
+      for {method, path} <- [
+            {:get, "/api/codes/lookup?code=x"},
+            {:get, "/api/codes"},
+            {:post, "/api/codes"},
+            {:post, "/api/voice"},
+            {:post, "/api/parse"},
+            {:post, "/api/feedback"},
+            {:get, "/api"},
+            {:get, "/api/api/catalog"},
+            {:post, "/api/catalog"},
+            {:put, "/api/movements"}
+          ] do
+        conn = request(method, a.tenant.slug, path, v)
+        assert conn.status == 404, "#{method} #{path}: #{conn.status}"
+        assert body(conn) == %{"error" => "not found"}
+      end
+
+      assert count.() == before
     end
   end
 
