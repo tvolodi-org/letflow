@@ -595,6 +595,95 @@ Rules:
 The section 7 row "`GET /codes` and barcode scanning" is served for the lookup only; the code list, assign and
 remove calls stay with G12 and K11/K12.
 
+## 11e. Amendment (REQ-912, REQ-913, as built): the count at the old address follows the tenant's four-eyes switch for counts
+
+The count at the old address (`POST /qoimeks/<slug>/movements`, kind `adjustment`) is the quick count of
+REQ-854, made with the shared access as the counter. Section 9 is amended for the old address only; the
+rest of this record stands:
+
+- The row "One-line count" ("the count route is not in the shared access scope ... the shared access cannot
+  initiate or record a count") no longer holds for the old address: the shared access does initiate and record
+  a count there. The count is the quick count of REQ-854, not a count order, and the shared access still holds
+  neither `StockCountOrder` nor `StockCountRecord` (section 2).
+- The row "Four eyes" (with A12 of the owner table, "four-eyes documents are not approvable by the shared
+  access") holds for every step except the approval of this count, and that one approval is allowed only when
+  the switch is OFF.
+- The last sentence of the row "Retry by client id: implemented (T-2282)" ("Not changed here: the kind
+  `adjustment` (a count) is still `invalid kind` (400) at this address") is superseded: the kind is served.
+
+The draft of `docs/uat/ba-decisions/T-2378.md` section 10 named this section 11d; 11d is REQ-910, the code
+lookup.
+
+**The switch.** The tenant's four-eyes setting for counts is the approval rule of the process
+`stock_quick_count`, step `approve` (`Letflow.ApprovalRules.four_eyes_off?/3`), read in the proved tenant's
+schema only (INV-1). A stored `four_eyes: false` is OFF. No rule row, a row `four_eyes: true` or an
+unreadable setting is ON (fails closed). The switch is read before the count is made, and the engine reads it
+again under the task lock when the approval is completed.
+
+**Switch OFF: the count posts at once.** In the same call the shared access completes the approve task of its
+own count (credential `:shared_access`), so the count posts the cause `count_set` and the balance of the key
+becomes the counted quantity (0 allowed). The engine writes one `task.self_approved` audit entry, the note
+"self-approved, four-eyes off", with the shared access actor as its actor. `Letflow.Engine.SeparationOfDuties.check/6`
+is widened for exactly this one case: the credential `:shared_access`, the definition `stock_quick_count`, the
+node `approve` and a stored `four_eyes: false`. Every other credential, process or step keeps the rule of
+section 9, and for the shared access no rule row, a row `true` or an unreadable setting refuses (fails closed).
+No permission is added: the count posts with `StockPost`, which the shared access already holds (sections 2
+and 11b); it is not granted `StockApprove`.
+
+**Switch ON: the count waits for one administrator.** The count is made exactly as above (the shared access is
+the counter; the typed operator name is the output variable `operator` of its submit task), but the shared
+access does not complete the approve task. The call answers 400 `{"error": "Подсчёт принят и ждёт
+подтверждения администратора"}`: the old app has no other honest shape (a 409 reads as "already posted" and
+clears the form, a 422 as "heard nothing", and its offline queue retries 404, 408, 429 and 5xx forever), so
+the phone shows «Ошибка: <text>» and keeps the form filled. The count document stays `issued` with one pending
+approve task, which one holder of `StockApprove` completes in My Tasks (the tenant administrator; the
+storekeeper role does not hold it, decision 0093). One administrator is enough: the counter is the shared
+access actor, not the administrator, so `distinct_from submit` passes and no `task.self_approved` is written.
+The balance does not change and the count is not in the movement history until it is approved.
+
+**The stale rule.** If the key moves between the count and the approval (an issue at that place posted from
+another phone, say), the approval is refused `quick_count_stale` (the `count_set` leg carries
+`expected_on_hand` = the book quantity, REQ-853): the balance does not change. With the switch ON the approve
+task stays pending, the administrator cancels the count document (`POST /documents/:id/cancel`, `StockReverse`)
+and the storekeeper counts again; a repeat of the phone's id answers the waiting text until the cancel. With
+the switch OFF the refusal happens inside the call, the count is cancelled and the old address answers the
+stale text of the table below.
+
+**The client id is bound to the count.** The body `id` of a count is bound to the issued count document (a
+waiting count is a success of the call, not a refusal), under the same per-key lock and with the same compared
+data as every other old-address write (kind, item, place, quantity). A repeat with the same id and the same
+data never makes a second count; it answers from the state of the count document: the approve task still
+pending, the same waiting 400; posted (or confirmed), 200 with the count's movement row; cancelled, 400
+`{"error": "Подсчёт отменён. Посчитайте ещё раз"}`. The same id with other data is the 409 of every write
+("this operation was already posted with different data"). A refusal made when the count is made binds no id.
+
+**A count equal to the book** needs no approval and posts nothing: it is answered at once (201) under either
+switch, with `qty` = the counted quantity and the unchanged balance, and it is not in the movement history
+(it has no ledger entry). Its repeat answers the same row (200).
+
+**The history row of a count** carries `qty` = the counted quantity, not the difference (this amends REQ-909
+point (1) and its criterion 1 for count rows): a movement of the cause `count_set` (an old-address count, a
+web quick count or a workbook load alike) has the kind `adjustment` and the `counted_quantity` of the document
+line that the movement posts, 0 included. Its `operator` is the typed name of the count's submit task when a
+shared access actor completed it, else the empty string. A reversal of a count row keeps REQ-909's reversal
+rule: kind `adjustment`, `reverses` set, `qty` = the difference taken back (the old number is not restored).
+
+**Every refusal of a count is a 400** `{"error": text}`, never a 409 or a 422, with the old server's texts,
+exactly:
+
+| Refusal | When | Text |
+|---|---|---|
+| `count_in_progress` | the count is made (a count inside an opened count order of the same org unit) | "На этом месте идёт пересчёт по приказу. Подсчёт не принят" |
+| `location_frozen` | the approval (the freeze guard) | "Место заморожено пересчётом. Подсчёт не принят" |
+| `balance_in_other_rows` | the count is made (stock of the same item, place, org unit and lot under another responsible or in another lot) | "Этот товар на этом месте числится за другим ответственным или в другой партии. Попросите администратора провести пересчёт по ведомости" |
+| `quick_count_stale` | the approval inside the call (the key moved between the book read and the approval) | "Остаток изменился, пока подсчёт ждал подтверждения. Посчитайте ещё раз" |
+| any other refusal of the approval | the approval | "Подсчёт отменён. Посчитайте ещё раз" |
+| a negative quantity | the request | "quantity must be positive" (the old server's English text) |
+
+A refusal of the approval inside the call cancels the issued count, so nothing stays pending and no balance
+changes. With the switch ON the approval is the administrator's: a refusal there leaves the approve task
+pending, and the administrator cancels the count.
+
 ## 12. Owner table
 
 Every assumption marked "assumption, owner may change" in the sections above:
