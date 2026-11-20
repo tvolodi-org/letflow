@@ -1,6 +1,68 @@
 {
   "bpm_export_schema_version": "bpm/definition/v1",
-  "definitions": [],
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0090-000000004804",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "maintenance_work"
+          },
+          {
+            "id": "e2",
+            "source": "maintenance_work",
+            "target": "maintenance_close"
+          },
+          {
+            "id": "e3",
+            "source": "maintenance_close",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "form_schema": {
+                "properties": {
+                  "work_done": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "work_done"
+                ],
+                "type": "object"
+              },
+              "role": "TENANT_ADMIN"
+            },
+            "id": "maintenance_work",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "role": "TENANT_ADMIN"
+            },
+            "id": "maintenance_close",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "maintenance_work_order",
+      "version": "1.0.0"
+    }
+  ],
   "entity_definitions": [
     {
       "definition_json": {
@@ -185,5 +247,5 @@
   "pack_id": "letflow-maintenance",
   "service_catalog_entries": [],
   "variable_schemas": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

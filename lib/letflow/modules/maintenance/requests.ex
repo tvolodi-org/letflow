@@ -457,10 +457,30 @@ defmodule Letflow.Modules.Maintenance.Requests do
       "urgency" => fv["urgency"],
       "reported_by" => fv["reported_by"],
       "reject_reason" => fv["reject_reason"],
-      "order" => nil,
+      "order" => order_ref(prefix, fv["order_id"]),
       "photo_count" => photo_count(prefix, row.record_id),
       "created_at" => DateTime.to_iso8601(row.inserted_at)
     }
+  end
+
+  # REQ-896: the order made from the request, once ordered.
+  defp order_ref(_prefix, nil), do: nil
+
+  defp order_ref(prefix, id) do
+    with {:ok, order_id} <- Ecto.UUID.cast(id),
+         %Latest{} = row <-
+           Repo.one(
+             from(l in Latest,
+               where:
+                 l.entity_type == "maintenance_work_order" and l.record_id == ^order_id and
+                   not l.deleted
+             ),
+             prefix: prefix
+           ) do
+      %{"id" => row.record_id, "number" => number(prefix, row.field_values["document_id"])}
+    else
+      _ -> nil
+    end
   end
 
   defp photo_count(prefix, record_id) do

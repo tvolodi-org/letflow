@@ -34,6 +34,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     "letflow/modules/exam/snapshot.ex",
     "letflow/modules/locations/links.ex",
     "letflow/modules/locations/tree.ex",
+    "letflow/modules/maintenance/orders.ex",
     "letflow/modules/maintenance/requests.ex",
     "letflow/modules/org/masters.ex",
     "letflow/modules/stock/count_differences.ex",

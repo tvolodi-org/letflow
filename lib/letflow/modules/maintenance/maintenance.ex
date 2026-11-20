@@ -8,7 +8,9 @@ defmodule Letflow.Modules.Maintenance do
   the work request routes (`Letflow.Modules.Maintenance.Router`) and the three tenant-scope atoms
   `MaintenanceRequestCreate`, `MaintenanceRead` and `MaintenanceOrderManage`. REQ-895 (part 3, version
   0.3.0) adds the four photo routes of a request (`Letflow.Modules.Maintenance.Photos`, owner kind
-  `maintenance_work_request` of `Letflow.Attachments.Owners`), no new atom. The manifest has no
+  `maintenance_work_request` of `Letflow.Attachments.Owners`), no new atom. REQ-896 (part 4, version 0.4.0) adds the four work order routes
+  (`Letflow.Modules.Maintenance.Orders`) and the pack process `maintenance_work_order`, no new atom.
+  The manifest has no
   `role_grants`, so the only holders are the two administrator catch-alls (decision 0055 D7). It has
   no handler.
 
@@ -23,7 +25,7 @@ defmodule Letflow.Modules.Maintenance do
 
   ## Not here
 
-  Work order logic, the order process, screens, any role grant, a seed or a QA
+  Screens, any role grant, a seed or a QA
   tenant. The 2000-character limit of `description` and the `urgency` value rules of the writers are
   checked by the writer (REQ-894): the entity type system has no string length bound.
   """
@@ -71,7 +73,7 @@ defmodule Letflow.Modules.Maintenance do
   @impl true
   defmanifest(
     id: "maintenance",
-    version: "0.3.0",
+    version: "0.4.0",
     depends_on: ["assets"],
     pack: "modules/maintenance/pack.json",
     permissions: [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage],
@@ -86,7 +88,11 @@ defmodule Letflow.Modules.Maintenance do
       {"POST", "/requests/:id/photos", :MaintenanceRequestCreate},
       {"GET", "/requests/:id/photos", :MaintenanceRead},
       {"GET", "/requests/:id/photos/:photo_id/original", :MaintenanceRead},
-      {"GET", "/requests/:id/photos/:photo_id/thumbnail", :MaintenanceRead}
+      {"GET", "/requests/:id/photos/:photo_id/thumbnail", :MaintenanceRead},
+      {"POST", "/orders", :MaintenanceOrderManage},
+      {"GET", "/orders", :MaintenanceRead},
+      {"GET", "/orders/:id", :MaintenanceRead},
+      {"POST", "/orders/:id/assign", :MaintenanceOrderManage}
     ],
     manages_entity_types: ["maintenance_work_request", "maintenance_work_order"],
     scope_declarations: %{

@@ -65,6 +65,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/assets/cards.ex" => 2,
     # REQ-894: the maintenance work request writers (create, update) of module maintenance
     "lib/letflow/modules/maintenance/requests.ex" => 2,
+    # REQ-896: the work order writers (create, update; one helper also changes the ordered request) of module maintenance
+    "lib/letflow/modules/maintenance/orders.ex" => 2,
     # REQ-825: the currency migration release task rewrites a card currency (one update)
     "lib/letflow/modules/assets/currency_migration.ex" => 1,
     # REQ-819: the asset count result writer (one update of the order)
