@@ -58406,7 +58406,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- old Qoimeks client compatibility sizing T-2374; the first call of the real old app is a 404 today
+    gh: 4897
     # Source: task T-2374 (PM 2026-11-20, go gate "real old client compatibility"). Real-client run of the Qoimeks team against qoimeks-qa2, 2026-11-20 (web build 0.1.2, the production APK version): the first call GET <base>/api/catalog answered 404 and the app stopped on the catalog screen. Qoimeks mobile/lib/api.dart at Qoimeks commit 01e8780: every call is base + "/api/..." (catalog, balances, movements, reverse, voice, codes, feedback). Copies of both in the task folder state/tasks/T-2374/sources/. Letflow files read on origin/main c771ff74e: lib/letflow/router.ex (forward "/qoimeks/:tenant_slug"), lib/letflow/routers/shared_stock_access.ex (the five routes without /api; plug order AuthAttemptLimit, authenticate, match, dispatch), docs/migration/decisions/0091-shared-stock-access.md sections 6, 7, 11a, 11b. Analysis: docs/status/qoimeks-old-client-compat.md (this task).
     description: >
       Why. The cutover keeps the old Qoimeks phone app and only changes its server address to
@@ -58443,7 +58443,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-907 -- the shapes are checked on the /api paths that REQ-907 adds
+    gh: 4896
     # Source: task T-2374 (PM 2026-11-20: "if the real client breaks on the response SHAPE, the shapes must follow the old app's, overriding kept our shapes"). Real-client run of the Qoimeks team, 2026-11-20, rows 2 and 9 (catalog is a flat list with no code and no places; balances have quantity and no location_code), and their message to T-2374: no screen survives a different shape. Qoimeks mobile/lib/api.dart (Sku.fromJson, Location.fromJson, Catalog, BalanceRow.fromJson) and server/internal/store/store.go (SKU, Location, Catalog with json keys skus and locations, Balance; catalog and places sorted by code, balances non-zero and sorted by place code), Qoimeks commit 01e8780; copies in state/tasks/T-2374/sources/. Letflow files read on origin/main c771ff74e: lib/letflow/modules/stock/old_app_reads.ex (catalog/1, balances/2), lib/letflow/modules/catalog.ex (old_app_catalog/1, old_app_balances/2), lib/letflow/shared_stock_access/int_ids.ex, lib/letflow/modules/locations/locations.ex (list_active/1, lookup/2), priv/modules/catalog_items/entity_definitions/catalog_item.json (code, name, base_uom_id, default_location_id), priv/modules/locations/entity_definitions/location_node.json (code, name, active).
     description: >
       Why. The old app reads the catalog as an object with two lists, items ("skus") and places ("locations"),
@@ -58487,7 +58487,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-908 -- both change lib/letflow/modules/stock/old_app_reads.ex and the place integers of REQ-908
+    gh: 4895
     # Source: task T-2374 (PM 2026-11-20, shape rule as REQ-908). Real-client run of the Qoimeks team, 2026-11-20, rows 5, 8 and 10: a post that succeeded still ends in an app error, because the movement answer has an integer id, kind stock_receipt, quantity, and no sku_code, unit, location code or balances, and reverses is not returned. Qoimeks mobile/lib/api.dart Movement.fromJson (id read as String; sku_code, sku_name, unit, location_code, qty, operator as non-null values; balances as a required list) and server/internal/store/store.go (Movement json keys; the list query leaves balances empty; post and reverse answer the balance rows of that movement; Reverse copies the kind of the original and sets reverses), and server/internal/store/import.go line 281 (imported balances are kind adjustment), and server/internal/store/store.go Post and reverse with server/internal/api/api.go writeError (400 {error} texts "quantity must be positive", "already reversed", "a reversal cannot be reversed; post a new operation instead"; real-client run row 10), Qoimeks commit 01e8780; copies in state/tasks/T-2374/sources/ (qoimeks-store-post-reverse-errors.go.txt for the refusal texts). Letflow files read on origin/main c771ff74e: lib/letflow/modules/stock/old_app_reads.ex (build_rows/2, kind/1, movement/2, movements_of_document/2), lib/letflow/modules/stock/old_app_writes.ex (post_movement/5, the reverse, the 201 and 200 replay), lib/letflow/ledger.ex (balances/4 with {:posting_seq, n}).
     description: >
       Why. The history screen, the success message after a post and the cancel action read a movement in
