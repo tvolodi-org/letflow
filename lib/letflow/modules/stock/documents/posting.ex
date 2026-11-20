@@ -64,10 +64,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
-  alias Letflow.Modules.KeyHelpers
   alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Modules.Stock.Documents.Legs
   alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Modules.Stock.Documents.QuickCountPosting
   alias Letflow.Repo
@@ -1072,7 +1072,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp consistent?(base, state, marks, receipts, reversals, {prefix, kind}) do
     case receipts do
       [receipt] ->
-        legs_match?(receipt, expected_legs(prefix, base)) and
+        Legs.ledger_match?(receipt, expected_legs(prefix, base)) and
           online_time?(kind, receipt) and
           Map.has_key?(marks, "posted") and
           reversal_consistent?(state, marks, receipt, reversals)
@@ -1099,90 +1099,12 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp reversal_consistent?(_state, marks, _receipt, reversals),
     do: reversals == [] and not Map.has_key?(marks, "reversed")
 
-  # Expected legs from the frozen content: a multiset of {sku, location, org_unit, responsible,
-  # lot, unit, signed quantity}, quantity normalised as a Decimal. A two-sided kind (REQ-721) gives
-  # per line a `-q` leg at the from side and a `+q` leg at the to side (`Kinds.sides/2`, the same
-  # function the posting command uses).
+  # Expected legs from the frozen content (REQ-903: the comparison lives in `Legs`, which
+  # `post_document` calls too, so the read side and the posting check cannot disagree).
   defp expected_legs(prefix, base) do
     case issued(prefix, base.id) do
-      %{content: content} ->
-        expected_from(Kinds.get(base.kind), content)
-
-      _none ->
-        :none
-    end
-  end
-
-  defp expected_from(%{kind: "opening"}, content),
-    do: content |> OpeningPosting.expected_legs(&leg_key/7) |> Enum.sort()
-
-  defp expected_from(%{kind: "quick_count"}, content),
-    do: content |> QuickCountPosting.expected_legs(&leg_key/7) |> Enum.sort()
-
-  defp expected_from(spec, content) do
-    {from, to} = Kinds.sides(spec, Map.get(content, "header", %{}))
-
-    Enum.flat_map(Map.get(content, "lines", []), fn line ->
-      quantity = Map.get(line, "quantity")
-      leg = &leg_key(line, &1, &2)
-
-      cond do
-        from && to -> [leg.(from, negate(quantity)), leg.(to, quantity)]
-        from -> [leg.(from, negate(quantity))]
-        true -> [leg.(to, quantity)]
-      end
-    end)
-    |> Enum.sort()
-  end
-
-  defp leg_key(line, side, quantity) do
-    leg_key(
-      Map.get(line, "catalog_item_id"),
-      side.location,
-      side.org_unit,
-      side.responsible,
-      Map.get(line, "catalog_lot_id"),
-      Map.get(line, "catalog_uom_id"),
-      quantity
-    )
-  end
-
-  defp negate(quantity) do
-    case Decimal.parse(to_string(quantity)) do
-      {%Decimal{} = d, ""} -> d |> Decimal.negate() |> Decimal.to_string(:normal)
-      _bad -> "invalid"
-    end
-  end
-
-  @doc false
-  def legs_match?(_receipt, :none), do: false
-
-  def legs_match?(receipt, expected) do
-    actual =
-      receipt.legs
-      |> Enum.map(fn leg ->
-        [sku, location, org_unit, responsible, lot] = pad(Map.get(leg, :k, []))
-        leg_key(sku, location, org_unit, responsible, lot, leg.unit_ref, leg.quantity)
-      end)
-      |> Enum.sort()
-
-    actual == expected
-  end
-
-  defp pad(k), do: KeyHelpers.pad(k)
-
-  @doc false
-  def leg_key(sku, location, org_unit, responsible, lot, unit, quantity) do
-    {sku, location, org_unit, blank(responsible), blank(lot), unit, decimal_text(quantity)}
-  end
-
-  defp blank(nil), do: ""
-  defp blank(value), do: value
-
-  defp decimal_text(quantity) do
-    case Decimal.parse(to_string(quantity)) do
-      {%Decimal{} = d, ""} -> d |> Decimal.normalize() |> Decimal.to_string(:normal)
-      _bad -> "invalid"
+      %{content: content} -> Legs.expected(Kinds.get(base.kind), content)
+      _none -> :none
     end
   end
 end

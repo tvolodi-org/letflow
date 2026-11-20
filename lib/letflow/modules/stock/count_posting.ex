@@ -40,6 +40,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
   alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.Documents.Legs
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.PostingRules
   alias Letflow.Modules.Stock.Views
@@ -592,7 +593,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
         false
 
       expected ->
-        Posting.legs_match?(entry, expected) and Map.has_key?(marks, "posted") and
+        Legs.ledger_match?(entry, expected) and Map.has_key?(marks, "posted") and
           entry.document_type == @type_key and
           entry.related_document_id == header["document_id"] and
           reversal_consistent?(marks, entry, reversals)
@@ -616,7 +617,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
         content
         |> CountDifferences.content_lines()
         |> Enum.map(fn line ->
-          Posting.leg_key(
+          Legs.leg_key(
             line["catalog_item_id"],
             line["location_id"],
             org_unit,

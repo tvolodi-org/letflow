@@ -220,7 +220,8 @@ defmodule Letflow.Modules.Stock.ReversalTest do
       assert P.get!(ctx, posted["id"])["state"] == "posted"
     end
 
-    test "B-CAN-6 a posting that reaches a cancelled document is detected on read", ctx do
+    test "B-CAN-6 a posting that reaches a cancelled document is refused at posting (REQ-903)",
+         ctx do
       Application.put_env(:letflow, :stock_post_start_fail?, true)
       issued = P.issue!(ctx)
       Application.delete_env(:letflow, :stock_post_start_fail?)
@@ -263,10 +264,12 @@ defmodule Letflow.Modules.Stock.ReversalTest do
           prefix: ctx.schema
         )
 
-      assert {:ok, _} = P.complete(ctx, late)
+      assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
+               P.complete(ctx, late)
 
       read = P.get!(ctx, id)
-      assert read["state"] == "cancelled" and read["posting_check"] == "mismatch"
+      assert read["state"] == "cancelled" and read["posting_check"] == "ok"
+      assert P.counts(ctx, id) == %{entries: %{}, marks: 0}
     end
   end
 end

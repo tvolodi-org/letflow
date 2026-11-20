@@ -25,6 +25,27 @@ defmodule Letflow.Modules.Stock.Handlers do
   The cause `count_set` (REQ-854, process definition `stock_quick_count`, node `approve`) is built without
   the offline keys, with its `reason_code`, and its line carries `expected_on_hand`.
 
+  ## Binding to the issued version (REQ-903 / GH #4819; decision 0073 D6, version 0.24.0)
+
+  `post_document` (it alone: it declares `reads_documents: true`; `post_count`, `post_kind_change_out` and
+  `reverse_document` do not) first reads the version named by its arguments `document_id` and `version_no`
+  with `HandlerWrites.read_document_version/3`, BEFORE the master checks and before any step is added.
+  An unknown, malformed, other-tenant or other-module document (`{:error, :not_found}`) is the closed
+  `{:error, :invalid_arguments}` (422). The posting is refused with `{:error, {:refused,
+  :record_version_conflict}}` (409) when the version is not `issued`, is not the current one, when the
+  posting's `client_op_id` is not the version id, when the argument or posting `document_type` is not the
+  version's type, the posting's `document_id` is not the argument, the argument `org_unit_id` is not the
+  document's issuing org unit, the posting's cause is not a cause of the kind (`Kinds.causes/1`), its
+  `client_event_time` is not the header `event_time` (not for an opening or quick count, which carry none),
+  a write-off's `reason_code` is not the header's, or its legs differ from the issued content's legs
+  (`Letflow.Modules.Stock.Documents.Legs`, the same comparison as the read-side `posting_check`).
+  On a dry build (`{:error, :dry_build}`) the check is skipped and the real build runs it.
+  The read takes no lock. That is enough: stock documents are never re-versioned, and the only cancel
+  path (`Documents.Posting.cancel/5`) withdraws every pending post instance through
+  `Letflow.Engine.cancel_instance` before `Letflow.Documents.cancel/3`, so a cancel and a post of one
+  document are serialised by the instance. The binding of `post_count` and `post_kind_change_out` stays
+  detected on read only.
+
   ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
 
   `post_document`, `post_count` and `post_kind_change_out` check every master named by a posting line
@@ -54,6 +75,8 @@ defmodule Letflow.Modules.Stock.Handlers do
   """
 
   alias Letflow.Entities.HandlerWrites
+  alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Modules.Stock.Documents.Legs
 
   @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
 
@@ -62,7 +85,7 @@ defmodule Letflow.Modules.Stock.Handlers do
       when cause in ["count_difference", "kind_change_out"],
       do: {:error, :invalid_arguments}
 
-  def post_document(multi, ctx, args), do: run(multi, ctx, args, "posted", [])
+  def post_document(multi, ctx, args), do: run(multi, ctx, args, "posted", [], true)
 
   # REQ-718: the posting of a signed count. Only a `count.differences` document and the cause
   # `count_difference` are accepted; `post_document` refuses that cause in return.
@@ -74,7 +97,7 @@ defmodule Letflow.Modules.Stock.Handlers do
       )
       when is_map(posting) do
     if Map.get(posting, "cause") == "count_difference",
-      do: run(multi, ctx, args, "posted", []),
+      do: run(multi, ctx, args, "posted", [], false),
       else: {:error, :invalid_arguments}
   end
 
@@ -85,16 +108,18 @@ defmodule Letflow.Modules.Stock.Handlers do
   @spec post_kind_change_out(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
           result()
   def post_kind_change_out(multi, ctx, %{"posting" => %{"cause" => "kind_change_out"}} = args),
-    do: run(multi, ctx, args, "posted", [])
+    do: run(multi, ctx, args, "posted", [], false)
 
   def post_kind_change_out(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
   @spec reverse_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
-  def reverse_document(multi, ctx, args), do: run(multi, ctx, args, "reversed", ["reason_code"])
+  def reverse_document(multi, ctx, args),
+    do: run(multi, ctx, args, "reversed", ["reason_code"], false)
 
-  defp run(multi, ctx, args, mark, extra_keys) when is_map(args) do
+  defp run(multi, ctx, args, mark, extra_keys, binding?) when is_map(args) do
     with true <- valid_args?(args, {mark, extra_keys}),
          {:ok, command} <- command(Map.get(args, "posting")),
+         :ok <- check_binding(binding?, ctx, args, Map.get(args, "posting")),
          :ok <- check_masters(ctx, command),
          {:ok, multi} <- create_mark(multi, ctx, args, extra_keys) do
       case HandlerWrites.post(multi, ctx, command) do
@@ -108,7 +133,7 @@ defmodule Letflow.Modules.Stock.Handlers do
     end
   end
 
-  defp run(_multi, _ctx, _args, _mark, _extra), do: {:error, :invalid_arguments}
+  defp run(_multi, _ctx, _args, _mark, _extra, _binding?), do: {:error, :invalid_arguments}
 
   defp valid_args?(args, {mark, extra_keys}) do
     Enum.all?(~w(document_id document_type org_unit_id) ++ extra_keys, fn key ->
@@ -137,6 +162,68 @@ defmodule Letflow.Modules.Stock.Handlers do
          }) do
       {:ok, multi} -> {:ok, multi}
       {:error, _contract_error} -> {:error, :not_permitted}
+    end
+  end
+
+  # -- the binding to the issued document (REQ-903) --------------------------------------------
+
+  # The posting must be the issued, current version of its document, with its content. A read
+  # that answers not_found (unknown, malformed, another tenant's, another module's) is the closed
+  # invalid_arguments; any other mismatch is the typed 409. A dry build skips it.
+  defp check_binding(false, _ctx, _args, _posting), do: :ok
+
+  defp check_binding(true, ctx, args, posting) do
+    case HandlerWrites.read_document_version(
+           ctx,
+           Map.get(args, "document_id"),
+           Map.get(args, "version_no")
+         ) do
+      {:ok, version} -> binding_verdict(version, args, posting)
+      {:error, :dry_build} -> :ok
+      {:error, :invalid_write_command} -> {:error, :not_permitted}
+      {:error, _not_found_or_not_registered} -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp binding_verdict(version, args, posting) do
+    spec = Kinds.by_type_key(Map.get(version, "type_key"))
+    content = Map.get(version, "content", %{})
+    header = Map.get(content, "header", %{})
+
+    ok? =
+      spec != nil and Map.get(version, "status") == "issued" and
+        Map.get(version, "current") == true and
+        Map.get(posting, "client_op_id") == Map.get(version, "version_id") and
+        Map.get(args, "document_type") == Map.get(spec, :type_key) and
+        Map.get(posting, "document_type") == Map.get(spec, :type_key) and
+        Map.get(posting, "document_id") == Map.get(args, "document_id") and
+        Map.get(args, "org_unit_id") == Map.get(version, "issuing_org_unit_id") and
+        Map.get(posting, "cause") in Kinds.causes(spec) and
+        time_bound?(spec, posting, header) and reason_bound?(spec, posting, header) and
+        legs_bound?(spec, posting, content)
+
+    if ok?, do: :ok, else: {:error, {:refused, :record_version_conflict}}
+  end
+
+  # An opening and a quick count carry no client time (the ledger stamps the posting time).
+  defp time_bound?(%{kind: kind}, _posting, _header) when kind in ["opening", "quick_count"],
+    do: true
+
+  defp time_bound?(_spec, posting, header),
+    do: Map.get(posting, "client_event_time") == Map.get(header, "event_time")
+
+  defp reason_bound?(%{kind: "write_off"}, posting, header),
+    do: Map.get(posting, "reason_code") == Map.get(header, "reason_code")
+
+  defp reason_bound?(%{kind: "quick_count"}, posting, header),
+    do: Map.get(posting, "reason_code") == Map.get(header, "reason_code")
+
+  defp reason_bound?(_spec, _posting, _header), do: true
+
+  defp legs_bound?(spec, posting, content) do
+    case Legs.from_posting(posting) do
+      :invalid -> false
+      actual -> actual == Legs.expected(spec, content)
     end
   end
 
