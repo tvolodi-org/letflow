@@ -1045,7 +1045,11 @@ defmodule Letflow.TenantProvisioning do
     # T-2391 (D-165): approval_rule_defaults, one marker row only in a FRESH schema (new tenant): approval
     # rules default OFF there. A schema with definitions or settings gets no row: no existing tenant changes.
     {20_261_120_100_001, Letflow.Repo.Migrations.CreateApprovalRuleDefaults,
-     "20261120100001_create_approval_rule_defaults.exs"}
+     "20261120100001_create_approval_rule_defaults.exs"},
+    # T-2415: the old Qoimeks empty-shelf count is a real zero count_set movement. The core validator
+    # keeps zero refused for every other cause; the leg table's cause-blind CHECK is removed.
+    {20_261_121_100_001, Letflow.Repo.Migrations.AllowZeroCountSetLegs,
+     "20261121100001_allow_zero_count_set_legs.exs"}
   ]
 
   @doc """

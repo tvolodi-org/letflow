@@ -374,7 +374,12 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   end
 
   defp post_command(%{kind: "quick_count"}, view, issued) do
-    QuickCountPosting.command(view, issued, Map.new(view.lines, &{&1.line_no, &1.line_id}))
+    QuickCountPosting.command(
+      view,
+      issued,
+      Map.new(view.lines, &{&1.line_no, &1.line_id}),
+      Map.get(view, :record_zero, false)
+    )
   end
 
   defp post_command(spec, view, %{content: content, number: number, period: period} = issued) do
@@ -1069,7 +1074,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp consistent?(base, state, marks, receipts, reversals, {prefix, kind}) do
     case receipts do
       [receipt] ->
-        Legs.ledger_match?(receipt, expected_legs(prefix, base)) and
+        Legs.ledger_match?(receipt, expected_legs(prefix, base, receipt)) and
           online_time?(kind, receipt) and
           Map.has_key?(marks, "posted") and
           reversal_consistent?(state, marks, receipt, reversals)
@@ -1097,11 +1102,19 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     do: reversals == [] and not Map.has_key?(marks, "reversed")
 
   # Expected legs from the frozen content (REQ-903: the comparison lives in `Legs`, which
-  # `post_document` calls too, so the read side and the posting check cannot disagree).
-  defp expected_legs(prefix, base) do
+  # `post_document` calls too, so the read side and the posting check cannot disagree). A zero leg of
+  # count_set is the old Qoimeks empty-shelf movement; its expected zero leg is included here too.
+  defp expected_legs(prefix, base, receipt) do
     case issued(prefix, base.id) do
-      %{content: content} -> Legs.expected(Kinds.get(base.kind), content)
-      _none -> :none
+      %{content: content} ->
+        record_zero =
+          base.kind == "quick_count" and receipt.legs != [] and
+            Enum.all?(receipt.legs, &Decimal.eq?(&1.quantity, 0))
+
+        Legs.expected(Kinds.get(base.kind), content, record_zero)
+
+      _none ->
+        :none
     end
   end
 end

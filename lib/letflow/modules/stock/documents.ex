@@ -256,6 +256,8 @@ defmodule Letflow.Modules.Stock.Documents do
   taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
   is zero (then the document reads `confirmed`: no instance, no ledger entry). `opts[:operator]` (REQ-912,
   the old Qoimeks address only) is stored as the output variable `operator` of the count's submit task.
+  `opts[:record_zero]` (the old address only) instead starts a zero-difference count whose counted
+  quantity is zero, so the old server's empty-shelf count is stored as a real reversible movement.
   `opts[:self_approve]` (`:oidc`, T-2410: the interactive route) lets the system approve the counter's own
   count at once when the tenant's count switch is OFF (see `self_approve_count/5`).
   Returns the issued document as `fetch/3` renders it.
@@ -276,14 +278,16 @@ defmodule Letflow.Modules.Stock.Documents do
   end
 
   # The count is issued: start its posting unless it is equal to the book, then (T-2410, D-164) let the
-  # system approve it when the tenant's count switch is OFF at this moment.
+  # system approve it when the tenant's count switch is OFF. `record_zero` is the old address's parity
+  # exception: an empty-shelf count of zero is a stored movement, not the confirmed shortcut.
   defp start_and_self_approve(prefix, id, actor, opts) do
     view = fetch!(prefix, id)
+    record_zero = Keyword.get(opts, :record_zero, false) and view.state == "confirmed"
 
-    if view.state == "confirmed" do
+    if view.state == "confirmed" and not record_zero do
       :ok
     else
-      started = start_posting(prefix, id, actor, submit_output(opts))
+      started = start_posting(prefix, id, actor, submit_output(opts), record_zero)
       self_approve_count(prefix, id, actor, started, Keyword.get(opts, :self_approve))
     end
   end
@@ -1097,10 +1101,17 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # A failed start after the issue committed is not an error: the number is spent (gap-free
   # numbering) and the retry route `post` starts the posting.
-  defp start_posting(prefix, id, actor, submit_output \\ %{}) do
+  defp start_posting(prefix, id, actor, submit_output \\ %{}, record_zero \\ false) do
     with {:ok, view} <- fetch(prefix, id),
          %{} = version <- Posting.issued(prefix, id),
-         {:ok, _instance} <- Posting.start_post(prefix, view, version, actor, submit_output) do
+         {:ok, _instance} <-
+           Posting.start_post(
+             prefix,
+             if(record_zero, do: Map.put(view, :record_zero, true), else: view),
+             version,
+             actor,
+             submit_output
+           ) do
       :ok
     else
       other ->

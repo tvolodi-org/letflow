@@ -243,7 +243,7 @@ defmodule Letflow.Modules.Stock.Handlers do
   defp legs_bound?(spec, posting, content) do
     case Legs.from_posting(posting) do
       :invalid -> false
-      actual -> actual == Legs.expected(spec, content)
+      actual -> actual == Legs.expected(spec, content, Map.get(posting, "record_zero") == true)
     end
   end
 

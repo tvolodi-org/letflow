@@ -156,7 +156,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
          {:ok, sku} <- ok(Policy.uuid(Map.get(line, :sku))),
          {:ok, lot} <- optional_uuid(Map.get(line, :lot)),
          {:ok, unit} <- ok(Policy.token(Map.get(line, :unit), 64)),
-         {:ok, quantity} <- quantity(Map.get(line, :quantity)),
+         {:ok, quantity} <- quantity(cause, Map.get(line, :quantity)),
          {:ok, expected} <- expected_on_hand(cause, Map.get(line, :expected_on_hand)),
          {:ok, from, to} <- sides(cause, Map.get(line, :from), Map.get(line, :to)) do
       base = %{
@@ -218,9 +218,11 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   defp expected_on_hand(_cause, nil), do: {:ok, nil}
   defp expected_on_hand(_cause, _other), do: :error
 
-  defp quantity(text) do
+  # The old Qoimeks empty-shelf count is the one zero-quantity posting: a real, reversible count_set
+  # entry whose leg is zero. Every other stock movement keeps the positive-quantity rule.
+  defp quantity(cause, text) do
     with {:ok, value} <- ok(Policy.decimal(text, 9)),
-         true <- Decimal.gt?(value, 0) do
+         true <- Decimal.gt?(value, 0) or (cause == "count_set" and Decimal.eq?(value, 0)) do
       {:ok, value}
     else
       _ -> :error
