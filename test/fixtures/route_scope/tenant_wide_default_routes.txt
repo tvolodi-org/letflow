@@ -61,6 +61,7 @@ GET /modules/procurement/purchase-requests/:id/attachments ProcurementRequestRea
 GET /modules/procurement/purchase-requests/:id/attachments/:attachment_id/content ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequestRead
 GET /modules/runtime_demo/ping RuntimeDemoRead
+GET /modules/stock/approval-access StockApprove
 GET /modules/stock/balances StockRead
 GET /modules/stock/counts StockRead
 GET /modules/stock/counts/:id StockRead

@@ -40,7 +40,7 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       granted =
         for p <-
               Authorization.permissions() ++
-                @stock_atoms ++ [:StockReconcile, :StockWorkbookApply],
+                @stock_atoms ++ [:StockReconcile, :StockWorkbookApply, :StockApprove],
             Authorization.role_allows?(:STOREKEEPER, p),
             do: p
 
@@ -53,7 +53,7 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       assert Enum.sort(Enum.uniq(granted)) == Enum.sort(expected)
 
       for denied <-
-            ~w(StockReconcile StockWorkbookApply CodesWrite AssetsRead AssetsPost LocationsWrite
+            ~w(StockReconcile StockWorkbookApply StockApprove CodesWrite AssetsRead AssetsPost LocationsWrite
                CatalogLotsWrite EntitiesRecordsWrite EntitiesRecordsExport UsersGroupsRolesManage
                TokensManage AuditRead ModulesManage TenantSettingsManage DefinitionsWrite
                InstancesStart EntitiesDefinitionsWrite RolesManage)a do
@@ -99,10 +99,21 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
                  "#{method} #{path} (#{key}) -> #{conn.status} #{conn.resp_body}"
         else
           # StockReconcile and StockWorkbookApply (the Excel load, an administrator function) are withheld
-          assert key in [:StockReconcile, :StockWorkbookApply]
+          assert key in [:StockReconcile, :StockWorkbookApply, :StockApprove]
           assert conn.status == 403, "#{method} #{path} -> #{conn.status}"
         end
       end
+    end
+
+    test "T-4c the approval probe: a tenant admin holds StockApprove (200), the storekeeper does not (403)",
+         ctx do
+      admin = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "approver-1")
+      keeper = S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-4c")
+
+      ok = call("GET", "/approval-access", admin)
+      assert ok.status == 200, ok.resp_body
+      assert Jason.decode!(ok.resp_body)["can_approve"] == true
+      assert call("GET", "/approval-access", keeper).status == 403
     end
 
     test "T-4b an auditor and a candidate are denied every stock route", ctx do
