@@ -40,6 +40,11 @@ actors:
   admin: actor-qoimeks-qa2-admin
 
 preconditions:
+  - description: >-
+      Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). Before the walk the operator has set stock_quick_count / approve ON (the qa2 tenant keeps explicit ON rows) and stock_opening / approve OFF. This scenario needs stock_quick_count / approve ON: the phone result screen tells that a second person approves, and the counter cannot approve alone.
+    check: system_seeded
+    detail: >-
+      Read both rules on the Approval rules screen at the start (administrator) and record them. If a rule is not in the stated state or cannot be read, report BLOCKED-by-environment; do not switch a rule to make the walk pass and do not take the default as the state. This scenario never changes a rule.
   - description: The Qoimeks QA tenant holds the synthetic stock data (read the item, place and balance counts at the start of the run and record them; the seed changes them), the stock module is active, and one balance row that is not lot-tracked or serial-tracked and has a positive quantity can be chosen.
     check: system_seeded
     detail: >

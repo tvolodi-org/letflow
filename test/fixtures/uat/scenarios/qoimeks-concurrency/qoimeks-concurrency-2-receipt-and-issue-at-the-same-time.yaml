@@ -31,6 +31,11 @@ actors:
   admin2: actor-qoimeks-qa2-admin2
 
 preconditions:
+  - description: >-
+      Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). Set by the operator before the walk: stock_opening / approve OFF and stock_quick_count / approve ON. This scenario uses neither rule: receipts, issues and reversals are single-step posting tasks without a four-eyes rule, and the second administrator completes tasks because of the permission StockApprove, not because of a rule.
+    check: system_seeded
+    detail: >-
+      Read both rules at the start; a different state is reported but does not change the outcome. This scenario never changes a rule.
   - description: The item and place reserved for concurrency (ITEM-C at PLACE-C of scenario 1, with a round on-hand sum of at least 20, not ФЛАНЕЦ-0036 at RC12, not used by another group); the stock process definitions are ACTIVE.
     check: system_seeded
     detail: Read the Balances screen at the start; if none, BLOCKED-by-environment. The group qoimeks-numbering is not running at the same time; a foreign posting on the pair during the walk makes the attempt void, to be repeated once.
