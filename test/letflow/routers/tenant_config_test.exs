@@ -466,14 +466,13 @@ defmodule Letflow.Routers.TenantConfigTest do
       {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} =
         Code.fetch_docs(Letflow.Routers.MobileTenantConfig)
 
-      # REQ-418 (2026-09) legitimately grew this module's own allowlist from
-      # five keys to six (added `client_id`) -- unrelated to this
-      # requirement's branding key. Assert on that current, approved count
-      # rather than a number this requirement never touched, so this guard
-      # stays meaningful instead of drifting stale against REQ-418's own
-      # reviewed change.
+      # REQ-418 (2026-09) grew this module's own allowlist from five keys to
+      # six (added `client_id`), and T-2244 later added `company_found`, making
+      # seven. Both are unrelated to this requirement's branding key. Assert on
+      # the current, approved count rather than a number this requirement never
+      # touched, so this guard stays meaningful instead of drifting stale.
       refute moduledoc =~ "exactly five keys"
-      assert moduledoc =~ "exactly six keys"
+      assert moduledoc =~ "exactly seven keys"
     end
   end
 
