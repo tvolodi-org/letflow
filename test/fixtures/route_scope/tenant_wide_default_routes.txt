@@ -56,6 +56,8 @@ GET /modules/exam/exam-sessions/mine ExamSessionRead
 GET /modules/exam/grading-queue ExamGradingRead
 GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
+GET /modules/maintenance/orders MaintenanceRead
+GET /modules/maintenance/orders/:id MaintenanceRead
 GET /modules/maintenance/requests MaintenanceRead
 GET /modules/maintenance/requests/:id MaintenanceRead
 GET /modules/maintenance/requests/:id/photos MaintenanceRead
@@ -195,6 +197,8 @@ POST /modules/locations/links/retire LocationsWrite
 POST /modules/locations/nodes LocationsWrite
 POST /modules/locations/nodes/:id/move LocationsWrite
 POST /modules/locations/nodes/:id/retire LocationsWrite
+POST /modules/maintenance/orders MaintenanceOrderManage
+POST /modules/maintenance/orders/:id/assign MaintenanceOrderManage
 POST /modules/maintenance/requests MaintenanceRequestCreate
 POST /modules/maintenance/requests/:id/photos MaintenanceRequestCreate
 POST /modules/maintenance/requests/:id/reject MaintenanceOrderManage

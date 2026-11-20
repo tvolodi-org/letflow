@@ -113,12 +113,51 @@ packed =
     }
   end)
 
+# REQ-896: the life of a work order. maintenance_work is routed to the role label TENANT_ADMIN (the
+# planner's inbox) and addressed to a user by create or assign; its form has one required text field.
+# maintenance_close is completed by a TENANT_ADMIN. No distinct_from (four-eyes is not in slice 1).
+work_order_definition = %{
+  "definition_id" => "00501000-0000-0040-0090-000000004804",
+  "process_key" => "maintenance_work_order",
+  "version" => "1.0.0",
+  "graph" => %{
+    "nodes" => [
+      %{"id" => "start", "node_type" => "START"},
+      %{
+        "id" => "maintenance_work",
+        "node_type" => "HUMAN_TASK",
+        "attributes" => %{
+          "role" => "TENANT_ADMIN",
+          "form_schema" => %{
+            "type" => "object",
+            "required" => ["work_done"],
+            "properties" => %{
+              "work_done" => %{"type" => "string", "minLength" => 1, "maxLength" => 2000}
+            }
+          }
+        }
+      },
+      %{
+        "id" => "maintenance_close",
+        "node_type" => "HUMAN_TASK",
+        "attributes" => %{"role" => "TENANT_ADMIN"}
+      },
+      %{"id" => "end", "node_type" => "END"}
+    ],
+    "edges" => [
+      %{"id" => "e1", "source" => "start", "target" => "maintenance_work"},
+      %{"id" => "e2", "source" => "maintenance_work", "target" => "maintenance_close"},
+      %{"id" => "e3", "source" => "maintenance_close", "target" => "end"}
+    ]
+  }
+}
+
 document = %{
   "pack_id" => "letflow-maintenance",
-  "version" => "0.3.0",
+  "version" => "0.4.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   "exported_at" => "2026-11-19T00:00:00Z",
-  "definitions" => [],
+  "definitions" => [work_order_definition],
   "variable_schemas" => [],
   # MUST stay [] (decision 0027).
   "service_catalog_entries" => [],
