@@ -104,27 +104,85 @@ defmodule Letflow.Modules.Stock.OldAppReads do
 
   defp sku_rows(prefix, items, sku_ids, loc_ids) do
     items
-    |> Enum.flat_map(fn item ->
-      case Map.fetch(sku_ids, item["record_id"]) do
-        {:ok, int} ->
-          row = %{
-            id: int,
-            code: item["code"],
-            name: item["name"],
-            unit: uom_code(prefix, item["base_uom_id"])
-          }
-
-          [
-            row
-            |> put_present(:location_id, Map.get(loc_ids, item["default_location_id"]))
-            |> put_present(:barcode, barcode(prefix, item["record_id"]))
-          ]
-
-        :error ->
-          []
-      end
-    end)
+    |> Enum.flat_map(&sku_row(prefix, &1, sku_ids, loc_ids))
     |> Enum.sort_by(&{&1.code, &1.id})
+  end
+
+  # One catalog row of an item record as a one-element list, or `[]` when it has no integer id.
+  defp sku_row(prefix, item, sku_ids, loc_ids) do
+    case Map.fetch(sku_ids, item["record_id"]) do
+      {:ok, int} ->
+        row = %{
+          id: int,
+          code: item["code"],
+          name: item["name"],
+          unit: uom_code(prefix, item["base_uom_id"])
+        }
+
+        [
+          row
+          |> put_present(:location_id, Map.get(loc_ids, item["default_location_id"]))
+          |> put_present(:barcode, barcode(prefix, item["record_id"]))
+        ]
+
+      :error ->
+        []
+    end
+  end
+
+  @doc """
+  K10 / REQ-911: the catalog rows (the same row `catalog/1` builds) of the given item record ids, in
+  the given order, for the voice answer. An id that is not a live active item of the tenant schema
+  `prefix` is left out; `location_id` is set only for a default place that is active, as in the
+  catalog. Integer ids are assigned when missing (the only write, as in `catalog/1`).
+  """
+  @spec sku_rows_for(String.t(), [String.t()]) :: [map()]
+  def sku_rows_for(prefix, record_ids) when is_binary(prefix) and is_list(record_ids) do
+    items =
+      Enum.flat_map(record_ids, fn id ->
+        case CatalogItems.lookup(prefix, id) do
+          {:ok, %{"entity_type" => "catalog_item", "active" => true} = record} -> [record]
+          _other -> []
+        end
+      end)
+
+    default_ids = items |> Enum.map(& &1["default_location_id"]) |> Enum.filter(&is_binary/1)
+
+    active_defaults =
+      case default_ids do
+        [] ->
+          []
+
+        _some ->
+          case Locations.list_active(prefix) do
+            {:ok, places} ->
+              active = MapSet.new(places, & &1["record_id"])
+              Enum.filter(default_ids, &MapSet.member?(active, &1))
+
+            _unavailable ->
+              []
+          end
+      end
+
+    sku_ids = IntIds.assign(prefix, :sku, Enum.map(items, & &1["record_id"]))
+    loc_ids = IntIds.assign(prefix, :location, active_defaults)
+    Enum.flat_map(items, &sku_row(prefix, &1, sku_ids, loc_ids))
+  end
+
+  @doc """
+  K10 / REQ-911: the catalog row `%{id, code, name}` of one active place record id (the integer id is
+  assigned when missing), or `nil` when it is not an active place of the tenant schema `prefix`.
+  """
+  @spec location_row_for(String.t(), String.t()) :: map() | nil
+  def location_row_for(prefix, record_id) when is_binary(prefix) do
+    with {:ok, %{"entity_type" => "location_node", "active" => true} = place} <-
+           Locations.lookup(prefix, record_id),
+         %{} = ids <- IntIds.assign(prefix, :location, [place["record_id"]]),
+         {:ok, int} <- Map.fetch(ids, place["record_id"]) do
+      %{id: int, code: place["code"], name: place["name"]}
+    else
+      _other -> nil
+    end
   end
 
   defp location_rows(places, loc_ids) do

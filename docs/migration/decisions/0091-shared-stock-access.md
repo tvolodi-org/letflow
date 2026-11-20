@@ -507,7 +507,7 @@ and the real app rule over the earlier text:
   `qoimeks-retry` use them). Both forms run the same handler after the same plugs: failure counting,
   authentication, the per-credential request token and the scope enforcement refusal run once per
   request, in the order of the router's moduledoc, so an `/api` path spends the same token as the plain
-  one. Every other path under the prefix, with or without `/api` (`/api/voice`, `/api/parse`,
+  one. Every other path under the prefix, with or without `/api` (`/api/parse`,
   `/api/feedback`, `/api/codes`), stays 404 `{"error": "not found"}` after
   authentication (`/api/codes/lookup` is served from REQ-910, section 11d); those calls are sized in `docs/status/qoimeks-old-client-compat.md` section 5.
 - **Correction 1, the paths carry `/api`.** Sources and sections 6 and 7 write them without it.
@@ -544,7 +544,20 @@ and the real app rule over the earlier text:
   Nothing is written on these refusals. The other rules of the row (201, 200 replay, 409 changed data,
   400 `id is required`) are unchanged.
 
-Out of scope here: the calls not served (count, codes, voice, feedback, parse), the pairing call, and any
+- **Voice (REQ-911, K10).** `POST /qoimeks/<slug>/api/voice` (the `/api` form only; `POST .../voice` stays 404)
+  is the old app's microphone call, served over the unchanged `VoiceService.draft_audio/2` by
+  `Letflow.Modules.Stock.OldAppVoice` (through `Letflow.Modules.Catalog.old_app_voice/2`). The multipart body is
+  parsed after authentication with a 10_485_760 byte cap on the whole body; only `audio` and `lang` are used. The
+  answer is the old `Draft`: `transcript` and `skus` (catalog rows) always, and `kind` (`receipt`, `issue`,
+  `transfer`), `location`, `to_location` (catalog place rows) and `qty` (a JSON number) only when present. No count
+  by voice (D-150): a draft of kind `count` is answered without `kind` and `qty`. Refusals are the old server's texts:
+  400 `audio file is required (max 10 MB)` (no audio, not multipart, over the cap), 400 `lang must be ru or kk`,
+  503 `speech recognition is not configured on the server` and 502 `speech recognition failed` (both with
+  `"source": "speech"`), 422 `nothing was said` (empty transcript), 502 `could not understand the phrase`
+  (`"source": "llm"`), and a plain 500 `internal error`. Nothing is stored or logged about the phrase; the voice call
+  spends one request token and a paid provider call, so the per-credential limit is its only bound.
+
+Out of scope here: the calls not served (count, codes, feedback, parse), the pairing call, and any
 change to the credential or its rules.
 
 ## 11d. Amendment (REQ-910, as built): code lookup at the old address

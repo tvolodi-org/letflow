@@ -298,7 +298,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-859: old_app_reads.ex (reads through Ledger and the master read APIs, no Repo) makes 54.
     # REQ-860: old_app_writes.ex (the old app's movement post and reverse, through the document and ledger functions, no Repo) makes 55.
     # REQ-903: documents/legs.ex (pure, no Repo) makes 56.
-    assert length(files) == 56
+    # REQ-911: old_app_voice.ex (the old app's voice Draft over VoiceService, no Repo) makes 57.
+    assert length(files) == 57
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

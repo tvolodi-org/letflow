@@ -12,8 +12,9 @@ defmodule Letflow.Routers.SharedStockAccess do
   | `POST /movements` | 201 one movement (the row of `GET /movements`, with `balances` after the movement: one entry per place touched) of the posted document; 200 the STORED row when the same `id` is sent again with equal data; body `kind` (`receipt`, `issue`, `transfer`, and REQ-912 `adjustment`, the count: `qty` is the counted number, 0 allowed, answered by the movement row with `qty` = the counted number when the tenant's four-eyes switch for counts is OFF, else 400 `invalid kind`; every refusal of a count is a 400 with the old server's Russian text, see `Letflow.Modules.Stock.OldAppWrites`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (REQUIRED: the client operation id, a UUID string; missing or not a UUID is 400 `id is required`; the same `id` with other data is 409); a zero or negative `qty` is 400 `quantity must be positive` |
   | `POST /movements/:id/reverse` | 201 the reversal's own movement row, 200 its stored row for the same reversal `id` sent again; a movement already reversed under another `id` is 400 `already reversed`, a reversal is 400 `a reversal cannot be reversed; post a new operation instead` (the old server's texts, REQ-909); body `id` (REQUIRED, the reversal's own new UUID), `operator` (or `X-Operator`) |
   | `GET /codes/lookup?code=` | REQ-910, the old app's scan to find (read only, the lookup of `Letflow.Modules.Codes.resolve/2`; `code` is trimmed, the match is exact and case-sensitive): 200 `{"object_type", "object_id", "object_code", "object_name", "code"}` (`object_type` `sku` or `location`, `object_id` the integer of the catalog); 400 `{"error": "code is required", "reason": "invalid_request"}` when `code` is missing or blank; 404 `{"error": "not found", "reason": "code_not_found"}`, the one body of every other outcome (unknown, not assigned, retired, a lot, an inactive target: INV-5) |
+  | `POST /api/voice` | K10 / REQ-911, the old app's microphone call (the `/api` form only; `POST /voice` is 404), over `Letflow.Modules.Stock.VoiceService.draft_audio/2` (`Letflow.Modules.Stock.OldAppVoice`): the multipart body (`audio`, `lang`) is read after authentication, capped at 10_485_760 bytes; 200 the old Draft `transcript`, `skus` and, when present, `kind` (`receipt`, `issue`, `transfer`), `location`, `to_location`, `qty` (no count by voice); refusals are the old server's texts: 400 `audio file is required (max 10 MB)`, 400 `lang must be ru or kk`, 503 and 502 with `source` `speech`, 422 `nothing was said`, 502 with `source` `llm` |
   | the same six calls with `/api` in front: `GET /api/catalog`, `GET /api/balances`, `GET /api/movements`, `POST /api/movements`, `POST /api/movements/:id/reverse`, `GET /api/codes/lookup` | REQ-907: exactly the answer of the call without `/api` (the real old app adds `/api` to every path; decision 0091 section 11c) |
-  | any other method or path | 404 `{"error": "not found"}`, with or without `/api` (the code list, assign and remove, feedback, voice and parse calls are not served) |
+  | any other method or path | 404 `{"error": "not found"}`, with or without `/api` (the code list, assign and remove, feedback and parse calls are not served) |
 
   Order of work for every request, and nothing else runs before it:
 
@@ -93,6 +94,11 @@ defmodule Letflow.Routers.SharedStockAccess do
     code_lookup(conn, params)
   end
 
+  # K10 / REQ-911: only the `/api` form is served (the app never calls `/voice`).
+  post "/voice" do
+    if conn.assigns[:api_form], do: voice(conn), else: json(conn, 404, %{error: "not found"})
+  end
+
   get "/balances" do
     read(conn, &Catalog.old_app_balances/2)
   end
@@ -133,7 +139,7 @@ defmodule Letflow.Routers.SharedStockAccess do
   # REQ-907: after authentication, the `/api` form is the plain form (one segment is removed, once).
   @doc false
   def strip_api(%Plug.Conn{path_info: ["api" | rest]} = conn, _opts),
-    do: %{conn | path_info: rest}
+    do: %{conn | path_info: rest} |> Plug.Conn.assign(:api_form, true)
 
   def strip_api(conn, _opts), do: conn
 
@@ -256,6 +262,48 @@ defmodule Letflow.Routers.SharedStockAccess do
 
       {:error, :not_found} ->
         json(conn, 404, %{error: "not found", reason: "code_not_found"})
+    end
+  rescue
+    exception ->
+      Logger.error("shared_stock_access_failed #{inspect(exception.__struct__)}")
+      json(conn, 500, %{error: "internal error"})
+  end
+
+  # K10 / REQ-911: the multipart body is parsed here, AFTER authentication, at the old server's cap for
+  # the whole body (10 << 20); an unreadable, oversized or non-multipart body is the old "audio file is
+  # required" refusal. Nothing about the phrase is logged (a crash is a plain 500, INV-8).
+  @max_voice_body 10_485_760
+
+  defp voice(conn) do
+    parsers = Plug.Parsers.init(parsers: [:multipart], pass: ["*/*"], length: @max_voice_body)
+
+    result =
+      try do
+        parsed = Plug.Parsers.call(conn, parsers)
+
+        case parsed.body_params do
+          %{} = params when not is_struct(params) -> {:ok, parsed, params}
+          _unfetched -> {:ok, parsed, %{}}
+        end
+      rescue
+        _unreadable in [
+          Plug.Parsers.RequestTooLargeError,
+          Plug.Parsers.ParseError,
+          Plug.Parsers.BadEncodingError,
+          Plug.Parsers.UnsupportedMediaTypeError
+        ] ->
+          :unreadable
+      end
+
+    case result do
+      {:ok, conn, params} ->
+        case Catalog.old_app_voice(conn.assigns.shared_access.prefix, params) do
+          {:ok, body} -> json(conn, 200, body)
+          {:error, {status, body}} -> json(conn, status, body)
+        end
+
+      :unreadable ->
+        json(conn, 400, %{error: "audio file is required (max 10 MB)"})
     end
   rescue
     exception ->

@@ -155,6 +155,11 @@ defmodule Letflow.Modules.Catalog do
   def old_app_code_lookup(prefix, params),
     do: Letflow.Modules.Stock.OldAppReads.code_lookup(prefix, params)
 
+  # K10 / REQ-911: the voice draft of the old Qoimeks address, see `Letflow.Modules.Stock.OldAppVoice`.
+  @doc false
+  def old_app_voice(prefix, params),
+    do: Letflow.Modules.Stock.OldAppVoice.answer(prefix, params)
+
   # REQ-860: the two writes of the old Qoimeks address (movement post and reverse), see `OldAppWrites`.
   @doc false
   def old_app_post(prefix, actor_id, authorized, params, header),
