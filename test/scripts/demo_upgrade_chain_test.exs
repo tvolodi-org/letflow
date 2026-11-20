@@ -157,7 +157,10 @@ defmodule Letflow.Scripts.DemoUpgradeChainTest do
       )
 
     for [name] <- tables, name not in @upgrade_tables, into: %{} do
-      %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{schema}"."#{name}"|)
+      # T-2400: an upgrade creates the tenant-local system actor `__stock_process_activator__` once
+      # (`Letflow.Modules.ProcessActivator`, T-2353) to activate the unmodified drafts: not tenant data.
+      where = if name == "users", do: " WHERE username <> '__stock_process_activator__'", else: ""
+      %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{schema}"."#{name}"#{where}|)
       {name, n}
     end
   end

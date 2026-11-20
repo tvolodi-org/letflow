@@ -74,6 +74,9 @@ defmodule Letflow.Modules.Maintenance do
   defmanifest(
     id: "maintenance",
     version: "0.4.0",
+    # T-2400: step-less window from 0.1.0 (the entity types and the pack process of 0.2.0..0.4.0 are
+    # additive); the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
+    min_upgradable_from: "0.1.0",
     depends_on: ["assets"],
     pack: "modules/maintenance/pack.json",
     permissions: [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage],
