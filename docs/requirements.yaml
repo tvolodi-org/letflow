@@ -58546,6 +58546,86 @@ requirements:
       - "5. Client-id rules unchanged: the T-2282 retry tests in test/letflow/routers/shared_stock_access_writes_test.exs (201, 200 replay, 409 changed data, 400 id is required, one document for concurrent duplicates) pass. Only their expectations of the answer's field names, and the two reverse refusals of criterion 4 (today asserted as 409 document_reversed and reversal_cannot_be_reversed), are updated."
       - "6. Documents: the moduledocs of Letflow.Modules.Stock.OldAppReads, Letflow.Modules.Stock.OldAppWrites and Letflow.Routers.SharedStockAccess describe the row, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the movement fields and the kind mapping, and one bullet naming the three old refusal texts of point (6) as superseding point (5) of the T-2282 row for the old address."
     depends_on: [REQ-908, REQ-860]
+  - id: REQ-911
+    title: "Old Qoimeks client compatibility part 4: the old address serves POST /api/voice over the existing voice draft and answers the old app's Draft (transcript, kind, skus, location, to_location, qty) with the old texts and source speech or llm on a failure, no count by voice"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4904
+    # Source: task T-2383 (K9 of docs/status/qoimeks-old-client-compat.md section 5.3; PM GO 2026-11-20: the old app works unchanged at the old address, a thin layer only; refusals follow the OLD server's texts; D-150 pruning: no voice count phrase). Qoimeks commit 01e8780, copies in state/tasks/T-2383/sources/: server/internal/api/api.go (maxAudioBytes = 10 << 20 on the whole body; parseVoice: 503 {"error": "speech recognition is not configured on the server", "source": "speech"}, 400 {"error": "audio file is required (max 10 MB)"}, 400 {"error": "could not read audio"}, 502 {"error": "speech recognition failed", "source": "speech"}, 200 {transcript, skus: []} when speech works and no parser is set; draft: 422 {"error": "nothing was said"} for an empty text, 502 {"error": "could not understand the phrase", "source": "llm"}; DraftResponse json keys transcript, kind omitempty, skus, location omitempty, to_location omitempty, qty omitempty; resolve keeps only catalog-confirmed codes, best match first), mobile/lib/api.dart (Draft.fromJson: transcript, kind, skus as Sku rows, location and to_location as Location rows or null, qty as a number; ApiException.source; voice() sends the multipart fields lang and audio), mobile/lib/l10n.dart error() (source speech or llm is read before the status; 422 is the silence text; 502, 503 and 504 without a source are the network text), mobile/lib/voice.dart (phones record AAC in .m4a, the web build Opus in .webm), mobile/lib/operation_screen.dart _applyDraft (an absent kind, place or qty leaves the form field as it was). Letflow files read on origin/main 1717b330e: lib/letflow/modules/stock/voice_service.ex (draft_audio/2: allowed keys audio and lang, the refusals and their source extras, model_off/1 with notice llm_off), lib/letflow/modules/stock/voice_draft.ex (check/3: kinds receipt, issue, transfer, count and unknown; items as id, code, name; quantity as decimal text), lib/letflow/modules/stock/router.ex (POST /voice/draft under StockPost), lib/letflow/routers/shared_stock_access.ex (authenticate, accept, with_authorized, read_json with @max_body 8192, match _ 404), lib/letflow/router.ex (forward "/qoimeks/:tenant_slug", no Plug.Parsers before it), lib/letflow/modules/catalog.ex (old_app_* delegates), test/support/voice_doubles.ex (install!/1), docs/migration/decisions/0091-shared-stock-access.md sections 2, 7, 11a, 11b.
+    description: >
+      Why. The old app's microphone button sends POST <base>/api/voice (multipart: the text field lang, ru
+      or kk, and the file audio) and fills the operation form from the Draft it gets back. The old address
+      does not serve the call, so the button fails (docs/status/qoimeks-old-client-compat.md section 3,
+      row C6). Letflow already has the same flow for personal accounts:
+      Letflow.Modules.Stock.VoiceService.draft_audio/2 takes the same form keys audio and lang, answers
+      Letflow's draft and marks a provider failure with source speech or llm. This requirement puts that
+      flow behind the old address in the old app's shape. VoiceService, VoiceDraft, the /api/v1 voice
+      routes and the web SPA do not change.
+      (1) Route. Letflow.Routers.SharedStockAccess serves POST /api/voice under the prefix
+      /qoimeks/<slug>. Only the /api form is served: the app never calls /voice, so POST /voice stays 404
+      {"error": "not found"}. Authentication, the failure and request tokens and the scope enforcement
+      403 run first and unchanged, as for every call of the moduledoc's "Order of work". The shared access
+      keeps exactly StockRead, StockPost and StockReverse (decision 0091 section 2); the personal voice
+      route needs StockPost, and the voice draft writes nothing.
+      (2) Body. The multipart body is parsed inside the route, AFTER authentication, by
+      Plug.Parsers.MULTIPART with length 10_485_760 for the whole body (the old server's maxAudioBytes,
+      10 << 20, also on the whole body). Only the parts audio and lang are passed to
+      VoiceService.draft_audio/2 with the proved tenant's prefix; other parts are ignored, as the old
+      server ignored them.
+      (3) Builder. One new builder module, Letflow.Modules.Stock.OldAppVoice in
+      lib/letflow/modules/stock/old_app_voice.ex (planned, not yet on main), reached only through a new
+      delegate Letflow.Modules.Catalog.old_app_voice/2 (planned, not yet on main), translates the result.
+      The 200 body has these keys:
+          - transcript: the draft's transcript (text, always present).
+          - skus: a list, always present. One row per draft item, in the draft's order (best match
+            first), built by the same row builder as the skus of GET /api/catalog (REQ-908): id (the
+            integer of catalog_item_int_ids), code, name, unit, location_id when set, barcode when set.
+          - kind: receipt, issue or transfer when the draft has that kind. The key is absent for kind
+            unknown and for kind count.
+          - location and to_location: the place as a row of the locations of GET /api/catalog (REQ-908):
+            id (the integer of location_node_int_ids), code and name. Each key is absent when the draft
+            has no such place.
+          - qty: the draft quantity as a JSON number. The key is absent when the draft has none, and for
+            kind count.
+      No other key is answered (not dropped, notice, items or quantity).
+      (4) No count by voice (owner pruning D-150). A draft of kind count is answered without kind and
+      without qty, so the form keeps its kind and the counted number never becomes a movement quantity.
+      The items and the place it names are kept.
+      (5) Refusals follow the old server (copies in state/tasks/T-2383/sources/), as {"error": text},
+      plus "source" where the old server sent one. Nothing is stored for any of them:
+          - not multipart, no audio part, a body over the cap, or audio_too_large or field_invalid from
+            VoiceService: 400 {"error": "audio file is required (max 10 MB)"}.
+          - bad_language (lang missing, or not ru or kk): 400 {"error": "lang must be ru or kk"}.
+          - speech_off: 503 {"error": "speech recognition is not configured on the server", "source": "speech"}.
+          - audio_format, or any provider refusal with source speech (provider_timeout, refused,
+            truncated, provider_error): 502 {"error": "speech recognition failed", "source": "speech"}.
+          - a 200 draft whose transcript is empty after trimming spaces: 422 {"error": "nothing was said"}.
+          - any refusal with source llm (bad_answer, provider_timeout, refused, truncated,
+            provider_error): 502 {"error": "could not understand the phrase", "source": "llm"}.
+          - {:error, :not_found}, or a raised exception: 500 {"error": "internal error"} with no detail
+            (INV-8).
+      With no model configured (VoiceService answers notice llm_off) and a non-empty transcript, the
+      answer is 200 {"transcript": <text>, "skus": []}, as the old server answered when speech worked and
+      no parser was set.
+      (6) Nothing about the phrase is logged: the router and OldAppVoice log no transcript, no audio and no
+      item or place name. A provider's message never reaches the answer (INV-4, INV-8; VoiceService
+      already drops it).
+      Size M. Risk: medium. A new route on the shared-secret path reads the proved tenant's item and place
+      lists (INV-1, through VoiceService with the router's prefix) and spends a paid provider call per
+      request, which only the per-credential request limit bounds. So it goes to security review.
+      Decision 0091 section 7 lists POST /voice as not served (G15); section 11c (added by REQ-907) records
+      the change. OUT OF SCOPE: POST /api/parse (the app never calls it), the typed draft, any change to
+      VoiceService, VoiceDraft, VoicePrompt or the old prompt of the predecessor's voice, the count at the
+      old address (status note section 5, tasks K4 to K6), and the code, feedback and pairing calls.
+    acceptance_criteria:
+      - "1. Draft shape: in test/letflow/routers/shared_stock_access_voice_test.exs (planned, not yet on main), with Letflow.Support.VoiceDoubles.install!/1 faking the speech answer and the model answer (no real provider is called), a tenant with two active items X and Y and two active places A and B, and a valid credential, POST /qoimeks/<slug>/api/voice with lang ru and an m4a audio part gives 200. The key set is exactly transcript, kind, skus, location, to_location and qty for a faked transfer of 3 of X from A to B. kind is transfer, skus is one row equal to X's row in GET /qoimeks/<slug>/api/catalog, location and to_location equal A's and B's rows in its locations, and qty is the JSON number 3. For a faked receipt naming X and Y with no place and no quantity, the key set is exactly transcript, kind and skus, and skus lists X then Y in the model's order."
+      - "2. No count by voice: a faked count of 5 of X at A gives 200 with skus equal to X's row and location equal to A's row, and with no kind key and no qty key. A faked answer of kind unknown gives no kind key."
+      - "3. Old refusal texts: each case gives exactly the status and body that point (5) of the description gives for it. The cases are a part with no audio, a body that is not multipart, a body over 10_485_760 bytes, lang kk2, speech settings off, a speech double answering {:error, :provider_timeout}, audio bytes that are neither MP4 nor WebM, a speech double answering an empty transcript, and a model double answering a non-JSON text. With the model settings off and a non-empty transcript, the answer is 200 with exactly the keys transcript and skus, skus being []."
+      - "4. Authentication first: POST /qoimeks/<slug>/api/voice with no Authorization header, with a wrong value or with an unlisted slug, each with a body over 10_485_760 bytes, gives the byte-identical 401 of the other old-address calls, and the speech double is never called. A wrong value spends one failure token, as REQ-907 criterion 2 counts. An accepted voice call spends exactly one request token, and with scope enforcement on the answer is 403 {\"error\": \"scope_enforcement_active\"} with no speech call. POST /qoimeks/<slug>/voice stays 404 {\"error\": \"not found\"}."
+      - "5. Own tenant only and nothing stored: when the model double names the code of an item that exists only in a second tenant, that item is not in skus. After each call of criteria 1 to 3 the tenant's stock document count and the balances of X and Y are unchanged. Under ExUnit capture_log the faked transcript text and item names do not appear in the log."
+      - "6. Unchanged and documented: no test expectation outside the old-address router tests (test/letflow/routers/shared_stock_access*_test.exs) and the old-app builder tests changes. In particular test/letflow/modules/stock/voice_router_test.exs, voice_draft_test.exs, voice_audio_regression_test.exs and voice_regression_test.exs pass unedited. The only edit to an old-address test is that the not-served list of REQ-907 criterion 3 no longer contains POST /api/voice. The moduledoc route table of Letflow.Routers.SharedStockAccess lists POST /api/voice, and section 11c of docs/migration/decisions/0091-shared-stock-access.md gains one bullet naming the route, the Draft keys, the no-count rule and the refusal texts of point (5)."
+    depends_on: [REQ-908, REQ-741]
   - id: REQ-910
     title: "Old Qoimeks client compatibility part 4: the old address answers the scan lookup GET /api/codes/lookup?code= over Codes resolve, read only, and finds an item by its legacy barcode loaded through the code imports"
     owner: ELIXIR-DEV
