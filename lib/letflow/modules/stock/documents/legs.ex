@@ -31,13 +31,17 @@ defmodule Letflow.Modules.Stock.Documents.Legs do
   kind gives per line a `-q` leg at the from side and a `+q` leg at the to side (`Kinds.sides/2`).
   """
   @spec expected(map(), map()) :: [tuple()]
-  def expected(%{kind: "opening"}, content),
+  def expected(spec, content), do: expected(spec, content, false)
+
+  @doc false
+  @spec expected(map(), map(), boolean()) :: [tuple()]
+  def expected(%{kind: "opening"}, content, _record_zero),
     do: content |> OpeningPosting.expected_legs(&leg_key/7) |> Enum.sort()
 
-  def expected(%{kind: "quick_count"}, content),
-    do: content |> QuickCountPosting.expected_legs(&leg_key/7) |> Enum.sort()
+  def expected(%{kind: "quick_count"}, content, record_zero),
+    do: content |> QuickCountPosting.expected_legs(&leg_key/7, record_zero) |> Enum.sort()
 
-  def expected(spec, content) do
+  def expected(spec, content, _record_zero) do
     {from, to} = Kinds.sides(spec, Map.get(content, "header", %{}))
 
     Enum.flat_map(Map.get(content, "lines", []), fn line ->

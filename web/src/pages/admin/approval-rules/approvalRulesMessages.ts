@@ -44,6 +44,7 @@ const UI: Record<string, Triple> = {
     "Құжатты ресімдеген адам оны өзі бекіте алады. Мұндай әрбір бекіту аудит журналына «өзі бекітті, екі адам ережесі өшірулі» деп жазылады.",
   ],
   'approvalRules.change.never': ['Never changed (default: on)', 'Не менялось (по умолчанию: включено)', 'Өзгертілмеген (әдепкі: қосулы)'],
+  'approvalRules.change.never.off': ['Never changed (default: off)', 'Не менялось (по умолчанию: выключено)', 'Өзгертілмеген (әдепкі: өшірулі)'],
   'approvalRules.change.by': ['{name}, {when}', '{name}, {when}', '{name}, {when}'],
   'approvalRules.change.unknownUser': ['Unknown user', 'Неизвестный пользователь', 'Белгісіз пайдаланушы'],
   'approvalRules.change.reason': ['Reason: {reason}', 'Причина: {reason}', 'Себебі: {reason}'],

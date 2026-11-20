@@ -11,8 +11,10 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
   `balance_changed` (stock alias `quick_count_stale`). It carries NO `device_id`, `client_seq` or
   `client_event_time` (the event time is the posting time) and the header's `reason_code`.
 
-  A count equal to the book on ALL lines has no leg: `command/3` answers `:none` and
-  `expected_legs/2` is empty.
+  A count equal to the book on ALL lines normally has no leg: `command/3` answers `:none` and
+  `expected_legs/2` is empty. The old Qoimeks address alone uses `command/4` and `expected_legs/3`
+  with `record_zero` true: its empty-shelf count then has one zero leg, because the old server stored
+  that count as a real reversible movement rather than confirming it without a history row.
 
   REQ-885: a workbook-load quick count may have more than one line; each non-zero-diff line
   contributes one leg to the same posting command.
@@ -33,17 +35,23 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
   @doc "The posting command, `:none` when all differences are zero, `{:error, :line_record_missing}` when a non-zero-diff line has no record id."
   @spec command(map(), map(), %{optional(integer()) => String.t()}) ::
           {:ok, map()} | :none | {:error, :line_record_missing}
-  def command(view, %{content: content} = issued, line_ids) do
+  def command(view, issued, line_ids), do: command(view, issued, line_ids, false)
+
+  @doc false
+  @spec command(map(), map(), %{optional(integer()) => String.t()}, boolean()) ::
+          {:ok, map()} | :none | {:error, :line_record_missing}
+  def command(view, %{content: content} = issued, line_ids, record_zero) do
     header = Map.get(content, "header", %{})
     lines = Map.get(content, "lines", [])
 
-    non_zero = Enum.reject(lines, &zero?(Map.get(&1, "difference")))
+    selected =
+      if record_zero, do: lines, else: Enum.reject(lines, &zero?(Map.get(&1, "difference")))
 
-    if non_zero == [] do
+    if selected == [] do
       :none
     else
       result =
-        Enum.reduce_while(non_zero, {:ok, []}, fn line, {:ok, acc} ->
+        Enum.reduce_while(selected, {:ok, []}, fn line, {:ok, acc} ->
           case Map.fetch(line_ids, Map.get(line, "line_no")) do
             {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, header) | acc]}}
             :error -> {:halt, {:error, :line_record_missing}}
@@ -52,15 +60,16 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
 
       case result do
         {:ok, legs} ->
-          {:ok,
-           %{
-             "cause" => "count_set",
-             "document_type" => "stock_quick_count",
-             "document_id" => view.id,
-             "client_op_id" => issued.version_id,
-             "reason_code" => Map.get(header, "reason_code"),
-             "lines" => Enum.reverse(legs)
-           }}
+          command = %{
+            "cause" => "count_set",
+            "document_type" => "stock_quick_count",
+            "document_id" => view.id,
+            "client_op_id" => issued.version_id,
+            "reason_code" => Map.get(header, "reason_code"),
+            "lines" => Enum.reverse(legs)
+          }
+
+          {:ok, if(record_zero, do: Map.put(command, "record_zero", true), else: command)}
 
         {:error, reason} ->
           {:error, reason}
@@ -97,12 +106,25 @@ defmodule Letflow.Modules.Stock.Documents.QuickCountPosting do
   """
   @spec expected_legs(map(), (term(), term(), term(), term(), term(), term(), term() -> tuple())) ::
           [tuple()]
-  def expected_legs(content, leg_key) do
+  def expected_legs(content, leg_key), do: expected_legs(content, leg_key, false)
+
+  @doc false
+  @spec expected_legs(
+          map(),
+          (term(), term(), term(), term(), term(), term(), term() -> tuple()),
+          boolean()
+        ) :: [tuple()]
+  def expected_legs(content, leg_key, record_zero) do
     header = Map.get(content, "header", %{})
     lines = Map.get(content, "lines", [])
 
     lines
-    |> Enum.reject(&zero?(Map.get(&1, "difference")))
+    |> then(
+      &if(record_zero,
+        do: &1,
+        else: Enum.reject(&1, fn line -> zero?(Map.get(line, "difference")) end)
+      )
+    )
     |> Enum.map(fn line ->
       leg_key.(
         Map.get(line, "catalog_item_id"),

@@ -43,6 +43,7 @@ const BASE = {
   reason: null,
 }
 const ON: ApprovalRule = { ...BASE, definition_name: 'assets_opening', four_eyes: true }
+const DEFAULT_OFF: ApprovalRule = { ...BASE, definition_name: 'stock_quick_count', four_eyes: false }
 const OFF: ApprovalRule = {
   ...BASE,
   definition_name: 'stock_opening',
@@ -118,4 +119,12 @@ export const approvalRulesScreens: HarnessScreen[] = [
   mkScreen('approval-rules-loading', { get: 'pending' }),
   mkScreen('approval-rules-error', { get: { status: 500 } }),
   mkScreen('approval-rules-denied', { get: { status: 403, body: { status: 403, detail: 'insufficient permissions' } } }),
+  mkScreen('approval-rules-default-off', {
+    items: [DEFAULT_OFF, ON],
+    props: { initialSelectedKey: key(DEFAULT_OFF) },
+  }),
+  mkScreen('approval-rules-default-on', {
+    items: [ON],
+    props: { initialSelectedKey: key(ON) },
+  }),
 ]

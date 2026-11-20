@@ -205,7 +205,7 @@ defmodule Letflow.Ledger.Validate do
 
   defp ordinary_posting(posting, offline, registration) do
     with {:ok, cause} <- check_cause(posting.cause, registration),
-         {:ok, legs} <- check_legs(posting.legs, registration),
+         {:ok, legs} <- check_legs(posting.legs, registration, posting.cause),
          :ok <- check_text(posting),
          :ok <- check_sign(cause.sign_rule, legs) do
       {:ok,
@@ -323,15 +323,16 @@ defmodule Letflow.Ledger.Validate do
     end
   end
 
-  defp check_legs([], _registration), do: invalid(:no_legs)
+  defp check_legs([], _registration, _cause), do: invalid(:no_legs)
 
-  defp check_legs(legs, _registration) when length(legs) > @max_legs, do: invalid(:too_many_legs)
+  defp check_legs(legs, _registration, _cause) when length(legs) > @max_legs,
+    do: invalid(:too_many_legs)
 
-  defp check_legs(legs, registration) do
+  defp check_legs(legs, registration, cause) do
     legs
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {leg, n}, {:ok, acc} ->
-      case check_leg(leg, n, registration) do
+      case check_leg(leg, n, registration, cause) do
         {:ok, norm} -> {:cont, {:ok, [norm | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -358,8 +359,8 @@ defmodule Letflow.Ledger.Validate do
     end
   end
 
-  defp check_leg(leg, n, registration) when is_map(leg) do
-    with {:ok, quantity} <- check_quantity(Map.get(leg, :quantity), n),
+  defp check_leg(leg, n, registration, cause) when is_map(leg) do
+    with {:ok, quantity} <- check_quantity(Map.get(leg, :quantity), n, cause),
          {:ok, expected} <- check_expected(Map.get(leg, :expected_on_hand), n),
          {:ok, k} <- check_slots(Map.get(leg, :k), n, registration.slots),
          {:ok, unit} <- check_unit(Map.get(leg, :unit_ref), n, Map.get(registration, :units)),
@@ -378,20 +379,24 @@ defmodule Letflow.Ledger.Validate do
     end
   end
 
-  defp check_leg(_leg, n, _registration), do: invalid(:posting_shape, n)
+  defp check_leg(_leg, n, _registration, _cause), do: invalid(:posting_shape, n)
 
-  defp check_quantity(%Decimal{coef: coef} = q, n) when is_integer(coef) do
+  # count_set alone may record the old Qoimeks empty-shelf count as a zero leg; all other movements
+  # keep refusing zero. The stock policy has the same cause-specific rule, so both layers agree. The
+  # database no longer backs this rule: migration 20261121100001 dropped the cause-blind
+  # `ledger_leg_quantity_check` (quantity <> 0), so this function is the only guard of zero legs.
+  defp check_quantity(%Decimal{coef: coef} = q, n, cause) when is_integer(coef) do
     normal = Decimal.normalize(q)
 
     cond do
-      Decimal.eq?(q, 0) -> invalid(:quantity_zero, n)
+      Decimal.eq?(q, 0) and cause != "count_set" -> invalid(:quantity_zero, n)
       normal.exp < -9 -> invalid(:quantity_scale, n)
       Decimal.compare(Decimal.abs(q), @max_abs) != :lt -> invalid(:quantity_range, n)
       true -> {:ok, Decimal.round(q, 9)}
     end
   end
 
-  defp check_quantity(_other, n), do: invalid(:quantity_invalid, n)
+  defp check_quantity(_other, n, _cause), do: invalid(:quantity_invalid, n)
 
   # REQ-853: the optional compare-and-set value of a leg, a decimal with at most 9 decimals. Decision
   # 0090 (T-2288): it may be negative, the book of a key on an allow tenant (book -2 counted 3 posts +5).

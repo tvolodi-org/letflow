@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * T-1989 page tests. IDs: W-P1 list, W-P2 toggle with reason, W-P3 path encoding, W-P4 warning (both branches),
- * W-P5 selection after Save, W-P6 write errors, W-P7 load states, W-P8 orphans, W-P9 readable names, W-P10 ru.
+ * W-P5 selection after Save, W-P6 write errors, W-P7 load states, W-P8 orphans, W-P9 readable names, W-P10 ru,
+ * W-P11 never-changed text follows the real On / Off default in en, ru and kk (GH 4947).
  * Fake window.fetch; real react-query and the real page.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -67,6 +68,7 @@ const OFF = rule({
   changed_at: '2026-11-10T09:30:00Z',
   reason: 'One-person company',
 })
+const FRESH_OFF = rule({ definition_name: 'stock_quick_count', four_eyes: false })
 const ORPHAN_OFF = rule({ definition_name: 'old_v0', four_eyes: false, in_active_definition: false })
 const ORPHAN_ON = rule({ definition_name: 'old_v1', four_eyes: true, in_active_definition: false })
 
@@ -322,5 +324,43 @@ describe('W-P10 Russian', () => {
     expect(screen.getAllByText('Ввод остатков активов').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Включено').length).toBeGreaterThan(0)
     expect(screen.queryByText('Approval rules')).toBeNull()
+  })
+})
+
+describe('W-P11 real defaults (GH 4947)', () => {
+  it.each([
+    {
+      locale: 'en' as const,
+      on: 'Never changed (default: on)',
+      off: 'Never changed (default: off)',
+      offPill: 'Off',
+    },
+    {
+      locale: 'ru' as const,
+      on: 'Не менялось (по умолчанию: включено)',
+      off: 'Не менялось (по умолчанию: выключено)',
+      offPill: 'Выключено',
+    },
+    {
+      locale: 'kk' as const,
+      on: 'Өзгертілмеген (әдепкі: қосулы)',
+      off: 'Өзгертілмеген (әдепкі: өшірулі)',
+      offPill: 'Өшірулі',
+    },
+  ])('shows the Off and On defaults in $locale', async ({ locale, on, off, offPill }) => {
+    items = [FRESH_OFF]
+    render({ locale, initialSelectedKey: JSON.stringify(['stock_quick_count', 'approve']) })
+    await ready()
+    expect(screen.getByTestId('approval-rule-last-change').textContent).toBe(off)
+    expect(screen.getByTestId('approval-rule-switch')).not.toBeChecked()
+    expect(screen.getByTestId('detail-header')).toHaveTextContent(offPill)
+    expect(screen.queryByTestId('approval-rule-last-reason')).toBeNull()
+
+    cleanup()
+    items = [ON]
+    render({ locale })
+    await ready()
+    expect(screen.getByTestId('approval-rule-last-change').textContent).toBe(on)
+    expect(screen.getByTestId('approval-rule-switch')).toBeChecked()
   })
 })

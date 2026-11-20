@@ -174,6 +174,21 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     refute QuickCountPosting.confirmed?(issued("-3.000000000").content)
     assert QuickCountPosting.expected_legs(zero.content, fn _, _, _, _, _, _, _ -> :leg end) == []
 
+    # The old Qoimeks address alone explicitly records its empty-shelf zero as a movement.
+    assert {:ok, zero_command} =
+             QuickCountPosting.command(%{id: "doc-1"}, zero, %{1 => @id}, true)
+
+    assert zero_command["record_zero"]
+
+    assert [%{"quantity" => "0.000000000", "to" => %{"location" => @id2}}] =
+             zero_command["lines"]
+
+    assert QuickCountPosting.expected_legs(
+             zero.content,
+             fn _, _, _, _, _, _, _ -> :leg end,
+             true
+           ) == [:leg]
+
     assert {:error, :line_record_missing} =
              QuickCountPosting.command(%{id: "doc-1"}, issued("1.000000000"), %{})
   end
@@ -216,6 +231,11 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     # decision 0090 (T-2288): a negative book is counted; the posting carries it as expected.
     assert {:ok, %{legs: [neg_book]}} = declare([policy_line(%{expected_on_hand: "-1"})])
     assert Decimal.eq?(neg_book.expected_on_hand, -1)
+
+    # The old-address empty-shelf count is a real zero movement; the other causes still refuse zero
+    # (T-LP-7 pins receipt).
+    assert {:ok, %{legs: [zero]}} = declare([policy_line(%{quantity: "0"})])
+    assert Decimal.eq?(zero.quantity, 0)
   end
 
   test "QS-9 the policy refuses a missing or bad expected, over 1000 lines, both sides and client time" do
@@ -224,7 +244,6 @@ defmodule Letflow.Modules.Stock.QuickCountShapeTest do
     bad.(policy_line(%{expected_on_hand: "1.0000000001"}))
     bad.(policy_line(%{expected_on_hand: 10}))
     bad.(policy_line(%{to: %{org_unit: @id, location: @id2}}))
-    bad.(policy_line(%{quantity: "0"}))
 
     # REQ-885: the policy takes one line per change of a workbook load (1 to 1000); the one-line rule
     # of `POST /quick-counts` is the route's (`QuickCountShape`), not the policy's.
