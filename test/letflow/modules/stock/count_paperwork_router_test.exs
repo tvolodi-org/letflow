@@ -277,7 +277,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkRouterTest do
       assert sheets(second.resp_body)["lines"] == before
 
       # the xlsx body is deflated, so a raw-binary match proves nothing: compare the parsed sheet text
-      refute inspect(sheets(second.resp_body), limit: :infinity) =~ "999"
+      # target the changed value itself: a bare "999" also matches random codes such as E-99970
+      refute inspect(sheets(second.resp_body), limit: :infinity) =~ "999.000000000"
       assert sheets(download(id, "sheet", x.chair_tok).resp_body) == sheets(second.resp_body)
     end
   end
