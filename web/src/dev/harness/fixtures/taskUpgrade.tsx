@@ -12,7 +12,7 @@ export const TASK_UPGRADE_PROBLEM = {
   code: 'upgrade_required',
 }
 
-function CompleteOnce() {
+export function CompleteOnce() {
   useEffect(() => {
     const complete = () => {
       const button = document.querySelector<HTMLButtonElement>('[data-testid="task-complete-button"]')
