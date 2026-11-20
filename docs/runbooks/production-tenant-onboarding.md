@@ -431,7 +431,7 @@ reason in both directions and keeps it in the audit log with the administrator's
 screen is `PUT /api/v1/approval-rules/stock_quick_count/approve`, with this body:
 
 ```
-{"four_eyes": false, "reason": "Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"}
+{"four_eyes": false, "reason": "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"}
 ```
 
 The reason is one line, exactly as it stands there: the product's reason rule refuses a line break.
@@ -548,12 +548,11 @@ Open `https://<host>` and sign in as the company administrator. The menu group "
 4. In the box "Reason" / «Причина» type EXACTLY, on one line (a line break is refused):
 
    ```
-   Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164
+   Client 1, storekeeper counts from the phone, one administrator, owner decision D-164
    ```
 
-   This is the owner's D-164 text used in step 20 (the PM's short form "Client 1, storekeeper counts from the phone,
-   one administrator, owner decision D-164" is the same decision; the long text above is the one the runbook
-   tests pin, so use it).
+   This is the exact text decided by the owner and the PM (D-164); the same text is used in step 20 and pinned by
+   the runbook tests.
 5. Click "Save" / «Сохранить». The toast "Approval rule saved" / «Правило утверждения сохранено» appears.
 
 **Read-back:** (a) the row shows "Off" / «Выключено»; the panel shows the rule text "The issuer may approve their
