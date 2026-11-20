@@ -257,6 +257,22 @@ also be a member (row 8); but the member list of a stock count order may be empt
 empty", V), so one person can run a stock count as chair alone. Whether the paper form of a count accepts a
 one-person commission is a legal question outside this switch (finding for the owner).
 
+**Owner decision D-164 (2026-11-20, PM relay): for Client 1 the four-eyes switch for COUNTS is OFF.** Client 1
+is Smart Security Systems (slug `sss`, D-158): the storekeeper counts from the phone at the warehouse and the
+company has one administrator, so the count posts at once. The count rule (`stock_quick_count / approve`) is
+switched OFF once, before the first count, with this reason (one line: the product's reason rule refuses a line
+break):
+
+"Client 1 (Smart Security Systems): the storekeeper counts from the phone at the warehouse; one administrator; owner decision D-164"
+
+The switch writes one `approval_rule.changed` audit entry and every count the same person then approves writes
+one `task.self_approved` entry with the note "self-approved, four-eyes off". The decision covers the count and
+the Excel load that creates one (the same rule); it does **not** cover the opening: `stock_opening / approve`
+stays ON by default, and a one-administrator company either gets a second administrator or switches the opening
+rule OFF with its own reason. The recommendation above (both rules OFF for a one-person Client 1) is therefore
+decided for the count and left open for the opening. The onboarding step, the route, the reason and the
+readiness check that shows the value are in `docs/runbooks/production-tenant-onboarding.md`, step 20.
+
 ## 7. Not decided here
 
 - Owner rows 1, 2 (platform admin part), 3, 7, 8, 9, 10.
