@@ -392,6 +392,14 @@ the unit list is non-empty after the load; the first document of the year has nu
 
 **Do:** choose one of two ways and write the choice in the go record:
 
+Stock approve, post and reverse tasks require `StockApprove` (stock 0.23.0, decision 0093), held by TENANT_ADMIN,
+not STOREKEEPER. In a one-person company the tenant admin is the approver. Turning four eyes OFF allows that
+admin to self-approve; it does not grant approval authority to a storekeeper. Routing or reassignment cannot
+grant the permission. Delegation to a tenant-defined permission role is not available yet; see `docs/roles.md`,
+"Delegating stock approval", for the intended owner procedure and current limitation. Never give a customer
+PLATFORM_ADMIN. Existing pinned definitions keep their old checks; see `docs/runbooks/stock-counts.md`,
+"Who may approve, post and reverse", before upgrading an existing tenant.
+
 - Two administrators with four eyes ON: the second one approves the opening balance and the counts
   (`stock_opening` and `stock_quick_count`, the latter also for an Excel load that creates a count).
 - One administrator with four eyes OFF, with the reason text (the Approval rules screen); the audit still
@@ -401,7 +409,8 @@ the unit list is non-empty after the load; the first document of the year has nu
     **cannot confirm a count (or an Excel load) alone**: the approve step is refused as the same person.
 
 **Check:** the Approval rules screen shows the chosen state; with two administrators, the opening is approved by
-the second one in My Tasks.
+the second one in My Tasks. The approver's `GET /api/v1/modules/stock/approval-access` answers 200 with
+`can_approve: true`; the storekeeper gets 403.
 
 **Rollback:** change the rule; documents already posted stay posted.
 

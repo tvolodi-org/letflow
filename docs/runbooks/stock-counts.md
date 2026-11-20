@@ -140,7 +140,8 @@ that a movement made meanwhile stays valid and the balance ends at balance-now p
 
 Flow: **Post** starts one `stock_count_posting` instance (activated lazily with the internal stock activator when the caller lacks activation authority) with a
 pending `post` task, built only from the issued differences version. Whoever holds the ledger posting authority
-(`StockPost`, OIDC credential) completes the task in the task inbox: the entry and one `stock_posting_mark` commit
+(`StockPost`, OIDC credential) and the task's `StockApprove` permission completes the task in the task inbox:
+the entry and one `stock_posting_mark` commit
 together. Handlers create records only, so the stored status stays `signed`; the read shows `posting_state` (`none`,
 `pending`, `posted`, `reversed`), `entry_id`, `posted_at`, `posted_by` and `posting_check` (`ok`, `mismatch` or null,
 never a detail). The chair then issues the **posting record** (`count.posting`: entry id, posting sequence and time,
@@ -212,8 +213,9 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
 
 * **Who holds it.** `StockQuickCount` is held by TENANT_ADMIN (tenant-scope rule), PLATFORM_ADMIN (core rule) and, since stock
   0.22.0 (T-2239, GH #4764, PM decision D-161), STOREKEEPER (`role_grants`; decision 0081 note, passed through the signed
-  `grants_widening` exception of decision 0055 D7). A STOREKEEPER still does not hold `StockReconcile`, and under four-eyes the
-  approval of its count is another person's (the approve task is routed to TENANT_ADMIN), so it cannot approve its own count.
+  `grants_widening` exception of decision 0055 D7). A STOREKEEPER still does not hold `StockReconcile` or `StockApprove`,
+  so it cannot approve a count with four eyes on or off. The approve task is routed to TENANT_ADMIN; routing is separate
+  from the permission check (decision 0093).
   The Excel load (`POST /stock-workbook/apply`) is NOT a quick-count right: it needs `StockWorkbookApply` (administrators only).
 * **Existing tenants (operator, after the merge).** Grants are code-global: the new grant is live for every tenant as soon as the
   release is deployed. To record the new module versions in `tenant_modules`, run the module upgrade for `stock` (0.21.0 to 0.22.0)
@@ -242,9 +244,9 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   transaction; see "Old installs: the ensure step" below.
 
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
-  issue, `approve` (role TENANT_ADMIN like every stock posting task, `distinct_from submit`) posts. Four eyes are ON by
+  issue, `approve` (`required_permission: StockApprove`, routing role TENANT_ADMIN, `distinct_from submit`) posts. Four eyes are ON by
   default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
-  it OFF one person counts and approves (one `task.self_approved` audit entry). An untouched stock process draft activates automatically on first use; no administrator activation step is required.
+  it OFF one tenant admin counts and approves (one `task.self_approved` audit entry). An untouched stock process draft activates automatically on first use; no administrator activation step is required.
 * **Stale.** The posting carries `expected_on_hand` = the book quantity (REQ-853). If anything moved the key between the
   count and the approval the core refuses `balance_changed` (stock alias `quick_count_stale`, 409), the task stays
   pending: cancel the document and count again. The balance never ends as "old plus difference" by accident.
@@ -418,11 +420,18 @@ shows the task. A caller without `StockApprove` (the storekeeper) is refused on 
 not-found answer, also after the task was reassigned to them. `GET /api/v1/modules/stock/approval-access` answers 200
 `{"can_approve": true}` to a holder and 403 to anyone else.
 
-* Nothing is granted by the upgrade: TENANT_ADMIN and PLATFORM_ADMIN hold `StockApprove` through the catch-all; no role
-  grant, no data migration.
+* TENANT_ADMIN holds `StockApprove` through its tenant-scope catch-all; STOREKEEPER does not. PLATFORM_ADMIN's
+  catch-all applies only in the platform tenant, never in a customer tenant. Nothing is granted by the upgrade:
+  no role grant, no data migration.
+* Four eyes is separate from this permission: with it OFF the tenant admin who prepared a document may approve it,
+  with a self-approval audit entry. In a one-person company the tenant admin is the approver. A storekeeper remains
+  refused on claim and completion with four eyes ON or OFF.
 * **Existing tenants (operator).** Process definitions are pinned per instance and the pack's definitions are installed
   with the module, so a tenant that installed stock before 0.23.0 keeps the old nodes (addressing only; the storekeeper is
   still refused by the TENANT_ADMIN label) until its stock process definitions are replaced by those of the 0.23.0 pack.
   This is reported, not automated: running tasks of old pinned definitions finish as they are.
-* Assigning `StockApprove` to a tenant-defined role (a warehouse manager who is not the tenant admin) is not possible yet:
+* Assigning `StockApprove` to a tenant-defined role (a warehouse manager who is not the tenant admin) is not available yet:
   tenant-defined roles are not built and `Authorization.grantable/0` lists only the two assets atoms for STOREKEEPER.
+  Decision 0093 D2/D4 intends the owner to give the permission to that role and bind it to the approver's group once
+  delegation is delivered. Creating or rebinding a routing role does not do this. Until then, use a company tenant
+  administrator as approver; see `docs/roles.md`, "Delegating stock approval".
