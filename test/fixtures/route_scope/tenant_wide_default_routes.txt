@@ -58,6 +58,9 @@ GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
 GET /modules/maintenance/requests MaintenanceRead
 GET /modules/maintenance/requests/:id MaintenanceRead
+GET /modules/maintenance/requests/:id/photos MaintenanceRead
+GET /modules/maintenance/requests/:id/photos/:photo_id/original MaintenanceRead
+GET /modules/maintenance/requests/:id/photos/:photo_id/thumbnail MaintenanceRead
 GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/attachments ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/attachments/:attachment_id/content ProcurementRequestRead
@@ -193,6 +196,7 @@ POST /modules/locations/nodes LocationsWrite
 POST /modules/locations/nodes/:id/move LocationsWrite
 POST /modules/locations/nodes/:id/retire LocationsWrite
 POST /modules/maintenance/requests MaintenanceRequestCreate
+POST /modules/maintenance/requests/:id/photos MaintenanceRequestCreate
 POST /modules/maintenance/requests/:id/reject MaintenanceOrderManage
 POST /modules/org/employees OrgEmployeesWrite
 POST /modules/org/employees/:id/retire OrgEmployeesWrite

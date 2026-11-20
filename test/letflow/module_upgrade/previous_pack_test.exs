@@ -61,7 +61,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
     "exam" => "0.1.0",
     "mes_core" => "0.1.0",
     "procurement" => "0.1.0",
-    "maintenance" => "0.2.0"
+    "maintenance" => "0.3.0"
   }
 
   setup do

@@ -15,12 +15,12 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     m = Maintenance.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "maintenance"
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.depends_on == ["assets"]
     assert m.permissions == [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage]
     assert m.role_grants == %{}
     assert m.required_roles == []
-    assert length(m.route_policies) == 4
+    assert length(m.route_policies) == 8
     assert m.manages_entity_types == ["maintenance_work_request", "maintenance_work_order"]
 
     assert m.scope_declarations == %{
@@ -109,7 +109,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     text = File.read!("docs/roles.md")
 
     assert text =~
-             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2, version 0.2.0;"
+             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2; REQ-895, part 3, version 0.3.0;"
 
     for atom <- ["MaintenanceRequestCreate", "MaintenanceRead", "MaintenanceOrderManage"],
         do: assert(text =~ "`#{atom}`")

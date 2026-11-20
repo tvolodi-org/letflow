@@ -82,7 +82,9 @@ packed =
     :ok = Letflow.Entities.Definition.Validator.validate(atomised)
 
     logical_shape_version =
-      atomised |> Letflow.Entities.Definition.Shape.logical_shape_of() |> Base.encode16(case: :lower)
+      atomised
+      |> Letflow.Entities.Definition.Shape.logical_shape_of()
+      |> Base.encode16(case: :lower)
 
     # Stable content-derived id in UUID text shape (source provenance only, never persisted as the row id).
     h =
@@ -113,7 +115,7 @@ packed =
 
 document = %{
   "pack_id" => "letflow-maintenance",
-  "version" => "0.2.0",
+  "version" => "0.3.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   "exported_at" => "2026-11-19T00:00:00Z",
   "definitions" => [],

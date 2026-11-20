@@ -414,7 +414,11 @@ defmodule Letflow.Modules.Maintenance.RequestsRouterTest do
     assert manifest.role_grants == %{}
 
     assert Enum.map(manifest.route_policies, &elem(&1, 2)) |> Enum.sort() ==
-             Enum.sort(atoms ++ [:MaintenanceRead])
+             Enum.sort(
+               atoms ++
+                 [:MaintenanceRead, :MaintenanceRead, :MaintenanceRead, :MaintenanceRead] ++
+                 [:MaintenanceRequestCreate]
+             )
 
     golden = File.read!("priv/permission_matrix/effective.golden") |> String.split("\n")
 
