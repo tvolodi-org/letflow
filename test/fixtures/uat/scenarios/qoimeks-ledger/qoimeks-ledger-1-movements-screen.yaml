@@ -71,8 +71,7 @@ preconditions:
     Sign in as actor-qoimeks-qa2-storekeeper (QOIMEKS_QA2_STOREKEEPER), the roster STOREKEEPER, at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2.
     Confirm the tenant before any action. Record the item, place and balance counts at the start of the run
     (Items screen total, Locations total, Balances rows) and compare to those; every seeded
-    balance with a responsible employee, one org unit QOI-OU-1. Four-eyes OFF is confirmed for opening approval
-    only; read the quick-count rule separately.
+    balance with a responsible employee, one org unit QOI-OU-1. Approval rules (explicit state, owner D-165, set by the operator before the walk and read at the start, never the default): stock_opening / approve OFF and stock_quick_count / approve ON; another state or an unreadable rule is BLOCKED-by-environment.
     Before dependent writes, obtain administrator read evidence of active stock definitions and shared access
     enabled, quick-count approval ON and opening approval OFF. Verify the chosen item and base unit, linked place,
     active responsible employee and absence of a location freeze from current tenant reads; if these prerequisites

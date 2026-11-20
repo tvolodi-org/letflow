@@ -27,6 +27,11 @@ actors:
   storekeeper: actor-qoimeks-qa2-storekeeper
 preconditions:
 - description: >-
+    Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). Before the walk the operator has set stock_quick_count / approve ON (the qa2 tenant keeps explicit ON rows) and stock_opening / approve OFF. The refusal of the storekeeper's Excel load is decided before any approval, so it does not depend on either rule; the states are stated so that the walk is not read against a default.
+  check: system_seeded
+  detail: >-
+    Read both rules on the Approval rules screen at the start (administrator) and record them. If a rule is not in the stated state or cannot be read, report BLOCKED-by-environment; do not switch a rule to make the walk pass and do not take the default as the state. This scenario never changes a rule.
+- description: >-
     The storekeeper account can sign in on https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and the stock module is active.
   check: runner_prepared
   detail: >-
