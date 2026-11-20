@@ -401,6 +401,7 @@ const CODES = [
   { reason: 'count_in_progress', status: 422, heldBy: true },
   { reason: 'location_frozen', status: 409, heldBy: true },
   { reason: 'quick_count_stale', status: 422, heldBy: false },
+  { reason: 'balance_in_other_rows', status: 422, heldBy: false },
   { reason: 'unknown_kind', status: 422, heldBy: false },
 ] as const
 

@@ -74,6 +74,7 @@ export function errorReasonToMessageId(reason: string | undefined): string {
     case 'count_in_progress': return 'stock.qc.error.count_in_progress'
     case 'location_frozen': return 'stock.qc.error.location_frozen'
     case 'quick_count_stale': return 'stock.qc.error.quick_count_stale'
+    case 'balance_in_other_rows': return 'stock.qc.error.balance_in_other_rows'
     case 'unknown_kind': return 'stock.qc.error.unknown_kind'
     case 'reason_invalid': return 'stock.qc.error.reason_invalid'
     case 'quantity_invalid': return 'stock.qc.error.quantity_invalid'
@@ -98,5 +99,5 @@ export function errorReasonToField(reason: string | undefined): keyof QuickCount
 
 /** Returns true if the error should be shown as a banner (not inline). */
 export function isBannerError(reason: string | undefined): boolean {
-  return reason === 'count_in_progress' || reason === 'location_frozen' || reason === 'quick_count_stale'
+  return reason === 'count_in_progress' || reason === 'location_frozen' || reason === 'quick_count_stale' || reason === 'balance_in_other_rows'
 }
