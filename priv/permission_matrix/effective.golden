@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.1.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.24.0
+# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.2.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.24.0
 # roles: 9
-# permissions: 105
-# rows: 945
+# permissions: 108
+# rows: 972
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
 AGENT_RUNNER AssetsCardWrite false module:assets -
@@ -62,6 +62,9 @@ AGENT_RUNNER IntegrationMappingsManage false core -
 AGENT_RUNNER LabelsManage false core -
 AGENT_RUNNER LedgerSettingsManage false core -
 AGENT_RUNNER LocationsWrite false module:locations -
+AGENT_RUNNER MaintenanceOrderManage false module:maintenance -
+AGENT_RUNNER MaintenanceRead false module:maintenance -
+AGENT_RUNNER MaintenanceRequestCreate false module:maintenance -
 AGENT_RUNNER MembershipsRead true core core
 AGENT_RUNNER MetricsRead false core -
 AGENT_RUNNER ModuleRolloutsManage false core -
@@ -167,6 +170,9 @@ CANDIDATE IntegrationMappingsManage false core -
 CANDIDATE LabelsManage false core -
 CANDIDATE LedgerSettingsManage false core -
 CANDIDATE LocationsWrite false module:locations -
+CANDIDATE MaintenanceOrderManage false module:maintenance -
+CANDIDATE MaintenanceRead false module:maintenance -
+CANDIDATE MaintenanceRequestCreate false module:maintenance -
 CANDIDATE MembershipsRead false core -
 CANDIDATE MetricsRead false core -
 CANDIDATE ModuleRolloutsManage false core -
@@ -272,6 +278,9 @@ PLATFORM_ADMIN IntegrationMappingsManage true core core
 PLATFORM_ADMIN LabelsManage true core core
 PLATFORM_ADMIN LedgerSettingsManage false core -
 PLATFORM_ADMIN LocationsWrite true module:locations core
+PLATFORM_ADMIN MaintenanceOrderManage true module:maintenance core
+PLATFORM_ADMIN MaintenanceRead true module:maintenance core
+PLATFORM_ADMIN MaintenanceRequestCreate true module:maintenance core
 PLATFORM_ADMIN MembershipsRead true core core
 PLATFORM_ADMIN MetricsRead true core core
 PLATFORM_ADMIN ModuleRolloutsManage true core core
@@ -377,6 +386,9 @@ PROCESS_DESIGNER IntegrationMappingsManage false core -
 PROCESS_DESIGNER LabelsManage false core -
 PROCESS_DESIGNER LedgerSettingsManage false core -
 PROCESS_DESIGNER LocationsWrite false module:locations -
+PROCESS_DESIGNER MaintenanceOrderManage false module:maintenance -
+PROCESS_DESIGNER MaintenanceRead false module:maintenance -
+PROCESS_DESIGNER MaintenanceRequestCreate false module:maintenance -
 PROCESS_DESIGNER MembershipsRead true core core
 PROCESS_DESIGNER MetricsRead false core -
 PROCESS_DESIGNER ModuleRolloutsManage false core -
@@ -482,6 +494,9 @@ PROCESS_OPERATOR IntegrationMappingsManage false core -
 PROCESS_OPERATOR LabelsManage false core -
 PROCESS_OPERATOR LedgerSettingsManage false core -
 PROCESS_OPERATOR LocationsWrite false module:locations -
+PROCESS_OPERATOR MaintenanceOrderManage false module:maintenance -
+PROCESS_OPERATOR MaintenanceRead false module:maintenance -
+PROCESS_OPERATOR MaintenanceRequestCreate false module:maintenance -
 PROCESS_OPERATOR MembershipsRead true core core
 PROCESS_OPERATOR MetricsRead true core core
 PROCESS_OPERATOR ModuleRolloutsManage false core -
@@ -587,6 +602,9 @@ STOREKEEPER IntegrationMappingsManage false core -
 STOREKEEPER LabelsManage false core -
 STOREKEEPER LedgerSettingsManage false core -
 STOREKEEPER LocationsWrite false module:locations -
+STOREKEEPER MaintenanceOrderManage false module:maintenance -
+STOREKEEPER MaintenanceRead false module:maintenance -
+STOREKEEPER MaintenanceRequestCreate false module:maintenance -
 STOREKEEPER MembershipsRead true core core
 STOREKEEPER MetricsRead false core -
 STOREKEEPER ModuleRolloutsManage false core -
@@ -692,6 +710,9 @@ TASK_WORKER IntegrationMappingsManage false core -
 TASK_WORKER LabelsManage false core -
 TASK_WORKER LedgerSettingsManage false core -
 TASK_WORKER LocationsWrite false module:locations -
+TASK_WORKER MaintenanceOrderManage false module:maintenance -
+TASK_WORKER MaintenanceRead false module:maintenance -
+TASK_WORKER MaintenanceRequestCreate false module:maintenance -
 TASK_WORKER MembershipsRead true core core
 TASK_WORKER MetricsRead false core -
 TASK_WORKER ModuleRolloutsManage false core -
@@ -797,6 +818,9 @@ TENANT_ADMIN IntegrationMappingsManage true core core
 TENANT_ADMIN LabelsManage true core core
 TENANT_ADMIN LedgerSettingsManage true core core
 TENANT_ADMIN LocationsWrite true module:locations core
+TENANT_ADMIN MaintenanceOrderManage true module:maintenance core
+TENANT_ADMIN MaintenanceRead true module:maintenance core
+TENANT_ADMIN MaintenanceRequestCreate true module:maintenance core
 TENANT_ADMIN MembershipsRead true core core
 TENANT_ADMIN MetricsRead true core core
 TENANT_ADMIN ModuleRolloutsManage false core -
@@ -902,6 +926,9 @@ TENANT_AUDITOR IntegrationMappingsManage false core -
 TENANT_AUDITOR LabelsManage false core -
 TENANT_AUDITOR LedgerSettingsManage false core -
 TENANT_AUDITOR LocationsWrite false module:locations -
+TENANT_AUDITOR MaintenanceOrderManage false module:maintenance -
+TENANT_AUDITOR MaintenanceRead false module:maintenance -
+TENANT_AUDITOR MaintenanceRequestCreate false module:maintenance -
 TENANT_AUDITOR MembershipsRead true core core
 TENANT_AUDITOR MetricsRead true core core
 TENANT_AUDITOR ModuleRolloutsManage false core -

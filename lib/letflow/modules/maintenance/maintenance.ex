@@ -4,9 +4,11 @@ defmodule Letflow.Modules.Maintenance do
   maintenance management module. It declares the two record types (`maintenance_work_request`,
   `maintenance_work_order`, each linked to one asset card by a declarative `asset_card_id`, decision
   0076) and the two document types `maintenance_request` (prefix `WR`) and `maintenance_order`
-  (prefix `WO`; year scope, pad 6, as the asset document types). It has no permission, no role grant,
-  no route and no handler: the routes are REQ-894 and later, and the only holders of their atoms will be
-  the two administrator catch-alls (decision 0055 D7).
+  (prefix `WO`; year scope, pad 6, as the asset document types). REQ-894 (part 2, version 0.2.0) adds
+  the work request routes (`Letflow.Modules.Maintenance.Router`) and the three tenant-scope atoms
+  `MaintenanceRequestCreate`, `MaintenanceRead` and `MaintenanceOrderManage`. The manifest has no
+  `role_grants`, so the only holders are the two administrator catch-alls (decision 0055 D7). It has
+  no handler.
 
   ## Release flag
 
@@ -19,7 +21,7 @@ defmodule Letflow.Modules.Maintenance do
 
   ## Not here
 
-  Work request and order logic, photos, the order process, screens, any role grant, a seed or a QA
+  Work order logic, photos, the order process, screens, any role grant, a seed or a QA
   tenant. The 2000-character limit of `description` and the `urgency` value rules of the writers are
   checked by the writer (REQ-894): the entity type system has no string length bound.
   """
@@ -67,20 +69,28 @@ defmodule Letflow.Modules.Maintenance do
   @impl true
   defmanifest(
     id: "maintenance",
-    version: "0.1.0",
+    version: "0.2.0",
     depends_on: ["assets"],
     pack: "modules/maintenance/pack.json",
-    permissions: [],
+    permissions: [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
-    route_policies: [],
+    route_policies: [
+      {"POST", "/requests", :MaintenanceRequestCreate},
+      {"GET", "/requests", :MaintenanceRead},
+      {"GET", "/requests/:id", :MaintenanceRead},
+      {"POST", "/requests/:id/reject", :MaintenanceOrderManage}
+    ],
     manages_entity_types: ["maintenance_work_request", "maintenance_work_order"],
     scope_declarations: %{
       "maintenance_work_request" => {:column, "org_unit_id"},
       "maintenance_work_order" => {:column, "org_unit_id"}
     }
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Maintenance.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do
