@@ -724,7 +724,7 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
   end
 
   describe "R3 (REQ-907) the calls not served stay 404" do
-    test "R3 the code list and writes, voice, parse and feedback under /api are 404 and write nothing",
+    test "R3 the code list and writes, parse and feedback under /api are 404 and write nothing",
          %{
            a: a,
            va: v
@@ -739,7 +739,6 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       for {method, path} <- [
             {:get, "/api/codes"},
             {:post, "/api/codes"},
-            {:post, "/api/voice"},
             {:post, "/api/parse"},
             {:post, "/api/feedback"},
             {:get, "/api"},

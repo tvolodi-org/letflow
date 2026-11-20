@@ -269,7 +269,10 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/shared_stock_access.ex", "POST", "/movements/:id/reverse"},
       # REQ-910 (test L1..L7 of shared_stock_access_codes_test): the read-only scan lookup of the
       # same address, behind the same shared stock value.
-      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/codes/lookup"}
+      {"lib/letflow/routers/shared_stock_access.ex", "GET", "/codes/lookup"},
+      # REQ-911 (test V1..V5 of shared_stock_access_voice_test): the old app's voice call of the same
+      # address (the `/api` form only), behind the same shared stock value.
+      {"lib/letflow/routers/shared_stock_access.ex", "POST", "/voice"}
     ]
 
     defp scanned_files do
@@ -358,7 +361,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 15
+      assert length(@credential_allowlist) == 16
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
