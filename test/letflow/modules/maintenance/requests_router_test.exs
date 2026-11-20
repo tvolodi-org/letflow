@@ -417,7 +417,9 @@ defmodule Letflow.Modules.Maintenance.RequestsRouterTest do
              Enum.sort(
                atoms ++
                  [:MaintenanceRead, :MaintenanceRead, :MaintenanceRead, :MaintenanceRead] ++
-                 [:MaintenanceRequestCreate]
+                 [:MaintenanceRequestCreate] ++
+                 [:MaintenanceRead, :MaintenanceRead] ++
+                 [:MaintenanceOrderManage, :MaintenanceOrderManage]
              )
 
     golden = File.read!("priv/permission_matrix/effective.golden") |> String.split("\n")

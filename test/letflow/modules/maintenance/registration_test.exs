@@ -15,12 +15,12 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     m = Maintenance.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "maintenance"
-    assert m.version == "0.3.0"
+    assert m.version == "0.4.0"
     assert m.depends_on == ["assets"]
     assert m.permissions == [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage]
     assert m.role_grants == %{}
     assert m.required_roles == []
-    assert length(m.route_policies) == 8
+    assert length(m.route_policies) == 12
     assert m.manages_entity_types == ["maintenance_work_request", "maintenance_work_order"]
 
     assert m.scope_declarations == %{
@@ -92,7 +92,10 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     pack = "priv/modules/maintenance/pack.json" |> File.read!() |> Jason.decode!()
     assert pack["pack_id"] == "letflow-maintenance"
     assert pack["version"] == Maintenance.manifest().version
-    assert pack["definitions"] == []
+    # REQ-896: the one process of the pack, a module-stamped draft at install
+    assert [%{"process_key" => "maintenance_work_order", "version" => "1.0.0"}] =
+             pack["definitions"]
+
     names = Enum.map(pack["entity_definitions"], & &1["name"])
     assert names == Maintenance.manifest().manages_entity_types
 
@@ -109,7 +112,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     text = File.read!("docs/roles.md")
 
     assert text =~
-             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2; REQ-895, part 3, version 0.3.0;"
+             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2; REQ-895, part 3; REQ-896, part 4, version 0.4.0;"
 
     for atom <- ["MaintenanceRequestCreate", "MaintenanceRead", "MaintenanceOrderManage"],
         do: assert(text =~ "`#{atom}`")

@@ -62,6 +62,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @handler_writes "lib/letflow/entities/handler_writes.ex"
   # REQ-662: the link writers write under the locations Owner.
   @locations_links "lib/letflow/modules/locations/links.ex"
+  @maintenance_orders "lib/letflow/modules/maintenance/orders.ex"
   @maintenance_requests "lib/letflow/modules/maintenance/requests.ex"
   # REQ-750: the asset card writers write under the assets Owner.
   @assets_cards "lib/letflow/modules/assets/cards.ex"
@@ -143,6 +144,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                        [
                          @locations_links,
                          @locations_tree,
+                         @maintenance_orders,
                          @maintenance_requests,
                          @org_masters,
                          @stock_count_differences,
@@ -757,6 +759,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                  [
                    @locations_links,
                    @locations_tree,
+                   @maintenance_orders,
                    @maintenance_requests,
                    @org_masters,
                    @stock_count_differences,

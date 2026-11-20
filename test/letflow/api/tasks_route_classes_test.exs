@@ -138,7 +138,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # T-2217 added POST /tenant/modules/:module_id/ensure-seeds (303 -> 304).
       # REQ-894 (CMMS slice 1 part 2): four maintenance request routes (305 -> 309).
       # REQ-895 (part 3): four photo routes of a request (309 -> 313).
-      assert length(snapshot) == 313
+      # REQ-896 (part 4): four work order routes (313 -> 317).
+      assert length(snapshot) == 317
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
