@@ -91,7 +91,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
           definition_name: String.t(),
           node_id: String.t(),
           same_person_as: [String.t()],
-          setting_changed_at: DateTime.t()
+          setting_changed_at: DateTime.t() | nil
         }
 
   @doc """
@@ -118,7 +118,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
              non_empty_binary?(Map.get(context, :definition_name)) do
           name = Map.fetch!(context, :definition_name)
 
-          case ApprovalRuleSetting.read(repo, prefix, name, task.node_id, savepoint_opts()) do
+          case ApprovalRuleSetting.effective(repo, prefix, name, task.node_id, savepoint_opts()) do
             {:ok, %ApprovalRuleSetting{four_eyes: false} = setting} ->
               {:self_approved,
                %{
@@ -215,7 +215,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
 
     with true <- non_empty_binary?(name),
          {:ok, %ApprovalRuleSetting{four_eyes: false}} <-
-           ApprovalRuleSetting.read(Repo, prefix, name, task.node_id, savepoint_opts()) do
+           ApprovalRuleSetting.effective(Repo, prefix, name, task.node_id, savepoint_opts()) do
       :ok
     else
       _ -> {:error, :separation_of_duties}

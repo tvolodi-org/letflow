@@ -6,7 +6,9 @@ defmodule Letflow.ApprovalRules do
   The four-eyes rule is the HUMAN_TASK attribute `distinct_from`
   (`Letflow.Engine.SeparationOfDuties`). A tenant administrator can switch it per process
   (definition name) and step (node id). The stored setting is
-  `Letflow.Engine.ApprovalRuleSetting`; no row means ON.
+  `Letflow.Engine.ApprovalRuleSetting`; no row means ON, except on a NEW tenant (D-165, T-2391: the marker
+  row of `approval_rule_defaults`), where no row means OFF. An explicit row always wins; existing tenants
+  have no marker and keep ON.
 
   `list/1` answers every step of an ACTIVE definition that names `distinct_from`, plus every stored
   row whose step is no longer in an active definition (`in_active_definition: false`), so an OFF row
@@ -44,8 +46,8 @@ defmodule Letflow.ApprovalRules do
 
   @doc """
   T-1987: would the engine let this caller approve their own task? True only for an interactive
-  (`:oidc`) credential and a stored OFF row for the task's step in the instance's definition: the
-  condition `Letflow.Engine.SeparationOfDuties.check/6` uses. Any read failure answers false (the
+  (`:oidc`) credential and an effective OFF for the task's step in the instance's definition (a stored
+  OFF row, or no row on a tenant whose new-tenant default is OFF, T-2391): the condition `Letflow.Engine.SeparationOfDuties.check/6` uses. Any read failure answers false (the
   web keeps showing its hint; the server still decides at completion). Used by `GET /tasks/:id`.
   """
   @spec self_approval_allowed?(String.t(), Letflow.Engine.Task.t(), term()) :: boolean()
@@ -59,15 +61,15 @@ defmodule Letflow.ApprovalRules do
   def self_approval_allowed?(_prefix, _task, _credential), do: false
 
   @doc """
-  REQ-912: is the four-eyes switch of one step stored OFF in tenant schema `prefix`? True only for a
-  stored `four_eyes: false` row. No row, a row `true` and an unreadable setting are all false (ON, fails
-  closed). The old Qoimeks address reads it before it makes a count (`Letflow.Modules.Stock.OldAppWrites`).
+  REQ-912: is the four-eyes switch of one step OFF in tenant schema `prefix`? True for a stored
+  `four_eyes: false` row, and for a step with no row on a tenant whose new-tenant default is OFF (T-2391).
+  No row on any other tenant, a row `true` and an unreadable setting are all false (ON, fails closed). The old Qoimeks address reads it before it makes a count (`Letflow.Modules.Stock.OldAppWrites`).
   """
   @spec four_eyes_off?(String.t(), String.t(), String.t()) :: boolean()
   def four_eyes_off?(prefix, definition_name, node_id) when is_binary(prefix) do
     match?(
       {:ok, %ApprovalRuleSetting{four_eyes: false}},
-      ApprovalRuleSetting.read(Repo, prefix, definition_name, node_id)
+      ApprovalRuleSetting.effective(Repo, prefix, definition_name, node_id)
     )
   end
 
@@ -75,6 +77,7 @@ defmodule Letflow.ApprovalRules do
   @spec list(prefix :: String.t()) :: [item()]
   def list(prefix) do
     steps = active_steps(prefix)
+    default = default_four_eyes(prefix)
 
     settings =
       Map.new(
@@ -84,12 +87,12 @@ defmodule Letflow.ApprovalRules do
 
     active_items =
       Enum.map(steps, fn {{name, node_id} = key, label} ->
-        item(name, node_id, label, Map.get(settings, key), true)
+        item(name, node_id, label, Map.get(settings, key), true, default)
       end)
 
     orphan_items =
       for {key, setting} <- settings, not Map.has_key?(steps, key) do
-        item(setting.definition_name, setting.node_id, nil, setting, false)
+        item(setting.definition_name, setting.node_id, nil, setting, false, default)
       end
 
     items = Enum.sort_by(active_items ++ orphan_items, &{&1.definition_name, &1.node_id})
@@ -156,14 +159,15 @@ defmodule Letflow.ApprovalRules do
         unless step_ok?, do: Repo.rollback(:not_a_four_eyes_step)
 
         label = Map.get(steps, key)
-        old = if existing, do: existing.four_eyes, else: true
+        default = default_four_eyes(prefix)
+        old = if existing, do: existing.four_eyes, else: default
 
         if old == four_eyes do
-          item(name, node_id, label, existing, Map.has_key?(steps, key))
+          item(name, node_id, label, existing, Map.has_key?(steps, key), default)
         else
           row = write_row!(prefix, existing, name, node_id, four_eyes, reason, actor)
           audit!(prefix, row, old, four_eyes, reason, actor)
-          item(name, node_id, label, row, Map.has_key?(steps, key))
+          item(name, node_id, label, row, Map.has_key?(steps, key), default)
         end
       end)
 
@@ -256,12 +260,25 @@ defmodule Letflow.ApprovalRules do
     end)
   end
 
-  defp item(name, node_id, label, setting, in_active) do
+  # T-2391 (D-165): the value of a step with no stored row: OFF on a tenant with the new-tenant default
+  # marker, ON otherwise and when the marker is unreadable (fails closed).
+  defp default_four_eyes(prefix) do
+    # Under a savepoint inside a transaction (do_put): a missing marker table on a lagging tenant must not
+    # poison the enclosing transaction (INV-8).
+    opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+    case ApprovalRuleSetting.default_off(Repo, prefix, opts) do
+      {:ok, true} -> false
+      _ -> true
+    end
+  end
+
+  defp item(name, node_id, label, setting, in_active, default) do
     %{
       definition_name: name,
       node_id: node_id,
       node_label: label,
-      four_eyes: if(setting, do: setting.four_eyes, else: true),
+      four_eyes: if(setting, do: setting.four_eyes, else: default),
       in_active_definition: in_active,
       changed_by: setting && setting.changed_by,
       changed_at: setting && setting.changed_at,

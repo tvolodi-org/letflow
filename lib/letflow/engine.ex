@@ -9441,8 +9441,9 @@ defmodule Letflow.Engine do
             "definition_name" => info.definition_name,
             "node_id" => info.node_id,
             "same_person_as" => Enum.sort(info.same_person_as),
-            "setting_changed_at" => DateTime.to_iso8601(info.setting_changed_at)
+            "setting_changed_at" => setting_changed_at_iso(info.setting_changed_at)
           }
+          |> put_default_source(info.setting_changed_at)
           |> put_approved_by(info),
         trace_id: nil
       },
@@ -9451,6 +9452,14 @@ defmodule Letflow.Engine do
   end
 
   defp self_approved_audit_multi(_changes, _actor_id, _prefix), do: Multi.new()
+
+  # T-2391 (D-165): a step with no stored row on a new tenant is OFF by the tenant default: no change
+  # time exists, and the audit says where the OFF came from.
+  defp setting_changed_at_iso(nil), do: nil
+  defp setting_changed_at_iso(%DateTime{} = at), do: DateTime.to_iso8601(at)
+
+  defp put_default_source(state, nil), do: Map.put(state, "setting_source", "tenant_default")
+  defp put_default_source(state, _changed_at), do: state
 
   # T-2410: an approval the system completed for the counter's own quick count says so; the
   # person's own self-approval and the old address keep today's payload byte for byte.
