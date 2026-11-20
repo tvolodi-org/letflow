@@ -282,7 +282,7 @@ at T-2087):
 
 | Qoimeks call | Readiness row |
 |---|---|
-| `GET /codes` and barcode scanning | G12 (T-2033) |
+| `GET /codes` (the code list), assign and remove | G12 (T-2033); the scan lookup `GET /codes/lookup` alone is served (11d, REQ-910) |
 | `POST /feedback` | G19 (T-2038) |
 | `POST /voice` and `POST /parse` | G15 (T-2035) |
 
@@ -508,8 +508,8 @@ and the real app rule over the earlier text:
   authentication, the per-credential request token and the scope enforcement refusal run once per
   request, in the order of the router's moduledoc, so an `/api` path spends the same token as the plain
   one. Every other path under the prefix, with or without `/api` (`/api/voice`, `/api/parse`,
-  `/api/feedback`, `/api/codes`, `/api/codes/lookup`), stays 404 `{"error": "not found"}` after
-  authentication; those calls are sized in `docs/status/qoimeks-old-client-compat.md` section 5.
+  `/api/feedback`, `/api/codes`), stays 404 `{"error": "not found"}` after
+  authentication (`/api/codes/lookup` is served from REQ-910, section 11d); those calls are sized in `docs/status/qoimeks-old-client-compat.md` section 5.
 - **Correction 1, the paths carry `/api`.** Sources and sections 6 and 7 write them without it.
 - **Correction 2, the header is `Authorization: Bearer <code>`.** The text says "the raw value, not
   Bearer"; the app sends `Bearer <code>` (`api.dart` `ApiClient`), and the build accepts exactly that.
@@ -546,6 +546,41 @@ and the real app rule over the earlier text:
 
 Out of scope here: the calls not served (count, codes, voice, feedback, parse), the pairing call, and any
 change to the credential or its rules.
+
+## 11d. Amendment (REQ-910, as built): code lookup at the old address
+
+Section 2 closes the shared access to three permissions (`StockRead`, `StockPost`, `StockReverse`). On the
+PM GO of 2026-11-20 (old-client compatibility batch, K7 and K8) the shared access gains **one read**: the
+scan lookup `GET /qoimeks/<slug>/api/codes/lookup?code=` (and `GET /qoimeks/<slug>/codes/lookup?code=`,
+the two path forms of 11c). It is the read-only equivalent of `CodesRead` on `POST /api/v1/modules/codes/resolve`,
+built from `Letflow.Modules.Codes.resolve/2` by `Letflow.Modules.Stock.OldAppReads.code_lookup/2` (reached only
+through `Letflow.Modules.Catalog.old_app_code_lookup/2`). No permission atom is added: the shared access still
+holds no `Codes` permission. `CodesWrite` and every other codes permission stay excluded; the code list,
+assign and remove calls (K11, K12) are not served and stay 404 `{"error": "not found"}`.
+
+Rules:
+
+- **Order and cost.** The usual order of the router (failure counting, authentication, one request token,
+  scope enforcement refusal 403) runs first; an accepted lookup spends one request token.
+- **Input.** `code` is trimmed of leading and trailing whitespace, as the old server does. A missing or
+  blank value is 400 `{"error": "code is required", "reason": "invalid_request"}`. A query that is not valid
+  UTF-8 raises `Plug.Conn.InvalidQueryError` (status 400) before the lookup, as for the other reads.
+- **Match.** An exact, case-sensitive match on the live code value, in the proved tenant's schema only
+  (INV-1). Found only when the code is `assigned` with one open assignment to a `catalog_item` or a
+  `location_node` whose scope declaration is `:tenant_wide` (fail closed) and whose record is live and
+  active. The legacy plain barcode of an item (the old Excel column) is found because the code imports
+  (REQ-850, REQ-851) turn it into a code assigned to the item; no barcode field is added.
+- **Found.** 200 with exactly `object_type` (`sku` or `location`), `object_id` (the integer the catalog
+  gives that item or place), `object_code`, `object_name`, `code`.
+- **Not found is one answer (INV-5).** 404 `{"error": "not found", "reason": "code_not_found"}`, byte for byte
+  the same for an unknown value, a code not assigned, a retired one, a conflicting assignment, a lot, an
+  inactive target, another target type and a value with a NUL byte. The old server also echoes `code`;
+  this one does not (the app builds `CodeInfo` only from a 200).
+- **Read only.** The only row the lookup may add is a missing `catalog_item_int_ids` or
+  `location_node_int_ids` mapping; no code, assignment, audit, stock or ledger row is written.
+
+The section 7 row "`GET /codes` and barcode scanning" is served for the lookup only; the code list, assign and
+remove calls stay with G12 and K11/K12.
 
 ## 12. Owner table
 

@@ -11,8 +11,9 @@ defmodule Letflow.Routers.SharedStockAccess do
   | `GET /movements[?sku_id&location_id&limit]` | 200 JSON array, newest first, `limit` 50 when missing or outside 1..500 (REQ-909, the old app's `Movement`): `id` (text), `kind` (`receipt`, `issue`, `transfer`, `adjustment`), `sku_id, sku_code, sku_name, unit, location_id, location_code, qty, operator` (`""` when none), `created_at`, `balances` (`[]` here), `to_location_id` and `to_location_code` (a transfer), `reverses`, `reversed_by` |
   | `POST /movements` | 201 one movement (the row of `GET /movements`, with `balances` after the movement: one entry per place touched) of the posted document; 200 the STORED row when the same `id` is sent again with equal data; body `kind` (`receipt`, `issue`, `transfer`, and REQ-912 `adjustment`, the count: `qty` is the counted number, 0 allowed, answered by the movement row with `qty` = the counted number when the tenant's four-eyes switch for counts is OFF, else 400 `invalid kind`; every refusal of a count is a 400 with the old server's Russian text, see `Letflow.Modules.Stock.OldAppWrites`), `sku_id`, `location_id`, `to_location_id` (transfer), `qty`, `operator` (or the `X-Operator` header), `id` (REQUIRED: the client operation id, a UUID string; missing or not a UUID is 400 `id is required`; the same `id` with other data is 409); a zero or negative `qty` is 400 `quantity must be positive` |
   | `POST /movements/:id/reverse` | 201 the reversal's own movement row, 200 its stored row for the same reversal `id` sent again; a movement already reversed under another `id` is 400 `already reversed`, a reversal is 400 `a reversal cannot be reversed; post a new operation instead` (the old server's texts, REQ-909); body `id` (REQUIRED, the reversal's own new UUID), `operator` (or `X-Operator`) |
-  | the same five calls with `/api` in front: `GET /api/catalog`, `GET /api/balances`, `GET /api/movements`, `POST /api/movements`, `POST /api/movements/:id/reverse` | REQ-907: exactly the answer of the call without `/api` (the real old app adds `/api` to every path; decision 0091 section 11c) |
-  | any other method or path | 404 `{"error": "not found"}`, with or without `/api` (the codes, feedback, voice and parse calls are not served) |
+  | `GET /codes/lookup?code=` | REQ-910, the old app's scan to find (read only, the lookup of `Letflow.Modules.Codes.resolve/2`; `code` is trimmed, the match is exact and case-sensitive): 200 `{"object_type", "object_id", "object_code", "object_name", "code"}` (`object_type` `sku` or `location`, `object_id` the integer of the catalog); 400 `{"error": "code is required", "reason": "invalid_request"}` when `code` is missing or blank; 404 `{"error": "not found", "reason": "code_not_found"}`, the one body of every other outcome (unknown, not assigned, retired, a lot, an inactive target: INV-5) |
+  | the same six calls with `/api` in front: `GET /api/catalog`, `GET /api/balances`, `GET /api/movements`, `POST /api/movements`, `POST /api/movements/:id/reverse`, `GET /api/codes/lookup` | REQ-907: exactly the answer of the call without `/api` (the real old app adds `/api` to every path; decision 0091 section 11c) |
+  | any other method or path | 404 `{"error": "not found"}`, with or without `/api` (the code list, assign and remove, feedback, voice and parse calls are not served) |
 
   Order of work for every request, and nothing else runs before it:
 
@@ -37,21 +38,22 @@ defmodule Letflow.Routers.SharedStockAccess do
      affected: this router is not theirs).
 
   The `/api` form (REQ-907) is one plug, `strip_api/2`, that runs AFTER step 4 and before `:match`: it
-  removes ONE leading `api` path segment, so both forms reach the same five routes and the plugs above
+  removes ONE leading `api` path segment, so both forms reach the same six routes and the plugs above
   run once per request (a path with `/api` spends the same failure or request token as the plain one).
-  The router declares no second set of routes. A path that is not one of the five stays 404 after
+  The router declares no second set of routes. A path that is not one of the six stays 404 after
   authentication, and so does `/api/api/catalog`.
 
   Writes (REQ-860, `Letflow.Modules.Stock.OldAppWrites`): the body is read here, AFTER authentication,
   capped at #{8192} bytes (413 over it, 400 when it is not a JSON object); an operator name that is
   missing, blank or over 200 characters is 400 and nothing is written. The refusals are `{"error": text}`
   with the status `OldAppWrites` gives. The shared access reaches nothing else of the platform: this
-  router serves five calls and no task, approval, count, import or user route: the count of REQ-912 is
+  router serves six calls and no task, approval, count, import or user route: the count of REQ-912 is
   a movement post of kind `adjustment`, and the one approval the shared access completes is the approve task of
   its own count, in the same call, when the tenant's switch is OFF (`Letflow.Engine.SeparationOfDuties`).
 
   Reads use the tenant schema of the proved tenant only (INV-1): `Letflow.Ledger.authorize_shared_access/3`
-  and `Letflow.Modules.Stock.OldAppReads` (through `Letflow.Modules.Catalog`). The router holds no `Repo` call. A crash in a read is a
+  and `Letflow.Modules.Stock.OldAppReads` (through `Letflow.Modules.Catalog`; the code lookup needs no
+  ledger authorization and reads only the codes, item and place masters of that schema). The router holds no `Repo` call. A crash in a read is a
   plain 500 `{"error": "internal error"}` with no detail (INV-8). Answers carry
   `cache-control: private, no-store`.
   """
@@ -84,6 +86,11 @@ defmodule Letflow.Routers.SharedStockAccess do
       {:ok, rows} -> json(conn, 200, rows)
       {:error, _reason} -> json(conn, 500, %{error: "internal error"})
     end
+  end
+
+  get "/codes/lookup" do
+    params = Plug.Conn.fetch_query_params(conn).query_params
+    code_lookup(conn, params)
   end
 
   get "/balances" do
@@ -235,6 +242,25 @@ defmodule Letflow.Routers.SharedStockAccess do
         _unavailable -> json(conn, 500, %{error: "internal error"})
       end
     end)
+  end
+
+  # REQ-910: every refusal is `{"error": text, "reason": code}` as the old server sent; a not-found
+  # is one constant body (INV-5); a crash is a plain 500 with no detail (INV-8).
+  defp code_lookup(conn, params) do
+    case Catalog.old_app_code_lookup(conn.assigns.shared_access.prefix, params) do
+      {:ok, row} ->
+        json(conn, 200, row)
+
+      {:error, :code_required} ->
+        json(conn, 400, %{error: "code is required", reason: "invalid_request"})
+
+      {:error, :not_found} ->
+        json(conn, 404, %{error: "not found", reason: "code_not_found"})
+    end
+  rescue
+    exception ->
+      Logger.error("shared_stock_access_failed #{inspect(exception.__struct__)}")
+      json(conn, 500, %{error: "internal error"})
   end
 
   # The ONE place the tenant-wide ledger authorization of the shared access is minted, from the proved

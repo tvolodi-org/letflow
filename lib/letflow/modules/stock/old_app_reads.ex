@@ -25,6 +25,15 @@ defmodule Letflow.Modules.Stock.OldAppReads do
     sorted by place code (then sku integer). Optional integer filters `sku_id`, `location_id`.
     One place has one integer everywhere: in a sku's `location_id`, a `locations` row, and balance and
     movement rows.
+  * `code_lookup/2` (REQ-910, the old app's `CodeInfo`): the scan to find, `GET /api/codes/lookup?code=`.
+    The trimmed `code` is resolved by `Codes.resolve/2` (exact, case-sensitive) on the proved tenant's
+    schema only. An `assigned` code of an active `catalog_item` (`object_type` `sku`) or `location_node`
+    (`location`) whose scope declaration is `:tenant_wide` answers exactly `object_type`, `object_id`
+    (the integer of the catalog), `object_code`, `object_name` and `code`; every other outcome is one
+    `{:error, :not_found}` and a blank or missing `code` is `{:error, :code_required}`. Read only: no
+    code, assignment, audit, stock or ledger row is written, only a missing `IntIds` mapping. The legacy
+    plain barcode of an item is found because it enters Letflow as a code assigned to the item (the code
+    imports), not as an item field.
   * `movements/2` (REQ-909, the old app's `Movement`): the newest `limit` ledger entries (50 when `limit`
     is missing or outside 1..500), newest first, optional integer filters `sku_id`, `location_id`. A row
     (also the answer of a post and of a reverse, see `OldAppWrites`): `id` (TEXT, the digits of the
@@ -54,6 +63,7 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   or pages per request is needed before production (INV-8).
   """
 
+  alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Ledger
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Codes
@@ -65,6 +75,13 @@ defmodule Letflow.Modules.Stock.OldAppReads do
   @page 200
   @default_limit 50
   @max_limit 500
+
+  # REQ-910: the two target types the old app knows (a lot is not found), with the object type it
+  # reads, the `IntIds` kind of the id it shows and the module that reads the record.
+  @lookup_targets %{
+    "catalog_item" => {"sku", :sku, CatalogItems},
+    "location_node" => {"location", :location, Locations}
+  }
 
   @doc "The Qoimeks catalog (`skus` and `locations`) of the tenant schema `prefix`."
   @spec catalog(String.t()) ::
@@ -123,6 +140,61 @@ defmodule Letflow.Modules.Stock.OldAppReads do
 
   defp put_present(row, _key, nil), do: row
   defp put_present(row, key, value), do: Map.put(row, key, value)
+
+  @doc """
+  The scan lookup of the old app, `GET /api/codes/lookup?code=` (REQ-910, the old app's `CodeInfo`).
+  `params` is the query map. The `code` value is trimmed (as the old server does); a missing,
+  non-text or blank one is `{:error, :code_required}`. It is resolved with `Codes.resolve/2` on the
+  `prefix` of the proved tenant only (INV-1), an exact, case-sensitive match. Found only when the
+  code is `assigned` to a `catalog_item` or a `location_node` whose scope declaration is
+  `:tenant_wide` and the target record is live and active: the answer is `%{object_type, object_id,
+  object_code, object_name, code}` with `object_type` `"sku"` or `"location"` and `object_id` the same
+  integer the catalog gives the item or place (assigned here when missing, the only write). Every
+  other outcome (unknown, not assigned, retired, conflicting, a lot, an inactive or other-type
+  target, a value the codes module cannot store) is the one `{:error, :not_found}` (INV-5).
+  """
+  @spec code_lookup(String.t(), map()) ::
+          {:ok, map()} | {:error, :code_required | :not_found}
+  def code_lookup(prefix, params) when is_binary(prefix) and is_map(params) do
+    case code_param(params) do
+      nil -> {:error, :code_required}
+      text -> resolve_code(prefix, text)
+    end
+  end
+
+  defp code_param(params) do
+    case Map.get(params, "code") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
+
+      _other ->
+        nil
+    end
+  end
+
+  defp resolve_code(prefix, text) do
+    with {:ok, %{"status" => "assigned", "target_type" => type, "target_id" => id} = code} <-
+           Codes.resolve(prefix, text),
+         {object_type, kind, module} <- Map.get(@lookup_targets, type),
+         :tenant_wide <- ScopeDeclaration.for_type(type, prefix),
+         {:ok, %{"entity_type" => ^type, "active" => true, "record_id" => record_id} = target} <-
+           module.lookup(prefix, id),
+         %{^record_id => int} <- IntIds.assign(prefix, kind, [record_id]) do
+      {:ok,
+       %{
+         object_type: object_type,
+         object_id: int,
+         object_code: target["code"],
+         object_name: target["name"],
+         code: code["value"]
+       }}
+    else
+      _not_found -> {:error, :not_found}
+    end
+  end
 
   @doc "The Qoimeks balances list."
   @spec balances(map(), map()) ::

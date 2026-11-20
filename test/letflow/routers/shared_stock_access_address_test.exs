@@ -724,10 +724,11 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
   end
 
   describe "R3 (REQ-907) the calls not served stay 404" do
-    test "R3 codes, voice, parse and feedback under /api are 404 and write nothing", %{
-      a: a,
-      va: v
-    } do
+    test "R3 the code list and writes, voice, parse and feedback under /api are 404 and write nothing",
+         %{
+           a: a,
+           va: v
+         } do
       count = fn ->
         {SD.counts(a.schema_name),
          Repo.aggregate("movement_int_ids", :count, prefix: a.schema_name)}
@@ -736,7 +737,6 @@ defmodule Letflow.Routers.SharedStockAccessAddressTest do
       before = count.()
 
       for {method, path} <- [
-            {:get, "/api/codes/lookup?code=x"},
             {:get, "/api/codes"},
             {:post, "/api/codes"},
             {:post, "/api/voice"},
