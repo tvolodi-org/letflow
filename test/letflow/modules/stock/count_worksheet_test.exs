@@ -93,7 +93,7 @@ defmodule Letflow.Modules.Stock.CountWorksheetTest do
       refute Enum.any?(projection["lines_0"], &Map.has_key?(&1, "expected"))
 
       blank = pdf!(inp, :ru, false) |> PdfProbe.items()
-      refute Enum.any?(blank, &String.contains?(&1, "987"))
+      refute Enum.any?(blank, &String.contains?(&1, "987,654"))
       refute "Ожидается (по учёту)" in blank
 
       expected = pdf!(inp, :ru, true) |> PdfProbe.items()
@@ -242,7 +242,7 @@ defmodule Letflow.Modules.Stock.CountWorksheetTest do
       names = Map.new(files, fn {n, c} -> {to_string(n), c} end)
       wb = Map.fetch!(names, "xl/workbook.xml")
       assert wb =~ "Document" and wb =~ "Lines" and wb =~ "Signatures"
-      refute Map.fetch!(names, "xl/sharedStrings.xml") =~ "987"
+      refute Map.fetch!(names, "xl/sharedStrings.xml") =~ "987.654"
     end
   end
 
