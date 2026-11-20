@@ -11,6 +11,7 @@
 # 4 Data: the number of items and places is read at the start of the run (Items screen total; at the time of writing the seed holds 678 items and 150 places) and never hard-coded; the shared access itself must be enabled for qoimeks-qa2 (issue 4714), precondition 1. Until infrastructure does both, the scenario is BLOCKED-by-environment, not failed.
 # 5 Executable: API steps with an HTTP client, browser steps with a browser; the Bearer prefix is stated in precondition 2.
 # 6 Dry run: uat.sh preflight not run by the writer (no QA credentials in the writer session).
+# T-2385 (K15, old-client compatibility batch, decision 0091 section 11c, REQ-907, REQ-908): the old address is called the way the real old app calls it, with the /api prefix: GET <base>/api/catalog answers an object {skus, locations} (skus: id, code, name, unit; locations: id, code, name) and GET <base>/api/balances answers a list; the form without /api answers the same and stays valid. The 401 refusal body is unchanged (the app reads only the status).
 ---
 id: qoimeks-token-4-browser-old-address-and-no-screen
 scope: qoimeks-qa2
@@ -20,7 +21,7 @@ tags: [qoimeks, shared_stock_access, browser, phone_390, i18n, ru, kk, no_screen
 
 description: >
   The Qoimeks QA administrator signs in on the tenant address in a browser at 1440 px and again at 390 px. The administrator opens by hand the old-app catalog address of the tenant
-  (the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 followed by /catalog) while no shared access exists: the browser shows a refusal (401, plain answer "invalid or expired bearer token") and no list of items.
+  (the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 followed by /api/catalog) while no shared access exists: the browser shows a refusal (401, plain answer "invalid or expired bearer token") and no list of items.
   The administrator creates the shared access through the API, opens the same address in the browser again (still no value presented, so the same refusal), then revokes it and opens it a third time: the same refusal again.
   The three refusals look identical, so the page does not reveal whether a shared access exists. The administrator then opens the Tokens page in the side navigation (Tenant administration group), in Russian and in Kazakh, at 1440 px and 390 px.
   The page lists the administrator's personal tokens and offers no section, button or text about a shared stock access or the old Qoimeks app: the feature is operated through the API only.
@@ -38,8 +39,8 @@ preconditions:
   - description: The old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 reaches the backend, not the web app (BLOCKED-by-environment until the QA ingress routes the /qoimeks/ prefix on both QA hosts, issue 4715).
     check: system_seeded
     detail: >
-      Host used by this scenario: the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 (called <base>), which is another host than the tenant host https://qoimeks-qa2.letflow.qa.bizdala.com used for the administrator's own calls. Precondition check on <base>: GET <base>/balances sent without any token must answer 401 (the plain refusal); at the time of writing both hosts answer 401. If <base> does not answer 401, report BLOCKED-by-environment and say which host answered what.
-      Precondition check: the balances read of the base address (the address followed by /balances), sent with no Authorization header at all, must answer 401 with the plain refusal
+      Host used by this scenario: the old-app base address https://qa.bizdala.com/qoimeks/qoimeks-qa2 (called <base>), which is another host than the tenant host https://qoimeks-qa2.letflow.qa.bizdala.com used for the administrator's own calls. Precondition check on <base>: GET <base>/api/balances sent without any token must answer 401 (the plain refusal); at the time of writing both hosts answer 401. If <base> does not answer 401, report BLOCKED-by-environment and say which host answered what.
+      Precondition check: the balances read of the base address (the address followed by /api/balances, the real old app's form), sent with no Authorization header at all, must answer 401 with the plain refusal
       "invalid or expired bearer token". A 200 page of text/html ("Completing sign-in..." or "Redirecting to login...") means the request fell through to the web app:
       report BLOCKED-by-environment for every step that uses the old-app address and name issue 4715. The same prefix on the tenant host
       https://qoimeks-qa2.letflow.qa.bizdala.com is routed by the same infrastructure change; use the base address above as the canonical one.
