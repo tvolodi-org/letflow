@@ -206,12 +206,16 @@ defmodule Letflow.Attachments.ImageTest do
              "catalog_item",
              "catalog_lot",
              "location_node",
+             "maintenance_work_request",
              "problem_report"
            ]
 
     for kind <- ["assets_card", "catalog_item", "catalog_lot", "location_node"] do
       assert {:ok, %{purposes: %{"photo" => %{max: 10, main: true}}}} = Owners.fetch(kind)
     end
+
+    assert {:ok, %{purposes: %{"photo" => %{max: 5, main: false}}}} =
+             Owners.fetch("maintenance_work_request")
 
     assert {:ok, %{purposes: %{"screenshot" => %{max: 3, main: false, retain_days: 30}}}} =
              Owners.fetch("problem_report")
