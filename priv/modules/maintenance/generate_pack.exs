@@ -113,7 +113,7 @@ packed =
 
 document = %{
   "pack_id" => "letflow-maintenance",
-  "version" => "0.1.0",
+  "version" => "0.2.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   "exported_at" => "2026-11-19T00:00:00Z",
   "definitions" => [],

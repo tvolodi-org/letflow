@@ -1,7 +1,7 @@
 defmodule Letflow.Modules.Maintenance.RegistrationTest do
   @moduledoc """
-  REQ-893 criteria 1, 2 (source half) and 6: the `maintenance` skeleton is a valid registered manifest
-  with no permission and no grant, the release flag is off in every config but `config/test.exs`, and
+  REQ-893 criteria 1, 2 (source half) and 6 (as of REQ-894, version 0.2.0): the `maintenance` manifest is
+  valid and registered, declares three permissions (REQ-894) and no grant, the release flag is off in every config but `config/test.exs`, and
   the pack matches the entity definitions. Pure: no database.
   """
 
@@ -15,12 +15,12 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     m = Maintenance.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "maintenance"
-    assert m.version == "0.1.0"
+    assert m.version == "0.2.0"
     assert m.depends_on == ["assets"]
-    assert m.permissions == []
+    assert m.permissions == [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage]
     assert m.role_grants == %{}
     assert m.required_roles == []
-    assert m.route_policies == []
+    assert length(m.route_policies) == 4
     assert m.manages_entity_types == ["maintenance_work_request", "maintenance_work_order"]
 
     assert m.scope_declarations == %{
@@ -28,7 +28,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
              "maintenance_work_order" => {:column, "org_unit_id"}
            }
 
-    refute function_exported?(Maintenance, :router, 0)
+    assert Maintenance.router() == Letflow.Modules.Maintenance.Router
     assert Catalog.fetch("maintenance") == {:ok, Maintenance}
   end
 
@@ -105,8 +105,15 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
              order["definition_json"]["foreign_keys"]
   end
 
-  test "M-07: docs/roles.md has a maintenance section saying no permission and no role grant" do
-    assert File.read!("docs/roles.md") =~
-             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; behind the release flag `:maintenance_enabled`, off by default) has no permission and no role grant"
+  test "M-07: docs/roles.md has a maintenance section naming the three atoms and no role grant" do
+    text = File.read!("docs/roles.md")
+
+    assert text =~
+             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2, version 0.2.0;"
+
+    for atom <- ["MaintenanceRequestCreate", "MaintenanceRead", "MaintenanceOrderManage"],
+        do: assert(text =~ "`#{atom}`")
+
+    assert text =~ "It declares no `role_grants`"
   end
 end

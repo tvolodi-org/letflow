@@ -7,11 +7,13 @@ import { useAuth } from './AuthContext'
 import { getOidcManager } from './OidcManager'
 import { buildRedirectArgs } from './oidcRedirectArgs'
 import { isEmailFirstLoginEnabled } from './emailFirstFlag'
-import { resolveRealmFromUrl } from './tenantConfig'
+import { clearRealmSlug, isCompanyCodeUnknown, resolveRealmFromUrl } from './tenantConfig'
+import { CompanyNotFound } from './CompanyNotFound'
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
   const [redirecting, setRedirecting] = useState(false)
+  const [companyUnknown, setCompanyUnknown] = useState(false)
 
   // REQ-438 precedence (design req434 section 11): (1) explicit ?realm=,
   // (2) stored bpm_realm_slug -- both resolved, in that order, by
@@ -24,11 +26,26 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoading && !isAuthenticated && !redirecting && !needsEmailFirst) {
       setRedirecting(true)
-      void getOidcManager().then(m => {
-        void m.signinRedirect(
-          buildRedirectArgs(window.location.pathname + window.location.search),
-        )
-      })
+      const go = () =>
+        getOidcManager().then(m => {
+          void m.signinRedirect(
+            buildRedirectArgs(window.location.pathname + window.location.search),
+          )
+        })
+      // T-2350: an explicit company code that names no company never reaches the identity provider.
+      const slug = resolveRealmFromUrl()
+      if (slug === null) {
+        void go()
+      } else {
+        void isCompanyCodeUnknown(slug).then(unknown => {
+          if (unknown) {
+            clearRealmSlug()
+            setCompanyUnknown(true)
+          } else {
+            void go()
+          }
+        })
+      }
     }
   }, [isLoading, isAuthenticated, redirecting, needsEmailFirst])
 
@@ -43,6 +60,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       />
     )
   }
+
+  if (companyUnknown) return <CompanyNotFound />
 
   if (isLoading || redirecting) {
     return (
