@@ -208,7 +208,7 @@ builders, so each build task gets `after` set to the previous build task.
 | K14 | change | Build feedback | M | 4.0 | K12, K13 | day 2 |
 
 K1-K3 are written (REQ-907, REQ-908, REQ-909, this task). K8 is built (REQ-910, the scan lookup
-`GET /api/codes/lookup`, decision 0091 section 11d); C7 is served, the code list, assign and remove (C8-C10) are not. The requirement tasks K5, K7, K9, K11 and
+`GET /api/codes/lookup`, decision 0091 section 11d); C7 is served, the code list, assign and remove (C8-C10) are not. The count is built (REQ-912 and REQ-913: the count at the old address follows the tenant's four-eyes switch for counts — OFF posts at once with the audit "self-approved, four-eyes off", ON answers 400 «Подсчёт принят и ждёт подтверждения администратора» and waits for one administrator in My Tasks; decision 0091 section 11e); the gap-table cells about the count (C4, row 5) still show the state of the run of 2026-11-20. The requirement tasks K7, K9, K11 and
 K13 can run beside the build chain, since they change only `docs/requirements.yaml`.
 
 Not in the batch, operator and infra checks before the cutover:

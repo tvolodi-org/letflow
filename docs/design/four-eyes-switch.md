@@ -35,7 +35,7 @@ slice, because no process definition changes.
 | 4 | Granularity | Per tenant, per process and step (the step that names `distinct_from`); shown on screen as document type + step | decided (task text) |
 | 5 | Default | ON (four eyes); no stored row means ON | decided (task text) |
 | 6 | Which setting counts for an approval that is already waiting | The setting at the moment the approval is completed (live), not when the document was issued | G, also the UAT decision |
-| 7 | Service users (API tokens, service principals) | Four eyes stays ON for them even when the tenant switched it off: only a person signed in interactively may approve their own document | O (touches access) |
+| 7 | Service users (API tokens, service principals) | Four eyes stays ON for them even when the tenant switched it off: only a person signed in interactively may approve their own document. One exception, built later: the shared stock access of the old Qoimeks address approves its own quick count when the rule `stock_quick_count / approve` is stored OFF (decision 0091 section 11e, REQ-912) | O (touches access) |
 | 8 | Reason when switching off | Required free text, kept in the audit record (as `scripts.sod` does, 0053 D6) | O |
 | 9 | Refuse "off" when the tenant has two or more people who could approve? | No refusal; the screen shows how many users hold the approve permission as a hint | O |
 | 10 | Which rules get the switch | Only real four-eyes approvals (section 2, class A). Promotion self-approval, the script publisher rule and procurement keep their own rules | O |
@@ -239,7 +239,10 @@ own suites.
 - **Service users.** With the switch OFF, a script or integration acting under one service principal could issue and
   approve with no human. Recommended (O row 7): the OFF setting does not apply to a service principal actor; four
   eyes stays ON for it. The flag exists (`PUT /users/:id/service-principal`); the check reads it only on a would-be
-  refusal.
+  refusal. One exception was built later, for the old Qoimeks address only: the shared stock access (a shared secret,
+  not a person) completes the approve step of its own quick count when the rule `stock_quick_count / approve` is
+  stored OFF, and the audit says "self-approved, four-eyes off" with the shared access as actor (decision 0091
+  section 11e, REQ-912; the wait for one administrator when the rule is ON is REQ-913).
 - **Platform admin.** Kept out of the switch (row 2); in a customer tenant the platform admin has no business role
   (`docs/roles.md`: platform authority stays in the platform tenant, INV-10).
 - **Multi-step approvals (Meridian committee).** The setting is per step; turning off one vote does not turn off

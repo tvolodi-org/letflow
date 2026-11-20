@@ -123,6 +123,12 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     assert s20 =~ "approval_rule.changed"
     assert s20 =~ "self-approved, four-eyes off"
 
+    # T-2411: the count posts at once with the switch OFF; an older pending count stays pending
+    assert s20 =~
+             "With the count switch OFF the storekeeper's count posts at once on the phone and on the web"
+
+    assert s20 =~ "stays pending until an administrator approves"
+
     # the readiness check that shows the value, and the line to read
     assert s20 =~ "Letflow.Release.tenant_onboarding_check"
 
