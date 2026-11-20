@@ -20,7 +20,8 @@ procurement self-decision ban is a real four-eyes rule but on its own code path,
 later slice.
 
 So the switch is small: one place in the engine decides it, and every approval step that uses `distinct_from` gets the
-switch for free. It is a new tenant setting per process and step (no row = ON, so nothing changes on upgrade), one new
+switch for free. It is a new tenant setting per process and step (no row = ON for a tenant created before
+2026-11-20, and OFF for a new one since owner decision D-165, section 3.6, so nothing changes on upgrade), one new
 permission held by the tenant admin only, one audit line "self-approved, four-eyes off" each time one person approves
 their own document, and one admin screen. No module version bump is needed for the core slice or the asset-opening
 slice, because no process definition changes.
@@ -33,7 +34,7 @@ slice, because no process definition changes.
 | 2 | Who holds it | Tenant admin only (the computed `all_tenant_scope` rule); not the platform admin in the platform tenant (explicit `false`, as ruling 2 does for `TenantSecurityManage`) | decided in principle (task text: "by permission"); the platform-admin exclusion is O |
 | 3 | May a tenant's own role hold it (corporate role editor)? | No: non-assignable (0088 D4), because it lowers a control | O |
 | 4 | Granularity | Per tenant, per process and step (the step that names `distinct_from`); shown on screen as document type + step | decided (task text) |
-| 5 | Default | ON (four eyes); no stored row means ON | decided (task text) |
+| 5 | Default | ON (four eyes); no stored row means ON | decided (task text); amended by owner decision D-165 (2026-11-20): OFF for a new tenant, section 3.6 |
 | 6 | Which setting counts for an approval that is already waiting | The setting at the moment the approval is completed (live), not when the document was issued | G, also the UAT decision |
 | 7 | Service users (API tokens, service principals) | Four eyes stays ON for them even when the tenant switched it off: only a person signed in interactively may approve their own document. One exception, built later: the shared stock access of the old Qoimeks address approves its own quick count when the rule `stock_quick_count / approve` is stored OFF (decision 0091 section 11e, REQ-912) | O (touches access) |
 | 8 | Reason when switching off | Required free text, kept in the audit record (as `scripts.sod` does, 0053 D6) | O |
@@ -229,8 +230,8 @@ own suites.
 ## 5. Risks
 
 - **A one-person company turns it off.** That is the purpose; the control becomes the audit: every self-approval is
-  one `task.self_approved` row with the note text, and the switch itself is audited with who, when and why. Default ON
-  and fail-closed reads keep every other tenant unchanged.
+  one `task.self_approved` row with the note text, and the switch itself is audited with who, when and why. The OFF
+  default of a new tenant (section 3.6) and the fail-closed reads keep every other tenant unchanged.
 - **The setting is turned off "for one approval" and forgotten.** The screen shows the date and the person who switched
   it off; a later report could list self-approvals per month (not in these slices).
 - **Scoped users.** A scoped TENANT_ADMIN grant (one org unit) does not count for the switch (tenant-wide only), so a
@@ -291,10 +292,11 @@ break):
 The switch writes one `approval_rule.changed` audit entry and every count the same person then approves writes
 one `task.self_approved` entry with the note "self-approved, four-eyes off". The decision covers the count and
 the Excel load that creates one (the same rule); it does **not** cover the opening: `stock_opening / approve`
-stays ON by default, and a one-administrator company either gets a second administrator or switches the opening
-rule OFF with its own reason. The recommendation above (both rules OFF for a one-person Client 1) is therefore
-decided for the count and left open for the opening. The onboarding step, the route, the reason and the
-readiness check that shows the value are in `docs/runbooks/production-tenant-onboarding.md`, step 20.
+is OFF by default in a new tenant (section 3.6), and a company that wants a second person either gets a second
+administrator or switches the opening rule ON with its own reason. The recommendation above (both rules OFF for
+a one-person Client 1) is therefore decided for the count and left open for the opening. The onboarding step, the
+route, the reason and the readiness check that shows the value are in
+`docs/runbooks/production-tenant-onboarding.md`, step 20.
 
 ## 7. Not decided here
 

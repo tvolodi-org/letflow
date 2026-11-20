@@ -186,8 +186,8 @@ The report covers the tenant, realm, host row, modules at the build's versions, 
 their employee links, every stock document type and entity table, place-to-org-unit links, org units' legal entity
 name and BIN, exactly one active employee and its active user link, `app_name`, shared stock access and scope
 enforcement. Shared access is information; when it is enabled, scope enforcement must be `off`. Negative balances
-and four-eyes are information, not readiness gates: the count rule is set at step 20, after this report runs, and
-its value is read from the `four-eyes` line there.
+and four-eyes are information, not readiness gates: the count rule is decided at step 20, after this report runs
+(a new tenant has it OFF by default, owner decision D-165), and its value is read from the `four-eyes` line there.
 
 Document types: `stock_receipt`, `stock_opening`, `stock_quick_count`, `stock_issue`, `stock_writeoff`,
 `stock_transfer`, `stock_handover`, `stock_return`, `count.order`, `count.sheet`, `count.differences`,
@@ -252,8 +252,10 @@ file for the phones. Infra turns the grant OFF again and probes that a password 
 **Do:** follow `docs/runbooks/qoimeks-rehearsal.md` with the setup token (write freeze first, then its steps), with
 its "Minimum master data by API" first. The two OIDC-only switches (negative opening balances, four eyes for a
 one-person company) are set on the Ledger settings and Approval rules screens; the four-eyes choice is the
-company's and the owner's (step 20). For sss the count rule is already decided and is OFF (owner decision
-D-164, step 20). Production only after the same extract passed on the QA rehearsal tenant.
+company's and the owner's (step 20). Every four-eyes rule of a new tenant is OFF by default (owner decision
+D-165), so a one-person company needs no switch to work out of the box; a company that wants a second person
+switches the rule ON, per document kind (step 20). For sss the count rule is already decided and is OFF (owner
+decision D-164, step 20). Production only after the same extract passed on the QA rehearsal tenant.
 
 **Check:** that runbook's compares (counts, quantities, masters) exit 0.
 
@@ -395,35 +397,44 @@ the unit list is non-empty after the load; the first document of the year has nu
 **Do:** choose one of two ways and write the choice in the go record:
 
 Stock approve, post and reverse tasks require `StockApprove` (stock 0.23.0, decision 0093), held by TENANT_ADMIN,
-not STOREKEEPER. In a one-person company the tenant admin is the approver. Turning four eyes OFF allows that
-admin to self-approve; it does not grant approval authority to a storekeeper. Routing or reassignment cannot
-grant the permission. Delegation to a tenant-defined permission role is not available yet; see `docs/roles.md`,
+not STOREKEEPER. In a one-person company the tenant admin is the approver. A four-eyes rule that is OFF allows
+that admin to self-approve (OFF is the default of a new tenant, owner decision D-165); it does not grant
+approval authority to a storekeeper. Routing or reassignment cannot grant the permission. Delegation to a
+tenant-defined permission role is not available yet; see `docs/roles.md`,
 "Delegating stock approval", for the intended owner procedure and current limitation. Never give a customer
 PLATFORM_ADMIN. Existing pinned definitions keep their old checks; see `docs/runbooks/stock-counts.md`,
 "Who may approve, post and reverse", before upgrading an existing tenant.
 
-**Each document kind is its own rule and its own choice.** A rule is a four-eyes step of the shipped stock
-pack; the default is ON (a second person must approve), and the tenant administrator switches one rule OFF on
-the Approval rules screen (Admin > Approval rules), with a reason. The screen and the route are the same
-thing: `GET /api/v1/approval-rules` lists the rules, `PUT /api/v1/approval-rules/:definition_name/:node_id`
-switches one.
+**Each document kind is its own rule and its own choice.** A rule is a four-eyes step of a shipped pack (the
+stock pack, and the assets pack when it is installed). **The default of every rule is OFF for a tenant created
+after owner decision D-165 (2026-11-20)**: a step with no stored rule lets the person who issued the document
+approve it, so a one-administrator company works out of the box. A company that wants a second person switches
+the rule ON, per rule, on the Approval rules screen (Admin > Approval rules), with a reason. A tenant created
+before D-165 keeps the old default (ON, a second person must approve) until its administrator switches a rule
+OFF. The screen and the route are the same thing: `GET /api/v1/approval-rules` lists the rules with their
+current value, `PUT /api/v1/approval-rules/:definition_name/:node_id` switches one.
 
-| Document kind | Rule | Default | Client 1 (sss) | What the staff see |
+| Document kind | Rule | Default (a new tenant) | Client 1 (sss) | What the staff see |
 |---|---|---|---|---|
-| Opening balance (`stock_opening`) | `stock_opening / approve` | ON | separate choice: ON, or OFF with its own reason | ON: the person who issued the opening cannot approve it; a second administrator approves it in My Tasks. OFF with a reason: the one administrator approves their own opening, and the audit shows "self-approved, four-eyes off". |
-| Count from the phone (`stock_quick_count`) | `stock_quick_count / approve` | ON | **OFF** (D-164) | ON: the administrator who did not count must approve, so the count waits and the balance changes only after that. OFF: the count posts at once, as on the old server, and the audit shows "self-approved, four-eyes off". |
-| Excel load that creates counts | `stock_quick_count / approve` (the same rule as the count) | ON | **OFF** — the same rule as the count (D-164) | The same as the count: with the rule ON the loader's own approval is refused `separation_of_duties` and the load waits for a second person; with it OFF the load posts at once. |
+| Opening balance (`stock_opening`) | `stock_opening / approve` | OFF | separate choice: ON with its own reason, or left OFF | ON: the person who issued the opening cannot approve it; a second administrator approves it in My Tasks. OFF: the one administrator approves their own opening, and the audit shows "self-approved, four-eyes off". |
+| Count from the phone (`stock_quick_count`) | `stock_quick_count / approve` | OFF | **OFF** (D-164) | ON: the administrator who did not count must approve, so the count waits and the balance changes only after that. OFF: the count posts at once, as on the old server, and the audit shows "self-approved, four-eyes off". |
+| Excel load that creates counts | `stock_quick_count / approve` (the same rule as the count) | OFF | **OFF** — the same rule as the count (D-164) | The same as the count: with the rule ON the loader's own approval is refused `separation_of_duties` and the load waits for a second person; with it OFF the load posts at once. |
+| Asset opening (`assets_opening`), when the assets module is installed | `assets_opening / approve` | OFF | not part of this procedure | ON: the person who issued the asset opening cannot approve it; a second administrator approves it in My Tasks. OFF: the issuer approves their own opening and the audit shows "self-approved, four-eyes off". |
 
-- Two administrators with four eyes ON: the second one approves the opening balance and the counts
+A step of a definition the tenant wrote itself follows the same rule: OFF until its administrator switches it ON.
+
+- Two administrators with a rule ON: the second one approves the opening balance and the counts
   (`stock_opening` and `stock_quick_count`, the latter also for an Excel load that creates a count).
-- One administrator with four eyes OFF, with the reason text (the Approval rules screen); the audit still
-  records the self-approval. Use it only for a one-person company. Choose **per rule**, one row of the table
-  above per rule. A rule left ON in a one-person company **cannot be confirmed alone**: the approve step is
-  refused as the same person.
+- One administrator with a rule OFF (the default of a new tenant), with the reason text when the rule was
+  switched (the Approval rules screen); the audit still records the self-approval. Use it only for a one-person
+  company. Choose **per rule**, one row of the table above per rule. A rule left ON in a one-person company
+  **cannot be confirmed alone**: the approve step is refused as the same person.
 
 **For sss (Client 1) the count rule is OFF: owner decision D-164 (2026-11-20).** The storekeeper counts from
-the phone at the warehouse and the company has one administrator, so the count has to post at once. Switch the
-count rule OFF once, before the first count.
+the phone at the warehouse and the company has one administrator, so the count has to post at once. A tenant
+created after D-165 has that rule OFF by default, so there is nothing to switch for it; a tenant created before
+D-165 switches the count rule OFF once, before the first count, with the reason below. Switching a rule that is
+already OFF writes nothing and audits nothing: the value did not change.
 
 With the count switch OFF the storekeeper's count posts at once on the phone and on the web. The audit shows one `task.self_approved` entry with the note "self-approved, four-eyes off" for each such count. A count issued while the rule was ON stays pending until an administrator approves it in My Tasks (T-2410): turning the switch OFF later does not post it by itself.
 
@@ -437,6 +448,13 @@ screen is `PUT /api/v1/approval-rules/stock_quick_count/approve`, with this body
 {"four_eyes": false, "reason": "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"}
 ```
 
+A company that wants a second person switches the same rule ON, with the same route and its own reason, for
+example:
+
+```
+{"four_eyes": true, "reason": "Two administrators: the opening and the counts are approved by a second person"}
+```
+
 The reason is one line, exactly as it stands there: the product's reason rule refuses a line break.
 
 **The switch is an interactive act.** The route accepts only a person signed in in the browser, so the setup
@@ -448,18 +466,21 @@ rule back ON is the same call with `"four_eyes": true` and its own reason. A rul
 definition, and the stock definitions activate on their first use (step 14), so issue one opening and one
 quick count first; until those definitions are active the call answers 422 `not_a_four_eyes_step`.
 
-**The opening rule stays a separate choice.** D-164 decides the count, not the opening. A one-administrator
-tenant either gets a second administrator who approves the opening, or switches the opening rule OFF with its
-own reason (its own `approval_rule.changed` entry). The default is ON.
+**The opening rule stays a separate choice.** D-164 decides the count, not the opening. The default is OFF for
+a new tenant (D-165): the one administrator issues and approves their own opening. A company that wants a second
+person either gets a second administrator who approves the opening, or switches the opening rule ON with its own
+reason (its own `approval_rule.changed` entry). A tenant created before D-165 has the opposite default (ON, a
+second person must approve) and switches the opening rule OFF with its own reason instead.
 
 **Check:** the Approval rules screen shows the chosen state; with two administrators, the opening is approved by
 the second one in My Tasks. The approver's `GET /api/v1/modules/stock/approval-access` answers 200 with
 `can_approve: true`; the storekeeper gets 403.
 
-The audit log (`GET /api/v1/audit`, permission `AuditRead`) carries one `approval_rule.changed` entry for the
-switch (resource type `approval_rule`, before `four_eyes: true`, after `four_eyes: false`, with the reason), and
-one `task.self_approved` entry with the note "self-approved, four-eyes off" for every document the same person
-then approves.
+The audit log (`GET /api/v1/audit`, permission `AuditRead`) carries one `approval_rule.changed` entry for every
+switch that changed the value (resource type `approval_rule`, before `four_eyes: true`, after `four_eyes: false`,
+with the reason; a switch ON of a rule that was OFF by default writes before `four_eyes: false`, after
+`four_eyes: true`), and one `task.self_approved` entry with the note "self-approved, four-eyes off" for every
+document the same person then approves.
 
 The readiness report shows the value of every rule. Run it after the first opening and the first quick
 count (their definitions are active then, step 14) and after the switch:
@@ -468,14 +489,22 @@ count (their definitions are active then, step 14) and after the switch:
 bin/letflow eval 'Letflow.Release.tenant_onboarding_check("<slug>", host: "<host>", tenant_type: "production")'
 ```
 
-The `four-eyes` line is the one to read. With the count rule OFF and the opening rule ON it reads:
+The `four-eyes` line is the one to read. It shows every rule of the tenant with its current value, the default
+included. A new tenant that has switched nothing reads:
+
+```
+INFO four-eyes on=0 off=2 steps=stock_opening.approve=off,stock_quick_count.approve=off
+```
+
+That is the D-165 default: every rule OFF, so one administrator is enough. With the count rule OFF and the
+opening rule ON it reads:
 
 ```
 INFO four-eyes on=1 off=1 steps=stock_opening.approve=on,stock_quick_count.approve=off
 ```
 
-With the opening rule OFF as well it reads `INFO four-eyes on=0 off=2
-steps=stock_opening.approve=off,stock_quick_count.approve=off`. In the JSON form (`format: :json`) the same
+With both rules ON it reads `INFO four-eyes on=2 off=0
+steps=stock_opening.approve=on,stock_quick_count.approve=on`. In the JSON form (`format: :json`) the same
 value is in the check named `four-eyes`, with `status` `info`. The line is information: the report does not
 turn RED when a rule is ON, so read it by eye. Making the count rule a readiness gate (an expected value that
 turns the report RED) is a small product change, not built yet; the operator queues it as a follow-up.
@@ -544,10 +573,13 @@ Open `https://<host>` and sign in as the company administrator. The menu group "
 
 1. Open `/admin/approval-rules`: title "Approval rules" / «Правила утверждения».
 2. In the list, columns "Document type" / «Тип документа», "Step" / «Шаг», "Different person" / «Другой человек»,
-   find the row `stock_quick_count`, step `approve` ("Approval" / «Утверждение»). The pill shows "On" /
-   «Включено» before the change. Click the row; the panel on the right opens.
+   find the row `stock_quick_count`, step `approve` ("Approval" / «Утверждение»). The pill shows the current
+   value: "Off" / «Выключено» for a tenant created after D-165 (the default of every rule), "On" / «Включено»
+   for a tenant created before it. Click the row; the panel on the right opens.
 3. Switch OFF "Require a different person to approve" / «Требовать утверждения другим человеком». The warning
-   "One person will be able to issue and approve" / «Один человек сможет оформлять и утверждать» appears.
+   "One person will be able to issue and approve" / «Один человек сможет оформлять и утверждать» appears. A
+   tenant created after D-165 already shows Off: the rule is OFF by default and there is nothing to switch
+   (step 20); the same screen switches a rule ON, when the company wants a second person.
 4. In the box "Reason" / «Причина» type EXACTLY, on one line (a line break is refused):
 
    ```
@@ -565,7 +597,8 @@ own document..." and "Last change": your name, the time, "Reason: ..." / «Пр�
 (F5): the row is still Off with the same reason, and `GET /api/v1/approval-rules` (the approver's own browser
 session, or the screen) shows `four_eyes` false for `stock_quick_count / approve` with the reason. (c) The audit
 (`GET /api/v1/audit`, `AuditRead`) has one `approval_rule.changed` entry with before `four_eyes: true`, after
-`four_eyes: false` and the reason. (d) The readiness report line `INFO four-eyes on=1 off=1
+`four_eyes: false` and the reason, when the switch changed the value; a tenant created after D-165 has no
+switch to make and therefore no such entry. (d) The readiness report line `INFO four-eyes on=1 off=1
 steps=stock_opening.approve=on,stock_quick_count.approve=off` (step 20).
 
 ### 3. Negative balances (decision 0090, runbook step 19)
@@ -625,8 +658,10 @@ The last-resort whole undo (database restore from step 1 plus realm delete) is i
 - O-016: production Keycloak, DNS, and who holds the platform login.
 - O-015: staff accounts and the channel for temporary passwords.
 - Shared stock access in production and its direct-grant window (step 9).
-- Four eyes for the company: the count rule is decided (OFF, owner decision D-164, step 20); the opening rule
-  is the company's own choice (step 20).
+- Four eyes for the company: every rule of a new tenant is OFF by default (owner decision D-165), so a
+  one-administrator company works out of the box; a company that wants a second person switches the rule ON,
+  per document kind, with a reason (step 20). The count rule is decided (OFF, owner decision D-164, step 20);
+  the opening rule is the company's own choice (step 20).
 - That an operator-held setup account is used until handover (step 3).
 
 ## Notes: the demo provisioner and requested names (option C)

@@ -126,14 +126,16 @@ keeps the quick count schema (`org_unit_id`, `reason_code: "other"`, `reason_tex
 posting does not re-check the link. The load writes only what the REQ-884 check finds, and that
 check does not test the link either.
 
-**Four eyes ON (default).** The loader's own completion of the approve task is refused
+**Four eyes ON.** The loader's own completion of the approve task is refused
 `separation_of_duties`; a second user completes it. After approval the ledger receives one entry
 of cause `count_set` with one leg per change. If a balance changed between the load and the
 approval, the whole entry is refused `quick_count_stale`; the task stays pending. The user
 cancels the import (see REQ-886) and re-checks.
 
 **Four eyes OFF.** When the tenant has the `stock_quick_count / approve` approval rule set to
-`four_eyes: false`, the loader can complete the approve task alone.
+`four_eyes: false`, the loader can complete the approve task alone. That is the default of a new
+tenant (owner decision D-165): the rule is OFF until the tenant administrator switches it ON,
+per rule, with a reason (`PUT /approval-rules/stock_quick_count/approve`).
 
 ## List and cancel (REQ-886)
 

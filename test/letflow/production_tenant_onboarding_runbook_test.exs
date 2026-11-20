@@ -164,7 +164,7 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     assert Reason.validate(reason) == {:ok, reason}
   end
 
-  test "R8 (D-164): step 20 holds the decision table: every document kind, its rule, the default ON" do
+  test "R8 (D-165): step 20 holds the decision table: every document kind, its rule, the default OFF" do
     rows =
       step(text(), 20)
       |> String.split("\n")
@@ -175,12 +175,18 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
 
     assert [header | data] = rows
 
-    assert header == ["Document kind", "Rule", "Default", "Client 1 (sss)", "What the staff see"]
+    assert header == [
+             "Document kind",
+             "Rule",
+             "Default (a new tenant)",
+             "Client 1 (sss)",
+             "What the staff see"
+           ]
 
-    assert length(data) == 3
+    assert length(data) == 4
 
     for [_kind, rule, default, _client1, effect] <- data do
-      assert default == "ON"
+      assert default == "OFF"
       assert effect != ""
       assert rule =~ "/ approve"
     end
@@ -189,9 +195,10 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     assert "Opening balance (`stock_opening`)" in kinds
     assert "Count from the phone (`stock_quick_count`)" in kinds
     assert "Excel load that creates counts" in kinds
+    assert Enum.any?(kinds, &(&1 =~ "Asset opening (`assets_opening`)"))
 
     # the count rule is OFF for Client 1 (D-164); the opening rule stays a separate choice
-    [opening, count, workbook] = data
+    [opening, count, workbook, _assets] = data
 
     assert count |> Enum.at(3) =~ "OFF"
     assert count |> Enum.at(3) =~ "D-164"
@@ -203,7 +210,7 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     # the count rule is the owner's decision; the opening rule stays a separate choice
     s20 = step(text(), 20)
     assert s20 =~ "The opening rule stays a separate choice"
-    assert s20 =~ "The default is ON"
+    assert s20 =~ "The default is OFF"
   end
 
   test "R9 (D-164): the rules the runbook names are the shipped stock pack's own four-eyes steps" do

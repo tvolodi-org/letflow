@@ -616,8 +616,11 @@ lookup.
 
 **The switch.** The tenant's four-eyes setting for counts is the approval rule of the process
 `stock_quick_count`, step `approve` (`Letflow.ApprovalRules.four_eyes_off?/3`), read in the proved tenant's
-schema only (INV-1). A stored `four_eyes: false` is OFF. No rule row, a row `four_eyes: true` or an
-unreadable setting is ON (fails closed). The switch is read before the count is made, and the engine reads it
+schema only (INV-1). A stored `four_eyes: false` is OFF. A row `four_eyes: true` or an
+unreadable setting is ON (fails closed). **Amendment (owner decision D-165, 2026-11-20, product change
+T-2391): a rule with no stored row is OFF in a tenant created after that change** (its schema carries the
+new-tenant marker row `approval_rule_defaults`) and ON in every tenant created before it. A stored row always
+wins. The switch is read before the count is made, and the engine reads it
 again under the task lock when the approval is completed.
 
 **Switch OFF: the count posts at once.** In the same call the shared access completes the approve task of its
@@ -625,8 +628,9 @@ own count (credential `:shared_access`), so the count posts the cause `count_set
 becomes the counted quantity (0 allowed). The engine writes one `task.self_approved` audit entry, the note
 "self-approved, four-eyes off", with the shared access actor as its actor. `Letflow.Engine.SeparationOfDuties.check/6`
 is widened for exactly this one case: the credential `:shared_access`, the definition `stock_quick_count`, the
-node `approve` and a stored `four_eyes: false`. Every other credential, process or step keeps the rule of
-section 9, and for the shared access no rule row, a row `true` or an unreadable setting refuses (fails closed).
+node `approve` and an effective `four_eyes: false` (a stored row, or no row in a tenant created after D-165).
+Every other credential, process or step keeps the rule of
+section 9, and for the shared access a row `true` or an unreadable setting refuses (fails closed).
 No permission is added: the count posts with `StockPost`, which the shared access already holds (sections 2
 and 11b); it is not granted `StockApprove`.
 
