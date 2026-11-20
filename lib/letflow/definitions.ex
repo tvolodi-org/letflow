@@ -2476,10 +2476,7 @@ defmodule Letflow.Definitions do
         %ProcessDefinition{status: :draft} = definition ->
           case run_service_scope_validator(definition, tenant_id, validator) do
             :ok ->
-              with :ok <- run_semantic_validation(definition, prefix),
-                   :ok <- check_reserved_references(definition),
-                   :ok <- check_entity_writes(definition, prefix, activator),
-                   :ok <- check_script_bindings(definition, prefix) do
+              with :ok <- precheck_activation(definition, prefix, activator) do
                 activate_draft(definition, prefix, tenant_id, activator)
               else
                 {:error, reason} -> Repo.rollback(reason)
@@ -2490,6 +2487,22 @@ defmodule Letflow.Definitions do
           end
       end
     end)
+  end
+
+  @doc """
+  The read-only validators `activate/2` runs on a DRAFT before its status write (semantic validation,
+  reserved references, entity-write authority, script bindings), without opening a transaction or
+  writing. T-2353: a caller inside its own transaction (`Letflow.Modules.EnsureSeeds`) checks a draft
+  with this first, because a refusal INSIDE `activate/2` rolls back its (nested) transaction and with
+  it the caller's. Runs the same functions in the same order, so the two cannot disagree.
+  """
+  @spec precheck_activation(ProcessDefinition.t(), String.t(), term()) :: :ok | {:error, term()}
+  def precheck_activation(%ProcessDefinition{} = definition, prefix, activator) do
+    with :ok <- run_semantic_validation(definition, prefix),
+         :ok <- check_reserved_references(definition),
+         :ok <- check_entity_writes(definition, prefix, activator) do
+      check_script_bindings(definition, prefix)
+    end
   end
 
   # GH 2534 PR 7c-1 (decision 0053 D2; design gh2534-7c-script-handler.md 4.5, C8): every

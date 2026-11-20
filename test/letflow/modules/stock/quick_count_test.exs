@@ -576,10 +576,28 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     assert TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count")
     assert TenantProvisioning.entity_table_exists?(ctx.schema, "entity_stock_quick_count_line")
 
-    assert [%{status: :draft, owner_module: "stock"}] =
+    # T-2353: an unmodified draft the upgrade made is activated with no manual step, by the system actor.
+    assert [%{status: :active, owner_module: "stock"} = activated] =
              Repo.all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
                prefix: ctx.schema
              )
+
+    assert [%{after_state: %{"item" => item, "activated_by" => by}}] =
+             Repo.all(from(e in Entry, where: e.action == "module.seed_activated"),
+               prefix: ctx.schema
+             )
+             |> Enum.filter(&String.starts_with?(&1.after_state["item"], "stock_quick_count@"))
+
+    assert item == "stock_quick_count@#{activated.version}"
+    assert by == "00000000-0000-0000-0000-000000007130"
+
+    assert Repo.aggregate(
+             from(e in Entry,
+               where: e.action == "definition.activate" and e.resource_id == ^activated.id
+             ),
+             :count,
+             prefix: ctx.schema
+           ) == 1
 
     # Two entity definitions, two tables, the type and process draft: one audit each.
     assert seed_audits(ctx.schema) == before_audits + 6
@@ -595,8 +613,12 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     doc = count!(ctx, qc_body(ctx.ma))
     assert doc["number"] =~ "QCT"
 
-    # tenant b is untouched (INV-1)
+    # tenant b is untouched (INV-1): no activation audit, no definition row changed
     assert {seed_audits(ctx.b.schema_name), O.counts(ctx.b.schema_name)} == before_b
+
+    assert Repo.aggregate(from(e in Entry, where: e.action == "module.seed_activated"), :count,
+             prefix: ctx.b.schema_name
+           ) == 0
   end
 
   @tag :missing_quick_count_type
@@ -659,17 +681,22 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     api(:post, "/tenant/modules/nope/ensure-seeds", ctx.tok_a, %{}) |> P.status!(404)
   end
 
-  test "QC-T2217c an ACTIVE older process definition is offered a draft, never replaced", ctx do
+  # A stale 0.21.0 active row of stock_quick_count; `modified?` makes it a tenant-modified definition
+  # (its stamp no longer matches its graph). Returns the row and the answer of the upgrade.
+  defp upgrade_with_old_active!(ctx, modified?) do
     alias Letflow.Definitions.ProcessDefinition
 
-    # The first count activated the process. Keep its graph unchanged: an older owner version alone
-    # must offer a current draft too (the stale 0.21.0 stamp reported on qoimeks-qa2).
     Repo.query!(~s|ALTER TABLE "#{ctx.schema}".process_definitions DISABLE TRIGGER USER|)
 
     try do
+      set =
+        if modified?,
+          do: [owner_module_version: "0.21.0", owner_body_hash: "tenant-edited"],
+          else: [owner_module_version: "0.21.0"]
+
       Repo.update_all(
         from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
-        [set: [owner_module_version: "0.21.0"]],
+        [set: set],
         prefix: ctx.schema
       )
     after
@@ -680,9 +707,6 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
       Repo.one!(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
         prefix: ctx.schema
       )
-
-    before_audits = seed_audits(ctx.schema)
-    path = "/tenant/modules/stock/ensure-seeds"
 
     Repo.update_all(
       from(m in Letflow.Modules.TenantModule, where: m.module_id == "stock"),
@@ -699,8 +723,70 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
       })
       |> P.status!(200)
 
-    body = upgraded["seeds"]
+    {old_active, upgraded["seeds"]}
+  end
+
+  test "QC-T2353a a pristine ACTIVE older definition is superseded by the activated new version",
+       ctx do
+    alias Letflow.Definitions.ProcessDefinition
+
+    # The first count activated the process. Keep its graph unchanged: an older owner version alone
+    # (the stale 0.21.0 stamp reported on qoimeks-qa2) is the module's own pristine definition.
+    {old_active, body} = upgrade_with_old_active!(ctx, false)
+    current = Letflow.Modules.Stock.manifest().version
+
+    assert [<<"stock_quick_count@", _::binary>> = created] = body["process_drafts"]
+    assert created in body["process_activated"]
+    assert body["process_activation_needed"] == []
+
+    rows =
+      Repo.all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        prefix: ctx.schema
+      )
+
+    assert Enum.sort(Enum.map(rows, & &1.status)) == [:active, :deprecated]
+    active = Enum.find(rows, &(&1.status == :active))
+    assert active.owner_module_version == current
+    assert Repo.get!(ProcessDefinition, old_active.id, prefix: ctx.schema).status == :deprecated
+
+    assert [%{after_state: %{"superseded_version" => "0.21.0"}}] =
+             Repo.all(from(e in Entry, where: e.action == "module.seed_activated"),
+               prefix: ctx.schema
+             )
+             |> Enum.filter(&String.starts_with?(&1.after_state["item"], "stock_quick_count@"))
+
+    # idempotent: a second call creates and activates nothing, no new audit
+    path = "/tenant/modules/stock/ensure-seeds"
+    again = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+    assert again["process_drafts"] == [] and again["process_activated"] == []
+    assert again["process_activation_needed"] == []
+
+    assert Repo.aggregate(
+             from(e in Entry, where: e.action == "module.seed_activated"),
+             :count,
+             prefix: ctx.schema
+           ) == length(body["process_activated"])
+
+    # the activating actor holds no role and is not the caller
+    assert Letflow.Identity.list_effective_role_names("00000000-0000-0000-0000-000000007130",
+             prefix: ctx.schema
+           ) == []
+
+    # tenant b never saw it
+    assert Repo.aggregate(from(e in Entry, where: e.action == "module.seed_activated"), :count,
+             prefix: ctx.b.schema_name
+           ) == 0
+  end
+
+  test "QC-T2353b a tenant-modified ACTIVE definition keeps its place; the draft stays and is listed",
+       ctx do
+    alias Letflow.Definitions.ProcessDefinition
+
+    {old_active, body} = upgrade_with_old_active!(ctx, true)
+
     assert [<<"stock_quick_count@", _::binary>>] = body["process_drafts"]
+    # other, never-activated stock drafts are still activated; the modified one is not
+    refute Enum.any?(body["process_activated"], &String.starts_with?(&1, "stock_quick_count@"))
 
     assert [%{"name" => "stock_quick_count", "active_version" => "0.21.0"}] =
              body["process_activation_needed"]
@@ -712,16 +798,21 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
 
     assert Enum.sort(Enum.map(rows, & &1.status)) == [:active, :draft]
     assert Enum.find(rows, &(&1.status == :active)) == old_active
-    assert seed_audits(ctx.schema) == before_audits + 1
 
-    assert Enum.find(rows, &(&1.status == :draft)).owner_module_version ==
-             Letflow.Modules.Stock.manifest().version
+    assert Repo.aggregate(
+             from(e in Entry,
+               where:
+                 e.action == "module.seed_activated" and
+                   like(fragment("?->>'item'", e.after_state), "stock_quick_count@%")
+             ),
+             :count,
+             prefix: ctx.schema
+           ) == 0
 
-    # a second call creates nothing more; the offer stays listed until a user activates the draft
-    again = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
-    assert again["process_drafts"] == []
+    # a second call changes nothing and the offer stays listed
+    again = api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(200)
+    assert again["process_drafts"] == [] and again["process_activated"] == []
     assert [%{"name" => "stock_quick_count"}] = again["process_activation_needed"]
-    assert seed_audits(ctx.schema) == before_audits + 1
 
     assert Repo.aggregate(
              from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
@@ -729,14 +820,63 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
              prefix: ctx.schema
            ) == 2
 
+    # a user with DefinitionsActivate still activates the draft by hand
     draft = Enum.find(rows, &(&1.status == :draft))
     api(:post, "/definitions/#{draft.id}/activate", ctx.tok_a, %{}) |> P.status!(200)
-    activated = Repo.get!(ProcessDefinition, draft.id, prefix: ctx.schema)
-    assert activated.status == :active
-    assert activated.owner_module_version == Letflow.Modules.Stock.manifest().version
-    repaired = api(:post, path, ctx.tok_a, %{}) |> P.status!(200)
+    repaired = api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(200)
     assert repaired["process_activation_needed"] == []
-    assert repaired["process_drafts"] == []
+  end
+
+  test "QC-T2353c a tenant-created version of the name blocks automatic activation", ctx do
+    alias Letflow.Definitions.ProcessDefinition
+
+    Repo.query!(~s|ALTER TABLE "#{ctx.schema}".process_definitions DISABLE TRIGGER USER|)
+
+    try do
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+        [set: [owner_module_version: "0.21.0"]],
+        prefix: ctx.schema
+      )
+
+      Repo.insert_all(
+        ProcessDefinition,
+        [
+          %{
+            id: Ecto.UUID.generate(),
+            name: "stock_quick_count",
+            version: "tenant-1",
+            status: :deprecated,
+            graph: %{"nodes" => [], "edges" => []},
+            created_by: ctx.holder.id,
+            updated_at: DateTime.utc_now(),
+            created_at: DateTime.utc_now()
+          }
+        ],
+        prefix: ctx.schema
+      )
+    after
+      Repo.query!(~s|ALTER TABLE "#{ctx.schema}".process_definitions ENABLE TRIGGER USER|)
+    end
+
+    Repo.update_all(
+      from(m in Letflow.Modules.TenantModule, where: m.module_id == "stock"),
+      [set: [version: "0.21.0"]],
+      prefix: ctx.schema
+    )
+
+    body =
+      api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(200)
+
+    refute Enum.any?(body["process_activated"], &String.starts_with?(&1, "stock_quick_count@"))
+
+    assert Enum.find(
+             Repo.all(from(d in ProcessDefinition, where: d.name == "stock_quick_count"),
+               prefix: ctx.schema
+             ),
+             &(&1.status == :active)
+           )
+           |> Map.fetch!(:owner_module_version) == "0.21.0"
   end
 
   test "QC-T2217d a pre-existing table without its definition is preserved", ctx do
