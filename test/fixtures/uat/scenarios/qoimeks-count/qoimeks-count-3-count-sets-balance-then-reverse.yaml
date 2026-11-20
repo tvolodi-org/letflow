@@ -1,10 +1,11 @@
 # T-2262 code-reading pass, group qoimeks-count (PM 2026-11-19). Run title: UAT qoimeks-count. QA only, synthetic data, no production.
 # 1. Scope: every scenario has scope qoimeks-qa2, the synthetic QA tenant and its realm (qoimeks-qa2, host in the preconditions); the group directory name is not the scope.
-# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks are routed to the role TENANT_ADMIN, so the storekeeper does not see them in My Tasks: the storekeeper holds no TasksReadAll) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). State since stock 0.22.0 (T-2239, issue 4764, merged: lib/letflow/modules/stock/stock.ex STOREKEEPER grants, docs/roles.md): the storekeeper holds StockQuickCount and CodesRead; if the quick count entry is missing for the storekeeper the walk reports a PRODUCT defect, no step is moved to the administrator.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) counts, reads and starts reversals; actor-qoimeks-qa2-admin (TENANT_ADMIN) is the second person who approves a count or completes a reversal task (the approve and reverse tasks of the stock processes require the permission StockApprove, which the administrator holds and the storekeeper does not hold: that permission, not the address of the task, is what refuses the storekeeper, also after a reassignment; the tasks are also addressed to the role TENANT_ADMIN, which only decides who finds them in My Tasks, and the storekeeper holds no TasksReadAll; decision 0093, stock 0.23.0, T-2329 merged) and the counter in the self-approval step of qoimeks-count-6. Both are in actors.yaml for qoimeks-qa2; live login is verified by acceptance (credentials from the acceptance credential source, never from files). State since stock 0.22.0 (T-2239, issue 4764, merged: lib/letflow/modules/stock/stock.ex STOREKEEPER grants, docs/roles.md): the storekeeper holds StockQuickCount and CodesRead; if the quick count entry is missing for the storekeeper the walk reports a PRODUCT defect, no step is moved to the administrator.
 # 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com (answered HTTP 200 on 2026-11-19, T-2190; not re-run here). Read on main: web/src/modules/stock/stockRoutes.tsx (route admin/stock/quick-count), stock/index.ts (nav entry), quickCount/QuickCountPage.tsx, quickCountModel.ts, quickCountMessages.ts, documents/documentsModel.ts (actionsFor), register/stockRegisterModel.ts (CAUSES), pages/tasks/taskMessages.ts and TaskDetail.tsx.
 # 4. Data: no balance, item or place is named by code. Every walk reads the Balances screen at run time and picks a row with a positive quantity, no lot, an item with no lot tracking, a place of one org unit and not one of the negative balances; it records item, place, org unit, the Responsible employee the row shows (none: the form selector stays at Unassigned stock) and the quantity B. Record the item, place and balance counts at the start of the run (Items total, Locations total, Balances rows) and compare to those, never to a number written here. Tenant state read, not set: all stock process definitions active, quick count approval four-eyes ON, no formal count order open over the place, shared stock access enabled. No generator task is needed.
-# 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 step 7 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
+# 5. Executable: browser steps only for the screens above (real browser script supplied by the runner, no pipeline_test); API steps only in qoimeks-count-6 steps 6 and 9, in qoimeks-count-3 step 4, in qoimeks-count-7 step 6 (a plain HTTP client). A step whose fixture is missing stops before any write as BLOCKED-by-environment.
 # 6. Dry run: uat.sh preflight not run in this writing step (needs the acceptance credential source and the run title UAT qoimeks-count); parse and schema checks only; acceptance runs the preflight.
+# Not UAT-observable (decision 0093 test T3, covered by the product tests): the refusal after the routing role of a process is renamed or removed; a UAT walk must not edit the shipped stock process definitions of the tenant. Reassignment (decision 0093 T2) IS walked: a role-routed task is reassigned by the administrator to the storekeeper through the tenant task service (reassign request with the user id, a plain HTTP client; the Users screen of the administrator shows the user ids; the web app has no reassign screen).
 ---
 id: qoimeks-count-3-count-sets-balance-then-reverse
 scope: qoimeks-qa2
@@ -57,10 +58,13 @@ preconditions:
   detail: If the entry is missing for the storekeeper, report a PRODUCT defect (#4764) and do not type the address;
     the walk is not moved to the administrator. A missing entry is a product defect and the affected outcomes FAIL; they are not weakened.
 - description: 'Four-eyes is ON for the quick count approval (second person approves) and a different person from
-    the counter can complete the approve task: the administrator. The administrator can sign in separately.'
+    the counter and who holds the approve permission StockApprove can complete the approve task: the administrator (the storekeeper does not hold it). The administrator can sign in separately.'
   check: runner_prepared
   detail: Read the state through the visible hint after the first submit. If the administrator cannot sign in, the
     outcomes that need the second person are BLOCKED-by-environment.
+- description: The user ids of the storekeeper and of the administrator are read at run time from the Users screen of the administrator (the ids the reassign request needs). The runner's HTTP client uses the administrator's own credential from the acceptance credential source for the reassign requests, never one from a file.
+  check: runner_prepared
+  detail: If an id or the credential for the request is not available, the reassignment steps are BLOCKED-by-environment and the rest of the walk is not moved or weakened. A reassign request is sent only for the task of this walk.
 steps:
 - step: 1
   actor: storekeeper
@@ -80,29 +84,44 @@ steps:
   via: ui
 - step: 4
   actor: admin
-  action: The administrator, signed in separately, opens My Tasks, selects the approval task of that count document,
+  action: >-
+    The test runner, with the administrator's credential, sends a reassign request for the approval task of this walk
+    (identified in My Tasks or in the tenant task list by the document number noted before) to the user id of
+    the storekeeper read at the start. The request is accepted: the task is now assigned to the storekeeper by name.
+  via: api
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper opens My Tasks; the reassigned task is now listed there (it is assigned to the storekeeper by name).
+    The storekeeper selects it, takes it ("Claim") if the screen offers it, and presses the completing button of the
+    task. Then the storekeeper reads the count document and Balances: the document is still "Issued", the key still shows B.
+  expect_refusal: true
+  via: ui
+- step: 6
+  actor: admin
+  action: The administrator first has the task given back, the test runner sends the same reassign request, with the administrator's credential, to the administrator's own user id read at the start. The administrator, who holds the approve permission StockApprove, signed in separately, opens My Tasks, selects the approval task of that count document,
     takes it ("Claim") if the screen offers it, and presses "Approve". The screen shows "Approved".
   via: ui
-- step: 5
+- step: 7
   actor: storekeeper
   action: The storekeeper reads the key on Balances and the history of its balance.
   via: ui
-- step: 6
+- step: 8
   actor: storekeeper
   action: The storekeeper opens the count document in the stock documents list, presses "Reverse", chooses the reason
     "Other", types the note "UAT qoimeks-count-3 undo" and confirms. The document still reads Posted until the reversal
     task is done.
   via: ui
-- step: 7
+- step: 9
   actor: admin
   action: The administrator opens My Tasks, selects the reversal task of that document, takes it if offered and
     completes it ("Reverse").
   via: ui
-- step: 8
+- step: 10
   actor: storekeeper
   action: The storekeeper reads the document, then Balances and the history of the balance of the key.
   via: ui
-- step: 9
+- step: 11
   actor: storekeeper
   action: The storekeeper looks at the actions offered on the reversed document in order to reverse it a second
     time. The storekeeper does not press "Cancel document".
@@ -129,12 +148,12 @@ expected_outcomes:
     the difference (REQ-854 criterion 2, REQ-853).
   verification:
     method: gui_screen
-    detail: 'Step 4 shows "Approved". Step 5 shows the key at B plus 1 on Balances (not 2B plus 1) and exactly one new line in the history of the key (H0 plus one lines), of +1, linked to the count document of this walk (the number noted in step 3). The cause column shows a readable
+    detail: 'Step 6 shows "Approved". Step 7 shows the key at B plus 1 on Balances (not 2B plus 1) and exactly one new line in the history of the key (H0 plus one lines), of +1, linked to the count document of this walk (the number noted in step 3). The cause column shows a readable
       name of the cause of the quick count in the screen language, like the other causes of the Movements screen, never the raw
       code; a raw code in the cause column is a FAIL (product task: the Movements screen catalog needs a label for the quick count cause).
-      The opened count document (step 3 and step 5) shows book B, counted B plus 1 and difference 1 on the document screen itself
+      The opened count document (step 3 and step 7) shows book B, counted B plus 1 and difference 1 on the document screen itself
       (REQ-854 criterion 1), not only on the result of step 3. By the single-row precondition (T equals B, no other Responsible holds non-zero stock of the item at that place, org unit and lot) the total of the item at that place and org unit over every Responsible row is B plus 1 (read the Balances rows of the item before and after: REQ-854 sets the balance of one item at one place; a total of the old quantity plus the counted one, 2B plus 1, is a FAIL). The refusal for stock held under another Responsible is walked in qoimeks-count-8, not here.'
-    evidence: Screenshots of steps 4 and 5.
+    evidence: Screenshots of steps 6 and 7.
   on_fail:
     severity: BLOCKER
     business_impact: The central promise, that a count sets the balance, is broken and stock is wrong.
@@ -143,10 +162,10 @@ expected_outcomes:
   description: Reversing the count returns the balance to what it was (REQ-854 criterion 12).
   verification:
     method: gui_screen
-    detail: 'Step 6 shows the reversal dialog accepted and the document not yet Reversed. Step 8 shows the document "Reversed", the key at B on Balances and a second line of -1 with the cause "Reversal" in the history of the key (H0 plus two lines). If no reversal
-      task appears or the administrator cannot complete it, steps 6 to 9 are BLOCKED-by-environment: record the
+    detail: 'Step 8 shows the reversal dialog accepted and the document not yet Reversed. Step 10 shows the document "Reversed", the key at B on Balances and a second line of -1 with the cause "Reversal" in the history of the key (H0 plus two lines). If no reversal
+      task appears or the administrator cannot complete it, steps 8 to 11 are BLOCKED-by-environment: record the
       document number and the changed key.'
-    evidence: Screenshots of steps 6 and 8.
+    evidence: Screenshots of steps 8 and 10.
   on_fail:
     severity: MAJOR
     business_impact: A wrong count cannot be undone and the test data stays changed.
@@ -155,10 +174,21 @@ expected_outcomes:
   description: A reversed count cannot be reversed again (REQ-854 criterion 12).
   verification:
     method: gui_screen
-    detail: Step 9 shows no "Reverse" button on the reversed document (only "Cancel document" is offered for state
+    detail: Step 11 shows no "Reverse" button on the reversed document (only "Cancel document" is offered for state
       Reversed); Balances still shows B.
-    evidence: Screenshot of step 9.
+    evidence: Screenshot of step 11.
   on_fail:
     severity: MAJOR
     business_impact: A second reversal would take the balance below the true quantity.
+    suggested_action: route_to_backend_dev
+- id: EO-005
+  description: A reassigned approval task still cannot be approved by the storekeeper, because the storekeeper lacks the approve permission (decision 0093 D1 and D4; the reassignment moves the address, never the permission).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 4 is accepted. Step 5 shows the action is refused (the screen shows an error or the task is no longer offered; it does not show "Approved" or the completed state); the count document is still "Issued" and the key still shows B on Balances (nothing posted). After step 6 the administrator approves and step 7 shows "Approved" and B plus 1: the refused attempt left no trace in the balance.
+    evidence: Status of step 4, screenshots of step 5 and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could approve a count by being handed the task, so one person would change stock alone.
     suggested_action: route_to_backend_dev
