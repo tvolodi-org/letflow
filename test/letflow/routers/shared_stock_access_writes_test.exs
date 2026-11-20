@@ -6,10 +6,12 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   calls of the old-app address `/qoimeks/:tenant_slug`, through the full `Letflow.Router` over
   committed tenants with real ledger postings. IDs follow the acceptance criteria: C1 receipt, issue and
   transfer post and are read by a TENANT_ADMIN, C2 the operator name and `posted_via_shared_access`,
-  C3 reverse (second reverse and a reversal's reverse are 409), C4 operator refusals write nothing, C5 the
+  C3 reverse (second reverse and a reversal's reverse are 400 with the old texts, REQ-909), C4 operator refusals write nothing, C5 the
   shared access reaches nothing else, C6 another tenant's location number writes nothing (INV-1,
   INV-10), C7 runbook, plus W-x extras (refused posting leaves nothing, a revoked value, the authority
-  step, a personal account cannot fake an operator). `async: false`: committed tenants, VM-global config.
+  step, a personal account cannot fake an operator), K3 (REQ-909) the movement row, the post and reverse
+  answers with the balances, and the old server's refusal texts. `async: false`: committed tenants,
+  VM-global config.
   """
 
   # impl_order: REQ-860
@@ -26,6 +28,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   alias Letflow.SharedStockAccess
   alias Letflow.SharedStockAccess.IntIds
   alias Letflow.StockDocsFixture, as: D
+  alias Letflow.StockFixture, as: S
   alias Letflow.StockPostingFixture, as: P
 
   setup do
@@ -183,18 +186,19 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
   describe "C1 receipt, issue and transfer" do
     test "C1 each answers 201 with the movement fields, shows as posted, balances change", t do
-      fields = ~w(created_at id kind location_id operator quantity sku_id)
+      fields =
+        ~w(balances created_at id kind location_code location_id operator qty sku_code sku_id sku_name unit)
 
       rec = receive!(t, 10, "Айгуль")
       assert Map.keys(rec) |> Enum.sort() == fields
-      assert %{"kind" => "stock_receipt", "quantity" => 10, "operator" => "Айгуль"} = rec
+      assert %{"kind" => "receipt", "qty" => 10, "operator" => "Айгуль"} = rec
       assert rec["sku_id"] == t.sku and rec["location_id"] == t.loc1
       assert balance_at(t, t.loc1) == 10
 
       iss =
         post_movement(t.a, t.value, movement(t, "issue", 3, "Айгуль")) |> status!(201)
 
-      assert %{"kind" => "stock_issue", "quantity" => 3} = iss
+      assert %{"kind" => "issue", "qty" => 3} = iss
       assert balance_at(t, t.loc1) == 7
 
       trf =
@@ -205,7 +209,8 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
         )
         |> status!(201)
 
-      assert %{"kind" => "stock_transfer", "quantity" => 2.5} = trf
+      assert %{"kind" => "transfer", "qty" => 2.5, "to_location_id" => to_id} = trf
+      assert to_id == t.loc2
       assert balance_at(t, t.loc1) == 4.5
       assert balance_at(t, t.loc2) == 2.5
 
@@ -235,12 +240,16 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
       for body <- [
             movement(t, "adjustment", 1, "X"),
-            movement(t, "receipt", 0, "X"),
-            movement(t, "receipt", -1, "X"),
             movement(t, "receipt", "abc", "X"),
             Map.delete(movement(t, "receipt", 1, "X"), "sku_id")
           ] do
         assert %{"error" => _} = post_movement(t.a, t.value, body) |> status!(400)
+      end
+
+      # REQ-909 4b: the old server's text for a zero or negative quantity
+      for qty <- [0, -1, "0", "-2.5"] do
+        assert %{"error" => "quantity must be positive"} =
+                 post_movement(t.a, t.value, movement(t, "receipt", qty, "X")) |> status!(400)
       end
 
       assert written(t.ctx.schema) == before
@@ -287,14 +296,14 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
   # -- C3 -----------------------------------------------------------------------------------------
 
   describe "C3 reverse" do
-    test "C3 reverse answers 201, labels the reverser, a second reverse and a reversal's reverse are 409",
+    test "C3 reverse answers 201, labels the reverser, a second reverse and a reversal's reverse are 400",
          t do
       rec = receive!(t, 10, "Айгуль")
       assert balance_at(t, t.loc1) == 10
 
       rev = reverse(t.a, t.value, rec["id"], %{"operator" => "Ерлан"}) |> status!(201)
-      assert %{"kind" => "reversal", "operator" => "Ерлан"} = rev
-      assert rev["id"] != rec["id"]
+      assert %{"kind" => "receipt", "operator" => "Ерлан", "reverses" => reverses} = rev
+      assert reverses == rec["id"] and rev["id"] != rec["id"]
       assert balance_at(t, t.loc1) == 0
 
       doc =
@@ -310,11 +319,12 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
       before = written(t.ctx.schema)
 
-      assert %{"error" => "document_reversed"} =
-               reverse(t.a, t.value, rec["id"], %{"operator" => "Ерлан"}) |> status!(409)
+      # REQ-909 point 6: the old server's texts, answered as 400
+      assert %{"error" => "already reversed"} =
+               reverse(t.a, t.value, rec["id"], %{"operator" => "Ерлан"}) |> status!(400)
 
-      assert %{"error" => "reversal_cannot_be_reversed"} =
-               reverse(t.a, t.value, rev["id"], %{"operator" => "Ерлан"}) |> status!(409)
+      assert %{"error" => "a reversal cannot be reversed; post a new operation instead"} =
+               reverse(t.a, t.value, rev["id"], %{"operator" => "Ерлан"}) |> status!(400)
 
       assert written(t.ctx.schema) == before
     end
@@ -347,7 +357,7 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       issue_row =
         call(:get, t.a.tenant.slug, "/movements", t.value)
         |> status!(200)
-        |> Enum.find(&(&1["kind"] == "stock_issue"))
+        |> Enum.find(&(&1["kind"] == "issue"))
 
       reverse(t.a, t.value, issue_row["id"], %{"operator" => "X"}) |> status!(201)
       reverse(t.a, t.value, rec["id"], %{"operator" => "X"}) |> status!(201)
@@ -690,7 +700,8 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       body = %{"id" => rid, "operator" => "Ерлан"}
 
       rev = reverse(t.a, t.value, rec["id"], body) |> status!(201)
-      assert %{"kind" => "reversal"} = rev
+      assert %{"kind" => "receipt", "reverses" => reverses} = rev
+      assert reverses == rec["id"]
       assert balance_at(t, t.loc1) == 0
       after_reverse = written(t.ctx.schema)
 
@@ -700,9 +711,9 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
       assert written(t.ctx.schema) == after_reverse
 
-      # the original reversed again under ANOTHER id is refused as before
-      assert %{"error" => "document_reversed"} =
-               reverse(t.a, t.value, rec["id"], %{"operator" => "X"}) |> status!(409)
+      # the original reversed again under ANOTHER id is refused with the old server's text (REQ-909)
+      assert %{"error" => "already reversed"} =
+               reverse(t.a, t.value, rec["id"], %{"operator" => "X"}) |> status!(400)
 
       # the reversal's id used for a post, and a post id used for a reverse
       assert %{"error" => @reuse} =
@@ -748,9 +759,178 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
 
       receive!(t, 8)
       issued = post_movement(t.a, t.value, with_id(t, "issue", 5, id)) |> status!(201)
-      assert issued["kind"] == "stock_issue"
+      assert issued["kind"] == "issue"
       assert post_movement(t.a, t.value, with_id(t, "issue", 5, id)) |> status!(200) == issued
       assert balance_at(t, t.loc1) == 3
+    end
+  end
+
+  # -- K3 (REQ-909) the movement row of the old app ----------------------------------------------------
+
+  describe "K3 the movement row, the answers and the old refusal texts (REQ-909)" do
+    defp history(t), do: call(:get, t.a.tenant.slug, "/movements", t.value) |> status!(200)
+
+    defp catalog_code(t, location) do
+      cat = call(:get, t.a.tenant.slug, "/catalog", t.value) |> status!(200)
+      Enum.find(cat["locations"], &(&1["id"] == location))["code"]
+    end
+
+    test "K3-1 history: text ids, old kinds, codes, empty balances, links, newest first", t do
+      rec = receive!(t, 10, "Айгуль")
+
+      trf =
+        post_movement(
+          t.a,
+          t.value,
+          movement(t, "transfer", 2, "Ерлан", %{"to_location_id" => t.loc2})
+        )
+        |> status!(201)
+
+      rev = reverse(t.a, t.value, trf["id"], %{"operator" => "Нурлан"}) |> status!(201)
+
+      assert [v, tr, r] = history(t)
+      assert [v["id"], tr["id"], r["id"]] == [rev["id"], trf["id"], rec["id"]]
+      assert Enum.all?([v, tr, r], &(&1["id"] =~ ~r/\A[0-9]+\z/))
+
+      base =
+        ~w(balances created_at id kind location_code location_id operator qty sku_code sku_id sku_name unit)
+
+      assert Map.keys(r) |> Enum.sort() == base
+      assert Enum.all?([v, tr, r], &(&1["balances"] == []))
+      assert Enum.all?([v, tr, r], &(is_number(&1["qty"]) and &1["qty"] > 0))
+      assert Enum.all?([v, tr, r], &match?({:ok, _, 0}, DateTime.from_iso8601(&1["created_at"])))
+
+      code_a = catalog_code(t, t.loc1)
+      code_b = catalog_code(t, t.loc2)
+      assert %{"kind" => "receipt", "operator" => "Айгуль", "qty" => 10} = r
+      assert r["sku_id"] == t.sku and r["location_id"] == t.loc1 and r["location_code"] == code_a
+      assert r["sku_code"] != "" and r["sku_name"] != "" and r["unit"] != ""
+
+      # a transfer is one row: the place that decreases, then the place that increases
+      assert tr |> Map.delete("reversed_by") |> Map.keys() |> Enum.sort() ==
+               Enum.sort(base ++ ~w(to_location_code to_location_id))
+
+      assert %{"kind" => "transfer", "qty" => 2, "operator" => "Ерлан"} = tr
+      assert {tr["location_id"], tr["location_code"]} == {t.loc1, code_a}
+      assert {tr["to_location_id"], tr["to_location_code"]} == {t.loc2, code_b}
+      assert tr["reversed_by"] == v["id"] and v["reverses"] == tr["id"]
+
+      # a reversal carries the kind and the places of the movement it reverses, and its own operator
+      assert %{"kind" => "transfer", "operator" => "Нурлан", "qty" => 2} = v
+      assert {v["location_id"], v["to_location_id"]} == {t.loc1, t.loc2}
+      refute Map.has_key?(r, "reverses") or Map.has_key?(r, "reversed_by")
+    end
+
+    test "K3-2 a reversed receipt: reversed_by and reverses link the two rows", t do
+      rec = receive!(t, 4, "Айгуль")
+      rev = reverse(t.a, t.value, rec["id"], %{"operator" => "Ерлан"}) |> status!(201)
+
+      assert [v, r] = history(t)
+      assert %{"kind" => "receipt", "reverses" => reverses} = v
+      assert reverses == r["id"] and r["reversed_by"] == v["id"] and v["id"] == rev["id"]
+      assert r["kind"] == "receipt"
+    end
+
+    test "K3-3 a post answers the balances after the movement; a replay shows the same", t do
+      receive!(t, 2)
+      code_a = catalog_code(t, t.loc1)
+      code_b = catalog_code(t, t.loc2)
+      id = Ecto.UUID.generate()
+      first = post_movement(t.a, t.value, with_id(t, "receipt", 3, id)) |> status!(201)
+
+      assert first["balances"] == [
+               %{
+                 "sku_id" => t.sku,
+                 "location_id" => t.loc1,
+                 "location_code" => code_a,
+                 "qty" => 5
+               }
+             ]
+
+      trf =
+        post_movement(
+          t.a,
+          t.value,
+          movement(t, "transfer", 1, "Aigul", %{"to_location_id" => t.loc2})
+        )
+        |> status!(201)
+
+      assert [a, b] = trf["balances"]
+      assert {a["location_id"], a["location_code"], a["qty"]} == {t.loc1, code_a, 4}
+      assert {b["location_id"], b["location_code"], b["qty"]} == {t.loc2, code_b, 1}
+      assert a["location_id"] < b["location_id"]
+
+      # a later movement does not change the stored answer of the first post
+      assert post_movement(t.a, t.value, with_id(t, "receipt", 3, id)) |> status!(200) == first
+      assert hd(first["balances"])["qty"] == 5
+    end
+
+    test "K3-4 reverse by the text id of the history; the old refusals are 400 and write nothing",
+         t do
+      rec = receive!(t, 6, "Айгуль")
+      assert [%{"id" => id}] = history(t)
+      assert id == rec["id"]
+      rid = Ecto.UUID.generate()
+      body = %{"id" => rid, "operator" => "Ерлан"}
+
+      rev = reverse(t.a, t.value, id, body) |> status!(201)
+      assert rev["id"] != id and rev["reverses"] == id
+      assert [%{"location_id" => loc, "qty" => 0}] = rev["balances"]
+      assert loc == t.loc1
+      assert reverse(t.a, t.value, id, body) |> status!(200) == rev
+
+      before = {written(t.ctx.schema), balance_at(t, t.loc1)}
+
+      assert %{"error" => "already reversed"} =
+               reverse(t.a, t.value, id, %{"operator" => "X"}) |> status!(400)
+
+      assert %{"error" => "a reversal cannot be reversed; post a new operation instead"} =
+               reverse(t.a, t.value, rev["id"], %{"operator" => "X"}) |> status!(400)
+
+      assert {written(t.ctx.schema), balance_at(t, t.loc1)} == before
+    end
+
+    test "K3-5 a quick count of a personal account is an adjustment with an empty operator", t do
+      m = t.ctx.ma
+
+      doc =
+        P.issue!(
+          t.ctx,
+          D.body(m, nil, %{
+            "lines" => [
+              %{"catalog_item_id" => m.item, "catalog_uom_id" => m.uom, "quantity" => "10"}
+            ]
+          })
+        )
+
+      P.post_and_complete!(t.ctx, doc["id"])
+
+      body = %{
+        "org_unit_id" => m.unit,
+        "location_id" => m.location,
+        "responsible_id" => m.employee,
+        "catalog_item_id" => m.item,
+        "catalog_uom_id" => m.uom,
+        "counted_quantity" => "7",
+        "reason_code" => "recount"
+      }
+
+      count = D.request(:post, "/quick-counts", t.ctx.tok_a, body) |> P.status!(201)
+
+      # four eyes: a second TENANT_ADMIN approves (the counter may not approve its own count)
+      approver = S.token(t.ctx, :a, ["TENANT_ADMIN"], sub: "second-admin")
+      task = P.pending_task(t.ctx, count["id"], "approve") || flunk("no pending approve")
+
+      # the tasks route lives under /api/v1, not under the stock module base that D.request prefixes
+      Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", Jason.encode!(%{}))
+      |> put_req_header("authorization", "Bearer " <> approver)
+      |> put_req_header("content-type", "application/json")
+      |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+      |> P.status!(200)
+
+      assert [adj, personal] = history(t)
+      assert %{"kind" => "adjustment", "operator" => "", "qty" => 3} = adj
+      assert %{"kind" => "receipt", "operator" => "", "qty" => 10, "balances" => []} = personal
     end
   end
 

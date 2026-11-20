@@ -54,8 +54,20 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   * The same id with other data, an id that belongs to a reversal used for a post (or the reverse), or
     a post id used for a reverse: `{:error, {409, "this operation was already posted with different data"}}`
     (the `idempotency_key_reuse` of `ActionIdempotency`), nothing changed.
-  * A reversal takes its own new id. The original already reversed by ANOTHER id is refused as before
-    (409 `document_reversed`); a reversal cannot be reversed (409 `reversal_cannot_be_reversed`).
+  * A reversal takes its own new id. REQ-909: the refusals of the old server, as 400 (the old app shows
+    every 409 as "already posted"): the original already reversed by ANOTHER id is
+    `{:error, {400, "already reversed"}}`, a reversal cannot be reversed
+    `{:error, {400, "a reversal cannot be reversed; post a new operation instead"}}`, and a quantity that
+    is zero or negative `{:error, {400, "quantity must be positive"}}` (`"invalid quantity"` stays for a
+    value that is not a number). Nothing is written.
+
+  ## The answer (REQ-909)
+
+  Both writes answer the Qoimeks movement row of `Letflow.Modules.Stock.OldAppReads` (text `id`, old
+  `kind`, codes, `unit`, `qty`, `operator`, `created_at`, `reverses` on a reversal) with `balances`: one
+  entry per item and place the movement touched, read after the posting at the movement's own posting
+  number, so a 200 replay is the stored row with the same values. The reversal row is the row of the
+  document that carries `reverses`; the post row is the one without.
   * A refused request binds nothing, so the same id can be sent again after the cause is fixed.
 
   Refusals are `{:error, {status, text}}`; the text is a closed code, never a value. A failed posting
@@ -85,6 +97,7 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   @key_prefix "client:stock_old_movement:"
   @reuse_text "this operation was already posted with different data"
   @kinds ~w(receipt issue transfer)
+  @quantity_max 40
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
   @type result ::
@@ -202,10 +215,11 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
   defp stored(authorized, document_id, which) do
     rows = OldAppReads.movements_of_document(authorized, document_id)
 
+    # A reversal row carries the kind of the movement it reverses (REQ-909), so it is told by `reverses`.
     row =
       case which do
-        :post -> Enum.find(rows, &(&1.kind != "reversal"))
-        :reversal -> Enum.find(rows, &(&1.kind == "reversal"))
+        :post -> Enum.find(rows, &(not Map.has_key?(&1, :reverses)))
+        :reversal -> Enum.find(rows, &Map.has_key?(&1, :reverses))
       end
 
     if row, do: {:ok, row}, else: {:error, {500, "internal error"}}
@@ -259,11 +273,14 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
         _other -> nil
       end
 
-    with true <- is_binary(text),
-         true <- Regex.match?(@quantity, text),
-         {%Decimal{} = d, ""} <- Decimal.parse(text),
-         false <- Decimal.eq?(d, 0) do
-      {:ok, Decimal.to_string(d, :normal)}
+    with true <- is_binary(text) and byte_size(text) <= @quantity_max,
+         {%Decimal{coef: coef} = d, ""} when is_integer(coef) <- Decimal.parse(text) do
+      cond do
+        # The old server's text for a quantity that is zero or negative (REQ-909 point 6).
+        not Decimal.gt?(d, 0) -> {:error, {400, "quantity must be positive"}}
+        Regex.match?(@quantity, text) -> {:ok, Decimal.to_string(d, :normal)}
+        true -> {:error, {400, "invalid quantity"}}
+      end
     else
       _bad -> {:error, {400, "invalid quantity"}}
     end
@@ -463,7 +480,10 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
     end
   end
 
-  defp not_a_reversal(%{cause: "reversal"}), do: {:error, {409, "reversal_cannot_be_reversed"}}
+  # The old server's text and status (REQ-909 point 6): a 400, not a 409.
+  defp not_a_reversal(%{cause: "reversal"}),
+    do: {:error, {400, "a reversal cannot be reversed; post a new operation instead"}}
+
   defp not_a_reversal(_entry), do: :ok
 
   defp reverse(prefix, actor_id, authorized, document_id) do
@@ -473,6 +493,8 @@ defmodule Letflow.Modules.Stock.OldAppWrites do
 
     case Posting.reverse(prefix, document_id, body, who, authorized, fetch) do
       {:ok, view} -> {:ok, view}
+      # The movement was reversed under another client id: the old server's text, as a 400 (REQ-909).
+      {:error, :document_reversed} -> {:error, {400, "already reversed"}}
       {:error, reason} -> {:error, refusal(reason)}
     end
   end

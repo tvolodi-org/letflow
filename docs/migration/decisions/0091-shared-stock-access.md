@@ -523,6 +523,26 @@ and the real app rule over the earlier text:
 - **Correction 4, a movement id is text and the quantity field is `qty`.** The id is a UUID on the old
   server and the app reads it as text, not an integer; the quantity of a movement is named `qty`. REQ-909
   builds this; this task changes no answer shape.
+- **REQ-909 as built, the movement row.** One row builder serves `GET movements` and the 201 and 200
+  answers of both writes: `id` (text, the decimal digits of the movement's integer in
+  `movement_int_ids`; the reverse path takes the same text), `kind` (`receipt`, `issue`, `transfer`; every
+  other document type, a quick count or an opening balance, is `adjustment`), `sku_id, sku_code,
+  sku_name, unit` (`""` when none), `location_id, location_code`, `qty` (a positive number), `operator`
+  (`""` when no typed name), `created_at` (ISO 8601 UTC) and `balances`, plus `to_location_id` and
+  `to_location_code` on a transfer (one row; the place whose leg decreases first), `reverses` on a
+  reversal and `reversed_by` on a reversed movement. A reversal carries the kind, places and quantity
+  of the movement it reverses. `balances` is `[]` on every history row; a post or reverse answer holds
+  one entry per place touched (`sku_id, location_id, location_code, qty`, sorted by `location_id`),
+  the balance of that item at that place as of the movement's own posting, so a 200 replay repeats it.
+- **REQ-909 as built, the old refusal texts (supersede point (5) of the T-2282 row for the old address).**
+  At the old address only, a movement already reversed under another client id is 400
+  `{"error": "already reversed"}` (was 409 `document_reversed`), reversing a reversal is 400
+  `{"error": "a reversal cannot be reversed; post a new operation instead"}` (was 409
+  `reversal_cannot_be_reversed`), and a quantity that is zero or negative is 400
+  `{"error": "quantity must be positive"}` (was `invalid quantity`, which stays for a quantity that is
+  not a number). The old app shows every 409 as "already posted"; a 400 shows the server's text.
+  Nothing is written on these refusals. The other rules of the row (201, 200 replay, 409 changed data,
+  400 `id is required`) are unchanged.
 
 Out of scope here: the calls not served (count, codes, voice, feedback, parse), the pairing call, and any
 change to the credential or its rules.
