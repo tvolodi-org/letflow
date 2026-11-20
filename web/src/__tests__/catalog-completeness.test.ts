@@ -118,6 +118,7 @@ import { groupsMessages } from '@/pages/admin/groupsMessages'
 import { tokensMessages } from '@/pages/admin/tokensMessages'
 import { signInMessages } from '@/pages/admin/signInMessages'
 import { storekeeperGrantMessages } from '@/pages/admin/storekeeperGrantMessages'
+import { companySettingsMessages } from '@/pages/admin/companySettingsMessages'
 import { instancesMessages } from '@/pages/instances/instancesMessages'
 import { instanceDetailMessages } from '@/pages/instances/instanceDetailMessages'
 import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
@@ -539,6 +540,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     ['groups', groupsMessages],
     ['tokens', tokensMessages],
     ['storekeeperGrant', storekeeperGrantMessages],
+    ['companySettings', companySettingsMessages],
     ['instances', instancesMessages],
     ['instanceDetail', instanceDetailMessages],
     ['definitions', definitionsMessages],
@@ -615,6 +617,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['groups', groupsMessages],
       ['tokens', tokensMessages],
       ['storekeeperGrant', storekeeperGrantMessages],
+      ['companySettings', companySettingsMessages],
       ['instances', instancesMessages],
       ['instanceDetail', instanceDetailMessages],
       ['definitions', definitionsMessages],
