@@ -69,6 +69,15 @@ defmodule Letflow.Routers.TenantConfig do
   (INV-5). It is the same bounded inference as a non-default realm id, and it is never a name, slug,
   display name or id (INV-2).
 
+  T-2350: a request with both `?realm=<code>` and `company_check=1` gets one extra boolean,
+  `company_found` (true only for a servable tenant; false for every miss, with the same default body),
+  the web twin of the mobile endpoint's flag (T-2244). Without the opt-in the body is exactly as before
+  (unknown slug stays byte-identical to the no-parameter answer). The flag reveals nothing a non-default
+  `oidc_authority` does not already reveal, and the web shows one "Company not found" text for it. It is
+  the only reliable signal: the default tenant
+  (`LETFLOW_DEFAULT_TENANT_SLUG` or `bpm-default`) answers the same authority as an unknown code, so the
+  client cannot infer "unknown" from comparing answers.
+
   It returns exactly three values: an OIDC authority URL (which embeds a realm
   id), a public client id, and a `branding` block. Both of the first two are
   values the browser must learn *before* authenticating; the third is display
@@ -267,18 +276,34 @@ defmodule Letflow.Routers.TenantConfig do
     conn = fetch_query_params(conn)
     query = conn.query_params
 
+    slug = non_empty(Map.get(query, "realm"))
+    slug_result = if is_binary(slug), do: servable_tenant_by_slug(slug), else: :error
+
     {realm_id, tenant, tenant_type, logo_slug} =
-      resolve_realm(non_empty(Map.get(query, "realm")), non_empty(Map.get(query, "host")))
+      resolve_realm(slug_result, non_empty(Map.get(query, "host")))
 
     body =
       realm_id
       |> config_map(tenant)
       |> Map.put("tenant_type", tenant_type)
+      |> put_company_found(slug, slug_result, Map.get(query, "company_check"))
       |> put_env_label()
       |> update_in(["branding"], &put_logo(&1, tenant, logo_slug))
 
     Response.ok(conn, body)
   end
+
+  # T-2350 (the web twin of T-2244 / GH #4771, Letflow.Routers.MobileTenantConfig): ONE boolean,
+  # present only when the request names an explicit `?realm=` code AND opts in with
+  # `company_check=1` (the web sign-in start sends both). Opt-in keeps every other answer, the
+  # anti-oracle byte-equality of unknown-vs-default included, exactly as it was. true only for a
+  # servable tenant; every miss (unknown, inactive, no realm, lookup failure) is the same default
+  # body with false. It adds no existence signal beyond the non-default oidc_authority a hit already
+  # shows, and never carries a name, slug or id (INV-2, INV-5).
+  defp put_company_found(body, slug, slug_result, "1") when is_binary(slug),
+    do: Map.put(body, "company_found", match?({:ok, _}, slug_result))
+
+  defp put_company_found(body, _slug, _slug_result, _no_opt_in), do: body
 
   # T-1494: instance-global display label for the test-environment banner. Unset env var
   # -> no key (legacy banner); set -> trimmed, capped at 40 chars ("" turns the banner off).
@@ -309,15 +334,11 @@ defmodule Letflow.Routers.TenantConfig do
   # :settings field) is threaded straight through to config_map/2 so the
   # branding helper never performs a second, independent DB lookup for the
   # same slug in the same request.
-  defp resolve_realm(slug, host) when is_binary(slug) do
-    case servable_tenant_by_slug(slug) do
-      {:ok, tenant} ->
-        {tenant.idp_realm_id, tenant, tenant_type_value(tenant), tenant.slug}
-
-      :error ->
-        resolve_realm(nil, host)
-    end
+  defp resolve_realm({:ok, tenant}, _host) do
+    {tenant.idp_realm_id, tenant, tenant_type_value(tenant), tenant.slug}
   end
+
+  defp resolve_realm(:error, host), do: resolve_host_or_default(host)
 
   # Steps 2 and 3: ?host=<hostname>, or neither parameter. A host hit resolves through the global
   # onboarding registry and uses the resolved tenant's realm, branding, type and logo slug. Every
@@ -326,7 +347,7 @@ defmodule Letflow.Routers.TenantConfig do
   #
   # tenant_type is nil on the default branches even though the default tenant is non-nil: only a
   # slug- or host-resolved branch may disclose a type (REQ-472, INV-5).
-  defp resolve_realm(nil, host) when is_binary(host) do
+  defp resolve_host_or_default(host) when is_binary(host) do
     case servable_tenant_by_hostname(host) do
       {:ok, tenant} ->
         {tenant.idp_realm_id, tenant, tenant_type_value(tenant), tenant.slug}
@@ -336,7 +357,7 @@ defmodule Letflow.Routers.TenantConfig do
     end
   end
 
-  defp resolve_realm(nil, _host_or_absent), do: resolve_default_realm()
+  defp resolve_host_or_default(_host_or_absent), do: resolve_default_realm()
 
   defp resolve_default_realm do
     with slug when is_binary(slug) <- non_empty(System.get_env("LETFLOW_DEFAULT_TENANT_SLUG")),

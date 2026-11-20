@@ -26,6 +26,8 @@ export interface TenantConfig {
   tenant_type?: 'production' | 'test' | null
   /** T-1494: instance banner label. Absent = default banner text; '' = no banner. */
   env_label?: string
+  /** T-2350: only on a `?realm=` request with `company_check=1`; false = no usable company has that code. */
+  company_found?: boolean
 }
 
 let _cachedConfig: TenantConfig | null = null
@@ -62,6 +64,11 @@ export function resolveRealmFromUrl(): string | null {
  *  `buildRedirectArgs` embeds `?realm=<slug>` in the redirect_uri (ISS-0726). */
 export function storeRealmSlug(slug: string): void {
   sessionStorage.setItem(REALM_STORAGE_KEY, slug)
+}
+
+/** Forgets the remembered slug only (T-2350: a code that named no company). */
+export function clearRealmSlug(): void {
+  sessionStorage.removeItem(REALM_STORAGE_KEY)
 }
 
 let _inflight: Promise<TenantConfig> | null = null
@@ -174,5 +181,26 @@ export function resetTenantConfigCache(): void {
     const url = new URL(window.location.href)
     url.searchParams.delete('realm')
     window.history.replaceState(window.history.state, '', url.toString())
+  }
+}
+
+/**
+ * T-2350: true when an explicit company code (`?realm=`) names no usable company.
+ * The server answers `company_found: false` for it (opt-in `company_check=1`; the same default
+ * body for unknown, inactive and realm-less codes, so unknown and refused are not told apart).
+ * The answer is NOT compared with the default answer: the default tenant (and a company whose
+ * realm is the default one) answers the same authority and is a real company. Only an explicit
+ * `false` counts: a server without the key, a missing key and any read failure answer false here,
+ * so the sign-in goes on as before and nothing is claimed about the code.
+ */
+export async function isCompanyCodeUnknown(slug: string): Promise<boolean> {
+  try {
+    const own = await client.get<TenantConfig>('/api/tenant-config', {
+      realm: slug,
+      company_check: '1',
+    })
+    return own.company_found === false
+  } catch {
+    return false
   }
 }

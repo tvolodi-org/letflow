@@ -24,6 +24,7 @@ import { quickCountScreens } from './fixtures/quickCountScreens'
 import { quickCountDocumentScreens } from './fixtures/quickCountDocumentScreens'
 import { workbookImportScreens } from './fixtures/workbookImportScreens'
 import { tokensT2187Screens } from './fixtures/tokensT2187'
+import { companyNotFoundScreens } from './fixtures/companyNotFound'
 import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
 import { listDetailSaveScreens } from './fixtures/listDetailSave'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
@@ -431,5 +432,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...workbookImportScreens,
     ...tokensT2187Screens,
     ...quickCountDocumentScreens,
+    ...companyNotFoundScreens,
   ].map(s => [s.name, s]),
 )
