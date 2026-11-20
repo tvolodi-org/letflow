@@ -95,7 +95,7 @@ App env `:stock_workbook_import_max_rows` and `:stock_workbook_import_max_change
 
 ## Load (REQ-885)
 
-The load creates a `stock_quick_count` document and starts the approval process. The check's rules
+The load creates a `stock_quick_count` document and starts the approval process; it has no approval rule of its own and follows the `stock_quick_count / approve` rule. The check's rules
 run again inside the transaction before anything is written.
 
 ### Route

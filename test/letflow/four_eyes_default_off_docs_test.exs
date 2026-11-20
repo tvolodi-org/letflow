@@ -154,4 +154,25 @@ defmodule Letflow.FourEyesDefaultOffDocsTest do
     refute read!(@rehearsal) =~ "defaults to `true`"
     refute read!(@roles) =~ "stays ON by default"
   end
+
+  test "D165-6 (T-2423): the Excel load follows the count rule, there are two rules on the screen" do
+    onboarding = read!(@onboarding)
+    assert onboarding =~ "The Excel balances load has no rule of its own"
+    assert onboarding =~ "У загрузки остатков из Excel своего правила нет"
+    assert onboarding =~ "the Excel load follows the quick count rule"
+    assert read!(@workbook) =~ "follows the `stock_quick_count / approve` rule"
+
+    design = read!("docs/design/four-eyes-switch.md")
+    refute design =~ "count, workbook load, asset opening"
+    assert design =~ "is not a third rule"
+  end
+
+  test "D165-7 (T-2423): the external reference columns take lower-case letters, digits, underscores" do
+    for path <- [@onboarding, @rehearsal] do
+      text = read!(path)
+      assert text =~ "lower-case letters, digits and underscores"
+      assert text =~ "`SSS` and `UOM-PCS` are"
+      assert text =~ "external_ref_system or external_ref_id is not valid"
+    end
+  end
 end
