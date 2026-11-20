@@ -164,6 +164,18 @@ actors:
     routing_roles: []
     note: "T-2219, PM decision 2026-11-19: username qoimeks-qa2-storekeeper, realm qoimeks-qa2, role STOREKEEPER; provisioner-created fresh QA tenant. Credentials come from the acceptance credential source, never from this file."
 
+  actor-sss-rehearsal-admin:
+    tenant: sss-rehearsal
+    builtin_roles: [TENANT_ADMIN]
+    routing_roles: []
+    note: "T-2406 (infra, 2026-11-20): username sss-rehearsal-admin, realm sss-rehearsal, role TENANT_ADMIN (holds ApprovalRulesManage and LedgerSettingsManage); onboarding rehearsal tenant, legal entity SSS (fake BIN). Credentials come from UAT_QA_ACTOR_SSS_REHEARSAL_ADMIN_USER_* (USERNAME/PASSWORD/REALM), never from this file."
+
+  actor-sss-rehearsal-storekeeper:
+    tenant: sss-rehearsal
+    builtin_roles: [STOREKEEPER]
+    routing_roles: []
+    note: "T-2406 (infra, 2026-11-20): username sss-rehearsal-storekeeper, realm sss-rehearsal, role STOREKEEPER; onboarding rehearsal tenant. Credentials come from UAT_QA_ACTOR_SSS_REHEARSAL_STOREKEEPER_USER_* (USERNAME/PASSWORD/REALM), never from this file."
+
   actor-qoimeks-qa-admin:
     tenant: qoimeks-qa
     builtin_roles: [TENANT_ADMIN]
