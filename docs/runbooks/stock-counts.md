@@ -251,7 +251,9 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   count and the approval the core refuses `balance_changed` (stock alias `quick_count_stale`, 409), the task stays
   pending: cancel the document and count again. The balance never ends as "old plus difference" by accident.
 * **Equal.** A count equal to the book makes no process instance and no ledger entry; the document reads `confirmed`
-  (who and when are still recorded).
+  (who and when are still recorded). The documents list shows the same state as the document screen (GH 4873: the list
+  derives `confirmed` for a quick count whose lines all have difference 0, en/ru/kk label); the `state` filter of the
+  list still matches the stored state, so a `confirmed` count is found with `state=issued`.
 * **Total of the item at the place (T-2286).** After posting, the item/place total IS the counted number. The key
   is (item, place, org unit, responsible, lot); the ledger is append-only, so a count of one key while the same item,
   place, org unit and lot holds stock under ANOTHER responsible would add a parallel row (total = old + counted).

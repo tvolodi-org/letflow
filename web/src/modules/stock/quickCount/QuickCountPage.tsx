@@ -106,6 +106,8 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
   )
 
   // Load balance when all three keys are present
+  // GH 4874: the server keeps the place on the line, not on the document header; fall back to the chosen one.
+  const resultLocation = result ? (result.location_id ?? result.lines[0]?.location_id ?? form.locationId) || null : null
   const balanceEnabled = Boolean(form.itemId && form.locationId && form.orgUnitId)
   // The route's slot keys (sku, location, org_unit, lot): any other key is refused with invalid_filter.
   const balanceParams = balanceKeyParams(form)
@@ -408,7 +410,7 @@ function QuickCountInner({ initialForm, initialResult, initialSubmitError, initi
               </dd>
               <dt>{t('stock.qc.result.location')}</dt>
               <dd data-testid="result-location">
-                {locations.find(l => l.value === (result.location_id ?? ''))?.label ?? result.location_id ?? '—'}
+                {resultLocation ? (locations.find(l => l.value === resultLocation)?.label ?? resultLocation) : '—'}
               </dd>
               <dt>{t('stock.qc.result.org_unit')}</dt>
               <dd data-testid="result-org-unit">

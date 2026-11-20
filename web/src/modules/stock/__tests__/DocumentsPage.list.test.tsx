@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { stockMessages } from '../stockMessages'
 import { DOCS, LIST, fakeMasters, queryBodies, refusal, renderStock, withAtom, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -25,7 +27,10 @@ beforeEach(() => {
   fakeMasters(clientMock)
   clientMock.get.mockResolvedValue({ next_cursor: null, rows: [ROW, DRAFT] })
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  useUiLocaleStore.getState().reloadFromEnvironment()
+})
 
 describe('C2-a rows', () => {
   it('shows number, draft mark, kind, time in Asia/Almaty, org unit name and state word', async () => {
@@ -38,6 +43,24 @@ describe('C2-a rows', () => {
     expect(screen.getAllByText('Draft').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Posted').length).toBeGreaterThan(0)
   })
+})
+
+describe('GH 4873 confirmed quick count in the list', () => {
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`shows the state of a count equal to the book as a ${lang} label, not the raw word`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      clientMock.get.mockResolvedValue({
+        next_cursor: null,
+        rows: [{ id: 'q1', kind: 'quick_count', state: 'confirmed', number: 'QCT-0', org_unit_id: 'u1', event_time: '2026-11-04T05:00:00Z' }],
+      })
+      renderStock(LIST)
+      await screen.findByText('QCT-0')
+      const label = stockMessages[lang]['stock.doc.state.confirmed']
+      expect(label).toBeTruthy()
+      expect(screen.getByTestId('document-row')).toHaveTextContent(label!)
+      expect(screen.getByTestId('document-row')).not.toHaveTextContent('confirmed')
+    })
+  }
 })
 
 describe('C2-b0 kinds (REQ-723)', () => {
