@@ -64,6 +64,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
   require Logger
 
+  alias Letflow.ApprovalRules
   alias Letflow.Documents
   alias Letflow.Documents.Document
   alias Letflow.Documents.DocumentType
@@ -91,6 +92,8 @@ defmodule Letflow.Modules.Stock.Documents do
 
   @states ~w(draft issued posted reversed cancelled)
   @status_atoms %{"draft" => :draft, "issued" => :issued, "cancelled" => :cancelled}
+  @quick_count_definition "stock_quick_count"
+  @quick_count_approve "approve"
   @default_limit 50
   @max_limit 100
   @list_keys ~w(kind state org_unit_id limit cursor)
@@ -253,6 +256,8 @@ defmodule Letflow.Modules.Stock.Documents do
   taken by any refusal. After the commit one `stock_quick_count` instance is started unless the difference
   is zero (then the document reads `confirmed`: no instance, no ledger entry). `opts[:operator]` (REQ-912,
   the old Qoimeks address only) is stored as the output variable `operator` of the count's submit task.
+  `opts[:self_approve]` (`:oidc`, T-2410: the interactive route) lets the system approve the counter's own
+  count at once when the tenant's count switch is OFF (see `self_approve_count/5`).
   Returns the issued document as `fetch/3` renders it.
   """
   @spec quick_count(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -264,12 +269,72 @@ defmodule Letflow.Modules.Stock.Documents do
          :ok <- authorized_read(authorized),
          :ok <- Checks.quick_count(prefix, doc.header, hd(doc.lines)),
          :ok <- activate(prefix, spec, Keyword.get(opts, :activator)),
-         {:ok, id} <- quick_count_tx(prefix, spec, doc, actor, authorized) do
-      view = fetch!(prefix, id)
-      unless view.state == "confirmed", do: start_posting(prefix, id, actor, submit_output(opts))
+         {:ok, id} <- quick_count_tx(prefix, spec, doc, actor, authorized),
+         :ok <- start_and_self_approve(prefix, id, actor, opts) do
       fetch(prefix, id, authorized)
     end
   end
+
+  # The count is issued: start its posting unless it is equal to the book, then (T-2410, D-164) let the
+  # system approve it when the tenant's count switch is OFF at this moment.
+  defp start_and_self_approve(prefix, id, actor, opts) do
+    view = fetch!(prefix, id)
+
+    if view.state == "confirmed" do
+      :ok
+    else
+      started = start_posting(prefix, id, actor, submit_output(opts))
+      self_approve_count(prefix, id, actor, started, Keyword.get(opts, :self_approve))
+    end
+  end
+
+  # T-2410 (D-164): with the tenant's count rule `stock_quick_count` / `approve` stored OFF, the system
+  # completes the approve task of the counter's OWN count in the same call (credential
+  # `:system_self_approval`, the actor stays the counter; the engine audits `task.self_approved`). Only
+  # for the document this call just made, so an older issued count, another user's count and a count made
+  # while the rule is ON stay pending for an administrator. `opts[:self_approve]` is `:oidc`: set by the
+  # route for an interactive caller only; absent for every other caller (API token, old address).
+  # The engine re-reads the switch under the task lock; a switch turned ON in between refuses with
+  # `separation_of_duties` and the count simply stays pending. A refusal of the approval itself (stale,
+  # frozen place, balance in other rows, negative book...) cancels the issued count, as at the old address,
+  # and is answered as the same closed code the approval gives; nothing stays pending.
+  defp self_approve_count(prefix, id, actor, :ok, :oidc) do
+    if ApprovalRules.four_eyes_off?(prefix, @quick_count_definition, @quick_count_approve) do
+      case Posting.self_approve_count(prefix, id, actor) do
+        :ok ->
+          :ok
+
+        {:error, :no_pending_task} ->
+          :ok
+
+        {:error, :separation_of_duties} ->
+          :ok
+
+        {:error, reason} ->
+          cancel_refused_count(prefix, id, actor)
+          {:error, approval_refusal(reason)}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp self_approve_count(_prefix, _id, _actor, _started, _credential), do: :ok
+
+  defp cancel_refused_count(prefix, id, actor) do
+    body = %{"reason" => "refused at the self-approval of the count"}
+    _ = Posting.cancel(prefix, id, body, actor, fn p, i -> fetch(p, i) end)
+    :ok
+  end
+
+  defp approval_refusal({:entity_write_refused_detailed, _index, _code, wire, _details})
+       when is_binary(wire),
+       do: {wire, %{}}
+
+  defp approval_refusal({:instance_execution_error, _type, _affected}),
+    do: {"posting_failed", %{}}
+
+  defp approval_refusal(_other), do: :internal
 
   # REQ-912: the typed operator name of the old Qoimeks address is stored as the output variable
   # `operator` of the count's submit task (the only caller that passes `opts[:operator]`).

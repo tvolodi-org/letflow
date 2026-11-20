@@ -38,6 +38,11 @@ defmodule Letflow.Engine.SeparationOfDuties do
       `task.self_approved` carries the shared access actor). Every other credential, process or step
       keeps the rule above, and for the shared access no row, a row `true` or an unreadable setting
       refuses (fails closed).
+      T-2410 (D-164) adds the credential `:system_self_approval` for the same one step: the stock module
+      completes the approval of the counter's OWN quick count when the switch is stored OFF (the actor stays
+      the counter, so the "same person" test fires and the audit shows the human; the audit entry adds
+      `approved_by: "system"`). It is the engine's own name for "the system completed this", never
+      read from a request.
       The admin-flagged service-principal user flag is deliberately NOT read. No row, a
       row `true`, a missing name or a failed read all refuse (fails closed; a failed read logs
       one warning). Completion returns `{:self_approved, info}` so the engine audits it.
@@ -82,6 +87,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
           optional(:credential) => atom() | nil
         }
   @type self_approval :: %{
+          optional(:approved_by) => String.t(),
           definition_name: String.t(),
           node_id: String.t(),
           same_person_as: [String.t()],
@@ -120,7 +126,8 @@ defmodule Letflow.Engine.SeparationOfDuties do
                  node_id: task.node_id,
                  same_person_as: blocking,
                  setting_changed_at: setting.changed_at
-               }}
+               }
+               |> put_approved_by(context)}
 
             {:ok, _on} ->
               refusal
@@ -138,6 +145,12 @@ defmodule Letflow.Engine.SeparationOfDuties do
     end
   end
 
+  # T-2410: the audit of a system approval carries `approved_by: "system"`; no other credential does.
+  defp put_approved_by(info, %{credential: :system_self_approval}),
+    do: Map.put(info, :approved_by, "system")
+
+  defp put_approved_by(info, _context), do: info
+
   defp non_empty_binary?(value), do: is_binary(value) and value != ""
 
   # The credentials that may be let through on a stored OFF row: an interactive person (`:oidc`, any
@@ -149,7 +162,8 @@ defmodule Letflow.Engine.SeparationOfDuties do
       :oidc ->
         true
 
-      :shared_access ->
+      # T-2410: the system completes the approval of the counter's OWN quick count (D-164); same one step.
+      credential when credential in [:shared_access, :system_self_approval] ->
         Map.get(context, :definition_name) == @shared_access_definition and
           task.node_id == @shared_access_node
 

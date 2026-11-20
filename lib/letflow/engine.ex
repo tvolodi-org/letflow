@@ -3633,7 +3633,7 @@ defmodule Letflow.Engine do
     end)
     # GH #2587 PR B2 (D-B.2): AFTER :transition (which only computes) and before the tail,
     # skipped on either execution error, so a failed completion writes no record.
-    |> maybe_entity_writes(plan, actor_id, prefix, credential)
+    |> maybe_entity_writes(plan, actor_id, prefix, entity_write_credential(credential))
     |> Multi.merge(fn changes ->
       build_complete_task_tail_multi(
         changes,
@@ -4071,6 +4071,12 @@ defmodule Letflow.Engine do
       {:ok, nil}
     end)
   end
+
+  # T-2410: the system self-approval of a quick count (`SeparationOfDuties`) is the counter's own
+  # interactive credential for everything below the guard: the ledger authority reads the counter's
+  # roles from the database as for any person; the system credential names only WHO completes.
+  defp entity_write_credential(:system_self_approval), do: :oidc
+  defp entity_write_credential(credential), do: credential
 
   defp maybe_entity_writes(multi, nil, _actor_id, _prefix, _credential), do: multi
 
@@ -9428,14 +9434,16 @@ defmodule Letflow.Engine do
         resource_type: "task",
         resource_id: task.id,
         before_state: nil,
-        after_state: %{
-          "note" => "self-approved, four-eyes off",
-          "four_eyes" => "off",
-          "definition_name" => info.definition_name,
-          "node_id" => info.node_id,
-          "same_person_as" => Enum.sort(info.same_person_as),
-          "setting_changed_at" => DateTime.to_iso8601(info.setting_changed_at)
-        },
+        after_state:
+          %{
+            "note" => "self-approved, four-eyes off",
+            "four_eyes" => "off",
+            "definition_name" => info.definition_name,
+            "node_id" => info.node_id,
+            "same_person_as" => Enum.sort(info.same_person_as),
+            "setting_changed_at" => DateTime.to_iso8601(info.setting_changed_at)
+          }
+          |> put_approved_by(info),
         trace_id: nil
       },
       prefix
@@ -9443,6 +9451,13 @@ defmodule Letflow.Engine do
   end
 
   defp self_approved_audit_multi(_changes, _actor_id, _prefix), do: Multi.new()
+
+  # T-2410: an approval the system completed for the counter's own quick count says so; the
+  # person's own self-approval and the old address keep today's payload byte for byte.
+  defp put_approved_by(state, %{approved_by: approved_by}),
+    do: Map.put(state, "approved_by", approved_by)
+
+  defp put_approved_by(state, _info), do: state
 
   defp complete_task_row(repo, %Task{} = task, actor_id, output_variables, completed_at, prefix) do
     attrs = %{

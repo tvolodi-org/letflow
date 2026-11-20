@@ -292,6 +292,14 @@ defmodule Letflow.Modules.Stock do
   this module's `ensure_seeds/2` hook, the document types, never overwriting a tenant row. A missing type still
   answers 409 `definition_not_active` before activating a definition or writing a document.
 
+  T-2410 (owner D-164): when the tenant's count rule `stock_quick_count` / `approve` is stored OFF at the moment of an
+  interactive (`:oidc`) `POST /quick-counts`, the system completes the `approve` step of the counter's OWN new count in
+  the same call (`Documents.quick_count/4`, `Posting.self_approve_count/3`, engine credential `:system_self_approval`,
+  the actor stays the counter): the count posts at once and the engine audits `task.self_approved` ("self-approved,
+  four-eyes off", `approved_by: "system"`), the same engine path as the old Qoimeks address. No permission is added
+  (`StockApprove` stays withheld from STOREKEEPER); a rule ON, an API token, an older issued count or another user's
+  count is never approved this way; a refusal of the approval cancels the issued count.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule

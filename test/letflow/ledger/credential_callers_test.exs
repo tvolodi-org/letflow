@@ -150,6 +150,39 @@ defmodule Letflow.Ledger.CredentialCallersTest do
     assert catalog_callers == ["lib/letflow/routers/shared_stock_access.ex"]
   end
 
+  # T-2410 (owner D-164): the web quick count may have the SYSTEM approve the counter's own count when the
+  # tenant's switch is OFF. The literal credential `:system_self_approval` is minted in one function of
+  # posting.ex (`self_approve_count/3`), for the `approve` node of the pending-task lookup only; the engine
+  # lets it through only on `stock_quick_count` / `approve` with a stored OFF row (separation_of_duties_test
+  # E12b/E13b), and the ledger sees the counter's own `:oidc` credential and database roles.
+  test "T-SEC-3h :system_self_approval is minted only by Posting.self_approve_count, for approve" do
+    minters =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          not String.starts_with?(path, "lib/letflow/design/"),
+          File.read!(path) =~ ~r/prefix: prefix,\s+credential: :system_self_approval\s+\) do/,
+          do: path
+
+    assert minters == ["lib/letflow/modules/stock/documents/posting.ex"]
+
+    source = File.read!("lib/letflow/modules/stock/documents/posting.ex")
+    assert [_one] = Regex.scan(~r/credential: :system_self_approval\s+\) do/, source)
+    assert source =~ ~s|pending_task_id(prefix, id, "approve")|
+
+    # its only caller is the quick count, which passes the document it just made and the counter
+    callers =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          path != "lib/letflow/modules/stock/documents/posting.ex",
+          File.read!(path) =~ "Posting.self_approve_count(",
+          do: path
+
+    assert callers == ["lib/letflow/modules/stock/documents.ex"]
+
+    # and the route hands it only an interactive credential
+    router = File.read!("lib/letflow/modules/stock/router.ex")
+    assert router =~ "self_approve: self_approve_credential(conn)"
+    assert router =~ "%{credential: :oidc} -> :oidc"
+  end
+
   # Same reason for the assets opening posting: it completes only `submit`, which has no module write.
   test "T-SEC-3f assets posting.ex completes only submit, and the assets submit node does not write" do
     source = File.read!("lib/letflow/modules/assets/documents/posting.ex")
