@@ -76,6 +76,8 @@ export interface TaskMessages {
   errModuleUpgrade: string
   errForbidden: string
   errConflict: string
+  errDocumentChanged: string
+  errMasterRetired: string
 }
 
 export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
@@ -118,6 +120,8 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errModuleUpgrade: 'This company needs an upgrade of the module before this action works. A tenant administrator must run the module upgrade (Administration > Modules) or ask the platform operator. Trying again will not help.',
     errForbidden: 'You do not have permission to do this. Ask your tenant administrator.',
     errConflict: 'This item was changed by someone else. Reload the page and check its current state.',
+    errDocumentChanged: 'This document was changed or cancelled after it was issued. Reopen the document and check its current state.',
+    errMasterRetired: 'An item, unit, lot, place, department or person on this document has been retired since it was issued. Ask an administrator to restore it, or cancel the document.',
   },
   ru: {
     title: 'Мои задачи', close: 'Закрыть', eyebrow: 'Работа', lede: 'Документы, которые ждут проведения, утверждения или сторнирования.', listPane: 'Задачи',
@@ -158,6 +162,8 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errModuleUpgrade: 'Этой компании нужно обновить модуль, прежде чем это действие заработает. Администратор организации должен запустить обновление модуля (Администрирование > Модули) или обратиться к оператору платформы. Повтор не поможет.',
     errForbidden: 'У вас нет прав на это действие. Обратитесь к администратору организации.',
     errConflict: 'Запись изменил кто-то другой. Обновите страницу и проверьте её текущее состояние.',
+    errDocumentChanged: 'Документ изменён или отменён после выпуска. Откройте документ заново и проверьте его текущее состояние.',
+    errMasterRetired: 'Номенклатура, единица, партия, место, подразделение или сотрудник из этого документа выведены из использования после выпуска. Попросите администратора восстановить запись или отмените документ.',
   },
   kk: {
     title: 'Менің тапсырмаларым', close: 'Жабу', eyebrow: 'Жұмыс', lede: 'Өткізуді, бекітуді немесе сторнолауды күтетін құжаттар.', listPane: 'Тапсырмалар',
@@ -198,5 +204,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errModuleUpgrade: 'Бұл әрекет жұмыс істеуі үшін компанияға модульді жаңарту керек. Ұйым әкімшісі модульді жаңартуы (Әкімшілік > Модульдер) немесе платформа операторына хабарласуы тиіс. Қайталау көмектеспейді.',
     errForbidden: 'Бұл әрекетке рұқсатыңыз жоқ. Ұйым әкімшісіне хабарласыңыз.',
     errConflict: 'Жазбаны басқа адам өзгертті. Бетті жаңартып, ағымдағы күйін тексеріңіз.',
+    errDocumentChanged: 'Құжат шығарылғаннан кейін өзгертілді немесе бас тартылды. Құжатты қайта ашып, ағымдағы күйін тексеріңіз.',
+    errMasterRetired: 'Бұл құжаттағы тауар, өлшем бірлігі, партия, орын, бөлім немесе қызметкер шығарылғаннан кейін қолданыстан шығарылды. Әкімшіден жазбаны қалпына келтіруін сұраңыз немесе құжаттан бас тартыңыз.',
   },
 }
