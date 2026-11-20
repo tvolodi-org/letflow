@@ -207,7 +207,8 @@ builders, so each build task gets `after` set to the previous build task.
 | K13 | requirement | REQ entry for feedback (a tenant store of reports; no Markdown export) | S | 1.0 | — | day 2 |
 | K14 | change | Build feedback | M | 4.0 | K12, K13 | day 2 |
 
-K1-K3 are written (REQ-907, REQ-908, REQ-909, this task). The requirement tasks K5, K7, K9, K11 and
+K1-K3 are written (REQ-907, REQ-908, REQ-909, this task). K8 is built (REQ-910, the scan lookup
+`GET /api/codes/lookup`, decision 0091 section 11d); C7 is served, the code list, assign and remove (C8-C10) are not. The requirement tasks K5, K7, K9, K11 and
 K13 can run beside the build chain, since they change only `docs/requirements.yaml`.
 
 Not in the batch, operator and infra checks before the cutover:

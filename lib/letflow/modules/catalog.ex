@@ -150,6 +150,11 @@ defmodule Letflow.Modules.Catalog do
   def old_app_movements(authorized, params),
     do: Letflow.Modules.Stock.OldAppReads.movements(authorized, params)
 
+  # REQ-910: the scan lookup of the old Qoimeks address (read only), see `OldAppReads.code_lookup/2`.
+  @doc false
+  def old_app_code_lookup(prefix, params),
+    do: Letflow.Modules.Stock.OldAppReads.code_lookup(prefix, params)
+
   # REQ-860: the two writes of the old Qoimeks address (movement post and reverse), see `OldAppWrites`.
   @doc false
   def old_app_post(prefix, actor_id, authorized, params, header),
