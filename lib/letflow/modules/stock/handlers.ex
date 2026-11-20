@@ -6,7 +6,8 @@ defmodule Letflow.Modules.Stock.Handlers do
   transaction of the task: one `Letflow.Entities.HandlerWrites.create/3` of the bookkeeping record
   `stock_posting_mark`, and one `Letflow.Entities.HandlerWrites.post/3` of the posting.
 
-  Contract: `(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted}`.
+  Contract: `(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted | {:refused, code}}`
+  (`code` is `:record_version_conflict` or `:master_inactive`).
   The posting command is rebuilt here from LITERAL keys of the string-keyed `posting` argument
   (no `String.to_atom`, scans H4); `ledger_id` is always `"stock"`, and a `prefix`, `subject_id`
   or `credential` in the arguments is never copied: the platform fills them from the context.
@@ -62,9 +63,23 @@ defmodule Letflow.Modules.Stock.Handlers do
   - **Line with only a `from` side (removes stock):** each of `sku`, `unit`, a given `lot`, the from
     `location`, `org_unit` and a given `responsible` must be a live record of its type (`read/3`
     answers `{:ok, _}`); active false is accepted (retired masters can still be drawn down).
-  - **First failure:** returns `{:error, :invalid_arguments}`, which the engine maps to
+  - **Retired master on an adding side (REQ-904 / GH #4818; decision 0073 note 9.5):** a master that IS a
+    live record of its type (`read/3` answers `{:ok, map}`) but whose `active` field is not true (the
+    item, the unit, a given lot, the to location, the org unit, a given responsible) makes the handler
+    answer `{:error, {:refused, :master_inactive}}`, which the engine maps to 409 `master_inactive`
+    (REQ-901, the closed platform list). The refusal carries no detail: no slot name and no id.
+    Only the check of a `to` side can say it; the from side and a removing line never do.
+  - **Everything else REQ-832 refuses stays untyped:** a non-uuid or unknown id, a record of another type
+    or another tenant, a soft-deleted record, a unit that is not the item's base unit and a lot of
+    another item return `{:error, :invalid_arguments}`, which the engine maps to 422
     `validation_failed` with audit detail `handler_invalid_arguments`; nothing of the completion
     commits and the post task stays pending.
+  - **First failure wins**, in the order the checks run: item, unit (and its base unit), lot (and its
+    item), to location, org unit, responsible, then the from side (liveness only).
+  - **`not_linked` (org unit to location link) is checked at issue only**
+    (`Letflow.Modules.Stock.Documents.Checks`), not at posting: decision 0073 does not list it in D6 or in
+    the L7 row, and it cannot be built on the current facade, because `Letflow.Modules.Locations.linked?/3`
+    finds the link record by field values and `HandlerWrites.read/3` reads by id only.
   - **Cache:** each distinct `{type, id}` pair is read at most once per handler call; no lock is
     taken.
   - **Dry build:** when `read/3` answers `{:error, :dry_build}`, all checks are skipped and the
@@ -78,7 +93,12 @@ defmodule Letflow.Modules.Stock.Handlers do
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.Legs
 
-  @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
+  @type result ::
+          {:ok, Ecto.Multi.t()}
+          | {:error,
+             :invalid_arguments
+             | :not_permitted
+             | {:refused, :record_version_conflict | :master_inactive}}
 
   @spec post_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
   def post_document(_multi, _ctx, %{"posting" => %{"cause" => cause}})
@@ -361,6 +381,7 @@ defmodule Letflow.Modules.Stock.Handlers do
       {:ok, _} -> :ok
       {:error, :dry_build} -> :ok
       {:error, :invalid_arguments} = err -> err
+      {:error, {:refused, :master_inactive}} = err -> err
     end
   end
 
@@ -436,7 +457,7 @@ defmodule Letflow.Modules.Stock.Handlers do
   defp check_active(ctx, type, id, cache) do
     case read_cached(ctx, type, id, cache) do
       {{:ok, %{"active" => true} = map}, cache} -> {:ok, map, cache}
-      {{:ok, _inactive}, _cache} -> {:error, :invalid_arguments}
+      {{:ok, _inactive}, _cache} -> {:error, {:refused, :master_inactive}}
       {{:error, :dry_build}, _cache} -> {:error, :dry_build}
       {{:error, _}, _cache} -> {:error, :invalid_arguments}
     end

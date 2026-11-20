@@ -424,6 +424,17 @@ part 2 (REQ-831).
   `post_count`, `post_kind_change_out` and reversals stay as before. The read takes no lock: stock documents are never
   re-versioned, and a cancel and a post of one document are serialised by the post instance.
 
+## Amended by REQ-904 (slice L7 part 2d, typed master_inactive at posting)
+
+- The stock handlers `post_document`, `post_count` and `post_kind_change_out` answer `{:error, {:refused, :master_inactive}}`
+  (409 `master_inactive`, REQ-901's closed list) for a master that is a live record of its type but not active, on a side
+  that adds stock. A non-uuid or unknown id, a record of another type or tenant, a soft-deleted record, a unit that is not the
+  item's base unit and a lot of another item stay `validation_failed` (422). Sides that only remove stock and reversals are
+  unchanged (note 9.5). No manifest change.
+- `not_linked` (the org unit to location link) at posting is NOT part of L7 part 2: it is not listed in D6 or in the L7 row,
+  and it cannot be built on the current read facade (it reads by id; the link record is found by field values). It stays
+  checked at issue only.
+
 ## Waived for a one-site customer (owner/PM 2026-11-19)
 
 Two items are WAIVED for the one-site pilot. REQ-901..906 (L7 part 2) specify `expected_document_version`, the binding of a posting to the issued document version and the typed `master_inactive` refusal, and exclude these two:

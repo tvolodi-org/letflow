@@ -20,11 +20,23 @@ function problemType(err: unknown): { status?: unknown; type: string; code: stri
   }
 }
 
+/** The `error` field of a plain entity write refusal body, or '' when there is none. */
+function writeRefusal(err: unknown): string {
+  const d = (err as { details?: Record<string, unknown> } | null)?.details ?? {}
+  return typeof d['error'] === 'string' ? d['error'] : ''
+}
+
 export function taskErrorText(err: unknown, kind: ActionKind, m: TaskMessages): string {
   if (isSeparationOfDuties(err)) return m.sod[kind]
   const pt = problemType(err)
   if (pt.type.endsWith('module-upgrade-required') || pt.code === 'upgrade_required' || pt.code === 'module_upgrade_required') {
     return m.errModuleUpgrade
+  }
+  // REQ-903 / REQ-904: the posting refusals are plain entity write refusals (409, body `error`), not problem types.
+  if (pt.status === 409) {
+    const refusal = writeRefusal(err)
+    if (refusal === 'record_version_conflict') return m.errDocumentChanged
+    if (refusal === 'master_inactive') return m.errMasterRetired
   }
   if (pt.status === 409 && (pt.type.endsWith('/conflict') || pt.type.endsWith('record-version-conflict'))) return m.errConflict
   const text = bodyText(err)
