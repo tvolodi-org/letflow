@@ -235,11 +235,12 @@ defmodule Letflow.Routers.SharedStockAccessWritesTest do
       assert %{"operator" => "Header Name"} = status!(conn, 201)
     end
 
-    test "C1 an unknown kind (adjustment) and a bad quantity are 400, nothing is written", t do
+    test "C1 an unknown kind and a bad quantity are 400, nothing is written", t do
       before = written(t.ctx.schema)
 
       for body <- [
-            movement(t, "adjustment", 1, "X"),
+            # REQ-913: kind adjustment is the count and, with the switch ON, now waits (shared_stock_access_count_test)
+            movement(t, "stocktake", 1, "X"),
             movement(t, "receipt", "abc", "X"),
             Map.delete(movement(t, "receipt", 1, "X"), "sku_id")
           ] do
