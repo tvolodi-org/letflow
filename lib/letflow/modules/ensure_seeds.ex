@@ -12,23 +12,43 @@ defmodule Letflow.Modules.EnsureSeeds do
        (`EntityActivation.ensure_promoted/2`; a table that exists is never altered);
     3. the module's own `ensure_seeds/2` hook (stock: its document types, insert-only);
     4. the pack's process definitions whose graph and current module version the tenant holds in no
-       row: created as stamped DRAFTS, never activated.
+       row: created as stamped DRAFTS;
+    5. (T-2353) activation of each such UNMODIFIED draft by the tenant-local system actor
+       (`Letflow.Modules.ProcessActivator`), see below.
 
-  It never overwrites, deactivates or deletes a row, never touches records, and activates nothing
-  over an ACTIVE definition: an active process definition with an older graph or module version keeps
-  running and the answer lists it under `process_activation_needed`; a user with `DefinitionsActivate` activates the
-  new draft (the activation is tied to that user, and running instances stay pinned to their version).
+  Activation (step 5) happens only when every row of the process name belongs to this module AND
+  the row it would supersede is pristine: the stamped `owner_body_hash` equals the hash of the row's
+  own graph (the module's previous unmodified definition), and the draft's own graph still hashes to
+  its stamp. With no active row it activates only when no row of the name was ever activated or retired
+  (a deprecated row is an admin's decision, not ours to undo). The ordinary `Definitions.activate/2`
+  validators and its `definition.activate` audit run; the older ACTIVE version is deprecated by that
+  call, and running instances stay pinned to their version. One `module.seed_activated` audit entry
+  per activation names the module, `"key@version"`, the superseded version and the system actor.
+  The activation is tied to the system actor, not to a human; a `needs_reactivation` flag raised
+  later on that definition is cleared by a user with `DefinitionsActivate` (`reactivate/2`).
+  An activation that is refused (validator, system actor unavailable) never fails the upgrade: the
+  draft stays and is listed.
+
+  It never overwrites or deletes a row and never touches records. A definition the tenant modified
+  (a stamp whose hash no longer matches its graph) or created (any row of the name not owned by this
+  module) is never superseded: the old row keeps its place, the new draft stays DRAFT and the answer
+  lists it under `process_activation_needed` for a user with `DefinitionsActivate`.
   A tenant-created definition of the same name is left alone (never listed as created).
 
   Every item created writes one audit entry (`module.seed_created`; a document type writes its own
   `document.type_registered`). The answer lists what was created, as closed keys and names only:
-  `entity_definitions`, `entity_tables`, `document_types`, `process_drafts` (`"key@version"`) and
-  `process_activation_needed`. A second run creates nothing; pending activation remains listed.
+  `entity_definitions`, `entity_tables`, `document_types`, `process_drafts` (`"key@version"`),
+  `process_activated` (`"key@version"`) and `process_activation_needed`. A second run creates
+  nothing, activates a pristine draft an earlier run left (idempotent repair) and lists what still
+  needs a user.
   """
 
   import Ecto.Query, only: [from: 2]
 
+  require Logger
+
   alias Letflow.Audit
+  alias Letflow.Definitions
   alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.SolutionPack
@@ -36,6 +56,7 @@ defmodule Letflow.Modules.EnsureSeeds do
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Modules.EntityActivation
   alias Letflow.Modules.Installs
+  alias Letflow.Modules.ProcessActivator
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -58,7 +79,7 @@ defmodule Letflow.Modules.EnsureSeeds do
            ensure_entity_definitions(document, types, actor_id, rationale, prefix, owner),
          {:ok, _promoted} <- EntityActivation.ensure_promoted(prefix, types),
          {:ok, document_types} <- ensure_document_types(entry_module, module_id, actor_id, prefix),
-         {:ok, drafts, needed} <-
+         {:ok, drafts, activated, needed} <-
            ensure_process_drafts(document, module_id, manifest, actor_id, prefix, owner) do
       tables = Enum.filter(missing_tables, &table_exists?(prefix, &1))
 
@@ -76,6 +97,7 @@ defmodule Letflow.Modules.EnsureSeeds do
          "entity_tables" => tables,
          "document_types" => document_types,
          "process_drafts" => drafts,
+         "process_activated" => activated,
          "process_activation_needed" => needed
        }}
     end
@@ -172,24 +194,148 @@ defmodule Letflow.Modules.EnsureSeeds do
           is_map(graph),
           do: {key, version, OwnerStamp.graph_hash(graph)}
 
-    rows =
-      from(p in ProcessDefinition,
-        where: p.name in ^Enum.map(packed, &elem(&1, 0)),
-        order_by: [p.name, p.created_at]
-      )
-      |> Repo.all(prefix: prefix)
-      |> Enum.group_by(& &1.name)
+    rows = load_rows(packed, prefix)
 
-    {selection, needed} = classify(packed, rows, module_id, manifest.version)
+    {selection, _needed} = classify(packed, rows, module_id, manifest.version)
 
-    case SolutionPack.install_process_drafts(
-           document,
-           selection,
-           actor_id,
-           [prefix: prefix, draft_suffix: manifest.version],
-           owner
+    with {:ok, drafts} <-
+           SolutionPack.install_process_drafts(
+             document,
+             selection,
+             actor_id,
+             [prefix: prefix, draft_suffix: manifest.version],
+             owner
+           ),
+         {:ok, activated} <-
+           activate_pristine(packed, module_id, manifest.version, actor_id, prefix) do
+      {_selection, needed} =
+        classify(packed, load_rows(packed, prefix), module_id, manifest.version)
+
+      {:ok, drafts, activated, needed}
+    end
+  end
+
+  defp load_rows(packed, prefix) do
+    from(p in ProcessDefinition,
+      where: p.name in ^Enum.map(packed, &elem(&1, 0)),
+      order_by: [p.name, p.created_at]
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.group_by(& &1.name)
+  end
+
+  # ── 5. activation of unmodified drafts ──────────────────────────────────────────────────
+
+  defp activate_pristine(packed, module_id, module_version, actor_id, prefix) do
+    packed
+    |> Enum.reduce_while({:ok, []}, fn {key, _version, hash}, {:ok, acc} ->
+      rows =
+        Repo.all(
+          from(p in ProcessDefinition,
+            where: p.name == ^key,
+            order_by: [desc: p.created_at, desc: p.id],
+            lock: "FOR UPDATE"
+          ),
+          prefix: prefix
+        )
+
+      case activation_plan(rows, module_id, module_version, hash) do
+        {:activate, draft, superseded} ->
+          case activate_isolated(draft, superseded, module_id, actor_id, prefix) do
+            :ok -> {:cont, {:ok, ["#{draft.name}@#{draft.version}" | acc]}}
+            :refused -> {:cont, {:ok, acc}}
+            {:error, _reason} = error -> {:halt, error}
+          end
+
+        :skip ->
+          {:cont, {:ok, acc}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # Pure decision. `rows` is every row of the name, newest first.
+  defp activation_plan(rows, module_id, module_version, hash) do
+    draft =
+      Enum.find(rows, fn row ->
+        row.status == :draft and row.owner_body_hash == hash and
+          row.owner_module_version == module_version and OwnerStamp.graph_hash(row.graph) == hash
+      end)
+
+    active = Enum.find(rows, &(&1.status == :active))
+
+    cond do
+      draft == nil ->
+        :skip
+
+      not Enum.all?(rows, &(&1.owner_module == module_id)) ->
+        :skip
+
+      active == nil and Enum.all?(rows, &(&1.status == :draft)) ->
+        {:activate, draft, nil}
+
+      active == nil ->
+        :skip
+
+      pristine?(active) and not current?(active, hash, module_version) ->
+        {:activate, draft, active}
+
+      true ->
+        :skip
+    end
+  end
+
+  defp pristine?(row), do: OwnerStamp.graph_hash(row.graph) == row.owner_body_hash
+
+  defp current?(row, hash, module_version),
+    do: row.owner_body_hash == hash and row.owner_module_version == module_version
+
+  # `Definitions.activate/2` rolls back its own (nested) transaction on a refusal and that would poison
+  # the caller's. So the draft is first checked with `Definitions.precheck_activation/3` (the same
+  # read-only validators): a refusal there (validator, entity-write hash mismatch, system actor
+  # unavailable) never fails the upgrade, the draft stays and is listed under
+  # `process_activation_needed`. The rows are locked FOR UPDATE by the caller, so the check holds
+  # for the activation; a refusal after a passed check is unexpected and fails the upgrade.
+  defp activate_isolated(draft, superseded, module_id, actor_id, prefix) do
+    with {:ok, authority} <- ProcessActivator.system_authority(prefix),
+         :ok <- Definitions.precheck_activation(draft, prefix, authority) do
+      with {:ok, _activated} <-
+             Definitions.activate(draft.id, prefix: prefix, activator: authority),
+           :ok <- audit_activated(draft, superseded, module_id, actor_id, authority, prefix) do
+        :ok
+      end
+    else
+      {:error, reason} ->
+        Logger.warning("module seed activation refused: #{inspect(tag(reason))}")
+        :refused
+    end
+  end
+
+  defp tag(reason) when is_tuple(reason) and tuple_size(reason) > 0, do: elem(reason, 0)
+  defp tag(reason), do: reason
+
+  defp audit_activated(draft, superseded, module_id, actor_id, authority, prefix) do
+    case Audit.insert_entry(
+           Repo,
+           %{
+             actor_id: actor_id,
+             action: "module.seed_activated",
+             resource_type: "process_definition",
+             resource_id: draft.id,
+             before_state: nil,
+             after_state: %{
+               "module_id" => module_id,
+               "item" => "#{draft.name}@#{draft.version}",
+               "superseded_version" => superseded && superseded.owner_module_version,
+               "activated_by" => authority.user_id
+             }
+           },
+           prefix
          ) do
-      {:ok, drafts} -> {:ok, drafts, needed}
+      {:ok, _entry} -> :ok
       {:error, _reason} = error -> error
     end
   end

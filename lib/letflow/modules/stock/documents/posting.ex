@@ -65,6 +65,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
   alias Letflow.Modules.KeyHelpers
+  alias Letflow.Modules.ProcessActivator
   alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Documents.ActionIdempotency
   alias Letflow.Modules.Stock.Documents.Kinds
@@ -140,83 +141,15 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   end
 
   defp activation_authority(prefix, activator) do
-    if activator?(activator), do: {:ok, activator}, else: system_authority(prefix)
+    if activator?(activator),
+      do: {:ok, activator},
+      else: ProcessActivator.system_authority(prefix)
   end
 
   defp activator?(%{permissions: permissions, entities_records_write?: true})
        when is_list(permissions), do: "DefinitionsActivate" in permissions
 
   defp activator?(_), do: false
-
-  defp system_authority(prefix) do
-    # A fixed id prevents a pre-existing same-name tenant user from becoming the system activator.
-    # No memberships or credentials are created, and an existing inactive user is never reactivated.
-    id = "00000000-0000-0000-0000-000000007130"
-    username = "__stock_process_activator__"
-
-    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-
-    {created, _} =
-      Repo.insert_all(
-        Letflow.Identity.User,
-        [
-          %{
-            id: id,
-            username: username,
-            display_name: "Stock process activator",
-            email: "stock-process-activator@system.invalid",
-            password_hash: "__NO_PASSWORD_SET__",
-            auth_source: :internal,
-            status: :active,
-            inserted_at: now,
-            updated_at: now
-          }
-        ],
-        prefix: prefix,
-        on_conflict: :nothing
-      )
-
-    with :ok <- audit_system_user(created, id, prefix),
-         %Letflow.Identity.User{
-           status: :active,
-           auth_source: :internal,
-           username: ^username,
-           password_hash: "__NO_PASSWORD_SET__"
-         } <-
-           Repo.get(Letflow.Identity.User, id, prefix: prefix),
-         [] <- Letflow.Identity.list_effective_role_names(id, prefix: prefix) do
-      {:ok,
-       %{
-         user_id: id,
-         roles: [],
-         permissions: ["DefinitionsActivate", "EntitiesRecordsWrite"],
-         entities_records_write?: true,
-         credential: "none"
-       }}
-    else
-      _refused -> {:error, :system_activator_unavailable}
-    end
-  end
-
-  defp audit_system_user(0, _id, _prefix), do: :ok
-
-  defp audit_system_user(1, id, prefix) do
-    case Letflow.Audit.insert_entry(
-           Repo,
-           %{
-             actor_id: nil,
-             action: "stock.process_activator_created",
-             resource_type: "user",
-             resource_id: id,
-             before_state: nil,
-             after_state: %{"username" => "__stock_process_activator__", "roles" => []}
-           },
-           prefix
-         ) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp stock_stamped?(row) do
     case OwnerStamp.from_row(row) do
