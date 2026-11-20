@@ -29,6 +29,15 @@ defmodule Letflow.Modules.Maintenance.Orders do
   pending and addressed to a user; `done` when it is completed and `maintenance_close` is pending;
   `closed` when `maintenance_close` is completed; `unknown` for any other state (INV-8).
 
+  ## What was done (REQ-897)
+
+  The view carries the done and close record of the order: `work_done`, `done_by`, `done_at`,
+  `closed_by` and `closed_at`. They are fields of the order record, written by the two write
+  handlers of the module (`Letflow.Modules.Maintenance.Handlers`) when the `maintenance_work` and
+  the `maintenance_close` tasks are completed, and they are null until then. A closed order is
+  never changed again: no route of the module updates or deletes an order (assign on a closed
+  order is `order_not_assignable`), and a correction is a new order.
+
   The tenant is `prefix`, derived from the token on the server (INV-1). `opts`: `:actor_id`,
   `:actor_roles`, `:activator`, and for `create/3` `:idempotency_key`.
   """
@@ -765,6 +774,13 @@ defmodule Letflow.Modules.Maintenance.Orders do
       "request" => request_ref(prefix, fv["request_id"]),
       "description" => fv["description"],
       "urgency" => fv["urgency"],
+      # REQ-897: what was done and who closed the order. The five fields are null until the
+      # task that fills them is completed; the handlers of the module write them on the record.
+      "work_done" => fv["work_done"],
+      "done_by" => fv["done_by"],
+      "done_at" => fv["done_at"],
+      "closed_by" => fv["closed_by"],
+      "closed_at" => fv["closed_at"],
       "created_at" => DateTime.to_iso8601(row.inserted_at)
     }
   end

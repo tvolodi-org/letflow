@@ -69,6 +69,7 @@ defmodule Letflow.Engine.LuaHostNoHandlerAccessTest do
     lib/letflow/modules/module.ex
     lib/letflow/modules/stock/handlers.ex
     lib/letflow/modules/assets/handlers.ex
+    lib/letflow/modules/maintenance/handlers.ex
   )
 
   defp lib_files, do: "lib/**/*.ex" |> Path.wildcard() |> Enum.sort()
