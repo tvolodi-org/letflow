@@ -309,7 +309,7 @@ NEVER the `<slug>-setup` account.
 reversal, count_posting, opening, quick_count). The first use of each activates its untouched module-owned draft
 through a tenant-local system activator that never expires, so the handover in step 13 does not flag it
 `needs_reactivation`; the activation is audited (`definition.activate`) and runs once. The same holds after
-every stock module upgrade (the new DRAFT versions activate on first use). A definition the tenant created or
+every FIRST install; after a stock module UPGRADE the old versions stay ACTIVE beside new DRAFTs, and the first use does not activate a draft over an active one: the tenant admin activates each draft (`stock-counts.md`, "After a module upgrade", 10 drafts on qoimeks-qa2 0.21.0 -> 0.22.0). A definition the tenant created or
 changed, or a deprecated one, is never touched: the post answers 409 `definition_not_active`; the company admin
 reviews it and activates it by `POST /api/v1/definitions/<id>/activate`. Details: `stock-counts.md`, "Stock
 process activation".

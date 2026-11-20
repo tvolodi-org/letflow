@@ -315,6 +315,51 @@ in the tenant schema with `\dt entity_stock_quick_count*`). Then issue a quick c
 normal screen/API. If the type is absent, requests still answer 409 `definition_not_active` without taking
 a number; call the route and read its answer.
 
+## After a module upgrade: activate the new drafts, then run the readiness check (T-2352)
+
+Observed on qoimeks-qa2 on 2026-11-20, stock 0.21.0 -> 0.22.0. Do these steps in this order after every
+stock upgrade; they are done by the tenant administrator (`DefinitionsActivate`), not by the engine.
+
+1. **List what is waiting.** The answer of the upgrade apply (`POST /api/v1/tenant/modules/stock/upgrade`, key
+   `seeds`) or of `POST /api/v1/tenant/modules/stock/ensure-seeds` carries `process_drafts` (`"key@version"`, what
+   was just created) and `process_activation_needed` (`name`, `active_version`, new version; repeated on every call
+   until the draft is activated). Calling `ensure-seeds` again is safe: it creates nothing more.
+2. **Activate each new draft** as the tenant admin: `GET /api/v1/definitions?name=<name>&status=draft` for the
+   draft's id (its version looks like `1.0.0-0.22.0`), then `POST /api/v1/definitions/:id/activate` with `{}`.
+   Expect HTTP 200 for each. The old ACTIVE version of that name becomes superseded; instances already running stay on
+   their version.
+3. **Expected counts (qoimeks-qa2, 0.21.0 -> 0.22.0).** 10 stock definitions: `stock_count_posting`,
+   `stock_handover`, `stock_issue`, `stock_opening`, `stock_quick_count`, `stock_receipt`, `stock_return`,
+   `stock_reversal`, `stock_transfer`, `stock_writeoff`. Before activation: 10 ACTIVE 0.21.0 + 10 new DRAFT 0.22.0
+   (20 rows, `process_activation_needed` has 10 entries). After activating all 10 drafts: 10 ACTIVE 0.22.0, one
+   ACTIVE version per name, `process_activation_needed` is `[]` on the next `ensure-seeds` call. A different
+   count means a definition was tenant-created or changed (see the last paragraph) or one activation failed:
+   read its answer, do not repeat blindly.
+4. **Run the readiness check** (`Letflow.Release.tenant_onboarding_check/2`, see `production-tenant-onboarding.md`,
+   step 8): every `process <name>` line must read `OK`, `active=true`.
+
+**Is there an outage in the gap, while the drafts are not yet activated?** The evidence says no, with one part not
+exercised:
+
+- (a) Observed state: the old definitions stay `active` beside the new drafts (10 + 10 rows above).
+- (b) Test `QC-T2217c` in `test/letflow/modules/stock/quick_count_test.exs`: after the upgrade the rows are exactly
+  one `:active` (unchanged, equal to the row before) and one `:draft`; a second call creates nothing; only the
+  admin's activation makes the draft active.
+- (c) Code: `Letflow.Engine` resolves a start by name through `Definitions.get_active_by_name/2` (`engine.ex`,
+  `resolve_definition/2`), which selects only `status == :active` and never a draft; and the stock posting path,
+  `Posting.ensure_locked/3` (`lib/letflow/modules/stock/documents/posting.ex`), returns `:ok` at once when an
+  active stock-stamped row exists. So while a draft exists the old active version is the one used by a post. A
+  post started in the gap runs the OLD graph, not the new one.
+- NOT exercised by a walk on QA: the operator activated within minutes and no posting ran in between. Item (c) is
+  a code reading plus (b) a test of the state, not a recorded post in the gap. At the next upgrade run the check:
+  after the apply and before step 2, post one receipt (STOREKEEPER) and confirm it succeeds and its instance
+  shows the old version; then activate. Until that is done, treat the claim as "proven by code, not walked" and
+  activate at once.
+
+The upgrade never overrides a tenant-modified definition: a definition the tenant created or changed keeps its row;
+the step only creates a draft beside an active stock-stamped one, and a tenant-created definition of the same
+name is never shadowed or listed as created.
+
 ## Stock process activation (T-2253)
 
 A fresh install ships ten stock process drafts. On first use, `Posting.ensure_active/3` activates an
@@ -363,3 +408,21 @@ A print of the order for the field, to count on paper and type in later. `GET /a
 The document service accepts an issuing org unit only when it is in the core scope tree
 (`Letflow.ScopeNodePaths`, filled by the org import). An org unit made by another route and not in the
 tree makes `issue` answer 422 `request_refused` (the document service refused; the reason is logged by tag only); the draft stays a draft.
+
+## Who may approve, post and reverse (stock 0.23.0, decision 0093 F2)
+
+The approve, post and reverse tasks of the stock processes (`stock_receipt`, `stock_issue`, `stock_writeoff`,
+`stock_transfer`, `stock_handover`, `stock_return`, `stock_opening`, `stock_quick_count`, `stock_count_posting`,
+`stock_reversal`) carry `required_permission: StockApprove`. The `role` label (TENANT_ADMIN) only decides whose My Tasks
+shows the task. A caller without `StockApprove` (the storekeeper) is refused on claim and on completion with the
+not-found answer, also after the task was reassigned to them. `GET /api/v1/modules/stock/approval-access` answers 200
+`{"can_approve": true}` to a holder and 403 to anyone else.
+
+* Nothing is granted by the upgrade: TENANT_ADMIN and PLATFORM_ADMIN hold `StockApprove` through the catch-all; no role
+  grant, no data migration.
+* **Existing tenants (operator).** Process definitions are pinned per instance and the pack's definitions are installed
+  with the module, so a tenant that installed stock before 0.23.0 keeps the old nodes (addressing only; the storekeeper is
+  still refused by the TENANT_ADMIN label) until its stock process definitions are replaced by those of the 0.23.0 pack.
+  This is reported, not automated: running tasks of old pinned definitions finish as they are.
+* Assigning `StockApprove` to a tenant-defined role (a warehouse manager who is not the tenant admin) is not possible yet:
+  tenant-defined roles are not built and `Authorization.grantable/0` lists only the two assets atoms for STOREKEEPER.

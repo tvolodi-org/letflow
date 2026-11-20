@@ -49,6 +49,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -111,6 +112,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -173,6 +175,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -238,6 +241,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "reverse",
@@ -300,6 +304,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -362,6 +367,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -424,6 +430,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -501,6 +508,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "approve",
@@ -578,6 +586,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "approve",
@@ -640,6 +649,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "StockApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",

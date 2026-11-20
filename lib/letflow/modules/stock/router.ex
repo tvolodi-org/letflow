@@ -97,6 +97,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character`, `form_template_outdated` (docx with a company template, 0089 S3; print: `FormPrint.build/5 (tenant:)`) |
   | `GET /stock-sheet/print?location&from&to&format=pdf\|docx&lang=ru\|kk` (T-1925; official form Z-7 / Q-7, the stock balances sheet of one location for one period: opening, income, expense, closing per item, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_period`, `period_in_future`, `invalid_format`, `invalid_lang`, `sheet_too_long` (more than 5000 entries or 1000 rows), `print_unsupported_character` |
   | `POST /stock-workbook/check?org_unit_id=` (REQ-884; an `.xlsx` body in the Qoimeks layout checked against the stock of one org unit, `StockWorkbookImport.check/3`, writes nothing; `docs/runbooks/stock-workbook-import.md`) | `StockRead` | 200 `sheet, rows_read, remarks, changes, unchanged_count, too_many_changes`, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, 413 over the 2 MiB body |
+  | `GET /approval-access` (decision 0093 F2; writes nothing: does the caller hold the permission that the stock approve, post and reverse task nodes require) | `StockApprove` (administrators only, not the storekeeper) | 200 `can_approve: true`, 403 without the permission, 404 for a scoped caller |
   | `POST /stock-workbook/apply?org_unit_id=` (REQ-885; loads the checked workbook, writes a stock_quick_count document; `StockWorkbookImport.check_for_apply/3`, `Documents.workbook_apply/6`; `docs/runbooks/stock-workbook-import.md`) | `StockWorkbookApply` (T-2239: administrators only, not the storekeeper) | 201 `document_id, number, lines, remarks, approve_task_id`, 200 `applied false, changes 0, remarks` when no change, 404 for a scoped reader, 422 `org_unit_required`, `org_unit_not_found`, `invalid_filter`, `xlsx_unreadable`, `header_missing`, `workbook_too_large`, `too_many_changes`, `count_in_progress`, 409 `definition_not_active` (also a missing document type on a pre-0.20 install), 413 over the 2 MiB body |
   | `GET /stock-workbook/imports` (REQ-886; lists the last 50 workbook loads, `Documents.workbook_imports/2`, no query key) | `StockRead` | 200 `rows` (each `document_id, number, created_at, created_by, created_by_label, file_name, sheet, lines, remarks_count, state, reversal_pending`), 404 for a scoped reader, 422 `invalid_filter` (any query key) |
   | `POST /stock-workbook/imports/:id/cancel` (REQ-886; cancels or starts the reversal of a workbook load, `Documents.workbook_cancel/7`; body `{reason: text}`) | `StockReverse` | 200 `{action: "cancelled", lines: N}` (before approval) or `{action: "reverse_pending", lines: N}` (after posting), 404 for unknown/non-workbook/cross-tenant id, 409 `reversal_pending`, 422 `import_already_cancelled`, `reason_required`, `reason_too_long` |
@@ -468,6 +469,14 @@ defmodule Letflow.Modules.Stock.Router do
     :header_missing,
     :workbook_too_large
   ]
+
+  # Decision 0093 F2: "may I approve, post or reverse what another person prepared?". Writes nothing; it is the
+  # route that names `StockApprove` (the permission the stock approve, post and reverse task nodes require).
+  authz_get "/approval-access", :StockApprove do
+    with_access(conn, :approve, fn conn, _access ->
+      Response.ok(conn, %{"can_approve" => true})
+    end)
+  end
 
   # REQ-885 / GH #4606: the apply (load) of a Qoimeks-layout balances workbook as a quick count.
   authz_post "/stock-workbook/apply", :StockWorkbookApply do

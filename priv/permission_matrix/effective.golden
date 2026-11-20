@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.1.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.22.0
+# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.1.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.23.0
 # roles: 9
-# permissions: 104
-# rows: 936
+# permissions: 105
+# rows: 945
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
 AGENT_RUNNER AssetsCardWrite false module:assets -
@@ -90,6 +90,7 @@ AGENT_RUNNER ScheduledJobsManage false core -
 AGENT_RUNNER ScriptsPublish false core -
 AGENT_RUNNER ScriptsWrite false core -
 AGENT_RUNNER SolutionOverridesManage false core -
+AGENT_RUNNER StockApprove false module:stock -
 AGENT_RUNNER StockCountOrder false module:stock -
 AGENT_RUNNER StockCountRecord false module:stock -
 AGENT_RUNNER StockPost false module:stock -
@@ -194,6 +195,7 @@ CANDIDATE ScheduledJobsManage false core -
 CANDIDATE ScriptsPublish false core -
 CANDIDATE ScriptsWrite false core -
 CANDIDATE SolutionOverridesManage false core -
+CANDIDATE StockApprove false module:stock -
 CANDIDATE StockCountOrder false module:stock -
 CANDIDATE StockCountRecord false module:stock -
 CANDIDATE StockPost false module:stock -
@@ -298,6 +300,7 @@ PLATFORM_ADMIN ScheduledJobsManage true core core
 PLATFORM_ADMIN ScriptsPublish true core core
 PLATFORM_ADMIN ScriptsWrite true core core
 PLATFORM_ADMIN SolutionOverridesManage true core core
+PLATFORM_ADMIN StockApprove true module:stock core
 PLATFORM_ADMIN StockCountOrder true module:stock core
 PLATFORM_ADMIN StockCountRecord true module:stock core
 PLATFORM_ADMIN StockPost true module:stock core
@@ -402,6 +405,7 @@ PROCESS_DESIGNER ScheduledJobsManage false core -
 PROCESS_DESIGNER ScriptsPublish false core -
 PROCESS_DESIGNER ScriptsWrite true core core
 PROCESS_DESIGNER SolutionOverridesManage false core -
+PROCESS_DESIGNER StockApprove false module:stock -
 PROCESS_DESIGNER StockCountOrder false module:stock -
 PROCESS_DESIGNER StockCountRecord false module:stock -
 PROCESS_DESIGNER StockPost false module:stock -
@@ -506,6 +510,7 @@ PROCESS_OPERATOR ScheduledJobsManage false core -
 PROCESS_OPERATOR ScriptsPublish false core -
 PROCESS_OPERATOR ScriptsWrite false core -
 PROCESS_OPERATOR SolutionOverridesManage false core -
+PROCESS_OPERATOR StockApprove false module:stock -
 PROCESS_OPERATOR StockCountOrder false module:stock -
 PROCESS_OPERATOR StockCountRecord false module:stock -
 PROCESS_OPERATOR StockPost false module:stock -
@@ -610,6 +615,7 @@ STOREKEEPER ScheduledJobsManage false core -
 STOREKEEPER ScriptsPublish false core -
 STOREKEEPER ScriptsWrite false core -
 STOREKEEPER SolutionOverridesManage false core -
+STOREKEEPER StockApprove false module:stock -
 STOREKEEPER StockCountOrder true module:stock grant
 STOREKEEPER StockCountRecord true module:stock grant
 STOREKEEPER StockPost true module:stock grant
@@ -714,6 +720,7 @@ TASK_WORKER ScheduledJobsManage false core -
 TASK_WORKER ScriptsPublish false core -
 TASK_WORKER ScriptsWrite false core -
 TASK_WORKER SolutionOverridesManage false core -
+TASK_WORKER StockApprove false module:stock -
 TASK_WORKER StockCountOrder false module:stock -
 TASK_WORKER StockCountRecord false module:stock -
 TASK_WORKER StockPost false module:stock -
@@ -818,6 +825,7 @@ TENANT_ADMIN ScheduledJobsManage true core core
 TENANT_ADMIN ScriptsPublish true core core
 TENANT_ADMIN ScriptsWrite true core core
 TENANT_ADMIN SolutionOverridesManage true core core
+TENANT_ADMIN StockApprove true module:stock core
 TENANT_ADMIN StockCountOrder true module:stock core
 TENANT_ADMIN StockCountRecord true module:stock core
 TENANT_ADMIN StockPost true module:stock core
@@ -922,6 +930,7 @@ TENANT_AUDITOR ScheduledJobsManage false core -
 TENANT_AUDITOR ScriptsPublish false core -
 TENANT_AUDITOR ScriptsWrite false core -
 TENANT_AUDITOR SolutionOverridesManage false core -
+TENANT_AUDITOR StockApprove false module:stock -
 TENANT_AUDITOR StockCountOrder false module:stock -
 TENANT_AUDITOR StockCountRecord false module:stock -
 TENANT_AUDITOR StockPost false module:stock -
