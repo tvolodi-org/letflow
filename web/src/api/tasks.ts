@@ -54,7 +54,7 @@ export const tasksApi = {
 
   reassign: (id: string, assigneeRef: string) =>
     client
-      .post<RawTask>(`/api/v1/tasks/${id}/reassign`, { assignee_ref: assigneeRef })
+      .post<RawTask>(`/api/v1/tasks/${id}/reassign`, { user_id: assigneeRef })
       .then(normalizeTask),
 
   /** Inbox: pending tasks for the calling user */
