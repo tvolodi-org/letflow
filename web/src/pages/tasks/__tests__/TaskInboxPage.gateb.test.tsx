@@ -275,6 +275,21 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(screen.getByTestId('task-complete-button')).toBeInTheDocument()
   })
 
+  for (const [code, key] of [['record_version_conflict', 'errDocumentChanged'], ['master_inactive', 'errMasterRetired']] as const) {
+    it(`T7c REQ-906 a ${code} refusal on complete is a readable message and the task stays`, async () => {
+      world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: ISSUER }
+      world.completeRefusal = { status: 409, body: { error: code } }
+      renderPage()
+      const user = userEvent.setup()
+      await user.click((await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_POST)!)
+      await user.click(await screen.findByTestId('task-complete-button'))
+      const shown = await screen.findByTestId('task-error')
+      expect(shown).toHaveTextContent(TASK_MESSAGES.en[key])
+      expect(shown.textContent).not.toContain(code)
+      expect(screen.getByTestId('task-complete-button')).toBeInTheDocument()
+    })
+  }
+
   it('T-1412 a task claimed by the signed-in user (tenant user id, not the token sub) stays in My Tasks with Complete', async () => {
     world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: ISSUER }
     renderPage(ISSUER, 'tenantAdmin', SECOND)
