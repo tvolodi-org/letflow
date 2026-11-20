@@ -20,7 +20,7 @@ import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
 import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type DocumentsPageBody } from './documents.api'
-import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
+import { DISPLAY_STATES, DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
 import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 interface Filters {
@@ -135,7 +135,7 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
                     <span className="lf-doc__item-top">
                       <span className={r.number ? 'lf-doc__num' : 'lf-doc__num is-draft'}>{r.number ?? t('stock.doc.draftMark')}</span>
                       <StatusPill tone={tone.tone} glyph={tone.glyph}>
-                        {known(DOC_STATES, 'stock.doc.state', r.state)}
+                        {known(DISPLAY_STATES, 'stock.doc.state', r.state)}
                       </StatusPill>
                     </span>
                     <span className="lf-doc__item-sub">

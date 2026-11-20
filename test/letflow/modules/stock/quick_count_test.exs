@@ -336,6 +336,19 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
     P.req(ctx, :post, doc["id"], "post") |> refused!(409, "document_posted")
   end
 
+  test "QC-6b GH 4873: the documents list shows the same confirmed state as the screen", ctx do
+    receipt!(ctx, "10")
+    equal = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "10"}))
+    differs = count!(ctx, qc_body(ctx.ma, %{"counted_quantity" => "7"}))
+
+    conn = D.request(:get, "/documents?kind=quick_count", ctx.tok_a)
+    assert conn.status == 200
+    rows = Jason.decode!(conn.resp_body)["rows"]
+    states = Map.new(rows, &{&1["id"], &1["state"]})
+    assert states[equal["id"]] == "confirmed"
+    assert states[differs["id"]] == "issued"
+  end
+
   # T-2288 / decision 0090: a count works on a negative book.
   defp negative_book!(ctx, qty) do
     m = ctx.ma

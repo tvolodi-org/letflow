@@ -1461,6 +1461,7 @@ defmodule Letflow.Modules.Stock.Documents do
       type_keys = page |> Enum.map(& &1.type_key) |> Enum.uniq()
       headers = Enum.reduce(type_keys, %{}, &Map.merge(&2, headers_for(prefix, &1, page)))
       states = Posting.states_for(prefix, Enum.map(page, &%{id: &1.id, state: state(&1.status)}))
+      states = confirmed_quick_counts(prefix, page, states)
       types = document_types(prefix, type_keys)
 
       {:ok,
@@ -1470,6 +1471,67 @@ defmodule Letflow.Modules.Stock.Documents do
        }}
     end
   end
+
+  # T-2356 / GH 4873: the list reads an issued quick count whose lines all have a zero difference as
+  # `confirmed`, the same state the document screen derives (`Posting.state_fields/3`).
+  defp confirmed_quick_counts(prefix, page, states) do
+    qc = Kinds.get("quick_count")
+    ids = for r <- page, r.type_key == qc.type_key, Map.fetch!(states, r.id) == "issued", do: r.id
+
+    if ids == [] do
+      states
+    else
+      headers =
+        Repo.all(
+          from(r in Latest,
+            where:
+              r.entity_type == ^qc.type_key and not r.deleted and
+                fragment(
+                  "?->>'document_id' = ANY(?)",
+                  r.field_values,
+                  type(^ids, {:array, :string})
+                ),
+            select: {r.record_id, fragment("?->>'document_id'", r.field_values)}
+          ),
+          prefix: prefix
+        )
+
+      by_header = Map.new(headers, fn {rid, doc_id} -> {rid, doc_id} end)
+
+      diffs =
+        Repo.all(
+          from(r in Latest,
+            where:
+              r.entity_type == ^qc.line_type and not r.deleted and
+                fragment(
+                  "?->>'header_id' = ANY(?)",
+                  r.field_values,
+                  type(^Map.keys(by_header), {:array, :string})
+                ),
+            select:
+              {fragment("?->>'header_id'", r.field_values),
+               fragment("?->>'difference'", r.field_values)}
+          ),
+          prefix: prefix
+        )
+        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      Enum.reduce(by_header, states, fn {rid, doc_id}, acc ->
+        case Map.get(diffs, rid, []) do
+          [] ->
+            acc
+
+          ds ->
+            if Enum.all?(ds, &zero_difference?/1),
+              do: Map.put(acc, doc_id, "confirmed"),
+              else: acc
+        end
+      end)
+    end
+  end
+
+  defp zero_difference?(d) when is_binary(d), do: Decimal.eq?(Decimal.new(d), 0)
+  defp zero_difference?(_other), do: false
 
   defp document_types(_prefix, []), do: %{}
 
