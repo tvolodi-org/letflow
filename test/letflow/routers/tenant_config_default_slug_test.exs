@@ -123,4 +123,44 @@ defmodule Letflow.Routers.TenantConfigDefaultSlugTest do
     assert raw("/api/tenant-config?host=unbound.ai-letflow.com") == default_body
     assert Jason.decode!(default_body)["oidc_authority"] =~ "/realms/#{default.idp_realm_id}"
   end
+
+  # ── T-2350: company_found (opt-in `company_check=1`), the web "Company not found" signal ──
+
+  defp found(slug), do: found_of("/api/tenant-config?realm=#{slug}&company_check=1")
+  defp found_of(path), do: Jason.decode!(raw(path))["company_found"]
+
+  test "C1: the configured default tenant's own slug, typed explicitly, is a found company" do
+    t = insert_tenant!()
+    System.put_env(@var, t.slug)
+
+    # Its answer equals the no-parameter answer, so comparing answers cannot tell it from an
+    # unknown code: this is what the flag exists for (review of T-2350 attempt 3).
+    own = Jason.decode!(raw("/api/tenant-config?realm=#{t.slug}&company_check=1"))
+    bare = Jason.decode!(raw("/api/tenant-config"))
+    assert own["oidc_authority"] == bare["oidc_authority"]
+    assert own["company_found"] == true
+    refute Map.has_key?(bare, "company_found")
+  end
+
+  test "C2: unknown, inactive and realm-less codes all answer false with the default body" do
+    inactive = insert_tenant!(%{status: :inactive})
+    unknown_a = raw("/api/tenant-config?realm=no-such-tenant-aa&company_check=1")
+    unknown_b = raw("/api/tenant-config?realm=no-such-tenant-bb&company_check=1")
+
+    assert unknown_a == unknown_b
+    assert Jason.decode!(unknown_a)["company_found"] == false
+    assert found(inactive.slug) == false
+    assert raw("/api/tenant-config?realm=#{inactive.slug}&company_check=1") == unknown_a
+  end
+
+  test "C3: without the opt-in no body carries the key; with no realm the opt-in adds nothing" do
+    t = insert_tenant!()
+
+    refute Map.has_key?(Jason.decode!(raw("/api/tenant-config?realm=#{t.slug}")), "company_found")
+    refute Map.has_key?(Jason.decode!(raw("/api/tenant-config?realm=zz-none")), "company_found")
+    assert raw("/api/tenant-config?company_check=1") == raw("/api/tenant-config")
+
+    assert raw("/api/tenant-config?realm=#{t.slug}&company_check=0") ==
+             raw("/api/tenant-config?realm=#{t.slug}")
+  end
 end

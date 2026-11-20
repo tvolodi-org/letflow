@@ -26,6 +26,8 @@ export interface TenantConfig {
   tenant_type?: 'production' | 'test' | null
   /** T-1494: instance banner label. Absent = default banner text; '' = no banner. */
   env_label?: string
+  /** T-2350: only on a `?realm=` request with `company_check=1`; false = no usable company has that code. */
+  company_found?: boolean
 }
 
 let _cachedConfig: TenantConfig | null = null
@@ -183,19 +185,21 @@ export function resetTenantConfigCache(): void {
 }
 
 /**
- * T-2350: true when an explicit company code (`?realm=`) resolves to no company of its own.
- * GET /api/tenant-config answers an unknown, inactive or realm-less slug with the platform
- * default body (same oidc_authority as the no-parameter answer), so equality with that
- * default answer means "unknown". Unknown and refused are not told apart. Any read failure
- * answers false: the sign-in goes on as before and nothing is claimed about the code.
+ * T-2350: true when an explicit company code (`?realm=`) names no usable company.
+ * The server answers `company_found: false` for it (opt-in `company_check=1`; the same default
+ * body for unknown, inactive and realm-less codes, so unknown and refused are not told apart).
+ * The answer is NOT compared with the default answer: the default tenant (and a company whose
+ * realm is the default one) answers the same authority and is a real company. Only an explicit
+ * `false` counts: a server without the key, a missing key and any read failure answer false here,
+ * so the sign-in goes on as before and nothing is claimed about the code.
  */
 export async function isCompanyCodeUnknown(slug: string): Promise<boolean> {
   try {
-    const [own, fallback] = await Promise.all([
-      client.get<TenantConfig>('/api/tenant-config', { realm: slug }),
-      client.get<TenantConfig>('/api/tenant-config', {}),
-    ])
-    return own.oidc_authority === fallback.oidc_authority
+    const own = await client.get<TenantConfig>('/api/tenant-config', {
+      realm: slug,
+      company_check: '1',
+    })
+    return own.company_found === false
   } catch {
     return false
   }

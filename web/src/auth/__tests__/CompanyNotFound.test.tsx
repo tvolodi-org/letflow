@@ -39,15 +39,36 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
+// The mock answers like the server: the same default authority for a known default tenant and for
+// an unknown code; only company_found tells them apart (review of T-2350 attempt 3).
+function serverAnswers(found: Record<string, boolean>) {
+  mockGet.mockImplementation(async (_u: string, p: Record<string, string>) => {
+    if (p.realm && p.company_check === '1') return { ...DEFAULT_BODY, company_found: found[p.realm] === true }
+    return DEFAULT_BODY
+  })
+}
+
 describe('isCompanyCodeUnknown', () => {
-  it('is true when the code answers the platform default body', async () => {
-    mockGet.mockResolvedValue(DEFAULT_BODY)
+  it('is true when the server says no company has the code', async () => {
+    serverAnswers({})
     expect(await isCompanyCodeUnknown('nope')).toBe(true)
   })
+  it('asks with the opt-in flag and the typed code', async () => {
+    serverAnswers({})
+    await isCompanyCodeUnknown('nope')
+    expect(mockGet).toHaveBeenCalledWith('/api/tenant-config', { realm: 'nope', company_check: '1' })
+  })
   it('is false for a company with its own realm', async () => {
-    mockGet.mockImplementation(async (_u: string, p: Record<string, string>) =>
-      p.realm ? { ...DEFAULT_BODY, oidc_authority: 'http://idp/realms/known-co' } : DEFAULT_BODY,
-    )
+    mockGet.mockResolvedValue({ ...DEFAULT_BODY, oidc_authority: 'http://idp/realms/known-co', company_found: true })
+    expect(await isCompanyCodeUnknown('known-co')).toBe(false)
+  })
+  it('is false for the default tenant: its answer equals the default answer but it is a company', async () => {
+    // A configured default slug (e.g. showroom) or a tenant on bpm-default typed explicitly.
+    serverAnswers({ showroom: true })
+    expect(await isCompanyCodeUnknown('showroom')).toBe(false)
+  })
+  it('is false when the key is absent (older server)', async () => {
+    mockGet.mockResolvedValue(DEFAULT_BODY)
     expect(await isCompanyCodeUnknown('known-co')).toBe(false)
   })
   it('is false on a read failure', async () => {
@@ -63,7 +84,7 @@ describe.each(['en', 'ru', 'kk'] as const)('company not found in %s', (lang) => 
   it('unknown code: ProtectedRoute shows the page and never redirects', async () => {
     useUiLocaleStore.getState().setLocale(lang)
     setUrl('/?realm=nope')
-    mockGet.mockResolvedValue(DEFAULT_BODY)
+    serverAnswers({})
     render(<ProtectedRoute><div>secret</div></ProtectedRoute>, { wrapper: MemoryRouter })
     expect(await screen.findByTestId('company-not-found')).toBeInTheDocument()
     expect(screen.getByRole('heading')).toHaveTextContent(title)
@@ -91,9 +112,15 @@ describe.each(['en', 'ru', 'kk'] as const)('company not found in %s', (lang) => 
 describe('company not found behaviour', () => {
   it('a known code goes on to the identity provider', async () => {
     setUrl('/?realm=known-co')
-    mockGet.mockImplementation(async (_u: string, p: Record<string, string>) =>
-      p.realm ? { ...DEFAULT_BODY, oidc_authority: 'http://idp/realms/known-co' } : DEFAULT_BODY,
-    )
+    serverAnswers({ 'known-co': true })
+    render(<ProtectedRoute><div>secret</div></ProtectedRoute>, { wrapper: MemoryRouter })
+    await waitFor(() => expect(mockSignin).toHaveBeenCalled())
+    expect(screen.queryByTestId('company-not-found')).toBeNull()
+  })
+
+  it('the default tenant typed explicitly (answer equals the default answer) still redirects', async () => {
+    setUrl('/?realm=showroom')
+    serverAnswers({ showroom: true })
     render(<ProtectedRoute><div>secret</div></ProtectedRoute>, { wrapper: MemoryRouter })
     await waitFor(() => expect(mockSignin).toHaveBeenCalled())
     expect(screen.queryByTestId('company-not-found')).toBeNull()
@@ -101,7 +128,7 @@ describe('company not found behaviour', () => {
 
   it('an empty typed code is refused in the field', async () => {
     setUrl('/?realm=nope')
-    mockGet.mockResolvedValue(DEFAULT_BODY)
+    serverAnswers({})
     render(<ProtectedRoute><div>x</div></ProtectedRoute>, { wrapper: MemoryRouter })
     fireEvent.click(await screen.findByTestId('company-not-found-submit'))
     expect(screen.getByTestId('company-not-found-invalid')).toBeInTheDocument()
