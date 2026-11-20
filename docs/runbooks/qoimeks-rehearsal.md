@@ -78,9 +78,11 @@ empty, so it is created together with its first real balance (below).
    Only now create the headers of the negative lines files (step 4, same route and `Idempotency-Key`); before the
    switch such a header is refused 422 `quantity_invalid`. Order: positive headers, switch on, negative headers.
 6. **Upload the lines files** (`dry_run=true`, then `atomic=true`). Expected per file: row 1 `unchanged` (or `updated`), the others `created`, nothing refused.
-   Opening documents are **drafts until posted**. The `stock_opening` approval's `four_eyes` defaults to `true`, so
-   the issuer cannot approve their own document: the completion answers 403 `separation_of_duties`. For a one-admin
-   tenant, before issuing and approving the documents call `PUT /api/v1/approval-rules/stock_opening/approve` with
+   Opening documents are **drafts until posted**. The `stock_opening` approval's `four_eyes` defaults to `false` in
+   a new tenant (owner decision D-165), so the issuer may approve their own document and the completion posts it.
+   A tenant created before D-165 has the rule ON by default: the issuer cannot approve their own document and the
+   completion answers 403 `separation_of_duties`. For such a one-admin tenant, before issuing and approving the
+   documents call `PUT /api/v1/approval-rules/stock_opening/approve` with
    `{"four_eyes": false, "reason": "one-person Qoimeks rehearsal company"}` as in `docs/runbooks/pilot-rollout.md`
    step 6. After the lines are loaded, call `POST /api/v1/modules/stock/documents/<id>/issue` with an
    `Idempotency-Key` header for each document. This starts the `stock_opening` approval and creates its `approve`

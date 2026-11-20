@@ -244,8 +244,8 @@ keep `quantity_invalid` for a line quantity of 0. The formal count order above s
   transaction; see "Old installs: the ensure step" below.
 
 * **Approval.** The process `stock_quick_count` has the shape of the opening: `submit` is completed by the counter at
-  issue, `approve` (`required_permission: StockApprove`, routing role TENANT_ADMIN, `distinct_from submit`) posts. Four eyes are ON by
-  default and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
+  issue, `approve` (`required_permission: StockApprove`, routing role TENANT_ADMIN, `distinct_from submit`) posts. Four eyes are OFF by
+  default in a new tenant (owner decision D-165) and are switched per tenant with `PUT /approval-rules/stock_quick_count/approve` (`ApprovalRulesManage`); with
   it OFF one tenant admin counts and approves (one `task.self_approved` audit entry). T-2410 (owner D-164): with it OFF
   at the moment of the count, `POST /quick-counts` itself has the system complete the approve step of the counter's OWN
   count (an interactive caller only, no `StockApprove` needed, none granted): the count posts at once, the audit entry

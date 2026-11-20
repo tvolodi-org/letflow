@@ -273,7 +273,7 @@ defmodule Letflow.QoimeksRehearsalRunbookTest do
     assert upload =~ "POST /api/v1/tasks/<task id>/complete"
     assert upload =~ "`{}`"
     assert upload =~ "four_eyes"
-    assert upload =~ "defaults to `true`"
+    assert upload =~ "defaults to `false`"
     assert upload =~ "403 `separation_of_duties`"
     assert upload =~ "PUT /api/v1/approval-rules/stock_opening/approve"
     assert upload =~ ~s({"four_eyes": false, "reason": "one-person Qoimeks rehearsal company"})
