@@ -119,4 +119,10 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
 
     assert text =~ "It declares no `role_grants`"
   end
+
+  test "M-08: the manifest declares an upgrade window from 0.1.0 that reaches its version (T-2400)" do
+    manifest = Maintenance.manifest()
+    assert manifest.min_upgradable_from == "0.1.0"
+    assert {:ok, []} = Catalog.upgrade_path(manifest, "0.1.0", manifest.version)
+  end
 end
