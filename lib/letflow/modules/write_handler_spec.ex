@@ -30,10 +30,24 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   (default `[]`: the handler reads nothing). `Catalog` rule 10 checks every type is managed by the
   handler's own module or by a module named in its `depends_on`. It is covered by the manifest hash
   only when non-empty.
+
+  `reads_documents` (REQ-902, decision 0073 D6, L7 part 2b) is a boolean (default `false`): the handler
+  may read one version of one document of its OWN module through
+  `Letflow.Entities.HandlerWrites.read_document_version/3`. It is covered by the manifest hash only
+  when `true`, so no existing manifest hash changes.
   """
 
   @enforce_keys [:name, :function, :targets, :args]
-  defstruct [:name, :function, :targets, :args, posts_ledger: nil, updates: %{}, reads: []]
+  defstruct [
+    :name,
+    :function,
+    :targets,
+    :args,
+    posts_ledger: nil,
+    updates: %{},
+    reads: [],
+    reads_documents: false
+  ]
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -42,11 +56,12 @@ defmodule Letflow.Modules.WriteHandlerSpec do
           args: %{String.t() => %{required: boolean()}},
           posts_ledger: String.t() | nil,
           updates: %{optional(String.t()) => [String.t()]},
-          reads: [String.t()]
+          reads: [String.t()],
+          reads_documents: boolean()
         }
 
   @required_keys [:name, :function, :targets, :args]
-  @optional_keys [:posts_ledger, :updates, :reads]
+  @optional_keys [:posts_ledger, :updates, :reads, :reads_documents]
   @keys @required_keys ++ @optional_keys
 
   @doc "Builds a spec from a map or keyword list, rejecting missing, unknown or ill-typed fields."
@@ -106,6 +121,8 @@ defmodule Letflow.Modules.WriteHandlerSpec do
 
   defp valid_field?(:reads, reads),
     do: is_list(reads) and Enum.all?(reads, &is_binary/1) and Enum.uniq(reads) == reads
+
+  defp valid_field?(:reads_documents, value), do: is_boolean(value)
 
   defp valid_field?(:function, {module, fun}), do: is_atom(module) and is_atom(fun)
   defp valid_field?(:function, _other), do: false

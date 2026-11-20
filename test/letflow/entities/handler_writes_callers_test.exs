@@ -338,6 +338,8 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
           fun == :next_record_id and length(args) == 1 -> []
           # REQ-829: the read facade, the fourth and fifth handler-facing calls.
           fun in [:read, :active?] and length(args) == 3 -> []
+          # REQ-902: the document read facade, the sixth handler-facing call.
+          fun == :read_document_version and length(args) == 3 -> []
           true -> [{:handler_writes, fun}]
         end
 
@@ -631,6 +633,9 @@ end", {:call, :from}},
         # REQ-829: read/3 and active?/3 are handler-facing; other arities are not.
         {body.("HandlerWrites.read(c, \"t\")"), {:handler_writes, :read}},
         {body.("HandlerWrites.active?(c, \"t\", 1, 2)"), {:handler_writes, :active?}},
+        # REQ-902: read_document_version/3 is handler-facing; other arities are not.
+        {body.("HandlerWrites.read_document_version(c, 1)"),
+         {:handler_writes, :read_document_version}},
         {body.("HandlerWrites.__token__(c)"), {:handler_writes, :__token__}},
         {body.("HandlerWrites.__next_ordinal__(c)"), {:handler_writes, :__next_ordinal__}},
         {body.("HandlerWrites.__record__(c, [])"), {:handler_writes, :__record__}},
