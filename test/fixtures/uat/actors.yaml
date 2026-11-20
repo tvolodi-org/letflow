@@ -176,6 +176,18 @@ actors:
     routing_roles: []
     note: "T-2406 (infra, 2026-11-20): username sss-rehearsal-storekeeper, realm sss-rehearsal, role STOREKEEPER; onboarding rehearsal tenant. Credentials come from UAT_QA_ACTOR_SSS_REHEARSAL_STOREKEEPER_USER_* (USERNAME/PASSWORD/REALM), never from this file."
 
+  actor-sss-rehearsal2-admin:
+    tenant: sss-rehearsal2
+    builtin_roles: [TENANT_ADMIN]
+    routing_roles: []
+    note: "T-2420 (infra, 2026-11-21, clean replay on QA b4e527f6f): username sss-rehearsal2-admin, realm sss-rehearsal2, role TENANT_ADMIN (holds ApprovalRulesManage and LedgerSettingsManage); fresh rehearsal tenant, legal entity SSS 'SSS Rehearsal 2 LLC', approval rules untouched (0 rows, the D-165 default OFF). Credentials come from UAT_QA_ACTOR_SSS_REHEARSAL2_ADMIN_USER_* (USERNAME/PASSWORD/REALM), never from this file."
+
+  actor-sss-rehearsal2-storekeeper:
+    tenant: sss-rehearsal2
+    builtin_roles: [STOREKEEPER]
+    routing_roles: []
+    note: "T-2420 (infra, 2026-11-21): username sss-rehearsal2-storekeeper, realm sss-rehearsal2, role STOREKEEPER; fresh rehearsal tenant. Credentials come from UAT_QA_ACTOR_SSS_REHEARSAL2_STOREKEEPER_USER_* (USERNAME/PASSWORD/REALM), never from this file."
+
   actor-qoimeks-qa-admin:
     tenant: qoimeks-qa
     builtin_roles: [TENANT_ADMIN]
