@@ -283,7 +283,8 @@ step creates, and only creates, what the current build's install would have made
    `entity_stock_quick_count_line`), through the install's own promotion path; a table that exists is
    never altered, no row is touched. Existing promotion registrations can replay their DDL when the
    table is absent. A table present without its entity definition is refused rather than changed;
-4. process definitions whose graph and current module version the tenant holds in no row, as stamped DRAFTS, never activated.
+4. process definitions whose graph and current module version the tenant holds in no row, as stamped DRAFTS;
+5. (T-2353) the activation of each UNMODIFIED such draft by the tenant-local system actor (see below).
 
 Items 2 to 4 write one `module.seed_created` audit entry each (resource type `entity_definition`,
 `entity_table`, `process_definition`). Nothing is overwritten, deactivated or deleted, and a repeat creates
@@ -291,16 +292,24 @@ nothing. It runs (a) inside every module upgrade apply, (b) at boot for already-
 `LETFLOW_MODULE_UPGRADE_ON_BOOT=true`, and (c) on request by the tenant admin (`ModulesManage`; the platform
 admin of the platform tenant): `POST /api/v1/tenant/modules/stock/ensure-seeds` with an optional
 `{"rationale": "..."}`. The answer lists what it created: `entity_definitions`, `entity_tables`,
-`document_types`, `process_drafts` (`"key@version"`) and `process_activation_needed`.
+`document_types`, `process_drafts` (`"key@version"`), `process_activated` (`"key@version"`) and
+`process_activation_needed`.
 
-**What happens to an ACTIVE process definition:** nothing is replaced. If the active definition of a
-process (for example `stock_quick_count` stamped `0.21.0`) carries an older graph or owner module version than the build, the step
-creates the new graph as a draft and lists the process under `process_activation_needed` (name, active
-version, new version) on every call until the draft is activated. The activation belongs to a user with
-`DefinitionsActivate` (the definitions screen or `Definitions.activate`), because it deprecates the active
-version; instances already running stay on their version. An unchanged graph stamped with an older `owner_module_version` also gets a new draft; the old stamp stays immutable. A tenant-created definition of the
-same name is never shadowed. Re-activation on a QA tenant (for example qoimeks-qa2) uses the existing
-`POST /api/v1/definitions/:id/activate` admin route with the new draft's id, by a user, after the call.
+**What happens to an ACTIVE process definition (T-2353):** an UNMODIFIED one is superseded with no manual
+step. When every row of the process name is stock's and the active row is pristine (its stamped
+`owner_body_hash` equals the hash of its own graph: the module's previous definition, whatever its older
+graph or `owner_module_version`), the step creates the new graph as a draft, activates it with the
+tenant-local system actor `__stock_process_activator__` (no role, no password; the ordinary activation
+validators run and `definition.activate` is audited, which deprecates the old version; running instances
+stay on their version), writes one `module.seed_activated` audit entry (module, `"key@version"`,
+superseded version, actor) and lists it under `process_activated`. The activation is tied to the system
+actor, not a human; a later `needs_reactivation` flag is cleared by a user with `DefinitionsActivate`.
+A definition the tenant MODIFIED (stamp hash no longer equal to its graph), or any process name that has a
+tenant-created or retired version, is never touched: the active row keeps its place, the new graph stays a
+DRAFT and the process is listed under `process_activation_needed` (name, active version, new version) on every
+call until a user with `DefinitionsActivate` activates the draft (`POST /api/v1/definitions/:id/activate`
+with the draft's id). A draft the validators refuse to activate is also left and listed; the upgrade
+does not fail. A repeat call activates a pristine draft an earlier run left and otherwise changes nothing.
 
 Stock's permissions and role grants come from the compiled manifest; its install hook seeds no
 permission or role-binding rows to replay. Module-specific install seeds belong in the additive
@@ -308,7 +317,8 @@ permission or role-binding rows to replay. Module-specific install seeds belong 
 
 Readiness check after the call (tenant schema): the `document_types` row with key `stock_quick_count`
 exists (owner `stock`), both `entity_stock_quick_count*` tables exist, and process `stock_quick_count`
-has the build's `owner_module_version`, active or an untouched draft. Complete any
+has the build's `owner_module_version` and is active (a draft remains only when listed under
+`process_activation_needed`). Complete any
 `process_activation_needed` action through the activation route before the QA count walk
 (`Letflow.Release.tenant_onboarding_check/2` reports the document type and the process definitions; the tables are read
 in the tenant schema with `\dt entity_stock_quick_count*`). Then issue a quick count through the
