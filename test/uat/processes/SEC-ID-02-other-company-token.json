@@ -1,0 +1,280 @@
+{
+  "id": "SEC-ID-02",
+  "bp_entry": "BP-TENANT-ADMIN-43",
+  "title": "A signed-in administrator of another company: the token's own company decides, ids of this company answer the plain not-found",
+  "description": "The administrator of another company (the actor rehearsal2-admin, a TENANT_ADMIN of the company other_company) signs in to their own company and sends the requests to THIS company's address. The company of a request is the sign-in realm of the token, never the host: the other administrator sees their own company only. Every id of this company (a user, a stock document, an API token) read or revoked by the other administrator gets the same not-found answer as an id that does not exist (00000000-0000-4000-8000-000000000000 is used as the id that does not exist), and the token of this company stays active. The ids of this company are read at the start of the run by its own administrator. The API token minted in step s9 for this company's administrator is revoked in the process and again in the cleanup; its value is kept in memory only.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "other_company"
+  ],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {
+      "other_company": "sss-rehearsal2"
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me/memberships"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.memberships[0].tenant_slug": "${tenant}"
+        }
+      },
+      "save": {
+        "this_tenant_id": "$.memberships[0].tenant_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.user_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "this_admin_id": "$.user_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents?limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "this_doc_id": "$.rows[0].id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me/memberships"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.memberships[0].tenant_slug": "${other_company}",
+          "$.memberships[1]": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/users/${this_admin_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found",
+          "$.username": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/users/${missing_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${this_doc_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found",
+          "$.number": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${missing_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/tokens",
+        "body": {
+          "user_id": "${this_admin_id}",
+          "roles": [
+            "TENANT_ADMIN"
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.id": {
+            "exists": true
+          },
+          "$.user_id": "${this_admin_id}"
+        }
+      },
+      "save": {
+        "this_token_id": "$.id",
+        "minted_value": {
+          "secret": "$.token"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/tokens/${this_token_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/tokens/${missing_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/tokens"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].id": "${this_token_id}",
+          "$.items[0].status": "active",
+          "$.items[0].revoked_at": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/tokens/${this_token_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${this_token_id}",
+          "$.status": "revoked",
+          "$.revoked_at": {
+            "exists": true
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "this_tenant_id": "${this_tenant_id}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "this_token_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/tokens/${this_token_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "revoked"
+        }
+      }
+    }
+  ]
+}

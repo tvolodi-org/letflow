@@ -33,6 +33,9 @@ import re
 import sys
 from pathlib import Path
 
+# JSON files under docs/bp/ that are not area catalogs (owned by other checks)
+NON_CATALOG_FILES = {"public-routes.json"}
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_ROOT = HERE.parents[1]
 STATUSES = ("implemented", "partial", "planned")
@@ -292,11 +295,12 @@ def main(argv: list[str] | None = None) -> int:
     all_entries: dict[str, list[dict]] = {}
     for a in areas:
         all_entries[a] = load_catalog(root, a, errors)
-    # a file for an area name that is not an area: docs/bp/<x>.json
+    # a file for an area name that is not an area: docs/bp/<x>.json; the route allow-list of
+    # check_routes.py (docs/bp/public-routes.json, docs/bp/README.md) is not a catalog and is skipped
     bp_dir = root / "docs/bp"
     if bp_dir.is_dir() and not args.areas:
         for f in sorted(bp_dir.glob("*.json")):
-            if f.stem not in names:
+            if f.stem not in names and f.name not in NON_CATALOG_FILES:
                 errors.append(f"ERROR docs/bp/{f.name}: not an area catalog (areas: {', '.join(names)})")
     ids: dict[str, str] = {}
     for a, entries in all_entries.items():

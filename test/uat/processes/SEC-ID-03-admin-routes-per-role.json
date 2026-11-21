@@ -1,0 +1,345 @@
+{
+  "id": "SEC-ID-03",
+  "bp_entry": "BP-TENANT-ADMIN-44",
+  "title": "Administration routes per role: the tenant administrator may read them, the storekeeper is refused every read and every change with one identical answer",
+  "description": "The tenant administrator reads the approval rules, the ledger settings, the audit log, the API tokens, the users, the groups and the shared access status: each answers 200. The storekeeper sends the same reads and the changes of the same routes (approval rule, ledger setting, API token, user): every one is refused with 403 and the same body (Forbidden, insufficient permissions). The permission is checked before the request body is read, so the change requests carry an empty body on purpose: if a refusal were missing, the empty body is invalid and changes nothing. At the end the administrator reads the approval rules and the ledger setting again: unchanged (compared with the values read at the start). Not in this file (the static check cannot match a route mounted under a two-part prefix): role grants, scoped role grants, company settings, scope enforcement mode; see the map entry. Read-only for the administrator; no cleanup.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/approval-rules"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].definition_name": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "rule_definition": "$.items[0].definition_name",
+        "rule_node": "$.items[0].node_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/ledger-settings"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].registration": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "ledger_registration": "$.items[0].registration",
+        "ledger_allow_negative": "$.items[0].allow_negative"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/audit?limit=1"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/tokens"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/users"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/groups"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.roles[0]": "TENANT_ADMIN"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.roles[0]": "STOREKEEPER",
+          "$.roles[1]": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/approval-rules"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/approval-rules/${rule_definition}/${rule_node}",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/ledger-settings"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/ledger-settings/${ledger_registration}",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/audit?limit=1"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/tokens"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/tokens",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/users"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/users",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/groups"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s20",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s21",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/approval-rules"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].definition_name": "${rule_definition}",
+          "$.items[0].node_id": "${rule_node}"
+        }
+      }
+    },
+    {
+      "id": "s22",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/ledger-settings"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].registration": "${ledger_registration}",
+          "$.items[0].allow_negative": "${ledger_allow_negative}"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
