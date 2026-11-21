@@ -1,0 +1,1262 @@
+[
+  {
+    "id": "BP-MAINTENANCE-01",
+    "area": "maintenance",
+    "title": "Report a fault on an asset (work request)",
+    "description": "A tenant administrator reports a fault on one asset card with a text and an urgency (low, normal or urgent). The system numbers it WR, keeps it as `new` and returns it. The same idempotency key with the same body returns the same request; with another body it is refused.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Requests.create"
+        ],
+        "route": "POST /api/v1/modules/maintenance/requests",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:50",
+          "lib/letflow/modules/maintenance/requests.ex:75",
+          "lib/letflow/modules/maintenance/access.ex:25"
+        ],
+        "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
+      }
+    ],
+    "inputs": [
+      "asset_card_id",
+      "description (1 to 2000 characters)",
+      "urgency",
+      "idempotency_key"
+    ],
+    "outputs": [
+      "request id",
+      "WR number"
+    ],
+    "refusals": [
+      "asset card unknown, other tenant's or malformed: 422 asset_card_not_found",
+      "inactive card: 422 asset_card_inactive; card without org unit: 422 asset_card_no_org_unit",
+      "empty or over-long description: 422 description_required / description_too_long; urgency outside the list: 422 invalid_urgency",
+      "an unknown body key: 422 field_not_allowed",
+      "same key with another body: 409 idempotency_key_reuse"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/requests_router_test.exs R-01, R-02, R-03"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-02",
+    "area": "maintenance",
+    "title": "Attach photos to a work request",
+    "description": "While a request is `new` the reporter adds up to five photos (original, optional thumbnail, caption); anyone who may read requests lists them and opens the original or the thumbnail. After the request is rejected or ordered no photo is added; reads still work.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRead"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "a request in status new (BP-MAINTENANCE-01)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.upload",
+          "Letflow.Attachments.add"
+        ],
+        "route": "POST /api/v1/modules/maintenance/requests/:id/photos",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:108",
+          "lib/letflow/modules/maintenance/photos.ex:52"
+        ],
+        "result": "201 with the photo view (id, position, caption, thumbnail flag, time), 200 on a replay of the same content; the request view shows photo_count"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.list"
+        ],
+        "route": "GET /api/v1/modules/maintenance/requests/:id/photos",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:112",
+          "lib/letflow/modules/maintenance/photos.ex:44"
+        ],
+        "result": "200 with the photos of the request"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.content"
+        ],
+        "route": [
+          "GET /api/v1/modules/maintenance/requests/:id/photos/:photo_id/original",
+          "GET /api/v1/modules/maintenance/requests/:id/photos/:photo_id/thumbnail"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:116",
+          "lib/letflow/modules/maintenance/router.ex:120",
+          "lib/letflow/modules/maintenance/photos.ex:88"
+        ],
+        "result": "200 with the stored bytes, stored content type, nosniff, inline, private cache"
+      }
+    ],
+    "inputs": [
+      "request id",
+      "image bytes",
+      "caption"
+    ],
+    "outputs": [
+      "photo id"
+    ],
+    "refusals": [
+      "a sixth photo: 422 owner_cap_reached (the list keeps five)",
+      "upload after the request left `new`: 409 request_not_new",
+      "storage quota: 409; upload rate: 429; scanner unavailable: 503"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/request_photos_router_test.exs P-01, P-02, P-03"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-03",
+    "area": "maintenance",
+    "title": "Review work requests: list, read, reject",
+    "description": "A tenant administrator lists the requests (newest first, filter by status, paging), opens one, and rejects a `new` request with a reason. A rejected request is not ordered.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceOrderManage"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Requests.list"
+        ],
+        "route": "GET /api/v1/modules/maintenance/requests",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:69",
+          "lib/letflow/modules/maintenance/requests.ex:195"
+        ],
+        "result": "200 with rows and next_cursor"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Requests.get"
+        ],
+        "route": "GET /api/v1/modules/maintenance/requests/:id",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:84",
+          "lib/letflow/modules/maintenance/requests.ex:219"
+        ],
+        "result": "200 with the request view (status, order reference, photo_count)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Requests.reject"
+        ],
+        "route": "POST /api/v1/modules/maintenance/requests/:id/reject",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:90",
+          "lib/letflow/modules/maintenance/requests.ex:317"
+        ],
+        "result": "200 with status rejected and the reason; audited"
+      }
+    ],
+    "inputs": [
+      "status filter",
+      "limit",
+      "cursor",
+      "request id",
+      "reason"
+    ],
+    "outputs": [
+      "request status",
+      "reject reason"
+    ],
+    "refusals": [
+      "reject of a request that is not new: 409 request_not_new",
+      "blank reason: 422 reason_required",
+      "bad filter: 422 invalid_filter"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/requests_router_test.exs R-04, R-05"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-04",
+    "area": "maintenance",
+    "title": "Create a work order (from a request or directly)",
+    "description": "A tenant administrator makes a work order for one asset card, either from a `new` request (the request becomes `ordered`) or directly with card, description and urgency, optionally already assigned to a user. The system numbers it WO, issues the document and starts the process `maintenance_work_order`; the work task sits in the inbox of every TENANT_ADMIN (open) or of the assignee (in_work). A failed process start leaves no order.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceOrderManage"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "the process definition `maintenance_work_order` is activatable by the caller (the activator rule)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Orders.create",
+          "maintenance_work_order/maintenance_work"
+        ],
+        "route": "POST /api/v1/modules/maintenance/orders",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:125",
+          "lib/letflow/modules/maintenance/orders.ex:87",
+          "priv/modules/maintenance/pack.json:60"
+        ],
+        "result": "201 with the order view: WO number, status open (in_work with an assignee), request reference; the request is now ordered"
+      }
+    ],
+    "inputs": [
+      "request_id or asset_card_id + description + urgency",
+      "assignee_user_id (optional)",
+      "idempotency_key"
+    ],
+    "outputs": [
+      "order id",
+      "WO number",
+      "instance id (internal)"
+    ],
+    "refusals": [
+      "request not new: 409 request_not_new",
+      "definition not active: 409 definition_not_active",
+      "both or neither source: 422 order_source_invalid",
+      "assignee unknown or inactive: 422 assignee_not_found",
+      "same key with another body: 409 idempotency_key_reuse"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/orders_router_test.exs O-01, O-02, O-03, O-04"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-05",
+    "area": "maintenance",
+    "title": "Assign or reassign a work order to a technician",
+    "description": "A tenant administrator addresses the pending work task of an order to a named active user (the technician). The order moves from open to in_work; the technician receives the task_assigned mail and bell. Reassigning to another user while the task is pending is allowed; a done, closed or cancelled order is refused.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceOrderManage"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "an order whose work task is pending"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Orders.assign",
+          "Letflow.Tasks.reassign_task"
+        ],
+        "route": "POST /api/v1/modules/maintenance/orders/:id/assign",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:158",
+          "lib/letflow/modules/maintenance/orders.ex:411",
+          "lib/letflow/modules/maintenance/orders.ex:423"
+        ],
+        "result": "200 with the order view, status in_work and the assignee; audit entry maintenance_work_order.assigned"
+      }
+    ],
+    "inputs": [
+      "order id",
+      "user_id"
+    ],
+    "outputs": [
+      "assignee"
+    ],
+    "refusals": [
+      "order whose work task is no longer pending (done, closed, cancelled): 409 order_not_assignable",
+      "unknown or inactive user: 422 assignee_not_found",
+      "a body with any key other than user_id: 422 field_not_allowed"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/orders_router_test.exs O-04, O-06, O-07"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-06",
+    "area": "maintenance",
+    "title": "Report the work done (technician completes the work task)",
+    "description": "The addressed technician opens the work task from the inbox, types what was done (1 to 2000 characters) and completes it through the core task route. The module's own write handler stores the work text, who completed and when, in the same transaction; no maintenance permission is needed. The order is then `done`.",
+    "actors": [
+      {
+        "role": "TASK_WORKER (the technician, addressed by the work order)",
+        "permission": "TasksComplete (core task route; no maintenance permission)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "a work order in_work addressed to the technician"
+    ],
+    "tasks": [
+      {
+        "actor": "TASK_WORKER",
+        "forms": [],
+        "functions": [
+          "maintenance.record_done",
+          "maintenance_work_order/maintenance_work",
+          "Letflow.Modules.Maintenance.Handlers.record_done"
+        ],
+        "route": [
+          "GET /api/v1/tasks/inbox",
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/maintenance.ex:118",
+          "priv/modules/maintenance/pack.json:60",
+          "lib/letflow/modules/maintenance/handlers.ex:49",
+          "lib/letflow/routers/tasks.ex:15"
+        ],
+        "result": "the task completes; the order shows work_done, done_by, done_at and status done"
+      }
+    ],
+    "inputs": [
+      "task id from the inbox",
+      "work_done text"
+    ],
+    "outputs": [
+      "work_done",
+      "done_by",
+      "done_at"
+    ],
+    "refusals": [
+      "a colleague who is not the addressee cannot complete the task (refused)",
+      "empty or over-long work text: refused, nothing written (all or nothing)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/order_life_test.exs D-01, D-03",
+      "test/letflow/modules/maintenance/orders_router_test.exs O-05"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-07",
+    "area": "maintenance",
+    "title": "Close a work order",
+    "description": "After the work is reported, a tenant administrator completes the close task from My Tasks. The module's write handler stores who closed and when; the order is `closed` and never changes again (a correction is a new order).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TasksComplete (the close task is routed to the role label TENANT_ADMIN)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "a work order in status done"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "maintenance.record_closed",
+          "maintenance_work_order/maintenance_close",
+          "Letflow.Modules.Maintenance.Handlers.record_closed"
+        ],
+        "route": [
+          "GET /api/v1/tasks/inbox",
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/maintenance.ex:129",
+          "priv/modules/maintenance/pack.json:78",
+          "lib/letflow/modules/maintenance/handlers.ex:68"
+        ],
+        "result": "the order shows closed_by, closed_at and status closed"
+      }
+    ],
+    "inputs": [
+      "task id from the inbox"
+    ],
+    "outputs": [
+      "closed_by",
+      "closed_at"
+    ],
+    "refusals": [
+      "assign on a closed order: 409 order_not_assignable",
+      "no route updates or deletes an order",
+      "a second completion write on a closed order: refused (invalid arguments), nothing written"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/order_life_test.exs D-02, D-04",
+      "test/letflow/modules/maintenance/orders_router_test.exs O-06"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-08",
+    "area": "maintenance",
+    "title": "Read and list work orders",
+    "description": "A tenant administrator lists the orders (filter by status or asset card, newest first, paging) and opens one; the view shows the status read from the process (never stored), the assignee, the request and card references and the done and close record.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRead"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Orders.list",
+          "Letflow.Modules.Maintenance.Orders.statuses_of"
+        ],
+        "route": "GET /api/v1/modules/maintenance/orders",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:137",
+          "lib/letflow/modules/maintenance/orders.ex:477"
+        ],
+        "result": "200 with rows and next_cursor"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Orders.get"
+        ],
+        "route": "GET /api/v1/modules/maintenance/orders/:id",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:152",
+          "lib/letflow/modules/maintenance/orders.ex:465"
+        ],
+        "result": "200 with the order view, the five done/close fields null until set"
+      }
+    ],
+    "inputs": [
+      "status",
+      "asset_card_id",
+      "limit",
+      "cursor",
+      "order id"
+    ],
+    "outputs": [
+      "order view"
+    ],
+    "refusals": [
+      "bad filter or cursor: 422 invalid_filter",
+      "unknown, malformed or other tenant's id: 404"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/orders_router_test.exs O-07, O-08"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-09",
+    "area": "maintenance",
+    "title": "Web screens for work requests",
+    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      }
+    ],
+    "preconditions": [
+      "BP-MAINTENANCE-01..03 implemented"
+    ],
+    "tasks": [],
+    "inputs": [
+      "request fields"
+    ],
+    "outputs": [
+      "request"
+    ],
+    "refusals": [],
+    "scenario": null,
+    "status": "planned",
+    "requirement": "REQ-898"
+  },
+  {
+    "id": "BP-MAINTENANCE-10",
+    "area": "maintenance",
+    "title": "Web screens for work orders and My work orders",
+    "description": "The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      },
+      {
+        "role": "TASK_WORKER (the technician, addressed by the work order)",
+        "permission": "TasksComplete (core task route; no maintenance permission)"
+      }
+    ],
+    "preconditions": [
+      "BP-MAINTENANCE-04..08 implemented"
+    ],
+    "tasks": [],
+    "inputs": [
+      "order fields"
+    ],
+    "outputs": [
+      "order"
+    ],
+    "refusals": [],
+    "scenario": null,
+    "status": "planned",
+    "requirement": "REQ-899"
+  },
+  {
+    "id": "BP-MAINTENANCE-11",
+    "area": "maintenance",
+    "title": "My work orders on the phone app and PWA",
+    "description": "The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen.",
+    "actors": [
+      {
+        "role": "TASK_WORKER (the technician, addressed by the work order)",
+        "permission": "TasksComplete (core task route; no maintenance permission)"
+      }
+    ],
+    "preconditions": [
+      "BP-MAINTENANCE-06 implemented"
+    ],
+    "tasks": [],
+    "inputs": [
+      "task"
+    ],
+    "outputs": [
+      "work_done"
+    ],
+    "refusals": [],
+    "scenario": null,
+    "status": "planned",
+    "requirement": "REQ-900"
+  },
+  {
+    "id": "BP-MAINTENANCE-12",
+    "area": "maintenance",
+    "title": "Problem-report export for the PM handoff (platform)",
+    "description": "The operator session polls the read-only export with a hash-configured bearer credential; each new problem report (older than the settle window) and each error group with the NUMBER of affected companies is returned, never company ids or e-mails. This is the platform's problem-report feature that the inventory files under the name `maintenance`; it is not the CMMS module.",
+    "actors": [
+      {
+        "role": "PM export credential (bearer, hash-configured; not a user role)",
+        "permission": "LETFLOW_PROBLEM_REPORT_EXPORT_SHA256 credential"
+      }
+    ],
+    "preconditions": [
+      "the export hash is configured and the platform company exists"
+    ],
+    "tasks": [
+      {
+        "actor": "PM export credential",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.ReportExportAuth",
+          "Letflow.ProblemReports.list_after"
+        ],
+        "route": "GET /maintenance/v1/problem-reports",
+        "code_refs": [
+          "lib/letflow/routers/maintenance_v1.ex:34",
+          "lib/letflow/plugs/report_export_auth.ex:40"
+        ],
+        "result": "200 with reports after the cursor and next_after"
+      },
+      {
+        "actor": "PM export credential",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.ReportExportAuth",
+          "Letflow.ErrorCapture.list_recent"
+        ],
+        "route": "GET /maintenance/v1/error-groups",
+        "code_refs": [
+          "lib/letflow/routers/maintenance_v1.ex:64"
+        ],
+        "result": "200 with groups newest first, each with a company count"
+      }
+    ],
+    "inputs": [
+      "after",
+      "limit"
+    ],
+    "outputs": [
+      "reports",
+      "groups"
+    ],
+    "refusals": [
+      "no, malformed or wrong bearer: the same 401",
+      "hash not configured: the 404 of an unmatched path",
+      "bad after or limit: 400 invalid_request",
+      "no platform company: 503"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/maintenance_v1_test.exs M1..M7, X3, X4, EC-12, EC-13"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-13",
+    "area": "maintenance",
+    "title": "Import the owner list into the platform company",
+    "description": "The owner's team posts the JSON copy of the lab list with a write credential of its own; new items (with thread and screenshots) are stored in the platform company, items already imported are skipped. Like BP-MAINTENANCE-12 this is a platform feature under the inventory name `maintenance`.",
+    "actors": [
+      {
+        "role": "Owner-list credential (bearer, hash-configured; not a user role)",
+        "permission": "LETFLOW_OWNER_LIST_SHA256 credential"
+      }
+    ],
+    "preconditions": [
+      "the owner-list hash is configured and differs from the export hash"
+    ],
+    "tasks": [
+      {
+        "actor": "Owner-list credential",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.ReportExportAuth",
+          "Letflow.ProblemReports.Review.import"
+        ],
+        "route": "POST /maintenance/v1/owner-list/import",
+        "code_refs": [
+          "lib/letflow/routers/maintenance_owner_list_v1.ex:33",
+          "lib/letflow/problem_reports/review.ex:506"
+        ],
+        "result": "200 with imported and skipped lists; a second run skips them"
+      }
+    ],
+    "inputs": [
+      "JSON document format letflow-owner-list"
+    ],
+    "outputs": [
+      "imported",
+      "skipped"
+    ],
+    "refusals": [
+      "bad field: 422 invalid_request naming item and path, never the value; nothing written",
+      "not JSON content type: 415",
+      "body above 45 MB: 413",
+      "no, bad or export token: 401; hash unset: 404"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/routers/maintenance_owner_list_v1_test.exs IMP1..IMP7"
+    ]
+  },
+  {
+    "id": "BP-MAINTENANCE-14",
+    "area": "maintenance",
+    "title": "Security: a crafted completion cannot write another work order",
+    "description": "The completer of a task can name any non-system output variable. A technician who sends another order's id (or the id of a closed or unknown order) in the work completion, or an administrator in the close completion, must not change that order: the handler binds the write target to the order of the task's own instance, refuses a closed order, and gives one answer for all three cases. The task stays pending and the order clean.",
+    "actors": [
+      {
+        "role": "TASK_WORKER (the technician, addressed by the work order)",
+        "permission": "TasksComplete (core task route; no maintenance permission)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TasksComplete"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "two work orders open at once; a third closed"
+    ],
+    "tasks": [
+      {
+        "actor": "TASK_WORKER",
+        "forms": [],
+        "functions": [
+          "maintenance.record_done",
+          "Letflow.Modules.Maintenance.Handlers.record_done"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/handlers.ex:49",
+          "lib/letflow/modules/maintenance/handlers.ex:85",
+          "lib/letflow/modules/maintenance/maintenance.ex:118"
+        ],
+        "result": "refused with invalid arguments; the other order unchanged; the task still pending"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "maintenance.record_closed",
+          "Letflow.Modules.Maintenance.Handlers.record_closed"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/handlers.ex:68",
+          "lib/letflow/modules/maintenance/maintenance.ex:129"
+        ],
+        "result": "refused the same way; no closed_by or closed_at written to the other order"
+      },
+      {
+        "actor": "TASK_WORKER",
+        "forms": [],
+        "functions": [
+          "maintenance_work_order/maintenance_work"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "priv/modules/maintenance/pack.json:60"
+        ],
+        "result": "work text empty, over 2000 characters or over the byte cap: refused before any write"
+      }
+    ],
+    "inputs": [
+      "task id",
+      "forged order_id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "write target of another instance, closed or unknown order: the same refusal (no hint whether it exists)",
+      "the record is not updated outside the fields the manifest allows (work_done, done_by, done_at / closed_by, closed_at)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/order_life_test.exs D-03, D-06, D-07, D-08"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-15",
+    "area": "maintenance",
+    "title": "Security: cross-tenant read and write refused with one uniform 404",
+    "description": "A token of tenant A used with the ids of tenant B's requests, orders and photos reads or changes nothing: the answer is the 404 of an unknown request, identical to a malformed or unknown id. No route takes the tenant from the path or the body.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "two tenants, both with maintenance installed, each with a request, a photo and an order"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN (tenant A)",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Access.check",
+          "Letflow.Modules.Maintenance.Requests.get",
+          "Letflow.Modules.Maintenance.Orders.get"
+        ],
+        "route": [
+          "GET /api/v1/modules/maintenance/requests/:id",
+          "GET /api/v1/modules/maintenance/orders/:id",
+          "POST /api/v1/modules/maintenance/requests/:id/reject",
+          "POST /api/v1/modules/maintenance/orders/:id/assign"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:84",
+          "lib/letflow/modules/maintenance/router.ex:90",
+          "lib/letflow/modules/maintenance/router.ex:152",
+          "lib/letflow/modules/maintenance/router.ex:158",
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "lib/letflow/modules/maintenance/router.ex:202"
+        ],
+        "result": "404 on every call, same body as an unknown id; tenant B's records unchanged"
+      },
+      {
+        "actor": "TENANT_ADMIN (tenant A)",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.content",
+          "Letflow.Modules.Maintenance.Requests.photo_owner"
+        ],
+        "route": [
+          "GET /api/v1/modules/maintenance/requests/:id/photos",
+          "GET /api/v1/modules/maintenance/requests/:id/photos/:photo_id/original",
+          "POST /api/v1/modules/maintenance/requests/:id/photos"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:108",
+          "lib/letflow/modules/maintenance/router.ex:112",
+          "lib/letflow/modules/maintenance/router.ex:116",
+          "lib/letflow/modules/maintenance/photos.ex:111"
+        ],
+        "result": "404 for tenant B's request, and for another request's photo id"
+      }
+    ],
+    "inputs": [
+      "tenant A token",
+      "tenant B ids"
+    ],
+    "outputs": [],
+    "refusals": [
+      "every cross-tenant id: 404, no 403, no existence signal (INV-5)",
+      "an asset card of another tenant in POST /requests or POST /orders: 422 asset_card_not_found"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/requests_router_test.exs R-04",
+      "test/letflow/modules/maintenance/request_photos_router_test.exs P-04",
+      "test/letflow/modules/maintenance/orders_router_test.exs O-08"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-16",
+    "area": "maintenance",
+    "title": "Security: permission matrix per role",
+    "description": "Three atoms (MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage), no role grant: only TENANT_ADMIN and PLATFORM_ADMIN (catch-alls) hold them. TASK_WORKER, PROCESS_OPERATOR, STOREKEEPER and TENANT_AUDITOR get 403 on all routes. The technician needs no maintenance permission for the completion.",
+    "actors": [
+      {
+        "role": "TASK_WORKER, PROCESS_OPERATOR, STOREKEEPER, TENANT_AUDITOR",
+        "permission": "none (refused)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "each non-holder role",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Access.permission"
+        ],
+        "route": [
+          "POST /api/v1/modules/maintenance/requests",
+          "GET /api/v1/modules/maintenance/requests",
+          "GET /api/v1/modules/maintenance/requests/:id",
+          "POST /api/v1/modules/maintenance/requests/:id/reject",
+          "GET /api/v1/modules/maintenance/orders",
+          "POST /api/v1/modules/maintenance/orders",
+          "POST /api/v1/modules/maintenance/orders/:id/assign",
+          "GET /api/v1/modules/maintenance/orders/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/maintenance.ex:98",
+          "lib/letflow/modules/maintenance/access.ex:19",
+          "lib/letflow/modules/maintenance/router.ex:50"
+        ],
+        "result": "403 on each route, nothing changed"
+      },
+      {
+        "actor": "each non-holder role",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.upload"
+        ],
+        "route": [
+          "POST /api/v1/modules/maintenance/requests/:id/photos",
+          "GET /api/v1/modules/maintenance/requests/:id/photos"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:108",
+          "lib/letflow/modules/maintenance/router.ex:112"
+        ],
+        "result": "403 on the upload and on the list"
+      }
+    ],
+    "inputs": [
+      "a token per role"
+    ],
+    "outputs": [],
+    "refusals": [
+      "403 for a role without the atom",
+      "the permission matrix has no new row beyond the three atoms and the two catch-alls"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/requests_router_test.exs R-06, R-07",
+      "test/letflow/modules/maintenance/request_photos_router_test.exs P-05, P-06",
+      "test/letflow/modules/maintenance/order_life_test.exs D-05"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-17",
+    "area": "maintenance",
+    "title": "Security: token kind, scope and release flag",
+    "description": "A holder of the permission still gets the 404 of an unknown request unless the caller is an interactive user with the permission tenant-wide: an API token and an org-scoped grant are refused (an empty list on the list route). With the release flag off every route answers the 404 of an unknown path with one body, also for a tenant that installed the module while the flag was on. A request to an unknown tenant host reaches no tenant data.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN with an API token / org-scoped grant",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Access.check",
+          "Letflow.Api.ModuleGuard.check"
+        ],
+        "route": [
+          "GET /api/v1/modules/maintenance/requests",
+          "GET /api/v1/modules/maintenance/requests/:id",
+          "POST /api/v1/modules/maintenance/orders"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "lib/letflow/modules/maintenance/router.ex:202",
+          "lib/letflow/modules/maintenance/router.ex:69"
+        ],
+        "result": "404 on reads by id and writes; 200 with rows [] on the list"
+      },
+      {
+        "actor": "TENANT_ADMIN, flag off",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Flag.enabled?"
+        ],
+        "route": "GET /api/v1/modules/maintenance/orders",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:137",
+          "lib/letflow/modules/maintenance/flag.ex:17"
+        ],
+        "result": "404, nothing written on a write call"
+      }
+    ],
+    "inputs": [
+      "token kind",
+      "flag state"
+    ],
+    "outputs": [],
+    "refusals": [
+      "API token or org-scoped grant: 404 / empty list (fail closed)",
+      "flag off: 404 on every route"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/requests_router_test.exs R-06",
+      "test/letflow/modules/maintenance/request_photos_router_test.exs P-05",
+      "test/letflow/modules/maintenance/orders_router_test.exs O-08"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-18",
+    "area": "maintenance",
+    "title": "Security: photo upload types and limits",
+    "description": "Only images pass the attachment service: one byte parse, metadata strip, scan, per-owner cap (5), quota, upload rate; an unknown key in the multipart body, a missing original, a non-file thumbnail and an over-long caption are refused; an infected or unreadable file is refused; nothing is added on a refusal.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "a request in status new"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Photos.upload",
+          "Letflow.Attachments.add"
+        ],
+        "route": "POST /api/v1/modules/maintenance/requests/:id/photos",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/photos.ex:52",
+          "lib/letflow/modules/maintenance/photos.ex:166",
+          "lib/letflow/attachments.ex:210"
+        ],
+        "result": "422 with a fixed reason and field (original_required, field_invalid, caption_invalid, photo_too_large, owner_cap_reached, image reasons), 409 storage_quota_exceeded, 429 upload_rate_exceeded, 503 scan_unavailable; the photo list is unchanged"
+      }
+    ],
+    "inputs": [
+      "multipart body"
+    ],
+    "outputs": [],
+    "refusals": [
+      "non-image, oversized or infected content: 422",
+      "sixth photo: 422 owner_cap_reached",
+      "extra multipart key: 422 field_not_allowed"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/request_photos_router_test.exs P-02, P-03"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-19",
+    "area": "maintenance",
+    "title": "Security: separation of duties on the work order",
+    "description": "Who may do what is fixed by the process, not by the caller: the work task is completed only by the addressed user (a colleague is refused); the close task is completed by a tenant administrator; the creator is not required to differ (no four-eyes rule is configured in this module: UAT assumption, to be confirmed by the process owner). A closed order cannot be assigned, changed or deleted: no route exists.",
+    "actors": [
+      {
+        "role": "TASK_WORKER (the technician, addressed by the work order)",
+        "permission": "TasksComplete (core task route; no maintenance permission)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceOrderManage"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit",
+      "an order in_work addressed to technician A; a colleague B with TASK_WORKER"
+    ],
+    "tasks": [
+      {
+        "actor": "TASK_WORKER (colleague)",
+        "forms": [],
+        "functions": [
+          "Letflow.Tasks.complete_task"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:15",
+          "priv/modules/maintenance/pack.json:60"
+        ],
+        "result": "refused; the order stays in_work"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Orders.assign"
+        ],
+        "route": "POST /api/v1/modules/maintenance/orders/:id/assign",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:158",
+          "lib/letflow/modules/maintenance/orders.ex:411"
+        ],
+        "result": "409 order_not_assignable on a closed order"
+      }
+    ],
+    "inputs": [
+      "order id",
+      "task id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "a colleague's completion: refused",
+      "assign on a closed order: 409 order_not_assignable",
+      "no update or delete route for an order"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/orders_router_test.exs O-05, O-06",
+      "test/letflow/modules/maintenance/order_life_test.exs D-04"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-20",
+    "area": "maintenance",
+    "title": "Security: credentials of the problem-report export and the owner-list import",
+    "description": "Both mounts sit outside the API pipeline and accept only their own hash-configured bearer. No, malformed or wrong token: the same 401; hash not configured: the plain 404 of an unmatched path (byte-identical); an OIDC or API token means nothing; the export token is 401 on the import and the import token is not the export token; both are rate limited per credential class, only after an accepted credential; the answers carry no e-mail and no company ids; only GET on the export and POST on the import exist.",
+    "actors": [
+      {
+        "role": "no credential, wrong credential, API token, export token on the import",
+        "permission": "none (refused)"
+      }
+    ],
+    "preconditions": [
+      "both hashes configured and different"
+    ],
+    "tasks": [
+      {
+        "actor": "caller without the right credential",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.ReportExportAuth"
+        ],
+        "route": [
+          "GET /maintenance/v1/problem-reports",
+          "GET /maintenance/v1/error-groups",
+          "POST /maintenance/v1/owner-list/import"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/report_export_auth.ex:40",
+          "lib/letflow/plugs/report_export_auth.ex:60",
+          "lib/letflow/routers/maintenance_v1.ex:34",
+          "lib/letflow/routers/maintenance_owner_list_v1.ex:33"
+        ],
+        "result": "401 with the one fixed body, nothing read, nothing written"
+      },
+      {
+        "actor": "caller with the right credential",
+        "forms": [],
+        "functions": [
+          "Letflow.Routers.MaintenanceOwnerListV1"
+        ],
+        "route": "POST /maintenance/v1/owner-list/import",
+        "code_refs": [
+          "lib/letflow/routers/maintenance_owner_list_v1.ex:33",
+          "lib/letflow/routers/maintenance_owner_list_v1.ex:48"
+        ],
+        "result": "415 for a non-JSON body, 413 above 45 MB, 422 naming item and path without the value"
+      }
+    ],
+    "inputs": [
+      "bearer token",
+      "body"
+    ],
+    "outputs": [],
+    "refusals": [
+      "401 for every wrong credential, the same answer",
+      "404 when the hash is unset",
+      "429 over the rate limit",
+      "415, 413, 422 on the import body"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/maintenance_v1_test.exs M1, M2, M5, M7, X3",
+      "test/letflow/routers/maintenance_owner_list_v1_test.exs IMP3, IMP5, IMP5b, IMP6"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  },
+  {
+    "id": "BP-MAINTENANCE-21",
+    "area": "maintenance",
+    "title": "Security: inputs that do not exist in this area (recorded, not applicable)",
+    "description": "The operator asked for voice, webhook and old-address inputs. The maintenance module has none: no voice route, no inbound webhook, no shared-access (old address) route, and the module is only on the new API path. The only outward notice is the task_assigned mail and bell, produced by the core task reassign. Recorded here so a later slice that adds one (the phone app, REQ-900) must add its own security process.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)"
+      }
+    ],
+    "preconditions": [
+      "the release flag `:maintenance_enabled` is on (it is false in config/config.exs and turned on only by config/test.exs: OFF on QA and production today)",
+      "module maintenance (version 0.5.0) is installed for the tenant by a tenant administrator",
+      "the tenant's assets module has an active asset card with an org unit"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Maintenance.Router"
+        ],
+        "route": "POST /api/v1/modules/maintenance/orders/:id/assign",
+        "code_refs": [
+          "lib/letflow/modules/maintenance/router.ex:158",
+          "lib/letflow/modules/maintenance/router.ex:179"
+        ],
+        "result": "the only unmatched-route behaviour: authz_unmatched(:ordinary) refuses a path that is not one of the twelve routes"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "a path outside the twelve routes: the ordinary unmatched answer"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/maintenance/registration_test.exs"
+    ],
+    "security": true,
+    "automation": "planned",
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+  }
+]
