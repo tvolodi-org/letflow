@@ -1115,6 +1115,31 @@ defmodule Letflow.Routers.InstancesTest do
       assert length(Enum.uniq(seen)) == length(seen)
     end
 
+    test "list: rows older than 24 hours remain pageable" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "cursor-issue-time-instances")
+      ids = for _ <- 1..3, do: elem(start_instance!(tenant.schema_name), 0)
+
+      old =
+        DateTime.utc_now()
+        |> DateTime.add(-2 * 86_400, :second)
+        |> DateTime.truncate(:microsecond)
+
+      Repo.update_all(
+        from(p in InstanceProjection, where: p.instance_id in ^ids),
+        [set: [started_at: old]],
+        prefix: tenant.schema_name
+      )
+
+      {page1, cursor1} = fetch_list_page(tenant, "?page_size=1")
+      {page2, cursor2} = fetch_list_page(tenant, "?page_size=1&cursor=#{cursor1}")
+      {page3, cursor3} = fetch_list_page(tenant, "?page_size=1&cursor=#{cursor2}")
+
+      assert length(page1) == 1
+      assert length(page2) == 1
+      assert length(page3) == 1
+      assert cursor3 == nil
+    end
+
     test "history: every event exactly once across three pages, no dup, no gap" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req080-ac2b")
       {instance_id, _def} = start_instance!(tenant.schema_name)
