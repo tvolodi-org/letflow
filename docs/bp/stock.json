@@ -1242,7 +1242,7 @@
           "web/src/modules/stock/stockRoutes.tsx:33",
           "lib/letflow/modules/stock/router.ex:654"
         ],
-        "result": "the reversal instance starts (state reversal_pending) with a Reverse task"
+        "result": "the reversal instance starts with a Reverse task; the document still reads posted (its view has no pending flag) and a repeat is refused 409 reversal_pending"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -1288,7 +1288,7 @@
         "result": "a posted count is reversed through the same stock_reversal process (reason_code and reason_text required)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-05-reversal.json"
   },
   {
     "id": "BP-STOCK-13",
