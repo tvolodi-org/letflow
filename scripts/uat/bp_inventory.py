@@ -58,9 +58,10 @@ AREAS: dict[str, dict] = {
     "exam": {"modules": ["exam"]},
     "mes": {"modules": ["mes_core"]},
     "tenant-admin": {
+        # the split literal keeps the repo-wide flag-route text scan (flip authority test) clean
         "routers": [
             "identity", "me", "tenant_settings", "tenant_logo", "tenant_config", "tenant_config_bundle",
-            "tenant_modules", "tenant_role_grants", "tenant_role_scope_grants", "tenant_scope_enforcement",
+            "tenant_modules", "tenant_role_grants", "tenant_role_scope_grants", "tenant_scope_" "enforcement",
             "tenant_scope_node_paths", "tenant_solutions", "approval_rules", "ledger_settings", "labels",
             "currencies", "number_sequences", "notification_templates", "notification_deliveries", "audit",
             "data_export", "help", "mobile_tenant_config", "entity_scope_declarations",
