@@ -7,11 +7,13 @@ Run: python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py   (from the repo
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -106,6 +108,23 @@ class Changed(DryRunCase):
         code, out, _ = self.main()
         self.assertEqual(code, 0)
         self.assertIn("BP-01-receive-goods.json", out)
+
+    def test_the_default_run_root_is_outside_the_repo_and_the_tail_names_it(self):
+        doc = proc("BP-DIR", [call("s1", "POST", "/api/v1/echo", {"who": "directory"})])
+        path = self.write("BP-DIR-directory.json", self.dry_doc(doc, inputs={}))
+        task_dir = Path(self.tmp.name) / "task"
+        argv = ["dry-run", "--repo", str(self.repo), "--base-url", self.base, "--poll-interval", "0.01",
+                "--no-stable-check", "--files", str(path)]
+        out = io.StringIO()
+        env = {"TEAM_ROOT": self.team_root, "TEAM_TASKDIR": str(task_dir)}
+        with contextlib.chdir(self.repo), mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out):
+            code = runner.main(argv)
+        self.assertEqual(code, 0, out.getvalue())
+        roots = list((task_dir / "uat-runs").glob("dry-run-*"))
+        self.assertEqual(len(roots), 1)
+        self.assertFalse(roots[0].resolve().is_relative_to(self.repo.resolve()))
+        self.assertTrue((roots[0] / path.stem / "run.jsonl").is_file())
+        self.assertIn(f"runs in {roots[0]}", out.getvalue().splitlines()[-1])
 
     def test_a_failing_process_fails_the_dry_run_but_the_others_still_run_and_clean_up(self):
         self.state.post_adds_nothing = True  # BP-01 s4 fails

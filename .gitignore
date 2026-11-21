@@ -42,6 +42,9 @@ letflow-*.tar
 # docs/agents/instructions/core-directives.md's file-placement rules
 /scratch/
 
+# UAT request/response excerpts are run output and may carry tenant data.
+/uat-runs/
+
 # ── Frontend (web/) — Node / Vite / Playwright ───────────────────────────────
 # web/ is Letflow's own React SPA as of the S8 re-scope (2026-08-21); see
 # docs/migration/decisions/0011-frontend-ownership.md.
