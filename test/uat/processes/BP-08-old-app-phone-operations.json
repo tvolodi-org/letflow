@@ -2,7 +2,7 @@
   "id": "BP-08",
   "bp_entry": "BP-STOCK-16",
   "title": "Old-app phone operations",
-  "description": "The shop-floor phone of the old Qoimeks app works through the tenant's shared access. The administrator creates the shared access; from then on every call is made with its value at the old address: read the catalog and the balance of one item at two places; post a receipt of `quantity` units (default 5); repeat the same request (same client id and data): the stored movement comes back and the balance changes once; the same id with other quantity is refused 409; transfer the units to the second place; issue them there; reverse the issue and repeat that reversal (same id): one reversal; reversing the original again under another id, or reversing a reversal, is refused with the old texts; zero quantity, a negative count and a missing client id are refused; the code lookup refuses a blank and an unknown code. The cleanup reverses the transfer and the receipt (the old address completes its own posting tasks, no My Tasks step is needed) so both balances return to the start, checks them, and the administrator revokes the shared access. Not covered here (own processes): the count that is accepted (four-eyes switch OFF or ON, the stored zero count), a positive code lookup (needs an assigned code), the 401 and 429 refusals, voice. The catalog's first item and first two places are used; they must be an active item with a base unit and places linked to an org unit, with an active employee.",
+  "description": "The shop-floor phone of the old Qoimeks app works through the tenant's shared access. First the administrator checks that the tenant has no shared access yet (an existing one would be rotated by the create, with 201, and then revoked by the cleanup, so the process stops instead). The administrator then creates the shared access; from then on every call is made with its value at the old address: read the catalog and the balance of one item at two places; post a receipt of `quantity` units (default 5); repeat the same request (same client id and data): the stored movement comes back and the balance changes once; the same id with other quantity is refused 409; transfer the units to the second place; issue them there; reverse the issue and repeat that reversal (same id): one reversal; reversing the original again under another id, or reversing a reversal, is refused with the old texts; zero quantity, a negative count and a missing client id are refused; the code lookup refuses a blank and an unknown code. The cleanup reverses the transfer and the receipt (the old address completes its own posting tasks, no My Tasks step is needed) so both balances return to the start, checks them, and the administrator revokes the shared access. Not covered here (own processes): the count that is accepted (four-eyes switch OFF or ON, the stored zero count), a positive code lookup (needs an assigned code), the 401 and 429 refusals, voice. The catalog's first item and first two places are used; they must be an active item with a base unit and places linked to an org unit, with an active employee.",
   "tenant": "${tenant}",
   "inputs": [],
   "defaults": {
@@ -17,6 +17,21 @@
     "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2/api"
   },
   "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.exists": false,
+          "$.enabled": true
+        }
+      }
+    },
     {
       "id": "s1",
       "actor": "admin",
