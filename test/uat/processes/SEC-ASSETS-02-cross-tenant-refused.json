@@ -2,11 +2,10 @@
   "id": "SEC-ASSETS-02",
   "bp_entry": "BP-ASSETS-14",
   "title": "Cross-tenant asset reads and writes are refused with the uniform not-found answer",
-  "description": "SECURITY, read-and-refuse only. Home tenant qoimeks-qa (has the assets module) and the FOREIGN tenant sss-rehearsal2 (stock only; its administrator signs in to their own company). The home administrator asks the asset routes for a real document of the foreign tenant (read at run time from the foreign tenant's own list) to read, reverse and issue it, and for a real stock document of its own tenant through the asset routes: every answer is the 404 of an id that does not exist (same title and detail). The foreign administrator gets the same 404 on the asset routes (its company has no assets module) and on this tenant's real stock document, which its owner still reads (control). A tenant key in an asset query is refused 422 invalid_filter. Not walked: an asset document of the home tenant read from the other company, because no roster tenant with the assets module holds an asset document today (data precondition; see the BA findings of T-2503). Nothing is created, so there is nothing to clean up.",
+  "description": "SECURITY, read-and-refuse only. Home tenant qoimeks-qa2 (has the assets module) and the FOREIGN tenant sss-rehearsal2 (stock only; its administrator signs in to their own company). The home administrator asks the asset routes for a real document of the foreign tenant (read at run time from the foreign tenant's own list) to read, reverse and issue it, and for a real stock document of its own tenant through the asset routes: every answer is the 404 of an id that does not exist (same title and detail). The foreign administrator gets the same 404 on the asset routes (its company has no assets module) and on this tenant's real stock document, which its owner still reads (control). A tenant key in an asset query is refused 422 invalid_filter. Not walked: an asset document of the home tenant read from the other company, because no roster tenant with the assets module holds an asset document today (data precondition; see the BA findings of T-2503). Nothing is created, so there is nothing to clean up.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
-    "blocked_by": "assets-module-on-active-tenant",
     "tenant": "qoimeks-qa2",
     "actors": {
       "admin": "qoimeks-qa2-admin",
