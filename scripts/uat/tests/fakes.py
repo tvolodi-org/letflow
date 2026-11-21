@@ -44,6 +44,9 @@ class FakeStock:
         self.revoked = 0
         self.once = {}  # id -> stored body (an idempotent create)
         self.race_hits = 0
+        self.fx = {}  # fixture records by reference: the fx/find, fx/make, fx/drop routes
+        self.fx_log = []  # (verb, name)
+        self.fx_make_status = 201
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
         self.lock = threading.Lock()
 
@@ -178,6 +181,19 @@ def make_handler(state):
             if method == "POST" and path == "/api/v1/race":  # the first of two concurrent calls wins
                 state.race_hits += 1
                 return self.reply(201 if state.race_hits == 1 else 409, {"title": "conflict", "detail": "already_taken"})
+            if method == "POST" and path == "/api/v1/fx/find":
+                found = state.fx.get(body["name"])
+                return self.reply(200, {"items": [{"record_id": found}] if found else []})
+            if method == "POST" and path == "/api/v1/fx/make":
+                state.fx_log.append(("make", body["name"]))
+                if state.fx_make_status != 201:
+                    return self.reply(state.fx_make_status, {"title": "refused"})
+                state.fx[body["name"]] = "rec-" + body["name"]
+                return self.reply(201, {"record_id": state.fx[body["name"]]})
+            if method == "POST" and path == "/api/v1/fx/drop":
+                state.fx_log.append(("drop", body["name"]))
+                state.fx.pop(body["name"], None)
+                return self.reply(200, {"ok": True})
             if method == "POST" and path == "/api/v1/refuse":
                 return self.reply(422, {"title": "Unprocessable Entity", "detail": "output_refused", "status": 422})
             if method == "POST" and path == "/api/v1/echo":

@@ -441,8 +441,9 @@ class Runner:
 
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
-                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None):
+                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None):
         self.processes = list(process) if isinstance(process, (list, tuple)) else [process]
+        self.fixtures = list(fixtures or [])  # fixture documents, in run order (see expand_fixtures)
         self.process = self.processes[0]
         self.label = label or "+".join(p["id"] for p in self.processes)
         self.base_url = base_url.rstrip("/")
@@ -553,7 +554,7 @@ class Runner:
 
     def needed_roles(self, processes=None) -> list:
         roles = set()
-        for process in processes or self.processes:
+        for process in list(self.fixtures) + list(processes or self.processes):
             for step in (process.get("steps") or []) + (process.get("cleanup") or []):
                 do = step["do"]
                 calls = do["parallel"] if "parallel" in do else [do]
@@ -649,6 +650,10 @@ class Runner:
             missing = [n for n in step.get("requires", []) if n not in self.ctx]
             if missing:
                 record.update(verdict="skipped", error="requires " + ", ".join(missing))
+                return self._finish(record, started, True)
+            present = [n for n in step.get("skip_if", []) if n in self.ctx]
+            if present:
+                record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
             do = step["do"]
             calls = self._execute(step, do, record)
@@ -878,6 +883,8 @@ class Runner:
             elif isinstance(spec, dict) and "api" in spec:
                 value = self._save_from_read(step["actor"], spec, name, record)
             elif isinstance(spec, dict) and "pick" in spec:
+                if spec.get("optional") and not (json_path(body, spec["pick"])[0] and json_path(body, spec["pick"])[1] is not None):
+                    continue  # a look-up that found nothing leaves the name unset (fixtures: "create it then")
                 value = self._pick(body, spec, name)
             else:
                 value = substitute(spec, self.ctx)
@@ -933,6 +940,18 @@ class Runner:
         self.save_context()
         return steps_ok
 
+    def run_fixture(self, fixture) -> bool:
+        """A fixture is a process whose steps run first; its cleanup (recorded now) runs after every process's."""
+        doc = dict(fixture, id="fixture:" + fixture["id"])
+        ok = self.run_process(doc)
+        if ok:
+            missing = [n for n in fixture.get("provides") or [] if n not in self.ctx]
+            if missing:
+                ok = False
+                self.write_line({"phase": "outputs", "step": "provides", "actor": "-", "verdict": "error", "ms": 0,
+                                 "error": "the fixture did not provide: " + ", ".join(missing)})
+        return ok
+
     def cleanup_all(self) -> bool:
         """Every recorded cleanup, newest process first. A failing step does not stop the next one."""
         ok = True
@@ -973,6 +992,14 @@ class Runner:
         results = {}
         stopped = False
         try:
+            for fixture in self.fixtures:
+                if stopped:
+                    self.process = {"id": "fixture:" + fixture["id"]}
+                    self.write_line({"phase": "step", "step": "-", "actor": "-", "verdict": "skipped", "ms": 0,
+                                     "error": "an earlier fixture failed"})
+                    continue
+                results["fixture:" + fixture["id"]] = self.run_fixture(fixture)
+                stopped = not results["fixture:" + fixture["id"]]
             for process in self.processes:
                 if stopped:
                     self.process = process
@@ -1189,6 +1216,9 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: parallel is a list of 2 to 6 calls")
         for call in calls:
             validate_call(call, where)
+    for key in ("requires", "skip_if"):
+        if key in step and not (isinstance(step[key], list) and all(isinstance(n, str) for n in step[key])):
+            raise ConfigError(f"{where}: {key} is a list of names")
     if "http_as" in step and step["http_as"] != "shared_access":
         raise ConfigError(f"{where}: http_as can only be shared_access")
     if "http_as" not in step and not step.get("actor"):
@@ -1213,6 +1243,60 @@ def load_process(path) -> dict:
         seen.add(step["id"])
         validate_step(step, f"step {step['id']}")
     return process
+
+
+FIXTURE_KEYS = ("description", "leaves", "provides")
+
+
+def fixtures_dir_for(path) -> Path:
+    """test/uat/processes/X.json and test/uat/chains/X.json both keep their fixtures in test/uat/fixtures."""
+    return Path(path).resolve().parent.parent / "fixtures"
+
+
+def load_fixture(path) -> dict:
+    """A fixture file: a process-like file (steps, cleanup, inputs) plus `description`, `leaves` (what stays if
+    the cleanup cannot remove it), `provides` (the context names it saves) and optional `needs` (fixtures
+    that run before it)."""
+    doc = load_process(path)
+    name = Path(path).stem
+    if doc["id"] != name:
+        raise ConfigError(f"fixture {name}: id must be the file name ({doc['id']!r})")
+    for key in ("description", "leaves"):
+        if not isinstance(doc.get(key), str) or not doc[key].strip():
+            raise ConfigError(f"fixture {name}: {key} is needed (a sentence)")
+    for key in ("provides", "needs"):
+        value = doc.get(key, [] if key == "needs" else None)
+        if not isinstance(value, list) or not all(isinstance(n, str) for n in value) or (key == "provides" and not value):
+            raise ConfigError(f"fixture {name}: {key} must be a list of names" + (" (not empty)" if key == "provides" else ""))
+    return doc
+
+
+def expand_fixtures(names, fixtures_dir, loaded=None, _stack=()) -> list:
+    """Fixture names -> fixture documents in run order: the `needs` of a fixture first, each fixture once per run.
+    An unknown name is a ConfigError (exit 2: nothing runs)."""
+    loaded = {} if loaded is None else loaded
+    for name in names:
+        if name in loaded:
+            continue
+        if name in _stack:
+            raise ConfigError("fixtures: a cycle through " + " -> ".join(_stack + (name,)))
+        file = Path(fixtures_dir) / (str(name) + ".json")
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or not file.is_file():
+            raise ConfigError(f"fixtures: unknown fixture {name!r} (no {file})")
+        doc = load_fixture(file)
+        expand_fixtures(doc.get("needs") or [], fixtures_dir, loaded, _stack + (name,))
+        loaded[name] = doc
+    return list(loaded.values())
+
+
+def fixtures_for(processes, fixtures_dir) -> list:
+    names = []
+    for p in processes:
+        value = p.get("fixtures") or []
+        if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
+            raise ConfigError(f"{p['id']}: fixtures is a list of fixture names")
+        names += value
+    return expand_fixtures(names, fixtures_dir)
 
 
 def load_chain(path) -> tuple:
@@ -1245,9 +1329,15 @@ def resolve_process_file(chain_dir: Path, name: str) -> Path:
     raise ConfigError(f"chain: no process file for {name!r} (looked in {chain_dir.parent / 'processes'})")
 
 
-def check_chain_inputs(processes, provided: set) -> None:
-    """Every process finds its inputs in what the caller gave, its defaults, or the outputs of an earlier process."""
+def check_chain_inputs(processes, provided: set, fixtures=()) -> None:
+    """Every process finds its inputs in what the caller gave, its defaults, or the outputs of an earlier process.
+    Fixtures run first: what they `provide` is available to everything after them."""
     available = set(provided) | set(BUILTIN_NAMES)
+    for f in fixtures:
+        missing = set(f.get("inputs") or []) - available - set(f.get("defaults") or {})
+        if missing:
+            raise ConfigError(f"fixture {f['id']}: inputs missing: " + ", ".join(sorted(missing)))
+        available |= set(f.get("provides") or []) | set(f.get("defaults") or {})
     for p in processes:
         missing = set(p.get("inputs") or []) - available - set(p.get("defaults") or {})
         if missing:
@@ -1326,7 +1416,8 @@ def cmd_dry_run(args, out=None) -> int:
                 label = chain["id"]
             else:
                 processes, label = [load_process(path)], doc["id"]
-            check_chain_inputs(processes, set(inputs))
+            fixtures = fixtures_for(processes + ([doc] if "processes" in doc else []), fixtures_dir_for(path))
+            check_chain_inputs(processes, set(inputs), fixtures)
         except ConfigError as err:
             print(f"dry-run: {path.name}: {err}", file=out)
             worst = 1
@@ -1335,7 +1426,7 @@ def cmd_dry_run(args, out=None) -> int:
         runner = Runner(processes, base_url=base, tenant=tenant, actors=actors, run_dir=root_dir / path.stem,
                         inputs=inputs, health_url=args.health_url, poll_interval=args.poll_interval, out=out,
                         build_sha=args.build_sha, old_base_url=block.get("old_base_url") or args.old_base_url,
-                        keep_going=False, label=label, file_issues=False)
+                        keep_going=False, label=label, file_issues=False, fixtures=fixtures)
         code = runner.run(check_stable=(index == 0 and not args.no_stable_check))
         worst = max(worst, 1 if code else 0)
     print("dry-run: " + ("PASS" if worst == 0 else "FAIL") + f" ({len(files)} file(s), runs in {root_dir})", file=out)
@@ -1418,9 +1509,11 @@ def main_run(args) -> int:
         if args.command == "chain":
             chain, processes = load_chain(args.chain)
             label = chain["id"]
+            fixtures = fixtures_for(processes + [chain], fixtures_dir_for(args.chain))
         else:
             chain, processes = {}, [load_process(args.process)]
             label = processes[0]["id"]
+            fixtures = fixtures_for(processes, fixtures_dir_for(args.process))
         inputs = dict(chain.get("inputs") or {})
         inputs.update(read_inputs(args))
         tenant = args.tenant or chain.get("tenant")
@@ -1428,13 +1521,13 @@ def main_run(args) -> int:
             raise ConfigError("--tenant is needed")
         actors = dict(chain.get("actors") or {})
         actors.update(parse_pairs([a for a in (args.actors or "").split(",") if a], "--actors"))
-        needed = {s.get("actor") for p in processes for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")}
-        needed |= {c["actor"] for p in processes for s in p["steps"] + (p.get("cleanup") or [])
+        needed = {s.get("actor") for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")}
+        needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
-        check_chain_inputs(processes, set(inputs))
+        check_chain_inputs(processes, set(inputs), fixtures)
         base_url = args.base_url or chain.get("base_url") or base_url_for(tenant, args.base_url_template)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
         run_dir = new_run_dir(args, run_id)
@@ -1444,7 +1537,7 @@ def main_run(args) -> int:
     runner = Runner(processes, base_url=base_url, tenant=tenant, actors=actors, run_dir=run_dir, inputs=inputs,
                     health_url=args.health_url, poll_interval=args.poll_interval, run_id=run_id, build_sha=args.build_sha,
                     old_base_url=args.old_base_url or chain.get("old_base_url"), keep_going=getattr(args, "keep_going", False),
-                    label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh)
+                    label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures)
     return runner.run(check_stable=not args.no_stable_check)
 
 
