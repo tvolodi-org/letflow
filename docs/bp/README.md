@@ -161,3 +161,57 @@ referenced by a process task or be on the orphan list. The same run scans the pa
 `module_writes` argument reads must not be a completer input of any node (the T-2299 hole; the scan test
 `test/letflow/modules/write_target_sources_scan_test.exs` is the Elixir twin, fixtures `test/fixtures/t2299_hole/`).
 Exit code 0 only when nothing fails. The routes that fail today are in `docs/bp/route-gaps.md`.
+
+## The dead-code inventory (`dead_code.py`, D-172)
+
+`bp_inventory.py` lists routes, screens, pack nodes, write handlers, scripts and rule files. It has no
+function-level items for the context modules, so a public function of `lib/letflow/` that nothing calls is
+invisible to it (`project/bp-orphans.md`, "LIMIT OF THE TOOL"). `dead_code.py` closes that hole.
+
+```
+python3 scripts/bp/dead_code.py                # the report and the counts per area
+python3 scripts/bp/dead_code.py --area stock   # one area of the shared table
+python3 scripts/bp/dead_code.py --json         # the report as JSON on stdout
+python3 scripts/bp/dead_code.py --check        # the CI gate: a NEW dead function fails
+```
+
+| file | what it is |
+|---|---|
+| `docs/bp/dead-code.json` | the report: every public function of `lib/letflow/` with no caller, with its reason |
+| `docs/bp/dead-code-allow.json` | the allow-list: `{module, function, arity, reason}`; the business analyst fills it in, the tool never writes to it |
+| `docs/bp/dead-code-baseline.json` | the functions that were dead at the first run; `--check` fails only when a NEW dead function appears |
+
+One entry of the report: `{area, module, function, arity, file, line, kind, reason}`. `area` comes from the
+same table as the inventory (`AREAS` of `bp_inventory.py`, by path); a file no area owns is `unassigned`.
+The reasons:
+
+| reason | meaning |
+|---|---|
+| `no_caller` | no caller in `lib/` and no caller in `test/` |
+| `test_only` | a caller in `test/`, none in `lib/` |
+| `dynamic_suspect` | no caller at all, but the module is the target of a dynamic dispatch, so the tool cannot prove the function is dead |
+
+The callers come from `mix xref` (`scripts/bp/xref_calls.exs`, the runtime call graph of the compiled
+project) and from the source of `lib/` and `test/` (the local calls, the calls through an `import`, the
+calls the compiler cannot see and the calls of the test files). A caller is matched by module and function
+NAME, not by arity: the tool errs towards "not dead".
+
+A function is never reported when it is a callback (`@impl`, `@behaviour`, `use GenServer`, a Plug's
+`init/1` and `call/2`, a Mix task's `run/1`), a protocol implementation, a reference as a value
+(`&Mod.fun/n`, `{Mod, :fun, args}`, `apply(Mod, :fun, args)`, a `{Mod, :fun}` of the config), a function
+named by a string of a pack or of the config, or an entry of the allow-list.
+
+Nothing is deleted and nothing in `lib/` is changed: the tool writes the report, and the business analyst
+decides what happens to a function (the orphan files of the area). `--check` is the gate: it fails when a
+dead function that is in neither the baseline nor the allow-list appears, so the number of dead functions
+cannot grow; removing one from the baseline is allowed.
+
+The web app has no unused-export tool (no knip, no ts-prune, no eslint `no-unused-modules`), so the report
+says `not covered` for it; the task forbids adding a dependency.
+
+### The first run (2026-11-21)
+
+15 dead functions of the 3329 public functions of `lib/letflow/`: 5 `no_caller`, 6 `test_only`,
+4 `dynamic_suspect`; 25 dynamic call sites. Per area: `procurement` 8, `unassigned` 5, `designer` 1,
+`master` 1. The baseline (`docs/bp/dead-code-baseline.json`) holds those 15; `--check` fails from now
+on when a NEW dead function appears.

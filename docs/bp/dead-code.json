@@ -1,0 +1,342 @@
+{
+ "dynamic_call_sites": [
+  {
+   "file": "lib/letflow/engine/pin_rebind.ex",
+   "kind": "atom_from_string",
+   "line": 637
+  },
+  {
+   "file": "lib/letflow/engine/pin_resolver.ex",
+   "kind": "atom_from_string",
+   "line": 471
+  },
+  {
+   "file": "lib/letflow/engine/service_task.ex",
+   "kind": "atom_from_string",
+   "line": 309
+  },
+  {
+   "file": "lib/letflow/entities/query/allowlist.ex",
+   "kind": "atom_from_string",
+   "line": 466
+  },
+  {
+   "file": "lib/letflow/entities/query/allowlist.ex",
+   "kind": "atom_from_string",
+   "line": 490
+  },
+  {
+   "file": "lib/letflow/entities/records.ex",
+   "kind": "atom_from_string",
+   "line": 2120
+  },
+  {
+   "file": "lib/letflow/entities/records.ex",
+   "kind": "atom_from_string",
+   "line": 2148
+  },
+  {
+   "file": "lib/letflow/event_store/retention_operations.ex",
+   "kind": "atom_from_string",
+   "line": 516
+  },
+  {
+   "file": "lib/letflow/instances.ex",
+   "kind": "atom_from_string",
+   "line": 470
+  },
+  {
+   "file": "lib/letflow/ledger/authority.ex",
+   "kind": "apply_variable",
+   "line": 96
+  },
+  {
+   "file": "lib/letflow/ledger/handler_post.ex",
+   "kind": "apply_variable",
+   "line": 323
+  },
+  {
+   "file": "lib/letflow/modules/catalog.ex",
+   "kind": "apply_variable",
+   "line": 338
+  },
+  {
+   "file": "lib/letflow/modules/catalog.ex",
+   "kind": "apply_variable",
+   "line": 481
+  },
+  {
+   "file": "lib/letflow/modules/procurement/decisions.ex",
+   "kind": "atom_from_string",
+   "line": 239
+  },
+  {
+   "file": "lib/letflow/record_triggers.ex",
+   "kind": "atom_from_string",
+   "line": 223
+  },
+  {
+   "file": "lib/letflow/routers/definitions.ex",
+   "kind": "atom_from_string",
+   "line": 489
+  },
+  {
+   "file": "lib/letflow/routers/entities.ex",
+   "kind": "atom_from_string",
+   "line": 754
+  },
+  {
+   "file": "lib/letflow/routers/entities.ex",
+   "kind": "atom_from_string",
+   "line": 1762
+  },
+  {
+   "file": "lib/letflow/routers/identity.ex",
+   "kind": "atom_from_string",
+   "line": 722
+  },
+  {
+   "file": "lib/letflow/routers/identity.ex",
+   "kind": "atom_from_string",
+   "line": 1380
+  },
+  {
+   "file": "lib/letflow/scheduler/record_deadline_sweep.ex",
+   "kind": "apply_variable",
+   "line": 288
+  },
+  {
+   "file": "lib/letflow/scripts/policy.ex",
+   "kind": "atom_from_string",
+   "line": 704
+  },
+  {
+   "file": "lib/letflow/tenant_provisioning.ex",
+   "kind": "atom_from_string",
+   "line": 3404
+  },
+  {
+   "file": "lib/letflow/tenant_provisioning.ex",
+   "kind": "atom_from_string",
+   "line": 3444
+  },
+  {
+   "file": "lib/letflow/tenant_provisioning.ex",
+   "kind": "atom_from_string",
+   "line": 3472
+  }
+ ],
+ "errors": [],
+ "functions": [
+  {
+   "area": "designer",
+   "arity": 4,
+   "file": "lib/letflow/routers/entities.ex",
+   "function": "render_record_command",
+   "kind": "defdelegate",
+   "line": 524,
+   "module": "Letflow.Routers.Entities",
+   "reason": "test_only"
+  },
+  {
+   "area": "master",
+   "arity": 2,
+   "file": "lib/letflow/modules/locations/locations.ex",
+   "function": "descendant_ids",
+   "kind": "defdelegate",
+   "line": 138,
+   "module": "Letflow.Modules.Locations",
+   "reason": "test_only"
+  },
+  {
+   "area": "procurement",
+   "arity": 3,
+   "file": "lib/letflow/modules/procurement/line_events.ex",
+   "function": "cancel_line",
+   "kind": "def",
+   "line": 85,
+   "module": "Letflow.Modules.Procurement.LineEvents",
+   "reason": "dynamic_suspect"
+  },
+  {
+   "area": "procurement",
+   "arity": 3,
+   "file": "lib/letflow/modules/procurement/line_events.ex",
+   "function": "record_officer",
+   "kind": "def",
+   "line": 69,
+   "module": "Letflow.Modules.Procurement.LineEvents",
+   "reason": "dynamic_suspect"
+  },
+  {
+   "area": "procurement",
+   "arity": 3,
+   "file": "lib/letflow/modules/procurement/line_events.ex",
+   "function": "record_reference",
+   "kind": "def",
+   "line": 77,
+   "module": "Letflow.Modules.Procurement.LineEvents",
+   "reason": "dynamic_suspect"
+  },
+  {
+   "area": "procurement",
+   "arity": 3,
+   "file": "lib/letflow/modules/procurement/line_events.ex",
+   "function": "record_supplier",
+   "kind": "def",
+   "line": 73,
+   "module": "Letflow.Modules.Procurement.LineEvents",
+   "reason": "dynamic_suspect"
+  },
+  {
+   "area": "procurement",
+   "arity": 0,
+   "file": "lib/letflow/modules/procurement/purchase_request.ex",
+   "function": "kinds",
+   "kind": "def",
+   "line": 47,
+   "module": "Letflow.Modules.Procurement.PurchaseRequest",
+   "reason": "no_caller"
+  },
+  {
+   "area": "procurement",
+   "arity": 0,
+   "file": "lib/letflow/modules/procurement/purchase_request.ex",
+   "function": "priorities",
+   "kind": "def",
+   "line": 44,
+   "module": "Letflow.Modules.Procurement.PurchaseRequest",
+   "reason": "no_caller"
+  },
+  {
+   "area": "procurement",
+   "arity": 3,
+   "file": "lib/letflow/modules/procurement/purchase_requests.ex",
+   "function": "submit",
+   "kind": "def",
+   "line": 80,
+   "module": "Letflow.Modules.Procurement.PurchaseRequests",
+   "reason": "test_only"
+  },
+  {
+   "area": "procurement",
+   "arity": 4,
+   "file": "lib/letflow/modules/procurement/purchase_requests.ex",
+   "function": "update_draft",
+   "kind": "def",
+   "line": 64,
+   "module": "Letflow.Modules.Procurement.PurchaseRequests",
+   "reason": "test_only"
+  },
+  {
+   "area": "unassigned",
+   "arity": 0,
+   "file": "lib/letflow/documents/renderers.ex",
+   "function": "override_enabled?",
+   "kind": "def",
+   "line": 35,
+   "module": "Letflow.Documents.Renderers",
+   "reason": "test_only"
+  },
+  {
+   "area": "unassigned",
+   "arity": 0,
+   "file": "lib/letflow/error_capture.ex",
+   "function": "ring_size",
+   "kind": "def",
+   "line": 52,
+   "module": "Letflow.ErrorCapture",
+   "reason": "no_caller"
+  },
+  {
+   "area": "unassigned",
+   "arity": 0,
+   "file": "lib/letflow/error_capture.ex",
+   "function": "tenant_cap",
+   "kind": "def",
+   "line": 54,
+   "module": "Letflow.ErrorCapture",
+   "reason": "no_caller"
+  },
+  {
+   "area": "unassigned",
+   "arity": 0,
+   "file": "lib/letflow/problem_reports/review.ex",
+   "function": "states",
+   "kind": "def",
+   "line": 52,
+   "module": "Letflow.ProblemReports.Review",
+   "reason": "no_caller"
+  },
+  {
+   "area": "unassigned",
+   "arity": 0,
+   "file": "lib/letflow/tenant_provisioning.ex",
+   "function": "platform_event_type_seed_versions",
+   "kind": "def",
+   "line": 1886,
+   "module": "Letflow.TenantProvisioning",
+   "reason": "test_only"
+  }
+ ],
+ "summary": {
+  "by_area": {
+   "designer": 1,
+   "master": 1,
+   "procurement": 8,
+   "unassigned": 5
+  },
+  "by_area_and_reason": {
+   "designer": {
+    "test_only": 1
+   },
+   "master": {
+    "test_only": 1
+   },
+   "procurement": {
+    "dynamic_suspect": 4,
+    "no_caller": 2,
+    "test_only": 2
+   },
+   "unassigned": {
+    "no_caller": 3,
+    "test_only": 2
+   }
+  },
+  "by_reason": {
+   "dynamic_suspect": 4,
+   "no_caller": 5,
+   "test_only": 6
+  },
+  "scanned": 3329,
+  "scanned_by_area": {
+   "assets": 180,
+   "designer": 65,
+   "exam": 70,
+   "maintenance": 24,
+   "master": 126,
+   "platform": 9,
+   "procurement": 28,
+   "stock": 279,
+   "tenant-admin": 18,
+   "unassigned": 2530
+  },
+  "total": 15
+ },
+ "tool": "scripts/bp/dead_code.py",
+ "tool_version": 1,
+ "versions": {
+  "elixir": "1.20.3",
+  "otp": "29",
+  "tool": "1"
+ },
+ "web": {
+  "reason": "web/ has no unused-export tool (no knip, no ts-prune, no eslint no-unused-modules); the task forbids adding a dependency",
+  "status": "not_covered"
+ },
+ "xref": {
+  "calls": 70578,
+  "mix_env": "dev",
+  "source": "mix xref (Mix.Tasks.Xref.calls)"
+ }
+}
