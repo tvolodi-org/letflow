@@ -56,12 +56,18 @@ class Routes:
         self.api = []  # (method, segs, mounts)
         self.shared = []
         files = [root / STOCK_ROUTER] + sorted((root / "lib/letflow/routers").glob("*.ex"))
+        # the other modules' routers (exam, assets, ...) are mounted at /api/v1/modules/<module>
+        other = [f for f in sorted((root / "lib/letflow/modules").glob("*/router.ex")) if f != root / STOCK_ROUTER]
+        files += other
         for f in files:
             if not f.is_file():
                 continue
             rel = f.relative_to(root).as_posix()
             stem = f.stem.replace("_", "-")
-            mounts = [[stem], STOCK_MOUNT + [stem]] if rel != STOCK_ROUTER else [STOCK_MOUNT]
+            if rel != STOCK_ROUTER and f.stem == "router" and f.parent.parent.name == "modules":
+                mounts = [["modules", f.parent.name]]
+            else:
+                mounts = [[stem], STOCK_MOUNT + [stem]] if rel != STOCK_ROUTER else [STOCK_MOUNT]
             for method, route in ROUTE_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
                 target = self.shared if rel == SHARED_ROUTER else self.api
                 target.append((method.upper(), segments(route), mounts))
