@@ -180,6 +180,10 @@ def make_handler(state):
                 return self.reply(201 if state.race_hits == 1 else 409, {"title": "conflict", "detail": "already_taken"})
             if method == "POST" and path == "/api/v1/refuse":
                 return self.reply(422, {"title": "Unprocessable Entity", "detail": "output_refused", "status": 422})
+            if method == "POST" and path == "/api/v1/redaction-secret-error":
+                return self.reply(500, {"value": SHARED_VALUE})
+            if method == "POST" and path == "/api/v1/redaction-echo":
+                return self.reply(200, {"request": body, "authorization": self.headers.get("Authorization")})
             if method == "POST" and path == "/api/v1/echo":
                 return self.reply(200, {"ok": True})
             if method == "GET" and path == "/api/v1/leak":
