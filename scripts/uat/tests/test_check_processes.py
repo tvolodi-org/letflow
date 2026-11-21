@@ -361,7 +361,8 @@ class RealFiles(unittest.TestCase):
 
     def test_a_bp01_with_a_broken_path_fails_against_the_real_routers(self):
         doc = json.loads((REPO / "test/uat/processes/BP-01-receive-goods.json").read_text())
-        next(s for s in doc["steps"] if s["id"] == "s2")["do"]["path"] = "/api/v1/modules/stock/documents/${doc_id}/launch"
+        step = next(s for s in doc["steps"] if s["id"] == "s2")  # by id: the process file may grow a step
+        step["do"]["path"] = "/api/v1/modules/stock/documents/${doc_id}/launch"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "BP-01.json"
             path.write_text(json.dumps(doc))

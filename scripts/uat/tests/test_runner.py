@@ -23,7 +23,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 import runner  # noqa: E402
-from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, SHARED_VALUE, USERS, FakeServerCase, mock_env)  # noqa: E402,F401
+from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, SHARED_VALUE, USERS, FakeServerCase,  # noqa: E402,F401
+                   mock_env, step_by_id)
 
 
 class ExpressionAndSubstitution(unittest.TestCase):
@@ -228,7 +229,7 @@ class Failures(FakeServerCase):
     def test_an_exception_in_a_step_does_not_skip_the_cleanup(self):
         process = self.process()
         # s5 reads a variable that does not exist: a RunnerError after the post task was completed
-        next(s for s in process["steps"] if s["id"] == "s5")["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
+        step_by_id(process, "s5")["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -248,7 +249,7 @@ class Failures(FakeServerCase):
 
     def test_cleanup_is_skipped_when_nothing_was_posted(self):
         process = self.process()
-        next(s for s in process["steps"] if s["id"] == "s1")["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
+        step_by_id(process, "s1")["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -266,7 +267,7 @@ class Failures(FakeServerCase):
     def test_wait_task_times_out(self):
         self.state.task_visible_after = 10**6
         process = self.process()
-        next(s for s in process["steps"] if s["id"] == "s3")["do"]["wait_task"]["within_s"] = 0.2
+        step_by_id(process, "s3")["do"]["wait_task"]["within_s"] = 0.2
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         s3 = next(x for x in self.lines() if x["step"] == "s3")

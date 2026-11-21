@@ -155,7 +155,7 @@ class Changed(DryRunCase):
 class Refusals(DryRunCase):
     def test_a_file_without_a_dry_run_block_fails_the_static_check_and_nothing_runs(self):
         doc = json.loads(PROCESS_FILE.read_text())
-        doc.pop("dry_run", None)
+        doc.pop("dry_run", None)  # the process file on disk carries a dry_run block; this case is about one without it
         self.write("BP-01-receive-goods.json", doc)
         code, out, _ = self.main()
         self.assertEqual(code, 1)
