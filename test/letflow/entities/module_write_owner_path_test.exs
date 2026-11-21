@@ -790,6 +790,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       # T-1489 adds `update/3` (handler-facing allow-listed `updates` write; Assets card moves).
       # REQ-829 adds `read/3` and `active?/3` (the OQ-R4 read facade).
       # REQ-902 adds `read_document_version/3` (the document read of L7 part 2b).
+      # T-2431 adds `read_instance_start/1` (the instance's own start variables; stock handlers bind to it).
       assert public == [
                __declare__: 2,
                __dry_collect__: 2,
@@ -811,6 +812,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                prepare_targets: 2,
                read: 3,
                read_document_version: 3,
+               read_instance_start: 1,
                registered_targets: 1,
                update: 3
              ]

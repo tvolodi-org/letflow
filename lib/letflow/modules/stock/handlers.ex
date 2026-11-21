@@ -44,8 +44,21 @@ defmodule Letflow.Modules.Stock.Handlers do
   The read takes no lock. That is enough: stock documents are never re-versioned, and the only cancel
   path (`Documents.Posting.cancel/5`) withdraws every pending post instance through
   `Letflow.Engine.cancel_instance` before `Letflow.Documents.cancel/3`, so a cancel and a post of one
-  document are serialised by the instance. The binding of `post_count` and `post_kind_change_out` stays
-  detected on read only.
+  document are serialised by the instance.
+
+  ## Binding to the instance's own start (T-2431, audit T-2429)
+
+  All four handlers (`post_document`, `post_count`, `post_kind_change_out`, `reverse_document`) also compare
+  their resolved arguments with the variables the instance was STARTED with
+  (`HandlerWrites.read_instance_start/1`, the `INSTANCE_STARTED` event of `ctx.instance_id`): the
+  document id, type, version, org unit, the mark, the `reason_code` of a reversal and the whole `posting`
+  (for `post_kind_change_out` the start variable `stock_posting`) must be equal. The instance variables
+  merge the completer's output, so this is the check that the document and the posting are the ones this
+  instance was made for: one document cannot be posted from another document's task, a four-eyes pair of
+  one instance cannot be bypassed with the values of another, and the quantities of a count, the
+  `reverses_entry_id` of a reversal and the lines of a change of kind cannot be changed by the completer.
+  A mismatch is `{:error, :invalid_arguments}` (422), nothing written; it runs after the version
+  binding above, so a stale or changed document keeps its typed 409.
 
   ## Master checks at posting (REQ-832 / GH #4535; version 0.18.0)
 
@@ -128,7 +141,7 @@ defmodule Letflow.Modules.Stock.Handlers do
   @spec post_kind_change_out(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
           result()
   def post_kind_change_out(multi, ctx, %{"posting" => %{"cause" => "kind_change_out"}} = args),
-    do: run(multi, ctx, args, "posted", [], false)
+    do: run(multi, ctx, args, "posted", [], false, "stock_posting")
 
   def post_kind_change_out(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
@@ -136,10 +149,15 @@ defmodule Letflow.Modules.Stock.Handlers do
   def reverse_document(multi, ctx, args),
     do: run(multi, ctx, args, "reversed", ["reason_code"], false)
 
-  defp run(multi, ctx, args, mark, extra_keys, binding?) when is_map(args) do
+  # `posting_var`: the instance variable the `posting` argument is read from at the start request
+  # (`stock_posting` for the stock leg of a change of kind, `posting` for every other line).
+  defp run(multi, ctx, args, mark, extra_keys, binding?, posting_var \\ "posting")
+
+  defp run(multi, ctx, args, mark, extra_keys, binding?, posting_var) when is_map(args) do
     with true <- valid_args?(args, {mark, extra_keys}),
          {:ok, command} <- command(Map.get(args, "posting")),
          :ok <- check_binding(binding?, ctx, args, Map.get(args, "posting")),
+         :ok <- check_instance(ctx, args, extra_keys, posting_var),
          :ok <- check_masters(ctx, command),
          {:ok, multi} <- create_mark(multi, ctx, args, extra_keys) do
       case HandlerWrites.post(multi, ctx, command) do
@@ -153,7 +171,8 @@ defmodule Letflow.Modules.Stock.Handlers do
     end
   end
 
-  defp run(_multi, _ctx, _args, _mark, _extra, _binding?), do: {:error, :invalid_arguments}
+  defp run(_multi, _ctx, _args, _mark, _extra, _binding?, _posting_var),
+    do: {:error, :invalid_arguments}
 
   defp valid_args?(args, {mark, extra_keys}) do
     Enum.all?(~w(document_id document_type org_unit_id) ++ extra_keys, fn key ->
@@ -246,6 +265,41 @@ defmodule Letflow.Modules.Stock.Handlers do
       actual -> actual == Legs.expected(spec, content, Map.get(posting, "record_zero") == true)
     end
   end
+
+  # -- the binding to the instance's own start (T-2431, audit T-2429) ----------------------------
+
+  # Every write argument must be what the instance was STARTED with (the `INSTANCE_STARTED` event,
+  # written by `Engine.create/2` from module code): the document, its version, org unit, the mark,
+  # the reason (a reversal) and the whole posting. The variables the arguments were resolved from
+  # merge the completer's output, so they alone do not say what this instance is for; without this
+  # check a completer could post another document from this task, or approve their own document
+  # through another person's task (four-eyes across instances), or change what a count or a
+  # reversal posts. A mismatch is the closed `invalid_arguments` (422), nothing written. A dry
+  # build skips the check; the real build runs it.
+  defp check_instance(ctx, args, extra_keys, posting_var) do
+    case HandlerWrites.read_instance_start(ctx) do
+      {:ok, start} ->
+        keys = ~w(document_id document_type version_no org_unit_id mark) ++ extra_keys
+
+        same? =
+          Enum.all?(keys, fn key -> same_value?(Map.get(start, key), Map.get(args, key)) end) and
+            same_value?(Map.get(start, posting_var), Map.get(args, "posting"))
+
+        if same?, do: :ok, else: {:error, :invalid_arguments}
+
+      {:error, :dry_build} ->
+        :ok
+
+      {:error, :invalid_write_command} ->
+        {:error, :not_permitted}
+
+      {:error, _not_found} ->
+        {:error, :invalid_arguments}
+    end
+  end
+
+  defp same_value?(nil, _arg), do: false
+  defp same_value?(expected, arg), do: expected == arg
 
   # -- the posting command: literal keys only -----------------------------------------------------
 

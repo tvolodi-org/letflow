@@ -1203,4 +1203,42 @@ defmodule Letflow.Entities.HandlerWrites do
       for_key.(entries) == for_key.(produced)
     end)
   end
+
+  @doc """
+  T-2431 (audit T-2429): reads the variables the handler's OWN instance was STARTED with, from its
+  `INSTANCE_STARTED` event (sequence 1; an oversized payload is resolved by `EventStore.read/2`).
+  Answers `{:ok, map}` (string keys, the `initial_variables` of the start request),
+  `{:error, :not_found}` (no such event: the handler treats it as a refusal),
+  `{:error, :invalid_write_command}` (an absent or forged context, the per-call token check of
+  `create/3`) or `{:error, :dry_build}` (the ledger pre-step).
+
+  Why this source: the instance's `variables` merge the completer's output and are not a trusted
+  record of what the instance is for; the start event is append-only and is written by
+  `Letflow.Engine.create/2` from module code, so a handler that compares its resolved arguments
+  with it knows they are the instance's own document and posting. The instance is always the
+  context's own (`ctx.instance_id`, never an argument) in `ctx.prefix`: no other instance or
+  tenant can be named. Reads only the event tables, no lock, no write; a fact read is data, never
+  authority.
+  """
+  @spec read_instance_start(HandlerContext.t()) ::
+          {:ok, map()} | {:error, :not_found | :invalid_write_command | :dry_build}
+  def read_instance_start(%HandlerContext{instance_id: instance_id, prefix: prefix} = ctx) do
+    with {:ok, token} <- fetch_token(ctx),
+         true <- valid_context?(ctx),
+         :not_dry <- dry_mode(token) do
+      with {:ok, events} <- EventStore.read(instance_id, prefix: prefix, up_to_sequence: 1),
+           %{payload: %{"initial_variables" => vars}} when is_map(vars) <-
+             Enum.find(events, &(&1.event_type == "INSTANCE_STARTED")) do
+        {:ok, vars}
+      else
+        _absent -> {:error, :not_found}
+      end
+    else
+      :dry -> {:error, :dry_build}
+      false -> {:error, :invalid_write_command}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def read_instance_start(_ctx), do: {:error, :invalid_write_command}
 end
