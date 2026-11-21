@@ -67,7 +67,8 @@ class Chains(ChainCase):
         reader = proc("BP-X", [call("s1", "GET", "/api/v1/modules/stock/documents/${receipt_doc_id}",
                                     expect={"status": 200, "json": {"state": "posted"}})],
                       inputs=["receipt_doc_id"], outputs={"seen": "${receipt_doc_id}"})
-        code, _ = self.run_process([runner.load_process(PROCESS_FILE), reader], inputs=INPUTS)
+        code, _ = self.run_process([runner.load_process(PROCESS_FILE), reader], inputs=INPUTS,
+                                   pass_map={"BP-01": ["receipt_doc_id"]})
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         keyed = self.keyed()
         self.assertEqual(keyed[("BP-X", "step", "s1")], "pass")  # the receipt was still posted: BP-01 had not cleaned up yet
@@ -86,6 +87,36 @@ class Chains(ChainCase):
         self.assertEqual(self.keyed()[("BP-X", "inputs", "inputs")], "error")
         self.assertEqual(self.state.calls("GET", "/echo"), [])
 
+    def test_only_outputs_named_by_pass_reach_the_next_process(self):
+        reader = proc("BP-R", [call("s1", "POST", "/api/v1/echo", {"receipt": "${out_A}"})],
+                      inputs=["out_A"], cleanup=[{"id": "c1", "actor": "admin", "requires": ["who"],
+                      "do": {"api": "POST", "path": "/api/v1/echo", "body": {"cleanup": "wrong-context"}},
+                      "expect": {"status": 200}}])
+        code, _ = self.run_process([tagged("PA", "A"), reader], inputs={})
+        self.assertEqual(code, 1)  # no pass list: even out_A is not an input of BP-R
+        self.assertEqual(self.keyed()[("BP-R", "inputs", "inputs")], "error")
+
+        self.run_dir = self.run_dir.parent / "run-pass"
+        self.state.log.clear()
+        code, _ = self.run_process([tagged("PA", "A"), reader], inputs={}, pass_map={"PA": ["out_A"]})
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.keyed()[("BP-R", "step", "s1")], "pass")
+        # `who` is PA's private working value, not an output: BP-R's cleanup must not inherit it.
+        skipped = next(x for x in self.lines() if x["process"] == "BP-R" and x["phase"] == "cleanup")
+        self.assertEqual((skipped["verdict"], skipped["error"]), ("skipped", "requires who"))
+        self.assertEqual(self.cleanups(), ["A"])
+
+    def test_a_cleanup_with_requires_skips_and_names_every_missing_value(self):
+        process = proc("PA", [call("s1", "POST", "/api/v1/echo", {}, save={"own": "yes"})],
+                       cleanup=[{"id": "c1", "actor": "admin", "requires": ["own", "balance_to_before"],
+                                 "do": {"api": "POST", "path": "/api/v1/echo", "body": {"cleanup": "bad"}},
+                                 "expect": {"status": 200}}])
+        code, _ = self.run_process(process, inputs={})
+        self.assertEqual(code, 0)
+        line = next(x for x in self.lines() if x["phase"] == "cleanup")
+        self.assertEqual((line["verdict"], line["error"]), ("skipped", "requires balance_to_before"))
+        self.assertEqual(self.cleanups(), [])
+
     def test_cleanups_run_in_reverse_order_each_with_its_own_context(self):
         code, _ = self.run_process([tagged("PA", "A"), tagged("PB", "B"), tagged("PC", "C")], inputs={})
         self.assertEqual(code, 0)
@@ -93,6 +124,17 @@ class Chains(ChainCase):
         self.assertEqual(self.cleanups(), ["C", "B", "A"])
         ctx = json.loads((self.run_dir / "context.json").read_text())
         self.assertEqual((ctx["out_A"], ctx["out_B"], ctx["out_C"]), ("A", "B", "C"))
+
+    def test_the_same_chain_can_run_twice_without_residue(self):
+        process = runner.load_process(PROCESS_FILE)
+        code, _ = self.run_process(process, inputs=INPUTS)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.state.qty, Decimal("7"))
+        self.run_dir = self.run_dir.parent / "run-second"
+        code, _ = self.run_process(process, inputs=INPUTS)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.state.qty, Decimal("7"))
+        self.assertEqual(len(self.state.calls("POST", "/reverse")), 2)
 
     def test_a_failing_process_stops_the_chain_and_the_cleanup_of_the_ones_already_run_still_happens(self):
         code, _ = self.run_process([tagged("PA", "A"), tagged("PB", "B", fail_after=True), tagged("PC", "C")], inputs={})
@@ -456,7 +498,8 @@ class LogAndSummary(ChainCase):
         self.assertIn("**>>**", text)  # the row of that step is marked
         self.assertIn("duration:", text)
         context_block = text.split("## Context at the end")[1]
-        self.assertIn('"who": "B"', context_block)
+        self.assertIn('"out_A": "A"', context_block)
+        self.assertNotIn('"who": "B"', context_block)  # PB's failed private working value is not a chain output
         self.assertIn("run_id", context_block)
         for line in self.lines():
             self.assertIn("ms", line)
@@ -525,13 +568,24 @@ class ChainCli(ChainCase):
         self.assertIn("BP-R: inputs missing: thing", err)
         self.assertEqual(self.state.log, [])
 
-    def test_a_later_process_may_read_an_output_of_an_earlier_one_but_not_the_other_way_round(self):
+    def test_a_later_process_may_read_only_a_passed_output_of_an_earlier_one(self):
         reader = proc("BP-R", [call("s1", "POST", "/api/v1/echo", {})], inputs=["out_A"])
-        ok = self.write_chain([tagged("BP-A", "A"), reader])
+        ok = self.write_chain([tagged("BP-A", "A"), reader], {"pass": {"BP-A": ["out_A"]}})
         self.assertEqual(self.main("chain", str(ok), *self.common())[0], 0)
+        self.run_dir = self.run_dir.parent / "run-not-passed"
+        not_passed = self.write_chain([tagged("BP-A", "A"), reader])
+        self.assertEqual(self.main("chain", str(not_passed), *self.common())[0], 2)
         self.run_dir = self.run_dir.parent / "run-rev"
-        wrong = self.write_chain([reader, tagged("BP-A", "A")])
+        wrong = self.write_chain([reader, tagged("BP-A", "A")], {"pass": {"BP-A": ["out_A"]}})
         self.assertEqual(self.main("chain", str(wrong), *self.common())[0], 2)
+
+    def test_a_placeholder_in_a_chain_is_a_usage_error_before_anything_runs(self):
+        reader = proc("BP-R", [call("s1", "POST", "/api/v1/echo", {})], inputs=["thing"])
+        path = self.write_chain([reader], {"inputs": {"thing": "REPLACE-WITH-THING-ID"}})
+        code, out, err = self.main("chain", str(path), *self.common())
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("REPLACE-WITH-THING-ID", err)
+        self.assertEqual(self.state.log, [])
 
     def test_an_unknown_process_or_a_missing_actor_is_a_usage_error(self):
         path = self.write_chain([tagged("BP-A", "A")], {"processes": ["BP-A", "BP-NOPE"]})

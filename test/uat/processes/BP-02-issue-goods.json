@@ -344,7 +344,8 @@
       "id": "c5",
       "actor": "admin",
       "requires": [
-        "posted_receipt_id"
+        "posted_receipt_id",
+        "balance_before"
       ],
       "do": {
         "api": "GET",

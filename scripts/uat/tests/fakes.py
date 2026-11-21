@@ -1,4 +1,4 @@
-"""A fake QA for the runner tests: an HTTP server on 127.0.0.1 with the few routes BP-01 needs and a fake
+"""A fake QA for the runner tests: an HTTP server on 127.0.0.1 with the routes BP-01 and second_place need and a fake
 token command. No network beyond it, no model. Shared by the test files of scripts/uat."""
 
 import io
@@ -47,6 +47,8 @@ class FakeStock:
         self.fx = {}  # fixture records by reference: the fx/find, fx/make, fx/drop routes
         self.fx_log = []  # (verb, name)
         self.fx_make_status = 201
+        self.location_nodes = {}  # record id -> field values, for the real second_place fixture
+        self.location_links = {}
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
         self.lock = threading.Lock()
 
@@ -103,8 +105,46 @@ def make_handler(state):
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
             if method == "POST" and path == "/api/v1/entities/query":
-                return self.reply(200, {"items": [{"record_id": body["filters"][0]["value"],
-                                                    "field_values": {"base_uom_id": "uom-1"}}]})
+                entity = body.get("entity_type")
+                if entity == "location_node":
+                    records = state.location_nodes
+                elif entity == "location_org_unit_link":
+                    records = state.location_links
+                else:
+                    return self.reply(200, {"items": [{"record_id": body["filters"][0]["value"],
+                                                        "field_values": {"base_uom_id": "uom-1"}}]})
+                items = []
+                for record_id, values in records.items():
+                    if all(values.get(f["field"]) == f["value"] for f in body.get("filters", []) if f.get("op") == "eq"):
+                        items.append({"record_id": record_id, "field_values": values})
+                return self.reply(200, {"items": items})
+            if method == "POST" and path == "/api/v1/modules/locations/nodes":
+                record_id = f"location-{len(state.location_nodes) + 1}"
+                state.location_nodes[record_id] = dict(body, record_id=record_id, active=True)
+                return self.reply(201, state.location_nodes[record_id])
+            if method == "POST" and path.startswith("/api/v1/modules/locations/nodes/") and path.endswith("/retire"):
+                record_id = path.rsplit("/", 2)[-2]
+                node = state.location_nodes.get(record_id)
+                if not node:
+                    return self.reply(404, {"title": "not_found"})
+                node["active"] = False
+                return self.reply(200, node)
+            if method == "POST" and path == "/api/v1/modules/locations/links":
+                found = next((r for r in state.location_links.values()
+                              if r["location_id"] == body["location_id"] and r["org_unit_id"] == body["org_unit_id"]), None)
+                if found:
+                    found["active"] = True
+                    return self.reply(201, found)
+                record_id = f"link-{len(state.location_links) + 1}"
+                state.location_links[record_id] = dict(body, record_id=record_id, active=True)
+                return self.reply(201, state.location_links[record_id])
+            if method == "POST" and path == "/api/v1/modules/locations/links/retire":
+                found = next((r for r in state.location_links.values()
+                              if r["location_id"] == body["location_id"] and r["org_unit_id"] == body["org_unit_id"]), None)
+                if not found:
+                    return self.reply(404, {"title": "link_not_found"})
+                found["active"] = False
+                return self.reply(200, found)
             if method == "POST" and path == base + "/documents":
                 if not body or "catalog_uom_id" not in body["lines"][0] or not body.get("org_unit_id"):
                     return self.reply(422, {"title": "field_required"})

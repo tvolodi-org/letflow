@@ -2,12 +2,12 @@
   "id": "BP-03",
   "bp_entry": "BP-STOCK-04",
   "title": "Transfer between places",
-  "description": "A storekeeper first tries a transfer whose from side equals its to side (refused, nothing saved). Then the storekeeper creates a transfer of `quantity` units (default 2) of one item from place A to place B of the same org unit and responsible person, issues it, and an administrator claims and completes the Post task. One document and one ledger entry result: the balance at A falls by the quantity, the balance at B grows by the same quantity. The cleanup reverses the document (reason fields required by the API) and completes the Reverse task, so both balances return to their start. Needs a source place with at least `quantity` units of the item and a second place linked to the same org unit (both exist on qoimeks-qa2; the sss-rehearsal2 tenant has only one place).",
+  "description": "A storekeeper first tries a transfer whose from side equals its to side (refused, nothing saved). Then the storekeeper creates a transfer of `quantity` units (default 2) of one item from place A to place B of the same org unit and responsible person, issues it, and an administrator claims and completes the Post task. One document and one ledger entry result: the balance at A falls by the quantity, the balance at B grows by the same quantity. The cleanup reverses the document (reason fields required by the API) and completes the Reverse task, so both balances return to their start. Needs a source place with at least `quantity` units of the item. The second_place fixture supplies place_from (the input place) and an active second place linked to the same org unit.",
   "tenant": "${tenant}",
+  "fixtures": ["second_place"],
   "inputs": [
     "item",
-    "place_from",
-    "place_to",
+    "place",
     "org_unit",
     "responsible"
   ],
@@ -22,8 +22,7 @@
     },
     "inputs": {
       "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
-      "place_from": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
-      "place_to": "06520390-e487-4c0f-b7c7-ec3f2baeaa9f",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
       "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
       "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
     }
@@ -276,7 +275,8 @@
       "id": "c3",
       "actor": "admin",
       "requires": [
-        "posted_doc_id"
+        "posted_doc_id",
+        "balance_from_before"
       ],
       "do": {
         "api": "GET",
@@ -296,7 +296,8 @@
       "id": "c4",
       "actor": "admin",
       "requires": [
-        "posted_doc_id"
+        "posted_doc_id",
+        "balance_to_before"
       ],
       "do": {
         "api": "GET",

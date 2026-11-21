@@ -142,7 +142,7 @@ class Changed(DryRunCase):
                                                   outputs={"made": "yes"}), inputs={}))
         self.write("BP-B-b.json", self.dry_doc(proc("BP-B", [call("s1", "POST", "/api/v1/echo", {"made": "${made}"})],
                                                   inputs=["made"]), inputs={"made": "seed"}))  # alone it needs its own value
-        chain = {"id": "chain-d", "processes": ["BP-A", "BP-B"],
+        chain = {"id": "chain-d", "processes": ["BP-A", "BP-B"], "pass": {"BP-A": ["made"]},
                  "dry_run": {"tenant": "qoimeks-qa2", "actors": dict(USERS), "inputs": {}}}
         self.write("c.json", chain, folder="chains")
         code, out, err = self.main()
