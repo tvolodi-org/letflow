@@ -221,7 +221,7 @@
         "result": "the document reads posted with its entry id"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-02-issue-goods.json"
   },
   {
     "id": "BP-STOCK-03",
