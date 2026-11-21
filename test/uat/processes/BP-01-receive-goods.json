@@ -2,7 +2,7 @@
   "id": "BP-01",
   "bp_entry": "BP-STOCK-01",
   "title": "Receive goods",
-  "description": "A storekeeper creates a receipt of `quantity` units (default 5), issues it, an administrator claims and completes the Post task, the balance of the item at the place grows by the quantity. The cleanup reverses the document (reason fields required by the API) and completes the Reverse task, so the balance returns to its start.",
+  "description": "A storekeeper creates a receipt of `quantity` units (default 5), issues it, an administrator claims and completes the Post task, the balance of the item at the place grows by the quantity. The unit is the item's base unit: it is read from the first balance row, and when the item has no stock at the place (a zero balance has no row) it must be given from outside as the input `uom` (the item's base unit id). The cleanup reverses the document (reason fields required by the API) and completes the Reverse task, so the balance returns to its start.",
   "tenant": "${tenant}",
   "inputs": ["item", "place", "org_unit", "responsible"],
   "defaults": {"quantity": "5"},
