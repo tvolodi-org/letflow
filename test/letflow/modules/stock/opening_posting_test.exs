@@ -197,7 +197,7 @@ defmodule Letflow.Modules.Stock.OpeningPostingTest do
           DateTime.utc_now() |> DateTime.add(-48 * 3600) |> DateTime.to_iso8601()
       })
 
-    assert {:ok, _} = O.approve(ctx, doc["id"], ctx.holder, output: %{"posting" => forged})
+    assert {:ok, _} = O.approve(ctx, doc["id"], ctx.holder, variables: %{"posting" => forged})
     [entry] = P.movements(ctx, doc["id"])
     assert entry["event_time"] == entry["posting_time"]
     assert P.get!(ctx, doc["id"])["posting_check"] == "ok"

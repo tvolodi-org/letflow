@@ -168,7 +168,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       bad_sku = Ecto.UUID.generate()
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "sku", bad_sku)
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
       no_balance_for_sku!(ctx, bad_sku)
     end
@@ -178,7 +178,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "unit", Ecto.UUID.generate())
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
 
@@ -187,7 +187,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "lot", Ecto.UUID.generate())
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
 
@@ -199,7 +199,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       output =
         posting_with_nested(get_instance!(ctx, task), "to", "location", Ecto.UUID.generate())
 
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
 
@@ -208,7 +208,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "sku", "not-a-uuid")
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
 
@@ -217,7 +217,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "sku", ctx.ma.location)
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
       no_balance_for_sku!(ctx, ctx.ma.location)
     end
@@ -231,7 +231,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with(get_instance!(ctx, task), "lot", lot2.record_id)
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
   end
@@ -279,7 +279,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       id = doc["id"]
       task = P.pending_task(ctx, id, "post")
       output = posting_with_nested(get_instance!(ctx, task), "to", "org_unit", unit2)
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, id)
     end
 
@@ -331,7 +331,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
       output =
         posting_with_nested(get_instance!(ctx, task), "from", "location", Ecto.UUID.generate())
 
-      assert {:error, _} = P.complete(ctx, task, output: output)
+      assert {:error, _} = P.complete(ctx, task, variables: output)
       assert_refused(ctx, wof_id)
     end
   end
@@ -695,7 +695,7 @@ defmodule Letflow.Modules.Stock.MasterPostingTest do
     id = doc["id"]
     task = P.pending_task(ctx, id, "post")
     output = posting_with(get_instance!(ctx, task), "sku", b_item)
-    assert {:error, _} = P.complete(ctx, task, output: output)
+    assert {:error, _} = P.complete(ctx, task, variables: output)
     assert_refused(ctx, id)
   end
 end

@@ -127,14 +127,14 @@ defmodule Letflow.Modules.Assets.KindChangeMasterPostingTest do
     lines =
       List.update_at(stock_posting["lines"], 0, &Map.put(&1, "sku", Ecto.UUID.generate()))
 
-    output = %{"stock_posting" => Map.put(stock_posting, "lines", lines)}
+    :ok = D.tamper!(ctx, task, %{"stock_posting" => Map.put(stock_posting, "lines", lines)})
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
     assert {:error, _} =
              Engine.complete_task(
                task.id,
                %{
-                 output_variables: output,
+                 output_variables: %{},
                  actor_id: holder.id,
                  idempotency_key: Ecto.UUID.generate()
                },
@@ -144,5 +144,32 @@ defmodule Letflow.Modules.Assets.KindChangeMasterPostingTest do
 
     assert {[], 0} = snapshot(ctx, id)
     assert D.pending_task(ctx, id, "post") != nil
+  end
+
+  test "MK-3 (T-2430) the body cannot set stock_posting or the assets posting: 422, both sides untouched",
+       ctx do
+    m = ctx.ka
+    receive_stock!(ctx, m, "25")
+    id = issue!(ctx, m)["id"]
+    task = D.pending_task(ctx, id, "post")
+    vars = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema).variables
+    lines = List.update_at(vars["stock_posting"]["lines"], 0, &Map.put(&1, "quantity", "24"))
+
+    assert D.task_route(task, ctx.tok_a, "claim", "{}").status == 200
+
+    for body <- [
+          %{"stock_posting" => Map.put(vars["stock_posting"], "lines", lines)},
+          %{"posting" => vars["posting"]},
+          %{"document_id" => Ecto.UUID.generate()}
+        ] do
+      conn = D.task_route(task, ctx.tok_a, "complete", Jason.encode!(body))
+      assert conn.status == 422, inspect({body, conn.status, conn.resp_body})
+      assert Jason.decode!(conn.resp_body)["code"] == "output_refused"
+      assert {[], 0} = snapshot(ctx, id)
+    end
+
+    assert Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema).variables == vars
+    assert D.task_route(task, ctx.tok_a, "complete", "{}").status == 200
+    assert {[["kind_change_in", 1], ["kind_change_out", 1]], 2} = snapshot(ctx, id)
   end
 end
