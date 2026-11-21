@@ -301,17 +301,21 @@ class StepKinds(ChainCase):
                 runner.validate_step(step, "step s")
 
     def test_repeat_sends_the_same_call_twice_and_checks_retry_semantics(self):
-        step = call("s1", "POST", "/api/v1/once", {"id": "op-1"}, {"status": 201}, expect_repeat={"status": 200, "json": {"n": 1}},
+        import uuid
+
+        step = call("s1", "POST", "/api/v1/once", {"id": "${uuid1}"}, {"status": 201}, expect_repeat={"status": 200, "json": {"n": 1}},
                     save={"op": "$.id"})
         step["do"] = {"repeat": step["do"]}
         code, _ = self.run_steps([step])
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         once = self.state.calls("POST", "/once")
         self.assertEqual(len(once), 2)
-        self.assertEqual(once[0][3], once[1][3])  # the same body
+        self.assertEqual(once[0][3], once[1][3])  # the UUID stays stable on the retry
         line = next(x for x in self.lines() if x["step"] == "s1")
         self.assertEqual([c["status"] for c in line["calls"]], [201, 200])
-        self.assertEqual(json.loads((self.run_dir / "context.json").read_text())["op"], "op-1")
+        ctx = json.loads((self.run_dir / "context.json").read_text())
+        self.assertEqual(ctx["op"], ctx["uuid1"])
+        self.assertEqual(str(uuid.UUID(ctx["op"])), ctx["op"])
 
     def test_repeat_fails_when_the_second_answer_is_not_the_expected_one(self):
         step = call("s1", "POST", "/api/v1/once", {"id": "op-2"}, {"status": 201})

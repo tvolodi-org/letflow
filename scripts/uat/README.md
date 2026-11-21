@@ -91,8 +91,10 @@ Remember the id of the document as `doc_id`."*
   from the API description or from the existing tests of the screen, never invent them. `check_processes.py`
   tells you when an address does not exist.
 * `${name}` is replaced by the value of that name: an input, something an earlier step saved, or one of the
-  built-in names `${tenant}`, `${run_id}` (the id of this run: put it into notes so that test data is
-  recognisable) and `${now_utc}` (the time now). You may add and subtract numbers: `${balance_before + quantity}`.
+  built-in names `${tenant}`, `${TENANT}`, `${run_id}` (the id of this run: put it into notes so that test data is
+  recognisable), `${now_utc}` (the time now), `${old_base_url}` and `${uuid1}` .. `${uuid12}`. Each UUID name is a
+  fresh UUID for the run, different from the other names, and keeps the same value wherever it is used, including a
+  `repeat` retry. You may add and subtract numbers: `${balance_before + quantity}`.
   Using a name that nobody gave or saved is a mistake that the static check reports.
 * `expect`: what a good answer is. `status` is the answer code (one code or a list: `[200, 201]`; without it any
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
