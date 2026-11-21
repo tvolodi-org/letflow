@@ -1,1 +1,140 @@
-[]
+[
+ {
+  "route": [
+   "GET /health",
+   "GET /ready"
+  ],
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/router.ex:123 (get /health), :129 (get /ready); Letflow.Router plugs are only Cors, HttpMetrics, ErrorCapture (router.ex:107-113)",
+  "reason": "Liveness and readiness probes for deploy scripts and the load balancer: no database for /health, fixed part names and no tenant data for /ready (router.ex:116-139). /health also returns the build commit sha (Letflow.BuildInfo.sha, router.ex:124): accepted, no tenant data.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": "GET /metrics",
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/metrics_exposition.ex:94 (only :match, :dispatch; forward at router.ex:158 before /api/v1)",
+  "reason": "Prometheus scrape target, decision REQ-194 (moduledoc 'Auth' row): no authentication by design; safe only because no metric label carries a tenant or entity id (moduledoc AC6). Advisory: nothing in deploy/ blocks it at the proxy; the platform operator decides whether to restrict it to the monitoring network.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": [
+   "POST /admin/v1/tenants",
+   "GET /admin/v1/tenants/:id",
+   "POST /admin/v1/tenants/:id/suspend",
+   "POST /admin/v1/tenants/:id/resume",
+   "POST /admin/v1/tenants/:id/expire",
+   "DELETE /admin/v1/tenants/:id"
+  ],
+  "authentication": "shared-secret",
+  "tenant_scope": "platform-level",
+  "permission": "exempt",
+  "classification": "plug-authenticated",
+  "plug": "lib/letflow/routers/admin_v1.ex:46 plug(Letflow.Plugs.ProvisionerAuth) + :class_gate (admin_v1.ex:47); credential class :write (all six) or :read (GET /tenants/:id only), hash-configured SHA-256, secure_compare (plugs/provisioner_auth.ex:60-83); rate limited after acceptance (RateLimiter.hit, provisioner_auth.ex:65); 404 when no hash is configured (provisioner_auth.ex:42-47)",
+  "reason": "Tenant provisioning API of decision 0072 (QA only): a credential class outside the role system, so there is no permission atom and no tenant in the token; the tenant is named by the path id and the credential is platform-wide.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": [
+   "GET /maintenance/v1/problem-reports",
+   "GET /maintenance/v1/error-groups"
+  ],
+  "authentication": "shared-secret",
+  "tenant_scope": "platform-level",
+  "permission": "exempt",
+  "classification": "plug-authenticated",
+  "plug": "lib/letflow/routers/maintenance_v1.ex:30 plug(Letflow.Plugs.ReportExportAuth): bearer, SHA-256 hash secure_compare (plugs/report_export_auth.ex:40-83), rate limited after acceptance (report_export_auth.ex:68)",
+  "reason": "Read-only export of platform problem reports and error groups for the PM handoff (T-1948, T-1951); error groups carry a count of companies, never ids (maintenance_v1.ex moduledoc).",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": "POST /maintenance/v1/owner-list/import",
+  "authentication": "shared-secret",
+  "tenant_scope": "platform-level",
+  "permission": "exempt",
+  "classification": "plug-authenticated",
+  "plug": "lib/letflow/routers/maintenance_owner_list_v1.ex:28 plug(Letflow.Plugs.ReportExportAuth, credential: :owner_list): its own hash (LETFLOW_OWNER_LIST_SHA256); the export token is 401 here (moduledoc); forward at router.ex:196 above /maintenance/v1",
+  "reason": "Import of the lab owner list by the owner-list team (T-1963): a separate write credential, body bound 45 MB read after authentication (maintenance_owner_list_v1.ex:@max_body_bytes).",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": "POST /api/login-discovery",
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/login_discovery.ex:60-62 enabled_gate, ClientIp, LoginDiscoveryRateLimit (before :match)",
+  "reason": "Email-first login lookup before a person has a token (REQ-437): neutral 202 for every input, one disclosed match at most, per-address and per-email buckets, mount switch off returns 404.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": [
+   "GET /api/signup/config",
+   "POST /api/signup",
+   "POST /api/signup/verify"
+  ],
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/signup.ex:36-37 enabled_gate (404 unless LETFLOW_SIGNUP_ENABLED is true) and ClientIp; limits and captcha in Letflow.Signup.submit (signup.ex:66-98: rate_limited, rate_limited_domain, captcha_failed)",
+  "reason": "Self-service signup: a visitor has no account yet; per-address and per-domain caps, captcha, e-mail verification link; off by default.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": "GET /api/public/:kind/:handle",
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/public_read.ex:55 plug(Letflow.Plugs.PublicReadRateLimit) (global and per-address buckets, plugs/public_read_rate_limit.ex:36-44)",
+  "reason": "Unauthenticated read of one published resource by an unguessable handle (decision 0028, REQ-352): the handle hash row names the tenant (PublicRead.resolve_registered joins tenants), every miss is the same 404, no-store headers.",
+  "owner": "process owner of the published resource"
+ },
+ {
+  "route": [
+   "GET /api/tenant-config",
+   "GET /api/tenant-config/logo"
+  ],
+  "authentication": "none-by-design",
+  "tenant_scope": "host",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/tenant_config.ex:227 plug(Letflow.Plugs.AuthAttemptLimit, mode: :requests); forward at router.ex:145",
+  "reason": "Public sign-in configuration the login page needs before a token exists (REQ-078): resolved by ?realm=, the bound ?host= or the default tenant (logo: ?slug= only); unknown input gets the default answer, so a prober cannot tell a real tenant (moduledoc anti-oracle point).",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": "GET /api/mobile/tenant-config",
+  "authentication": "none-by-design",
+  "tenant_scope": "none-by-design",
+  "permission": "exempt",
+  "classification": "public-by-design",
+  "plug": "lib/letflow/routers/mobile_tenant_config.ex:211 plug(Letflow.Plugs.AuthAttemptLimit, mode: :requests); forward at router.ex:152",
+  "reason": "Public sign-in and branding configuration for the mobile app by ?slug= only (no host branch, moduledoc OQ-2); same neutral answer for unknown slugs.",
+  "owner": "platform operator (infra team)"
+ },
+ {
+  "route": [
+   "GET /qoimeks/:tenant_slug/catalog",
+   "GET /qoimeks/:tenant_slug/codes/lookup",
+   "POST /qoimeks/:tenant_slug/voice",
+   "GET /qoimeks/:tenant_slug/balances",
+   "GET /qoimeks/:tenant_slug/movements",
+   "POST /qoimeks/:tenant_slug/movements",
+   "POST /qoimeks/:tenant_slug/movements/:id/reverse"
+  ],
+  "authentication": "shared-access",
+  "tenant_scope": "tenant-prefix",
+  "permission": "exempt",
+  "classification": "plug-authenticated",
+  "plug": "lib/letflow/routers/shared_stock_access.ex:79-81 AuthAttemptLimit(:failures), :authenticate (def at :149, proof at :172: listed slug, active tenant, stock installed, hash of the tenant's own shared_stock_access row), :strip_api; per-credential request limit; 403 while scope enforcement is on or shadow (moduledoc step 4)",
+  "reason": "Old Qoimeks app address (REQ-859, decision 0091): a per-tenant shared-access bearer, not an API token; the tenant is the path slug, proved by the credential; the permission is the ledger's authorize_shared_access, not a policy atom. /voice answers only in the /api form (shared_stock_access.ex:97-99).",
+  "owner": "tenant administrator of the tenant (issues the shared access)"
+ }
+]
