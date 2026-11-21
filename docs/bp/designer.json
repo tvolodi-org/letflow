@@ -122,7 +122,7 @@
     "id": "BP-DESIGNER-02",
     "area": "designer",
     "title": "Activate, retire and archive a process definition",
-    "description": "A designer or administrator turns a draft into the active version. Activation checks the graph, the scripts it binds and the services it calls and records who activated it. An active version can be re-activated when its activator lost authority, deprecated, and archived; delete on an active one deprecates then archives.",
+    "description": "A designer or administrator turns a draft into the active version. Activation checks the graph, the scripts it binds and the services it calls and records who activated it. An active version can be re-activated when its activator lost authority, deprecated, and archived; delete on an active one deprecates then archives. No runner scenario covers this process directly: BP-DESIGNER-01 only exercises activation and the deprecate-then-archive that its cleanup DELETE performs.",
     "actors": [
       {
         "role": "PROCESS_DESIGNER",
@@ -1921,7 +1921,7 @@
     "id": "BP-DESIGNER-27",
     "area": "designer",
     "title": "SECURITY: crafted start and completion refused (write targets)",
-    "description": "POST /instances with caller-chosen initial variables, or a task completion body, that names an engine-owned variable or a module write target is refused with 422 output_refused and nothing is written (T-2429, T-2443; decision of commit 3a84f6a2b).",
+    "description": "Starting an instance of a definition whose nodes carry module write targets through POST /instances is refused with 404 (the answer for an unknown definition, INV-5) and nothing is started; a task completion body that names an engine-owned variable or a module write target is refused with 422 output_refused and nothing is written (T-2429, T-2443; commit 3a84f6a2b).",
     "actors": [
       {
         "role": "PROCESS_OPERATOR",
@@ -1944,7 +1944,7 @@
         "code_refs": [
           "lib/letflow/routers/instances.ex:416"
         ],
-        "result": "the start route refuses a crafted initial variable"
+        "result": "404, nothing started (a module-write definition cannot be started publicly)"
       },
       {
         "actor": "TASK_WORKER",
@@ -1954,13 +1954,14 @@
         "code_refs": [
           "lib/letflow/routers/tasks.ex:159"
         ],
-        "result": "the completion route refuses a crafted body"
+        "result": "422 output_refused for a crafted body, nothing written"
       }
     ],
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "422 output_refused, no write"
+      "start of a module-write definition: 404, nothing started",
+      "completion with crafted body: 422 output_refused, no write"
     ],
     "scenario": null,
     "status": "implemented",
@@ -1970,7 +1971,7 @@
     "id": "BP-DESIGNER-28",
     "area": "designer",
     "title": "SECURITY: token and host lookup (wrong, expired, other-tenant token; unknown host)",
-    "description": "A request with no token, a bad or expired token, a token of another tenant's issuer, or an unknown host is refused 401 with the same body, before any handler runs.",
+    "description": "A request with no token, a bad or expired token, or a token of another tenant's issuer is refused 401 with the same body, before any handler runs. (No host-based tenant lookup exists in the API plugs; the unknown-host case is not claimed.)",
     "actors": [
       {
         "role": "anyone",
@@ -2001,13 +2002,14 @@
     ],
     "scenario": null,
     "status": "implemented",
-    "security_status": "planned: the runner steps always carry an actor token; a no-token step kind is needed"
+    "security_status": "planned: the runner steps always carry an actor token; a no-token step kind is needed",
+    "code_refs_note": "auth plug: lib/letflow/plugs/auth_pipeline.ex"
   },
   {
     "id": "BP-DESIGNER-29",
     "area": "designer",
     "title": "SECURITY: upload types and limits",
-    "description": "An attachment or import file of a forbidden type, over the size limit or malformed is refused and nothing is stored.",
+    "description": "An instance attachment whose declared content type is outside the allowlist (415, REQ-389, Letflow.Repository.Attachments.upload/2) or over the 25 MiB ceiling (413) is refused and nothing is stored; a record attachment over the size ceiling is refused 413 (its type check is not confirmed here); a malformed import file writes nothing.",
     "actors": [
       {
         "role": "PROCESS_OPERATOR",
@@ -2028,7 +2030,7 @@
         "code_refs": [
           "lib/letflow/routers/instances.ex:439"
         ],
-        "result": "an instance attachment over the limit or of a forbidden type is refused"
+        "result": "415 for a declared content type outside the allowlist, 413 over the size ceiling; nothing stored (the type is the caller-declared one, not sniffed)"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -2038,7 +2040,7 @@
         "code_refs": [
           "lib/letflow/routers/entities.ex:447"
         ],
-        "result": "a record attachment is refused the same way"
+        "result": "413 over the size ceiling, nothing stored"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -2054,7 +2056,8 @@
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "413/422, nothing stored"
+      "415 content type not allowed (instance attachment)",
+      "413 over the size limit"
     ],
     "scenario": null,
     "status": "implemented",
