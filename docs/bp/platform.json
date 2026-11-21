@@ -1842,5 +1842,71 @@
     "uat": "planned (see tasks); the other kinds are owned by the named areas",
     "status": "partial",
     "gap": "no runner scenario yet for token lookup and unknown host"
+  },
+  {
+    "id": "BP-PLATFORM-23",
+    "area": "platform",
+    "title": "Check a certificate by its public handle (no login)",
+    "description": "Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public page /verify/<handle> without signing in and sees whether the certificate is valid. The page lives in the core web router outside the login; the exam application only issues the handle.",
+    "actors": [
+      {
+        "role": "anyone (no login)",
+        "permission": "none: public read, rate limited per address"
+      }
+    ],
+    "preconditions": [
+      "a certificate was issued and its public handle was given out (BP-EXAM, task 'get the certificate')"
+    ],
+    "tasks": [
+      {
+        "actor": "anyone",
+        "forms": [
+          "/verify/:handle"
+        ],
+        "functions": [],
+        "route": [
+          "GET /verify/:handle (web page)"
+        ],
+        "code_refs": [
+          "web/src/router.tsx:116",
+          "web/src/pages/VerifyCertificatePage.tsx:47"
+        ],
+        "result": "the page reads the public API with the handle from the address and shows the certificate data, or a not-found notice"
+      },
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.PublicRead.resolve",
+          "Letflow.Routers.PublicRead"
+        ],
+        "route": [
+          "GET /api/public/certificate/:handle"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/public_read.ex:59",
+          "lib/letflow/public_read.ex:131",
+          "lib/letflow/router.ex:167"
+        ],
+        "result": "200 with the public projection of the certificate; an unknown kind or unknown handle gets the same 404; responses carry no-store, no-referrer and noindex headers"
+      }
+    ],
+    "inputs": [
+      "the public handle"
+    ],
+    "outputs": [
+      "the public view of the certificate"
+    ],
+    "refusals": [
+      "unknown or wrong handle: 404, identical to an unknown kind",
+      "too many lookups from one address: rate limited by the PublicReadRateLimit plug"
+    ],
+    "tests": [
+      "test/letflow/routers/public_read_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: a runner scenario needs an issued certificate (BP-EXAM) and a public GET step without a token",
+    "status": "partial",
+    "gap": "no runner scenario yet; web page covered only by component tests if any"
   }
 ]
