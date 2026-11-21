@@ -10,7 +10,8 @@ defmodule Letflow.Modules.Stock.ModuleStartRouteTest do
   Tests: MS-S1 the exploit (a stock opening posted by its issuer alone through the start route),
   MS-S2 every stock write definition (receipt kinds, opening, reversal, count) by name and by id,
   MS-S3 a legitimate document issue, opening and reversal still start and post, MS-S4 tenant B's
-  definition and tenant B's variables from tenant A's route.
+  definition and tenant B's variables from tenant A's route, MS-S6 a tenant parent's SUB_PROCESS
+  child start gets the same refusal.
   Committed tenants, Sandbox `:auto`, `async: false`.
   """
 
@@ -18,6 +19,7 @@ defmodule Letflow.Modules.Stock.ModuleStartRouteTest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Definitions
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Modules.Stock.Documents.Posting
@@ -159,6 +161,49 @@ defmodule Letflow.Modules.Stock.ModuleStartRouteTest do
     assert instance_count(ctx.schema) == before_a
     assert instance_count(ctx.b.schema_name) == before_b
     assert P.counts(%{ctx | schema: ctx.b.schema_name}, doc_b["id"]) == %{entries: %{}, marks: 0}
+  end
+
+  test "MS-S6 a tenant parent cannot start stock_receipt as its SUB_PROCESS child", ctx do
+    assert :ok = Posting.ensure_active(ctx.schema, "stock_receipt", nil)
+
+    parent_graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "sub",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => "stock_receipt"}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "p0", "source" => "start", "target" => "sub"},
+        %{"id" => "p1", "source" => "sub", "target" => "end"}
+      ]
+    }
+
+    {:ok, draft} =
+      Definitions.create(
+        %{
+          name: "tenant-parent-#{System.unique_integer([:positive])}",
+          version: "1.0.0",
+          graph: parent_graph,
+          created_by: Ecto.UUID.generate()
+        },
+        prefix: ctx.schema
+      )
+
+    {:ok, %{definition: parent}} = Definitions.activate(draft.id, prefix: ctx.schema)
+    before = instance_count(ctx.schema)
+
+    conn =
+      start_route(ctx.tok_a, %{
+        "definition_id" => parent.id,
+        "initial_variables" => %{}
+      })
+
+    assert_unknown(conn)
+    assert instance_count(ctx.schema) == before
   end
 
   test "MS-S5 the module start option is not read from the request body", ctx do
