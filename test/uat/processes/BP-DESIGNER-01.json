@@ -168,8 +168,12 @@
         "api": "POST",
         "path": "/api/v1/definitions/${def_id}/activate"
       },
-      "expect_refused": {
-        "status": 409
+      "expect": {
+        "status": 200,
+        "json": {
+          "id": "${def_id}",
+          "status": "ACTIVE"
+        }
       }
     },
     {

@@ -152,7 +152,7 @@
           "lib/letflow/routers/definitions.ex:298",
           "web/src/router.tsx:132"
         ],
-        "result": "the draft becomes ACTIVE; a non-draft gets 409; a bad graph or an unusable service 422"
+        "result": "the draft becomes ACTIVE; an already ACTIVE version answers 200 unchanged, a deprecated or archived one 409; a bad graph or an unusable service 422"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -187,7 +187,7 @@
     ],
     "refusals": [
       "a role without DefinitionsWrite gets 403",
-      "activating twice gets 409",
+      "activating an already ACTIVE version is idempotent (200, nothing changes); activating a deprecated or archived one gets 409",
       "a module-owned version cannot be changed (409)"
     ],
     "scenario": null,
