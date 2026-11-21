@@ -8,7 +8,7 @@
   "defaults": {"missing_id": "00000000-0000-4000-8000-000000000000"},
   "dry_run": {
     "tenant": "bilimbaga",
-    "actors": {"candidate": "bilimbaga-candidate", "admin": "bilimbaga-admin"},
+    "actors": {"candidate": "actor-bilimbaga-candidate", "admin": "actor-bilimbaga-admin"},
     "inputs": {}
   },
   "steps": [

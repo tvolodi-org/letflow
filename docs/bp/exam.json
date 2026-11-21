@@ -173,8 +173,8 @@
     "outputs": ["session status", "score percent", "passed flag"],
     "refusals": [
       "a session id that is not the caller's own, does not exist, or is not a UUID: the same 404 body",
-      "answer after the deadline or on a closed session: refused; a question that is not in the session: 422; an option that is not the question's: 422; a wrong answer shape: 422",
-      "a signal type other than the three: 422; a signal on a closed session or after the deadline: refused",
+      "answer after the deadline or on a closed session: refused; a question that is not in the session: 400; an option that is not the question's: 400; a wrong answer shape: 400",
+      "a signal type other than the three: 400; a signal on a closed session or after the deadline: refused",
       "a body with a candidate id, a score or an action_taken is not read (there is no such parameter)"
     ],
     "scenario": null,
@@ -250,7 +250,7 @@
         "functions": ["Letflow.Modules.Exam.Certificate.issue_or_get_for_user"],
         "route": "POST /api/v1/modules/exam/exam-sessions/:id/certificate",
         "code_refs": ["lib/letflow/modules/exam/router.ex:863", "lib/letflow/modules/exam/certificate.ex:280"],
-        "result": "201 on first issue, 200 with the same certificate afterwards"
+        "result": "200 on first issue, with a one-time public_handle; 200 with the same certificate, without public_handle, afterwards"
       },
       {
         "actor": "CANDIDATE",
@@ -311,7 +311,7 @@
         "functions": ["Letflow.Modules.Exam.AntiCheat.record_signal", "Letflow.Modules.Exam.Session.autosave_answer"],
         "route": ["POST /api/v1/modules/exam/exam-sessions/:id/events", "PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id"],
         "code_refs": ["lib/letflow/modules/exam/anti_cheat.ex:127", "lib/letflow/modules/exam/session.ex:754"],
-        "result": "crafted input: a signal type outside the three is 422, an answer or signal after the stored deadline is refused (the server compares its own clock to the session's stored expiry), a question or option not in the session is 422; planned as a runner scenario: needs an open session and a short exam, which only a seeded exam can give"
+        "result": "crafted input: a signal type outside the three is 400, an answer or signal after the stored deadline is refused (the server compares its own clock to the session's stored expiry), a question or option not in the session is 400; planned as a runner scenario: needs an open session and a short exam, which only a seeded exam can give"
       }
     ],
     "inputs": [],
