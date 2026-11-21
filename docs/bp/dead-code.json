@@ -335,7 +335,7 @@
   "status": "not_covered"
  },
  "xref": {
-  "calls": 70578,
+  "calls": 70588,
   "mix_env": "dev",
   "source": "mix xref (Mix.Tasks.Xref.calls)"
  }
