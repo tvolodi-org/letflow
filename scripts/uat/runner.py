@@ -10,9 +10,9 @@ Tokens come ONLY from the caller's environment: for each actor the runner calls
 The runner never prints a token, never writes one to a file and scrubs every token it has
 seen (and anything shaped like a JWT) out of the log before it is written.
 
-Commands: `run` (one process), `chain` (an ordered list of processes sharing one context),
-`cleanup` (replay the recorded cleanup list of an aborted run, also `--cleanup <run dir>`) and
-`dry-run` (run every changed process file on QA with its own `dry_run` block).
+Commands: `run` (one process), `chain` (an ordered list of processes with isolated working contexts and explicit
+`pass` lists for outputs handed on), `cleanup` (replay the recorded cleanup list of an aborted run, also
+`--cleanup <run dir>`) and `dry-run` (run every changed process file on QA with its own `dry_run` block).
 
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
@@ -466,13 +466,15 @@ def origin_of(url: str) -> str:
 
 
 class Runner:
-    """One run: a list of processes (a chain; one process is a chain of one) sharing one context."""
+    """One run: fixtures share the base context; each chain process gets its own context plus passed outputs."""
 
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
-                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None):
+                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None):
         self.processes = list(process) if isinstance(process, (list, tuple)) else [process]
         self.fixtures = list(fixtures or [])  # fixture documents, in run order (see expand_fixtures)
+        self.pass_map = pass_map or {}  # chain: source process id -> output names the later processes may read
+        self.process_outputs = {}  # all declared outputs, for the final context/report; never implicit process input
         self.process = self.processes[0]
         self.label = label or "+".join(p["id"] for p in self.processes)
         self.base_url = base_url.rstrip("/")
@@ -938,37 +940,51 @@ class Runner:
 
     # -- processes, cleanup -------------------------------------------------------------------
 
-    def run_process(self, process) -> bool:
-        """The steps of one process (then its outputs). Its cleanup is recorded now and runs at the end."""
+    def run_process(self, process, isolated=False) -> bool:
+        """Run one process and freeze the context of its cleanup. A chain process is isolated: only the
+        outputs named by the chain's `pass` list are copied back for later processes. Fixtures are not isolated."""
+        shared = self.ctx
+        work = dict(shared) if isolated else shared
+        self.ctx = work
         self.process = process
-        entry = {"process": process["id"], "cleanup": process.get("cleanup") or [], "ctx": self.ctx, "done": False}
+        entry = {"process": process["id"], "cleanup": process.get("cleanup") or [], "ctx": work, "done": False}
         self.entries.append(entry)
-        for name, value in (process.get("defaults") or {}).items():
-            self.ctx.setdefault(name, value)
-        self.save_context()
-        missing = [n for n in process.get("inputs") or [] if n not in self.ctx]
-        steps_ok = True
-        if missing:
-            steps_ok = False
-            self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
-                             "error": "inputs missing: " + ", ".join(missing)})
-        for step in process["steps"] if steps_ok else []:
-            if steps_ok:
-                steps_ok = self.run_step(step, "step")
-            else:
-                self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
-                                 "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
-        if steps_ok:
-            try:
-                for name, expr in (process.get("outputs") or {}).items():
-                    self.ctx[name] = substitute(expr, self.ctx)
-            except RunnerError as err:
+        try:
+            for name, value in (process.get("defaults") or {}).items():
+                self.ctx.setdefault(name, value)
+            self.save_context()
+            missing = [n for n in process.get("inputs") or [] if n not in self.ctx]
+            steps_ok = True
+            if missing:
                 steps_ok = False
-                self.write_line({"phase": "outputs", "step": "outputs", "actor": "-", "verdict": "error",
-                                 "error": str(err), "ms": 0})
-        entry["ctx"] = dict(self.ctx)  # frozen: this process's cleanup sees the context as it left it
-        self.save_context()
-        return steps_ok
+                self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
+                                 "error": "inputs missing: " + ", ".join(missing)})
+            for step in process["steps"] if steps_ok else []:
+                if steps_ok:
+                    steps_ok = self.run_step(step, "step")
+                else:
+                    self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
+                                     "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
+            if steps_ok:
+                try:
+                    for name, expr in (process.get("outputs") or {}).items():
+                        self.ctx[name] = substitute(expr, self.ctx)
+                except RunnerError as err:
+                    steps_ok = False
+                    self.write_line({"phase": "outputs", "step": "outputs", "actor": "-", "verdict": "error",
+                                     "error": str(err), "ms": 0})
+            entry["ctx"] = dict(self.ctx)  # frozen: this process's cleanup sees the context as it left it
+            if steps_ok:
+                outputs = {name: self.ctx[name] for name in (process.get("outputs") or {}) if name in self.ctx}
+                self.process_outputs.update(outputs)
+                if isolated:
+                    for name in self.pass_map.get(process["id"], []):
+                        if name in outputs:
+                            shared[name] = outputs[name]
+            self.save_context()
+            return steps_ok
+        finally:
+            self.ctx = shared
 
     def run_fixture(self, fixture) -> bool:
         """A fixture is a process whose steps run first; its cleanup (recorded now) runs after every process's."""
@@ -1037,8 +1053,12 @@ class Runner:
                                      "error": "an earlier process failed"})
                     results[process["id"]] = None
                     continue
-                results[process["id"]] = self.run_process(process)
+                results[process["id"]] = self.run_process(process, isolated=len(self.processes) > 1)
                 stopped = not results[process["id"]] and not self.keep_going
+            # The final context is a report of the run. These outputs were not visible to later processes
+            # unless their `pass` list copied them into the shared context above.
+            self.ctx.update(self.process_outputs)
+            self.save_context()
         finally:
             cleanup_ok = self.cleanup_all()
         self.process = {"id": self.label}
@@ -1212,6 +1232,15 @@ class Runner:
 
 # -- loading ------------------------------------------------------------------------------------
 
+PLACEHOLDER_LITERAL = re.compile(r"REPLACE-WITH-[A-Za-z0-9_-]+")
+
+
+def refuse_placeholders(text: str, source) -> None:
+    """A manual fill-in marker must never reach QA as a real request value (exit 2 / a static problem)."""
+    match = PLACEHOLDER_LITERAL.search(text)
+    if match:
+        raise ConfigError(f"{source}: placeholder {match.group()!r} is not allowed; use an input or a fixture")
+
 
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
@@ -1259,7 +1288,9 @@ def validate_step(step, where) -> None:
 
 def load_process(path) -> dict:
     try:
-        process = json.loads(Path(path).read_text(encoding="utf-8"))
+        text = Path(path).read_text(encoding="utf-8")
+        refuse_placeholders(text, path)
+        process = json.loads(text)
     except (OSError, ValueError) as err:
         raise ConfigError(f"cannot read process file {path}: {err}") from None
     if not isinstance(process, dict) or not process.get("id") or not isinstance(process.get("steps"), list) or not process["steps"]:
@@ -1333,7 +1364,9 @@ def load_chain(path) -> tuple:
     """-> (chain document, [process documents]). `processes` are names resolved in ../processes (with or
     without .json, or a stem such as BP-01), or paths relative to the chain file."""
     try:
-        chain = json.loads(Path(path).read_text(encoding="utf-8"))
+        text = Path(path).read_text(encoding="utf-8")
+        refuse_placeholders(text, path)
+        chain = json.loads(text)
     except (OSError, ValueError) as err:
         raise ConfigError(f"cannot read chain file {path}: {err}") from None
     names = chain.get("processes") if isinstance(chain, dict) else None
@@ -1347,7 +1380,25 @@ def load_chain(path) -> tuple:
     ids = [p["id"] for p in processes]
     if len(set(ids)) != len(ids):
         raise ConfigError("a process appears twice in the chain: " + ", ".join(sorted({i for i in ids if ids.count(i) > 1})))
+    validate_pass_map(chain, processes)
     return chain, processes
+
+
+def validate_pass_map(chain, processes) -> dict:
+    """The chain's optional `pass`: {source process id: [output names later processes may read]}"""
+    value = chain.get("pass", {})
+    if not isinstance(value, dict):
+        raise ConfigError("chain: pass must be an object {process id: [output names]}")
+    by_id = {p["id"]: p for p in processes}
+    for pid, names in value.items():
+        if pid not in by_id:
+            raise ConfigError(f"chain: pass names unknown process {pid!r}")
+        if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
+            raise ConfigError(f"chain: pass.{pid} must be a list of output names")
+        unknown = set(names) - set(by_id[pid].get("outputs") or {})
+        if unknown:
+            raise ConfigError(f"chain: pass.{pid} names non-outputs: " + ", ".join(sorted(unknown)))
+    return value
 
 
 def resolve_process_file(chain_dir: Path, name: str) -> Path:
@@ -1359,9 +1410,9 @@ def resolve_process_file(chain_dir: Path, name: str) -> Path:
     raise ConfigError(f"chain: no process file for {name!r} (looked in {chain_dir.parent / 'processes'})")
 
 
-def check_chain_inputs(processes, provided: set, fixtures=()) -> None:
-    """Every process finds its inputs in what the caller gave, its defaults, or the outputs of an earlier process.
-    Fixtures run first: what they `provide` is available to everything after them."""
+def check_chain_inputs(processes, provided: set, fixtures=(), pass_map=None) -> None:
+    """Every process finds its inputs in the caller/fixtures or the earlier outputs explicitly named by `pass`.
+    Fixtures run first: what they `provide` is available to everything after them. Working/default names stay local."""
     available = set(provided) | set(BUILTIN_NAMES)
     for f in fixtures:
         missing = set(f.get("inputs") or []) - available - set(f.get("defaults") or {})
@@ -1372,7 +1423,7 @@ def check_chain_inputs(processes, provided: set, fixtures=()) -> None:
         missing = set(p.get("inputs") or []) - available - set(p.get("defaults") or {})
         if missing:
             raise ConfigError(f"{p['id']}: inputs missing: " + ", ".join(sorted(missing)))
-        available |= set(p.get("outputs") or {}) | set(p.get("defaults") or {})
+        available |= set((pass_map or {}).get(p["id"], []))
 
 
 def parse_pairs(items, what) -> dict:
@@ -1459,9 +1510,9 @@ def cmd_dry_run(args, out=None) -> int:
                 chain, processes = load_chain(path)
                 label = chain["id"]
             else:
-                processes, label = [load_process(path)], doc["id"]
+                chain, processes, label = {}, [load_process(path)], doc["id"]
             fixtures = fixtures_for(processes + ([doc] if "processes" in doc else []), fixtures_dir_for(path))
-            check_chain_inputs(processes, set(inputs), fixtures)
+            check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"))
         except ConfigError as err:
             print(f"dry-run: {path.name}: {err}", file=out)
             worst = 1
@@ -1470,7 +1521,7 @@ def cmd_dry_run(args, out=None) -> int:
         runner = Runner(processes, base_url=base, tenant=tenant, actors=actors, run_dir=root_dir / path.stem,
                         inputs=inputs, health_url=args.health_url, poll_interval=args.poll_interval, out=out,
                         build_sha=args.build_sha, old_base_url=block.get("old_base_url") or args.old_base_url,
-                        keep_going=False, label=label, file_issues=False, fixtures=fixtures)
+                        keep_going=False, label=label, file_issues=False, fixtures=fixtures, pass_map=chain.get("pass"))
         code = runner.run(check_stable=(index == 0 and not args.no_stable_check))
         worst = max(worst, 1 if code else 0)
     print("dry-run: " + ("PASS" if worst == 0 else "FAIL") + f" ({len(files)} file(s), runs in {root_dir})", file=out)
@@ -1571,7 +1622,7 @@ def main_run(args) -> int:
         needed.discard(None)
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
-        check_chain_inputs(processes, set(inputs), fixtures)
+        check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"))
         base_url = args.base_url or chain.get("base_url") or base_url_for(tenant, args.base_url_template)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
         run_dir = new_run_dir(args, run_id)
@@ -1581,7 +1632,8 @@ def main_run(args) -> int:
     runner = Runner(processes, base_url=base_url, tenant=tenant, actors=actors, run_dir=run_dir, inputs=inputs,
                     health_url=args.health_url, poll_interval=args.poll_interval, run_id=run_id, build_sha=args.build_sha,
                     old_base_url=args.old_base_url or chain.get("old_base_url"), keep_going=getattr(args, "keep_going", False),
-                    label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures)
+                    label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures,
+                    pass_map=chain.get("pass"))
     return runner.run(check_stable=not args.no_stable_check)
 
 

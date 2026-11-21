@@ -88,6 +88,7 @@ class CheckCase(unittest.TestCase):
             path.write_text(text)
         (self.root / "test/uat/processes").mkdir(parents=True)
         (self.root / "test/uat/chains").mkdir(parents=True)
+        (self.root / "test/uat/fixtures").mkdir()
 
     def write(self, doc, rel="test/uat/processes/BP-T.json", raw=None):
         path = self.root / rel
@@ -253,6 +254,10 @@ class Process(CheckCase):
         path = bare / "test/uat/processes/BP-T.json"
         path.write_text(json.dumps(self.mutated(lambda d: d["steps"][1].update(actor="ghost"))))
         self.assertEqual(check_processes.check_files([path], root=bare), [])
+    def test_a_placeholder_anywhere_in_a_process_is_refused(self):
+        doc = self.mutated(lambda d: d.update(defaults={"quantity": "REPLACE-WITH-QUANTITY"}))
+        problems = self.check(doc)
+        self.assertTrue(any("REPLACE-WITH-QUANTITY" in p and "placeholder" in p for p in problems), problems)
 
 
 class BpEntryAndDryRun(CheckCase):
@@ -296,9 +301,28 @@ class Chains(CheckCase):
     def consumer(self, uses="receipt"):
         return {"id": "BP-C", "inputs": [uses], "steps": [step("s1", "GET", f"/api/v1/modules/stock/documents/${{{uses}}}")]}
 
-    def test_a_variable_from_an_earlier_process_is_defined(self):
-        path = self.chain([self.producer(), self.consumer()])
+    def test_only_an_output_listed_in_pass_is_defined_for_a_later_process(self):
+        path = self.chain([self.producer(), self.consumer()], **{"pass": {"BP-P": ["receipt"]}})
         self.assertEqual(check_processes.check_files([path], root=self.root), [])
+        path = self.chain([self.producer(), self.consumer()])
+        problems = check_processes.check_files([path], root=self.root)
+        self.assertTrue(any("'receipt'" in p and "BP-C" in p for p in problems), problems)
+
+    def test_a_pass_list_must_name_an_output_of_its_process(self):
+        path = self.chain([self.producer()], **{"pass": {"BP-P": ["not_an_output"]}})
+        problems = check_processes.check_files([path], root=self.root)
+        self.assertTrue(any("pass" in p and "not_an_output" in p for p in problems), problems)
+
+    def test_a_placeholder_in_a_chain_or_a_fixture_is_refused(self):
+        path = self.chain([self.producer()], inputs={"item": "REPLACE-WITH-ITEM-ID"})
+        problems = check_processes.check_files([path], root=self.root)
+        self.assertTrue(any("REPLACE-WITH-ITEM-ID" in p for p in problems), problems)
+        fixture = copy.deepcopy(GOOD)
+        fixture.update(description="fixture", leaves="nothing", provides=["doc_id"])
+        fixture["steps"][0]["do"]["path"] += "&other=REPLACE-WITH-OTHER"
+        path = self.write(fixture, rel="test/uat/fixtures/fx.json")
+        problems = check_processes.check_files([path], root=self.root)
+        self.assertTrue(any("REPLACE-WITH-OTHER" in p for p in problems), problems)
 
     def test_a_variable_that_only_a_later_process_gives_is_undefined(self):
         path = self.chain([self.consumer(), self.producer()])
@@ -388,6 +412,15 @@ class RcSssChain(unittest.TestCase):
             pdoc = json.loads(check_processes.runner.resolve_process_file(self.CHAIN.parent, name).read_text())
             missing = [i for i in pdoc.get("inputs", []) if i not in doc["inputs"]]
             self.assertEqual(missing, [], name)
+    def test_second_place_is_a_fixture_and_no_placeholder_remains(self):
+        doc = json.loads(self.CHAIN.read_text())
+        self.assertIn("second_place", doc.get("fixtures") or [])
+        self.assertNotIn("place_to", doc["inputs"])
+        self.assertNotIn("REPLACE-WITH-", self.CHAIN.read_text())
+        transfer = json.loads(check_processes.runner.resolve_process_file(self.CHAIN.parent, "BP-03").read_text())
+        self.assertIn("second_place", transfer.get("fixtures") or [])
+        self.assertEqual(check_processes.check_files([self.ROOT / "test/uat/fixtures/second_place.json"],
+                                                     root=self.ROOT), [])
 
 
 if __name__ == "__main__":

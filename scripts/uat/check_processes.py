@@ -11,7 +11,9 @@ A process file is checked for:
   * every actor is a role of the roster test/fixtures/uat/actors.yaml (read as text: the roster entry
     is named actor-<slug>-<role>, the role is the last part);
   * every ${name} is an input, a default, a built-in (tenant, run_id, now_utc, old_base_url), saved by
-    an EARLIER step of the process, or (in a chain) an input or output of an EARLIER process;
+    an EARLIER step of the process, or (in a chain) an input or an output of an EARLIER process explicitly
+    named in the chain's `pass` list;
+  * no literal REPLACE-WITH-* placeholder occurs in any process, chain or fixture file;
   * every api path starts with /api/ and matches a route of lib/letflow/modules/stock/router.ex or
     lib/letflow/routers/*.ex (a loose check: the method and the end of the path, wildcards for :id);
     a step with http_as: shared_access is checked against lib/letflow/routers/shared_stock_access.ex;
@@ -209,7 +211,7 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
     for out_name, expr in outputs.items():
         for name_ in sorted(refs(expr) - defined):
             problems.append(f"{name}: output {out_name}: ${{{name_}}} is not saved by any step")
-    return set(outputs) | set(doc.get("defaults") or {})
+    return set(outputs)
 
 
 def check_path(problems, where, routes, method, path, shared=False):
@@ -259,7 +261,12 @@ def check_files(files, root=None, strict=False) -> list:
         f = Path(f)
         name = f.name
         try:
-            doc = json.loads(f.read_text(encoding="utf-8"))
+            text = f.read_text(encoding="utf-8")
+            runner.refuse_placeholders(text, f)
+            doc = json.loads(text)
+        except runner.ConfigError as err:
+            problems.append(str(err))
+            continue
         except (OSError, ValueError) as err:
             problems.append(f"{name}: not valid JSON: {err}")
             continue
@@ -334,17 +341,39 @@ def check_chain(path: Path, doc, roles, routes, strict, problems):
             problems.append(f"{name}: dry_run.actors must map each actor to a user name")
     provided = set(doc.get("inputs") or {}) | set((doc.get("dry_run") or {}).get("inputs") or {})
     available = set(provided) | fixture_provides(doc, name, runner.fixtures_dir_for(path), problems)
+    pass_map = doc.get("pass", {})
+    if not isinstance(pass_map, dict):
+        problems.append(f"{name}: pass must be an object {{process id: [output names]}}")
+        pass_map = {}
+    seen_ids = set()
     for proc_name in doc["processes"]:
         try:
             pfile = runner.resolve_process_file(path.resolve().parent, str(proc_name))
-            pdoc = json.loads(pfile.read_text(encoding="utf-8"))
+            text = pfile.read_text(encoding="utf-8")
+            runner.refuse_placeholders(text, pfile)
+            pdoc = json.loads(text)
         except (runner.ConfigError, OSError, ValueError) as err:
             problems.append(f"{name}: process {proc_name!r}: {err}")
             continue
+        if not isinstance(pdoc, dict):
+            problems.append(f"{name}: process {proc_name!r}: a process needs an id")
+            continue
+        seen_ids.add(pdoc.get("id"))
         available |= fixture_provides(pdoc, f"{name} > {pfile.name}", runner.fixtures_dir_for(path), problems)
         # a process inside a chain needs no dry_run of its own: the chain carries it
-        available |= check_process(pdoc, f"{name} > {pfile.name}", roles, routes, available, False, problems,
-                                       in_chain=True)
+        outputs = check_process(pdoc, f"{name} > {pfile.name}", roles, routes, available, False, problems,
+                                in_chain=True)
+        passed = pass_map.get(pdoc.get("id"), [])
+        if not isinstance(passed, list) or not all(isinstance(n, str) and n for n in passed):
+            problems.append(f"{name}: pass.{pdoc.get('id')} must be a list of output names")
+            passed = []
+        for output_name in passed:
+            if output_name not in outputs:
+                problems.append(f"{name}: pass.{pdoc.get('id')} names non-output {output_name!r}")
+        available |= set(passed)
+    for pid in pass_map:
+        if pid not in seen_ids:
+            problems.append(f"{name}: pass names unknown process {pid!r}")
 
 
 def main(argv=None) -> int:

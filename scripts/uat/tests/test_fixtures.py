@@ -260,12 +260,55 @@ class FixtureStaticCheckTests(FixtureCase):
 
     def test_the_shipped_asset_fixtures_pass_the_static_check(self):
         files = sorted((REPO / "test/uat/fixtures").glob("*.json"))
-        self.assertEqual({f.stem for f in files} >= {"asset_card", "asset_opening_doc"}, True)
+        self.assertEqual({f.stem for f in files} >= {"asset_card", "asset_opening_doc", "second_place"}, True)
         self.assertEqual(check_processes.check_files(files, root=REPO), [])
         for f in files:
             runner.load_fixture(f)
         order = [d["id"] for d in runner.expand_fixtures(["asset_opening_doc"], REPO / "test/uat/fixtures")]
         self.assertEqual(order, ["asset_card", "asset_opening_doc"])
+
+
+class SecondPlaceFixtureTests(FakeServerCase):
+    FIXTURE = REPO / "test/uat/fixtures/second_place.json"
+
+    def play(self, run_dir=None):
+        fixture = runner.load_fixture(self.FIXTURE)
+        process = {"id": "P", "steps": [{"id": "s1", "actor": "admin",
+                   "do": {"api": "POST", "path": "/api/v1/echo",
+                          "body": {"from": "${place_from}", "to": "${place_to}"}}, "expect": {"status": 200}}]}
+        self.run_dir = run_dir or self.run_dir
+        r = runner.Runner(process, base_url=self.base, tenant="qoimeks-qa2", actors=USERS, run_dir=self.run_dir,
+                          inputs={"place": "source-place", "org_unit": "org-1"}, poll_interval=0.01,
+                          out=io.StringIO(), fixtures=[fixture])
+        return r.run(), r
+
+    def test_two_runs_create_a_fresh_place_after_retiring_the_first(self):
+        code, first = self.play()
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        first_id = first.ctx["place_to"]
+        self.assertEqual(first.ctx["place_from"], "source-place")
+        self.assertFalse(self.state.location_nodes[first_id]["active"])
+        code, second = self.play(Path(self.tmp.name) / "run2")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        second_id = second.ctx["place_to"]
+        self.assertNotEqual(second_id, first_id)  # the retired fixture cannot be un-retired
+        self.assertFalse(self.state.location_nodes[second_id]["active"])
+        echo = [c[3] for c in self.state.calls("POST", "/echo") if c[3] and "from" in c[3]]
+        self.assertEqual(echo, [{"from": "source-place", "to": first_id},
+                                {"from": "source-place", "to": second_id}])
+
+    def test_an_existing_active_place_and_link_are_left_in_place(self):
+        marker = "UAT-FIX-second_place-qoimeks-qa2"
+        self.state.location_nodes["existing"] = {"record_id": "existing", "active": True,
+                                                 "external_ref_system": marker}
+        self.state.location_links["existing-link"] = {"record_id": "existing-link", "active": True,
+                                                      "location_id": "existing", "org_unit_id": "org-1"}
+        code, run = self.play()
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(run.ctx["place_to"], "existing")
+        self.assertTrue(self.state.location_nodes["existing"]["active"])
+        self.assertTrue(self.state.location_links["existing-link"]["active"])
+        self.assertEqual(len(self.state.location_nodes), 1)
 
 
 if __name__ == "__main__":

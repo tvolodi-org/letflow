@@ -9,7 +9,7 @@ What is here:
 
 | file | what it is |
 |---|---|
-| `runner.py` | the runner: `run` (one process), `chain` (several processes sharing one context), `cleanup` (undo an aborted run), `dry-run` (the changed process files) |
+| `runner.py` | the runner: `run` (one process), `chain` (several processes with isolated working contexts and explicit `pass` lists), `cleanup` (undo an aborted run), `dry-run` (the changed process files) |
 | `check_processes.py` | the static check of process and chain files (no network) |
 | `../../test/uat/processes/*.json` | the process files (one business process each), for example `BP-01-receive-goods.json` |
 | `../../test/uat/chains/*.json` | the chain files (an ordered list of processes) |
@@ -106,7 +106,9 @@ Remember the id of the document as `doc_id`."*
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
 * `requires` (optional): `"requires": ["doc_id"]` runs the step only if that name was saved. Use it on every cleanup
-  step, so nothing is reversed that was never created.
+  step, so nothing is reversed that was never created. List every value the cleanup assertion needs (for example both
+  `posted_doc_id` and `balance_to_before`): when any one is missing the step is **skipped**, not failed, and the log's
+  `requires ...` note names the missing values.
 
 ### Special steps
 
@@ -143,20 +145,29 @@ the path of the old app (`/movements`), checked against `lib/letflow/routers/sha
 * Every step has an `expect`. A step without one is reported.
 * Put every undo in `cleanup`, with `requires`. A process that cannot undo something says so in its `description`.
 * Never put a password, a token or a secret into a file. The runner gets tokens from the environment.
+* Never leave a literal `REPLACE-WITH-*` marker in a process, chain or fixture. The static check rejects it and the
+  loader exits 2 before any request; provide the value as an input or by a fixture instead.
 * Run the static check before you hand the file over: `python3 scripts/uat/check_processes.py --strict <file>`.
 
 ---
 
-## 2. Chains (several processes, one context)
+## 2. Chains (several processes, explicit hand-off)
 
-A **chain file** lists processes in order. The outputs of a process become the inputs of the next ones: a receipt
-(`BP-01`) hands its document id to the reversal (`BP-05`).
+A **chain file** lists processes in order. Each process gets a **fresh working context** containing the chain inputs,
+built-ins, fixture values and only the earlier outputs explicitly handed on by `pass`. Working names such as `doc_id`,
+`posted_doc_id`, `balance_before` and `quantity` are private to the process that saved them: a later process (and its
+cleanup) cannot accidentally reuse them. The final `context.json` still reports all declared outputs.
+
+`pass` maps the id of the producing process to the list of its `outputs` that later processes may read. For example,
+a receipt (`BP-01`) hands only its document id to the reversal (`BP-05`):
 
 ```json
 {
   "id": "rc-sss",
   "title": "Release candidate run for SSS",
   "processes": ["BP-01", "BP-02", "BP-05"],
+  "pass": {"BP-01": ["receipt_doc_id"]},
+  "fixtures": ["second_place"],
   "tenant": "sss-rehearsal2",
   "actors": {"admin": "sss-rehearsal2-admin", "storekeeper": "sss-rehearsal2-storekeeper"},
   "inputs": {"item": "<id>", "place": "<id>", "org_unit": "<id>", "responsible": "<id>"},
@@ -167,13 +178,17 @@ A **chain file** lists processes in order. The outputs of a process become the i
 * `processes` are looked up in `test/uat/processes/` by the id (`BP-01` finds `BP-01-receive-goods.json`), by the
   file name, or by a path relative to the chain file.
 * `tenant`, `actors`, `inputs`, `base_url`, `old_base_url` in the chain file are defaults; the command line wins.
-* A process may read a name only if the chain gives it, an earlier process saved it as an `output`, or it is a
-  default. `check_processes.py` and the runner check this before the first request.
+* A process may read a name only if the chain or a fixture gives it, it is a default, or an earlier process declares
+  it as an `output` **and** the chain's `pass` list names it. An empty or absent `pass` hands on nothing. A `pass`
+  entry that names an unknown process or a non-output is a usage error; `check_processes.py` and the runner check
+  this before the first request.
 * **A failing process stops the chain** (the rest are logged *skipped*), unless `--keep-going`.
-* **Cleanup of a chain runs at the END, process by process in reverse order**, each with the values it had when
-  it finished. So `BP-05` can still reverse the document of `BP-01`, and `BP-01`'s own cleanup then finds it already
-  reversed: give such a cleanup step a tolerant `expect` (`{"status": [200, 409, 422]}`) or leave the undo to the
-  later process. Cleanup of the processes that already ran always happens, also after a failure.
+* **Cleanup of a chain runs at the END, process by process in reverse order**, each with the frozen working context
+  of that process alone. So a failed process that never saved `posted_doc_id` skips its reversal even when an earlier
+  process did save a same-named value. Give each cleanup step a `requires` list covering the ids and baseline values
+  it reads. A document deliberately reversed by a later process needs a tolerant `expect`
+  (`{"status": [200, 409, 422]}`), or the undo belongs only to that later process. Cleanup of the processes that
+  already ran always happens, also after a failure.
 
 ---
 
@@ -213,9 +228,12 @@ A fixture file is process-like (`steps`, `cleanup`, `inputs`, the same step kind
 4. Mark everything you create with the same reference, so a human can recognise it; say in `leaves` what stays.
 5. Never read or write a record that is not yours.
 
-Shipped: `asset_card` (provides `asset_card_id`; a minimal fixed-asset card without photo) and `asset_opening_doc`
+Shipped: `asset_card` (provides `asset_card_id`; a minimal fixed-asset card without photo), `asset_opening_doc`
 (needs `asset_card`; inputs `org_unit`, `location`, `responsible`; provides `asset_doc_id`; a draft opening document
-with one line, never issued). Run them on QA with real tokens like any process.
+with one line, never issued) and `second_place` (inputs `place`, `org_unit`; provides `place_from`, `place_to`; an
+active stock location linked to the org unit). `second_place` leaves a found location and link untouched, retires a
+link and location it created, and ignores its retired fixtures on later runs. Run fixtures on QA with real tokens like
+any process.
 
 ---
 
@@ -328,9 +346,10 @@ python3 scripts/uat/check_processes.py [--strict] [--root DIR] [FILE ...]     # 
 It reports, one line per problem (`file: step s3: ...`): invalid JSON; a missing id, steps or `expect` (`expect_refused`
 counts); an actor that is not a role of `test/fixtures/uat/actors.yaml` (read as text: the entry `actor-<slug>-<role>`);
 a `${name}` that is not an input, a default, a built-in, saved by an **earlier** step, or (in a chain) given by the
-chain or an earlier process; an `api` path that does not start with `/api/`, or that matches no route (a loose check
-against `lib/letflow/modules/stock/router.ex` and `lib/letflow/routers/*.ex`: the method and the end of the path,
-`:id` matches anything; a route made only of `:id` counts only behind its router's mount name; `http_as` steps are
+chain, a fixture or an earlier output named by `pass`; a literal `REPLACE-WITH-*` placeholder anywhere in a process,
+chain or fixture; an invalid `pass` list; an `api` path that does not start with `/api/`, or that matches no route (a
+loose check against `lib/letflow/modules/stock/router.ex` and `lib/letflow/routers/*.ex`: the method and the end of
+the path; `:id` matches anything; a route made only of `:id` counts only behind its router's mount name; `http_as` steps are
 checked against `shared_stock_access.ex`); a chain whose process file is missing; with `--strict` a missing
 `bp_entry` or `dry_run`, and a `dry_run` without a user for an actor or a value for an input. Exit 0 or 1.
 
@@ -346,7 +365,9 @@ checked against `shared_stock_access.ex`); a chain whose process file is missing
 * `summary.md`: the verdict, the sha at start and end, the duration, the **first failing step** (a quote at the top
   and `**>>**` on its row), a table per process (pass/FAIL of steps and cleanup, total ms, first failing step), the
   table of every line, the outputs and **the context at the end**, the issues filed.
-* `context.json`: every value of the run (inputs, saved values, outputs). It holds no token and no shared access value.
+* `context.json`: the run's shared inputs, fixture values and explicitly passed values, plus all declared outputs in
+  the final report. Private working values of one process never become another process's inputs. It holds no token and
+  no shared access value.
 * `cleanup.json`, `meta.json`: what `runner.py cleanup` replays (section 3). `issues.json`: the issues filed.
 
 Nothing secret is written: tokens and shared access values are kept in memory, never put in the log, and every one
@@ -375,14 +396,17 @@ tenant ends where it started (each process that moves stock ends with a check of
 How to run the RC:
 
 1. `project/scripts/qa_stable.sh --wait` prints `sha=<sha> stable`.
-2. Fill the one input the chain cannot know: `place_to`, the id of a second place of the tenant (BP-03 moves goods
-   between `place_from` and `place_to`). Put it in `test/uat/chains/rc-sss.json` (`inputs` and `dry_run.inputs`) or
-   pass it on the command line (`--input place_to=<id>`). The other ids are the SSS fixture of `sss-rehearsal2`.
+2. The chain declares `fixtures: ["second_place"]`; no manual second-place id is needed. The fixture supplies
+   `place_from` from the chain's `place` and creates or reuses `place_to`, linked to the same org unit. The other ids
+   are the SSS fixture of `sss-rehearsal2`.
 3. `TEAM_ROOT=<team repository> python3 scripts/uat/runner.py chain test/uat/chains/rc-sss.json --build-sha <sha>
    --file-issues --repo tvolodi-org/letflow --run-dir <dir>`
 4. Read `<dir>/summary.md`. Exit 0 on one sha = the candidate passed. A failure stops the chain (add `--keep-going`
    to see the rest); `runner.py cleanup <dir>` undoes an aborted run.
-5. BP-08 calls the old address of the tenant: pass `--old-base-url https://qa.bizdala.com/qoimeks/<slug>/api` (or set
+5. Prove repeatability by running the same command twice in a row with two new run directories. Both runs must pass;
+   the second must find no residue of the first (created fixture locations are retired, stock and documents are
+   cleaned up).
+6. BP-08 calls the old address of the tenant: pass `--old-base-url https://qa.bizdala.com/qoimeks/<slug>/api` (or set
    `old_base_url` in the chain file) for the tenant under test.
 
 ## 8. The process file, reference
@@ -396,7 +420,9 @@ How to run the RC:
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
 parentheses in decimal arithmetic. A string that is only `${name}` keeps the type of the value. `outputs` are
-evaluated right after the steps, so they may use names saved by steps (not by cleanup steps).
+evaluated right after the steps, so they may use names saved by steps (not by cleanup steps). A chain additionally has
+`processes`, optional `fixtures`, and `pass: {process_id: [output_name, ...]}`; only those outputs cross a process
+boundary.
 
 ## 9. Tests
 
