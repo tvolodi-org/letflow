@@ -257,7 +257,8 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
             actor_id: ctx.holder.id,
             idempotency_key: "vb-#{Ecto.UUID.generate()}"
           },
-          prefix: ctx.schema
+          prefix: ctx.schema,
+          module_start: true
         )
 
       generic =

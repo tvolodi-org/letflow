@@ -302,7 +302,8 @@ defmodule Letflow.Support.ScriptTaskFixture do
                  actor_id: actor_id,
                  idempotency_key: "gh2534-7c-start-#{System.unique_integer([:positive])}"
                },
-               prefix: schema
+               prefix: schema,
+               module_start: true
              )
 
     instance_id

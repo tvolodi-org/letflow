@@ -63,7 +63,8 @@ defmodule Letflow.Modules.Stock.VersionBindingConcurrencyTest do
           actor_id: ctx.holder.id,
           idempotency_key: "vbc-#{Ecto.UUID.generate()}"
         },
-        prefix: ctx.schema
+        prefix: ctx.schema,
+        module_start: true
       )
   end
 

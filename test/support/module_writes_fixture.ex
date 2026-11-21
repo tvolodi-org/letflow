@@ -226,7 +226,7 @@ defmodule Letflow.ModuleWritesFixture do
   def subprocess_service_case!(slug_prefix) do
     base = tenant!(slug_prefix)
     schema = base.schema
-    _child_def = activate_installed!(schema, base.user, "fxl_svc_child")
+    child_def = activate_installed!(schema, base.user, "fxl_svc_child")
 
     parent_graph = %{
       "nodes" => [
@@ -256,6 +256,25 @@ defmodule Letflow.ModuleWritesFixture do
         },
         prefix: schema
       )
+
+    # T-2444: a module-writes child starts only under a parent of the SAME module. The owner stamp
+    # is immutable (trigger), so it is copied in with the user triggers off, as `CrossPostFixture` does.
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" DISABLE TRIGGER USER))
+
+    from(d in ProcessDefinition, where: d.id == ^parent_row.id)
+    |> Repo.update_all(
+      [
+        set: [
+          owner_module: child_def.owner_module,
+          owner_module_version: child_def.owner_module_version,
+          owner_manifest_hash: child_def.owner_manifest_hash,
+          owner_body_hash: child_def.owner_body_hash
+        ]
+      ],
+      prefix: schema
+    )
+
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" ENABLE TRIGGER USER))
 
     {:ok, %{definition: parent}} = Definitions.activate(parent_row.id, prefix: schema)
 

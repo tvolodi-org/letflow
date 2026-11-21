@@ -316,7 +316,8 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
       idempotency_key: "#{key_prefix}:#{version_id}:#{n}"
     }
 
-    case Engine.create(attrs, prefix: prefix) do
+    # T-2444: module code starts its own write definitions (the public start is refused)
+    case Engine.create(attrs, prefix: prefix, module_start: true) do
       {:ok, %{replayed: true, status: status}} when status != :active and tries_left > 1 ->
         attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, tries_left - 1)
 
