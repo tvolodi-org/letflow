@@ -279,7 +279,7 @@ def check_files(files, root=None, strict=False) -> list:
         problems.extend(retired.violations(doc, name, retired_map))
         fdir = runner.fixtures_dir_for(f)
         if isinstance(doc, dict) and "processes" in doc:
-            check_chain(f, doc, roles, routes, strict, problems)
+            check_chain(f, doc, roles, routes, strict, problems, retired_map)
         elif isinstance(doc, dict) and f.parent.name == "fixtures":
             check_fixture(f, doc, roles, routes, problems)
         else:
@@ -333,7 +333,7 @@ def check_fixture(path: Path, doc, roles, routes, problems):
             problems.append(f"{name}: provides {n!r} but no step saves it")
 
 
-def check_chain(path: Path, doc, roles, routes, strict, problems):
+def check_chain(path: Path, doc, roles, routes, strict, problems, retired_map=None):
     name = path.name
     if not doc.get("id") or not isinstance(doc.get("processes"), list) or not doc["processes"]:
         problems.append(f"{name}: a chain needs an id and a non-empty processes list")
@@ -353,7 +353,9 @@ def check_chain(path: Path, doc, roles, routes, strict, problems):
         problems.append(f"{name}: pass must be an object {{process id: [output names]}}")
         pass_map = {}
     seen_ids = set()
-    for proc_name in doc["processes"]:
+    for entry in doc["processes"]:
+        proc_name = entry.get("process") if isinstance(entry, dict) else entry
+        own = None  # an object entry runs on its own tenant: its own inputs only
         try:
             pfile = runner.resolve_process_file(path.resolve().parent, str(proc_name))
             text = pfile.read_text(encoding="utf-8")
@@ -366,10 +368,20 @@ def check_chain(path: Path, doc, roles, routes, strict, problems):
             problems.append(f"{name}: process {proc_name!r}: a process needs an id")
             continue
         seen_ids.add(pdoc.get("id"))
+        if isinstance(entry, dict):
+            try:
+                own = runner.chain_overrides({"processes": [entry]}, [pdoc]).get(pdoc.get("id"))
+            except runner.ConfigError as err:
+                problems.append(f"{name}: {err}")
+                continue
+            if own:
+                for line in retired.violations(dict(own), f"{name} entry {pdoc.get('id')}", retired_map or {}):
+                    problems.append(line)
         available |= fixture_provides(pdoc, f"{name} > {pfile.name}", runner.fixtures_dir_for(path), problems)
         # a process inside a chain needs no dry_run of its own: the chain carries it
-        outputs = check_process(pdoc, f"{name} > {pfile.name}", roles, routes, available, False, problems,
-                                in_chain=True)
+        outputs = check_process(pdoc, f"{name} > {pfile.name}", roles, routes,
+                                (set(own.get("inputs") or {}) | set(runner.BUILTIN_NAMES)) if own else available,
+                                False, problems, in_chain=True)
         passed = pass_map.get(pdoc.get("id"), [])
         if not isinstance(passed, list) or not all(isinstance(n, str) and n for n in passed):
             problems.append(f"{name}: pass.{pdoc.get('id')} must be a list of output names")

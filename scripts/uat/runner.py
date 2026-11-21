@@ -22,6 +22,7 @@ bp_dryrun capability reads exit 2 as "this runner has no such command yet".
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -470,7 +471,11 @@ class Runner:
 
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
-                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None):
+                 keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
+                 overrides=None):
+        self.overrides = overrides or {}  # chain: process id -> {tenant, actors, old_base_url, base_url, inputs}
+        self.tokens_by_tenant = {}
+        self.process_tenants = {}
         self.processes = list(process) if isinstance(process, (list, tuple)) else [process]
         self.fixtures = list(fixtures or [])  # fixture documents, in run order (see expand_fixtures)
         self.pass_map = pass_map or {}  # chain: source process id -> output names the later processes may read
@@ -490,7 +495,7 @@ class Runner:
         self.gh_cmd = gh_cmd
         self.run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
         self.out = out or sys.stdout
-        self.tokens = {}
+        self.tokens = self.tokens_by_tenant.setdefault(tenant, {})
         self.secrets = {}  # in memory only: a value a step saved with {"secret": path}
         self.secret_values = set()
         self.instance_docs = {}
@@ -506,6 +511,30 @@ class Runner:
             ctx["old_base_url"] = self.old_base_url
         self.ctx = ctx
         self.tenant = tenant
+        self.main_view = None
+
+    @contextlib.contextmanager
+    def _on(self, pid):
+        """Run as the tenant of a chain entry that has its own (tenant, actors, base urls, token cache)."""
+        over = self.overrides.get(pid)
+        keep = (self.tenant, self.base_url, self.actors, self.old_base_url, self.tokens)
+        self.process_tenants[pid] = over["tenant"] if over else self.tenant
+        if over:
+            self.tenant, self.base_url, self.actors = over["tenant"], over["base_url"].rstrip("/"), over["actors"]
+            self.old_base_url = (over.get("old_base_url") or "").rstrip("/") or None
+            self.tokens = self.tokens_by_tenant.setdefault(self.tenant, {})
+        try:
+            yield over
+        finally:
+            self.tenant, self.base_url, self.actors, self.old_base_url, self.tokens = keep
+
+    def _fresh_ctx(self, over):
+        ctx = dict(over.get("inputs") or {})
+        ctx.update({"tenant": over["tenant"], "TENANT": over["tenant"], "run_id": self.run_id, "now_utc": now_utc()})
+        ctx.update({name: str(uuid.uuid4()) for name in UUID_NAMES})
+        if over.get("old_base_url"):
+            ctx["old_base_url"] = over["old_base_url"].rstrip("/")
+        return ctx
 
     # -- log ----------------------------------------------------------------------------------
 
@@ -584,9 +613,11 @@ class Runner:
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
         return http_call(method, self.base_url + path, hdrs, body)
 
-    def needed_roles(self, processes=None) -> list:
+    def needed_roles(self, processes=None, fixtures=True) -> list:
         roles = set()
-        for process in list(self.fixtures) + list(processes or self.processes):
+        if processes is None:
+            processes = [p for p in self.processes if p["id"] not in self.overrides]
+        for process in (list(self.fixtures) if fixtures else []) + list(processes):
             for step in (process.get("steps") or []) + (process.get("cleanup") or []):
                 do = step["do"]
                 calls = do["parallel"] if "parallel" in do else [do]
@@ -633,7 +664,37 @@ class Runner:
             self._pre_line("tenant", "error", started, error=f"tenant {self.tenant} not reachable at {self.base_url}: {why}")
             return False, sha
         self._pre_line("tenant", "pass", started, method="GET", path="/", status=status)
-        return self._tokens(), sha
+        ok = self._tokens()
+        for tenant in dict.fromkeys(o["tenant"] for o in self.overrides.values() if o["tenant"] != self.tenant):
+            ok = self._tenant_checks(tenant) and ok
+        return ok, sha
+
+    def _tenant_checks(self, tenant):
+        """Preflight of one more tenant of the chain: reachable, a token for every actor its processes use."""
+        pids = [pid for pid, o in self.overrides.items() if o["tenant"] == tenant]
+        base = self.overrides[pids[0]]["base_url"].rstrip("/")
+        started = time.monotonic()
+        try:
+            status, _, _ = http_call("GET", base + "/", {}, None, timeout=15)
+            reachable, why = status < 500, f"answered {status}"
+        except RunnerError as err:
+            reachable, why = False, str(err)
+        if not reachable:
+            return self._pre_line(f"tenant:{tenant}", "error", started,
+                                  error=f"tenant {tenant} not reachable at {base}: {why}")
+        self._pre_line(f"tenant:{tenant}", "pass", started, method="GET", path="/", status=status)
+        ok = True
+        for pid in pids:
+            with self._on(pid):
+                for role in self.needed_roles([p for p in self.processes if p["id"] == pid], fixtures=False):
+                    started = time.monotonic()
+                    try:
+                        self.token_for(role)
+                    except RunnerError as err:
+                        ok = self._pre_line(f"token:{tenant}:{role}", "error", started, actor=role, error=str(err)) and ok
+                        continue
+                    self._pre_line(f"token:{tenant}:{role}", "pass", started, actor=role)
+        return ok
 
     def _stable_check(self, sha):
         root = os.environ.get("TEAM_ROOT")
@@ -944,47 +1005,52 @@ class Runner:
         """Run one process and freeze the context of its cleanup. A chain process is isolated: only the
         outputs named by the chain's `pass` list are copied back for later processes. Fixtures are not isolated."""
         shared = self.ctx
-        work = dict(shared) if isolated else shared
+        over = self.overrides.get(process["id"])
+        work = self._fresh_ctx(over) if over else (dict(shared) if isolated else shared)
         self.ctx = work
         self.process = process
         entry = {"process": process["id"], "cleanup": process.get("cleanup") or [], "ctx": work, "done": False}
         self.entries.append(entry)
         try:
-            for name, value in (process.get("defaults") or {}).items():
-                self.ctx.setdefault(name, value)
-            self.save_context()
-            missing = [n for n in process.get("inputs") or [] if n not in self.ctx]
-            steps_ok = True
-            if missing:
-                steps_ok = False
-                self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
-                                 "error": "inputs missing: " + ", ".join(missing)})
-            for step in process["steps"] if steps_ok else []:
-                if steps_ok:
-                    steps_ok = self.run_step(step, "step")
-                else:
-                    self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
-                                     "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
-            if steps_ok:
-                try:
-                    for name, expr in (process.get("outputs") or {}).items():
-                        self.ctx[name] = substitute(expr, self.ctx)
-                except RunnerError as err:
-                    steps_ok = False
-                    self.write_line({"phase": "outputs", "step": "outputs", "actor": "-", "verdict": "error",
-                                     "error": str(err), "ms": 0})
-            entry["ctx"] = dict(self.ctx)  # frozen: this process's cleanup sees the context as it left it
-            if steps_ok:
-                outputs = {name: self.ctx[name] for name in (process.get("outputs") or {}) if name in self.ctx}
-                self.process_outputs.update(outputs)
-                if isolated:
-                    for name in self.pass_map.get(process["id"], []):
-                        if name in outputs:
-                            shared[name] = outputs[name]
-            self.save_context()
-            return steps_ok
+            with self._on(process["id"]):
+                return self._run_process_body(process, isolated, shared, work, entry)
         finally:
             self.ctx = shared
+
+    def _run_process_body(self, process, isolated, shared, work, entry):
+        for name, value in (process.get("defaults") or {}).items():
+            self.ctx.setdefault(name, value)
+        self.save_context()
+        missing = [n for n in process.get("inputs") or [] if n not in self.ctx]
+        steps_ok = True
+        if missing:
+            steps_ok = False
+            self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
+                             "error": "inputs missing: " + ", ".join(missing)})
+        for step in process["steps"] if steps_ok else []:
+            if steps_ok:
+                steps_ok = self.run_step(step, "step")
+            else:
+                self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
+                                 "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
+        if steps_ok:
+            try:
+                for name, expr in (process.get("outputs") or {}).items():
+                    self.ctx[name] = substitute(expr, self.ctx)
+            except RunnerError as err:
+                steps_ok = False
+                self.write_line({"phase": "outputs", "step": "outputs", "actor": "-", "verdict": "error",
+                                 "error": str(err), "ms": 0})
+        entry["ctx"] = dict(self.ctx)  # frozen: this process's cleanup sees the context as it left it
+        if steps_ok:
+            outputs = {name: self.ctx[name] for name in (process.get("outputs") or {}) if name in self.ctx}
+            self.process_outputs.update(outputs)
+            if isolated:
+                for name in self.pass_map.get(process["id"], []):
+                    if name in outputs:
+                        shared[name] = outputs[name]
+        self.save_context()
+        return steps_ok
 
     def run_fixture(self, fixture) -> bool:
         """A fixture is a process whose steps run first; its cleanup (recorded now) runs after every process's."""
@@ -1012,8 +1078,9 @@ class Runner:
         self.ctx, self.process = work, {"id": entry["process"]}
         ok = True
         try:
-            for step in entry["cleanup"]:
-                ok = self.run_step(step, "cleanup") and ok
+            with self._on(entry["process"]):
+                for step in entry["cleanup"]:
+                    ok = self.run_step(step, "cleanup") and ok
         finally:
             for key, value in work.items():
                 if key not in snapshot or snapshot[key] != value:
@@ -1197,8 +1264,8 @@ class Runner:
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
             lines += ["", f"> **FIRST FAILING STEP: {what}** - {first.get('error', first.get('verdict'))}"]
-        lines += ["", "## Processes", "", "| process | verdict | steps | cleanup | duration ms | first failing step |",
-                  "|---|---|---|---|---|---|"]
+        lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
+                  "|---|---|---|---|---|---|---|"]
         for pid in dict.fromkeys(r["process"] for r in self.records if r.get("phase") in ("step", "cleanup", "inputs", "outputs")):
             mine = [r for r in self.records if r.get("process") == pid and r.get("phase") in ("step", "cleanup", "inputs", "outputs")]
             bad = [r for r in mine if r.get("verdict") in ("fail", "error")]
@@ -1206,7 +1273,7 @@ class Runner:
             bad_clean = [r for r in bad if r["phase"] == "cleanup"]
             skipped = bool(mine) and all(r.get("verdict") == "skipped" for r in mine)
             verdict = "SKIPPED" if skipped else ("FAIL" if bad else "pass")
-            lines.append(f"| {pid} | {verdict} | {'FAIL' if bad_steps else ('skipped' if skipped else 'pass')} | "
+            lines.append(f"| {pid} | {self.process_tenants.get(pid, '')} | {verdict} | {'FAIL' if bad_steps else ('skipped' if skipped else 'pass')} | "
                          f"{'FAIL' if bad_clean else 'pass'} | {sum(int(r.get('ms') or 0) for r in mine)} | "
                          f"{(bad[0]['step'] + ': ' + str(bad[0].get('error', ''))).replace('|', '/') if bad else ''} |")
         lines += ["", "## Steps", "", "| phase | process | step | actor | request | status | verdict | ms | note |",
@@ -1374,7 +1441,13 @@ def load_chain(path) -> tuple:
         raise ConfigError("a chain file needs an id and a non-empty processes list")
     here = Path(path).resolve().parent
     processes = []
-    for name in names:
+    for entry in names:
+        if isinstance(entry, dict):
+            if not isinstance(entry.get("process"), str) or not entry["process"]:
+                raise ConfigError("chain: an object entry needs a process name")
+            name = entry["process"]
+        else:
+            name = entry
         found = resolve_process_file(here, str(name))
         process = load_process(found)
         why = blocked_reason(process)
@@ -1388,7 +1461,37 @@ def load_chain(path) -> tuple:
     if len(set(ids)) != len(ids):
         raise ConfigError("a process appears twice in the chain: " + ", ".join(sorted({i for i in ids if ids.count(i) > 1})))
     validate_pass_map(chain, processes)
+    chain_overrides(chain, processes)
     return chain, processes
+
+
+OVERRIDE_KEYS = ("tenant", "actors", "old_base_url", "base_url", "inputs")
+
+
+def chain_overrides(chain, processes, base_url_template=None) -> dict:
+    """{process id: {tenant, actors, old_base_url, base_url, inputs}} for the object entries of a chain
+    ({"process": "BP-08", "dry_run": true} takes the process's own dry_run block; explicit keys win).
+    A process with an override runs on its own tenant with its own inputs only; other entries are not listed."""
+    by_id = {p["id"]: p for p in processes}
+    found = {}
+    for entry in chain.get("processes") or []:
+        if not isinstance(entry, dict):
+            continue
+        extra = set(entry) - {"process", "dry_run", *OVERRIDE_KEYS}
+        if extra:
+            raise ConfigError(f"chain: entry {entry['process']!r} has unknown keys: " + ", ".join(sorted(extra)))
+        process = next((p for p in processes if p["id"] == entry["process"] or p["id"].startswith(entry["process"] + "-")), None)
+        if process is None:
+            continue  # blocked_by: never run
+        block = dict(process.get("dry_run") or {}) if entry.get("dry_run") else {}
+        block.update({k: entry[k] for k in OVERRIDE_KEYS if k in entry})
+        tenant = block.get("tenant")
+        if not tenant or not isinstance(block.get("actors"), dict) or not block["actors"]:
+            raise ConfigError(f"chain: entry {process['id']} needs a tenant and actors (its dry_run block or the entry)")
+        block.setdefault("inputs", {})
+        block.setdefault("base_url", base_url_for(tenant, base_url_template))
+        found[by_id[process["id"]]["id"]] = block
+    return found
 
 
 def validate_pass_map(chain, processes) -> dict:
@@ -1417,7 +1520,7 @@ def resolve_process_file(chain_dir: Path, name: str) -> Path:
     raise ConfigError(f"chain: no process file for {name!r} (looked in {chain_dir.parent / 'processes'})")
 
 
-def check_chain_inputs(processes, provided: set, fixtures=(), pass_map=None) -> None:
+def check_chain_inputs(processes, provided: set, fixtures=(), pass_map=None, overrides=None) -> None:
     """Every process finds its inputs in the caller/fixtures or the earlier outputs explicitly named by `pass`.
     Fixtures run first: what they `provide` is available to everything after them. Working/default names stay local."""
     available = set(provided) | set(BUILTIN_NAMES)
@@ -1427,7 +1530,10 @@ def check_chain_inputs(processes, provided: set, fixtures=(), pass_map=None) -> 
             raise ConfigError(f"fixture {f['id']}: inputs missing: " + ", ".join(sorted(missing)))
         available |= set(f.get("provides") or []) | set(f.get("defaults") or {})
     for p in processes:
-        missing = set(p.get("inputs") or []) - available - set(p.get("defaults") or {})
+        mine = available
+        if p["id"] in (overrides or {}):  # another tenant: its own inputs only, no ids of the first tenant
+            mine = set(overrides[p["id"]].get("inputs") or {}) | set(BUILTIN_NAMES)
+        missing = set(p.get("inputs") or []) - mine - set(p.get("defaults") or {})
         if missing:
             raise ConfigError(f"{p['id']}: inputs missing: " + ", ".join(sorted(missing)))
         available |= set((pass_map or {}).get(p["id"], []))
@@ -1547,6 +1653,11 @@ def cmd_dry_run(args, out=None) -> int:
             if isinstance(doc, dict) and "processes" in doc:
                 _chain, processes = load_chain(path)
                 docs = processes + [doc]
+                for pid, over in chain_overrides(_chain, processes, args.base_url_template).items():
+                    try:
+                        refuse_retired(retired_map, over["tenant"], over["actors"], [over["base_url"], over.get("old_base_url")], [])
+                    except ConfigError as err:
+                        refused.append(f"{path} entry {pid}: {err}")
             else:
                 processes = [load_process(path)]
                 docs = processes
@@ -1602,10 +1713,12 @@ def cmd_dry_run(args, out=None) -> int:
             if "processes" in doc:
                 chain, processes = load_chain(path)
                 label = chain["id"]
+                overrides = chain_overrides(chain, processes, args.base_url_template)
             else:
-                chain, processes, label = {}, [load_process(path)], doc["id"]
-            fixtures = fixtures_for(processes + ([doc] if "processes" in doc else []), fixtures_dir_for(path))
-            check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"))
+                chain, processes, label, overrides = {}, [load_process(path)], doc["id"], {}
+            fixtures = fixtures_for([p for p in processes if p["id"] not in overrides] + ([doc] if "processes" in doc else []),
+                                    fixtures_dir_for(path))
+            check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)
         except ConfigError as err:
             print(f"dry-run: {path.name}: {err}", file=out)
             worst = 1
@@ -1614,7 +1727,8 @@ def cmd_dry_run(args, out=None) -> int:
         runner = Runner(processes, base_url=base, tenant=tenant, actors=actors, run_dir=root_dir / path.stem,
                         inputs=inputs, health_url=args.health_url, poll_interval=args.poll_interval, out=out,
                         build_sha=args.build_sha, old_base_url=block.get("old_base_url") or args.old_base_url,
-                        keep_going=False, label=label, file_issues=False, fixtures=fixtures, pass_map=chain.get("pass"))
+                        keep_going=False, label=label, file_issues=False, fixtures=fixtures, pass_map=chain.get("pass"),
+                        overrides=overrides)
         code = runner.run(check_stable=(index == 0 and not args.no_stable_check))
         worst = max(worst, 1 if code else 0)
     print("dry-run: " + ("PASS" if worst == 0 else "FAIL") + f" ({len(files)} file(s), runs in {root_dir})", file=out)
@@ -1697,9 +1811,10 @@ def main_run(args) -> int:
         if args.command == "chain":
             chain, processes = load_chain(args.chain)
             label = chain["id"]
-            fixtures = fixtures_for(processes + [chain], fixtures_dir_for(args.chain))
+            overrides = chain_overrides(chain, processes, args.base_url_template)
+            fixtures = fixtures_for([p for p in processes if p["id"] not in overrides] + [chain], fixtures_dir_for(args.chain))
         else:
-            chain, processes = {}, [load_process(args.process)]
+            chain, processes, overrides = {}, [load_process(args.process)], {}
             label = processes[0]["id"]
             fixtures = fixtures_for(processes, fixtures_dir_for(args.process))
         inputs = dict(chain.get("inputs") or {})
@@ -1709,19 +1824,27 @@ def main_run(args) -> int:
             raise ConfigError("--tenant is needed")
         actors = dict(chain.get("actors") or {})
         actors.update(parse_pairs([a for a in (args.actors or "").split(",") if a], "--actors"))
-        needed = {s.get("actor") for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")}
+        own = [p for p in processes if p["id"] not in overrides]
+        needed = {s.get("actor") for p in fixtures + own for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")}
         needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
-        check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"))
+        for p in processes:
+            if p["id"] in overrides:
+                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None}
+                if need - overrides[p["id"]]["actors"].keys():
+                    raise ConfigError(f"{p['id']}: actors missing for its tenant: " + ", ".join(sorted(need - overrides[p["id"]]["actors"].keys())))
+        check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)
         base_url = args.base_url or chain.get("base_url") or base_url_for(tenant, args.base_url_template)
         import retired
 
         retired_map = load_retired_checked()
         refuse_retired(retired_map, tenant, actors, [base_url, args.old_base_url or chain.get("old_base_url")],
                        [(str(d.get("id")), d) for d in fixtures + processes + ([chain] if chain else [])])
+        for pid, over in overrides.items():  # T-2538 guard for every entry, before any request
+            refuse_retired(retired_map, over["tenant"], over["actors"], [over["base_url"], over.get("old_base_url")], [])
         if args.command != "chain":
             why = blocked_reason(processes[0])
             if why:
@@ -1737,7 +1860,7 @@ def main_run(args) -> int:
                     health_url=args.health_url, poll_interval=args.poll_interval, run_id=run_id, build_sha=args.build_sha,
                     old_base_url=args.old_base_url or chain.get("old_base_url"), keep_going=getattr(args, "keep_going", False),
                     label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures,
-                    pass_map=chain.get("pass"))
+                    pass_map=chain.get("pass"), overrides=overrides)
     return runner.run(check_stable=not args.no_stable_check)
 
 
