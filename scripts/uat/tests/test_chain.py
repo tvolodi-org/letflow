@@ -834,6 +834,58 @@ class ChainCli(ChainCase):
         return [c[3]["cleanup"] for c in self.state.calls("POST", "/echo") if c[3] and "cleanup" in c[3]]
 
 
+class TokenLifetime(ChainCase):
+    """T-2549: a long chain gets fresh credentials, and one expired token costs one retry, not the run."""
+
+    def test_each_process_mints_a_fresh_token_and_logs_only_the_mint(self):
+        self.state.token_ttl = 1
+        code, _ = self.run_process([proc("PA", [call("s1", "POST", "/api/v1/echo", {"process": "A"})]),
+                                    proc("PB", [call("s1", "POST", "/api/v1/echo", {"process": "B"})])],
+                                   inputs={}, residue_check=False)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        mints = [x for x in self.lines() if x["phase"] == "tokens"]
+        self.assertEqual([(x["process"], x["step"], x["verdict"]) for x in mints],
+                         [("PA", "token:PA", "pass"), ("PB", "token:PB", "pass")])
+        self.assertNotIn(SECRET, (self.run_dir / "run.jsonl").read_text())
+
+    def test_an_expired_token_is_relogged_once_and_that_step_is_retried(self):
+        self.state.token_ttl = 1
+        code, _ = self.run_process(proc("PA", [call("s1", "POST", "/api/v1/echo", {"request": 1}),
+                                                call("s2", "POST", "/api/v1/echo", {"request": 2})]),
+                                   inputs={}, residue_check=False)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        rows = {x["step"]: x for x in self.lines() if x["phase"] == "step"}
+        self.assertNotIn("retried", rows["s1"])
+        self.assertIs(rows["s2"]["retried"], True)
+        self.assertEqual(len(self.state.calls("POST", "/echo")), 3)
+        self.assertNotIn(SECRET, (self.run_dir / "run.jsonl").read_text())
+
+    def test_a_cleanup_step_gets_the_same_single_relogin_and_retry(self):
+        self.state.token_ttl = 1
+        process = proc("PA", [call("s1", "POST", "/api/v1/echo", {"step": "run"})],
+                       cleanup=[call("c1", "POST", "/api/v1/echo", {"step": "cleanup"})])
+        code, _ = self.run_process(process, inputs={}, residue_check=False)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        cleanup = next(x for x in self.lines() if x["phase"] == "cleanup")
+        self.assertEqual((cleanup["verdict"], cleanup["retried"]), ("pass", True))
+
+    def test_residue_listings_relogin_and_retry_on_401(self):
+        self.state.token_ttl = 1
+        code, _ = self.run_process(proc("PA", [call("s1", "POST", "/api/v1/echo")]), inputs={})
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertGreaterEqual(len(self.state.calls("GET", "/tasks/inbox")), 4)  # each listing retried one expired token
+        self.assertEqual([x["verdict"] for x in self.lines() if x["phase"] == "residue"], ["pass"])
+        self.assertNotIn(SECRET, (self.run_dir / "run.jsonl").read_text())
+
+    def test_a_second_consecutive_401_fails_the_step(self):
+        self.state.token_ttl = 0  # every token, including the re-login's, is already expired
+        code, _ = self.run_process(proc("PA", [call("s1", "POST", "/api/v1/echo")]), inputs={}, residue_check=False)
+        self.assertEqual(code, 1)
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual((row["verdict"], row["status"], row["retried"]), ("fail", 401, True))
+        self.assertEqual(len(self.state.calls("POST", "/echo")), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -917,13 +969,33 @@ class ResidueCheck(FakeServerCase):
         self.assertEqual(replay.replay_cleanup(), 1)
         self.assertIn("residue left by the run", replay.records[-1]["error"])
 
-    def test_missing_list_route_is_skipped_not_failed(self):
+    def test_an_unavailable_baseline_fails_with_the_residue_row(self):
+        self.state.inbox_faults = {1: 410}
+        code, _ = self.run_process()
+        self.assertEqual(code, 1)
+        row = self.residue_rows()[0]
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("baseline unavailable", row["error"])
+        self.assertIn("inbox answered 410", row["error"])
+        self.assertNotIn("skipped", [x["verdict"] for x in self.lines() if x["phase"] == "residue"])
+
+    def test_an_unavailable_final_listing_fails_the_residue_row(self):
+        self.state.document_list_faults = {2: 500}
+        code, _ = self.run_process()
+        self.assertEqual(code, 1)
+        row = self.residue_rows()[0]
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("final listing unavailable", row["error"])
+        self.assertIn("documents list answered 500", row["error"])
+
+    def test_missing_admin_actor_makes_the_baseline_unavailable_and_fails(self):
         r = runner.Runner(self.process(), base_url=self.base, tenant="qoimeks-qa2", actors={"storekeeper": "sk"},
                           run_dir=self.run_dir, out=io.StringIO(), poll_interval=0.01)
         self.run_dir.mkdir(parents=True)
-        self.assertTrue(r.record_residue_baseline())
+        self.assertFalse(r.record_residue_baseline())
         self.assertEqual(r.residue_before, {})
-        self.assertEqual(r.records[-1]["verdict"], "skipped")
+        self.assertEqual(r.records[-1]["verdict"], "fail")
+        self.assertIn("baseline unavailable", r.records[-1]["error"])
 
     def test_two_tenants_have_their_own_baselines(self):
         # one fake server answers for both tenants; the per-tenant baseline is keyed by tenant

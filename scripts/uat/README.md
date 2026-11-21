@@ -252,8 +252,11 @@ any process.
 ## 3. Running
 
 The environment must hold what `project/scripts/uat_creds.sh` needs (the `.env.uat` of the team) and `TEAM_ROOT`
-(the team repository). For every actor the runner calls `bash "$TEAM_ROOT/project/scripts/uat_creds.sh" token <user>`;
-the password never goes into the command line and the token stays in memory.
+(the team repository). For every actor the runner calls `bash "$TEAM_ROOT/project/scripts/uat_creds.sh" token <user>`
+at preflight and again at the start of each process (including each process of a dry-run batch), so a long chain does
+not reuse an expired token. A 401 causes one re-login and one retry of that request, including cleanup and residue
+checks; the step's log row has `retried: true`, and a second 401 fails it. The password never goes into the command
+line, tokens stay in memory, and mint/retry rows never contain token text.
 
 ```
 # one process
@@ -471,11 +474,13 @@ network, no model.
 
 ## Tenant residue check (T-2548)
 
-Before the first process the runner lists, per tenant it touches, the newest 200 stock documents
-(`GET /api/v1/modules/stock/documents`) and the pending tasks of the `admin` actor's inbox and writes them to
-`residue_before.json` in the run dir. After the last cleanup it lists again: every document that was not there
-before and is not `reversed`, `cancelled` or `rejected`, and every new pending task, is residue. The run then FAILS
-with the row `tenant residue check` (tenant, number, kind, state). Documents that existed before are never reported.
-A tenant without an `admin` actor, or whose list answers 403/404, is skipped with a `residue baseline` row.
-`runner.py cleanup <run dir>` reads `residue_before.json` and runs the same comparison after the replay, so an
-interrupted run is judged too. `"residue_check": false` in a chain or process file turns it off (default on).
+Before the first process the runner lists, per tenant it touches, the newest 200 stock documents with their `state`
+(`GET /api/v1/modules/stock/documents`) and the pending tasks through the same `/api/v1/tasks/inbox` endpoint that
+`wait_task` uses, and writes them to `residue_before.json` in the run dir. After the last cleanup it lists again:
+every document that was not there before and is not `reversed`, `cancelled` or `rejected`, and every new pending task,
+is residue. The run then FAILS with the row `tenant residue check` (tenant, number, kind, state). Documents that
+existed before are never reported. An unreadable baseline or final listing (including any non-2xx answer or a
+timeout) also FAILS with `tenant residue check` and `baseline unavailable` or `final listing unavailable`: it is
+never passed or skipped. `runner.py cleanup <run dir>` reads `residue_before.json` and runs the same comparison after
+the replay, so an interrupted run is judged too. `"residue_check": false` in a chain or process file turns it off
+(default on).

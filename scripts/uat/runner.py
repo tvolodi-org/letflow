@@ -491,6 +491,7 @@ class Runner:
         self.cleanup_mode = cleanup_mode  # a chain's "cleanup": when the cleanups of its processes run
         self.overrides = overrides or {}  # chain: process id -> {tenant, actors, old_base_url, base_url, inputs}
         self.tokens_by_tenant = {}
+        self.token_refreshes = 0  # a step whose request caused a re-login is logged with retried: true
         self.process_tenants = {}
         self.processes = list(process) if isinstance(process, (list, tuple)) else [process]
         self.fixtures = list(fixtures or [])  # fixture documents, in run order (see expand_fixtures)
@@ -627,7 +628,31 @@ class Runner:
             hdrs["Authorization"] = "Bearer " + value
             return http_call(method, self.old_base_url + path, hdrs, body)
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
-        return http_call(method, self.base_url + path, hdrs, body)
+        result = http_call(method, self.base_url + path, hdrs, body)
+        if result[0] == 401:
+            # A chain can outlive the preflight token. Re-login this actor once and retry only this request;
+            # a second 401 is returned to the step's normal assertions and fails it.
+            self.token_refreshes += 1
+            self.tokens.pop(role, None)
+            hdrs["Authorization"] = "Bearer " + self.token_for(role)
+            result = http_call(method, self.base_url + path, hdrs, body)
+        return result
+
+    def _fresh_process_tokens(self, process) -> bool:
+        """Mint at the start of every process, not only at preflight: a long chain must not reuse an old token."""
+        started = time.monotonic()
+        roles = self.needed_roles([process], fixtures=False)
+        try:
+            for role in roles:
+                self.tokens.pop(role, None)
+                self.token_for(role)
+        except RunnerError as err:
+            self.write_line({"phase": "tokens", "step": f"token:{process['id']}", "actor": role, "verdict": "error",
+                             "ms": int((time.monotonic() - started) * 1000), "error": str(err)})
+            return False
+        self.write_line({"phase": "tokens", "step": f"token:{process['id']}", "actor": ", ".join(roles) or "-",
+                         "verdict": "pass", "ms": int((time.monotonic() - started) * 1000), "minted": roles})
+        return True
 
     def needed_roles(self, processes=None, fixtures=True) -> list:
         roles = set()
@@ -751,7 +776,7 @@ class Runner:
 
     def run_step(self, step: dict, phase: str) -> bool:
         record = {"ts": now_utc(), "run_id": self.run_id, "process": self.process["id"], "phase": phase,
-                  "step": step["id"], "actor": step.get("actor") or "-"}
+                  "step": step["id"], "actor": step.get("actor") or "-", "_token_refreshes": self.token_refreshes}
         started = time.monotonic()
         response = None
         secret_step = self._handles_secret(step)
@@ -806,6 +831,9 @@ class Runner:
         return excerpt(text)
 
     def _finish(self, record, started, ok):
+        refreshed = record.pop("_token_refreshes", self.token_refreshes)
+        if self.token_refreshes != refreshed:
+            record["retried"] = True
         record["ms"] = int((time.monotonic() - started) * 1000)
         self.write_line(record)
         self.save_context()
@@ -949,12 +977,16 @@ class Runner:
         record["request"] = redact(body)
         return self.request(role, "POST", f"/api/v1/tasks/{task_id}/complete", body)
 
+    def _inbox_page(self, role, cursor=None):
+        """The task-list endpoint shared by wait_task and the residue check, so they cannot drift apart."""
+        path = "/api/v1/tasks/inbox?page_size=200" + (f"&cursor={cursor}" if cursor else "")
+        return self.request(role, "GET", path)
+
     def _find_task(self, role, doc, node):
         """The id of a PENDING task `node` whose instance carries variables.document_id == doc."""
         cursor, problem = None, None
         for _ in range(INBOX_PAGES_MAX):
-            path = "/api/v1/tasks/inbox?page_size=200" + (f"&cursor={cursor}" if cursor else "")
-            status, page, _ = self.request(role, "GET", path)
+            status, page, _ = self._inbox_page(role, cursor)
             if status != 200 or not isinstance(page, dict):
                 return None, f"inbox answered {status}"
             for item in page.get("items") or []:
@@ -1027,9 +1059,11 @@ class Runner:
         self.ctx = work
         self.process = process
         entry = {"process": process["id"], "cleanup": process.get("cleanup") or [], "ctx": work, "done": False}
-        self.entries.append(entry)
         try:
             with self._on(process["id"]):
+                if not self._fresh_process_tokens(process):
+                    return False
+                self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
             return ok
@@ -1162,8 +1196,8 @@ class Runner:
             self.tenant, self.base_url, self.actors, self.tokens = keep
 
     def _snapshot(self):
-        """-> (docs {id: {number, kind, state}}, open task ids) of the current tenant as admin; (None, why) when the
-        tenant cannot be read (no admin actor, route absent or refused); raises RunnerError on a transport fault."""
+        """-> (documents with their state, open task ids) of the current tenant as admin; (None, why) when there is
+        no admin or the document list is absent/refused. The caller fails the run on every unreadable snapshot."""
         if "admin" not in self.actors:
             return None, "no admin actor for this tenant"
         docs, cursor = {}, None
@@ -1182,10 +1216,7 @@ class Runner:
                 break
         tasks, cursor = set(), None
         for _ in range(5):
-            path = "/api/v1/tasks/inbox?page_size=200" + (f"&cursor={cursor}" if cursor else "")
-            status, body, _ = self.request("admin", "GET", path)
-            if status in (403, 404):
-                break
+            status, body, _ = self._inbox_page("admin", cursor)
             if status != 200 or not isinstance(body, dict):
                 raise RunnerError(f"inbox answered {status}")
             for item in body.get("items") or []:
@@ -1205,8 +1236,8 @@ class Runner:
         return verdict not in ("fail", "error")
 
     def record_residue_baseline(self) -> bool:
-        """Before the first process: the documents and open tasks every touched tenant already has. A tenant that
-        cannot be read is reported as one row and left out of the comparison."""
+        """Before the first process: record the existing documents and open tasks. An unreadable baseline is a
+        failing residue row, never a skipped check: without it no later listing can prove that the run was clean."""
         ok = True
         for tenant, (base_url, actors) in self._residue_targets().items():
             started = time.monotonic()
@@ -1214,10 +1245,10 @@ class Runner:
                 with self._switch(tenant, base_url, actors):
                     docs, tasks = self._snapshot()
             except RunnerError as err:
-                ok = self._residue_line("error", started, f"tenant {tenant}: baseline failed: {err}", "residue baseline") and ok
+                ok = self._residue_line("fail", started, f"baseline unavailable: tenant {tenant}: {err}") and ok
                 continue
             if docs is None:
-                self._residue_line("skipped", started, f"tenant {tenant}: residue check skipped: {tasks}", "residue baseline")
+                ok = self._residue_line("fail", started, f"baseline unavailable: tenant {tenant}: {tasks}") and ok
                 continue
             self.residue_before[tenant] = {"base_url": base_url, "actors": actors, "docs": docs, "tasks": tasks}
         if self.residue_before:
@@ -1229,16 +1260,17 @@ class Runner:
         the document is in a final state (reversed, cancelled, rejected). One row for the run; it fails on residue."""
         started = time.monotonic()
         if not self.residue_before:
-            return True
+            return True  # an unreadable baseline already wrote its failing row (or the check is off)
         found, failed = [], []
         for tenant, before in self.residue_before.items():
             try:
                 with self._switch(tenant, before["base_url"], before["actors"]):
                     docs, tasks = self._snapshot()
             except RunnerError as err:
-                failed.append(f"tenant {tenant}: could not list after the run: {err}")
+                failed.append(f"final listing unavailable: tenant {tenant}: {err}")
                 continue
             if docs is None:
+                failed.append(f"final listing unavailable: tenant {tenant}: {tasks}")
                 continue
             for doc_id, doc in docs.items():
                 if doc_id not in before["docs"] and str(doc.get("state")) not in RESIDUE_FINAL_STATES:
@@ -1251,7 +1283,7 @@ class Runner:
         text = "; ".join(found + failed)
         if found:
             text = "residue left by the run: " + text
-        return self._residue_line("fail" if found else "error", started, text)
+        return self._residue_line("fail", started, text)
 
     # -- the run ------------------------------------------------------------------------------
 
