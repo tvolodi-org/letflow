@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-07",
-  "bp_entry": "BP-STOCK-30",
+  "bp_entry": "BP-STOCK-39",
   "title": "Quick count with four-eyes OFF: the system approves only the counter's own count and grants nothing else",
   "description": "SECURITY, on the FOREIGN rehearsal tenant sss-rehearsal2, whose quick count rule is OFF (owner decision D-164: one administrator, the storekeeper counts from the phone). The storekeeper counts one more unit than the book: the count of the storekeeper's OWN sign-in posts at once (posted, balance plus 1). Switching four-eyes off grants the storekeeper no approval right: the approval access is still refused (403). The storekeeper may ask for the reversal of the count, but cannot claim or complete the Reverse task (404, the answer of a task that does not exist): the count stays posted until the administrator completes it. The cleanup has the administrator complete the reversal, so the balance returns to its start. Precondition: the quick count rule is OFF on the tenant (step s1 fails with state issued if it is ON). Not walked here, because it needs the rule switched while a count is open (a tenant setting this walk does not change): a count made while the rule was ON stays waiting after the switch, and another person's count is never approved by the system (product test SA-3 of the self-approval tests).",
   "tenant": "${tenant}",

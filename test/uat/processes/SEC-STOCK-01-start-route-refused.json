@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-01",
-  "bp_entry": "BP-STOCK-28",
+  "bp_entry": "BP-STOCK-37",
   "title": "Four-eyes cannot be bypassed by starting a stock posting process directly (start route, scheduled start)",
   "description": "SECURITY, read-and-refuse only. A tenant administrator tries to start every stock write process (the posting processes of receipt, issue, write-off, transfer, hand-over, return, the reversal, the opening and quick count with their four-eyes approval, the count posting) through the public start route with start values chosen by the caller (a document id, a posting with lines, a mark). Each start is answered exactly like a start of a process that does not exist (404, same detail), by name and by id, also when the body asks for a module start; the storekeeper, who may not start processes at all, is refused 403. The scheduled start path is closed on this tenant because scheduled jobs are switched off (every call is 404). Nothing is started: the balance of the item at the place is unchanged at the end. Nothing is created, so there is nothing to clean up.",
   "tenant": "${tenant}",

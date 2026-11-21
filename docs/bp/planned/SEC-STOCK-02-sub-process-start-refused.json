@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-02",
-  "bp_entry": "BP-STOCK-29",
+  "bp_entry": "BP-STOCK-38",
   "title": "Four-eyes cannot be bypassed through a sub-process: a tenant-made process cannot start a stock posting process as its child",
   "description": "SECURITY. A tenant administrator (who may design processes) makes a small process of the tenant's own whose only step is a sub-process that names the stock receipt posting process, activates it, and starts it with start values that carry a forged posting and document id (the child would receive every parent value). The start is refused like a start of an unknown process (404, the same detail as an unknown process name): the stock posting process is started by the stock module only. Nothing is posted: the balance of the item at the place is unchanged. The cleanup retires the tenant-made process (deprecate, then archive), so the tenant is left as it was found; the archived definition stays in the definition list, named with the run id.",
   "tenant": "${tenant}",
@@ -266,5 +266,5 @@
     }
   ],
   "status": "planned",
-  "note": "Planned, not in the dry-run set: step s4 expects 404 (the answer of an unknown definition, as the Engine moduledoc 'refused alike' and lib/letflow/engine/sub_process.ex promise) and QA answers 500 internal_error today. It fails until the p1 defect fix (500 on a SUB_PROCESS child naming stock_receipt, lib/letflow/routers/instances.ex render_create catch-all) lands; then move this file back to test/uat/processes/ and set BP-STOCK-29 automation to scripted."
+  "note": "Planned, not in the dry-run set: step s4 expects 404 (the answer of an unknown definition, as the Engine moduledoc 'refused alike' and lib/letflow/engine/sub_process.ex promise) and QA answers 500 internal_error today. It fails until the p1 defect fix (500 on a SUB_PROCESS child naming stock_receipt, lib/letflow/routers/instances.ex render_create catch-all) lands; then move this file back to test/uat/processes/ and set BP-STOCK-38 automation to scripted."
 }

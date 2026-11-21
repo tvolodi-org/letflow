@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-08",
-  "bp_entry": "BP-STOCK-31",
+  "bp_entry": "BP-STOCK-40",
   "title": "Negative balance rule REFUSED: an issue of more than the balance is not posted",
   "description": "SECURITY / business rule, on the FOREIGN rehearsal tenant sss-rehearsal2, whose stock ledger setting refuses negative balances (read at the start: the posting rule answers refused; the walk stops there if the setting is different). The storekeeper issues one unit more than the balance of the item at the place; the administrator completes the Post task: refused 409 insufficient_stock, the document stays issued, nothing is posted and the balance is unchanged. The cleanup cancels the issued document (an issue may be cancelled while its post task waits).",
   "tenant": "${tenant}",

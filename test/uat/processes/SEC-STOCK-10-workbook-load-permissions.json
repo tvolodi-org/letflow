@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-10",
-  "bp_entry": "BP-STOCK-33",
+  "bp_entry": "BP-STOCK-42",
   "title": "Excel stock workbook: who may export, check, apply and cancel a load",
   "description": "SECURITY, read-and-refuse only. The storekeeper may export the balances workbook and list the loads (200) and may run the check (it writes nothing; an empty body that is not a workbook is refused 422 xlsx_unreadable), but may not apply a load (403: applying is for administrators only). Both administrators pass the permission of the apply: with no workbook in the body they get 422 xlsx_unreadable, and without the org unit 422 org_unit_required, so nothing is loaded. Cancelling a load with an unknown id is 404, and the administrator of the FOREIGN tenant sss-rehearsal2 cancelling a real load of this tenant gets the same 404. The newest load of the tenant (read at the start) is unchanged at the end. Nothing is created, so there is nothing to clean up. Precondition: the tenant has at least one earlier workbook load (step s0).",
   "tenant": "${tenant}",

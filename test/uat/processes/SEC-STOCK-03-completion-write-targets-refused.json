@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-03",
-  "bp_entry": "BP-STOCK-35",
+  "bp_entry": "BP-STOCK-44",
   "title": "A completer cannot redirect a post or reversal task to another document or entry (foreign write targets refused)",
   "description": "SECURITY. The storekeeper issues two stock issue documents A and B of one unit each (an issue can be cancelled while its post task waits). The storekeeper, who does not hold the approve permission, cannot claim or complete A's post task (the answer of a task that does not exist, 404). The administrator takes A's post task and completes it with a body that names B's document, B's version and org unit, a mark and a posting with other lines; then with B's document id alone; then with a posting alone: each is refused 422 output_refused and nothing is posted (A and B stay issued, the balance unchanged). The honest completion with an empty body posts A, and only A (balance minus 1). The administrator starts the reversal of A and completes the Reverse task with a body that names another ledger entry and a reason, then with B's document id: both refused 422 output_refused, A stays posted. The cleanup completes the Reverse task honestly (balance back to its start) and cancels B.",
   "tenant": "${tenant}",

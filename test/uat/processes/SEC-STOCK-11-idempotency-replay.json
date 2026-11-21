@@ -1,6 +1,6 @@
 {
   "id": "SEC-STOCK-11",
-  "bp_entry": "BP-STOCK-34",
+  "bp_entry": "BP-STOCK-43",
   "title": "Retry and replay: a repeated create, issue, post, completion or reversal never acts twice",
   "description": "SECURITY / integrity. The storekeeper creates an issue document of one unit with a client key: the same request again answers the SAME document (201, same id); the same key with a changed quantity is refused 409 idempotency_key_reuse. The issue with a second key: repeated, it answers the same issued document with the same number; without a key it is refused 409 document_not_draft; asking to post it while its post task waits is 409 posting_pending; the issue key used on another draft is refused 409 idempotency_key_reuse and that draft stays a draft. The administrator claims and completes the post task once (200); completing it again is refused 409 (the task is not pending) and the balance moved once (minus 1). Posting again is 409 document_posted; replaying the issue key answers the document as it is now (posted, same number), nothing more is posted. A second reversal while the first waits is 409 reversal_pending. The cleanup completes the reversal (balance back to its start), checks that reversing a reversed document is 409 document_reversed, and deletes the second draft.",
   "tenant": "${tenant}",
