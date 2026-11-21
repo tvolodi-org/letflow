@@ -169,6 +169,140 @@ class Chains(ChainCase):
         self.assertIn("build moved: abc123 -> def456", (self.run_dir / "summary.md").read_text())
 
 
+class PerProcessCleanup(ChainCase):
+    """T-2545: a chain may clean up after every process ("cleanup": "per_process"), so that the next
+    process meets the tenant without what the previous one created (a shared value, for example)."""
+
+    def maker(self, cleanup_expect=None):
+        """The first process: it creates the tenant's one shared value; its cleanup revokes it."""
+        cleanup = [{"id": "c1", "actor": "admin", "requires": ["created"],
+                    "do": {"api": "POST", "path": "/api/v1/fx/drop", "body": {"name": "singleton"}},
+                    "expect": cleanup_expect or {"status": 200}}]
+        return proc("SEC-01", [call("s1", "POST", "/api/v1/fx/make", {"name": "singleton"}, {"status": 201},
+                                    save={"created": "yes"})], cleanup=cleanup)
+
+    def checker(self, pid="SEC-02"):
+        """The second process: it expects that no shared value exists."""
+        return proc(pid, [call("s1", "POST", "/api/v1/fx/find", {"name": "singleton"},
+                               {"status": 200, "json": {"$.items": []}})])
+
+    def order(self):
+        """The (process, phase, step) rows of the log, in the order they ran."""
+        return [(x["process"], x["phase"], x["step"]) for x in self.lines()]
+
+    def test_a_chain_whose_first_process_creates_a_singleton_passes_with_per_process_and_fails_with_the_end_cleanup(self):
+        code, _ = self.run_process([self.maker(), self.checker()], inputs={}, cleanup_mode="per_process")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.keyed()[("SEC-02", "step", "s1")], "pass")
+        self.assertEqual(self.state.fx, {})  # the value was revoked before the second process ran
+
+        # the same chain with the default cleanup: the value is still there when the second process runs
+        self.run_dir = self.run_dir.parent / "run-end"
+        self.state.fx.clear()
+        self.state.fx_log.clear()
+        code, _ = self.run_process([self.maker(), self.checker()], inputs={})
+        self.assertEqual(code, 1)
+        self.assertEqual(self.keyed()[("SEC-02", "step", "s1")], "fail")
+
+    def test_the_cleanup_runs_right_after_its_process(self):
+        code, _ = self.run_process([self.maker(), self.checker()], inputs={}, cleanup_mode="per_process")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        order = self.order()
+        self.assertLess(order.index(("SEC-01", "cleanup", "c1")), order.index(("SEC-02", "step", "s1")))
+        summary = (self.run_dir / "summary.md").read_text()
+        self.assertIn("- cleanup mode: per_process", summary)
+        self.assertIn("## Cleanup (the order it ran)", summary)
+        self.assertIn("| 1 | SEC-01 | c1 | pass |", summary)
+
+    def test_the_cleanups_run_in_the_order_of_the_processes_and_the_summary_shows_it(self):
+        code, _ = self.run_process([tagged("PA", "A"), tagged("PB", "B"), tagged("PC", "C")], inputs={},
+                                   cleanup_mode="per_process")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.cleanups(), ["A", "B", "C"])  # the order the processes ran, not the reverse
+        summary = (self.run_dir / "summary.md").read_text()
+        self.assertLess(summary.index("| 1 | PA | c1 |"), summary.index("| 2 | PB | c1 |"))
+        self.assertLess(summary.index("| 2 | PB | c1 |"), summary.index("| 3 | PC | c1 |"))
+
+    def test_the_default_cleans_up_at_the_end_of_the_chain(self):
+        code, _ = self.run_process([self.maker(), self.checker()], inputs={})
+        self.assertEqual(code, 1)
+        order = self.order()
+        self.assertLess(order.index(("SEC-02", "step", "s1")), order.index(("SEC-01", "cleanup", "c1")))
+        self.assertIn("- cleanup mode: end", (self.run_dir / "summary.md").read_text())
+
+    def test_the_cleanup_of_a_failed_process_runs_right_after_it(self):
+        maker = self.maker()
+        maker["steps"].append(call("s2", "POST", "/api/v1/fx/find", {"name": "singleton"}, {"status": 404}))
+        code, _ = self.run_process([maker, self.checker()], inputs={}, cleanup_mode="per_process")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.state.fx, {})  # the cleanup ran even though the process failed
+        self.assertEqual(self.keyed()[("SEC-01", "step", "s2")], "fail")
+        self.assertEqual(self.keyed()[("SEC-01", "cleanup", "c1")], "pass")
+        self.assertEqual(self.keyed()[("SEC-02", "step", "-")], "skipped")  # the chain stopped
+
+    def test_a_failing_cleanup_fails_the_run_and_the_next_process_still_runs(self):
+        code, _ = self.run_process([self.maker(cleanup_expect={"status": 404}), self.checker()], inputs={},
+                                   cleanup_mode="per_process")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.keyed()[("SEC-01", "cleanup", "c1")], "fail")
+        self.assertEqual(self.keyed()[("SEC-02", "step", "s1")], "pass")  # the chain went on
+        self.assertIn("cleanup: FAIL", (self.run_dir / "summary.md").read_text())
+
+    def test_the_outputs_the_chain_hands_on_survive_the_drop_of_the_working_values(self):
+        maker = proc("SEC-01", [call("s1", "POST", "/api/v1/fx/make", {"name": "singleton"}, {"status": 201},
+                                     save={"created": "yes", "made_id": "$.record_id"})],
+                     cleanup=[{"id": "c1", "actor": "admin", "requires": ["created"],
+                               "do": {"api": "POST", "path": "/api/v1/fx/drop", "body": {"name": "singleton"}},
+                               "expect": {"status": 200}}],
+                     outputs={"made": "${made_id}"})
+        checker = proc("SEC-02", [call("s1", "POST", "/api/v1/fx/find", {"name": "singleton", "made": "${made}"},
+                                       {"status": 200, "json": {"$.items": []}})],
+                       inputs=["made"], outputs={"seen": "${made}"})
+        code, _ = self.run_process([maker, checker], inputs={}, pass_map={"SEC-01": ["made"]},
+                                   cleanup_mode="per_process")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        ctx = json.loads((self.run_dir / "context.json").read_text())
+        self.assertEqual(ctx["made"], "rec-singleton")  # the output the chain handed on is still there
+        self.assertEqual(ctx["seen"], "rec-singleton")
+        self.assertNotIn("created", ctx)  # the working value of the process left the chain context
+
+    def test_the_working_values_of_a_process_leave_the_chain_context(self):
+        """One process (no isolation): its working values are in the chain context and leave it when
+        its cleanup has run; the declared output is still reported."""
+        process = proc("SEC-01", [call("s1", "POST", "/api/v1/fx/make", {"name": "singleton"}, {"status": 201},
+                                       save={"created": "yes", "made_id": "$.record_id"})],
+                       cleanup=[{"id": "c1", "actor": "admin", "requires": ["created"],
+                                 "do": {"api": "POST", "path": "/api/v1/fx/drop", "body": {"name": "singleton"}},
+                                 "expect": {"status": 200}}],
+                       outputs={"made": "${made_id}"})
+        code, _ = self.run_process([process], inputs={}, cleanup_mode="per_process")
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        ctx = json.loads((self.run_dir / "context.json").read_text())
+        self.assertNotIn("created", ctx)  # the working values left the chain context
+        self.assertNotIn("made_id", ctx)
+        self.assertEqual(ctx["made"], "rec-singleton")  # the declared output is still reported
+
+    def test_the_cleanup_of_a_process_whose_step_failed_skips_the_steps_that_require_a_missing_value(self):
+        maker = proc("SEC-01", [call("s1", "POST", "/api/v1/fx/find", {"name": "singleton"}, {"status": 404})],
+                     cleanup=[{"id": "c1", "actor": "admin", "requires": ["created"],
+                               "do": {"api": "POST", "path": "/api/v1/fx/drop", "body": {"name": "singleton"}},
+                               "expect": {"status": 200}}])
+        code, _ = self.run_process([maker, self.checker()], inputs={}, cleanup_mode="per_process")
+        self.assertEqual(code, 1)
+        line = next(x for x in self.lines() if x["phase"] == "cleanup")
+        self.assertEqual((line["verdict"], line["error"]), ("skipped", "requires created"))
+        self.assertEqual(self.state.fx_log, [])  # nothing was dropped that was never created
+
+    def test_a_process_that_never_ran_has_no_cleanup(self):
+        maker = self.maker()
+        maker["steps"].append(call("s2", "POST", "/api/v1/fx/find", {"name": "singleton"}, {"status": 404}))
+        code, _ = self.run_process([maker, self.checker(), self.checker("SEC-03")], inputs={},
+                                   cleanup_mode="per_process")
+        self.assertEqual(code, 1)
+        cleanups = [x for x in self.lines() if x["phase"] == "cleanup"]
+        self.assertEqual([x["process"] for x in cleanups], ["SEC-01"])  # the skipped process has none
+
+
 class CleanupReplay(ChainCase):
     def abort_after_the_steps(self):
         """A run that died after BP-01 posted: the steps ran, the cleanup did not."""
@@ -540,6 +674,20 @@ class ChainCli(ChainCase):
         self.assertEqual(code, 0, out + err)
         self.assertIn("chain-x: PASS", out)
         self.assertEqual(self.cleanups(), ["B", "A"])
+
+    def test_a_chain_file_may_clean_up_after_every_process(self):
+        path = self.write_chain([tagged("BP-A", "A"), tagged("BP-B", "B")], {"cleanup": "per_process"})
+        code, out, err = self.main("chain", str(path), *self.common())
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.cleanups(), ["A", "B"])  # the order the processes ran, not the reverse
+        self.assertIn("- cleanup mode: per_process", (self.run_dir / "summary.md").read_text())
+
+    def test_a_chain_file_with_an_unknown_cleanup_mode_is_a_usage_error(self):
+        path = self.write_chain([tagged("BP-A", "A")], {"cleanup": "per_prozess"})
+        code, out, err = self.main("chain", str(path), *self.common())
+        self.assertEqual(code, 2)
+        self.assertIn("cleanup must be one of", err)
+        self.assertEqual(self.state.log, [])
 
     def test_chain_file_may_carry_tenant_actors_and_inputs(self):
         reader = proc("BP-R", [call("s1", "POST", "/api/v1/echo", {})], inputs=["thing"])

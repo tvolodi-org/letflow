@@ -313,6 +313,13 @@ class Chains(CheckCase):
         problems = check_processes.check_files([path], root=self.root)
         self.assertTrue(any("pass" in p and "not_an_output" in p for p in problems), problems)
 
+    def test_the_cleanup_mode_of_a_chain_is_checked(self):
+        path = self.chain([self.producer()], cleanup="per_process")
+        self.assertEqual(check_processes.check_files([path], root=self.root), [])
+        path = self.chain([self.producer()], cleanup="per_prozess")
+        problems = check_processes.check_files([path], root=self.root)
+        self.assertTrue(any("cleanup must be one of" in p and "per_prozess" in p for p in problems), problems)
+
     def test_a_placeholder_in_a_chain_or_a_fixture_is_refused(self):
         path = self.chain([self.producer()], inputs={"item": "REPLACE-WITH-ITEM-ID"})
         problems = check_processes.check_files([path], root=self.root)

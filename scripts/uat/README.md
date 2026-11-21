@@ -194,6 +194,13 @@ a receipt (`BP-01`) hands only its document id to the reversal (`BP-05`):
   it reads. A document deliberately reversed by a later process needs a tolerant `expect`
   (`{"status": [200, 409, 422]}`), or the undo belongs only to that later process. Cleanup of the processes that
   already ran always happens, also after a failure.
+* The chain file may say **`"cleanup": "per_process"`**: the cleanup of a process then runs **right after that
+  process** (pass or fail), with the frozen working context of that process alone, and the working values the process
+  created leave the chain context afterwards (the outputs the chain hands on in `pass` stay). A failing cleanup fails
+  that process and the run, but the next processes still run. Use it when a process leaves something on the tenant that
+  the next one must not meet: the tenant's one shared access value, for example (a file that expects that no value
+  exists needs the file before it cleaned up). The cleanups of the fixtures still run at the end of the chain.
+  `"cleanup": "end"` (or no key at all) is the default and changes nothing.
 
 ---
 
@@ -312,6 +319,8 @@ The sha is read again at the end: **a different sha ("build moved") fails the ru
 logged `skipped`); its `outputs` are evaluated. 3. All recorded cleanups, newest process first. A cleanup step with
 `requires: [names]` is skipped while one of the names is not in the context yet. A failing cleanup step does not
 stop the next one, and it fails the run. 4. `GET /health` again. 5. With `--file-issues`: the issues. 6. The log.
+With `"cleanup": "per_process"` in the chain file, step 3 happens after every process instead of at the end of the
+chain (the cleanups of the fixtures still at the end).
 
 ### Undoing an aborted run
 

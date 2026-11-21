@@ -338,6 +338,9 @@ def check_chain(path: Path, doc, roles, routes, strict, problems, retired_map=No
     if not doc.get("id") or not isinstance(doc.get("processes"), list) or not doc["processes"]:
         problems.append(f"{name}: a chain needs an id and a non-empty processes list")
         return
+    mode = doc.get("cleanup", "end")
+    if mode not in runner.CLEANUP_MODES:
+        problems.append(f"{name}: cleanup must be one of {', '.join(runner.CLEANUP_MODES)}, got {mode!r}")
     if strict and not isinstance(doc.get("dry_run"), dict):
         problems.append(f"{name}: dry_run is missing (the block {{tenant, actors, inputs}} for the dry run on QA)")
     if isinstance(doc.get("dry_run"), dict):

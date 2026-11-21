@@ -151,6 +151,27 @@ class Changed(DryRunCase):
         bodies = [c[3] for c in self.state.calls("POST", "/echo")]
         self.assertIn({"made": "yes"}, bodies)  # the output of A reached B inside the chain run
 
+    def test_a_changed_chain_may_clean_up_after_every_process(self):
+        """The dry run of a chain with "cleanup": "per_process" is a rehearsal of the real run: the
+        second process meets the tenant without the value the first one created."""
+        self.write("BP-A-a.json", self.dry_doc(proc("BP-A", [call("s1", "POST", "/api/v1/fx/make",
+                                                                  {"name": "singleton"}, {"status": 201},
+                                                                  save={"created": "yes"})],
+                                                  cleanup=[{"id": "c1", "actor": "admin", "requires": ["created"],
+                                                            "do": {"api": "POST", "path": "/api/v1/fx/drop",
+                                                                   "body": {"name": "singleton"}},
+                                                            "expect": {"status": 200}}]), inputs={}))
+        self.write("BP-B-b.json", self.dry_doc(proc("BP-B", [call("s1", "POST", "/api/v1/fx/find",
+                                                                   {"name": "singleton"},
+                                                                   {"status": 200, "json": {"$.items": []}})]),
+                                                  inputs={}))
+        chain = {"id": "chain-d", "processes": ["BP-A", "BP-B"], "cleanup": "per_process",
+                 "dry_run": {"tenant": "qoimeks-qa2", "actors": dict(USERS), "inputs": {}}}
+        self.write("c.json", chain, folder="chains")
+        code, out, err = self.main()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.state.fx, {})  # the value was revoked before the second process ran
+
 
 class Refusals(DryRunCase):
     def test_a_file_without_a_dry_run_block_fails_the_static_check_and_nothing_runs(self):
