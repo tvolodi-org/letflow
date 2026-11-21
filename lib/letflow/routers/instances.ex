@@ -51,7 +51,8 @@ defmodule Letflow.Routers.Instances do
   name, and starts nothing. Their write targets are read from the start variables, so a caller who chose
   the variables chose what the handler posts (and could post a four-eyes document alone). The module's
   own code starts them (`Engine.create/2` with `module_start: true`, never set from this route's body).
-  See `Letflow.Engine.WriteTargets`.
+  A tenant-made parent whose SUB_PROCESS node names one gets the same 404, and no parent or child
+  instance is started (T-2515). See `Letflow.Engine.WriteTargets`.
 
   ## `POST /instances` — `scope_node_id` (REQ-531, decision 0051 T13)
 
@@ -715,6 +716,16 @@ defmodule Letflow.Routers.Instances do
     do: Response.send_problem(conn, Error.idempotency_key_reuse())
 
   defp render_create(conn, {:error, :definition_not_found}), do: Response.not_found(conn)
+
+  # T-2515: a tenant parent naming a module-only SUB_PROCESS child gets the same refusal as a direct
+  # start of that definition. Keep the match specific: other activation failures remain internal.
+  defp render_create(
+         conn,
+         {:error,
+          {:activation_failed,
+           {:subprocess_interface_violation, {:definition_not_found, :module_only_definition}}}}
+       ),
+       do: Response.not_found(conn)
 
   defp render_create(conn, {:error, :definition_not_active}),
     do: Response.conflict(conn, "only an ACTIVE definition can be started")
