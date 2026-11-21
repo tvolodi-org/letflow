@@ -40,6 +40,9 @@ class FakeStock:
         self.docs = {}
         self.tasks = []
         self.log = []  # (method, path, who, body)
+        self.users = dict(USERS)  # role -> keycloak user name: the fake knows the token of these users
+        self.platform_roles = set()  # the roles that may read the tenant registry (the platform administrator)
+        self.tenants = []  # the tenant registry: [{"slug": ..., "status": ...}]
         self.health_calls = 0
         self.sha_at_end = None  # a sha served from the second /health call on
         self.no_sha = False
@@ -109,16 +112,18 @@ def make_handler(state):
                     if method == "GET" and path.endswith("/movements"):
                         return self.reply(200, [])
                     return self.reply(404, {"title": "no route"})
-                who = next((r for r, u in USERS.items() if auth == f"Bearer TOKEN_{u}_{SECRET}"), None)
-                match = re.fullmatch(r"Bearer TOKEN_(adm|sk)_(\d+)_" + SECRET, auth)
+                who = next((r for r, u in state.users.items() if auth == f"Bearer TOKEN_{u}_{SECRET}"), None)
+                match = re.fullmatch(r"Bearer TOKEN_([^_]+)_(\d+)_" + SECRET, auth)
                 if match:
-                    role, serial = next(r for r, u in USERS.items() if u == match.group(1)), int(match.group(2))
-                    if state.token_serials.get(role) != serial:
-                        state.token_serials[role] = serial
-                        state.token_uses[role] = 0
-                    state.token_uses[role] += 1
-                    if state.token_ttl is None or state.token_uses[role] <= state.token_ttl:
-                        who = role
+                    role = next((r for r, u in state.users.items() if u == match.group(1)), None)
+                    serial = int(match.group(2))
+                    if role is not None:
+                        if state.token_serials.get(role) != serial:
+                            state.token_serials[role] = serial
+                            state.token_uses[role] = 0
+                        state.token_uses[role] += 1
+                        if state.token_ttl is None or state.token_uses[role] <= state.token_ttl:
+                            who = role
                 state.log.append((method, self.path, who, body))
                 if who is None:
                     return self.reply(401, {"title": "unauthorized"})
@@ -141,6 +146,23 @@ def make_handler(state):
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
+            if path == "/api/v1/tenants":
+                if who not in state.platform_roles:
+                    return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
+                if method == "GET":
+                    return self.reply(200, {"items": list(state.tenants), "next_cursor": None})
+                if method == "POST":
+                    slug = (body or {}).get("slug")
+                    state.tenants.append({"slug": slug, "status": "active"})
+                    return self.reply(201, {"slug": slug, "status": "active"})
+            if method == "POST" and path.startswith("/api/v1/tenants/") and path.endswith("/deactivate"):
+                if who not in state.platform_roles:
+                    return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
+                slug = path.split("/")[4]
+                for row in state.tenants:
+                    if row["slug"] == slug:
+                        row["status"] = "inactive"
+                return self.reply(200, {"slug": slug, "status": "inactive"})
             if method == "GET" and path == base + "/balances":
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
@@ -352,9 +374,10 @@ class FakeServerCase(unittest.TestCase):
     def process(self):
         return runner.load_process(PROCESS_FILE)
 
-    def run_process(self, process=None, inputs=None, **kwargs):
+    def run_process(self, process=None, inputs=None, actors=None, **kwargs):
         out = io.StringIO()
-        r = runner.Runner(process or self.process(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS,
+        r = runner.Runner(process or self.process(), base_url=self.base, tenant="qoimeks-qa2",
+                          actors=USERS if actors is None else actors,
                           run_dir=self.run_dir, inputs=dict(INPUTS if inputs is None else inputs),
                           poll_interval=0.01, out=out, **kwargs)
         code = r.run()

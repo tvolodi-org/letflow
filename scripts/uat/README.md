@@ -64,7 +64,7 @@ after itself (it reverses what it posted), so the test tenant is left as it was 
 | `bp_entry` | the id of the entry of the business-process map that this file implements (the same id as in the map) |
 | `inputs` | the names of the things the process needs from outside: the item, the place, a document of an earlier process. The person who starts the run gives their values |
 | `defaults` | an input with a value already filled in (here `quantity` 5) |
-| `dry_run` | what the **dry run on QA** uses: the tenant, a user name for each actor, and a value for each input. Needed on every file the BA writes, see section 4 |
+| `dry_run` | what the **dry run on QA** uses: the tenant, a user name for each actor, and a value for each input. Needed on every file the BA writes, see section 4. An actor may be an object instead of a user name, see "An actor of another tenant" below |
 | `steps` | the story, in order |
 | `outputs` | the names this process hands to the next process of a chain |
 | `cleanup` | the steps that undo the effect. They run at the end, also after a failure |
@@ -137,6 +137,34 @@ printed.
 `http_as: shared_access` sends the step to the old address (`--old-base-url`, for example
 `https://qa.bizdala.com/qoimeks/<slug>/api`) with the value as the bearer. Such a step has no `actor`. The path is
 the path of the old app (`/movements`), checked against `lib/letflow/routers/shared_stock_access.ex`.
+
+### An actor of another tenant (the platform administrator)
+
+An actor is normally a user name: `"admin": "qoimeks-qa2-admin"`. Such an actor lives on the tenant of the run.
+An actor may instead be an **object** that says where it lives:
+
+```json
+"actors": {
+  "admin": "qoimeks-qa2-admin",
+  "platform-admin": {"user": "admin-user", "tenant": "bpm-default", "base_url": "https://qa.bizdala.com"}
+}
+```
+
+| key | meaning |
+|---|---|
+| `user` | the Keycloak user name: `uat_creds.sh token <user>` mints its token, for the realm of that user (`admin-user` is the realm `bpm-default`, the platform tenant) |
+| `tenant` | the tenant the actor lives on: its token, its retired-tenant guard and its residue check belong to that tenant |
+| `base_url` | the address its requests go to; without it the address of the run is used |
+
+Such an actor reaches **its own** tenant and address; the tenant of the process (`${tenant}`) does not change. The
+preflight checks every tenant of the run (health, reachable, a token for every actor of that tenant), the
+retired-tenant guard refuses an actor that names a retired tenant (exit 2, before any request), and the residue
+check covers every tenant an actor names: a tenant with a plain actor holds business data (documents, open tasks),
+a tenant with an actor object may be the platform tenant, which holds throwaway **platform tenants** - see the
+residue section at the end of this file.
+
+The same object may be given on the command line as one JSON map:
+`--actors '{"admin": "adm", "platform-admin": {"user": "admin-user", "tenant": "bpm-default"}}'`.
 
 ### Do and do not
 
@@ -275,10 +303,17 @@ python3 scripts/uat/runner.py dry-run --changed
 ```
 
 Common options: `--tenant`, `--base-url` (default `https://<tenant>.letflow.qa.bizdala.com`, or
-`--base-url-template` / env `UAT_BASE_URL_TEMPLATE`), `--actors a=user,b=user`, `--input NAME=VALUE ...`,
+`--base-url-template` / env `UAT_BASE_URL_TEMPLATE`), `--actors a=user,b=user` (or one JSON map with the actor
+objects, see section 1), `--input NAME=VALUE ...`,
 `--input-file F` (JSON, for example the `context.json` of an earlier run; `--input` wins), `--run-dir`,
 `--health-url`, `--poll-interval`, `--build-sha`, `--no-stable-check`, `--old-base-url`, `--file-issues`,
-`--repo`, `--gh`. Inputs are the ids the API takes (not codes).
+`--repo`, `--gh`, `--allow-create`. Inputs are the ids the API takes (not codes).
+
+**`--allow-create` and the platform tenants.** A step that creates a tenant (`POST /api/v1/tenants`) is **skipped
+with a visible reason** ("creating a tenant needs --allow-create") unless the run was started with `--allow-create`:
+a run never leaves a new company behind by accident. With the flag, a throwaway tenant of the day
+(`uat-tmp-<yyyymmdd>-<n>`) is created only once a day: when a tenant of the same date already exists, the step is
+skipped with "already created today" (not failed).
 
 Run output never defaults to a path inside the product checkout. Without `--run-dir` (or `--run-dir-root` for a dry
 run), the runner uses `$UAT_RUN_DIR_ROOT` when set, then `$TEAM_TASKDIR/uat-runs` when set, and otherwise
@@ -296,6 +331,7 @@ the `bp_dryrun` capability reads exit 2 as "this runner has no dry-run command y
 `qoimeks-client1-qa` (client1, read-only: no runner run at all)**. `runner.py run|chain|cleanup`, `dry-run` and
 `check_processes.py` refuse a process, chain or fixture file, a `--tenant`, a `--actors` user (the slug or
 `<slug>-...`) or a base url that names one: **exit 2 before any request**, the message names the file and the tenant.
+An actor object is checked as well: the tenant it lives on, the user it names and its own base url.
 One retired file refuses the whole `dry-run` batch (exit 2; this is the one case where `dry-run` exits 2, the
 `bp_dryrun` capability must treat it as a refusal, not as a missing command). Before a batch runs, one line per
 distinct tenant (`batch tenant <slug>: actors ...; N file(s)`) is printed, so nobody has to remember the list.
@@ -313,6 +349,10 @@ module is installed on `qoimeks-qa2` (infra); then their `dry_run` tenant is `qo
    stable for a few minutes, and it is the same sha. `--no-stable-check` skips it.
 4. The tenant answers at its base url.
 5. **Every actor gets a token before the first step.** A missing token stops the run with no change made.
+
+Steps 1 to 5 run **per tenant of the run**: the tenant of the process, the tenants of the chain's entries and the
+tenants the actors name. The log names them: `tenant` and `token:<role>` for the tenant of the process,
+`tenant:<slug>`, `health:<slug>` and `token:<slug>:<role>` for every other one.
 
 The sha is read again at the end: **a different sha ("build moved") fails the run**, whatever the steps said.
 
@@ -466,6 +506,7 @@ python3 -B -m unittest -v scripts/uat/tests/test_issues.py          # --file-iss
 python3 -B -m unittest -v scripts/uat/tests/test_check_processes.py # the static check
 python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py          # dry-run --changed in a temp git repository
 python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: order, idempotent reuse, cleanup, static check
+python3 -B -m unittest -v scripts/uat/tests/test_platform_actors.py # an actor of another tenant: its address, its token, the residue
 ```
 
 `tests/fakes.py` is the shared fake: an HTTP server (a thread) with the stock routes BP-01 needs, the shared access
@@ -486,3 +527,14 @@ timeout) also FAILS with `tenant residue check` and `baseline unavailable` or `f
 never passed or skipped. `runner.py cleanup <run dir>` reads `residue_before.json` and runs the same comparison after
 the replay, so an interrupted run is judged too. `"residue_check": false` in a chain or process file turns it off
 (default on).
+
+**The platform tenants.** An actor object (the platform administrator) lives on the platform tenant, and what a
+platform run can leave behind there is not a document but a **tenant**: the runner lists the tenant registry
+(`GET /api/v1/tenants`) before the first process and after the last cleanup - when an actor of that tenant may
+read it (a tenant administrator may not: there is no platform registry for it, and that is not a failure). A
+throwaway tenant (its slug starts with
+`uat-tmp-`) that was not there before the run and is still **active** is residue: the run FAILS with the row
+`tenant residue check` and the text `leftover platform tenant <slug>`. A tenant that existed before the run is
+never reported, a **deactivated** one is final (QA cannot purge a tenant without a lifecycle row), and the fixed
+fixture tenant `uat-tmp-fixture` is never residue. The baseline of the platform tenants is in `platform_before.json`
+of the run directory.

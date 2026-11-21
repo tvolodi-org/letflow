@@ -228,6 +228,21 @@ def check_path(problems, where, routes, method, path, shared=False):
         problems.append(f"{where}{method.upper()} {path} matches no route of the router files")
 
 
+def actor_value_ok(value) -> bool:
+    """An actor is a user name, or an object {user, tenant, base_url}: the actor of another tenant."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        user = value.get("user")
+        if not isinstance(user, str) or not user.strip():
+            return False
+        for key in ("tenant", "base_url"):
+            if value.get(key) is not None and (not isinstance(value[key], str) or not value[key].strip()):
+                return False
+        return True
+    return False
+
+
 def check_dry_run(doc, name, problems):
     block = doc["dry_run"]
     if not isinstance(block, dict):
@@ -235,8 +250,8 @@ def check_dry_run(doc, name, problems):
         return
     if not isinstance(block.get("tenant"), str) or not block["tenant"]:
         problems.append(f"{name}: dry_run.tenant is missing")
-    if not isinstance(block.get("actors"), dict) or not all(isinstance(v, str) and v for v in block["actors"].values()):
-        problems.append(f"{name}: dry_run.actors must map each actor to a user name")
+    if not isinstance(block.get("actors"), dict) or not all(actor_value_ok(v) for v in block["actors"].values()):
+        problems.append(f"{name}: dry_run.actors must map each actor to a user name (or to {{user, tenant, base_url}})")
     elif "steps" in doc:
         for step in doc["steps"] + (doc.get("cleanup") or []):
             for role in actors_of(step):
@@ -347,8 +362,8 @@ def check_chain(path: Path, doc, roles, routes, strict, problems, retired_map=No
         block = doc["dry_run"]
         if not isinstance(block.get("tenant"), str) or not block["tenant"]:
             problems.append(f"{name}: dry_run.tenant is missing")
-        if not isinstance(block.get("actors"), dict):
-            problems.append(f"{name}: dry_run.actors must map each actor to a user name")
+        if not isinstance(block.get("actors"), dict) or not all(actor_value_ok(v) for v in block["actors"].values()):
+            problems.append(f"{name}: dry_run.actors must map each actor to a user name (or to {{user, tenant, base_url}})")
     provided = set(doc.get("inputs") or {}) | set((doc.get("dry_run") or {}).get("inputs") or {})
     available = set(provided) | fixture_provides(doc, name, runner.fixtures_dir_for(path), problems)
     pass_map = doc.get("pass", {})
