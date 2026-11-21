@@ -258,7 +258,7 @@ class Failures(FakeServerCase):
         self.assertEqual(self.state.calls("POST", "/reverse"), [])
 
     def test_wait_task_polls_until_the_task_appears(self):
-        self.state.task_visible_after = 4
+        self.state.task_visible_after = 5  # the residue baseline reads the inbox once before the steps
         code, _ = self.run_process()
         self.assertEqual(code, 0)
         s3 = next(x for x in self.lines() if x["step"] == "s3")

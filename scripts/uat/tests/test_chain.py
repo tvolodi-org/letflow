@@ -836,3 +836,105 @@ class ChainCli(ChainCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResidueCheck(FakeServerCase):
+    """T-2548: new non-final documents or open tasks left in a tenant fail the run."""
+
+    def residue_rows(self):
+        return [x for x in self.lines() if x["step"] == "tenant residue check"]
+
+    def leaving(self):
+        """A process that creates a draft receipt and has no cleanup."""
+        body = {"org_unit_id": "ou-1", "lines": [{"catalog_uom_id": "uom-1", "quantity": "1"}]}
+        return proc("LEAK", [call("s1", "POST", "/api/v1/modules/stock/documents", body, {"status": 201})])
+
+    def test_clean_run_passes_with_a_residue_row(self):
+        code, _ = self.run_process()
+        self.assertEqual(code, 0)
+        rows = self.residue_rows()
+        self.assertEqual([r["verdict"] for r in rows], ["pass"])
+        self.assertTrue((self.run_dir / "residue_before.json").exists())
+
+    def test_run_that_leaves_a_document_fails_and_names_it(self):
+        code, _ = self.run_process(self.leaving())
+        self.assertEqual(code, 1)
+        row = self.residue_rows()[0]
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("qoimeks-qa2", row["error"])
+        self.assertIn("R-doc-1", row["error"])
+        self.assertIn("receipt", row["error"])
+        self.assertIn("draft", row["error"])
+        self.assertIn("tenant residue: FAIL", (self.run_dir / "summary.md").read_text())
+
+    def test_baseline_document_is_not_reported(self):
+        self.state.docs["doc-old"] = {"state": "posted", "qty": Decimal("1")}
+        code, _ = self.run_process()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.residue_rows()[0]["verdict"], "pass")
+        self.assertIn("doc-old", json.loads((self.run_dir / "residue_before.json").read_text())["qoimeks-qa2"]["docs"])
+
+    def test_final_state_document_is_not_residue(self):
+        code, _ = self.run_process(self.leaving())
+        self.assertEqual(code, 1)
+        self.state.docs["doc-1"]["state"] = "reversed"  # a final state: no residue any more
+        r = runner.Runner(self.leaving(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS, run_dir=self.run_dir,
+                          out=io.StringIO(), poll_interval=0.01)
+        r.residue_before = {"qoimeks-qa2": {"base_url": self.base, "actors": USERS, "docs": {}, "tasks": ["task-decoy"]}}
+        self.assertTrue(r.check_residue())
+
+    def test_new_open_task_is_residue(self):
+        self.state.tasks.append({"id": "task-x", "instance_id": "i", "node_id": "post", "status": "PENDING", "doc": "d"})
+        r = runner.Runner(self.process(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS, run_dir=self.run_dir,
+                          out=io.StringIO(), poll_interval=0.01)
+        self.run_dir.mkdir(parents=True)
+        r.residue_before = {"qoimeks-qa2": {"base_url": self.base, "actors": USERS, "docs": {}, "tasks": ["task-decoy"]}}
+        self.assertFalse(r.check_residue())
+        self.assertIn("open task task-x", r.records[-1]["error"])
+
+    def test_residue_check_false_turns_it_off(self):
+        process = self.leaving()
+        process["residue_check"] = False
+        code, _ = self.run_process(process)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.residue_rows(), [])
+        self.assertFalse((self.run_dir / "residue_before.json").exists())
+
+    def test_chain_level_switch(self):
+        code, _ = self.run_process(self.leaving(), residue_check=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.residue_rows(), [])
+
+    def test_interrupted_run_is_judged_by_cleanup_replay(self):
+        code, r = self.run_process(self.leaving())
+        self.assertEqual(code, 1)
+        # simulate the interruption: a later cleanup replay reads residue_before.json of the same run dir
+        before = json.loads((self.run_dir / "residue_before.json").read_text())
+        self.assertEqual(before["qoimeks-qa2"]["docs"], {})
+        out = io.StringIO()
+        replay = runner.Runner([{"id": "cleanup", "steps": []}], base_url=self.base, tenant="qoimeks-qa2", actors=USERS,
+                               run_dir=self.run_dir, poll_interval=0.01, out=out)
+        self.assertEqual(replay.replay_cleanup(), 1)
+        self.assertIn("residue left by the run", replay.records[-1]["error"])
+
+    def test_missing_list_route_is_skipped_not_failed(self):
+        r = runner.Runner(self.process(), base_url=self.base, tenant="qoimeks-qa2", actors={"storekeeper": "sk"},
+                          run_dir=self.run_dir, out=io.StringIO(), poll_interval=0.01)
+        self.run_dir.mkdir(parents=True)
+        self.assertTrue(r.record_residue_baseline())
+        self.assertEqual(r.residue_before, {})
+        self.assertEqual(r.records[-1]["verdict"], "skipped")
+
+    def test_two_tenants_have_their_own_baselines(self):
+        # one fake server answers for both tenants; the per-tenant baseline is keyed by tenant
+        over = {"BP-X": {"tenant": "other-qa", "actors": USERS, "base_url": self.base, "inputs": {}}}
+        p1, p2 = self.leaving(), self.leaving()
+        p2["id"] = "BP-X"
+        r = runner.Runner([p1, p2], base_url=self.base, tenant="qoimeks-qa2", actors=USERS, run_dir=self.run_dir,
+                          out=io.StringIO(), poll_interval=0.01, overrides=over)
+        self.run_dir.mkdir(parents=True)
+        self.assertTrue(r.record_residue_baseline())
+        self.assertEqual(sorted(r.residue_before), ["other-qa", "qoimeks-qa2"])
+        self.assertEqual(sorted(json.loads((self.run_dir / "residue_before.json").read_text())), ["other-qa", "qoimeks-qa2"])
+        p2["residue_check"] = False
+        self.assertEqual(sorted(r._residue_targets()), ["qoimeks-qa2"])
