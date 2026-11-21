@@ -299,6 +299,22 @@ defmodule Letflow.Scripts.CheckCatalogTest do
     assert out =~ "unknown area nonsense"
   end
 
+  test "the route allow-list is not an area catalog; another non-area file is an error", %{
+    tmp_dir: dir
+  } do
+    build(dir)
+    catalog(dir, [entry()])
+    write(dir, bp_path("public-routes.json"), "[]")
+    {out, code} = run(dir)
+    assert code == 0, out
+    refute out =~ "not an area catalog"
+
+    write(dir, bp_path("other.json"), "[]")
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ bp_path("other.json") <> ": not an area catalog"
+  end
+
   test "--json prints the missing items", %{tmp_dir: dir} do
     build(dir)
     catalog(dir, [entry(%{"tasks" => [hd(full_tasks())]})])

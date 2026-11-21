@@ -1,0 +1,41 @@
+{
+  "id": "SEC-ID-06",
+  "bp_entry": "BP-TENANT-ADMIN-47",
+  "title": "The storekeeper does not hold the approve permission of stock tasks; the tenant administrator does",
+  "description": "Decision 0093: the stock approve, post and reverse tasks require the approve permission (StockApprove), not the role name they are addressed to. The storekeeper asks whether they may approve: refused with 403 and the same body as every other permission refusal; the script checks that the storekeeper holds the STOREKEEPER role only; that its permission list does not name StockApprove is not asserted (the runner has no 'not in the list' check) and follows from the closed STOREKEEPER list in the authorization module. The tenant administrator asks the same: allowed (can_approve true), and the administrator's permission list names it. Not in this file: the storekeeper's direct claim and completion of the administrator's posting task by its id (the runner cannot hand one actor the id of a task found in another actor's My Tasks); see the map entry. Read-only; no cleanup.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper"},
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/approval-access"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions", "$.can_approve": {"absent": true}}}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.roles[0]": "STOREKEEPER", "$.roles[1]": {"absent": true}, "$.permissions": {"contains": "TasksComplete"}}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/approval-access"},
+      "expect": {"status": 200, "json": {"$.can_approve": true}}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.roles[0]": "TENANT_ADMIN", "$.permissions": {"contains": "StockApprove"}}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

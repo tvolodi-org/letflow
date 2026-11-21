@@ -1,0 +1,111 @@
+{
+  "id": "SEC-ID-01",
+  "bp_entry": "BP-TENANT-ADMIN-42",
+  "title": "Login lookup by host and company code: a known company answers its own realm, an unknown or bare host and an unknown code answer the same default",
+  "description": "Before sign-in the web page and the phone app ask which sign-in realm belongs to a host or a company code. A known company answers its own realm. An unknown host, the bare platform host, no parameter and an unknown company code all answer the same default body (the default realm, no company type), so the answer never tells a prober which names exist; only the explicit company check says found or not found. The logo of an unknown company is the plain not-found answer. The default values are read at the start of the run and compared, never written into this file. Read-only: nothing is created, so there is no cleanup. The public routes do not read the bearer value the runner sends.",
+  "tenant": "${tenant}",
+  "inputs": ["company_host", "unknown_host", "bare_host", "unknown_code"],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin"},
+    "inputs": {
+      "company_host": "qoimeks-qa2.letflow.qa.bizdala.com",
+      "unknown_host": "no-such-company-uat.letflow.qa.bizdala.com",
+      "bare_host": "letflow.qa.bizdala.com",
+      "unknown_code": "no-such-company-uat"
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config"},
+      "expect": {"status": 200, "json": {"$.oidc_authority": {"exists": true}, "$.tenant_type": {"absent": true}, "$.client_id": {"exists": true}}},
+      "save": {"default_authority": "$.oidc_authority", "default_app_name": "$.branding.app_name", "default_primary": "$.branding.brand_colors.primary"}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?host=${company_host}"},
+      "expect": {"status": 200, "json": {"$.oidc_authority": {"regex": "/realms/${tenant}\\Z"}, "$.tenant_type": {"exists": true}}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?host=${unknown_host}"},
+      "expect": {"status": 200, "json": {
+        "$.oidc_authority": {"equals": "${default_authority}"},
+        "$.tenant_type": {"absent": true},
+        "$.branding.app_name": {"equals": "${default_app_name}"},
+        "$.branding.brand_colors.primary": {"equals": "${default_primary}"},
+        "$.company_found": {"absent": true}
+      }}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?host=${bare_host}"},
+      "expect": {"status": 200, "json": {
+        "$.oidc_authority": {"equals": "${default_authority}"},
+        "$.tenant_type": {"absent": true},
+        "$.branding.app_name": {"equals": "${default_app_name}"},
+        "$.branding.brand_colors.primary": {"equals": "${default_primary}"}
+      }}
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?realm=${unknown_code}"},
+      "expect": {"status": 200, "json": {
+        "$.oidc_authority": {"equals": "${default_authority}"},
+        "$.tenant_type": {"absent": true},
+        "$.company_found": {"absent": true}
+      }}
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?realm=${unknown_code}&company_check=1"},
+      "expect": {"status": 200, "json": {"$.company_found": false, "$.oidc_authority": {"equals": "${default_authority}"}, "$.tenant_type": {"absent": true}}}
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config?realm=${tenant}&company_check=1"},
+      "expect": {"status": 200, "json": {"$.company_found": true, "$.oidc_authority": {"regex": "/realms/${tenant}\\Z"}}}
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config/logo?slug=${unknown_code}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/tenant-config/logo"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/mobile/tenant-config"},
+      "expect": {"status": 200, "json": {"$.company_found": false, "$.realm_url": {"exists": true}}},
+      "save": {"mobile_default_realm": "$.realm_url", "mobile_default_client": "$.client_id"}
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/mobile/tenant-config?slug=${unknown_code}"},
+      "expect": {"status": 200, "json": {"$.company_found": false, "$.realm_url": {"equals": "${mobile_default_realm}"}, "$.client_id": {"equals": "${mobile_default_client}"}}}
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/mobile/tenant-config?slug=${tenant}"},
+      "expect": {"status": 200, "json": {"$.company_found": true, "$.realm_url": {"regex": "/realms/${tenant}\\Z"}}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
