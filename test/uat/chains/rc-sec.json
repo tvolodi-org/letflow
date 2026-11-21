@@ -1,6 +1,9 @@
 {
   "id": "rc-sec",
   "title": "Release candidate run for the security processes (identity, assets, old app, stock): every SEC process on one build",
+  "tenant": "qoimeks-qa2",
+  "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper"},
+  "dry_run": {"tenant": "qoimeks-qa2", "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper"}, "inputs": {}},
   "processes": [
   {"process": "SEC-ASSETS-01", "dry_run": true},
   {"process": "SEC-ASSETS-02", "dry_run": true},
