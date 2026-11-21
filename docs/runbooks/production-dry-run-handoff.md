@@ -61,7 +61,7 @@ their generation method.
 | `RESERVED_HEADROOM` | no | Integer, default 2. Leave at default for the dry run. |
 | `PORT` | no | Default 4000 (the internal port). The compose file already maps it; leave unset. |
 | `LETFLOW_MODULE_UPGRADE_ON_BOOT` | no | Set to `false` explicitly to prevent automatic tenant module upgrades at boot. Default is `false`; state it explicitly for safety. |
-| `CORS_ALLOWED_ORIGINS` | no (but needed for browser access) | Comma-separated list of allowed origins. For loopback-only testing leave unset; this disables exact origins. The independently configured company-host suffix policy can still permit HTTPS company origins (see `tenant-provisioner-credential.md`). |
+| `CORS_ALLOWED_ORIGINS` | no (but needed for browser access) | Comma-separated list of the APP's own origins (the platform host, the PWA host the SPA is served from). For loopback-only testing leave unset; this disables the app's own origins. A company origin needs no entry: since T-2621 the CORS decision is taken per host, so a company origin is allowed on its own host and on no other one (see `tenant-provisioner-credential.md`). |
 | `LOG_LEVEL` | no | Default `info`. Set to `debug` only if detailed tracing is needed; it is very verbose. |
 | `LETFLOW_BUILD_SHA` | no | Set automatically via the Docker `--build-arg GIT_SHA` path in the Dockerfile; no manual set needed. |
 

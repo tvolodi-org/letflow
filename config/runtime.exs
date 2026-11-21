@@ -805,10 +805,17 @@ if config_env() == :prod do
 
   # REQ-118: allowed CORS origins for the browser-origin SPA. Fail-closed —
   # an unset or empty CORS_ALLOWED_ORIGINS yields [] (no exact origin
-  # trusted; the guarded provisioner suffix list independently permits HTTPS company origins), never a silent fallback to Letflow.Plugs.Cors's dev/test
+  # trusted), never a silent fallback to Letflow.Plugs.Cors's dev/test
   # default (`localhost:5173`/`127.0.0.1:4173`), which would be a security
   # hole in a real deployment. Comma-separated exact origins, e.g.
   # "https://app.example.com,https://staging.example.com".
+  #
+  # T-2621: these are the APP's own origins (the platform host, the PWA host the
+  # SPA is served from); a listed origin is allowed on every host. A company's own
+  # host needs no entry here: Letflow.Plugs.Cors takes the allow decision PER
+  # HOST, so a company origin is allowed on its own host and on no other one. The
+  # guarded provisioner suffix list grants no CORS allowance at all (it is a
+  # provisioning policy: which hostname a company may be given).
   config :letflow,
          :cors_allowed_origins,
          (System.get_env("CORS_ALLOWED_ORIGINS") || "") |> String.split(",", trim: true)

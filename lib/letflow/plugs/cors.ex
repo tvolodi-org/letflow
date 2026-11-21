@@ -9,7 +9,9 @@ defmodule Letflow.Plugs.Cors do
   This plug is what makes those cross-origin calls work.
 
   See `lib/letflow/design/req118-cors.md` for the full design and reasoning
-  (CODE-DESIGN-VALIDATOR-approved) — summarized here:
+  (CODE-DESIGN-VALIDATOR-approved) — summarized here. The per-host rule of
+  T-2621 below supersedes that record's company-suffix rule (the defect this
+  change fixes):
 
   * **No credentials, ever.** `web/src/api/client.ts` holds its bearer token
     in memory and sends it as an `Authorization: Bearer <token>` header —
@@ -27,16 +29,33 @@ defmodule Letflow.Plugs.Cors do
     blocks the SPA's `/api/tenant-config` bootstrap with a silent fallback to a
     hardcoded Keycloak authority. No `*`, ever. `config/runtime.exs` overrides
     this in prod via `CORS_ALLOWED_ORIGINS`, fail-closed to `[]` when unset.
-    Independently, the guarded provisioner suffix list permits HTTPS company origins:
-    one non-reserved label, default port, no userinfo, path, query or fragment. The
-    longest matching suffix wins; no database lookup or wildcard response is used.
+    These are the app's OWN origins (the platform host, the PWA host the SPA is
+    served from); a listed origin is allowed on every host.
+  * **The allow decision is taken PER HOST (T-2621).** An origin is allowed
+    only when it is one of the app's own fixed origins (above) or when it IS
+    the host the request is addressed to — `https://<that host>`, the origin of
+    the host itself (same-origin). Nothing else is allowed: another company's
+    origin, an origin that is not this host, a lookalike suffix
+    (`evil-<suffix>`, `<suffix>.evil.test`) and every malformed origin get the
+    SAME answer an unknown origin gets. Before T-2621 the guarded provisioner
+    suffix list (`LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES`) permitted
+    HTTPS company origins, which meant "any origin under an allowed suffix is
+    allowed on EVERY host that reaches the app": a preflight from one company
+    passed on another company's host and on the platform host. The suffix list
+    is a PROVISIONING policy (which hostname a company may be given); it
+    grants no CORS allowance at all now, and the decision does not depend on
+    it — a host grants an origin only when that origin is the host itself.
+    A preflight carries no tenant context, so the host is the only thing the
+    decision can be taken on.
   * **Rejection is silent, not a 403.** CORS is a browser-enforced,
     response-header-driven mechanism — the server's only lever is which
     headers it emits. An unlisted `Origin` gets no CORS headers at all and
     the request proceeds through the normal pipeline unchanged (so
     non-browser callers — curl, server-to-server, the mobile tier — are
     never blocked by this plug); the browser is what then refuses to expose
-    the response to the calling JS.
+    the response to the calling JS. Every refused origin gets that one answer
+    — the same status and the same body an unknown origin gets — so the
+    refusal reveals nothing about the company the origin names (INV-5).
   * **Preflight (`OPTIONS`) is implemented, not skipped.** `Authorization` is
     not a CORS-safelisted header, so the browser preflights every
     authenticated call. A matched-origin preflight is short-circuited here
@@ -85,6 +104,11 @@ defmodule Letflow.Plugs.Cors do
   # dependency on the exact value.
   @max_age "600"
 
+  # The Origin header is unauthenticated input and this plug runs before every
+  # route: anything longer than this is refused before URI.new/1 parses it
+  # (INV-8, and a bound on the work one request can ask for).
+  @max_origin_bytes 300
+
   @impl Plug
   def init(opts), do: opts
 
@@ -99,7 +123,7 @@ defmodule Letflow.Plugs.Cors do
   defp handle(nil, conn), do: conn
 
   defp handle(origin, conn) do
-    if origin_allowed?(origin) do
+    if origin_allowed?(origin, conn) do
       handle_allowed(conn, origin)
     else
       conn
@@ -137,40 +161,81 @@ defmodule Letflow.Plugs.Cors do
     Application.get_env(:letflow, :cors_allowed_origins, @default_origins)
   end
 
-  @spec origin_allowed?(String.t()) :: boolean()
-  defp origin_allowed?(origin), do: origin in allowed_origins() or company_origin?(origin)
-
-  # The Origin header is unauthenticated input and this plug runs before every route:
-  # anything that is not a short printable-ASCII string is refused before URI.new/1,
-  # which raises on a non-UTF-8 byte (INV-8). Fails closed.
-  defp company_origin?(origin) when byte_size(origin) > 300, do: false
-
-  defp company_origin?(origin) do
-    if Regex.match?(~r/\A[\x21-\x7e]+\z/, origin), do: parse_company_origin?(origin), else: false
+  # T-2621: the decision is taken PER HOST. An origin is allowed when it is one
+  # of the app's own fixed origins, or when it IS the host this request is
+  # addressed to — the origin of the company that owns the host. Every other
+  # origin (another company's, a non-suffix host, a lookalike suffix, a
+  # malformed one) is refused with the answer an unknown origin gets.
+  @spec origin_allowed?(String.t(), Plug.Conn.t()) :: boolean()
+  defp origin_allowed?(origin, conn) do
+    origin in allowed_origins() or own_origin?(origin, conn)
   end
 
-  defp parse_company_origin?(origin) do
-    with {:ok,
-          %URI{
-            scheme: "https",
-            host: host,
-            port: 443,
-            userinfo: nil,
-            path: nil,
-            query: nil,
-            fragment: nil
-          }}
-         when is_binary(host) <- URI.new(origin),
-         # URI parsers can normalize an empty port to 443; accept only serialized origins.
-         true <- origin in ["https://" <> host, "https://" <> host <> ":443"],
-         {:ok, _host} <-
-           Letflow.TenantProvisioner.Request.hostname(
-             host,
-             Letflow.TenantProvisioner.Config.allowed_hostname_suffixes()
-           ) do
-      true
+  # The origin IS the host this request is addressed to: the only company origin
+  # a host ever grants. A request whose host is not usable text grants nothing.
+  @spec own_origin?(String.t(), Plug.Conn.t()) :: boolean()
+  defp own_origin?(origin, conn) do
+    with host when is_binary(host) <- request_host(conn),
+         origin_host when is_binary(origin_host) <- origin_host(origin) do
+      origin_host == host
     else
-      _invalid -> false
+      _other -> false
+    end
+  end
+
+  # The host this request is addressed to (the Host header; Letflow never
+  # resolves a tenant from it — see `Letflow.Routers.TenantConfig`'s moduledoc).
+  # A host that is not usable text is no host at all: String.downcase/1 raises on
+  # invalid UTF-8, so the check comes first (INV-8).
+  @spec request_host(Plug.Conn.t()) :: String.t() | nil
+  defp request_host(conn) do
+    case conn.host do
+      host when is_binary(host) ->
+        if String.valid?(host) do
+          case host |> String.trim() |> String.downcase() do
+            "" -> nil
+            host -> host
+          end
+        else
+          nil
+        end
+
+      _other ->
+        nil
+    end
+  end
+
+  # The host of an HTTPS origin (default port, no userinfo, path, query or
+  # fragment), or nil when the Origin header is not such an origin. The Origin
+  # header is unauthenticated input and this plug runs before every route:
+  # anything that is not a short printable-ASCII string is refused before
+  # URI.new/1, which raises on a non-UTF-8 byte (INV-8). Fails closed.
+  @spec origin_host(String.t()) :: String.t() | nil
+  defp origin_host(origin) when byte_size(origin) > @max_origin_bytes, do: nil
+
+  defp origin_host(origin) do
+    if Regex.match?(~r/\A[\x21-\x7e]+\z/, origin) do
+      case URI.new(origin) do
+        {:ok,
+         %URI{
+           scheme: "https",
+           host: host,
+           port: 443,
+           userinfo: nil,
+           path: nil,
+           query: nil,
+           fragment: nil
+         }}
+        when is_binary(host) ->
+          # URI parsers normalize an empty port to 443, so "https://host:" parses like
+          # "https://host": accept only a serialized origin, as the URL spec does.
+          if origin in ["https://" <> host, "https://" <> host <> ":443"],
+            do: String.downcase(host),
+            else: nil
+
+        _other ->
+          nil
+      end
     end
   end
 

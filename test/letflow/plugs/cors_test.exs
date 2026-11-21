@@ -23,6 +23,16 @@ defmodule Letflow.Plugs.CorsTest do
   Design reference: `lib/letflow/design/req118-cors.md`, especially §0.5 (rejection
   is "omit the header," never a distinct HTTP status) and §1 (the exact header-value
   table this file's assertions are pinned to).
+
+  T-2621 (the per-host rule): the allow decision is taken PER HOST, so an origin is
+  allowed only when it is one of the app's own fixed origins or when it IS the host
+  the request is addressed to. The hosts, the pairs and the expected answers below are
+  the QA topology of the infra baseline that found the defect
+  (`ai-dala-infra/runs/2026-11-22-qa-mail-adapter-001/cors-failing-pairs.md`): the
+  two failing pairs of that baseline are reproduced verbatim, and every refusal is
+  compared with the answer for an origin the app knows nothing about (the "uniform
+  refusal" the requirement asks for: same status, same body, no allow-origin, no
+  oracle on whether the other company exists).
   """
 
   use Letflow.DataCase, async: false
@@ -39,6 +49,22 @@ defmodule Letflow.Plugs.CorsTest do
   # was missing; both must stay in @default_origins.
   @iss0529_origin_a "http://localhost:4173"
   @iss0529_origin_b "http://127.0.0.1:5173"
+
+  # ── the QA topology of the infra baseline (2026-11-22) ──────────────────────
+  @tenant_host "sss-rehearsal2.letflow.qa.bizdala.com"
+  @other_tenant_host "qoimeks-qa2.letflow.qa.bizdala.com"
+  @third_tenant_host "qoimeks-qa.letflow.qa.bizdala.com"
+  @tenant_host_other_suffix "sss-rehearsal2.qa.ai-letflow.com"
+  @other_tenant_host_other_suffix "qoimeks-qa2.qa.ai-letflow.com"
+  @platform_host "qa.bizdala.com"
+  @pwa_host "pwa.letflow.qa.bizdala.com"
+
+  # The app's own fixed origins, as QA has them (CORS_ALLOWED_ORIGINS): the
+  # platform host and the host the PWA is served from.
+  @fixed_origins ["https://qa.bizdala.com", "https://pwa.letflow.qa.bizdala.com"]
+
+  # The guarded suffix policy of QA (LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES).
+  @suffixes ["qa.ai-letflow.com", "letflow.qa.bizdala.com"]
 
   defp call(conn), do: Letflow.Router.call(conn, @opts)
 
@@ -314,30 +340,184 @@ defmodule Letflow.Plugs.CorsTest do
     end
   end
 
-  describe "company namespace C2-C4" do
+  # ── T-2621: the allow decision is taken PER HOST ───────────────────────────
+
+  describe "T-2621: the CORS allow decision is per host" do
     setup do
-      old = Application.get_env(:letflow, Letflow.TenantProvisioner)
+      old_origins = Application.get_env(:letflow, :cors_allowed_origins)
+      old_provisioner = Application.get_env(:letflow, Letflow.TenantProvisioner)
+
+      Application.put_env(:letflow, :cors_allowed_origins, @fixed_origins)
+
+      Application.put_env(:letflow, Letflow.TenantProvisioner,
+        allowed_hostname_suffixes: @suffixes
+      )
+
+      on_exit(fn ->
+        restore_env(:cors_allowed_origins, old_origins)
+        restore_env(Letflow.TenantProvisioner, old_provisioner)
+      end)
+    end
+
+    test "a tenant host answers its OWN origin's preflight with 204 and the allow-origin header" do
+      conn = preflight(@tenant_host, "https://#{@tenant_host}")
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://#{@tenant_host}"]
+      assert get_resp_header(conn, "vary") == ["origin"]
+      assert get_resp_header(conn, "access-control-max-age") == ["600"]
+    end
+
+    test "the platform host answers its OWN origin's preflight with 204 and the allow-origin header" do
+      conn = preflight(@platform_host, "https://#{@platform_host}")
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://#{@platform_host}"]
+    end
+
+    # The five failing pairs of the infra baseline (cors-failing-pairs.md): a
+    # preflight from ANOTHER company's origin on a tenant host and on the platform
+    # host. Expected: the unknown-origin answer -- 401 and no allow-origin.
+    test "infra pair 1: a foreign company's origin on another company's host is refused" do
+      assert_uniform_refusal(
+        preflight(@other_tenant_host, "https://#{@tenant_host}"),
+        preflight(@other_tenant_host, "https://evil.example")
+      )
+    end
+
+    test "infra pair 2: the same pair the other way round is refused too" do
+      assert_uniform_refusal(
+        preflight(@tenant_host, "https://#{@other_tenant_host}"),
+        preflight(@tenant_host, "https://evil.example")
+      )
+    end
+
+    test "infra pair 3: a sibling company under the same suffix is refused" do
+      assert_uniform_refusal(
+        preflight(@third_tenant_host, "https://#{@other_tenant_host}"),
+        preflight(@third_tenant_host, "https://evil.example")
+      )
+    end
+
+    test "infra pair 4: a company under the other allowed suffix is refused" do
+      assert_uniform_refusal(
+        preflight(@tenant_host_other_suffix, "https://#{@other_tenant_host_other_suffix}"),
+        preflight(@tenant_host_other_suffix, "https://evil.example")
+      )
+    end
+
+    test "infra pair 5: the platform host refuses a company's origin" do
+      assert_uniform_refusal(
+        preflight(@platform_host, "https://#{@tenant_host}"),
+        preflight(@platform_host, "https://evil.example")
+      )
+    end
+
+    test "the app's own fixed origin (the PWA host) stays allowed on a tenant host" do
+      conn = preflight(@tenant_host, "https://#{@pwa_host}")
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://#{@pwa_host}"]
+    end
+
+    test "a lookalike suffix origin is refused on a tenant host" do
+      for origin <- [
+            "https://evil-letflow.qa.bizdala.com",
+            "https://evil-qa.ai-letflow.com",
+            "https://letflow.qa.bizdala.com.evil.test",
+            "https://qa.ai-letflow.com.evil.test"
+          ] do
+        assert_uniform_refusal(
+          preflight(@tenant_host, origin),
+          preflight(@tenant_host, "https://evil.example"),
+          origin
+        )
+      end
+    end
+
+    test "a non-suffix origin is refused on a tenant host" do
+      for origin <- ["https://evil.example", "https://evil.example.com", "http://#{@tenant_host}"] do
+        assert_uniform_refusal(
+          preflight(@tenant_host, origin),
+          preflight(@tenant_host, "https://evil.example"),
+          origin
+        )
+      end
+    end
+
+    test "a preflight without a resolvable host gets the unknown-origin answer" do
+      conn =
+        conn(:options, "https://#{@tenant_host}/api/v1/me")
+        |> put_req_header("origin", "https://#{@tenant_host}")
+        |> put_req_header("access-control-request-method", "GET")
+        |> Map.put(:host, "")
+        |> call()
+
+      unknown =
+        conn(:options, "https://#{@tenant_host}/api/v1/me")
+        |> put_req_header("origin", "https://evil.example")
+        |> put_req_header("access-control-request-method", "GET")
+        |> Map.put(:host, "")
+        |> call()
+
+      assert_uniform_refusal(conn, unknown)
+    end
+
+    test "a real GET with a foreign origin gets no allow-origin and the unknown-origin answer" do
+      conn = get(@tenant_host, "https://#{@other_tenant_host}", "/health")
+      unknown = get(@tenant_host, "https://evil.example", "/health")
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "access-control-allow-origin") == []
+      assert conn.resp_body == unknown.resp_body
+    end
+
+    test "the suffix policy decides no CORS allowance at all: the answers are the same for any policy" do
+      for policy <- [nil, [], "letflow.qa.bizdala.com", ["bad suffix"], @suffixes] do
+        Application.put_env(:letflow, Letflow.TenantProvisioner,
+          allowed_hostname_suffixes: policy
+        )
+
+        own = preflight(@tenant_host, "https://#{@tenant_host}")
+        assert own.status == 204, inspect(policy)
+        assert get_resp_header(own, "access-control-allow-origin") == ["https://#{@tenant_host}"]
+
+        foreign = preflight(@tenant_host, "https://#{@other_tenant_host}")
+        assert get_resp_header(foreign, "access-control-allow-origin") == [], inspect(policy)
+        refute foreign.status == 204, inspect(policy)
+      end
+    end
+  end
+
+  # ── company origins under the per-host rule (the C2-C4 coverage, re-pinned) ──
+
+  describe "company namespace C2-C4 under the per-host rule" do
+    setup do
+      old_origins = Application.get_env(:letflow, :cors_allowed_origins)
+      old_provisioner = Application.get_env(:letflow, Letflow.TenantProvisioner)
 
       Application.put_env(:letflow, Letflow.TenantProvisioner,
         allowed_hostname_suffixes: ~w(ai-letflow.com qa.ai-letflow.com qa.bizdala.com)
       )
 
       on_exit(fn ->
-        if old,
-          do: Application.put_env(:letflow, Letflow.TenantProvisioner, old),
-          else: Application.delete_env(:letflow, Letflow.TenantProvisioner)
+        restore_env(:cors_allowed_origins, old_origins)
+        restore_env(Letflow.TenantProvisioner, old_provisioner)
       end)
     end
 
-    test "C2 HTTPS company GET and preflight echo only the request origin" do
-      for origin <-
-            ~w(https://acme.ai-letflow.com https://acme.qa.ai-letflow.com https://acme.qa.bizdala.com https://acme.ai-letflow.com:443) do
-        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+    test "C2 a company origin is allowed on its OWN host and on no other host" do
+      for host <- ~w(acme.ai-letflow.com acme.qa.ai-letflow.com acme.qa.bizdala.com) do
+        origin = "https://#{host}"
+
+        actual =
+          conn(:get, "https://#{host}/health") |> put_req_header("origin", origin) |> call()
+
         assert actual.status == 200
         assert get_resp_header(actual, "access-control-allow-origin") == [origin]
 
         preflight =
-          conn(:options, "/health")
+          conn(:options, "https://#{host}/health")
           |> put_req_header("origin", origin)
           |> put_req_header("access-control-request-method", "POST")
           |> call()
@@ -357,26 +537,58 @@ defmodule Letflow.Plugs.CorsTest do
       end
     end
 
+    test "C2 the same company origin on ANOTHER company's host is refused" do
+      for {host, origin_host} <- [
+            {"other.ai-letflow.com", "acme.ai-letflow.com"},
+            {"acme.qa.ai-letflow.com", "acme.ai-letflow.com"},
+            {"other.qa.bizdala.com", "acme.qa.bizdala.com"}
+          ] do
+        actual =
+          conn(:get, "https://#{host}/health")
+          |> put_req_header("origin", "https://#{origin_host}")
+          |> call()
+
+        assert get_resp_header(actual, "access-control-allow-origin") == [], host
+
+        preflight =
+          conn(:options, "https://#{host}/health")
+          |> put_req_header("origin", "https://#{origin_host}")
+          |> put_req_header("access-control-request-method", "POST")
+          |> call()
+
+        refute preflight.status == 204, host
+        assert get_resp_header(preflight, "access-control-allow-origin") == [], host
+      end
+    end
+
     test "C3 malformed, reserved and foreign origins get no CORS allowance" do
       for origin <-
             ~w(https://evil.example https://ai-letflow.com https://a.b.ai-letflow.com https://*.ai-letflow.com http://acme.ai-letflow.com https://user@acme.ai-letflow.com https://acme.ai-letflow.com/ https://acme.ai-letflow.com?x=1 https://acme.ai-letflow.com#x https://acme.ai-letflow.com:444 https://auth.ai-letflow.com https://qa.ai-letflow.com https://acme.ai-letflow.com.evil.example) do
-        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        actual =
+          conn(:get, "https://acme.ai-letflow.com/health")
+          |> put_req_header("origin", origin)
+          |> call()
+
         assert get_resp_header(actual, "access-control-allow-origin") == [], origin
 
         preflight =
-          conn(:options, "/health")
+          conn(:options, "https://acme.ai-letflow.com/health")
           |> put_req_header("origin", origin)
           |> put_req_header("access-control-request-method", "POST")
           |> call()
 
-        refute preflight.status == 204
-        assert get_resp_header(preflight, "access-control-allow-origin") == []
+        refute preflight.status == 204, origin
+        assert get_resp_header(preflight, "access-control-allow-origin") == [], origin
       end
     end
 
     test "C3 whitespace in an origin host is not a company origin" do
       for origin <- ["https://acme.ai-letflow.com ", "https:// acme.ai-letflow.com"] do
-        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        actual =
+          conn(:get, "https://acme.ai-letflow.com/health")
+          |> put_req_header("origin", origin)
+          |> call()
+
         assert get_resp_header(actual, "access-control-allow-origin") == []
       end
     end
@@ -385,13 +597,17 @@ defmodule Letflow.Plugs.CorsTest do
       long = "https://" <> String.duplicate("a", 400) <> ".qa.ai-letflow.com"
 
       for origin <- [<<"https://", 0xFF, ".qa.ai-letflow.com">>, <<0xC3>>, long] do
-        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        actual =
+          conn(:get, "https://acme.ai-letflow.com/health")
+          |> put_req_header("origin", origin)
+          |> call()
+
         refute actual.halted
         assert actual.status == 200
         assert get_resp_header(actual, "access-control-allow-origin") == []
 
         preflight =
-          conn(:options, "/health")
+          conn(:options, "https://acme.ai-letflow.com/health")
           |> put_req_header("origin", origin)
           |> put_req_header("access-control-request-method", "POST")
           |> call()
@@ -403,31 +619,70 @@ defmodule Letflow.Plugs.CorsTest do
 
     test "C3 malformed ports are refused even if URI parsing defaults to 443" do
       for origin <- ["https://acme.ai-letflow.com:bad", "https://acme.ai-letflow.com:"] do
-        actual = conn(:get, "/health") |> put_req_header("origin", origin) |> call()
+        actual =
+          conn(:get, "https://acme.ai-letflow.com/health")
+          |> put_req_header("origin", origin)
+          |> call()
+
         assert get_resp_header(actual, "access-control-allow-origin") == []
       end
     end
 
-    test "C4 invalid suffix policy leaves exact origins independent" do
-      for value <- [nil, [], "ai-letflow.com", ["ai-letflow.com", "bad suffix"]] do
-        Application.put_env(:letflow, Letflow.TenantProvisioner, allowed_hostname_suffixes: value)
-
-        denied =
-          conn(:get, "/health")
+    test "C4 a request whose host is not usable is refused like an unknown origin (INV-8)" do
+      for host <- ["", <<0xFF>>, nil] do
+        actual =
+          conn(:get, "https://acme.ai-letflow.com/health")
           |> put_req_header("origin", "https://acme.ai-letflow.com")
+          |> Map.put(:host, host)
           |> call()
 
-        assert get_resp_header(denied, "access-control-allow-origin") == []
-        exact = conn(:get, "/health") |> put_req_header("origin", @allowed_origin) |> call()
-        assert get_resp_header(exact, "access-control-allow-origin") == [@allowed_origin]
+        refute actual.halted
+        assert actual.status == 200
+        assert get_resp_header(actual, "access-control-allow-origin") == []
       end
-
-      Application.delete_env(:letflow, Letflow.TenantProvisioner)
-
-      denied =
-        conn(:get, "/health") |> put_req_header("origin", "https://acme.ai-letflow.com") |> call()
-
-      assert get_resp_header(denied, "access-control-allow-origin") == []
     end
   end
+
+  # ── the allow-origin header has exactly one writer ──────────────────────────
+
+  describe "access-control-allow-origin has exactly one writer" do
+    test "only lib/letflow/plugs/cors.ex sets the header" do
+      writers =
+        for path <- Path.wildcard("lib/**/*.ex"),
+            File.read!(path) =~ "access-control-allow-origin",
+            do: path
+
+      assert writers == ["lib/letflow/plugs/cors.ex"],
+             "a new code path sets access-control-allow-origin: classify it here"
+    end
+  end
+
+  # ── helpers ─────────────────────────────────────────────────────────────────
+
+  # A CORS preflight addressed to `host`, exactly as the infra probe sent it:
+  # OPTIONS <host>/api/v1/me with an Origin and an Access-Control-Request-Method.
+  defp preflight(host, origin) do
+    conn(:options, "https://#{host}/api/v1/me")
+    |> put_req_header("origin", origin)
+    |> put_req_header("access-control-request-method", "GET")
+    |> call()
+  end
+
+  defp get(host, origin, path) do
+    conn(:get, "https://#{host}#{path}")
+    |> put_req_header("origin", origin)
+    |> call()
+  end
+
+  # The refusal must be indistinguishable from the answer for an origin the app
+  # knows nothing about: the same status, the same body, and no allow-origin.
+  defp assert_uniform_refusal(conn, unknown, origin \\ nil) do
+    assert get_resp_header(conn, "access-control-allow-origin") == [], origin || "origin"
+    assert conn.status == unknown.status, origin || "status"
+    assert conn.resp_body == unknown.resp_body, origin || "body"
+    refute conn.status == 204, origin || "status"
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:letflow, key)
+  defp restore_env(key, value), do: Application.put_env(:letflow, key, value)
 end
