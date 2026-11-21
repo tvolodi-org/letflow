@@ -45,9 +45,14 @@ defmodule Letflow.Modules.Assets.RunbookTest do
     end
   end
 
-  test "A8-RUN-2 docs/roles.md names the four atoms with no role grants" do
+  test "A8-RUN-2 docs/roles.md names the four atoms and the storekeeper overlay" do
     text = File.read!(@roles)
-    assert text =~ "Module `assets` (GH #3893, REQ-749)"
+
+    assert text =~
+             "Module `assets` (GH #3892, REQ-750; GH #3893, REQ-749; REQ-816, asset count K1)"
+
+    assert text =~ "Its manifest has `role_grants: %{}`"
+    assert text =~ "per-tenant STOREKEEPER overlay of exactly `AssetsRead` and `AssetsPost`"
 
     for atom <- ~w(AssetsPost AssetsReverse AssetsRead AssetsReconcile),
         do: assert(text =~ "`#{atom}`")
