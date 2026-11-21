@@ -10,11 +10,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAccess } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { useToast } from '@/hooks/useToast'
+import { useObjectUrl } from '@/hooks/useObjectUrl'
 import { ACTIVE_TRUE, DELETED_FALSE, fetchCardsPage } from '@/modules/assets/assets.api'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormSection } from '@/components/ui/FormSection'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { PhotoUploadPicker } from '@/components/ui/PhotoUploadPicker'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Select } from '@/components/ui/Select'
 import { classifyError } from '@/utils/classifyError'
@@ -34,6 +36,37 @@ interface StagedPhoto {
 
 function newKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `k-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** A chosen photo before it is uploaded: the picture, the name of the file and the way to take it away. The
+ *  picture is the file itself (an object URL of the blob), so the row shows what the user picked. */
+function StagedPhotoRow(props: { photo: StagedPhoto; onRemove: () => void }) {
+  const intl = useIntl()
+  const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
+  const url = useObjectUrl(props.photo.blob)
+  const [broken, setBroken] = useState(false)
+  return (
+    <li className="lf-staged" data-testid={`request-photo-${props.photo.name}`}>
+      {url !== null && !broken ? (
+        <img className="lf-staged__img" src={url} alt="" onError={() => setBroken(true)} />
+      ) : (
+        <span className="lf-staged__img lf-photo__ph" aria-hidden="true" />
+      )}
+      <span className="lf-staged__body">
+        <span className="lf-staged__name">{props.photo.name}</span>
+      </span>
+      <span className="lf-btn-row">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={props.onRemove}
+          data-testid={`request-photo-remove-${props.photo.name}`}
+        >
+          {t('maintenance.requests.photosRemove')}
+        </Button>
+      </span>
+    </li>
+  )
 }
 
 /** The form inside the module's own IntlProvider (the labels come from the module's catalog). */
@@ -131,10 +164,10 @@ function MaintenanceRequestForm() {
     save.mutate()
   }
 
-  const addPhotos = (files: FileList | null) => {
-    if (files == null) return
+  const addPhotos = (files: File[]) => {
+    if (files.length === 0) return
     const next = [...photos]
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       if (next.length >= MAX_PHOTOS) break
       next.push({ key: `${file.name}-${next.length}-${file.size}`, name: file.name, blob: file })
     }
@@ -223,30 +256,30 @@ function MaintenanceRequestForm() {
               label={t('maintenance.requests.photos')}
               hint={t('maintenance.requests.photosHint', { max: MAX_PHOTOS })}
               optional
+              group
               data-testid="request-photos-field"
             >
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => addPhotos(e.target.files)}
-                data-testid="request-photos-input"
+              <PhotoUploadPicker
+                labels={{
+                  choose: t('maintenance.requests.photosChoose'),
+                  take: t('maintenance.requests.photosTake'),
+                  drop: t('maintenance.requests.photosDrop'),
+                  target: t('maintenance.requests.photosTarget'),
+                }}
+                onFiles={addPhotos}
+                disabled={photos.length >= MAX_PHOTOS}
+                disabledReason={t('maintenance.requests.photosCapReached', { max: MAX_PHOTOS })}
+                inputTestId="request-photos-input"
               />
             </Field>
             {photos.length > 0 && (
-              <ul className="lf-form__list" data-testid="request-photos-list">
+              <ul className="lf-staged-list" data-testid="request-photos-list">
                 {photos.map((p) => (
-                  <li key={p.key} data-testid={`request-photo-${p.name}`}>
-                    <span>{p.name}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPhotos((all) => all.filter((x) => x.key !== p.key))}
-                      data-testid={`request-photo-remove-${p.name}`}
-                    >
-                      {t('maintenance.requests.photosRemove')}
-                    </Button>
-                  </li>
+                  <StagedPhotoRow
+                    key={p.key}
+                    photo={p}
+                    onRemove={() => setPhotos((all) => all.filter((x) => x.key !== p.key))}
+                  />
                 ))}
               </ul>
             )}

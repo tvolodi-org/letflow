@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { API, WITH_ALL, fakeServer, renderMaintenance, type ClientMock } from './maintenanceTestKit'
 
 expect.extend(jestDomMatchers)
@@ -35,6 +35,34 @@ const createCalls = () => clientMock.post.mock.calls.filter(([p]) => p === `${AP
 const uploadCalls = () => clientMock.post.mock.calls.filter(([p]) => String(p).endsWith('/photos'))
 
 describe('AC2 the form of a request', () => {
+  it('shows the photo picker of the design system, not a raw file control', async () => {
+    renderMaintenance('/admin/maintenance/requests/new', WITH_ALL)
+    await screen.findByLabelText('Equipment')
+    // the shared picker: the file button, the camera button and the drop target
+    expect(screen.getByTestId('photo-choose')).toBeInTheDocument()
+    expect(screen.getByTestId('photo-take')).toBeInTheDocument()
+    expect(screen.getByTestId('photo-drop')).toBeInTheDocument()
+    // the file input of the picker is the one the form names
+    const input = screen.getByTestId('request-photos-input')
+    expect(input.getAttribute('accept')).toContain('image/')
+    expect(input.getAttribute('multiple')).not.toBeNull()
+  })
+
+  it('takes at most five photos and says why the picker is closed', async () => {
+    renderMaintenance('/admin/maintenance/requests/new', WITH_ALL)
+    const card = await screen.findByLabelText('Equipment')
+    await screen.findByRole('option', { name: /FA-1/ })
+    fireEvent.change(card, { target: { value: 'c-1' } })
+    const input = screen.getByTestId('request-photos-input') as HTMLInputElement
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => photoFile(`${n}.jpg`))
+    fireEvent.change(input, { target: { files: many } })
+    const list = screen.getByTestId('request-photos-list')
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5)
+    // the picker is closed and says why, so no dead button
+    expect(screen.getByTestId('photo-choose')).toBeDisabled()
+    expect(screen.getByTestId('photo-disabled-reason')).toHaveTextContent('The limit of 5 photos is reached.')
+  })
+
   it('refuses Save with an empty description and sends nothing', async () => {
     renderMaintenance('/admin/maintenance/requests/new', WITH_ALL)
     const card = await screen.findByLabelText('Equipment')
