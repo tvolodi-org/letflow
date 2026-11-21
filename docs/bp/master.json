@@ -564,9 +564,9 @@
         "functions": [],
         "route": null,
         "code_refs": [
-          "web/src/modules/catalog_items/catalogItemsRoutes.tsx:5"
+          "web/src/modules/catalog_items/catalogItemsRoutes.tsx:15"
         ],
-        "result": "the administrator and the storekeeper read the items on the Items screen (a query, no write route)"
+        "result": "the administrator and the storekeeper (both hold StockRead, the guard of the Items screen) read the items on the Items screen (a query, no write route)"
       }
     ],
     "inputs": [
@@ -770,18 +770,19 @@
       },
       {
         "actor": "STOREKEEPER",
-        "forms": [
-          "CodesPage"
-        ],
+        "forms": [],
         "functions": [
           "Letflow.Modules.Codes.resolve"
         ],
         "route": "POST /api/v1/modules/codes/resolve",
         "code_refs": [
           "lib/letflow/modules/codes/router.ex:51",
-          "lib/letflow/modules/codes/codes.ex:203"
+          "lib/letflow/modules/codes/codes.ex:203",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27",
+          "apps/mobile/lib/features/stock/documents/scan_fill_sheet.dart:27"
         ],
-        "result": "the scan answer: status, kind, target type and id"
+        "result": "the scan answer: status, kind, target type and id (the storekeeper scans in the mobile app; no web screen calls this route)"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -850,11 +851,15 @@
     "id": "BP-MASTER-10",
     "area": "master",
     "title": "Print code labels",
-    "description": "A storekeeper picks up to 1000 received codes and prints their labels as one PDF (a Code 128 label each, in the order chosen). Nothing is written.",
+    "description": "A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in the order chosen). Nothing is written. The route itself needs only CodesRead, so the STOREKEEPER may call it through the API, but no screen lets that role in: the Codes screen needs CodesWrite.",
     "actors": [
       {
+        "role": "TENANT_ADMIN",
+        "permission": "CodesWrite (screen), CodesRead (route)"
+      },
+      {
         "role": "STOREKEEPER",
-        "permission": "CodesRead"
+        "permission": "CodesRead (API only, no screen)"
       }
     ],
     "preconditions": [
@@ -863,7 +868,7 @@
     ],
     "tasks": [
       {
-        "actor": "STOREKEEPER",
+        "actor": "TENANT_ADMIN",
         "forms": [
           "CodesPage"
         ],
@@ -873,7 +878,9 @@
         "route": "POST /api/v1/modules/codes/labels",
         "code_refs": [
           "lib/letflow/modules/codes/router.ex:55",
-          "lib/letflow/modules/codes/labels.ex:46"
+          "lib/letflow/modules/codes/labels.ex:46",
+          "web/src/modules/codes/codesRoutes.tsx:14",
+          "web/src/modules/codes/useLabelsPrint.ts:16"
         ],
         "result": "a PDF attachment 'code-labels.pdf', one label per code in list order (200)"
       }
@@ -897,7 +904,7 @@
     "id": "BP-MASTER-11",
     "area": "master",
     "title": "Security: permission matrix of the master data routes",
-    "description": "Who may do what in org, locations, catalog lots and codes, and who is refused. The administrator holds every write permission; the STOREKEEPER holds only CodesRead (scan lookup and label print) and gets 403 on every write; roles without these permissions get 403 as well.",
+    "description": "Who may do what in org, locations, catalog lots and codes, and who is refused. The administrator holds every write permission; the STOREKEEPER holds only CodesRead (scan lookup and label print, through the API and the mobile scan screen) and gets 403 on every write; roles without these permissions get 403 as well.",
     "actors": [
       {
         "role": "STOREKEEPER",
@@ -914,9 +921,7 @@
     "tasks": [
       {
         "actor": "STOREKEEPER",
-        "forms": [
-          "CodesPage"
-        ],
+        "forms": [],
         "functions": [
           "Letflow.Modules.Org.Router",
           "Letflow.Modules.Locations.Router",
@@ -934,7 +939,9 @@
           "lib/letflow/modules/locations/router.ex:48",
           "lib/letflow/modules/catalog_items/router.ex:31",
           "lib/letflow/modules/codes/router.ex:59",
-          "lib/letflow/modules/codes/codes.ex:110"
+          "lib/letflow/modules/codes/codes.ex:110",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27"
         ],
         "result": "every write route refused with 403 and nothing written; the two reads of the role are allowed"
       }
@@ -1080,7 +1087,7 @@
     "id": "BP-MASTER-14",
     "area": "master",
     "title": "Security: token, host and old-address lookups",
-    "description": "A call with no credential, a wrong or expired token, a token of another tenant, or an unknown host never reaches a master route's handler. Not in this area: voice and webhook inputs, four-eyes approval and the old shared-access address - none of the four routers accepts them (the shared access value reaches stock routes only).",
+    "description": "A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. Not in this area: voice and webhook inputs, four-eyes approval and the old shared-access address - none of the four routers accepts them (the shared access value reaches stock routes only). The unknown-host case is not claimed here: no source for it was found in this area.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1088,7 +1095,7 @@
       }
     ],
     "preconditions": [
-      "a tenant host and an unknown host"
+      "a tenant host"
     ],
     "tasks": [
       {
@@ -1103,17 +1110,18 @@
           "POST /api/v1/modules/org/sites"
         ],
         "code_refs": [
-          "lib/letflow/modules/org/router.ex:116",
-          "lib/letflow/modules/org/router.ex:56"
+          "lib/letflow/plugs/auth_pipeline.ex:216",
+          "lib/letflow/plugs/auth_pipeline.ex:228",
+          "lib/letflow/modules/org/router.ex:56",
+          "lib/letflow/modules/org/router.ex:116"
         ],
-        "result": "401 without a credential, 401 for a wrong token; the host decides the tenant"
+        "result": "401 without a credential (missing or malformed Authorization header), 401 for a wrong or expired token, 401 for a token whose realm does not match the tenant; nothing written"
       }
     ],
     "inputs": [],
     "outputs": [],
     "refusals": [
       "no credential or a wrong token: 401",
-      "an unknown host: not served",
       "a path that no route of the module has: the ordinary unmatched answer (authz_unmatched)"
     ],
     "scenario": null,
@@ -1166,7 +1174,7 @@
     "outputs": [],
     "refusals": [
       "the STOREKEEPER importing catalog_item: 403",
-      "more than 200 records: 413 before any validation",
+      "more than 200 records: 413 before any row validation (for a file import, a type the caller cannot see answers 404 first, record_import.ex:325)",
       "xlsx_unreadable, xlsx_too_large, csv_malformed, csv_unknown_header: 422 with the reason"
     ],
     "scenario": null,
@@ -1198,16 +1206,17 @@
     "tasks": [
       {
         "actor": "STOREKEEPER",
-        "forms": [
-          "CodesPage"
-        ],
+        "forms": [],
         "functions": [
           "Letflow.Modules.Codes.resolve"
         ],
         "route": "POST /api/v1/modules/codes/resolve",
         "code_refs": [
           "lib/letflow/modules/codes/router.ex:189",
-          "lib/letflow/modules/codes/codes.ex:203"
+          "lib/letflow/modules/codes/codes.ex:203",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27",
+          "apps/mobile/lib/features/stock/documents/scan_fill_sheet.dart:27"
         ],
         "result": "404 for an unknown value; 200 with the target for a tenant-wide target"
       }
