@@ -228,4 +228,31 @@ defmodule Letflow.Modules.WriteTargetSourcesScanTest do
       end
     end
   end
+
+  describe "t2299_hole: a pack whose handlers read the target from a completer-writable variable" do
+    # T-2494 (D-170): record_done / record_closed read the work order from the instance variable
+    # `maintenance_order_id`. The hole form lets the completer write it (the node declares it a
+    # completer input); the fixed form takes it from engine-owned data (supplied at instance start
+    # by module code, refused to the completer by `WriteTargets`).
+    defp fixture_definition(name) do
+      [@root, "test", "fixtures", "t2299_hole", name]
+      |> Path.join()
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("definitions")
+      |> hd()
+    end
+
+    test "t2299_hole: the hole form is reported by the scan, naming the variable and the node" do
+      found = violations(fixture_definition("hole_pack.json"), "maintenance")
+      assert [message] = found
+      assert message =~ "maintenance_work"
+      assert message =~ "maintenance_order_id"
+      assert message =~ "completer-writable"
+    end
+
+    test "t2299_hole: the fixed form (target from engine-owned data) passes the scan" do
+      assert violations(fixture_definition("fixed_pack.json"), "maintenance") == []
+    end
+  end
 end

@@ -179,12 +179,18 @@ def item(kind: str, path: str, line: int, name: str, **extra) -> dict:
 
 def route_items(root: Path, file: Path, mount_prefix: str) -> list[dict]:
     out = []
-    for n, line in enumerate(read_lines(file), 1):
+    all_lines = read_lines(file)
+    for n, line in enumerate(all_lines, 1):
         if line.lstrip().startswith("#"):
             continue
         m = ROUTE_RE.match(line)
         if not m:
             continue
+        if not m.group(4) and m.group(1) and line.rstrip().endswith(","):
+            # the permission atom sits on the next line (multi-line `authz_post "/x",\n :Atom,`)
+            nxt = re.match(r"^\s*:(\w+)", all_lines[n]) if n < len(all_lines) else None
+            if nxt:
+                m = ROUTE_RE.match(line.rstrip() + " :" + nxt.group(1))
         verb = m.group(2).upper()
         full = norm_join(mount_prefix, m.group(3))
         out.append(
