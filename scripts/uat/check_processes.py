@@ -15,6 +15,9 @@ A process file is checked for:
   * every api path starts with /api/ and matches a route of lib/letflow/modules/stock/router.ex or
     lib/letflow/routers/*.ex (a loose check: the method and the end of the path, wildcards for :id);
     a step with http_as: shared_access is checked against lib/letflow/routers/shared_stock_access.ex;
+  * `fixtures` (names of files in test/uat/fixtures/): each must exist; what they `provide` counts as defined;
+    a fixture file itself needs description, leaves, provides (each saved by a step), a cleanup whose steps all
+    have `requires`;
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
 """
 
@@ -260,11 +263,60 @@ def check_files(files, root=None, strict=False) -> list:
         except (OSError, ValueError) as err:
             problems.append(f"{name}: not valid JSON: {err}")
             continue
+        fdir = runner.fixtures_dir_for(f)
         if isinstance(doc, dict) and "processes" in doc:
             check_chain(f, doc, roles, routes, strict, problems)
+        elif isinstance(doc, dict) and f.parent.name == "fixtures":
+            check_fixture(f, doc, roles, routes, problems)
         else:
-            check_process(doc, name, roles, routes, set(), strict, problems)
+            provided = fixture_provides(doc, name, fdir, problems)
+            check_process(doc, name, roles, routes, provided, strict, problems)
     return problems
+
+
+def fixture_provides(doc, name, fixtures_dir, problems) -> set:
+    """The names the `fixtures` of a process (or chain) provide. An unknown fixture is a problem."""
+    if not isinstance(doc, dict) or not doc.get("fixtures"):
+        return set()
+    try:
+        docs = runner.fixtures_for([dict(doc, id=doc.get("id") or name)], fixtures_dir)
+    except runner.ConfigError as err:
+        problems.append(f"{name}: {err}")
+        return set()
+    names = set()
+    for fx in docs:
+        names |= set(fx.get("provides") or [])
+    return names
+
+
+def check_fixture(path: Path, doc, roles, routes, problems):
+    """A fixture file: a process-like file, plus description, leaves, provides (each saved by a step) and needs."""
+    name = path.name
+    try:
+        runner.load_fixture(path)
+    except runner.ConfigError as err:
+        problems.append(f"{name}: {err}")
+        return
+    try:
+        needed = runner.expand_fixtures(doc.get("needs") or [], path.parent)
+    except runner.ConfigError as err:
+        problems.append(f"{name}: {err}")
+        return
+    available = set()
+    for fx in needed:
+        available |= set(fx.get("provides") or [])
+    if not doc.get("cleanup"):
+        problems.append(f"{name}: a fixture needs a cleanup (what stays is told in `leaves`)")
+    for step in doc.get("cleanup") or []:
+        if isinstance(step, dict) and not step.get("requires"):
+            problems.append(f"{name}: cleanup step {step.get('id')}: needs `requires` (a fixture removes only what it created)")
+    check_process(doc, name, roles, routes, available, False, problems)
+    saved = set()
+    for step in doc["steps"]:
+        saved |= saves(step)
+    for n in doc["provides"]:
+        if n not in saved:
+            problems.append(f"{name}: provides {n!r} but no step saves it")
 
 
 def check_chain(path: Path, doc, roles, routes, strict, problems):
@@ -281,7 +333,7 @@ def check_chain(path: Path, doc, roles, routes, strict, problems):
         if not isinstance(block.get("actors"), dict):
             problems.append(f"{name}: dry_run.actors must map each actor to a user name")
     provided = set(doc.get("inputs") or {}) | set((doc.get("dry_run") or {}).get("inputs") or {})
-    available = set(provided)
+    available = set(provided) | fixture_provides(doc, name, runner.fixtures_dir_for(path), problems)
     for proc_name in doc["processes"]:
         try:
             pfile = runner.resolve_process_file(path.resolve().parent, str(proc_name))
@@ -289,6 +341,7 @@ def check_chain(path: Path, doc, roles, routes, strict, problems):
         except (runner.ConfigError, OSError, ValueError) as err:
             problems.append(f"{name}: process {proc_name!r}: {err}")
             continue
+        available |= fixture_provides(pdoc, f"{name} > {pfile.name}", runner.fixtures_dir_for(path), problems)
         # a process inside a chain needs no dry_run of its own: the chain carries it
         available |= check_process(pdoc, f"{name} > {pfile.name}", roles, routes, available, False, problems,
                                        in_chain=True)
@@ -302,7 +355,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     root = Path(args.root or default_root())
     files = [Path(f) for f in args.files] or sorted(list((root / "test/uat/processes").glob("*.json")) +
-                                                  list((root / "test/uat/chains").glob("*.json")))
+                                                  list((root / "test/uat/chains").glob("*.json")) +
+                                                  list((root / "test/uat/fixtures").glob("*.json")))
     problems = check_files(files, root=root, strict=args.strict)
     for p in problems:
         print(p)
