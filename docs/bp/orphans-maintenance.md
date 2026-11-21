@@ -20,3 +20,10 @@ Every item of `python3 scripts/uat/bp_inventory.py maintenance` (19 items: 15 ro
   production, the actor roster has no tenant with the module installed or a technician login, and the runner has no
   multipart step, so a dry run on QA could only fail on a 404. The security processes (BP-MAINTENANCE-14..21) are
   `automation: planned` for that reason; they are covered by ExUnit tests named in each entry's `tests` field.
+
+## Gaps: entries that stay planned or partial (T-2553, 2026-11-21)
+
+- BP-MAINTENANCE-09 (planned): web screens for work requests; no route, page or nav item in web/src. Tracked by REQ-898 (pending).
+- BP-MAINTENANCE-10 (planned): web screens for work orders and My work orders. Tracked by REQ-899 (pending).
+- BP-MAINTENANCE-11 (planned): My work orders on the phone app and PWA; apps/mobile has none. Tracked by REQ-900 (pending).
+- BP-MAINTENANCE-21 (partial): no test of the unmatched path, and the flag `:maintenance_enabled` is off on QA, so no runner scenario can pass. Needs a QA tenant with the module on, a technician login and an ExUnit test.
