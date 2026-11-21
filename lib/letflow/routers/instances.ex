@@ -44,6 +44,15 @@ defmodule Letflow.Routers.Instances do
   explicit-`null` key through, so an explicit JSON `null` and an absent key
   are indistinguishable to `Engine.create/2`'s own XOR check either way.
 
+  ## `POST /instances` — module-only definitions (T-2444)
+
+  A definition any node of which carries `module_writes` (the stock, assets and maintenance write
+  definitions) is not startable here: the route answers the 404 of an unknown definition, by id and by
+  name, and starts nothing. Their write targets are read from the start variables, so a caller who chose
+  the variables chose what the handler posts (and could post a four-eyes document alone). The module's
+  own code starts them (`Engine.create/2` with `module_start: true`, never set from this route's body).
+  See `Letflow.Engine.WriteTargets`.
+
   ## `POST /instances` — `scope_node_id` (REQ-531, decision 0051 T13)
 
   The optional body field `scope_node_id` names the scope node the instance is started under (set once,

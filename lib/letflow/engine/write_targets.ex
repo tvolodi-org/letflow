@@ -20,6 +20,17 @@ defmodule Letflow.Engine.WriteTargets do
   retryable 422 `output_refused` and writes nothing, like the `_sys` refusal. Every other write
   input is supplied at instance start (`Engine.create/2` from module code).
 
+  ## Start rule (T-2444, T-2443 review of T-2430)
+
+  The same hole is open at instance START: `POST /instances` takes `initial_variables` from the
+  caller, and the first node of a module definition reads the write targets from them. A definition
+  any node of which carries `module_writes` is therefore started only by module code
+  (`Engine.create/2` with `module_start: true`, variables built server-side from issued documents).
+  `module_writes?/1` is the one test of that. A caller that is not module code (the public route, a
+  scheduled job, a SUB_PROCESS node of a tenant parent) is answered as for an unknown definition
+  (INV-5): this refuses every write-target key at once, so no per-key list is needed on the start side.
+  No shipped pack declares a start-node input over a write key, so no exception exists.
+
   Pure and total (INV-8): a malformed attribute is read as "none declared" on the declaring side
   (so more is refused, never less) and as "reads nothing" on the reading side.
   """
@@ -36,6 +47,21 @@ defmodule Letflow.Engine.WriteTargets do
   end
 
   def write_read_keys(_other), do: MapSet.new()
+
+  @doc """
+  True when any node of `graph` carries a non-empty `module_writes` list: a definition only its
+  module may start (T-2444). A graph that is not a `%Graph{}` is `false` (the caller's own graph
+  check refuses it).
+  """
+  @spec module_writes?(Graph.t() | term()) :: boolean()
+  def module_writes?(%Graph{nodes: nodes}) when is_list(nodes) do
+    Enum.any?(nodes, fn
+      %Node{attributes: %{"module_writes" => [_ | _]}} -> true
+      _other -> false
+    end)
+  end
+
+  def module_writes?(_other), do: false
 
   @doc """
   The names the node declares as a person's input: its `completer_inputs` list and the properties

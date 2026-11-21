@@ -67,14 +67,14 @@ defmodule Letflow.Modules.UninstallOpenWorkTest do
       )
   end
 
-  defp start(ctx, ref) do
+  defp start(ctx, ref, extra \\ []) do
     Engine.create(
       Map.merge(ref, %{
         initial_variables: %{},
         actor_id: ctx.user.id,
         idempotency_key: Fx.unique("req627-start")
       }),
-      prefix: ctx.schema
+      [prefix: ctx.schema] ++ extra
     )
   end
 
@@ -257,7 +257,12 @@ defmodule Letflow.Modules.UninstallOpenWorkTest do
       assert {:error, :definition_not_found} = start(ctx, %{definition_id: draft.id})
 
       {:ok, _} = Installs.reactivate(@module, ctx.user.id, opts(ctx))
-      assert {:error, :definition_not_active} = start(ctx, %{definition_id: draft.id})
+      # T-2444: `fxl_post_module` carries `module_writes`, so only its module starts it: the draft
+      # answer is the module's (a public start answers 404 before the status case)
+      assert {:error, :definition_not_active} =
+               start(ctx, %{definition_id: draft.id}, module_start: true)
+
+      assert {:error, :definition_not_found} = start(ctx, %{definition_id: draft.id})
     end
   end
 
