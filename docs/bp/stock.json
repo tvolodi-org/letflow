@@ -1,0 +1,2178 @@
+[
+  {
+    "id": "BP-STOCK-01",
+    "area": "stock",
+    "title": "Receive goods",
+    "description": "The storekeeper records goods received at a place; issuing starts the Post task; a tenant administrator (the approver, StockApprove) completes it; the balance of the item at the place rises. A stuck posting start can be retried.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)"
+    ],
+    "status": "implemented",
+    "scenario": "test/uat/processes/BP-01-receive-goods.json",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft receipt (lines with item, unit, quantity, optional lot, price, supplier document, received-on date)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters",
+          "Letflow.Modules.Stock.Documents.Checks.received_on",
+          "Letflow.Modules.Stock.Documents.Checks.event_day",
+          "Letflow.Modules.Stock.Documents.Checks.tracking_result",
+          "Letflow.Modules.Stock.Documents.Checks.tracking_reason"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/documents/checks.ex:62",
+          "lib/letflow/modules/stock/documents/checks.ex:80",
+          "lib/letflow/modules/stock/documents/checks.ex:209",
+          "lib/letflow/modules/stock/documents/checks.ex:240",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_receipt instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_receipt/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:55",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-02",
+    "area": "stock",
+    "title": "Issue goods",
+    "description": "The storekeeper issues goods out of a place; after the Post task the balance falls. Whether a balance may go below zero is the tenant's negative-balance setting (default refuse).",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)",
+      "enough stock at the place, or the tenant negative-balance setting set to allow"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)",
+      "a posting that would take the balance below zero is refused `insufficient_stock` unless the tenant allows negative balances (the post task stays pending)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft issue document with a number-less draft id (state draft)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_issue instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_issue/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare",
+          "Letflow.Modules.Stock.PostingRules.negative_allowed?"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:118",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59",
+          "lib/letflow/modules/stock/posting_rules.ex:16"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-03",
+    "area": "stock",
+    "title": "Write off stock",
+    "description": "The storekeeper writes goods off with a reason (lost, damaged, used up, other); after the Post task the balance falls.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)",
+      "a write-off without a valid reason code is refused 422"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft write_off document with a number-less draft id (state draft)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_writeoff instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_writeoff/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:181",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-04",
+    "area": "stock",
+    "title": "Transfer between places",
+    "description": "The storekeeper moves goods from one place (or org unit, or responsible) to another; one document, one ledger entry with two legs per line, minus at the from side and plus at the to side.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)",
+      "a transfer whose to side equals its from side is refused 422"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft transfer document with a number-less draft id (state draft)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_transfer instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_transfer/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:310",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-05",
+    "area": "stock",
+    "title": "Hand over to another responsible person",
+    "description": "Stock passes from one holder (org unit, place, responsible) to another: the same two-side shape as a transfer, under its own document type (HOV); the balance of the from side falls and of the to side rises.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)",
+      "a hand over whose to side equals its from side is refused 422"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft hand_over document with a number-less draft id (state draft)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_handover instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_handover/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:373",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-06",
+    "area": "stock",
+    "title": "Return goods",
+    "description": "Stock goes back from the returning org unit, place and responsible person to the org unit that files the document (own document type RET); two legs per line, minus at the from side and plus at the to side.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a role without StockPost is refused 403; an API token or scoped principal gets the uniform 404",
+      "an issue check failure is 422 with a reason (for example event time outside the 96-hour window, inactive master)",
+      "a second completion of the same post task writes nothing (one posted mark per document)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft return document with a number-less draft id (state draft)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:40",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the issue checks run (master data, event-time window); the document is fixed (state issued) and the stock_return instance is started with a Post task addressed to the tenant administrator role label"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_return/post",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:436",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator claims and completes the Post task (StockApprove); the document is posted and one ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717"
+        ],
+        "result": "the document reads posted with its entry id"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-07",
+    "area": "stock",
+    "title": "Opening balances",
+    "description": "Initial stock enters the ledger with an opening document (positive lines, or all-negative lines when the tenant allows negative balances). One person prepares (submit task), a different person approves (approve task, StockApprove); the check route shows every line's reasons without writing anything. Lines can also be loaded from an xlsx as a draft.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)",
+      "the approval rule of stock_opening/approve (four-eyes) is the tenant's choice: ON means a different person must approve"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible",
+      "quantity"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "the approver equal to the preparer is refused while the four-eyes rule is ON (SeparationOfDuties)",
+      "a document mixing positive and negative lines is refused; a negative line is accepted only while the tenant allows negative balances",
+      "a client event time on an opening is refused (the entry's time is its posting time)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:571"
+        ],
+        "result": "a draft opening document with lines (location, responsible, real receipt date, quantity)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.OpeningChecks.check_all",
+          "Letflow.Modules.Stock.Documents.OpeningChecks.first_failure"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/check",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/opening_checks.ex:26",
+          "lib/letflow/modules/stock/documents/opening_checks.ex:36",
+          "lib/letflow/modules/stock/router.ex:625"
+        ],
+        "result": "every line's reasons; nothing is written (no number, no entry)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.event_time",
+          "Letflow.Modules.Stock.Documents.Checks.tracking_result",
+          "Letflow.Modules.Stock.Documents.Checks.tracking_reason",
+          "Letflow.Modules.Stock.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/documents/checks.ex:46",
+          "lib/letflow/modules/stock/documents/checks.ex:209",
+          "lib/letflow/modules/stock/documents/checks.ex:240",
+          "lib/letflow/modules/stock/documents/checks.ex:97",
+          "lib/letflow/modules/stock/router.ex:604"
+        ],
+        "result": "the checks run at issue; the document is issued and the stock_opening instance starts with a submit task"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_opening/submit"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "priv/modules/stock/pack.json:477"
+        ],
+        "result": "the preparer completes the submit task (no write)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_opening/approve",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:514",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "a different person (distinct_from submit) with StockApprove completes approve; the opening is posted at its posting time"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-08",
+    "area": "stock",
+    "title": "Quick count of one item at one place",
+    "description": "The counter types the counted quantity (zero allowed) of one item at one place; the system stores book quantity and difference, issues the document and starts the quick-count process: submit by the counter, approve by another person (four-eyes ON) or by the system itself when the tenant's count rule is OFF. The balance becomes the counted quantity; a count equal to the book posts nothing and reads confirmed.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockQuickCount"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)",
+      "the approval rule stock_quick_count/approve is ON (a different person approves) or stored OFF (self-approval by the system, the actor stays the counter)",
+      "no opened count order covers the key"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "unit",
+      "counted_quantity",
+      "reason_code"
+    ],
+    "outputs": [
+      "doc_id",
+      "difference",
+      "balance_after"
+    ],
+    "refusals": [
+      "four-eyes ON: the counter cannot approve their own count",
+      "rule OFF: only an interactive sign-in's own newest count is self-approved; an API token or another user's count is never approved this way",
+      "count_in_progress (422) while an opened count order covers the key; location_frozen at approval",
+      "a role without StockQuickCount is refused 403"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/quick-count -> QuickCountPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.Checks.quick_count",
+          "Letflow.Modules.Stock.FreezeGuard.check"
+        ],
+        "route": "POST /api/v1/modules/stock/quick-counts",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:66",
+          "lib/letflow/modules/stock/documents/checks.ex:127",
+          "lib/letflow/modules/stock/freeze_guard.ex:61",
+          "lib/letflow/modules/stock/router.ex:670"
+        ],
+        "result": "book quantity read under the caller's read authority, difference stored, document issued; refusal count_in_progress when an opened count order covers the key"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/submit"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "priv/modules/stock/pack.json:555"
+        ],
+        "result": "the counter's own submit step"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/approve",
+          "stock.post_document",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:592",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "approve posts cause count_set (one leg = the difference); a key that moved since is refused balance_changed (stock alias quick_count_stale)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-09",
+    "area": "stock",
+    "title": "Count order: issue, count on the sheet, close",
+    "description": "A manager creates a count order (header, places, commission members), issues it, a commission member opens it at a cut-off (book quantities are read from the ledger), types or scans counted quantities, adds surplus lines and closes it, which issues the count sheet. A freeze mode holds other postings on the counted places while the count is open.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockCountOrder"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockCountRecord"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)",
+      "the places of the order are linked to its org unit and do not overlap another open order",
+      "commission members are active employees"
+    ],
+    "inputs": [
+      "org_unit",
+      "place_ids",
+      "member_employee_ids"
+    ],
+    "outputs": [
+      "count_id",
+      "sheet_document_id"
+    ],
+    "refusals": [
+      "not_commission_member, count_not_due, lines_uncounted, count_scope_overlaps, count_window_expired (422 with reason)",
+      "opening needs a tenant-wide reader; any other principal gets 404",
+      "a role without StockCountOrder cannot create or issue; without StockCountRecord cannot open or count"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/counts",
+          "PUT /api/v1/modules/stock/counts/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:756",
+          "lib/letflow/modules/stock/router.ex:762"
+        ],
+        "result": "a draft count order (whole-document replace of header, location_ids, member_employee_ids)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/counts/:id/issue",
+          "GET /api/v1/modules/stock/counts/:id/document"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:768",
+          "lib/letflow/modules/stock/router.ex:802"
+        ],
+        "result": "the order is issued (count.order document, fixed)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.FreezeGuard.check"
+        ],
+        "route": [
+          "POST /api/v1/modules/stock/counts/:id/open",
+          "GET /api/v1/modules/stock/frozen-locations"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/freeze_guard.ex:61",
+          "lib/letflow/modules/stock/router.ex:811",
+          "lib/letflow/modules/stock/router.ex:790"
+        ],
+        "result": "the count opens at the cut-off; book quantities from the ledger; with the freeze mode the counted pairs refuse other postings (location_frozen)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/counts/:id/lines",
+          "PUT /api/v1/modules/stock/counts/:id/lines/:line_no/count",
+          "POST /api/v1/modules/stock/counts/:id/surplus-lines",
+          "GET /api/v1/modules/stock/counts/:id/entries"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:825",
+          "lib/letflow/modules/stock/router.ex:831",
+          "lib/letflow/modules/stock/router.ex:858",
+          "lib/letflow/modules/stock/router.ex:867"
+        ],
+        "result": "counted quantity per line, surplus lines added, append-only entry log"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/counts/:id/scan",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:849"
+        ],
+        "result": "a scanner code adds one unit to its line (scan_id counted once) or selects a location"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/counts/:id/close",
+          "GET /api/v1/modules/stock/counts/:id/sheet-document",
+          "GET /api/v1/modules/stock/counts",
+          "GET /api/v1/modules/stock/counts/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:873",
+          "lib/letflow/modules/stock/router.ex:881",
+          "lib/letflow/modules/stock/router.ex:784",
+          "lib/letflow/modules/stock/router.ex:796"
+        ],
+        "result": "all lines counted; the count sheet document is issued; the order reads counted"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/counts/:id/cancel",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:776"
+        ],
+        "result": "an order not yet posted can be cancelled and releases its freeze"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-10",
+    "area": "stock",
+    "title": "Count: sign the sheet, differences, sign, post",
+    "description": "After the sheet is closed the chair records the sheet signers, issues the differences sheet, records its signers (the count becomes signed), a person with StockPost starts the posting and a tenant administrator completes the Post task; one ledger entry holds one leg per difference (counted minus book at the cut-off). The posting record closes the count as posted.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockCountRecord"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "a closed (counted) count order",
+      "the signing person is the chair of the commission"
+    ],
+    "inputs": [
+      "count_id",
+      "signer_employee_ids"
+    ],
+    "outputs": [
+      "differences_document_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "not_chair, signers_incomplete, sheet_already_signed, sheet_not_signed, differences_already_issued, no_differences (422)",
+      "posting_pending, count_posted, definition_not_active (409)",
+      "shortage_exceeds_balance while the tenant refuses negative balances"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/counts/:id/sheet-signatures",
+          "POST /api/v1/modules/stock/counts/:id/differences",
+          "POST /api/v1/modules/stock/counts/:id/differences-signatures",
+          "GET /api/v1/modules/stock/counts/:id/differences",
+          "GET /api/v1/modules/stock/counts/:id/signatures"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:889",
+          "lib/letflow/modules/stock/router.ex:897",
+          "lib/letflow/modules/stock/router.ex:905",
+          "lib/letflow/modules/stock/router.ex:913",
+          "lib/letflow/modules/stock/router.ex:949"
+        ],
+        "result": "sheet signed, differences document issued, differences signed; the order reads signed"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/counts/:id/post",
+          "GET /api/v1/modules/stock/counts/:id/posting-document"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:921",
+          "lib/letflow/modules/stock/router.ex:943"
+        ],
+        "result": "the posting instance (stock_count_posting) starts"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_count_posting/post",
+          "stock.post_count",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:655",
+          "lib/letflow/modules/stock/stock.ex:635",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the administrator completes Post: one ledger entry (cause count_difference, delta counted minus book); a freeze order's own posting is exempt from its freeze"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/counts/:id/posting-record",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:935"
+        ],
+        "result": "the count order reads posted"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-11",
+    "area": "stock",
+    "title": "Count paperwork and print forms",
+    "description": "The issued count documents leave the system as xlsx or PDF: order, sheet, differences, the field worksheet with empty boxes, and the official forms Inv-10 and Inv-18.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockRead"
+      }
+    ],
+    "preconditions": [
+      "an issued count order"
+    ],
+    "inputs": [
+      "count_id",
+      "kind",
+      "lang"
+    ],
+    "outputs": [
+      "file"
+    ],
+    "refusals": [
+      "an unknown kind or lang is refused 422; a document not yet issued is refused; a caller who may not read the order gets 404"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/counts/:id/paperwork/:kind",
+          "GET /api/v1/modules/stock/counts/:id/print/:kind"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:963",
+          "lib/letflow/modules/stock/router.ex:981"
+        ],
+        "result": "an .xlsx or PDF (lang ru, kk or en; form inv10 or inv18) of the issued document; worksheet only for an ordered or counting order; nothing is written"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-12",
+    "area": "stock",
+    "title": "Reverse a posted document or cancel an issued one",
+    "description": "A posted document (or a posted count) is reversed with a reason: a reversal task is started and a tenant administrator completes it; the ledger negates the original legs and the balance returns. An issued document that is not posted yet is cancelled. A document is reversed once; a reversal is not reversed.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockReverse"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "a posted document (to reverse) or an issued document (to cancel)"
+    ],
+    "inputs": [
+      "doc_id",
+      "reason_code",
+      "reason_text"
+    ],
+    "outputs": [
+      "reversal_state",
+      "balance_after"
+    ],
+    "refusals": [
+      "document_not_posted, document_reversed, reversal_pending, posting_inconsistent (409)",
+      "reason_required / reason_invalid / reason_too_long (422)",
+      "the reversed balance may not go below zero unless the tenant allows it"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents/:id/reverse",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:654"
+        ],
+        "result": "the reversal instance starts (state reversal_pending) with a Reverse task"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_reversal/reverse",
+          "stock.reverse_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:247",
+          "lib/letflow/modules/stock/stock.ex:620"
+        ],
+        "result": "the administrator completes Reverse; the ledger entry is negated; the document reads reversed"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/documents/:id/cancel",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:695"
+        ],
+        "result": "an issued, unposted document becomes cancelled"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/counts/:id -> CountsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/counts/:id/reverse",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:56",
+          "lib/letflow/modules/stock/router.ex:929"
+        ],
+        "result": "a posted count is reversed through the same stock_reversal process (reason_code and reason_text required)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-13",
+    "area": "stock",
+    "title": "Excel balances workbook: export, check, apply, cancel",
+    "description": "The administrator downloads the whole current stock in the Qoimeks workbook layout, edits quantities, checks the file (per-row remarks and the changes it would make, nothing written), applies it (a quick-count document with one line per change, approved through the quick-count process), lists the last loads and cancels or reverses one.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockWorkbookApply"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)",
+      "a workbook of at most 2 MiB in the Qoimeks layout",
+      "no opened count order covers a changed key"
+    ],
+    "inputs": [
+      "workbook",
+      "org_unit_id",
+      "reason"
+    ],
+    "outputs": [
+      "load_id",
+      "balances"
+    ],
+    "refusals": [
+      "apply by a role without StockWorkbookApply (the storekeeper) is 403",
+      "too_many_changes over 1000 lines; count_in_progress (422)",
+      "reason_required / reason_too_long on cancel; import_already_cancelled; reversal_pending (409)",
+      "a body over 2 MiB or not an xlsx is refused"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/stock-workbook",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:418"
+        ],
+        "result": "the whole current stock as one .xlsx, no query key, nothing written"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/stock-workbook/check",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:441"
+        ],
+        "result": "per-row Russian remarks and the changes a load would make against one org unit; writes no record, entry or number"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/stock-workbook/apply",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:482"
+        ],
+        "result": "201 with document_id, number, lines, remarks and approve_task_id; 200 applied false when nothing changes"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/approve",
+          "stock.post_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:592",
+          "lib/letflow/modules/stock/stock.ex:597"
+        ],
+        "result": "the load's approve task posts the changes (or the system self-approves with the rule OFF)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/stock-workbook/imports",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:364"
+        ],
+        "result": "the last 50 loads, newest first, with state and reversal_pending"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:379"
+        ],
+        "result": "an issued load is cancelled; a posted load starts a reversal (reverse_pending)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-14",
+    "area": "stock",
+    "title": "Find, correct and discard a draft document",
+    "description": "Before issuing, the storekeeper lists documents, reopens a draft, replaces it as a whole or discards it. An issued document is fixed.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      }
+    ],
+    "preconditions": [
+      "module stock installed (all stock process definitions ACTIVE)",
+      "item, unit, place (linked to the org unit), org unit and responsible employee exist and are active",
+      "the caller is an interactive, tenant-wide sign-in (an API token or a scoped user gets 404)"
+    ],
+    "inputs": [
+      "doc_id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "document_not_draft (409) when the document is issued or posted",
+      "an unknown or other tenant's id is 404"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents -> DocumentsPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:17",
+          "lib/letflow/modules/stock/router.ex:708"
+        ],
+        "result": "a page of documents with next_cursor"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:586"
+        ],
+        "result": "the whole draft is replaced (every loaded value must be sent back)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/modules/stock/documents/:id",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:594"
+        ],
+        "result": "the draft is discarded (204)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-15",
+    "area": "stock",
+    "title": "Balances, movements, stock card and official stock forms",
+    "description": "Anyone with StockRead sees balances (also as of a past day), the movement journal, the stock card of one item at one place (form Z-3) and the stock sheet of one place and period (form Z-7); an issued document prints as an act or as official forms Z-1, Z-2, Z-5 or Z-6. The administrator can reconcile the ledger and read the posting settings and approval access.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockReconcile"
+      }
+    ],
+    "preconditions": [
+      "module stock installed",
+      "for an as-of balance the date is not in the future"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "from",
+      "to",
+      "lang"
+    ],
+    "outputs": [
+      "rows",
+      "file"
+    ],
+    "refusals": [
+      "a tenant key in the query is 422 invalid_filter and never read",
+      "cutoff_in_future, as_of_date_in_future, invalid_timezone (422); reconcile_busy (409); ledger_read_timeout (503)",
+      "reconcile for a role without StockReconcile (the storekeeper) is refused"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/balances -> BalancesPage",
+          "admin/stock/help/:topic -> StockHelpPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/balances",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:41",
+          "web/src/modules/stock/stockRoutes.tsx:64",
+          "lib/letflow/modules/stock/router.ex:218"
+        ],
+        "result": "balances with filters (item, place, org unit, responsible, lot), as_of_date, scope_subtree; format xlsx on request"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/movements -> MovementsPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/movements",
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:49",
+          "lib/letflow/modules/stock/router.ex:261"
+        ],
+        "result": "the movement journal with filters and cursor; hidden legs of a scoped reader are masked"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/stock-card/print",
+          "GET /api/v1/modules/stock/stock-sheet/print",
+          "GET /api/v1/modules/stock/documents/:id/print"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:295",
+          "lib/letflow/modules/stock/router.ex:332",
+          "lib/letflow/modules/stock/router.ex:739"
+        ],
+        "result": "PDF or DOCX of the stock card (Z-3), stock sheet (Z-7) and of an issued document (Z-1, Z-2, Z-5, Z-6)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/posting-rules",
+          "GET /api/v1/modules/stock/approval-access"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:246",
+          "lib/letflow/modules/stock/router.ex:475"
+        ],
+        "result": "negative_balance allowed or refused; whether the caller holds StockApprove (writes nothing)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/reconcile",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:556"
+        ],
+        "result": "ledger mismatches, gap, chain and audit checks of the stock ledger"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-16",
+    "area": "stock",
+    "title": "Old-app (Qoimeks address) phone operations",
+    "description": "A shop-floor phone uses the per-tenant address /qoimeks/<slug> with a shared-access value: it reads the catalog, balances and movements, looks up a scanned code, posts receipt, issue, transfer or a count (kind adjustment) in the old app's shape and reverses a movement. Every write carries an operator name and a client operation id: a repeat of the same id and data returns the stored row, changed data is refused.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "creates and revokes the shared access"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in the deployment setting and the stock module installed",
+      "a shared access is active for the tenant",
+      "tenant scope enforcement is off",
+      "the place is linked to an org unit and an active employee exists"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "quantity",
+      "operator",
+      "client_id"
+    ],
+    "outputs": [
+      "movement_id",
+      "balances"
+    ],
+    "refusals": [
+      "every authentication failure is the same 401 with no tenant-dependent detail; the address's failures spend a rate-limit token (429 when empty)",
+      "the tenant's scope enforcement on or shadow answers 403 scope_enforcement_active",
+      "operator missing or over 200 characters, id missing or not a UUID, body over 8192 bytes: 400/413 and nothing written",
+      "any other path or method is 404"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/catalog",
+          "GET /qoimeks/:tenant_slug/codes/lookup",
+          "GET /qoimeks/:tenant_slug/balances",
+          "GET /qoimeks/:tenant_slug/movements"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:85",
+          "lib/letflow/routers/shared_stock_access.ex:92",
+          "lib/letflow/routers/shared_stock_access.ex:102",
+          "lib/letflow/routers/shared_stock_access.ex:106"
+        ],
+        "result": "the old app's JSON shapes; non-zero balances; movements newest first"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/movements",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:110"
+        ],
+        "result": "201 one movement of the posted document with balances after; 200 the stored row on a repeat of the same id and data; 409 same id with other data"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/movements/:id/reverse",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:122"
+        ],
+        "result": "201 the reversal's own movement; 400 already reversed / reversal cannot be reversed / quantity must be positive"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-17",
+    "area": "stock",
+    "title": "Voice or typed draft of a document",
+    "description": "The storekeeper speaks (or types) a phrase; the system turns it into a server-checked draft of a document from the caller's own active items and places. Nothing is stored; the person confirms and creates the document normally. The old app's microphone call does the same on its own address.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant"
+      }
+    ],
+    "preconditions": [
+      "speech and model providers configured (otherwise 503 speech_off / notice llm_off)"
+    ],
+    "inputs": [
+      "audio or text",
+      "lang"
+    ],
+    "outputs": [
+      "draft"
+    ],
+    "refusals": [
+      "audio over 10 MB is 413 audio_too_large; a format other than m4a or WebM is 415 audio_format",
+      "bad_language, field_invalid, field_not_allowed (422)",
+      "provider failure 502/504; speech off 503"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/voice/draft",
+          "POST /api/v1/modules/stock/voice/draft-text"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:25",
+          "lib/letflow/modules/stock/router.ex:726",
+          "lib/letflow/modules/stock/router.ex:732"
+        ],
+        "result": "a draft (kind, items, location, quantity, transcript); read only"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/voice",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:98"
+        ],
+        "result": "the same draft on the old address (only the /api form is served)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-18",
+    "area": "stock",
+    "title": "Stock side of the change of kind (stock item becomes an asset)",
+    "description": "When an asset kind-change document is posted (process BP-ASSETS-07), the stock module's handler writes the negative stock leg (cause kind_change_out) in the same transaction as the asset entry, with the same correlation id.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "an issued assets kind_change document",
+      "stock at the from side"
+    ],
+    "inputs": [
+      "kind_change document"
+    ],
+    "outputs": [
+      "stock_entry_id"
+    ],
+    "refusals": [
+      "post_document refuses the kind_change_out cause; the stock ledger refuses a posting below zero unless allowed"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock.post_kind_change_out",
+          "Letflow.Modules.Stock.LedgerPolicy.declare"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/modules/stock/stock.ex:657",
+          "lib/letflow/modules/stock/ledger_policy/declare.ex:59"
+        ],
+        "result": "the stock entry (-q per line at from) and the asset entry commit together or not at all"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-19",
+    "area": "stock",
+    "title": "Crafted completion or start is refused (write targets) (security)",
+    "description": "A caller who completes a post/reverse task with an output that overwrites a write target (document id, posting, mark ...), or starts a stock process by POST /instances with chosen initial_variables, is refused 422 output_refused (or answered as for an unknown definition) and nothing is written.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "a stock document issued with a pending Post task"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 output_refused on a write-target key",
+      "module definitions start only from module code"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_receipt/post",
+          "stock.post_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/complete",
+          "POST /api/v1/instances"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:55",
+          "lib/letflow/modules/stock/stock.ex:597",
+          "lib/letflow/engine/write_targets.ex:14",
+          "test/letflow/engine/write_targets_test.exs:1"
+        ],
+        "result": "completion with a write-target key in the body: 422 output_refused; POST /instances for a module definition: refused as unknown; balance and document unchanged"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-20",
+    "area": "stock",
+    "title": "Cross-tenant read and write refused (security)",
+    "description": "A token of tenant A used against tenant B's document, count or workbook-load id is answered with the same 404 as an unknown id, with B's row unchanged; no list of A holds B's rows; no route honours a tenant key from the caller.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "two tenants with the stock module and a real document in each"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "uniform 404 (INV-5)",
+      "a tenant key in the query is 422 invalid_filter"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/stock/documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/documents/:id",
+          "POST /api/v1/modules/stock/documents/:id/post",
+          "POST /api/v1/modules/stock/documents/:id/reverse",
+          "POST /api/v1/modules/stock/documents/:id/cancel",
+          "GET /api/v1/modules/stock/counts/:id",
+          "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:33",
+          "lib/letflow/modules/stock/router.ex:717",
+          "lib/letflow/modules/stock/router.ex:635",
+          "lib/letflow/modules/stock/router.ex:654",
+          "lib/letflow/modules/stock/router.ex:695",
+          "lib/letflow/modules/stock/router.ex:796",
+          "lib/letflow/modules/stock/router.ex:379",
+          "test/letflow/modules/asset_stock_isolation_test.exs:1"
+        ],
+        "result": "uniform 404 for every id route; the control call with the owner's token is not 404"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-21",
+    "area": "stock",
+    "title": "Permission matrix per role of the stock area (security)",
+    "description": "Each stock route is called by each role: the storekeeper may read, post, reverse, quick-count, count-order and count-record but not reconcile, apply a workbook or approve; the administrator may all; the auditor holds no stock permission at all (effective.golden: every Stock cell false); a role without the permission gets 403 (or 404 where the module guard applies).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "one user of each role in the tenant"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 for a role without the permission"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/reconcile",
+          "POST /api/v1/modules/stock/stock-workbook/apply",
+          "GET /api/v1/modules/stock/approval-access"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:556",
+          "lib/letflow/modules/stock/router.ex:482",
+          "lib/letflow/modules/stock/router.ex:475",
+          "docs/roles.md:191",
+          "priv/permission_matrix/effective.golden:1"
+        ],
+        "result": "403: StockReconcile, StockWorkbookApply and StockApprove are withheld from the storekeeper (approval-access answers that the caller does not hold it)"
+      },
+      {
+        "actor": "TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/documents",
+          "POST /api/v1/modules/stock/documents",
+          "POST /api/v1/modules/stock/quick-counts",
+          "POST /api/v1/modules/stock/counts"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:708",
+          "lib/letflow/modules/stock/router.ex:571",
+          "lib/letflow/modules/stock/router.ex:670",
+          "lib/letflow/modules/stock/router.ex:756",
+          "priv/permission_matrix/effective.golden:1"
+        ],
+        "result": "refused for reads and writes alike: the auditor holds no stock permission"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-22",
+    "area": "stock",
+    "title": "Token and host lookup (security)",
+    "description": "A wrong, expired, revoked or other tenant's token or shared-access value, or an unknown tenant slug/host, is refused with one uniform 401 (no hint which part failed); repeated failures from one address end in 429; an API token on a document route gets the 404 of a tenant without the module.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "an active shared access and a revoked one"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "uniform 401",
+      "429 after repeated failures"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/balances",
+          "POST /qoimeks/:tenant_slug/movements"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:102",
+          "lib/letflow/routers/shared_stock_access.ex:110",
+          "test/letflow/routers/shared_stock_access_test.exs:1"
+        ],
+        "result": "401 identical for wrong value, revoked value, unlisted slug and other tenant's value; 429 when the failure bucket is empty; no tenant-dependent header"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-23",
+    "area": "stock",
+    "title": "Upload types and limits (security)",
+    "description": "The workbook check/apply takes only an .xlsx up to 2 MiB; voice audio only m4a or WebM up to 10 MB; the old-address body up to 8192 bytes. Over-limit or wrong-type input is refused and nothing is written.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "none"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "413 / 415 / 422 on limits"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/stock/workbook-import -> WorkbookImportPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/stock-workbook/check",
+          "POST /api/v1/modules/stock/voice/draft"
+        ],
+        "code_refs": [
+          "web/src/modules/stock/stockRoutes.tsx:74",
+          "lib/letflow/modules/stock/router.ex:441",
+          "lib/letflow/modules/stock/router.ex:726",
+          "test/letflow/modules/stock/stock_workbook_import_test.exs:1",
+          "test/letflow/modules/stock/voice_audio_regression_test.exs:1"
+        ],
+        "result": "an oversized or non-xlsx body is refused; audio_too_large 413 / audio_format 415; no record, entry or number written"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-24",
+    "area": "stock",
+    "title": "Old-address access refused (security)",
+    "description": "The shared access reaches only its six calls: no task, approval, count, import or user route; a path outside them (also /api/api/...) is 404 after authentication; while scope enforcement is on or shadow it is 403.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "an active shared access"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "404 outside the six calls",
+      "403 scope_enforcement_active"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/catalog",
+          "POST /qoimeks/:tenant_slug/voice"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:85",
+          "lib/letflow/routers/shared_stock_access.ex:98",
+          "test/letflow/routers/shared_stock_access_address_test.exs:1"
+        ],
+        "result": "other routes 404; /voice without /api is 404; scope_enforcement_active 403"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-25",
+    "area": "stock",
+    "title": "Voice and typed-draft inputs (security)",
+    "description": "Voice input is untrusted text: the draft only proposes items and places from the caller's own active masters and stores nothing; unknown fields and languages are refused.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "speech/model providers off or on"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 field_not_allowed / bad_language"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/modules/stock/voice/draft-text",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:732",
+          "test/letflow/modules/stock/voice_regression_test.exs:1"
+        ],
+        "result": "a phrase naming an item or place outside the caller's masters yields no such id; field_not_allowed / bad_language 422; nothing stored"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-STOCK-26",
+    "area": "stock",
+    "title": "Approval and separation of duties (security)",
+    "description": "The person who prepared an opening or a quick count cannot approve it while the four-eyes rule is ON; the storekeeper never holds StockApprove, so a post, approve or reverse task addressed or reassigned to a storekeeper is still refused on claim and completion; switching four-eyes OFF does not grant StockApprove.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "four-eyes ON for stock_opening/approve and stock_quick_count/approve"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "refused for the preparer and for a role without StockApprove"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/approve",
+          "stock_opening/approve"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "GET /api/v1/modules/stock/approval-access"
+        ],
+        "code_refs": [
+          "priv/modules/stock/pack.json:592",
+          "priv/modules/stock/pack.json:514",
+          "lib/letflow/modules/stock/router.ex:475",
+          "test/letflow/modules/stock/stock_approve_tasks_test.exs:1",
+          "test/letflow/modules/stock/quick_count_self_approval_test.exs:1"
+        ],
+        "result": "claim or completion of an approve/post task by the preparer or by a storekeeper is refused; nothing is written"
+      }
+    ],
+    "scenario": null
+  }
+]
