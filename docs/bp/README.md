@@ -12,6 +12,9 @@ This folder holds the map; `scripts/uat/` holds its two tools.
 | `docs/bp/orphans-<area>.md` | the inventory items of the area that no process uses (format below) |
 | `scripts/uat/bp_inventory.py <area\|all>` | lists everything a process could use, mechanically |
 | `scripts/uat/check_catalog.py [area ...\|all]` | validates the files and computes COVERAGE |
+| `scripts/uat/check_routes.py` | the mechanical route inventory (D-170): authentication, tenant scope and permission of every API route |
+| `docs/bp/public-routes.json` | the allow-list of declared routes (public, shared-secret, exempt), each with reason and owner |
+| `docs/bp/route-gaps.md` | the first run of `check_routes.py`: the routes that fail (a to-do list, generated with `--gaps-md`) |
 
 Areas: `stock`, `assets`, `procurement`, `maintenance`, `master` (org, locations, catalog_items, codes),
 `exam`, `mes`, `tenant-admin`, `platform`, `designer`. The table that maps an area to its source paths is
@@ -138,3 +141,23 @@ file as one row of a Markdown table with exactly these columns, none empty:
 `check_catalog.py` checks the form (fields, types, ids, statuses, resolving `code_refs`, existing
 `scenario` paths, coverage). It cannot check that a `code_refs` line really does what the task says:
 the `ba-validator` gate opens the file at the line and confirms it.
+
+## The route inventory (`check_routes.py`, D-170)
+
+`python3 scripts/uat/check_routes.py [--gaps-md FILE] [--json]` lists every route of `lib/letflow/router.ex`,
+`lib/letflow/routers/*.ex` and `lib/letflow/modules/<m>/router.ex` (old-address, public, signup, webhook and
+upload routes included) with three facts and fails when one is missing:
+
+| fact | derived when | otherwise |
+|---|---|---|
+| authentication (`oidc-or-api-token`, `shared-access`, `shared-secret`, `api-token`, `none-by-design`) | the route is mounted under `/api/v1` (ApiPipeline) | declared in `public-routes.json` |
+| tenant scope (`tenant-prefix`, `platform-level`, `host`, `none-by-design`) | under `/api/v1`: `tenant-prefix`, `platform-level` in a router of area `platform` | declared |
+| permission | the policy atom of an `authz_*` macro | declared as a name or `exempt` |
+
+`public-routes.json` is a JSON list of `{route (text or list), authentication?, tenant_scope?, permission?, reason, owner}`;
+a `none-by-design` or `exempt` value needs a reason and an owner, a route outside `/api/v1` that is not listed is an
+unknown public route, and an entry that names no existing route is stale. Coverage: every route must also be
+referenced by a process task or be on the orphan list. The same run scans the packs (WRITE-TARGETS): a variable a
+`module_writes` argument reads must not be a completer input of any node (the T-2299 hole; the scan test
+`test/letflow/modules/write_target_sources_scan_test.exs` is the Elixir twin, fixtures `test/fixtures/t2299_hole/`).
+Exit code 0 only when nothing fails. The routes that fail today are in `docs/bp/route-gaps.md`.
