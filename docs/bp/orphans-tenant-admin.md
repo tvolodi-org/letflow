@@ -4,6 +4,13 @@ Every inventory item of the area (87 routes, 11 business rules, 20 screens) is n
 `docs/bp/tenant-admin.json`, so there is no orphan row. Checked with `python3 scripts/uat/check_catalog.py tenant-admin`
 (COVERAGE 118/118).
 
+Partial entries and why (T-2550; the machine-readable form is the `gaps` field of each entry in `docs/bp/tenant-admin.json`):
+
+- BP-TENANT-ADMIN-31 (screens only, no browser step in the runner), -33, -34, -41, -44 (routes at the root of a two-part prefix
+  that the runner's static check cannot match), -35, -37, -40 (need a per-step Authorization, a request without a credential
+  or a service principal: runner tasks), -36 (root route and a state change of a shared tenant), -38 (no file-upload step kind),
+  -47 (no hand-over of a task id between actors). None of them is a missing product feature.
+
 Items covered only by a weak reason (the owner may want to give them a real process or retire them):
 
 - `GET /api/v1/me/memberships`, `GET /api/v1/me/modules`, `GET /api/mobile/tenant-config`: used as part of sign-in and

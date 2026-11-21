@@ -1,0 +1,106 @@
+{
+  "id": "SEC-ID-08",
+  "bp_entry": "BP-TENANT-ADMIN-34",
+  "title": "A signed-in administrator of another company cannot change or delete this company's user, group or group member: the same plain not-found as for an id that does not exist",
+  "description": "Second half of the cross-company check (the first half, the reads, is SEC-ID-02). The administrator of this company creates a test group named with the run id. The administrator of another company (the actor rehearsal2-admin, a TENANT_ADMIN of the company other_company) signs in to their own company and sends the requests to THIS company's address with this company's ids: change the profile of this company's administrator, change that user's status, delete the test group, remove this company's administrator from the test group. Every one answers 404 with the same title and detail as the same request with an id that does not exist (00000000-0000-4000-8000-000000000000), and the test group is still there afterwards (the administrator of this company lists its members: 200). The change requests carry an empty body on purpose: the existence of the id is decided before the body is read, so a missing refusal would show as a validation answer and change nothing. The company of a request is the sign-in realm of the token, never the host (decision 0042). The test group is deleted in the cleanup. Not in this file: the scoped role grant delete and the company settings change (routes at the root of their prefix, which the static check of the runner cannot match yet), and the API token read and revoke (SEC-ID-02).",
+  "tenant": "${tenant}",
+  "residue_check": false,
+  "inputs": ["other_company"],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {"other_company": "sss-rehearsal2"}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.user_id": {"exists": true}}},
+      "save": {"this_admin_id": "$.user_id"}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/identity/groups", "body": {"name": "uat-sec-id-08-${run_id}", "description": "created by the UAT runner, deleted at the end of the run"}},
+      "expect": {"status": 201, "json": {"$.id": {"exists": true}}},
+      "save": {"test_group_id": "$.id"}
+    },
+    {
+      "id": "s3",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "GET", "path": "/api/v1/me/memberships"},
+      "expect": {"status": 200, "json": {"$.memberships[0].tenant_slug": "${other_company}", "$.memberships[1]": {"absent": true}}}
+    },
+    {
+      "id": "s4",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "PATCH", "path": "/api/v1/identity/users/${this_admin_id}", "body": {}},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s5",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "PATCH", "path": "/api/v1/identity/users/${missing_id}", "body": {}},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s6",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/identity/users/${this_admin_id}/status", "body": {}},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s7",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/identity/users/${missing_id}/status", "body": {}},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s8",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/groups/${test_group_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s9",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/groups/${missing_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s10",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/groups/${test_group_id}/members/${this_admin_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s11",
+      "actor": "rehearsal2-admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/groups/${missing_id}/members/${this_admin_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/groups/${test_group_id}/members"},
+      "expect": {"status": 200}
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["test_group_id"],
+      "do": {"api": "DELETE", "path": "/api/v1/identity/groups/${test_group_id}"},
+      "expect": {"status": [204, 404]}
+    }
+  ]
+}

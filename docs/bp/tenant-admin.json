@@ -2113,13 +2113,16 @@
       "each page is behind RequirePermission in web/src/router.tsx; a role without it does not reach it"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "gaps": [
+      "The three pages (admin/print-templates, admin/official-forms, admin/import) are screens only: their data routes belong to the documents and entities areas, and the runner has no browser step yet (uat-process-runner.md section 4: ui steps come after the MVP). GET /api/v1/help/resolved answers 404 by design when no help text is written for a screen, so it has no stable expected answer on a fresh tenant. Nothing is missing in the product."
+    ]
   },
   {
     "id": "BP-TENANT-ADMIN-32",
     "area": "tenant-admin",
     "title": "Work my tasks in My Tasks",
-    "description": "A person opens their task inbox and claims and completes tasks addressed to them, their group or their role. A task that needs StockApprove cannot be claimed by a role without it (the storekeeper).",
+    "description": "A person opens their task inbox and claims and completes tasks addressed to them, their group or their role. A task that needs StockApprove cannot be claimed by a role without it (the storekeeper). Runner script: both actors open the inbox (200) and a task id that does not exist is refused 404 on claim and complete; claiming and completing a real posting task is played by BP-01 to BP-05 (wait_task uses the same routes).",
     "actors": [
       {
         "role": "any task user",
@@ -2176,14 +2179,15 @@
       "a non-addressed user gets the plain 404 or 403 by policy",
       "a role without StockApprove cannot claim or complete stock approve/post/reverse tasks (roles.md)"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-TENANT-ADMIN-32-my-tasks-read-and-unknown-task.json",
+    "status": "implemented",
+    "automation": "runner"
   },
   {
     "id": "BP-TENANT-ADMIN-33",
     "area": "tenant-admin",
     "title": "SECURITY: Permission matrix of tenant administration: each route, who may, who gets 403",
-    "description": "For every route of this area a caller of each role (TENANT_ADMIN, TENANT_AUDITOR, STOREKEEPER, PROCESS_DESIGNER, TASK_WORKER, no role) is tried; only the roles named in roles.md succeed, all others get 403 with an identical body and nothing changes.",
+    "description": "For every route of this area a caller of each role (TENANT_ADMIN, TENANT_AUDITOR, STOREKEEPER, PROCESS_DESIGNER, TASK_WORKER, no role) is tried; only the roles named in roles.md succeed, all others get 403 with an identical body and nothing changes. Runner scripts: SEC-ID-03 (BP-TENANT-ADMIN-44) and SEC-ID-07 play the roles TENANT_ADMIN and STOREKEEPER on the routes whose path the static check can match; the storekeeper is refused every one with 403.",
     "actors": [
       {
         "role": "each role",
@@ -2274,21 +2278,25 @@
     "refusals": [
       "a role without the permission gets 403 and an identical body for valid and invalid input (INV-5)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/SEC-ID-07-remaining-admin-routes-per-role.json",
     "status": "partial",
     "security": true,
-    "automation": "planned",
+    "automation": "runner",
     "existing_tests": [
       "test/letflow/api/authorization_enforcement_test.exs",
       "test/letflow/api/permission_matrix_test.exs",
       "test/letflow/routers/tenant_auditor_routes_test.exs"
+    ],
+    "gaps": [
+      "Routes at the root of their prefix (PATCH /tenant/settings, PUT /tenant/scope-enforcement, role grants and scoped role grants) are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "TENANT_AUDITOR, PROCESS_DESIGNER and TASK_WORKER have no login in the actor roster (test/fixtures/uat/actors.yaml), so only TENANT_ADMIN and STOREKEEPER are played; the other roles are covered by test/letflow/api/permission_matrix_test.exs and authorization_enforcement_test.exs."
     ]
   },
   {
     "id": "BP-TENANT-ADMIN-34",
     "area": "tenant-admin",
     "title": "SECURITY: Cross-tenant read and write refused: a token of company A against company B's ids",
-    "description": "With a token of company A every id of company B (user, group, token, scope grant) is tried on read, change and delete routes: the answer is the same plain 404 as for an id that does not exist, and company B's data is unchanged.",
+    "description": "With a token of company A every id of company B (user, group, token, scope grant) is tried on read, change and delete routes: the answer is the same plain 404 as for an id that does not exist, and company B's data is unchanged. Runner scripts: SEC-ID-02 (BP-TENANT-ADMIN-43) plays the reads and the token revoke; SEC-ID-08 plays the user change, user status change, group delete and group member removal of another company's token: every answer equals the answer for an id that does not exist.",
     "actors": [
       {
         "role": "TENANT_ADMIN of company A",
@@ -2367,13 +2375,16 @@
     "refusals": [
       "uniform 404 (INV-5), a body tenant_id is ignored (INV-10)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/SEC-ID-08-other-company-changes-refused.json",
     "status": "partial",
     "security": true,
-    "automation": "planned",
+    "automation": "runner",
     "existing_tests": [
       "test/letflow/routers/req446_cross_tenant_denial_test.exs",
       "test/letflow/routers/tenant_settings_scope_test.exs"
+    ],
+    "gaps": [
+      "The scoped role grant delete, the company settings change and the solution install of another company are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail); they stay with test/letflow/routers/req446_cross_tenant_denial_test.exs and tenant_settings_scope_test.exs."
     ]
   },
   {
@@ -2449,6 +2460,11 @@
       "test/letflow/routers/identity_role_rebind_test.exs",
       "test/letflow/routers/identity_roles_guard_test.exs",
       "test/letflow/scope_enforcement_flip_authority_test.exs"
+    ],
+    "gaps": [
+      "Minting a token with a token, and an administrator acting with an API token, need a request that carries a different Authorization than the actor's own: the runner has no per-step Authorization step kind (a runner task, not a product gap).",
+      "The last-administrator guards (409 last_tenant_wide_admin) need scope enforcement ON and a tenant with exactly one tenant-wide administrator; no QA tenant of the roster is in that state and a script must not demote the only administrator of a shared QA tenant. They stay with test/letflow/routers/identity_roles_guard_test.exs and scope_enforcement_flip_authority_test.exs.",
+      "What can be played is played in SEC-ID-07 step s10: a storekeeper's role rebind is refused 403."
     ]
   },
   {
@@ -2508,6 +2524,10 @@
     "existing_tests": [
       "test/letflow/routers/tenant_scope_enforcement_refusal_kinds_test.exs",
       "test/letflow/scope_enforcement_flip_authority_test.exs"
+    ],
+    "gaps": [
+      "PUT /tenant/scope-enforcement is a root route of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "The token and the scoped-administrator callers need credentials that are not in the roster, and the transition off to on changes the enforcement mode of a shared QA tenant; both stay with test/letflow/routers/tenant_scope_enforcement_refusal_kinds_test.exs and test/letflow/scope_enforcement_flip_authority_test.exs. Read-only parts of the same router are in SEC-ID-07 (integrity and token preconditions: administrator 200, storekeeper 403)."
     ]
   },
   {
@@ -2570,6 +2590,9 @@
       "test/letflow/routers/tenant_config_host_test.exs",
       "test/letflow/routers/tenant_config_inactive_test.exs",
       "test/letflow/routers/mobile_tenant_config_inactive_test.exs"
+    ],
+    "gaps": [
+      "A missing, malformed or expired credential needs a request without the actor's token: the runner always sends the token of the named actor (no 'no credential' or 'crafted credential' step kind). A token of another company is played by SEC-ID-02 (BP-TENANT-ADMIN-43) and the host and realm lookup by SEC-ID-01 (BP-TENANT-ADMIN-42). The tenant-config routes are answered by host before sign-in and have no actor."
     ]
   },
   {
@@ -2637,13 +2660,16 @@
       "test/letflow/routers/tenant_logo_test.exs",
       "test/letflow/routers/identity_users_import_test.exs",
       "test/letflow/routers/tenant_config_bundle_test.exs"
+    ],
+    "gaps": [
+      "The three upload routes take a multipart file body; the runner has no file-upload step kind (scripts/uat/README.md lists it as a runner task). The type, size and content refusals stay with test/letflow/routers/tenant_logo_test.exs, identity_users_import_test.exs and tenant_config_bundle_test.exs."
     ]
   },
   {
     "id": "BP-TENANT-ADMIN-39",
     "area": "tenant-admin",
     "title": "SECURITY: Old-address shared access: revoked, wrong value, wrong role",
-    "description": "The shared stock access is used after revoke, with a wrong value, and by a non-administrator; it must not reach any administration route.",
+    "description": "The shared stock access is used after revoke, with a wrong value, and by a non-administrator; it must not reach any administration route. Runner scripts: SEC-ID-04 (revoke, rotate, storekeeper refused), SEC-OLD-01 (revoked and rotated value refused with one 401 body, malformed value 422), SEC-OLD-02 (value presented at another slug) and SEC-OLD-04 (the value on the standard API, which includes every administration route, is refused 401).",
     "actors": [
       {
         "role": "shared access / STOREKEEPER",
@@ -2690,10 +2716,10 @@
       "a revoked or wrong value is refused",
       "the shared access never reaches administration routes"
     ],
-    "scenario": null,
-    "status": "partial",
+    "scenario": "test/uat/processes/SEC-ID-04-shared-access-lifecycle.json",
+    "status": "implemented",
     "security": true,
-    "automation": "planned",
+    "automation": "runner",
     "existing_tests": [
       "test/letflow/routers/shared_stock_access_test.exs",
       "test/fixtures/uat/scenarios/qoimeks-token/qoimeks-token-5-storekeeper-refused-shared-access.yaml"
@@ -2759,6 +2785,10 @@
       "test/letflow/engine/separation_of_duties_test.exs",
       "test/letflow/approval_rules_default_test.exs",
       "test/letflow/routers/approval_rules_test.exs"
+    ],
+    "gaps": [
+      "Self-approval with the switch ON is played by SEC-STOCK-06 and SEC-STOCK-07 (BP-STOCK). A rule switch by a non-administrator is played by SEC-ID-03 step s11 (storekeeper refused 403).",
+      "Self-approval with an API token or a service principal needs a request that carries a different Authorization than the actor's own (no such runner step kind), and a service principal that is not in the roster; these stay with test/letflow/engine/separation_of_duties_test.exs."
     ]
   },
   {
@@ -2834,6 +2864,9 @@
       "test/letflow/routers/tenant_settings_test.exs",
       "test/letflow/routers/number_sequences_test.exs",
       "test/letflow/routers/tenant_solutions_test.exs"
+    ],
+    "gaps": [
+      "POST /number-sequences is matched by the static check but is not scripted for crafted bodies: its router takes only the five definition keys (Map.take in lib/letflow/routers/number_sequences.ex), so an unknown key or a body tenant id is dropped, not refused, and a created definition has no delete route to undo it. The crafted-body targets PATCH /tenant/settings and POST /tenant/solutions are root routes of their prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The approval rule route is reached by SEC-ID-03 only with an empty body by the storekeeper (refused 403 before the body is read). Crafted write targets of the stock completion are played by BP-09 and BP-MASTER-13 (their own areas)."
     ]
   },
   {
@@ -3096,6 +3129,9 @@
       "test/letflow/api/authorization_enforcement_test.exs",
       "test/letflow/modules/stock/storekeeper_test.exs",
       "test/letflow/routers/tenant_auditor_routes_test.exs"
+    ],
+    "gaps": [
+      "Role grants, scoped role grants, company settings and the scope enforcement mode are root routes of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The other routes of the same family are in SEC-ID-07."
     ]
   },
   {
@@ -3350,6 +3386,9 @@
       "test/letflow/modules/stock/stock_approve_tasks_test.exs",
       "test/letflow/routers/tasks_required_permission_test.exs",
       "test/letflow/modules/stock/storekeeper_test.exs"
+    ],
+    "gaps": [
+      "The storekeeper's direct claim and completion of the administrator's posting task by its id, and the task's absence from the storekeeper's My Tasks, need the id of a task found in another actor's inbox and an 'absent from a list' check: the runner has neither (runner tasks, not a product gap). They stay with test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs."
     ]
   }
 ]
