@@ -52,7 +52,12 @@ defmodule Letflow.ModuleWritesFixture do
   @spec graph([map()], [map()] | nil) :: map()
   def graph(module_lines, entity_lines \\ nil) do
     attributes =
-      %{"role" => "REVIEWER", "module_writes" => module_lines}
+      %{
+        "role" => "REVIEWER",
+        "module_writes" => module_lines,
+        # T-2430: the person supplies `label` (the var `line/0` reads) when completing `ht`.
+        "completer_inputs" => ["label"]
+      }
       |> then(fn attrs ->
         if entity_lines, do: Map.put(attrs, "entity_writes", entity_lines), else: attrs
       end)

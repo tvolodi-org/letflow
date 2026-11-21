@@ -460,7 +460,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       posting = inst.variables["posting"]
       lines = List.update_at(posting["lines"], 0, &Map.put(&1, "sku", Ecto.UUID.generate()))
       out = %{"posting" => Map.put(posting, "lines", lines)}
-      result = P.complete(x, task, output: out)
+      result = P.complete(x, task, variables: out)
       assert {:error, {:entity_write_refused, 0, :validation_failed}} = result
       assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
       assert marks(x, id) == 0
@@ -665,12 +665,51 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       lines = List.update_at(posting["lines"], 0, &Map.put(&1, "quantity", "1.5"))
 
       assert {:ok, _} =
-               P.complete(x, task, output: %{"posting" => Map.put(posting, "lines", lines)})
+               P.complete(x, task, variables: %{"posting" => Map.put(posting, "lines", lines)})
 
       read = count(x, id)
       assert read["posting_state"] == "posted"
       assert read["posting_check"] == "mismatch"
       refute inspect(read) =~ "mismatch_detail"
+    end
+  end
+
+  describe "WT-S6 post_count write targets (T-2430)" do
+    test "a body carrying a posting, a document id or a mark is refused: 422, nothing posted",
+         ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      post!(x, id)
+      task = task!(x, id, "post")
+      vars = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables
+      posting = vars["posting"]
+      lines = List.update_at(posting["lines"], 0, &Map.put(&1, "quantity", "99"))
+
+      bodies = [
+        %{"posting" => Map.put(posting, "lines", lines)},
+        %{"document_id" => Ecto.UUID.generate()},
+        %{"mark" => Map.fetch!(vars, "mark")},
+        %{"version_no" => 7},
+        %{"org_unit_id" => Ecto.UUID.generate(), "note" => "x"}
+      ]
+
+      for body <- bodies do
+        conn =
+          Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", Jason.encode!(body))
+          |> put_req_header("authorization", "Bearer " <> x.chair_tok)
+          |> put_req_header("content-type", "application/json")
+          |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+
+        assert conn.status == 422, inspect({body, conn.status, conn.resp_body})
+        assert Jason.decode!(conn.resp_body)["code"] == "output_refused"
+        assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
+        assert marks(x, id) == 0
+        assert movements(x, id) == []
+      end
+
+      assert Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables == vars
+      complete!(x, id)
+      assert marks(x, id) == 1
     end
   end
 

@@ -29,7 +29,10 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
     {:ok, Map.merge(ctx, D.tenant_b!(ctx))}
   end
 
-  defp one(rows), do: assert([row] = rows) && row
+  defp one(rows) do
+    assert [row] = rows
+    row
+  end
 
   defp qty(row), do: Decimal.new(row["quantity"])
 
@@ -299,12 +302,13 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
 
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
-    output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}
+    :ok =
+      D.tamper!(ctx, task, %{"posting" => Map.put(instance.variables["posting"], "lines", lines)})
 
     result =
       Engine.complete_task(
         task.id,
-        %{output_variables: output, actor_id: holder.id, idempotency_key: Ecto.UUID.generate()},
+        %{output_variables: %{}, actor_id: holder.id, idempotency_key: Ecto.UUID.generate()},
         prefix: ctx.schema,
         credential: :oidc
       )
@@ -358,12 +362,13 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
         })
 
       holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
+      :ok = D.tamper!(ctx, task, %{"posting" => forged})
 
       assert {:ok, _} =
                Engine.complete_task(
                  task.id,
                  %{
-                   output_variables: %{"posting" => forged},
+                   output_variables: %{},
                    actor_id: holder.id,
                    idempotency_key: Ecto.UUID.generate()
                  },

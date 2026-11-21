@@ -547,6 +547,7 @@ defmodule Letflow.Engine do
   alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.VariableSchema
+  alias Letflow.Engine.WriteTargets
   alias Letflow.Dlq
   alias Letflow.EventStore
   alias Letflow.EventStore.IdempotencyRecord
@@ -2917,7 +2918,12 @@ defmodule Letflow.Engine do
            | {:output_refused, missing_keys :: [String.t()], rejected_keys :: [String.t()]}
            | :entity_writes_not_planned
 
-  @typep refusal_context :: %{required: [String.t()], allowed: [String.t()]}
+  @typep refusal_context :: %{
+           required: [String.t()],
+           allowed: [String.t()],
+           graph: Graph.t(),
+           node_id: String.t()
+         }
 
   # GH #3409 (F-3 part B, criterion 8): fixed, not a setting. The sandbox cap is
   # `FormValidation.max_timeout_ms/0` (50 ms), so a busy slot frees within about one script run.
@@ -8019,13 +8025,21 @@ defmodule Letflow.Engine do
          output_labels,
          repo,
          prefix,
-         %{required: required, allowed: allowed}
+         %{required: required, allowed: allowed, graph: graph, node_id: node_id}
        ) do
     # GH #2587 (decision 0054 D1a, design D-A1.3): a reserved key in the CORRECTED
     # output is a caller error, refused as a retryable 422 before the schema read and
     # before merge/3 (which would refuse it too, but into instance ERROR). Key names
     # only; the value is never carried.
-    case VariableMerge.reserved_keys(output_variables) do
+    # T-2430: the same refusal for a key a `module_writes` `var` argument of the pinned
+    # graph reads (a write target is never the completer's to set), unless the node
+    # declares it in `completer_inputs`.
+    case Enum.sort(
+           Enum.uniq(
+             VariableMerge.reserved_keys(output_variables) ++
+               WriteTargets.refused_keys(graph, node_id, output_variables)
+           )
+         ) do
       [] ->
         merge_unreserved_output_variables(
           projection,
@@ -8212,7 +8226,13 @@ defmodule Letflow.Engine do
   @spec refusal_context(Graph.t(), Task.t()) :: refusal_context()
   defp refusal_context(graph, %Task{} = task) do
     required = RequiredOutputs.required_outputs(find_node(graph, task.node_id))
-    %{required: required, allowed: RequiredOutputs.allowed_keys(task.form_schema, required)}
+
+    %{
+      required: required,
+      allowed: RequiredOutputs.allowed_keys(task.form_schema, required),
+      graph: graph,
+      node_id: task.node_id
+    }
   end
 
   @spec apply_variable_merge(
