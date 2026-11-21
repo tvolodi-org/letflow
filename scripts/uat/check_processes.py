@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import retired  # noqa: E402
 import runner  # noqa: E402
 
 ROUTE_RE = re.compile(r"^\s*(?:authz_)?(get|post|put|patch|delete)\s+\"([^\"]*)\"", re.M)
@@ -254,6 +255,11 @@ def check_files(files, root=None, strict=False) -> list:
     """-> a list of problem lines (empty: all fine)."""
     root = Path(root or default_root())
     problems = []
+    try:
+        retired_map = retired.load_retired(root)
+    except retired.RetiredError as err:
+        retired_map = {}
+        problems.append(f"retired-tenants: {err}")
     roster = root / "test/fixtures/uat/actors.yaml"
     roles = roster_roles(root) if roster.is_file() else None
     routes = Routes(root)
@@ -270,6 +276,7 @@ def check_files(files, root=None, strict=False) -> list:
         except (OSError, ValueError) as err:
             problems.append(f"{name}: not valid JSON: {err}")
             continue
+        problems.extend(retired.violations(doc, name, retired_map))
         fdir = runner.fixtures_dir_for(f)
         if isinstance(doc, dict) and "processes" in doc:
             check_chain(f, doc, roles, routes, strict, problems)
@@ -390,6 +397,8 @@ def main(argv=None) -> int:
     for p in problems:
         print(p)
     print(f"check_processes: {len(files)} file(s), {len(problems)} problem(s)")
+    if any("retired" in p for p in problems):
+        return 2
     return 1 if problems else 0
 
 

@@ -1376,7 +1376,14 @@ def load_chain(path) -> tuple:
     processes = []
     for name in names:
         found = resolve_process_file(here, str(name))
-        processes.append(load_process(found))
+        process = load_process(found)
+        why = blocked_reason(process)
+        if why:
+            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (never run)", flush=True)
+            continue
+        processes.append(process)
+    if not processes:
+        raise ConfigError("every process of the chain is blocked_by something: nothing to run")
     ids = [p["id"] for p in processes]
     if len(set(ids)) != len(ids):
         raise ConfigError("a process appears twice in the chain: " + ", ".join(sorted({i for i in ids if ids.count(i) > 1})))
@@ -1473,6 +1480,44 @@ def default_run_dir(run_id: str) -> Path:
     return root.expanduser().resolve() / run_id
 
 
+def load_retired_checked(root=None) -> dict:
+    import retired
+
+    try:
+        return retired.load_retired(root)
+    except retired.RetiredError as err:
+        raise ConfigError(str(err)) from None
+
+
+def refuse_retired(retired_map, tenant, actors, base_urls=(), docs=()):
+    """Exit-2 guard (T-2538): a retired tenant, a user of one or a base url naming one stops the run before any
+    request. docs: [(name, document)] of process, chain and fixture files."""
+    import retired
+
+    found = []
+    slug = retired.retired_tenant_of(tenant, retired_map)
+    if slug:
+        found.append(f"tenant {slug!r} is retired")
+    for actor, user in (actors or {}).items():
+        slug = retired.retired_tenant_of_user(user, retired_map)
+        if slug:
+            found.append(f"actor {actor!r} names the user {user!r} of the retired tenant {slug!r}")
+    for url in base_urls:
+        slug = retired.retired_tenant_of_url(url, retired_map)
+        if slug:
+            found.append(f"base url {url!r} points at the retired tenant {slug!r}")
+    for name, doc in docs:
+        found += retired.violations(doc, name, retired_map)
+    if found:
+        raise ConfigError("refused, a retired tenant (test/uat/retired-tenants.json), nothing was requested: " + "; ".join(found))
+
+
+def blocked_reason(doc):
+    block = doc.get("dry_run") if isinstance(doc, dict) else None
+    reason = block.get("blocked_by") if isinstance(block, dict) else None
+    return reason if isinstance(reason, str) and reason.strip() else None
+
+
 def cmd_dry_run(args, out=None) -> int:
     """Every changed process file on QA with its own dry_run block {tenant, actors, inputs}, self-cleaning.
     Exit 0 only when all pass; a failure is exit 1 (exit 2 is reserved for 'no such command')."""
@@ -1487,6 +1532,35 @@ def cmd_dry_run(args, out=None) -> int:
         print("dry-run: no process or chain file changed: nothing to run", file=out)
         return 0
     import check_processes
+    import retired
+
+    try:
+        retired_map = load_retired_checked(repo)
+    except ConfigError as err:
+        print(f"dry-run: {err}", file=out)
+        return 2
+    refused = []
+    for path in files:
+        refused += retired.violations_in_file(path, retired_map)
+        try:
+            doc = json.loads(Path(path).read_text(encoding="utf-8"))
+            if isinstance(doc, dict) and "processes" in doc:
+                _chain, processes = load_chain(path)
+                docs = processes + [doc]
+            else:
+                processes = [load_process(path)]
+                docs = processes
+            for fx in fixtures_for(docs, fixtures_dir_for(path)):
+                refused += retired.violations(fx, "fixture " + str(fx.get("id")), retired_map)
+            for pdoc in processes:
+                refused += retired.violations(pdoc, str(pdoc.get("id")), retired_map)
+        except (OSError, ValueError, KeyError, ConfigError, TypeError):
+            pass  # the static check reports these
+    if refused:
+        print("dry-run: REFUSED, a retired tenant is named (test/uat/retired-tenants.json); nothing was requested:", file=out)
+        for line in refused:
+            print("  " + line, file=out)
+        return 2
 
     problems = check_processes.check_files(files, root=repo, strict=True)
     if problems:
@@ -1494,6 +1568,25 @@ def cmd_dry_run(args, out=None) -> int:
         for p in problems:
             print("  " + p, file=out)
         return 1
+    runnable = []
+    for path in files:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        why = blocked_reason(doc)
+        if why:
+            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (never run)", file=out)
+        else:
+            runnable.append(path)
+    files = runnable
+    if not files:
+        print("dry-run: PASS (every file is blocked: nothing to run)", file=out)
+        return 0
+    entries = []
+    for path in files:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        block = doc.get("dry_run") or {}
+        entries.append((path.name, block.get("tenant") or doc.get("tenant"), block.get("actors") or doc.get("actors") or {}))
+    for line in retired.batch_lines(entries, retired_map):
+        print("dry-run: " + line, file=out)
     run_id = "dry-run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     root_dir = Path(args.run_dir_root) if args.run_dir_root else default_run_dir(run_id)
     worst = 0
@@ -1624,6 +1717,17 @@ def main_run(args) -> int:
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
         check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"))
         base_url = args.base_url or chain.get("base_url") or base_url_for(tenant, args.base_url_template)
+        import retired
+
+        retired_map = load_retired_checked()
+        refuse_retired(retired_map, tenant, actors, [base_url, args.old_base_url or chain.get("old_base_url")],
+                       [(str(d.get("id")), d) for d in fixtures + processes + ([chain] if chain else [])])
+        if args.command != "chain":
+            why = blocked_reason(processes[0])
+            if why:
+                raise ConfigError(f"{label} is blocked_by {why}: it is never run")
+        for line in retired.batch_lines([(label, tenant, actors)], retired_map):
+            print("runner.py: " + line, flush=True)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
         run_dir = new_run_dir(args, run_id)
     except ConfigError as err:
@@ -1647,6 +1751,8 @@ def main_cleanup(args) -> int:
     try:
         actors = dict(meta.get("actors") or {})
         actors.update(parse_pairs([a for a in (args.actors or "").split(",") if a], "--actors"))
+        refuse_retired(load_retired_checked(), meta.get("tenant"), actors,
+                       [args.base_url or meta.get("base_url"), args.old_base_url or meta.get("old_base_url")])
     except ConfigError as err:
         print(f"runner.py: {err}", file=sys.stderr)
         return 2
