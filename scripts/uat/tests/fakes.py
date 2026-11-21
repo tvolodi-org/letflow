@@ -4,11 +4,13 @@ token command. No network beyond it, no model. Shared by the test files of scrip
 import io
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.parse
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -55,6 +57,15 @@ class FakeStock:
         self.location_nodes = {}  # record id -> field values, for the real second_place fixture
         self.location_links = {}
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
+        self.token_ttl = None  # authenticated requests a freshly minted token answers before expiring
+        self.token_uses = {}
+        self.token_serials = {}
+        self.document_list_calls = 0
+        self.document_list_faults = {}  # list call number -> non-2xx answer
+        self.inbox_faults = {}  # inbox call number -> non-2xx answer
+        self.task_items = None  # override both task listings; cursors are row offsets in this fake
+        self.open_task_calls = 0
+        self.open_task_faults = {}  # GET /tasks call number -> non-2xx answer
         self.lock = threading.Lock()
 
     def sha(self):
@@ -99,10 +110,34 @@ def make_handler(state):
                         return self.reply(200, [])
                     return self.reply(404, {"title": "no route"})
                 who = next((r for r, u in USERS.items() if auth == f"Bearer TOKEN_{u}_{SECRET}"), None)
+                match = re.fullmatch(r"Bearer TOKEN_(adm|sk)_(\d+)_" + SECRET, auth)
+                if match:
+                    role, serial = next(r for r, u in USERS.items() if u == match.group(1)), int(match.group(2))
+                    if state.token_serials.get(role) != serial:
+                        state.token_serials[role] = serial
+                        state.token_uses[role] = 0
+                    state.token_uses[role] += 1
+                    if state.token_ttl is None or state.token_uses[role] <= state.token_ttl:
+                        who = role
                 state.log.append((method, self.path, who, body))
                 if who is None:
                     return self.reply(401, {"title": "unauthorized"})
                 return self.route(method, path, body, who)
+
+        def task_page(self, items):
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            page_size = int(query.get("page_size", ["200"])[0])
+            start = int(query.get("cursor", ["0"])[0])
+            page = items[start:start + page_size]
+            end = start + len(page)
+            return {"items": page, "next_cursor": str(end) if end < len(items) else None}
+
+        def default_task_items(self, inbox=False):
+            # a decoy for another document must never be picked
+            items = [{"id": "task-decoy", "instance_id": "inst-decoy", "node_id": "post", "status": "PENDING"}]
+            if not inbox or state.inbox_calls >= state.task_visible_after:
+                items += [{k: t[k] for k in ("id", "instance_id", "node_id", "status")} for t in state.tasks]
+            return items
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
@@ -162,6 +197,9 @@ def make_handler(state):
                 state.docs[doc_id] = {"state": "draft", "qty": Decimal(body["lines"][0]["quantity"])}
                 return self.reply(201, {"id": doc_id, "state": "draft"})
             if method == "GET" and path == base + "/documents":
+                state.document_list_calls += 1
+                if state.document_list_calls in state.document_list_faults:
+                    return self.reply(state.document_list_faults[state.document_list_calls], {"title": "listing failed"})
                 rows = [{"id": i, "kind": "receipt", "state": d["state"], "number": "R-" + i}
                         for i, d in reversed(list(state.docs.items()))]
                 return self.reply(200, {"rows": rows, "next_cursor": None})
@@ -188,12 +226,20 @@ def make_handler(state):
                     return self.reply(200, {"id": parts[0], "state": "posted"})
             if method == "GET" and path == "/api/v1/tasks/inbox":
                 state.inbox_calls += 1
-                items = []
-                # a decoy for another document must never be picked
-                items.append({"id": "task-decoy", "instance_id": "inst-decoy", "node_id": "post", "status": "PENDING"})
-                if state.inbox_calls >= state.task_visible_after:
-                    items += [{k: t[k] for k in ("id", "instance_id", "node_id", "status")} for t in state.tasks]
-                return self.reply(200, {"items": items, "next_cursor": None})
+                if state.inbox_calls in state.inbox_faults:
+                    return self.reply(state.inbox_faults[state.inbox_calls], {"title": "gone"})
+                items = state.task_items if state.task_items is not None else self.default_task_items(inbox=True)
+                return self.reply(200, self.task_page(items))
+            if method == "GET" and path == "/api/v1/tasks":
+                state.open_task_calls += 1
+                if state.open_task_calls in state.open_task_faults:
+                    return self.reply(state.open_task_faults[state.open_task_calls], {"title": "cursor_expired"})
+                items = state.task_items if state.task_items is not None else self.default_task_items()
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                status = query.get("status", [None])[0]
+                if status:
+                    items = [item for item in items if item.get("status") == status]
+                return self.reply(200, self.task_page(items))
             if method == "GET" and path.startswith("/api/v1/instances/"):
                 inst = path.rsplit("/", 1)[1]
                 if inst == "inst-decoy":
@@ -289,7 +335,9 @@ class FakeServerCase(unittest.TestCase):
         scripts = Path(self.tmp.name) / "team" / "project" / "scripts"
         scripts.mkdir(parents=True)
         script = scripts / "uat_creds.sh"
-        script.write_text(f'#!/usr/bin/env bash\n[ "$1" = token ] || exit 2\nprintf \'Token: TOKEN_%s_{SECRET}\\n\' "$2"\n')
+        script.write_text('#!/usr/bin/env bash\n[ "$1" = token ] || exit 2\n'
+                          'counter="$(dirname "$0")/.token-counter"\nn=0\n[ ! -f "$counter" ] || n=$(cat "$counter")\n'
+                          f'n=$((n + 1))\nprintf \'%s\' "$n" > "$counter"\nprintf \'Token: TOKEN_%s_%s_{SECRET}\\n\' "$2" "$n"\n')
         script.chmod(script.stat().st_mode | stat.S_IXUSR)
         self.team_root = str(Path(self.tmp.name) / "team")
         env = mock_env(TEAM_ROOT=self.team_root)

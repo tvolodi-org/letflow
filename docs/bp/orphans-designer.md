@@ -10,5 +10,7 @@ Items with no router test and so listed as `partial`, not as orphans: `GET /api/
 `POST /api/v1/public-read-handles` (`BP-DESIGNER-22`): no file under `test/letflow/routers/` exercises them directly
 (only the route-scope inventory tests name them).
 
+Orphan review D-169 (T-2561, 2026-11-21): re-run `python3 scripts/uat/check_catalog.py designer` on this tree: 100%, no orphan item; no entry to decide.
+
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
