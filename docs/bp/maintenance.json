@@ -367,7 +367,9 @@
           "lib/letflow/modules/maintenance/maintenance.ex:118",
           "priv/modules/maintenance/pack.json:60",
           "lib/letflow/modules/maintenance/handlers.ex:49",
-          "lib/letflow/routers/tasks.ex:15"
+          "lib/letflow/routers/tasks.ex:147",
+          "lib/letflow/routers/tasks.ex:163",
+          "lib/letflow/routers/tasks.ex:159"
         ],
         "result": "the task completes; the order shows work_done, done_by, done_at and status done"
       }
@@ -426,7 +428,10 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/maintenance.ex:129",
           "priv/modules/maintenance/pack.json:78",
-          "lib/letflow/modules/maintenance/handlers.ex:68"
+          "lib/letflow/modules/maintenance/handlers.ex:68",
+          "lib/letflow/routers/tasks.ex:147",
+          "lib/letflow/routers/tasks.ex:163",
+          "lib/letflow/routers/tasks.ex:159"
         ],
         "result": "the order shows closed_by, closed_at and status closed"
       }
@@ -742,7 +747,8 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/handlers.ex:49",
           "lib/letflow/modules/maintenance/handlers.ex:85",
-          "lib/letflow/modules/maintenance/maintenance.ex:118"
+          "lib/letflow/modules/maintenance/maintenance.ex:118",
+          "lib/letflow/routers/tasks.ex:159"
         ],
         "result": "refused with invalid arguments; the other order unchanged; the task still pending"
       },
@@ -756,7 +762,8 @@
         "route": "POST /api/v1/tasks/:id/complete",
         "code_refs": [
           "lib/letflow/modules/maintenance/handlers.ex:68",
-          "lib/letflow/modules/maintenance/maintenance.ex:129"
+          "lib/letflow/modules/maintenance/maintenance.ex:129",
+          "lib/letflow/routers/tasks.ex:159"
         ],
         "result": "refused the same way; no closed_by or closed_at written to the other order"
       },
@@ -768,7 +775,8 @@
         ],
         "route": "POST /api/v1/tasks/:id/complete",
         "code_refs": [
-          "priv/modules/maintenance/pack.json:60"
+          "priv/modules/maintenance/pack.json:60",
+          "lib/letflow/routers/tasks.ex:159"
         ],
         "result": "work text empty, over 2000 characters or over the byte cap: refused before any write"
       }
@@ -948,7 +956,8 @@
     "tests": [
       "test/letflow/modules/maintenance/requests_router_test.exs R-06, R-07",
       "test/letflow/modules/maintenance/request_photos_router_test.exs P-05, P-06",
-      "test/letflow/modules/maintenance/order_life_test.exs D-05"
+      "test/letflow/modules/maintenance/order_life_test.exs D-05",
+      "test/letflow/modules/maintenance/orders_router_test.exs O-08"
     ],
     "security": true,
     "automation": "planned",
@@ -958,7 +967,7 @@
     "id": "BP-MAINTENANCE-17",
     "area": "maintenance",
     "title": "Security: token kind, scope and release flag",
-    "description": "A holder of the permission still gets the 404 of an unknown request unless the caller is an interactive user with the permission tenant-wide: an API token and an org-scoped grant are refused (an empty list on the list route). With the release flag off every route answers the 404 of an unknown path with one body, also for a tenant that installed the module while the flag was on. A request to an unknown tenant host reaches no tenant data.",
+    "description": "A holder of the permission still gets the 404 of an unknown request unless the caller is an interactive user with the permission tenant-wide: an API token and an org-scoped grant are refused (an empty list on the list route). With the release flag off every route answers the 404 of an unknown path with one body, also for a tenant that installed the module while the flag was on. Bearer-token lookup is the core authentication step: no, malformed or unverifiable bearer tokens are refused 401 before any tenant data is read, and a token whose realm no tenant owns is refused before any user is provisioned. Expired-token and unknown-host refusals are planned: auth_pipeline_test.exs has no expiry case, and no maintenance test sends an unknown host.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1002,6 +1011,18 @@
           "lib/letflow/modules/maintenance/flag.ex:17"
         ],
         "result": "404, nothing written on a write call"
+      },
+      {
+        "actor": "anyone with no, malformed or unverifiable bearer token, or a token of a realm no tenant owns",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.AuthPipeline.call"
+        ],
+        "route": "any /api/v1 route, e.g. GET /api/v1/modules/maintenance/requests",
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:115"
+        ],
+        "result": "401, halted, no row written; wrong-tenant realm refused before provisioning. Expired token and unknown host: planned, not asserted by a test"
       }
     ],
     "inputs": [
@@ -1018,7 +1039,8 @@
     "tests": [
       "test/letflow/modules/maintenance/requests_router_test.exs R-06",
       "test/letflow/modules/maintenance/request_photos_router_test.exs P-05",
-      "test/letflow/modules/maintenance/orders_router_test.exs O-08"
+      "test/letflow/modules/maintenance/orders_router_test.exs O-08",
+      "test/letflow/plugs/auth_pipeline_test.exs (no header, malformed prefix, empty token, lowercase bearer, unverifiable token, realm-ownership guard, tenant resolution failure)"
     ],
     "security": true,
     "automation": "planned",
@@ -1102,12 +1124,13 @@
         "actor": "TASK_WORKER (colleague)",
         "forms": [],
         "functions": [
-          "Letflow.Tasks.complete_task"
+          "Letflow.Engine.complete_task"
         ],
         "route": "POST /api/v1/tasks/:id/complete",
         "code_refs": [
-          "lib/letflow/routers/tasks.ex:15",
-          "priv/modules/maintenance/pack.json:60"
+          "priv/modules/maintenance/pack.json:60",
+          "lib/letflow/routers/tasks.ex:159",
+          "lib/letflow/engine.ex:3022"
         ],
         "result": "refused; the order stays in_work"
       },
@@ -1242,19 +1265,18 @@
           "lib/letflow/modules/maintenance/router.ex:158",
           "lib/letflow/modules/maintenance/router.ex:179"
         ],
-        "result": "the only unmatched-route behaviour: authz_unmatched(:ordinary) refuses a path that is not one of the twelve routes"
+        "result": "the only unmatched-route behaviour: authz_unmatched(:ordinary) refuses a path that is not one of the twelve routes (declared by the router; no maintenance test asserts it)"
       }
     ],
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "a path outside the twelve routes: the ordinary unmatched answer"
+      "a path outside the twelve routes: the ordinary unmatched answer",
+      "Untested in this module: no test in test/letflow/modules/maintenance/ sends a path outside the twelve routes (grep -rn 'unmatched' there is empty); the unmatched refusal is therefore planned, not verified."
     ],
     "scenario": null,
-    "status": "implemented",
-    "tests": [
-      "test/letflow/modules/maintenance/registration_test.exs"
-    ],
+    "status": "partial",
+    "tests": [],
     "security": true,
     "automation": "planned",
     "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
