@@ -1,0 +1,16 @@
+{
+  "run_id": "20261121T071146Z-d29e57",
+  "label": "BP-MASTER-13",
+  "tenant": "qoimeks-qa2",
+  "base_url": "https://qoimeks-qa2.letflow.qa.bizdala.com",
+  "health_url": "https://qoimeks-qa2.letflow.qa.bizdala.com/health",
+  "old_base_url": null,
+  "actors": {
+    "admin": "qoimeks-qa2-admin",
+    "storekeeper": "qoimeks-qa2-storekeeper"
+  },
+  "started": "2026-11-21T07:11:46Z",
+  "processes": [
+    "BP-MASTER-13"
+  ]
+}

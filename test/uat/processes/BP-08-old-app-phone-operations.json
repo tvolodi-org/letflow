@@ -1,0 +1,623 @@
+{
+  "id": "BP-08",
+  "bp_entry": "BP-STOCK-16",
+  "title": "Old-app phone operations",
+  "description": "The shop-floor phone of the old Qoimeks app works through the tenant's shared access. First the administrator checks that the tenant has no shared access yet (an existing one would be rotated by the create, with 201, and then revoked by the cleanup, so the process stops instead). The administrator then creates the shared access; from then on every call is made with its value at the old address: read the catalog and the balance of one item at two places; post a receipt of `quantity` units (default 5); repeat the same request (same client id and data): the stored movement comes back and the balance changes once; the same id with other quantity is refused 409; transfer the units to the second place; issue them there; reverse the issue and repeat that reversal (same id): one reversal; reversing the original again under another id, or reversing a reversal, is refused with the old texts; zero quantity, a negative count and a missing client id are refused; the code lookup refuses a blank and an unknown code. The cleanup reverses the transfer and the receipt (the old address completes its own posting tasks, no My Tasks step is needed) so both balances return to the start, checks them, and the administrator revokes the shared access. Not covered here (own processes): the count that is accepted (four-eyes switch OFF or ON, the stored zero count), a positive code lookup (needs an assigned code), the 401 and 429 refusals, voice. The catalog's first item and first two places are used; they must be an active item with a base unit and places linked to an org unit, with an active employee.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {
+    "quantity": "5"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2/api"
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.exists": false,
+          "$.enabled": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/catalog"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.skus[0].id": {
+            "exists": true
+          },
+          "$.locations[1].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$.skus[0].id",
+        "loc_a": "$.locations[0].id",
+        "loc_b": "$.locations[1].id"
+      }
+    },
+    {
+      "id": "s3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "bal_a0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_b}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "bal_b0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid1}",
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "${quantity}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "receipt",
+          "$.qty": {
+            "equals": "${quantity}"
+          },
+          "$.operator": "UAT ${run_id}",
+          "$.id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "mov_receipt": "$.id",
+        "receipt_movement_id": "$.id"
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "repeat": {
+          "api": "POST",
+          "path": "/movements",
+          "body": {
+            "id": "${uuid1}",
+            "kind": "receipt",
+            "sku_id": "${sku_id}",
+            "location_id": "${loc_a}",
+            "qty": "${quantity}",
+            "operator": "UAT ${run_id}"
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${mov_receipt}",
+          "$.kind": "receipt"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_a0 + quantity}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid1}",
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "${quantity + 1}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "different data"
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_a0 + quantity}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid2}",
+          "kind": "transfer",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "${quantity}",
+          "operator": "UAT ${run_id}",
+          "to_location_id": "${loc_b}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "transfer",
+          "$.qty": {
+            "equals": "${quantity}"
+          },
+          "$.to_location_id": "${loc_b}"
+        }
+      },
+      "save": {
+        "mov_transfer": "$.id",
+        "transfer_movement_id": "$.id"
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_a0}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_b}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_b0 + quantity}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid3}",
+          "kind": "issue",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_b}",
+          "qty": "${quantity}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "issue",
+          "$.qty": {
+            "equals": "${quantity}"
+          }
+        }
+      },
+      "save": {
+        "mov_issue": "$.id",
+        "issue_movement_id": "$.id"
+      }
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_b}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_b0}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_issue}/reverse",
+        "body": {
+          "id": "${uuid4}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.reverses": "${mov_issue}"
+        }
+      },
+      "save": {
+        "mov_issue_reversal": "$.id"
+      }
+    },
+    {
+      "id": "s16",
+      "http_as": "shared_access",
+      "do": {
+        "repeat": {
+          "api": "POST",
+          "path": "/movements/${mov_issue}/reverse",
+          "body": {
+            "id": "${uuid4}",
+            "operator": "UAT ${run_id}"
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${mov_issue_reversal}",
+          "$.reverses": "${mov_issue}"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_b}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_b0 + quantity}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_issue}/reverse",
+        "body": {
+          "id": "${uuid5}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "already reversed"
+      }
+    },
+    {
+      "id": "s19",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_issue_reversal}/reverse",
+        "body": {
+          "id": "${uuid6}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "a reversal cannot be reversed"
+      }
+    },
+    {
+      "id": "s20",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid7}",
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "0",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "quantity must be positive"
+      }
+    },
+    {
+      "id": "s21",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid8}",
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "-1",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "quantity must be positive"
+      }
+    },
+    {
+      "id": "s22",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "${quantity}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "id is required"
+      }
+    },
+    {
+      "id": "s23",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/codes/lookup?code="
+      },
+      "expect_refused": {
+        "status": 400,
+        "code": "code is required"
+      }
+    },
+    {
+      "id": "s24",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/codes/lookup?code=UAT-NO-SUCH-CODE-${run_id}"
+      },
+      "expect_refused": {
+        "status": 404,
+        "code": "code_not_found"
+      }
+    },
+    {
+      "id": "s25",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_a0}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "receipt_movement_id": "${receipt_movement_id}",
+    "transfer_movement_id": "${transfer_movement_id}",
+    "issue_movement_id": "${issue_movement_id}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_transfer}/reverse",
+        "body": {
+          "id": "${uuid9}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "requires": [
+        "mov_transfer"
+      ]
+    },
+    {
+      "id": "c2",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_receipt}/reverse",
+        "body": {
+          "id": "${uuid10}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "requires": [
+        "mov_receipt"
+      ]
+    },
+    {
+      "id": "c3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_a0}",
+            "default": "0"
+          }
+        }
+      },
+      "requires": [
+        "mov_receipt"
+      ]
+    },
+    {
+      "id": "c4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_b}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${bal_b0}",
+            "default": "0"
+          }
+        }
+      },
+      "requires": [
+        "mov_receipt"
+      ]
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 204
+      }
+    }
+  ]
+}

@@ -221,7 +221,7 @@
         "result": "the document reads posted with its entry id"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-02-issue-goods.json"
   },
   {
     "id": "BP-STOCK-03",
@@ -435,7 +435,7 @@
         "result": "the document reads posted with its entry id"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-03-transfer.json"
   },
   {
     "id": "BP-STOCK-05",
@@ -869,7 +869,7 @@
         "result": "approve posts cause count_set (one leg = the difference); a key that moved since is refused balance_changed (stock alias quick_count_stale)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-04-count.json"
   },
   {
     "id": "BP-STOCK-09",
@@ -1242,7 +1242,7 @@
           "web/src/modules/stock/stockRoutes.tsx:33",
           "lib/letflow/modules/stock/router.ex:654"
         ],
-        "result": "the reversal instance starts (state reversal_pending) with a Reverse task"
+        "result": "the reversal instance starts with a Reverse task; the document still reads posted (its view has no pending flag) and a repeat is refused 409 reversal_pending"
       },
       {
         "actor": "TENANT_ADMIN",
@@ -1288,7 +1288,7 @@
         "result": "a posted count is reversed through the same stock_reversal process (reason_code and reason_text required)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-05-reversal.json"
   },
   {
     "id": "BP-STOCK-13",
@@ -1416,7 +1416,7 @@
         "result": "an issued load is cancelled; a posted load starts a reversal (reverse_pending)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-06-stock-load-from-excel.json"
   },
   {
     "id": "BP-STOCK-14",
@@ -1673,7 +1673,12 @@
         "result": "201 the reversal's own movement; 400 already reversed / reversal cannot be reversed / quantity must be positive"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-08-old-app-phone-operations.json",
+    "dry_run": {
+      "tenant": "qoimeks-qa2",
+      "actors": {"admin": "qoimeks-qa2-admin"},
+      "inputs": {}
+    }
   },
   {
     "id": "BP-STOCK-17",
@@ -1798,7 +1803,12 @@
     "preconditions": [
       "a stock document issued with a pending Post task"
     ],
-    "inputs": [],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
     "outputs": [],
     "refusals": [
       "422 output_refused on a write-target key",
@@ -1813,6 +1823,7 @@
         "forms": [],
         "functions": [
           "stock_receipt/post",
+          "stock_issue/post",
           "stock.post_document"
         ],
         "route": [
@@ -1828,7 +1839,20 @@
         "result": "completion with a write-target key in the body: 422 output_refused; POST /instances for a module definition: refused as unknown; balance and document unchanged"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-09-crafted-completion-start-refused.json",
+    "dry_run": {
+      "tenant": "sss-rehearsal2",
+      "actors": {
+        "admin": "sss-rehearsal2-admin",
+        "storekeeper": "sss-rehearsal2-storekeeper"
+      },
+      "inputs": {
+        "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+        "place": "925d46bf-af76-4940-867d-9f4521536767",
+        "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+        "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+      }
+    }
   },
   {
     "id": "BP-STOCK-20",
@@ -2177,5 +2201,114 @@
       }
     ],
     "scenario": null
+  },
+  {
+    "id": "BP-STOCK-27",
+    "area": "stock",
+    "title": "New-company onboarding: fresh-tenant defaults, phone count without setup, explicit count rule",
+    "description": "A new company has the second-person approval of the quick count OFF by default (D-165). The storekeeper counts from the phone and the count posts at once, with no approval task (D-164, T-2410); the storekeeper cannot read or change the approval rules; an empty reason on a rule change is refused before anything is written. The explicit recording of the rule (ON, OFF, audit approval_rule.changed) is left to the browser scenario onboarding-rehearsal-2, because a rule row cannot be deleted and would spoil the fresh-tenant default. Cleanup reverses the count.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockQuickCount"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage"
+      }
+    ],
+    "preconditions": [
+      "a fresh tenant (new-tenant default marker) with the stock module installed",
+      "item, unit, place linked to the org unit, org unit and responsible employee exist; the key holds a balance row",
+      "the stock quick count definition is active (the first count activates it)",
+      "the caller of the approval rules is an interactive sign-in (OIDC) holding ApprovalRulesManage tenant-wide"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [
+      "count_doc_id",
+      "count_entry_id",
+      "balance_before"
+    ],
+    "refusals": [
+      "empty reason on a rule change: 422 invalid_reason",
+      "storekeeper on the approval rules: 403",
+      "a change equal to the current value is not stored (no row, no audit)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/quick-count -> QuickCountPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.quick_count",
+          "Letflow.Modules.Stock.Documents.self_approve_count",
+          "Letflow.ApprovalRules.four_eyes_off?"
+        ],
+        "route": "POST /api/v1/modules/stock/quick-counts",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:670",
+          "lib/letflow/modules/stock/documents.ex:305",
+          "lib/letflow/approval_rules.ex:68",
+          "test/letflow/modules/stock/quick_count_self_approval_test.exs:1"
+        ],
+        "result": "with the rule OFF (default on a new tenant) the interactive caller's own count is approved by the system in the same call: state posted, balance moved by the difference, task.self_approved in the audit"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/approval-rules -> ApprovalRulesPage"
+        ],
+        "functions": [
+          "Letflow.ApprovalRules.list",
+          "Letflow.ApprovalRules.put"
+        ],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "PUT /api/v1/approval-rules/:definition_name/:node_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:32",
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/approval_rules.ex:78",
+          "lib/letflow/approval_rules.ex:115"
+        ],
+        "result": "the storekeeper gets 403; an empty reason is refused 422 invalid_reason before any write; (in the browser scenario) the rule row stores four_eyes, user, time and the exact reason, approval_rule.changed is audited and a change equal to the current value writes nothing"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/audit -> AuditLogPage"
+        ],
+        "functions": [
+          "Letflow.Audit.list_entries"
+        ],
+        "route": "GET /api/v1/audit",
+        "code_refs": [
+          "lib/letflow/routers/audit.ex:155",
+          "lib/letflow/audit.ex:355"
+        ],
+        "result": "(read in the browser scenario, not by the script) the newest approval_rule entry shows action approval_rule.changed with four_eyes false and the reason"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_reversal"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/reverse",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:654"
+        ],
+        "result": "cleanup: the count is reversed; the administrator completes the Reverse task; the balance returns to its start"
+      }
+    ],
+    "scenario": "test/uat/processes/BP-07-new-company-onboarding.json"
   }
 ]

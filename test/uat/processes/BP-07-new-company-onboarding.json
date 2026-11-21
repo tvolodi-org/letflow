@@ -1,0 +1,224 @@
+{
+  "id": "BP-07",
+  "bp_entry": "BP-STOCK-27",
+  "title": "New-company onboarding: defaults of a fresh tenant and a phone count without setup",
+  "description": "A freshly created company has the second-person approval of the quick count switched OFF by default (owner decisions D-165 and D-164). Without any setup the storekeeper's quick count (one unit more than the book) posts at once: the document is posted, the balance moved, no approval task waits for the administrator. The storekeeper cannot read or change the approval rules, and the administrator's change of the count rule with an empty reason is refused before anything is written. Cleanup: the storekeeper reverses the count, the administrator completes the reversal task, and the balance returns to its start. This script writes NO approval rule: a rule row cannot be deleted through the API, so recording the rule would destroy the fresh-tenant default state for good. Limits stated honestly: (1) the explicit recording of the rule (ON with a reason, OFF with the exact reason, the approval_rule.changed audit entry), the Approval rules screen with its 'Last change' line, the 390 px quick count form, the audit screen and the task.self_approved entry stay with the browser scenario onboarding-rehearsal-2-fresh-tenant-defaults (steps 9 to 13 and 16 to 18); (2) the run needs a tenant whose approval rules are still untouched for the 'posts at once' proof to mean the default, and it leaves them untouched, so it can be repeated; (3) if the count stays issued (rule ON by mistake) the cleanup cannot reverse it: cancel the document by hand. The approval-rule steps need an interactive credential: the password-grant tokens of the QA roster are accepted on QA.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        },
+        "uom": {
+          "pick": "$.rows[0].unit_ref",
+          "if_unset": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 1}",
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} BP-07"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "posted",
+          "$.lines[0].difference": {
+            "equals": "1"
+          }
+        }
+      },
+      "save": {
+        "count_doc_id": "$.id",
+        "posted_doc_id": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${count_doc_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "entry_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "count_entry_id": "$.entry_id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/approval-rules"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/approval-rules/stock_quick_count/approve",
+        "body": {
+          "four_eyes": false,
+          "reason": "UAT ${run_id} BP-07 storekeeper refusal check"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/approval-rules/stock_quick_count/approve",
+        "body": {
+          "four_eyes": false,
+          "reason": ""
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_reason"
+      }
+    }
+  ],
+  "outputs": {
+    "count_doc_id": "${count_doc_id}",
+    "count_entry_id": "${count_entry_id}",
+    "balance_before": "${balance_before}"
+  },
+  "cleanup": [
+    {
+      "id": "c2",
+      "actor": "storekeeper",
+      "requires": [
+        "posted_doc_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-07"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_doc_id"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_doc_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "posted_doc_id"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ]
+}
