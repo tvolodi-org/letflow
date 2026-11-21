@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.parse
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,6 +63,9 @@ class FakeStock:
         self.document_list_calls = 0
         self.document_list_faults = {}  # list call number -> non-2xx answer
         self.inbox_faults = {}  # inbox call number -> non-2xx answer
+        self.task_items = None  # override both task listings; cursors are row offsets in this fake
+        self.open_task_calls = 0
+        self.open_task_faults = {}  # GET /tasks call number -> non-2xx answer
         self.lock = threading.Lock()
 
     def sha(self):
@@ -119,6 +123,21 @@ def make_handler(state):
                 if who is None:
                     return self.reply(401, {"title": "unauthorized"})
                 return self.route(method, path, body, who)
+
+        def task_page(self, items):
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            page_size = int(query.get("page_size", ["200"])[0])
+            start = int(query.get("cursor", ["0"])[0])
+            page = items[start:start + page_size]
+            end = start + len(page)
+            return {"items": page, "next_cursor": str(end) if end < len(items) else None}
+
+        def default_task_items(self, inbox=False):
+            # a decoy for another document must never be picked
+            items = [{"id": "task-decoy", "instance_id": "inst-decoy", "node_id": "post", "status": "PENDING"}]
+            if not inbox or state.inbox_calls >= state.task_visible_after:
+                items += [{k: t[k] for k in ("id", "instance_id", "node_id", "status")} for t in state.tasks]
+            return items
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
@@ -209,12 +228,18 @@ def make_handler(state):
                 state.inbox_calls += 1
                 if state.inbox_calls in state.inbox_faults:
                     return self.reply(state.inbox_faults[state.inbox_calls], {"title": "gone"})
-                items = []
-                # a decoy for another document must never be picked
-                items.append({"id": "task-decoy", "instance_id": "inst-decoy", "node_id": "post", "status": "PENDING"})
-                if state.inbox_calls >= state.task_visible_after:
-                    items += [{k: t[k] for k in ("id", "instance_id", "node_id", "status")} for t in state.tasks]
-                return self.reply(200, {"items": items, "next_cursor": None})
+                items = state.task_items if state.task_items is not None else self.default_task_items(inbox=True)
+                return self.reply(200, self.task_page(items))
+            if method == "GET" and path == "/api/v1/tasks":
+                state.open_task_calls += 1
+                if state.open_task_calls in state.open_task_faults:
+                    return self.reply(state.open_task_faults[state.open_task_calls], {"title": "cursor_expired"})
+                items = state.task_items if state.task_items is not None else self.default_task_items()
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                status = query.get("status", [None])[0]
+                if status:
+                    items = [item for item in items if item.get("status") == status]
+                return self.reply(200, self.task_page(items))
             if method == "GET" and path.startswith("/api/v1/instances/"):
                 inst = path.rsplit("/", 1)[1]
                 if inst == "inst-decoy":

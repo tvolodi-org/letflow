@@ -873,7 +873,7 @@ class TokenLifetime(ChainCase):
         self.state.token_ttl = 1
         code, _ = self.run_process(proc("PA", [call("s1", "POST", "/api/v1/echo")]), inputs={})
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
-        self.assertGreaterEqual(len(self.state.calls("GET", "/tasks/inbox")), 4)  # each listing retried one expired token
+        self.assertGreaterEqual(len(self.state.calls("GET", "/tasks")), 4)  # each open-task listing retried one expired token
         self.assertEqual([x["verdict"] for x in self.lines() if x["phase"] == "residue"], ["pass"])
         self.assertNotIn(SECRET, (self.run_dir / "run.jsonl").read_text())
 
@@ -901,12 +901,53 @@ class ResidueCheck(FakeServerCase):
         body = {"org_unit_id": "ou-1", "lines": [{"catalog_uom_id": "uom-1", "quantity": "1"}]}
         return proc("LEAK", [call("s1", "POST", "/api/v1/modules/stock/documents", body, {"status": 201})])
 
+    def pending_tasks(self, count):
+        return [{"id": f"task-open-{i}", "instance_id": f"inst-{i}", "node_id": "post", "status": "PENDING"}
+                for i in range(count)]
+
+    def echo_process(self):
+        return proc("PA", [call("s1", "POST", "/api/v1/echo")])
+
     def test_clean_run_passes_with_a_residue_row(self):
         code, _ = self.run_process()
         self.assertEqual(code, 0)
         rows = self.residue_rows()
         self.assertEqual([r["verdict"] for r in rows], ["pass"])
         self.assertTrue((self.run_dir / "residue_before.json").exists())
+
+    def test_open_task_cursor_expiry_restarts_from_the_first_page(self):
+        self.state.task_items = self.pending_tasks(201)  # two pages of open tasks
+        self.state.open_task_faults = {2: 410}  # the first cursor request expires
+        code, _ = self.run_process(self.echo_process(), inputs={})
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.residue_rows()[0]["verdict"], "pass")
+        # baseline: first page, expired cursor, restarted first page, second page; final: two pages
+        self.assertEqual(self.state.open_task_calls, 6)
+        self.assertEqual(len([c for c in self.state.calls("GET", "/tasks") if "cursor=" in c[1]]), 3)
+
+    def test_open_task_cursor_expiry_after_three_restarts_fails_the_baseline(self):
+        self.state.task_items = self.pending_tasks(201)
+        self.state.open_task_faults = {2: 410, 4: 410, 6: 410, 8: 410}
+        code, _ = self.run_process(self.echo_process(), inputs={})
+        self.assertEqual(code, 1)
+        row = self.residue_rows()[0]
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("baseline unavailable", row["error"])
+        self.assertIn("410", row["error"])
+        self.assertEqual(self.state.open_task_calls, 8)  # the initial attempt plus three restarts, two calls each
+
+    def test_long_closed_inbox_costs_one_open_task_request(self):
+        closed = [{"id": f"task-closed-{i}", "instance_id": f"inst-old-{i}", "node_id": "post",
+                   "status": "COMPLETED"} for i in range(1000)]
+        self.state.task_items = self.pending_tasks(2) + closed
+        r = runner.Runner(self.echo_process(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS,
+                          run_dir=self.run_dir, out=io.StringIO(), poll_interval=0.01)
+        self.run_dir.mkdir(parents=True)
+        self.assertTrue(r.record_residue_baseline())
+        before = json.loads((self.run_dir / "residue_before.json").read_text())["qoimeks-qa2"]
+        self.assertEqual(before["tasks"], ["task-open-0", "task-open-1"])
+        self.assertEqual(self.state.open_task_calls, 1)
+        self.assertEqual(self.state.inbox_calls, 0)  # closed history is never paged by the residue check
 
     def test_run_that_leaves_a_document_fails_and_names_it(self):
         code, _ = self.run_process(self.leaving())
@@ -926,6 +967,15 @@ class ResidueCheck(FakeServerCase):
         self.assertEqual(self.residue_rows()[0]["verdict"], "pass")
         self.assertIn("doc-old", json.loads((self.run_dir / "residue_before.json").read_text())["qoimeks-qa2"]["docs"])
 
+    def test_final_documents_are_not_in_the_baseline(self):
+        self.state.docs["doc-posted"] = {"state": "posted", "qty": Decimal("1")}
+        self.state.docs["doc-reversed"] = {"state": "reversed", "qty": Decimal("1")}
+        r = runner.Runner(self.echo_process(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS,
+                          run_dir=self.run_dir, out=io.StringIO(), poll_interval=0.01)
+        self.run_dir.mkdir(parents=True)
+        self.assertTrue(r.record_residue_baseline())
+        self.assertEqual(list(r.residue_before["qoimeks-qa2"]["docs"]), ["doc-posted"])
+
     def test_final_state_document_is_not_residue(self):
         code, _ = self.run_process(self.leaving())
         self.assertEqual(code, 1)
@@ -943,6 +993,18 @@ class ResidueCheck(FakeServerCase):
         r.residue_before = {"qoimeks-qa2": {"base_url": self.base, "actors": USERS, "docs": {}, "tasks": ["task-decoy"]}}
         self.assertFalse(r.check_residue())
         self.assertIn("open task task-x", r.records[-1]["error"])
+
+    def test_open_task_created_during_the_run_and_left_is_residue(self):
+        body = {"org_unit_id": "ou-1", "lines": [{"catalog_uom_id": "uom-1", "quantity": "1"}]}
+        process = proc("LEAK_TASK", [
+            call("s1", "POST", "/api/v1/modules/stock/documents", body, {"status": 201}, save={"doc_id": "$.id"}),
+            call("s2", "POST", "/api/v1/modules/stock/documents/${doc_id}/issue", {}, {"status": 200}),
+        ])
+        code, _ = self.run_process(process)
+        self.assertEqual(code, 1)
+        row = self.residue_rows()[0]
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("open task task-1", row["error"])
 
     def test_residue_check_false_turns_it_off(self):
         process = self.leaving()
@@ -970,13 +1032,13 @@ class ResidueCheck(FakeServerCase):
         self.assertIn("residue left by the run", replay.records[-1]["error"])
 
     def test_an_unavailable_baseline_fails_with_the_residue_row(self):
-        self.state.inbox_faults = {1: 410}
+        self.state.open_task_faults = {1: 410}
         code, _ = self.run_process()
         self.assertEqual(code, 1)
         row = self.residue_rows()[0]
         self.assertEqual(row["verdict"], "fail")
         self.assertIn("baseline unavailable", row["error"])
-        self.assertIn("inbox answered 410", row["error"])
+        self.assertIn("open tasks answered 410", row["error"])
         self.assertNotIn("skipped", [x["verdict"] for x in self.lines() if x["phase"] == "residue"])
 
     def test_an_unavailable_final_listing_fails_the_residue_row(self):

@@ -474,9 +474,11 @@ network, no model.
 
 ## Tenant residue check (T-2548)
 
-Before the first process the runner lists, per tenant it touches, the newest 200 stock documents with their `state`
-(`GET /api/v1/modules/stock/documents`) and the pending tasks through the same `/api/v1/tasks/inbox` endpoint that
-`wait_task` uses, and writes them to `residue_before.json` in the run dir. After the last cleanup it lists again:
+Before the first process the runner lists, per tenant it touches, up to 200 newest non-final stock documents with
+their `state` (`GET /api/v1/modules/stock/documents`) and the pending tasks through the status-filtered
+`GET /api/v1/tasks?status=PENDING` endpoint, and writes them to `residue_before.json` in the run dir. Closed task
+history is never paged. If an open-task cursor expires (HTTP 410), the listing restarts from the first page; after
+three restarts the baseline or final listing fails as unavailable. After the last cleanup the runner lists again:
 every document that was not there before and is not `reversed`, `cancelled` or `rejected`, and every new pending task,
 is residue. The run then FAILS with the row `tenant residue check` (tenant, number, kind, state). Documents that
 existed before are never reported. An unreadable baseline or final listing (including any non-2xx answer or a
