@@ -2,7 +2,7 @@
   "id": "BP-09",
   "bp_entry": "BP-STOCK-19",
   "title": "Crafted completion or start is refused (write targets)",
-  "description": "Security regression of the write-target rule (Letflow.Engine.WriteTargets, decision of T-2430 and T-2444). A storekeeper creates and issues a receipt of one unit, so its Post task is open. The administrator takes that task and completes it with a body that names a write target (the document id of another document; then the posting, version number and org unit; then the mark): every one is refused 422 output_refused, the task stays open and the document stays Issued, the balance does not move. A person (administrator or storekeeper) who starts the receipt process directly by POST /instances with chosen start variables is answered as for an unknown definition (the module starts its own processes), and nothing is started. The cleanup cancels the issued receipt (the administrator holds the reverse permission), so nothing is ever posted and the balance and the document list are as found. The honest completion with an empty body is covered by BP-01 and is not repeated here, because it would post.",
+  "description": "Security regression of the write-target rule (Letflow.Engine.WriteTargets, decision of T-2430 and T-2444). A storekeeper creates and issues an issue document of one unit, so its Post task is open. The administrator takes that task and completes it with a body that names a write target (the document id of another document; then the posting, version number and org unit; then the mark): every one is refused 422 output_refused, the task stays open and the document stays Issued, the balance does not move. A person (administrator or storekeeper) who starts the issue process directly by POST /instances with chosen start variables is answered as for an unknown definition (the module starts its own processes), and nothing is started. The cleanup withdraws and cancels the issued document (an issue is a withdrawable kind, so its pending Post task does not block it), so nothing is ever posted and the balance and the document list are as found. The honest completion with an empty body is covered by BP-01 and is not repeated here, because it would post.",
   "tenant": "${tenant}",
   "inputs": ["item", "place", "org_unit", "responsible"],
   "defaults": {"quantity": "1", "other_id": "00000000-0000-4000-8000-000000000000"},
@@ -34,7 +34,7 @@
         "api": "POST",
         "path": "/api/v1/modules/stock/documents",
         "body": {
-          "kind": "receipt",
+          "kind": "issue",
           "org_unit_id": "${org_unit}",
           "location_id": "${place}",
           "responsible_id": "${responsible}",
@@ -99,8 +99,8 @@
         "api": "POST",
         "path": "/api/v1/instances",
         "body": {
-          "definition_name": "stock_receipt",
-          "initial_variables": {"document_id": "${other_id}", "document_type": "stock_receipt", "org_unit_id": "${org_unit}", "version_no": 1, "posting": "${other_id}"}
+          "definition_name": "stock_issue",
+          "initial_variables": {"document_id": "${other_id}", "document_type": "stock_issue", "org_unit_id": "${org_unit}", "version_no": 1, "posting": "${other_id}"}
         }
       },
       "expect_refused": {"status": 404}
@@ -112,7 +112,7 @@
         "api": "POST",
         "path": "/api/v1/instances",
         "body": {
-          "definition_name": "stock_receipt",
+          "definition_name": "stock_issue",
           "initial_variables": {"document_id": "${other_id}", "posting": "${other_id}"}
         }
       },
