@@ -76,3 +76,12 @@ __pycache__/
 
 # UAT runner output (runner.py default run dir); never commit
 /uat-runs/
+
+# ── QA mail CA (host-local, never committed) ─────────────────────────────────
+# The public certificate of the QA mail trap's CA. It lives on the QA host at
+# deploy/qa-mail-ca/ and is bind-mounted into the single gated build step
+# (deploy/Dockerfile's LETFLOW_QA_MAIL_CA build-arg gate); only the placeholder
+# below is tracked, so the directory always exists for the build context. The
+# private key never reaches the build context at all.
+deploy/qa-mail-ca/*
+!deploy/qa-mail-ca/.gitkeep

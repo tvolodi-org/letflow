@@ -510,7 +510,20 @@ defmodule Letflow.Instances do
     end
   end
 
+  # New cursors carry mint time first and started_at only as the seek key.
+  # Keep accepting the previous two-slot form for cursors already in flight.
   defp decode_list_seek(%Pagination.Cursor{inner: inner}) do
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [instance_id, started_at]} -> {:ok, {started_at, instance_id}}
+      {:error, :invalid_cursor} -> decode_legacy_list_seek(inner)
+    end
+  end
+
+  defp decode_legacy_list_seek(inner) do
     case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
       {:ok, [started_at, instance_id]} -> {:ok, {started_at, instance_id}}
       {:error, :invalid_cursor} = error -> error
@@ -525,10 +538,11 @@ defmodule Letflow.Instances do
   defp split_list_page(rows, _page_size), do: {rows, nil}
 
   defp build_list_next_cursor(%InstanceProjection{instance_id: id, started_at: started_at}) do
+    mint_time_us = System.system_time(:microsecond)
     started_at_us = DateTime.to_unix(started_at, :microsecond)
 
     @list_cursor_prefix
-    |> Pagination.build_raw_cursor(started_at_us, id)
+    |> Pagination.build_raw_cursor_timestamp_key(mint_time_us, id, started_at_us)
     |> Pagination.encode_cursor()
   end
 

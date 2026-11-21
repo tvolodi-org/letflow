@@ -5,29 +5,29 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `assets` has 17 process(es): 17 implemented.
+The area `assets` has 17 process(es): 17 implemented. Executed by: 17 direct, 0 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-ASSETS-01 | Register, correct and retire an asset card | The administrator creates an asset card (inventory number, kind fixed / low value / intangible, name, optional ДА-2 attributes), changes... | TENANT_ADMIN, STOREKEEPER | implemented | no | no | see report |
-| BP-ASSETS-02 | Card photos | The administrator adds photos to a card, captions and orders them, chooses the main photo, and deletes photos; readers view the original... | TENANT_ADMIN, STOREKEEPER | implemented | no | no | see report |
-| BP-ASSETS-03 | Commission an asset (enter it in the register) | A commission document puts cards into the register at an org unit, place, materially responsible person and user; after the post task the... | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-04 | Change the responsible person or user | A change document moves an asset's materially responsible person or actual user (and place); the entry has zero sum per asset. | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-05 | Hand over an asset to another org unit | A hand over moves assets to a destination unit; in the same transaction the card of every fixed or intangible line follows to the destina... | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-06 | Write off an asset | A write-off removes assets from the register with a reason; the entry is negative. | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-07 | Change of kind: a stock item becomes an asset | A kind-change document turns a quantity of a stock item into asset cards. | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-08 | Opening of the asset register | Existing cards enter the register through an opening document: one person prepares (submit), a different person approves (approve posts). | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-09 | Reverse an asset document | A posted asset document is reversed by the tenant administrator (AssetsReverse is never grantable); the ledger negates the entry; a hand... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-10 | Find, correct and discard a draft asset document | Before issue the draft can be listed, read, replaced as a whole or discarded; an issued document prints as an act. | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-11 | Asset count: order, sheet, scan, close | With the tenant's count_enabled setting on, the administrator creates and issues a count order of fixed assets, a commission member opens... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-12 | Asset count: result decisions and signing | The person holding the tenant's signer role reads the count result, records a decision per line and signs; signing saves DRAFT asset docu... | tenant signer role (count_signer_role, default accountant) | implemented | no | no | see report |
-| BP-ASSETS-13 | Asset register reports: balances, movements, reconcile | Readers see where each asset is (balances) and its movement history; the administrator reconciles the asset ledger. | STOREKEEPER, TENANT_ADMIN | implemented | no | no | see report |
-| BP-ASSETS-14 | Cross-tenant read and write refused (security) | A token of tenant A against tenant B's asset document, card, photo or count id is answered with the uniform 404; no list of A holds B's r... | TENANT_ADMIN | implemented | yes | yes | see report |
-| BP-ASSETS-15 | Permission matrix per role of the assets area (security) | Each asset route per role: the administrator all; the storekeeper only AssetsRead and AssetsPost and only when the tenant grant is on; As... | TENANT_ADMIN, STOREKEEPER, TENANT_AUDITOR | implemented | yes | yes | see report |
-| BP-ASSETS-16 | Photo upload types and limits (security) | Only allowed image types up to the attachment limit are stored; a wrong type or an oversized file is 422 and nothing is stored; the galle... | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-ASSETS-17 | Crafted completion or start refused (write targets) (security) | Completing an asset post, reverse or opening task with a body that overwrites a write target, or starting an assets process by POST /inst... | TENANT_ADMIN | implemented | yes | yes | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-ASSETS-01 | Register, correct and retire an asset card | The administrator creates an asset card (inventory number, kind fixed / low value / intangible, name, optional ДА-2 attributes), changes... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
+| BP-ASSETS-02 | Card photos | The administrator adds photos to a card, captions and orders them, chooses the main photo, and deletes photos; readers view the original... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
+| BP-ASSETS-03 | Commission an asset (enter it in the register) | A commission document puts cards into the register at an org unit, place, materially responsible person and user; after the post task the... | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-04 | Change the responsible person or user | A change document moves an asset's materially responsible person or actual user (and place); the entry has zero sum per asset. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-05 | Hand over an asset to another org unit | A hand over moves assets to a destination unit; in the same transaction the card of every fixed or intangible line follows to the destina... | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-06 | Write off an asset | A write-off removes assets from the register with a reason; the entry is negative. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-07 | Change of kind: a stock item becomes an asset | A kind-change document turns a quantity of a stock item into asset cards. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-08 | Opening of the asset register | Existing cards enter the register through an opening document: one person prepares (submit), a different person approves (approve posts). | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-09 | Reverse an asset document | A posted asset document is reversed by the tenant administrator (AssetsReverse is never grantable); the ledger negates the entry; a hand... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-10 | Find, correct and discard a draft asset document | Before issue the draft can be listed, read, replaced as a whole or discarded; an issued document prints as an act. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-11 | Asset count: order, sheet, scan, close | With the tenant's count_enabled setting on, the administrator creates and issues a count order of fixed assets, a commission member opens... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-12 | Asset count: result decisions and signing | The person holding the tenant's signer role reads the count result, records a decision per line and signs; signing saves DRAFT asset docu... | tenant signer role (count_signer_role, default accountant) | implemented | direct | no | no | see report |
+| BP-ASSETS-13 | Asset register reports: balances, movements, reconcile | Readers see where each asset is (balances) and its movement history; the administrator reconciles the asset ledger. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-ASSETS-14 | Cross-tenant read and write refused (security) | A token of tenant A against tenant B's asset document, card, photo or count id is answered with the uniform 404; no list of A holds B's r... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
+| BP-ASSETS-15 | Permission matrix per role of the assets area (security) | Each asset route per role: the administrator all; the storekeeper only AssetsRead and AssetsPost and only when the tenant grant is on; As... | TENANT_ADMIN, STOREKEEPER, TENANT_AUDITOR | implemented | direct | yes | yes | see report |
+| BP-ASSETS-16 | Photo upload types and limits (security) | Only allowed image types up to the attachment limit are stored; a wrong type or an oversized file is 422 and nothing is stored; the galle... | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-ASSETS-17 | Crafted completion or start refused (write targets) (security) | Completing an asset post, reverse or opening task with a body that overwrites a write target, or starting an assets process by POST /inst... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 
 ## BP-ASSETS-01 -- Register, correct and retire an asset card
 

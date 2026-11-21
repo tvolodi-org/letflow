@@ -5,16 +5,16 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `mes` has 4 process(es): 1 implemented, 2 partial, 1 planned.
+The area `mes` has 4 process(es): 1 implemented, 2 partial, 1 planned. Executed by: 4 direct, 0 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-MES-01 | Install the manufacturing module shell (mes_core) in a company | A tenant administrator installs the mes_core module in their own company, with a written reason. | TENANT_ADMIN | partial | no | no | see report |
-| BP-MES-02 | Security: the install of mes_core is refused without its dependencies and does not leak to another company | Negative process (D-170). Installing mes_core in a company that lacks a dependency is refused and installs nothing; installing it in one... | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-MES-03 | Security: who may install or remove the module (permission matrix of the module-management routes) | Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need M... | STOREKEEPER, TENANT_ADMIN | partial | no | yes | see report |
-| BP-MES-04 | Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- not buildable yet | Negative processes required by D-170 for the MES data paths: crafted completion or start refused (write targets), a token of company A ag... | TENANT_ADMIN | planned | no | yes | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-MES-01 | Install the manufacturing module shell (mes_core) in a company | A tenant administrator installs the mes_core module in their own company, with a written reason. | TENANT_ADMIN | partial | direct | no | no | see report |
+| BP-MES-02 | Security: the install of mes_core is refused without its dependencies and does not leak to another company | Negative process (D-170). Installing mes_core in a company that lacks a dependency is refused and installs nothing; installing it in one... | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-MES-03 | Security: who may install or remove the module (permission matrix of the module-management routes) | Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need M... | STOREKEEPER, TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MES-04 | Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- not buildable yet | Negative processes required by D-170 for the MES data paths: crafted completion or start refused (write targets), a token of company A ag... | TENANT_ADMIN | planned | direct | no | yes | see report |
 
 ## BP-MES-01 -- Install the manufacturing module shell (mes_core) in a company
 

@@ -34,7 +34,8 @@
       "a second completion of the same post task writes nothing"
     ],
     "scenario": "test/uat/processes/DEMO-01.json",
-    "status": "implemented"
+    "status": "implemented",
+    "executed_by": "definition:demo.receive_goods"
   },
   {
     "id": "BP-DEMO-02",

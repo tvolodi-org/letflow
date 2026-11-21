@@ -48,11 +48,14 @@ docker tag letflow-qa:latest "letflow-qa:rollback-${DATE}" 2>/dev/null || true
 
 # 3. Build backend image (same shared deploy Dockerfile redeploy-test.sh builds from)
 echo "--- Building backend image ---"
+# QA only: trust the host-local mail-trap CA (deploy/qa-mail-ca/letflow-qa-mail-ca.crt, untracked).
+# A missing file is a loud failure here, not a silent image without mail.
+[[ -r "$APP_DIR/deploy/qa-mail-ca/letflow-qa-mail-ca.crt" ]] || { echo "ERROR: deploy/qa-mail-ca/letflow-qa-mail-ca.crt missing" >&2; exit 1; }
 # GIT_SHA (full 40-char commit) is baked into the image as LETFLOW_BUILD_SHA and
 # reported by GET /health as `sha` (ISS-1043), so the WF-05 preflight can tell
 # which build is deployed.
 docker build -f deploy/Dockerfile --build-arg GIT_SHA="$(git rev-parse HEAD)" \
-  --build-arg LETFLOW_INCLUDE_RUNTIME_DEMO=true -t letflow-qa:latest .
+  --build-arg LETFLOW_INCLUDE_RUNTIME_DEMO=true --build-arg LETFLOW_QA_MAIL_CA=true -t letflow-qa:latest .
 
 # 4. Start/restart db first so it's healthy before app boots (app's compose
 #    depends_on already enforces this, but an explicit up here keeps the

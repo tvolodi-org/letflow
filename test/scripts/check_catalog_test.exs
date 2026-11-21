@@ -3,6 +3,9 @@ defmodule Letflow.Scripts.CheckCatalogTest do
   T-2474 (D-168/D-169): `scripts/uat/check_catalog.py` validates the catalog file of the area and the orphan files
   and computes COVERAGE against the inventory. Every test runs the real script on a small fake checkout built
   in `tmp_dir` (one stock module: two routes, one screen, one rule), so coverage is exact: 4 items.
+
+  T-2586 (D-175): the same script validates the optional `executed_by` of an entry (`direct` or
+  `definition:<process_key>`; a missing field means `direct`) and counts the two forms in its report.
   """
   use ExUnit.Case, async: true
   @moduletag :unit
@@ -351,5 +354,59 @@ defmodule Letflow.Scripts.CheckCatalogTest do
            ] = result["areas"]
 
     assert length(missing) == 2
+  end
+
+  test "executed_by: direct, definition:<key> and a missing field are valid", %{tmp_dir: dir} do
+    build(dir)
+
+    catalog(dir, [
+      entry(%{"executed_by" => "direct"}),
+      entry(%{"id" => "BP-STOCK-02", "executed_by" => "definition:platform.register_tenant"}),
+      entry(%{"id" => "BP-STOCK-03"})
+    ])
+
+    {out, code} = run(dir)
+    assert code == 0, out
+  end
+
+  test "a wrong executed_by form is an error and is named", %{tmp_dir: dir} do
+    build(dir)
+
+    catalog(dir, [
+      entry(%{"executed_by" => "engine"}),
+      entry(%{"id" => "BP-STOCK-02", "executed_by" => "definition:"}),
+      entry(%{"id" => "BP-STOCK-03", "executed_by" => "definition:two words"}),
+      entry(%{"id" => "BP-STOCK-04", "executed_by" => 7})
+    ])
+
+    {out, code} = run(dir)
+    assert code == 1
+
+    assert out =~
+             "BP-STOCK-01: executed_by 'engine' must be 'direct' or 'definition:<process_key>'"
+
+    assert out =~ "BP-STOCK-02: executed_by 'definition:' must name a process key"
+    assert out =~ "BP-STOCK-03: executed_by 'definition:two words' must name a process key"
+    assert out =~ "BP-STOCK-04: executed_by must be a text"
+  end
+
+  test "the report counts the direct and the definition processes", %{tmp_dir: dir} do
+    build(dir)
+
+    catalog(dir, [
+      entry(%{"executed_by" => "direct"}),
+      entry(%{"id" => "BP-STOCK-02", "executed_by" => "definition:platform.register_tenant"}),
+      entry(%{"id" => "BP-STOCK-03"})
+    ])
+
+    {out, code} = run(dir)
+    assert code == 0, out
+    assert out =~ "EXECUTED BY stock: 2 direct, 1 definition"
+    assert out =~ "EXECUTED BY total: 2 direct, 1 definition"
+
+    {out, 0} = run(dir, ["--json"])
+    result = Jason.decode!(out)
+    assert result["executed_by"] == %{"direct" => 2, "definition" => 1}
+    assert [%{"executed_by" => %{"direct" => 2, "definition" => 1}}] = result["areas"]
   end
 end
