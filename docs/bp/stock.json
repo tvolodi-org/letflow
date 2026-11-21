@@ -2310,5 +2310,816 @@
       }
     ],
     "scenario": "test/uat/processes/BP-07-new-company-onboarding.json"
+  },
+  {
+    "id": "BP-STOCK-28",
+    "area": "stock",
+    "title": "Old address: revoked and rotated-away values refused; only the administrator manages the value (security)",
+    "description": "Test cases: the storekeeper is refused (403) on the status read and on create; a value that is not 64 to 256 hex characters is 422 shared_access_value_invalid and nothing is created; after the administrator revokes the value, a read and a movement post with it are 401 with the one body (status 401, title Unauthorized, detail invalid or expired bearer token) and nothing is posted; after a rotation the previous value gets the same 401.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none of TokensManage, ApprovalRulesManage"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "storekeeper on the shared access routes: 403",
+      "invalid given value: 422 shared_access_value_invalid",
+      "revoked or rotated-away value: 401 {status, title Unauthorized, detail invalid or expired bearer token}",
+      "not in the scenario (runner gap): no Authorization header and a never-issued value; unit test C2 of the address test"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-01-revoked-and-rotated-value-refused.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "test/letflow/routers/shared_stock_access_test.exs:211"
+        ],
+        "result": "403, nothing created"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/catalog",
+          "POST /qoimeks/:tenant_slug/movements"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:149",
+          "lib/letflow/routers/shared_stock_access.ex:172",
+          "lib/letflow/routers/shared_stock_access.ex:198",
+          "lib/letflow/routers/shared_stock_access.ex:233",
+          "lib/letflow/shared_stock_access.ex:134",
+          "test/letflow/routers/shared_stock_access_test.exs:148",
+          "test/letflow/routers/shared_stock_access_address_test.exs:351"
+        ],
+        "result": "401 identical for a revoked and a rotated-away value; the post wrote nothing"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-29",
+    "area": "stock",
+    "title": "Old address: a valid value at another slug is refused (security)",
+    "description": "Test cases: the tenant's valid shared value presented at the old address of another (made-up) slug is 401 with the same body as a revoked value, for a read and for a movement post; nothing is posted.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "value of tenant A at slug B: 401, the same body as every other unproven request"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-02-value-at-another-slug-refused.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/catalog",
+          "POST /qoimeks/:tenant_slug/movements"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:149",
+          "lib/letflow/routers/shared_stock_access.ex:172",
+          "test/letflow/routers/shared_stock_access_address_test.exs:351"
+        ],
+        "result": "401 with the one body; the slug decides the tenant before the value is checked"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-30",
+    "area": "stock",
+    "title": "Old address: only the old app's calls are served (security)",
+    "description": "Test cases: with a valid value the plain and the /api form of the catalog give the same first item and place; a doubled /api prefix, a standard API path under the old address (read and post) and the microphone call without /api are 404 {error: not found}; the post to the unserved path wrote nothing (newest movement and balance of the key unchanged).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "any path outside the six calls (also /api/api/..., /api/v1/... and /voice without /api): 404 {error: not found}",
+      "not in the scenario: 403 scope_enforcement_active needs the tenant's scope enforcement switched on (platform operator's act); unit test C6 of the address test"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-03-only-the-old-app-calls-are-served.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/catalog",
+          "GET /qoimeks/:tenant_slug/balances",
+          "GET /qoimeks/:tenant_slug/movements",
+          "POST /qoimeks/:tenant_slug/voice"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:85",
+          "lib/letflow/routers/shared_stock_access.ex:98",
+          "lib/letflow/routers/shared_stock_access.ex:135",
+          "lib/letflow/routers/shared_stock_access.ex:141",
+          "test/letflow/routers/shared_stock_access_address_test.exs:582",
+          "test/letflow/routers/shared_stock_access_address_test.exs:726"
+        ],
+        "result": "the six calls answer; every other path 404 {error: not found}"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-31",
+    "area": "stock",
+    "title": "The shared value is never an API token (security)",
+    "description": "Test cases: the administrator's own sign-in reads the stock balances (200); the shared value as the bearer on the tenant's standard API (stock balances and movements reads) is 401 with the API pipeline's body {error: unauthorized, detail: invalid or expired bearer token}.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "shared value on /api/v1: 401 of the API pipeline"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-04-value-on-standard-api-refused.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/balances",
+          "GET /api/v1/modules/stock/movements"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:219",
+          "test/letflow/routers/shared_stock_access_address_test.exs:499"
+        ],
+        "result": "401 {error: unauthorized, detail: invalid or expired bearer token}"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-32",
+    "area": "stock",
+    "title": "Old address: one client id posts once; malformed writes refused (security)",
+    "description": "Test cases: a receipt with a fresh client id is 201 and raises the balance by its quantity; the same id and data is 200 with the stored row (same movement id, balance not doubled); the same id with other data is 409; no id or a non-UUID id 400 'id is required'; no operator 400 'operator required'; an operator over 200 characters 400 'operator too long'; quantity 0 or negative 400 'quantity must be positive'; a non-number 400 'invalid quantity'; an unknown kind 400 'invalid kind'; a JSON list body 400 'invalid body'; a body over 8192 bytes 413 'body too large'; an unknown item number 404 'unknown sku'; reversal: new id 201, same id 200 the stored reversal, another id 400 'already reversed', reversal of a reversal 400, the post's id for a reversal 409, an unknown movement 404 'unknown movement'; the balance ends where it began.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)",
+      "no other walk posts at the first balance key during the run"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "same id, other data: 409 'this operation was already posted with different data'",
+      "missing or non-UUID id, operator missing or too long, bad quantity or kind, non-object body: 400 with the old texts",
+      "body over 8192 bytes: 413 'body too large'",
+      "unknown item: 404 'unknown sku'; unknown movement: 404 'unknown movement'"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-05-client-id-idempotency-and-body-refusals.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [
+          "stock.post_document"
+        ],
+        "route": "POST /qoimeks/:tenant_slug/movements",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:110",
+          "lib/letflow/routers/shared_stock_access.ex:333",
+          "lib/letflow/routers/shared_stock_access.ex:350",
+          "lib/letflow/modules/stock/old_app_writes.ex:185",
+          "lib/letflow/modules/stock/old_app_writes.ex:195",
+          "lib/letflow/modules/stock/old_app_writes.ex:218",
+          "lib/letflow/modules/stock/old_app_writes.ex:442",
+          "lib/letflow/modules/stock/old_app_writes.ex:507",
+          "lib/letflow/modules/stock/old_app_writes.ex:510",
+          "test/letflow/routers/shared_stock_access_writes_test.exs:611",
+          "test/letflow/routers/shared_stock_access_writes_test.exs:771"
+        ],
+        "result": "201 once; 200 the stored row on a repeat; 409 changed data; 400/404/413 for malformed bodies, nothing written"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/movements/:id/reverse",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:122",
+          "lib/letflow/modules/stock/old_app_writes.ex:414",
+          "lib/letflow/modules/stock/old_app_writes.ex:722",
+          "lib/letflow/modules/stock/old_app_writes.ex:734",
+          "test/letflow/routers/shared_stock_access_writes_test.exs:299"
+        ],
+        "result": "201 the reversal; 200 its replay; 400 already reversed / reversal of a reversal; 409 a post id reused; 404 unknown movement"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-33",
+    "area": "stock",
+    "title": "Old address: count with the four-eyes switch ON waits for one administrator (security)",
+    "description": "Test cases: with the quick count approve rule ON a count of book + 1 is 400 'Подсчёт принят и ждёт подтверждения администратора', the balance is unchanged; its repeat gives the same 400 and no second count; the same id with another number is 409; the administrator approves the issued quick count in My Tasks; the repeat is then 200 with the count row (quantity = the counted number, same movement id twice); the balance is the counted number; a reversal restores it.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove (the approve task of the quick count)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)",
+      "the quick count approve rule is ON (no row or a row true)",
+      "the input key (item, place) has no rows of another responsible or lot; the run receives 2 units there first and reverses them in the cleanup"
+    ],
+    "inputs": [
+      "sku_id",
+      "location_id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "same id, other number: 409",
+      "a key held in other rows: 400 'Этот товар на этом месте числится за другим ответственным...' (seen on the first balance key of qoimeks-qa2)"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-06-count-switch-on-waits-for-the-administrator.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/approve"
+        ],
+        "route": "POST /qoimeks/:tenant_slug/movements",
+        "code_refs": [
+          "lib/letflow/modules/stock/old_app_writes.ex:261",
+          "lib/letflow/modules/stock/old_app_writes.ex:288",
+          "lib/letflow/modules/stock/old_app_writes.ex:294",
+          "lib/letflow/modules/stock/old_app_writes.ex:301",
+          "test/letflow/routers/shared_stock_access_count_test.exs:337",
+          "test/letflow/routers/shared_stock_access_count_test.exs:757"
+        ],
+        "result": "the waiting 400; the bound id answers from the state of the count document"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "TaskInboxPage"
+        ],
+        "functions": [
+          "stock_quick_count/approve"
+        ],
+        "route": [
+          "GET /api/v1/modules/stock/documents",
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:708"
+        ],
+        "result": "the issued quick count is found and approved from My Tasks"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-34",
+    "area": "stock",
+    "title": "Old address: zero count is a real count; negative count refused (security)",
+    "description": "Test cases: a negative counted number is 400 'quantity must be positive', a non-number 400 'invalid quantity', nothing written; a zero count at a key with a positive balance waits for the administrator (switch ON), its repeat gives the same 400, another number under the same id is 409; after approval the repeat is 200 with the zero row and the key's balance is 0; a reversal restores the book.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove (the approve task of the quick count)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)",
+      "the quick count approve rule is ON",
+      "the input key has no rows of another responsible or lot"
+    ],
+    "inputs": [
+      "sku_id",
+      "location_id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "negative counted number: 400 'quantity must be positive'",
+      "non-number: 400 'invalid quantity'"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-07-zero-count-and-negative-count.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/movements",
+        "code_refs": [
+          "lib/letflow/modules/stock/old_app_writes.ex:261",
+          "lib/letflow/modules/stock/old_app_writes.ex:510",
+          "test/letflow/routers/shared_stock_access_count_test.exs:598"
+        ],
+        "result": "negative 400; zero waits like any count; posted zero = balance 0"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "TaskInboxPage"
+        ],
+        "functions": [
+          "stock_quick_count/approve"
+        ],
+        "route": [
+          "GET /api/v1/modules/stock/documents",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:708"
+        ],
+        "result": "the zero count approved from My Tasks"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-35",
+    "area": "stock",
+    "title": "Old address: count with the four-eyes switch OFF posts at once (security)",
+    "description": "Test cases: the storekeeper may not change the switch (403); the administrator switches the quick count approve rule OFF with a reason; a count of book + 1 is 201 with the count row at once, its repeat 200 with the same movement id, another number under the same id 409; the balance is the counted number; a reversal restores it; the administrator switches the rule ON again.",
+    "actors": [
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none of TokensManage, ApprovalRulesManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)",
+      "no other count walk runs on the tenant while the switch is OFF",
+      "the input key has no rows of another responsible or lot"
+    ],
+    "inputs": [
+      "sku_id",
+      "location_id"
+    ],
+    "outputs": [],
+    "refusals": [
+      "storekeeper on the switch: 403",
+      "same id, other number: 409"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-08-count-switch-off-posts-at-once.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/routers/approval_rules.ex:57",
+          "lib/letflow/approval_rules.ex:69"
+        ],
+        "result": "200 four_eyes false (then true again)"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/movements",
+        "code_refs": [
+          "lib/letflow/modules/stock/old_app_writes.ex:288",
+          "test/letflow/routers/shared_stock_access_count_test.exs:170"
+        ],
+        "result": "201 the count row at once; the shared access self-approves only its own count"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
+  },
+  {
+    "id": "BP-STOCK-36",
+    "area": "stock",
+    "title": "Old address: code lookup, microphone call and reads refuse bad input and never write (security)",
+    "description": "Test cases: code lookup without a code, with an empty code or blanks is 400 {error: code is required, reason: invalid_request}; an unassigned code is 404 {error: not found, reason: code_not_found} in both path forms; the microphone call with a JSON, a text or a broken multipart body is 400 'audio file is required (max 10 MB)'; movements and balances reads with write-like query fields answer 200 and change nothing; a malformed filter is 400 'invalid filter'; newest movement and balance of the key unchanged at the end.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (tenant-wide, interactive sign-in)"
+      },
+      {
+        "role": "SHARED_ACCESS",
+        "permission": "shared stock access credential of the tenant (decision 0091)"
+      }
+    ],
+    "preconditions": [
+      "the tenant slug is listed in LETFLOW_SHARED_STOCK_ACCESS_TENANTS, the tenant is active and the stock module installed",
+      "the tenant's scope enforcement is off",
+      "no shared access exists on the tenant when the run starts (the first step checks it; the run never replaces a value in use)"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "missing or blank code: 400 code is required",
+      "unassigned code: 404 code_not_found",
+      "microphone call without an audio part: 400",
+      "malformed filter: 400 invalid filter",
+      "not in the scenario (runner gap): microphone body over 10 MB, wrong lang with a real audio part; voice test V3"
+    ],
+    "status": "implemented",
+    "security": true,
+    "scenario": "test/uat/processes/SEC-OLD-09-code-lookup-voice-and-reads-refuse-bad-input.json",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086",
+          "lib/letflow/routers/identity.ex:1108",
+          "lib/letflow/shared_stock_access.ex:91"
+        ],
+        "result": "status read (enabled, exists); 201 with the value shown once"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "GET /qoimeks/:tenant_slug/codes/lookup",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:92",
+          "lib/letflow/routers/shared_stock_access.ex:255",
+          "lib/letflow/modules/stock/old_app_reads.ex:216",
+          "test/letflow/routers/shared_stock_access_codes_test.exs:249",
+          "test/letflow/routers/shared_stock_access_codes_test.exs:305"
+        ],
+        "result": "400 / 404 with one fixed body each"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": "POST /qoimeks/:tenant_slug/voice",
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:277",
+          "lib/letflow/modules/stock/old_app_voice.ex:83",
+          "lib/letflow/modules/stock/voice_service.ex:27",
+          "test/letflow/routers/shared_stock_access_voice_test.exs:308"
+        ],
+        "result": "400 'audio file is required (max 10 MB)' before any speech service"
+      },
+      {
+        "actor": "SHARED_ACCESS",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /qoimeks/:tenant_slug/movements",
+          "GET /qoimeks/:tenant_slug/balances"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:241",
+          "lib/letflow/modules/stock/old_app_reads.ex:260",
+          "lib/letflow/modules/stock/old_app_reads.ex:272",
+          "lib/letflow/modules/stock/old_app_reads.ex:316"
+        ],
+        "result": "200, unknown query fields ignored, nothing written; 400 invalid filter"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; the value is refused from the next call on"
+      }
+    ]
   }
 ]
