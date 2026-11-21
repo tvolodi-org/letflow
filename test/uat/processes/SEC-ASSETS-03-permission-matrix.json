@@ -2,11 +2,10 @@
   "id": "SEC-ASSETS-03",
   "bp_entry": "BP-ASSETS-15",
   "title": "Permission matrix of the assets area: storekeeper (tenant grant read and post) and administrator",
-  "description": "SECURITY, read-and-refuse only, on qoimeks-qa. This tenant has the storekeeper grant of the assets module switched on (read and post only; reverse, reconcile, card changes and counts are never grantable). The storekeeper reads asset balances, movements and documents (200) and is refused 403 on the reconciliation, on making or retiring a card, on reversing a document and on making a count order: refused at the permission check, before anything is read or written. The administrator reads the same and the reconciliation (200); for an unknown document id the reversal answers 404 (the permission is held, the document does not exist), where the storekeeper got 403. Nothing is created, so there is nothing to clean up. Precondition: the storekeeper grant is on (step s1 fails with 403 if it is off on the tenant).",
+  "description": "SECURITY, read-and-refuse only, on qoimeks-qa2. This tenant has the storekeeper grant of the assets module switched on (read and post only; reverse, reconcile, card changes and counts are never grantable). The storekeeper reads asset balances, movements and documents (200) and is refused 403 on the reconciliation, on making or retiring a card, on reversing a document and on making a count order: refused at the permission check, before anything is read or written. The administrator reads the same and the reconciliation (200); for an unknown document id the reversal answers 404 (the permission is held, the document does not exist), where the storekeeper got 403. Nothing is created, so there is nothing to clean up. Precondition: the storekeeper grant is on (step s1 fails with 403 if it is off on the tenant).",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
-    "blocked_by": "assets-module-on-active-tenant",
     "tenant": "qoimeks-qa2",
     "actors": {
       "admin": "qoimeks-qa2-admin",

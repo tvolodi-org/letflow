@@ -2,11 +2,10 @@
   "id": "SEC-ASSETS-04",
   "bp_entry": "BP-ASSETS-17",
   "title": "Asset posting processes cannot be started directly (four-eyes opening, write-off, change of kind, reversal)",
-  "description": "SECURITY, read-and-refuse only, on qoimeks-qa (the roster tenant that has the assets module). A tenant administrator tries to start every asset write process through the public start route with start values chosen by the caller (a document id, a posting, for the change of kind also a stock posting, for the reversal an entry to reverse): commission, change, hand-over, write-off, the opening with its four-eyes approval, the change of kind (by name and by id) and the reversal. Each is answered exactly like a start of a process that does not exist (404, same detail); the storekeeper, who may not start processes, is refused 403. Nothing is started or posted. Nothing is created, so there is nothing to clean up.",
+  "description": "SECURITY, read-and-refuse only, on qoimeks-qa2 (the roster tenant that has the assets module). A tenant administrator tries to start every asset write process through the public start route with start values chosen by the caller (a document id, a posting, for the change of kind also a stock posting, for the reversal an entry to reverse): commission, change, hand-over, write-off, the opening with its four-eyes approval, the change of kind (by name and by id) and the reversal. Each is answered exactly like a start of a process that does not exist (404, same detail); the storekeeper, who may not start processes, is refused 403. Nothing is started or posted. Nothing is created, so there is nothing to clean up.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
-    "blocked_by": "assets-module-on-active-tenant",
     "tenant": "qoimeks-qa2",
     "actors": {
       "admin": "qoimeks-qa2-admin",
