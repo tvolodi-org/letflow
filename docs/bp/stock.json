@@ -1416,7 +1416,7 @@
         "result": "an issued load is cancelled; a posted load starts a reversal (reverse_pending)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-06-stock-load-from-excel.json"
   },
   {
     "id": "BP-STOCK-14",
