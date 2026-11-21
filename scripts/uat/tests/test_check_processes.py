@@ -135,6 +135,21 @@ class Process(CheckCase):
 
         self.assertEqual(self.check(self.mutated(change)), [])
 
+    def test_uuid_builtins_are_defined_and_fresh_per_run(self):
+        import uuid as uuid_module
+
+        runner = check_processes.runner
+
+        def change(doc):
+            doc["steps"][1]["do"]["body"] = {"id": "${uuid1}", "again": "${uuid12}"}
+
+        self.assertEqual(self.check(self.mutated(change)), [])
+        run = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={}, run_dir=tempfile.mkdtemp())
+        other = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={}, run_dir=tempfile.mkdtemp())
+        self.assertEqual(str(uuid_module.UUID(run.ctx["uuid1"])), run.ctx["uuid1"])
+        self.assertNotEqual(run.ctx["uuid1"], run.ctx["uuid2"])
+        self.assertNotEqual(run.ctx["uuid1"], other.ctx["uuid1"])
+
     def test_an_expression_with_a_defined_name_is_fine(self):
         doc = self.mutated(lambda d: d["steps"][4].update(expect={"json": {"$.rows[0].quantity": {"equals": "${before + 5}"}}}))
         self.assertEqual(self.check(doc), [])

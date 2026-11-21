@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,7 +47,10 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 DO_KINDS = ("api", "wait_task", "assert_only", "repeat", "parallel")
 DEFAULT_BASE_URL_TEMPLATE = "https://{tenant}.letflow.qa.bizdala.com"
-BUILTIN_NAMES = ("tenant", "TENANT", "run_id", "now_utc", "old_base_url")
+# ${uuid1} .. ${uuid12}: twelve fresh UUIDs per run (a client operation id of the old phone address must be a
+# new UUID for every operation and the same one on a retry; the run makes them, the process file only names them).
+UUID_NAMES = tuple(f"uuid{i}" for i in range(1, 13))
+BUILTIN_NAMES = ("tenant", "TENANT", "run_id", "now_utc", "old_base_url") + UUID_NAMES
 
 SECRET_KEY = re.compile(r"pass(word)?|secret|token|authorization|api[_-]?key|credential", re.I)
 JWT_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*")
@@ -465,6 +469,7 @@ class Runner:
         self.started_mono = time.monotonic()
         ctx = dict(inputs or {})
         ctx.update({"tenant": tenant, "TENANT": tenant, "run_id": self.run_id, "now_utc": now_utc()})
+        ctx.update({name: str(uuid.uuid4()) for name in UUID_NAMES})
         if self.old_base_url:
             ctx["old_base_url"] = self.old_base_url
         self.ctx = ctx
