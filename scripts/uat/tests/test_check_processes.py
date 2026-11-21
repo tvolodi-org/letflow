@@ -179,6 +179,15 @@ class Process(CheckCase):
         doc = self.mutated(lambda d: d["steps"].append(step("s6", "GET", "/api/v1/whatever/${doc_id}")))
         self.assertTrue(any("matches no route" in p for p in self.check(doc)))  # `/:id` counts only behind /instances
 
+    def test_a_route_of_another_module_router_is_checked_under_its_mount(self):
+        router = self.root / "lib/letflow/modules/locations/router.ex"
+        router.parent.mkdir(parents=True, exist_ok=True)
+        router.write_text('  authz_post "/nodes", :LocationsWrite do\n  end\n  authz_post "/nodes/:id/move", :LocationsWrite do\n  end\n')
+        good = self.mutated(lambda d: d["steps"].append(step("s6", "POST", "/api/v1/modules/locations/nodes/${doc_id}/move")))
+        self.assertEqual(self.check(good), [])
+        bad = self.mutated(lambda d: d["steps"].append(step("s6", "POST", "/api/v1/modules/locations/nodes/${doc_id}/explode")))
+        self.assertTrue(any("matches no route" in p for p in self.check(bad)))
+
     def test_a_read_in_save_is_checked_like_a_step(self):
         doc = self.mutated(lambda d: d["steps"][0]["save"].update(extra={"api": "GET", "path": "/api/v1/modules/stock/nope"}))
         self.assertTrue(any("matches no route" in p for p in self.check(doc)))

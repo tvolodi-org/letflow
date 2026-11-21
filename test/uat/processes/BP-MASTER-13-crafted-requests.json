@@ -1,0 +1,197 @@
+{
+  "id": "BP-MASTER-13",
+  "bp_entry": "BP-MASTER-13",
+  "title": "Crafted write requests are refused and change nothing",
+  "description": "A tenant administrator sends bodies a screen never sends: a tenant id, an unknown key, no idempotency key, a bad address option, an unknown id, a reused idempotency key with another body, an empty code batch. Each is refused with its fixed answer (422 reason, 404, 409). Only one node is created (to prove the reuse refusal), and the cleanup retires it. Needs modules locations, org and codes installed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s1",
+          "code": "UAT-${run_id}-x",
+          "name": "X",
+          "node_kind": "zone",
+          "tenant_id": "other"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "field_not_allowed"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "code": "UAT-${run_id}-x",
+          "name": "X",
+          "node_kind": "zone"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "field_invalid"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s3",
+          "code": "UAT-${run_id}-x",
+          "name": "X",
+          "node_kind": "zone",
+          "address_pattern": "bogus"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "field_invalid"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/00000000-0000-0000-0000-000000000000",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s4",
+          "name": "X"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/00000000-0000-0000-0000-000000000000/move",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s5",
+          "parent_id": null,
+          "extra": 1
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "field_not_allowed"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/units/00000000-0000-0000-0000-000000000000/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s6"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s7",
+          "entries": []
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "batch_size"
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s8",
+          "code": "UAT-${run_id}-y",
+          "name": "Y",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "node_y": "$.record_id"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13s8",
+          "code": "UAT-${run_id}-z",
+          "name": "Z",
+          "node_kind": "zone"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "idempotency_key_reuse"
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_y}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-13c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node_y"
+      ]
+    }
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  }
+}
