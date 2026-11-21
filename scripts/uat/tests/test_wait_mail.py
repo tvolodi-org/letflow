@@ -171,6 +171,69 @@ class TheMailIsNotFound(WaitMail):
         self.assertIn("http", self.step_row("s1")["error"])
 
 
+class TheTrapStaysOutOfTheLog(WaitMail):
+    """INV-4: the recipient, the percent-encoded form of it and a credential of the trap address never reach
+    a run artifact (the log, the summary, the issue body that is built from them)."""
+
+    def test_an_unreachable_trap_leaks_neither_the_recipient_nor_its_encoded_form(self):
+        code, _ = self.run_it(process(mail_step("s1", within_s=0.3, recipient="person@example.test")),
+                              mail_trap_url="http://127.0.0.1:1")
+        self.assertEqual(code, 1)
+        row = self.step_row("s1")
+        self.assertEqual(row["verdict"], "error")
+        self.assertIn("mail trap", row["error"])
+        text = self.all_files()
+        self.assertNotIn("person@example.test", text)
+        self.assertNotIn("person%40example.test", text)
+
+    def test_a_timeout_names_the_mailbox_in_its_masked_form_only(self):
+        code, _ = self.run_it(process(mail_step("s1", within_s=0.3, recipient="person@example.test")))
+        self.assertEqual(code, 1)
+        row = self.step_row("s1")
+        self.assertIn("timeout", row["error"])
+        self.assertIn("no mail to", row["error"])
+        text = self.all_files()
+        self.assertNotIn("person@example.test", text)
+        self.assertNotIn("person%40example.test", text)
+
+    def test_a_trap_address_with_a_credential_is_refused_and_the_credential_stays_out(self):
+        code, _ = self.run_it(process(mail_step("s1", within_s=0.3)),
+                              mail_trap_url="http://user:trap-secret-731@127.0.0.1:1")
+        self.assertEqual(code, 1)
+        row = self.step_row("s1")
+        self.assertEqual(row["verdict"], "error")
+        self.assertIn("mail trap", row["error"])
+        text = self.all_files()
+        self.assertNotIn("trap-secret-731", text)
+        self.assertNotIn("user:trap-secret-731", text)
+
+    def test_a_trap_address_that_is_not_http_is_refused_without_echoing_it(self):
+        code, _ = self.run_it(process(mail_step("s1", trap_url="ftp://user:trap-secret-731@trap")))
+        self.assertEqual(code, 1)
+        row = self.step_row("s1")
+        self.assertEqual(row["verdict"], "error")
+        self.assertIn("http", row["error"])
+        text = self.all_files()
+        self.assertNotIn("trap-secret-731", text)
+        self.assertNotIn("ftp://", text)
+
+    def test_a_trap_address_that_cannot_be_parsed_is_refused(self):
+        code, _ = self.run_it(process(mail_step("s1", trap_url="http://[::1")))
+        self.assertEqual(code, 1)
+        row = self.step_row("s1")
+        self.assertEqual(row["verdict"], "error")
+        self.assertIn("mail trap", row["error"])
+
+    def test_the_record_of_a_passed_step_holds_the_origin_of_the_trap_and_no_query(self):
+        self.trap.add(SUBJECT, RECIPIENT, body=BODY)
+        code, _ = self.run_it(process(mail_step("s1")))
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        row = self.step_row("s1")
+        self.assertEqual(row["path"], f"{self.trap_url}/api/v1/search")
+        self.assertNotIn("?", row["path"])
+        self.assertNotIn(RECIPIENT, self.all_files())
+
+
 class TheStepMustBeReadable(WaitMail):
     """A bad wait_mail step is a usage error (exit 2), never a request."""
 
@@ -194,6 +257,14 @@ class TheStepMustBeReadable(WaitMail):
             self.load({"id": "s1", "actor": "admin",
                        "do": {"wait_mail": {"recipient": RECIPIENT, "subject": SUBJECT, "within_s": "soon"}},
                        "expect": {"status": 200}})
+
+    def test_a_step_with_a_trap_address_that_carries_a_credential_is_refused(self):
+        with self.assertRaises(runner.ConfigError):
+            self.load(mail_step("s1", trap_url="http://user:trap-secret-731@127.0.0.1:8025"))
+
+    def test_a_step_with_a_trap_address_that_is_not_http_is_refused(self):
+        with self.assertRaises(runner.ConfigError):
+            self.load(mail_step("s1", trap_url="ftp://trap"))
 
     def test_a_good_step_is_accepted(self):
         doc = self.load(mail_step("s1"))

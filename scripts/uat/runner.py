@@ -25,8 +25,9 @@ A chain file may say `"cleanup": "per_process"`: the cleanup of a process then r
 one created. The default is `"cleanup": "end"`.
 
 A step may wait for a mail in the mail trap (`wait_mail`: by recipient and subject, the body of the mail never
-reaches the log) and a process may say what the run watches on the platform tenant (`platform_residue`: the
-definitions that must be back on their version and the instances that must not be left open).
+reaches the log, the recipient and the address of the trap are masked) and a process may say what the run watches
+on the platform tenant (`platform_residue`: the definitions that must be back on their version and the instances
+that must not be left open).
 
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
@@ -87,6 +88,7 @@ JWT_SHAPE = re.compile(r"(?<![A-Za-z0-9_.-])[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Z
 BEARER_SHAPE = re.compile(r"\bBearer(?:[ \t]+[A-Za-z0-9._~+/=-]+)?", re.I)
 AUTHORIZATION_HEADER = re.compile(r"(?im)(?<![\"A-Za-z0-9_])(Authorization\s*:\s*)[^\r\n]*")
 EMAIL_SHAPE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
@@ -478,25 +480,84 @@ def excerpt(text, limit=RESPONSE_EXCERPT_MAX) -> str:
     return json.dumps(redact(parsed), ensure_ascii=False)[:limit]
 
 
+def log_safe_url(url: str) -> str:
+    """A URL as it may be written in a log or a record: the scheme, the host and the path, without the
+    userinfo, the query and the fragment.
+
+    The search of a mail trap carries the recipient (a personal datum) in its query and a trap address may
+    carry a credential in its userinfo; neither of them may reach a run record."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host, port = parts.hostname or "", parts.port
+    except ValueError:
+        return "<address>"
+    if not parts.scheme or not parts.netloc:
+        return "<address>"
+    netloc = f"{host}:{port}" if port else host
+    return urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
+def scrub_urls(text: str) -> str:
+    """Free text that may hold a URL (the reason of a transport error): every URL in it loses its userinfo,
+    its query and its fragment."""
+    return URL_SHAPE.sub(lambda m: log_safe_url(m.group(0)), text)
+
+
+def mask_mail_recipient(recipient: str) -> str:
+    """The mailbox of a mail as it may be written in a log: its shape, never its value.
+
+    A mailbox is a personal datum, and the general redaction cannot be relied on for it: it reads by shape,
+    and an address with two dots has the shape of a token."""
+    return re.sub(r"[A-Za-z0-9]", "*", recipient)
+
+
+def trap_problem(url: str) -> str:
+    """Why a mail trap address cannot be used, or "" when it can. The address itself is never named.
+
+    The trap is a plain Mailpit on a host: a credential in it, a query or a fragment have no meaning there,
+    and urllib cannot even connect through a userinfo."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "the mail trap address cannot be parsed"
+    if parts.scheme not in ("http", "https"):
+        return "the mail trap address is not an http(s) address"
+    if not parts.hostname:
+        return "the mail trap address has no host"
+    if parts.username or parts.password:
+        return "the mail trap address must not carry a credential"
+    if parts.query or parts.fragment:
+        return "the mail trap address must not carry a query or a fragment"
+    return ""
+
+
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
-    """-> (status, parsed json or None, raw text). Transport errors raise RunnerError."""
+    """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
+
+    The address that goes into an error is written without its userinfo, its query and its fragment: the
+    search of a mail trap carries the recipient in its query."""
     data = None
     hdrs = {"Accept": "application/json", "User-Agent": "uat-runner/0"}
     hdrs.update(headers)
     if body is not None:
         data = json.dumps(body).encode()
         hdrs.setdefault("Content-Type", "application/json")
-    request = urllib.request.Request(url, data=data, method=method, headers=hdrs)
+    try:
+        request = urllib.request.Request(url, data=data, method=method, headers=hdrs)
+    except ValueError as err:
+        raise RunnerError(f"{method} {log_safe_url(url)}: the address cannot be used "
+                          f"({type(err).__name__})") from None
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:
             status, raw = resp.status, resp.read()
     except urllib.error.HTTPError as err:
         status, raw = err.code, err.read()
     except (urllib.error.URLError, OSError) as err:
-        raise RunnerError(f"{method} {url}: transport error: {getattr(err, 'reason', err)}") from None
+        reason = scrub_urls(str(getattr(err, "reason", err)))
+        raise RunnerError(f"{method} {log_safe_url(url)}: transport error: {reason}") from None
     text = raw.decode("utf-8", "replace")
     try:
         parsed = json.loads(text) if text.strip() else None
@@ -1183,15 +1244,21 @@ class Runner:
 
         The trap is asked by recipient only: the subject is matched by the runner, so a mail with the subject
         and another one with a similar subject cannot be confused. The body of a mail is never read into the
-        log: only the recipient, the subject and the id of the message that matched."""
+        log: only the recipient, the subject and the id of the message that matched.
+
+        The recipient is a personal datum and the trap address may carry a credential: neither of them is
+        written in clear text into a record or an error. The recipient is masked (its shape stays visible),
+        the address is written without its userinfo, its query and its fragment."""
         spec = substitute(do["wait_mail"], self.ctx)
         recipient = str(spec.get("recipient") or "").strip()
         subject = str(spec.get("subject") or "")
         if not recipient or not subject:
             raise RunnerError("wait_mail needs a recipient and a subject")
         trap = str(spec.get("trap_url") or self.mail_trap_url or "").rstrip("/")
-        if not trap.startswith(("http://", "https://")):
-            raise RunnerError(f"wait_mail: the mail trap address {trap!r} is not an http(s) address")
+        why = trap_problem(trap)
+        if why:
+            raise RunnerError(f"wait_mail: {why}")
+        shown = mask_mail_recipient(recipient)
         contains = bool(spec.get("subject_contains"))
         within = float(spec.get("within_s", 60))
         interval = self.poll_interval if self.poll_interval is not None else float(spec.get("interval_s", 2))
@@ -1204,12 +1271,12 @@ class Runner:
                 break
             if time.monotonic() >= deadline:
                 detail = f" ({problem})" if problem else ""
-                raise RunnerError(f"timeout: no mail to {recipient} with the subject {subject!r} "
+                raise RunnerError(f"timeout: no mail to {shown} with the subject {subject!r} "
                                   f"in {within:g} s, {polls} polls{detail}")
             time.sleep(interval)
-        record.update(method="GET", path=f"{trap}/api/v1/search", polls=polls,
-                      mail_to=recipient, mail_subject=subject, mail_id=message_id)
-        answer = {"to": recipient, "subject": subject, "message_id": message_id}
+        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
+                      mail_to=shown, mail_subject=subject, mail_id=message_id)
+        answer = {"to": shown, "subject": subject, "message_id": message_id}
         return 200, answer, json.dumps(answer, ensure_ascii=False)
 
     def _find_mail(self, trap, recipient, subject, contains=False):
@@ -2087,6 +2154,10 @@ def validate_step(step, where) -> None:
                 raise ConfigError(f"{where}: wait_mail {key} must be a number")
         if "trap_url" in spec and not isinstance(spec["trap_url"], str):
             raise ConfigError(f"{where}: wait_mail trap_url must be a text")
+        if isinstance(spec.get("trap_url"), str) and spec["trap_url"].strip():
+            why = trap_problem(spec["trap_url"].strip().rstrip("/"))
+            if why:
+                raise ConfigError(f"{where}: wait_mail {why}")
     elif kind == "assert_only":
         spec = do["assert_only"]
         if not isinstance(spec, dict) or "path" not in spec or "body" in spec or str(spec.get("api", "GET")).upper() != "GET":

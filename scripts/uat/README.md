@@ -140,14 +140,23 @@ process names. A mail to somebody else, or with another subject, is not the mail
 | `recipient` | the address the mail goes to (the trap accepts every address; the test uses `@uat.letflow.internal`) |
 | `subject` | the subject the mail must have, character for character. `"subject_contains": true` matches a subject that *contains* it (a mail with a prefix) |
 | `within_s`, `interval_s` | how long to wait (default 60 s) and how often to look (default 2 s; `--poll-interval` wins) |
-| `trap_url` | the trap to read, when it is not the one of the run |
+| `trap_url` | the trap to read, when it is not the one of the run. A plain http(s) address: a credential in it, a query or a fragment is refused (the trap needs none of them, and urllib cannot even connect through a credential) |
 
 The trap of the run is `--mail-trap-url`, else the environment variable `MAIL_TRAP_URL`, else
 `http://127.0.0.1:8025` (the local trap; off the host open the tunnel of `docs/testing/uat-mail-trap.md` first).
 
 **The body of a mail never reaches the log.** The step logs the recipient, the subject and the id of the message
 that matched, and nothing else: the body of a mail carries links and tokens, so it is never read into a record.
-The recipient is masked like every other address in a log (the shape stays visible, the address does not).
+
+**The recipient and the trap address are masked too.** A mailbox is a personal datum, and the address of the
+trap may carry a credential, so neither is written in clear text:
+
+* the recipient is masked (its shape stays visible, its value does not), in the record, in the error of a
+  timeout and in the answer of the step (`"to"` holds the masked form, `"subject"` and `"message_id"` the real
+  ones);
+* the address of the trap is written without its userinfo, its query and its fragment: the search of a trap
+  carries the recipient in its query, so an error of the transport names the origin of the trap and the path,
+  never the address as it was configured.
 
 **Shared access (the old address).** The process creates the shared access value itself, uses it as the old app does,
 and revokes it in the cleanup. The value is kept in the memory of the runner only: it is never written to a file or
@@ -538,7 +547,7 @@ python3 -B -m unittest -v scripts/uat/tests/test_check_processes.py # the static
 python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py          # dry-run --changed in a temp git repository
 python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: order, idempotent reuse, cleanup, static check
 python3 -B -m unittest -v scripts/uat/tests/test_platform_actors.py # an actor of another tenant: its address, its token, the residue
-python3 -B -m unittest -v scripts/uat/tests/test_wait_mail.py       # the wait_mail step: the trap by recipient and subject, the body stays out of the log
+python3 -B -m unittest -v scripts/uat/tests/test_wait_mail.py       # the wait_mail step: the trap by recipient and subject, the body and the address stay out of the log
 python3 -B -m unittest -v scripts/uat/tests/test_platform_residue.py # the residue of a platform run: the definition, the instances, the tenant
 ```
 
