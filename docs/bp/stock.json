@@ -869,7 +869,7 @@
         "result": "approve posts cause count_set (one leg = the difference); a key that moved since is refused balance_changed (stock alias quick_count_stale)"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-04-count.json"
   },
   {
     "id": "BP-STOCK-09",
