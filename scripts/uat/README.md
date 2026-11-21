@@ -91,8 +91,10 @@ Remember the id of the document as `doc_id`."*
   from the API description or from the existing tests of the screen, never invent them. `check_processes.py`
   tells you when an address does not exist.
 * `${name}` is replaced by the value of that name: an input, something an earlier step saved, or one of the
-  built-in names `${tenant}`, `${run_id}` (the id of this run: put it into notes so that test data is
-  recognisable) and `${now_utc}` (the time now). You may add and subtract numbers: `${balance_before + quantity}`.
+  built-in names `${tenant}`, `${TENANT}`, `${run_id}` (the id of this run: put it into notes so that test data is
+  recognisable), `${now_utc}` (the time now), `${old_base_url}` and `${uuid1}` .. `${uuid12}`. Each UUID name is a
+  fresh UUID for the run, different from the other names, and keeps the same value wherever it is used, including a
+  `repeat` retry. You may add and subtract numbers: `${balance_before + quantity}`.
   Using a name that nobody gave or saved is a mistake that the static check reports.
 * `expect`: what a good answer is. `status` is the answer code (one code or a list: `[200, 201]`; without it any
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
@@ -202,6 +204,12 @@ Common options: `--tenant`, `--base-url` (default `https://<tenant>.letflow.qa.b
 `--health-url`, `--poll-interval`, `--build-sha`, `--no-stable-check`, `--old-base-url`, `--file-issues`,
 `--repo`, `--gh`. Inputs are the ids the API takes (not codes).
 
+Run output never defaults to a path inside the product checkout. Without `--run-dir` (or `--run-dir-root` for a dry
+run), the runner uses `$UAT_RUN_DIR_ROOT` when set, then `$TEAM_TASKDIR/uat-runs` when set, and otherwise
+`<system temp directory>/letflow-uat-runs`. Each run gets its own run id below that root; a dry run uses a
+`dry-run-<timestamp>` id and its final line names the directory. The repository's top-level `/uat-runs/` is ignored:
+request and response excerpts are run output, not source, and must not be committed.
+
 Exit code **0**: every step, every cleanup step and the build check passed. **1**: a verdict failed (or the preflight
 refused to start). **2**: bad command line or process file, nothing was run (`dry-run` never uses 2 for a failure:
 the `bp_dryrun` capability reads exit 2 as "this runner has no dry-run command yet").
@@ -299,7 +307,10 @@ checked against `shared_stock_access.ex`); a chain whose process file is missing
 * `cleanup.json`, `meta.json`: what `runner.py cleanup` replays (section 3). `issues.json`: the issues filed.
 
 Nothing secret is written: tokens and shared access values are kept in memory, never put in the log, and every one
-the runner has seen, plus anything shaped like a JWT, is replaced by `***` in every file before it is written.
+the runner has seen is replaced by `***` in every file before it is written. Secret-looking fields (password, passwd,
+secret, token, api key, authorization, credential and access), every Authorization or Bearer value and every JWT-shaped
+string are masked. E-mail addresses and phone-number-shaped strings are masked character by character so their shape
+remains visible without retaining the address or number.
 
 ## 7. How to run it on a release candidate
 

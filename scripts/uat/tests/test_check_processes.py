@@ -144,10 +144,15 @@ class Process(CheckCase):
             doc["steps"][1]["do"]["body"] = {"id": "${uuid1}", "again": "${uuid12}"}
 
         self.assertEqual(self.check(self.mutated(change)), [])
-        run = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={}, run_dir=tempfile.mkdtemp())
-        other = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={}, run_dir=tempfile.mkdtemp())
-        self.assertEqual(str(uuid_module.UUID(run.ctx["uuid1"])), run.ctx["uuid1"])
-        self.assertNotEqual(run.ctx["uuid1"], run.ctx["uuid2"])
+        self.assertTrue(set(runner.UUID_NAMES) <= set(runner.BUILTIN_NAMES))
+        run = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={},
+                            run_dir=self.root / "run")
+        other = runner.Runner([{"id": "X", "steps": [], "cleanup": []}], base_url="http://x", tenant="t", actors={},
+                              run_dir=self.root / "other-run")
+        values = [run.ctx[name] for name in runner.UUID_NAMES]
+        for value in values:
+            self.assertEqual(str(uuid_module.UUID(value)), value)
+        self.assertEqual(len(set(values)), len(runner.UUID_NAMES))
         self.assertNotEqual(run.ctx["uuid1"], other.ctx["uuid1"])
 
     def test_an_expression_with_a_defined_name_is_fine(self):
