@@ -170,7 +170,7 @@ opens them (T-2510). A route a plug protects is `shared-secret` (provisioner and
 Reference form for coverage (T-2510): a route is covered when a task's `code_refs` names a line INSIDE the
 route's handler (the inventory item spans from the verb line to the end of the handler, `end`), when a task's
 `route` field equals `METHOD /full/path` (parameter names ignored, verb upper-cased), or an orphan row cites such a
-line. `check_routes.py` and `check_catalog.py` now use the same handler range. The 461 "not referenced" of the first
+line. The two tools agree on the current tree (477 covered by `check_routes.py`, every area 100% in `check_catalog.py`). The 461 "not referenced" of the first
 `route-gaps.md` came from a run made before the area catalogs merged (stock.json and assets.json db32d4e12,
 platform.json 2c9dfe611, designer.json feceb4c92, master.json ccbd9ead6); the verb-line versus handler-range
-difference changed one route on the tree of 3bb4e3862 (181 -> 180) and none on the current tree.
+difference is only one route on the tree of 3bb4e3862 and none on the current tree; no script change was made (a BP-map task may not change scripts/).

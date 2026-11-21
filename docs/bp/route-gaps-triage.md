@@ -33,10 +33,12 @@ Cause: a stale snapshot. The first `route-gaps.md` (T-2494) was generated before
 stock.json and assets.json (db32d4e12, 07:17), platform.json (2c9dfe611, 07:24), designer.json (feceb4c92, 07:33),
 master.json (ccbd9ead6, 07:39). Measured with `python3 -B scripts/uat/check_routes.py --root <tree>`:
 - current tree, main's unmodified script: 477 routes, 477 covered, 0 not;
-- tree of 3bb4e3862 (the commit that added the tool), main's script: 181 not covered; with this branch's script: 180.
+- tree of 3bb4e3862 (the commit that added the tool), main's script: 181 not covered.
 
-So the matching difference (verb line versus handler range) accounts for one route on that tree and none now. The
-alignment is still correct and stays: `all_routes` takes `end` from the inventory item, as `check_catalog.py` does
-(small code change in this task). Both tools now agree: `check_routes.py` 477 covered; `check_catalog.py` every area
-100%, PASS.
-(`check_catalog.py` also stopped reporting `public-routes.json` as "not an area catalog".)
+The verb-line versus handler-range matching is therefore not the cause. No script was changed in this task (a BP-map
+task may change only docs/bp/ and test/uat/); the documented reference form is in the README. The two tools agree on the
+current tree: `check_routes.py` 477 covered.
+
+Finding for the operator (developer task): `check_catalog.py` reports `docs/bp/public-routes.json` as "not an area
+catalog" (scripts/uat/check_catalog.py:295-300), also when the file is `[]` as on main. It should skip that file name
+(the one-line fix: `and f.name != "public-routes.json"`).

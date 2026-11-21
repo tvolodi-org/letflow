@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     bp_dir = root / "docs/bp"
     if bp_dir.is_dir() and not args.areas:
         for f in sorted(bp_dir.glob("*.json")):
-            if f.stem not in names and f.name != "public-routes.json":  # the route allow-list (check_routes.py)
+            if f.stem not in names:
                 errors.append(f"ERROR docs/bp/{f.name}: not an area catalog (areas: {', '.join(names)})")
     ids: dict[str, str] = {}
     for a, entries in all_entries.items():

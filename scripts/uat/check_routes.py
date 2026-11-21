@@ -90,12 +90,10 @@ def platform_routers() -> set[str]:
 def all_routes(root: Path) -> list[dict]:
     mount = INV.mounts(root)
     platform = platform_routers()
-    # the inventory item carries the area and the handler's line RANGE (`end`): a process task that cites a line
-    # inside the handler body covers the route, as in check_catalog.py (aligns the range with check_catalog.py, T-2510)
-    owner: dict[tuple[str, int], dict] = {}
+    owner: dict[tuple[str, int], str] = {}
     for d in INV.inventory(root, "all"):
         if d["kind"] == "route":
-            owner[(d["path"], d["line"])] = d
+            owner[(d["path"], d["line"])] = d["area"]
     out = []
     for f in router_files(root):
         mod_dir = f.parent
@@ -104,10 +102,7 @@ def all_routes(root: Path) -> list[dict]:
         else:
             prefix = mount.get(INV.module_name(INV.read_lines(f)), "")
         for it in INV.route_items(root, f, prefix):
-            inv_item = owner.get((it["path"], it["line"]))
-            it["area"] = inv_item["area"] if inv_item else "unassigned"
-            if inv_item:
-                it["end"] = max(it["end"], inv_item["end"])
+            it["area"] = owner.get((it["path"], it["line"]), "unassigned")
             it["platform"] = f.stem in platform
             it["mounted"] = bool(prefix)
             it["key"] = CAT.norm_route(it["name"])
