@@ -4,6 +4,7 @@
   "title": "My Tasks: each person opens their own inbox; a task that does not exist cannot be taken or completed",
   "description": "The tenant administrator and the storekeeper each open My Tasks (the task inbox): both answer 200 with a list. Each then tries to take, and to complete, a task id that does not exist (00000000-0000-4000-8000-000000000000): the answer is the plain not-found, the same for both, and nothing is changed. Taking and completing a real task (a posting task of a stock document) is played by the stock processes BP-01 to BP-05, which use the same routes; the refusal of a task that needs the stock approve permission for a role without it is SEC-ID-06 and the Elixir tests named in the map entry. Read-only; no cleanup.",
   "tenant": "${tenant}",
+  "residue_check": false,
   "inputs": [],
   "defaults": {
     "missing_id": "00000000-0000-4000-8000-000000000000"
