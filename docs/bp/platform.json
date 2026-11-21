@@ -88,7 +88,7 @@
     "tests": [
       "test/letflow/routers/tenants_test.exs",
       "test/letflow/routers/platform_scope_routes_test.exs",
-      "web/src/pages/admin/tenants (TenantsPage test)"
+      "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
     "scenario": null,
     "uat": "planned: the runner has no platform-tenant actor on one base url; refusals are automated in BP-PLATFORM-16",
@@ -180,7 +180,8 @@
     ],
     "tests": [
       "test/letflow/routers/tenants_test.exs",
-      "test/letflow/routers/platform_scope_routes_test.exs"
+      "test/letflow/routers/platform_scope_routes_test.exs",
+      "test/letflow/tenant_purge_test.exs"
     ],
     "scenario": null,
     "uat": "planned: destructive on a shared QA tenant; needs a throw-away tenant made by BP-PLATFORM-01 first",
@@ -393,7 +394,7 @@
           "lib/letflow/routers/onboarding.ex:193",
           "web/src/router.tsx:163",
           "web/src/router.tsx:164",
-          "lib/letflow/routers/onboarding.ex:831"
+          "lib/letflow/routers/onboarding.ex:1026"
         ],
         "result": "the onboarding record and its state"
       },
@@ -1355,7 +1356,7 @@
       "test/letflow/routers/platform_scope_routes_test.exs"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json",
-    "uat": "the refusal half is automated in BP-PLATFORM-16; the success path is planned",
+    "uat": "the scenario file BP-PLATFORM-16 covers ONLY the refusal half (foreign or unknown source id: 404); the promotion success path has no scenario yet (planned)",
     "status": "implemented"
   },
   {
@@ -1715,8 +1716,8 @@
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "409 platform_tenant_protected",
-      "403 tenant_inactive for the tenant's own callers",
+      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:702)",
+      "403 tenant_inactive for the tenant's own callers (lib/letflow/plugs/tenant_status.ex:106, lib/letflow/plugs/auth_pipeline.ex:213)",
       "409 after purge"
     ],
     "tests": [
@@ -1775,5 +1776,71 @@
     "scenario": null,
     "uat": "planned",
     "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-22",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: coverage list of the D-170 kinds for the platform area (token, host, upload, old address, voice/webhook, crafted writes)",
+    "description": "Lists each security process kind the owner named (D-170) with its status and, where the kind is owned by another area, the area. Two kinds live in platform infrastructure and are mapped here; the others are named with their owning area so no kind is left without an owner.",
+    "actors": [
+      {
+        "role": "anyone (no token, wrong token, other-tenant token)",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [
+      "the QA deployment is reachable"
+    ],
+    "tasks": [
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.AuthPipeline"
+        ],
+        "route": [
+          "any authenticated route, for example GET /api/v1/tenants"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:69",
+          "lib/letflow/plugs/auth_pipeline.ex:219"
+        ],
+        "result": "a missing header, unknown slug, garbage, revoked, expired or inactive-owner token all get the byte-identical 401 'invalid or expired bearer token'; a PLATFORM_ADMIN token of another tenant presented to a platform route gets the fixed 403 (BP-PLATFORM-16). Status: planned for the runner (it always sends one valid token); covered by test/letflow/plugs/auth_pipeline_test.exs"
+      },
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.Routers.TenantConfig"
+        ],
+        "route": [
+          "GET /api/tenant-config?host="
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:231",
+          "lib/letflow/routers/tenant_config.ex:275"
+        ],
+        "result": "unknown host: the standard answer, no tenant information; per-address 429 on repeated lookups. Status: planned (runner scenario for an unknown host is a plain GET; to be written with the first runner extension); covered by test/letflow/routers/tenant_config_host_test.exs"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "token lookup: wrong, expired, other-tenant token: 401 identical body (task 1); status planned",
+      "unknown host: standard tenant-config answer (task 2); status planned",
+      "upload types and limits: the platform area's own upload is the problem-report attachment (BP-PLATFORM-12, lib/letflow/routers/platform_problem_reports.ex); other uploads belong to areas assets, maintenance, tenant-admin (record attachments, documents) and are listed there",
+      "old-address access: not a platform route; belongs to area stock (old-app compatibility address, lib/letflow/modules/stock/old_app_voice.ex)",
+      "voice and webhook inputs: belong to area stock (voice) and area tenant-admin (webhooks, lib/letflow/routers/webhooks.ex)",
+      "crafted completion or start refused (write targets): belongs to the areas that own the written records (stock, assets, procurement, maintenance); not a platform route"
+    ],
+    "tests": [
+      "test/letflow/plugs/auth_pipeline_test.exs",
+      "test/letflow/routers/tenant_config_host_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned (see tasks); the other kinds are owned by the named areas",
+    "status": "partial",
+    "gap": "no runner scenario yet for token lookup and unknown host"
   }
 ]
