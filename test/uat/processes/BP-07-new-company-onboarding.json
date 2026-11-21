@@ -1,0 +1,144 @@
+{
+  "id": "BP-07",
+  "bp_entry": "BP-STOCK-27",
+  "title": "New-company onboarding: defaults of a fresh tenant, a phone count without setup, the explicit count rule",
+  "description": "A freshly created company has the second-person approval of the quick count switched OFF by default (owner decisions D-165 and D-164). Without any setup the storekeeper's quick count (one unit more than the book) posts at once: the document is posted, the balance moved, no approval task waits for the administrator. The storekeeper cannot read or change the approval rules. Then the administrator records the rule explicitly with a reason, as production will: the API does not store a change that equals the current value, so the administrator first switches the rule ON (reason), then refuses an empty reason for OFF, then switches it OFF with the exact reason; the answer and the audit entry approval_rule.changed carry the exact reason, the user and the time. Cleanup: the storekeeper reverses the count, the administrator completes the reversal task, the balance returns to its start, and the rule is left OFF. Limits stated honestly: (1) a rule row cannot be deleted through the API, so after the run the tenant holds an explicit OFF row for the quick count (behaviour identical to the default; its reason names the run); on a repeated run the \"never changed\" state of the default no longer exists, so the process asserts the OFF value and the posting at once, not the absence of a stored row; (2) the screens (Approval rules list with its 'Last change' line, the 390 px quick count form, the audit screen) and the task.self_approved audit entry are not read by this script (the audit list has no action filter): they stay with the browser scenario onboarding-rehearsal-2-fresh-tenant-defaults, steps 9 to 13 and 16 to 18; (3) if the count stays issued (rule ON by mistake) the cleanup cannot reverse it: cancel the document by hand. The approval-rule steps need an interactive credential: the password-grant tokens of the QA roster are accepted on QA; on production these steps are done in the browser.",
+  "tenant": "${tenant}",
+  "inputs": ["item", "place", "org_unit", "responsible"],
+  "defaults": {"reason_off": "Client 1, storekeeper counts from the phone, one administrator, owner decision D-164"},
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {"admin": "sss-rehearsal2-admin", "storekeeper": "sss-rehearsal2-storekeeper"},
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200},
+      "save": {
+        "balance_before": {"pick": "$.rows[0].quantity", "default": "0"},
+        "uom": {"pick": "$.rows[0].unit_ref", "if_unset": true}
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 1}",
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} BP-07"
+        }
+      },
+      "expect": {"status": 201, "json": {"state": "posted", "$.lines[0].difference": {"equals": "1"}}},
+      "save": {"count_doc_id": "$.id", "posted_doc_id": "$.id"}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_before + 1}"}}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/documents/${count_doc_id}"},
+      "expect": {"status": 200, "json": {"state": "posted", "entry_id": {"exists": true}}},
+      "save": {"count_entry_id": "$.entry_id"}
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/approval-rules"},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {"api": "PUT", "path": "/api/v1/approval-rules/stock_quick_count/approve", "body": {"four_eyes": false, "reason": "UAT ${run_id} BP-07 storekeeper refusal check"}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {"api": "PUT", "path": "/api/v1/approval-rules/stock_quick_count/approve", "body": {"four_eyes": true, "reason": "UAT ${run_id} BP-07 switch on first"}},
+      "expect": {"status": 200, "json": {"definition_name": "stock_quick_count", "node_id": "approve", "four_eyes": true, "reason": "UAT ${run_id} BP-07 switch on first", "changed_by": {"exists": true}}},
+      "save": {"rule_on_set": "yes"}
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {"api": "PUT", "path": "/api/v1/approval-rules/stock_quick_count/approve", "body": {"four_eyes": false, "reason": ""}},
+      "expect_refused": {"status": 422, "code": "invalid_reason"}
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {"api": "PUT", "path": "/api/v1/approval-rules/stock_quick_count/approve", "body": {"four_eyes": false, "reason": "${reason_off}"}},
+      "expect": {"status": 200, "json": {"four_eyes": false, "reason": "${reason_off}", "changed_by": {"exists": true}, "changed_at": {"exists": true}, "changed_by_name": {"exists": true}}}
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/audit?resource_type=approval_rule&page_size=1"},
+      "expect": {"status": 200, "json": {"$.items[0].action": "approval_rule.changed", "$.items[0].after_state.four_eyes": false, "$.items[0].after_state.reason": "${reason_off}", "$.items[0].after_state.node_id": "approve"}}
+    }
+  ],
+  "outputs": {
+    "count_doc_id": "${count_doc_id}",
+    "count_entry_id": "${count_entry_id}",
+    "balance_before": "${balance_before}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["rule_on_set"],
+      "do": {"api": "PUT", "path": "/api/v1/approval-rules/stock_quick_count/approve", "body": {"four_eyes": false, "reason": "UAT ${run_id} BP-07 cleanup: back to Off"}},
+      "expect": {"status": 200, "json": {"four_eyes": false}}
+    },
+    {
+      "id": "c2",
+      "actor": "storekeeper",
+      "requires": ["posted_doc_id"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc_id}/reverse",
+        "body": {"reason_code": "other", "reason_text": "UAT ${run_id} cleanup of BP-07"}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": ["posted_doc_id"],
+      "do": {
+        "wait_task": {"for_document": "${posted_doc_id}", "step": "reverse", "within_s": 30},
+        "claim": true,
+        "complete": {"body": {}}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": ["posted_doc_id"],
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_before}", "default": "0"}}}
+    }
+  ]
+}
