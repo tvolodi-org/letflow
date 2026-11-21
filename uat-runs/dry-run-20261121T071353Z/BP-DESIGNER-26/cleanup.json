@@ -1,0 +1,13 @@
+[
+  {
+    "process": "BP-DESIGNER-26",
+    "cleanup": [],
+    "ctx": {
+      "tenant": "qoimeks-qa2",
+      "TENANT": "qoimeks-qa2",
+      "run_id": "20261121T071353Z-ab9506",
+      "now_utc": "2026-11-21T07:13:53Z"
+    },
+    "done": false
+  }
+]
