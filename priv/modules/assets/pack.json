@@ -49,6 +49,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -114,6 +115,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "reverse",
@@ -176,6 +178,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -238,6 +241,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -300,6 +304,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -386,6 +391,7 @@
                   "module": "stock"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "post",
@@ -463,6 +469,7 @@
                   "module": "assets"
                 }
               ],
+              "required_permission": "AssetsApprove",
               "role": "TENANT_ADMIN"
             },
             "id": "approve",

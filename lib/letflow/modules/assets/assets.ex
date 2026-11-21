@@ -93,6 +93,15 @@ defmodule Letflow.Modules.Assets do
   or backfill: these are optional fields in the managed record. Card writes and ДА-2 print accept
   them. Required-at-issue checks and screens ship together in a later slice.
 
+  **Approval permission** (T-2506, version 0.31.0, following decision 0093 F1/F2): `AssetsApprove`
+  means "may approve, post or reverse an asset document that another person prepared". TENANT_ADMIN
+  and PLATFORM_ADMIN hold it through their catch-alls; it is not in `role_grants` or the storekeeper
+  overlay, so `AssetsPost` never lets a storekeeper complete these tasks. Every packed assets post,
+  reverse and approve HUMAN_TASK names it as `required_permission`. `GET /approval-access` writes
+  nothing and answers whether the caller holds it. Existing tenants keep their pinned process
+  definitions until those processes are re-created from the pack; the in-place module upgrade grants
+  no new role access.
+
   **Card photos** (T-2041, version 0.30.0, photos P2): eight gallery routes under
   `/cards/:id/photos` list, upload, serve, caption, order, choose the main photo and delete the
   photos of one `assets_card`. Reads need `AssetsRead`; writes are gated in the handler by the core
@@ -152,7 +161,7 @@ defmodule Letflow.Modules.Assets do
   (a manifest line would widen every tenant); the grant is a per-tenant overlay read by
   `Letflow.Api.TenantGrants`. `on_install/3` seeds read and post for a tenant that installs the module now;
   an existing tenant has no key and stays off until a tenant administrator switches it on
-  (`PUT /tenant/role-grants`). AssetsReverse, AssetsReconcile and AssetsCardWrite are never grantable.
+  (`PUT /tenant/role-grants`). AssetsApprove, AssetsReverse, AssetsReconcile and AssetsCardWrite are never grantable.
 
   **Currency** (D-097, C4 / REQ-826): the tenant currency is read from the currency directory
   (`Letflow.Currencies.tenant_currency_opt/1`) with the legacy module setting `currency` as fallback
@@ -291,7 +300,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.30.0",
+    version: "0.31.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "codes", "locations", "org", "stock"],
@@ -303,7 +312,8 @@ defmodule Letflow.Modules.Assets do
       :AssetsRead,
       :AssetsReconcile,
       :AssetsCountOrder,
-      :AssetsCountRecord
+      :AssetsCountRecord,
+      :AssetsApprove
     ],
     role_grants: %{},
     required_roles: [],
@@ -341,6 +351,7 @@ defmodule Letflow.Modules.Assets do
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
       {"GET", "/reconcile", :AssetsReconcile},
+      {"GET", "/approval-access", :AssetsApprove},
       {"POST", "/documents", :AssetsPost},
       {"PUT", "/documents/:id", :AssetsPost},
       {"DELETE", "/documents/:id", :AssetsPost},
