@@ -1,0 +1,16 @@
+{
+  "run_id": "20261121T070447Z-98cd51",
+  "label": "BP-EXAM-07",
+  "tenant": "bilimbaga",
+  "base_url": "https://bilimbaga.letflow.qa.bizdala.com",
+  "health_url": "https://bilimbaga.letflow.qa.bizdala.com/health",
+  "old_base_url": null,
+  "actors": {
+    "candidate": "actor-bilimbaga-candidate",
+    "admin": "actor-bilimbaga-admin"
+  },
+  "started": "2026-11-21T07:04:47Z",
+  "processes": [
+    "BP-EXAM-07"
+  ]
+}
