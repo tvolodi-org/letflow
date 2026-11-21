@@ -42,7 +42,7 @@ defmodule Letflow.Api.ModuleGuardTest do
   end
 
   test "an interactive user whose role holds the permission tenant-wide is allowed" do
-    for p <- [:AssetsRead, :AssetsCardWrite, :StockRead, :StockPost] do
+    for p <- [:AssetsRead, :AssetsCardWrite, :AssetsApprove, :StockRead, :StockPost] do
       assert {:ok, %{prefix: @prefix, actor_id: @user}} = ModuleGuard.check(conn([]), p), "#{p}"
     end
   end
@@ -70,6 +70,7 @@ defmodule Letflow.Api.ModuleGuardTest do
     assert {:ok, _} = ModuleGuard.check(on, :AssetsRead)
     assert {:ok, _} = ModuleGuard.check(on, :AssetsPost)
     assert :error = ModuleGuard.check(on, :AssetsReverse)
+    assert :error = ModuleGuard.check(on, :AssetsApprove)
   end
 
   test "a grant that is not tenant-wide is refused: the guard needs tenant-wide" do

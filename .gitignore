@@ -73,3 +73,6 @@ web/tests/e2e/.pipeline-state/
 # Python bytecode: build artefacts, never source; a .pyc embeds the absolute path it was compiled at (T-1597).
 __pycache__/
 *.pyc
+
+# UAT runner output (runner.py default run dir); never commit
+/uat-runs/

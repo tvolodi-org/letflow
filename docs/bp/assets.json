@@ -1322,7 +1322,7 @@
     "id": "BP-ASSETS-15",
     "area": "assets",
     "title": "Permission matrix per role of the assets area (security)",
-    "description": "Each asset route per role: the administrator all; the storekeeper only AssetsRead and AssetsPost and only when the tenant grant is on; AssetsReverse, AssetsReconcile, AssetsCardWrite, count order and count record never go to the storekeeper; the auditor holds no assets permission (effective.golden).",
+    "description": "Each asset route per role: the administrator all; the storekeeper only AssetsRead and AssetsPost and only when the tenant grant is on; AssetsApprove, AssetsReverse, AssetsReconcile, AssetsCardWrite, count order and count record never go to the storekeeper; the auditor holds no assets permission (effective.golden). The packed post, reverse and approve tasks require AssetsApprove.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1346,7 +1346,7 @@
       "403 for a role without the permission"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "automated",
     "security": true,
     "tasks": [
       {
@@ -1357,6 +1357,7 @@
           "POST /api/v1/modules/assets/cards",
           "POST /api/v1/modules/assets/documents/:id/reverse",
           "GET /api/v1/modules/assets/reconcile",
+          "GET /api/v1/modules/assets/approval-access",
           "POST /api/v1/modules/assets/counts"
         ],
         "code_refs": [
@@ -1365,12 +1366,13 @@
           "lib/letflow/modules/assets/router.ex:311",
           "lib/letflow/modules/assets/router.ex:433",
           "lib/letflow/api/authorization.ex:2077",
-          "test/letflow/modules/assets/storekeeper_assets_test.exs:1"
+          "test/letflow/modules/assets/storekeeper_assets_test.exs:1",
+          "test/letflow/modules/assets/assets_approve_tasks_test.exs:1"
         ],
-        "result": "403 for the storekeeper; with the grant off, even GET /documents and POST /documents are refused"
+        "result": "403 for the storekeeper, including approval-access; the administrator can_approve; with the grant off, even GET /documents and POST /documents are refused"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-ASSETS-01-approval-permission.json"
   },
   {
     "id": "BP-ASSETS-16",

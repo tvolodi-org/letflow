@@ -45,7 +45,7 @@ defmodule Letflow.Modules.Assets.RunbookTest do
     end
   end
 
-  test "A8-RUN-2 docs/roles.md names the four atoms and the storekeeper overlay" do
+  test "A8-RUN-2 docs/roles.md names the assets atoms and the storekeeper overlay" do
     text = File.read!(@roles)
 
     assert text =~
@@ -54,7 +54,8 @@ defmodule Letflow.Modules.Assets.RunbookTest do
     assert text =~ "Its manifest has `role_grants: %{}`"
     assert text =~ "per-tenant STOREKEEPER overlay of exactly `AssetsRead` and `AssetsPost`"
 
-    for atom <- ~w(AssetsPost AssetsReverse AssetsRead AssetsReconcile),
+    for atom <-
+          ~w(AssetsCardWrite AssetsPost AssetsReverse AssetsRead AssetsReconcile AssetsCountOrder AssetsCountRecord AssetsApprove),
         do: assert(text =~ "`#{atom}`")
   end
 end

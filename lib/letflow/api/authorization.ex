@@ -2074,7 +2074,7 @@ defmodule Letflow.Api.Authorization do
 
   @doc """
   The closed set of grants a tenant may switch on (T-1570, D-097): STOREKEEPER may read and post
-  assets. AssetsReverse, AssetsReconcile and AssetsCardWrite stay administrator-only. This constant,
+  assets. AssetsApprove, AssetsReverse, AssetsReconcile and AssetsCardWrite stay administrator-only. This constant,
   not stored data, decides what can ever be granted.
   """
   @spec grantable() :: %{role() => [atom()]}

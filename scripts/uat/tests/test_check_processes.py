@@ -368,5 +368,26 @@ class Cli(CheckCase):
         self.assertEqual(self.run_main("--root", str(self.root), "--strict", str(path))[0], 1)
 
 
+class RcSssChain(unittest.TestCase):
+    """The shipped release-candidate chain (T-2463, M3): the real files, the real route table."""
+
+    ROOT = check_processes.default_root()
+    CHAIN = ROOT / "test/uat/chains/rc-sss.json"
+
+    def test_order_is_the_one_the_owner_gave(self):
+        doc = json.loads(self.CHAIN.read_text())
+        self.assertEqual(doc["processes"], ["BP-01", "BP-02", "BP-03", "BP-04", "BP-05", "BP-06", "BP-08", "BP-09", "BP-07"])
+
+    def test_every_process_resolves_and_passes_the_static_check(self):
+        self.assertEqual(check_processes.check_files([self.CHAIN], root=self.ROOT, strict=True), [])
+
+    def test_chain_gives_every_input_the_processes_need(self):
+        doc = json.loads(self.CHAIN.read_text())
+        for name in doc["processes"]:
+            pdoc = json.loads(check_processes.runner.resolve_process_file(self.CHAIN.parent, name).read_text())
+            missing = [i for i in pdoc.get("inputs", []) if i not in doc["inputs"]]
+            self.assertEqual(missing, [], name)
+
+
 if __name__ == "__main__":
     unittest.main()

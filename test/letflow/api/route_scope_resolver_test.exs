@@ -341,7 +341,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # T-2184 added the two tenant hostname routes (301 -> 303).
       # T-2217 added POST /tenant/modules/:module_id/ensure-seeds (303 -> 304).
       # REQ-896 (part 4): four work order routes (313 -> 317).
-      assert length(snapshot) == 318
+      # T-2506 added GET /modules/assets/approval-access (318 -> 319).
+      assert length(snapshot) == 319
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
