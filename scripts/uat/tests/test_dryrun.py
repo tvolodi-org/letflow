@@ -136,6 +136,7 @@ class Changed(DryRunCase):
 class Refusals(DryRunCase):
     def test_a_file_without_a_dry_run_block_fails_the_static_check_and_nothing_runs(self):
         doc = json.loads(PROCESS_FILE.read_text())
+        doc.pop("dry_run", None)
         self.write("BP-01-receive-goods.json", doc)
         code, out, _ = self.main()
         self.assertEqual(code, 1)
@@ -145,7 +146,7 @@ class Refusals(DryRunCase):
 
     def test_an_undefined_variable_stops_the_dry_run_before_any_request(self):
         doc = self.bp01()
-        doc["steps"][1]["do"]["body"]["note"] = "${nobody_saves_this}"
+        next(s for s in doc["steps"] if s["id"] == "s1")["do"]["body"]["note"] = "${nobody_saves_this}"
         self.write("BP-01-receive-goods.json", doc)
         code, out, _ = self.main()
         self.assertEqual(code, 1)

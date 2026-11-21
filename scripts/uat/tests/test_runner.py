@@ -106,7 +106,7 @@ class Loader(unittest.TestCase):
     def test_bp01_loads(self):
         process = runner.load_process(PROCESS_FILE)
         self.assertEqual(process["id"], "BP-01")
-        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s1", "s2", "s3", "s4", "s5"])
+        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s0b", "s1", "s2", "s3", "s4", "s5"])
         self.assertEqual([s["id"] for s in process["cleanup"]], ["c1", "c2", "c3"])
 
     def test_bad_files_are_refused(self):
@@ -126,7 +126,7 @@ class RunBP01(FakeServerCase):
         code, r = self.run_process()
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         verdicts = self.verdicts()
-        for key in [("step", s) for s in ("s0", "s1", "s2", "s3", "s4", "s5")] + [("cleanup", c) for c in ("c1", "c2", "c3")]:
+        for key in [("step", s) for s in ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")] + [("cleanup", c) for c in ("c1", "c2", "c3")]:
             self.assertEqual(verdicts[key], "pass", key)
         self.assertEqual(self.state.qty, Decimal("7"))  # reversed: back to the start
         ctx = json.loads((self.run_dir / "context.json").read_text())
@@ -143,6 +143,7 @@ class RunBP01(FakeServerCase):
     def test_each_actor_uses_its_own_token_and_bodies_are_empty_for_tasks(self):
         self.run_process()
         by_step = {(c[0], c[1].split("?")[0]): c[2] for c in self.state.log}
+        self.assertEqual(by_step[("POST", "/api/v1/entities/query")], "admin")
         self.assertEqual(by_step[("POST", "/api/v1/modules/stock/documents")], "storekeeper")
         self.assertEqual(by_step[("POST", "/api/v1/modules/stock/documents/doc-1/issue")], "storekeeper")
         self.assertEqual(by_step[("POST", "/api/v1/tasks/task-1/complete")], "admin")
@@ -202,7 +203,7 @@ class Failures(FakeServerCase):
     def test_an_exception_in_a_step_does_not_skip_the_cleanup(self):
         process = self.process()
         # s5 reads a variable that does not exist: a RunnerError after the post task was completed
-        process["steps"][5]["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
+        next(s for s in process["steps"] if s["id"] == "s5")["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -222,7 +223,7 @@ class Failures(FakeServerCase):
 
     def test_cleanup_is_skipped_when_nothing_was_posted(self):
         process = self.process()
-        process["steps"][1]["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
+        next(s for s in process["steps"] if s["id"] == "s1")["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -240,7 +241,7 @@ class Failures(FakeServerCase):
     def test_wait_task_times_out(self):
         self.state.task_visible_after = 10**6
         process = self.process()
-        process["steps"][3]["do"]["wait_task"]["within_s"] = 0.2
+        next(s for s in process["steps"] if s["id"] == "s3")["do"]["wait_task"]["within_s"] = 0.2
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         s3 = next(x for x in self.lines() if x["step"] == "s3")

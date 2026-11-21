@@ -99,6 +99,9 @@ def make_handler(state):
             if method == "GET" and path == base + "/balances":
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
+            if method == "POST" and path == "/api/v1/entities/query":
+                return self.reply(200, {"items": [{"record_id": body["filters"][0]["value"],
+                                                    "field_values": {"base_uom_id": "uom-1"}}]})
             if method == "POST" and path == base + "/documents":
                 if not body or "catalog_uom_id" not in body["lines"][0] or not body.get("org_unit_id"):
                     return self.reply(422, {"title": "field_required"})
