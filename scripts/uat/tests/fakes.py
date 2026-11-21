@@ -25,6 +25,11 @@ INPUTS = {"item": "item-1", "place": "place-1", "org_unit": "ou-1", "responsible
 SHARED_VALUE = "ab" * 32  # the shared access value the fake hands out: 64 hex characters
 
 
+def step_by_id(process, step_id):
+    """The step with this id: a process file may grow a step, so an index is not a stable address."""
+    return next(s for s in process["steps"] if s["id"] == step_id)
+
+
 class FakeStock:
     """The few routes BP-01 needs, with a switchable fault for each test."""
 
@@ -99,6 +104,10 @@ def make_handler(state):
             if method == "GET" and path == base + "/balances":
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
+            if method == "POST" and path == "/api/v1/entities/query":
+                # the item of the run: its base unit is the fallback for the receipt when the place has no stock row
+                return self.reply(200, {"items": [{"record_id": "item-1", "field_values": {"base_uom_id": "uom-1"}}],
+                                        "next_cursor": None})
             if method == "POST" and path == base + "/documents":
                 if not body or "catalog_uom_id" not in body["lines"][0] or not body.get("org_unit_id"):
                     return self.reply(422, {"title": "field_required"})

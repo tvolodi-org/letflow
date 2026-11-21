@@ -21,7 +21,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 import runner  # noqa: E402
-from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, USERS, FakeServerCase, mock_env)  # noqa: E402,F401
+from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, USERS, FakeServerCase, mock_env,  # noqa: E402,F401
+                   step_by_id)
 
 
 class ExpressionAndSubstitution(unittest.TestCase):
@@ -106,7 +107,7 @@ class Loader(unittest.TestCase):
     def test_bp01_loads(self):
         process = runner.load_process(PROCESS_FILE)
         self.assertEqual(process["id"], "BP-01")
-        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s1", "s2", "s3", "s4", "s5"])
+        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s0b", "s1", "s2", "s3", "s4", "s5"])
         self.assertEqual([s["id"] for s in process["cleanup"]], ["c1", "c2", "c3"])
 
     def test_bad_files_are_refused(self):
@@ -202,7 +203,7 @@ class Failures(FakeServerCase):
     def test_an_exception_in_a_step_does_not_skip_the_cleanup(self):
         process = self.process()
         # s5 reads a variable that does not exist: a RunnerError after the post task was completed
-        process["steps"][5]["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
+        step_by_id(process, "s5")["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -222,7 +223,7 @@ class Failures(FakeServerCase):
 
     def test_cleanup_is_skipped_when_nothing_was_posted(self):
         process = self.process()
-        process["steps"][1]["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
+        step_by_id(process, "s1")["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -240,7 +241,7 @@ class Failures(FakeServerCase):
     def test_wait_task_times_out(self):
         self.state.task_visible_after = 10**6
         process = self.process()
-        process["steps"][3]["do"]["wait_task"]["within_s"] = 0.2
+        step_by_id(process, "s3")["do"]["wait_task"]["within_s"] = 0.2
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         s3 = next(x for x in self.lines() if x["step"] == "s3")
