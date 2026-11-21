@@ -1,0 +1,966 @@
+[
+  {
+    "id": "BP-PROCUREMENT-01",
+    "area": "procurement",
+    "title": "Raise and submit a purchase request",
+    "description": "A requester (a tenant administrator, the only role holding the write permission today) saves a draft purchase request with lines, submits it for approval (the draft is issued: one number, one content hash) and, if something must change after submission, revises it: a revision is a new issued version, the submitted version is never edited. Validation names every wrong field at once and saves nothing when any is wrong. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.PurchaseRequests.create",
+          "Letflow.Modules.Procurement.PurchaseRequest.build"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:64",
+          "lib/letflow/modules/procurement/purchase_requests.ex:40",
+          "lib/letflow/modules/procurement/purchase_request.ex:52"
+        ],
+        "result": "201 with document_id, version_no 1, status draft and the content the server calculated (exact decimal totals; the client's requester and id are ignored)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.PurchaseRequests.submit_for_bpm"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/submit",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:86",
+          "lib/letflow/modules/procurement/purchase_requests.ex:107"
+        ],
+        "result": "200 state submitted, the version number and content_hash of the submitted version; a retry of the same submit answers the first result with replayed true and writes nothing"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.PurchaseRequests.revise"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/revise",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/purchase_requests.ex:205"
+        ],
+        "result": "200: a change after submission is a new version issued in the same transaction, with its own hash; the department cannot change; the earlier version is superseded and untouched"
+      }
+    ],
+    "inputs": [
+      "department_id",
+      "unit_id",
+      "lines",
+      "justification",
+      "required_date",
+      "priority"
+    ],
+    "outputs": [
+      "document_id",
+      "version_no",
+      "content_hash"
+    ],
+    "refusals": [
+      "invalid input (unknown department or unit, retired, wrong decimal form, more than 200 lines, total that does not equal the calculated one) is 422 with every field and code, nothing saved",
+      "someone else's request id on submit or revise is 404, the same as an absent id (INV-5)",
+      "a role without ProcurementRequestWrite is 403"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/procurement/purchase_requests_test.exs",
+      "test/letflow/modules/procurement/purchase_request_test.exs",
+      "test/letflow/modules/procurement/router_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-02",
+    "area": "procurement",
+    "title": "Decide a purchase request: approve, reject or return",
+    "description": "A second tenant administrator (not the requester) reads the request status, then records one decision on one exact version identified by its content hash: approve, reject or return. An approval covers only that version; after a revision the new version needs its own decision. A rejected or returned version takes no further decision. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestDecide"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestRead"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "a submitted request by another person exists"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.status",
+          "Letflow.Modules.Procurement.Decisions.requester_of",
+          "Letflow.Modules.Procurement.LineEvents.request_status"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:69",
+          "lib/letflow/modules/procurement/decisions.ex:97",
+          "lib/letflow/modules/procurement/decisions.ex:121",
+          "lib/letflow/modules/procurement/line_events.ex:92"
+        ],
+        "result": "200 with current version, content_hash, state (submitted, approved, rejected, returned or cancelled), approved flag, the decisions recorded and fulfilment_status; readable by the requester and by a holder of ProcurementRequestDecide, anyone else 404"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.record"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/decisions.ex:57"
+        ],
+        "result": "201 with the decision (server clock, performer from the token); the same idempotency_key with the same body is 200 replayed true"
+      }
+    ],
+    "inputs": [
+      "document_id",
+      "version_no",
+      "content_hash",
+      "decision",
+      "idempotency_key"
+    ],
+    "outputs": [
+      "decision",
+      "approved"
+    ],
+    "refusals": [
+      "the requester deciding their own request is 403 reason self_decision",
+      "a hash or version that is not the issued one (stale, superseded, draft, cancelled, nonexistent) is 422 reason binding_refused",
+      "a second decision on a rejected or returned version is 409 version_closed",
+      "the same key with another body is 409 idempotency_key_reused",
+      "a role without ProcurementRequestDecide is 403"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/procurement/decisions_test.exs",
+      "test/letflow/modules/procurement/router_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-03",
+    "area": "procurement",
+    "title": "Record who handles an approved line, the supplier and the order",
+    "description": "After approval the procurement officer role (today a tenant administrator) records for one line: the officer (an existing tenant user), the chosen supplier (source system, identifier, name) and the purchase order or contract reference, then reads the line back with its derived status. A later event of a kind replaces the earlier in the view; history keeps all. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementLineRecord"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestRead"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "an approved request with at least one line"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.record_officer"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:133",
+          "lib/letflow/modules/procurement/line_events.ex:69"
+        ],
+        "result": "201 officer event; replay with the same key 200"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.record_supplier"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/supplier",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:137",
+          "lib/letflow/modules/procurement/line_events.ex:73"
+        ],
+        "result": "201 supplier event (no supplier master table: identifier is text)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.record_reference"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/reference",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:141",
+          "lib/letflow/modules/procurement/line_events.ex:77"
+        ],
+        "result": "201 reference event of kind purchase_order or contract; may be recorded before a supplier"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.line_view",
+          "Letflow.Modules.Procurement.Fulfilment.line_status"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:119",
+          "lib/letflow/modules/procurement/line_events.ex:145",
+          "lib/letflow/modules/procurement/fulfilment.ex:31"
+        ],
+        "result": "200 line view: officer, supplier, procurement_document (null when none), history, derived status, quantity, cancelled"
+      }
+    ],
+    "inputs": [
+      "document_id",
+      "line_no",
+      "officer_id",
+      "source_system",
+      "identifier",
+      "display_name",
+      "kind",
+      "idempotency_key"
+    ],
+    "outputs": [
+      "line view"
+    ],
+    "refusals": [
+      "a request whose newest version is not approved is 409 not_approved",
+      "a Closed or Cancelled request is 409 request_closed",
+      "a line the request does not have, a malformed id or line number, another tenant's id is 404",
+      "bad or missing fields are 422 naming each field; values are never echoed",
+      "same idempotency key with another body is 409 idempotency_key_reused",
+      "a role without ProcurementLineRecord is 403"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/procurement/line_events_test.exs",
+      "test/letflow/modules/procurement/line_routes_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-04",
+    "area": "procurement",
+    "title": "Cancel a line and close a request",
+    "description": "A line of an approved request is cancelled with a reason (at most 500 characters). The first cancel wins; a repeat under any key returns it with replayed true. When every line is fulfilled or cancelled the request is derived as closed (all cancelled: cancelled), and then a new officer, supplier, reference or cancel is refused. Status is always derived, never set by a caller. The derived-status definitions are UAT assumptions until the process owner confirms them (docs/runbooks/procurement-module.md). (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementLineRecord"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestRead"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "an approved request"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.cancel_line",
+          "Letflow.Modules.Procurement.Fulfilment.request_status"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:145",
+          "lib/letflow/modules/procurement/line_events.ex:85",
+          "lib/letflow/modules/procurement/fulfilment.ex:45"
+        ],
+        "result": "201 cancel event; line marked cancelled; the cancel that closes the request succeeds"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.LineEvents.request_status"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:69",
+          "lib/letflow/modules/procurement/line_events.ex:92"
+        ],
+        "result": "200 with fulfilment_status closed or cancelled"
+      }
+    ],
+    "inputs": [
+      "document_id",
+      "line_no",
+      "reason",
+      "idempotency_key"
+    ],
+    "outputs": [
+      "fulfilment_status"
+    ],
+    "refusals": [
+      "a missing reason or one over 500 characters is 422",
+      "not approved is 409 not_approved",
+      "a record after the request is closed is 409 request_closed"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/procurement/line_cancel_test.exs",
+      "test/letflow/modules/procurement/fulfilment_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-05",
+    "area": "procurement",
+    "title": "Attach, replace and download files of a purchase request",
+    "description": "The requester adds a file to the request (JSON body: file_name, content_type, content_base64), replaces a file in its slot, and the requester or a decider lists and downloads the files. On a draft the file goes into the draft; on a submitted request attach and replace make a new issued version N+1 (files of N copied, N untouched), so an approval of N does not cover N+1. Bytes are stored once per hash; the link table is append-only. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestRead"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "a draft or submitted request owned by the requester"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.attach"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:149",
+          "lib/letflow/modules/procurement/attachments.ex:60"
+        ],
+        "result": "201 attachment view (slot id, name, type, size, version); on a submitted request a new version"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.replace"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:183",
+          "lib/letflow/modules/procurement/attachments.ex:64"
+        ],
+        "result": "201 replacement in the same slot (a linear chain)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.list"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id/attachments",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:158",
+          "lib/letflow/modules/procurement/attachments.ex:71"
+        ],
+        "result": "200 list of the current files (optionally ?version_no=); the content hash never leaves the module"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.download"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/content",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:167",
+          "lib/letflow/modules/procurement/attachments.ex:88",
+          "lib/letflow/modules/procurement/router.ex:325"
+        ],
+        "result": "200 file bytes with the stored allow-listed content type, Content-Disposition attachment, Cache-Control no-store, X-Content-Type-Options nosniff"
+      }
+    ],
+    "inputs": [
+      "document_id",
+      "file_name",
+      "content_type",
+      "content_base64",
+      "attachment_id"
+    ],
+    "outputs": [
+      "attachment slot id",
+      "version_no"
+    ],
+    "refusals": [
+      "a content type outside the allow-list is 422 content_type_not_allowed",
+      "over 25 MiB is 413 file_too_large (the JSON body limit of 2 MiB answers 413 first)",
+      "an infected file is 422 infected; a scanner outage is 503 and writes nothing",
+      "a draft/issued state that does not allow it (for example cancelled) is 409 not_draft",
+      "a missing or non-text field or bad base64 is 422 naming the field",
+      "a non-requester attach or replace is 404"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "tests": [
+      "test/letflow/modules/procurement/attachments_test.exs",
+      "test/letflow/modules/procurement/attachment_routes_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-06",
+    "area": "procurement",
+    "title": "SECURITY: permission matrix of the procurement routes",
+    "description": "Each of the 14 routes is guarded by one permission (Write: create, submit, revise, attach, replace; Read: get, line get, attachment list and download; Decide: decisions; LineRecord: officer, supplier, reference, cancel). The manifest has no role_grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold them; every other role is refused with 403, a refusal writes no audit row and no decision. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.) Not applicable to this area: old-address (legacy route) access, because the module has only the 14 routes under /api/v1/modules/procurement (router.ex authz routes) and no legacy path; voice and webhook inputs, because the module has no webhook, voice or other inbound-event handler (inventory lists routes only).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite, ProcurementRequestRead, ProcurementRequestDecide, ProcurementLineRecord"
+      },
+      {
+        "role": "TASK_WORKER",
+        "permission": "none (refused)"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active"
+    ],
+    "tasks": [
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.manifest"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests",
+          "GET /api/v1/modules/procurement/purchase-requests/:id",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/submit",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/revise",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/supplier",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/reference",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/content",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:64",
+          "lib/letflow/modules/procurement/router.ex:69",
+          "lib/letflow/modules/procurement/router.ex:86",
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/router.ex:119",
+          "lib/letflow/modules/procurement/router.ex:133",
+          "lib/letflow/modules/procurement/router.ex:137",
+          "lib/letflow/modules/procurement/router.ex:141",
+          "lib/letflow/modules/procurement/router.ex:145",
+          "lib/letflow/modules/procurement/router.ex:149",
+          "lib/letflow/modules/procurement/router.ex:158",
+          "lib/letflow/modules/procurement/router.ex:167",
+          "lib/letflow/modules/procurement/router.ex:183",
+          "lib/letflow/modules/procurement/procurement.ex:57",
+          "lib/letflow/modules/procurement/procurement.ex:67"
+        ],
+        "result": "for every route: a holder of the permission (TENANT_ADMIN, and PLATFORM_ADMIN in the platform tenant) passes the gate; every other built-in role (TASK_WORKER, STOREKEEPER, TENANT_AUDITOR, CANDIDATE and the rest) gets 403 before any handler runs and nothing is written"
+      }
+    ],
+    "inputs": [
+      "a token of a TASK_WORKER user"
+    ],
+    "outputs": [
+      "403 per route"
+    ],
+    "refusals": [
+      "a role without the permission is 403 on every one of the 14 routes (router_test A1, C2, P2; line_routes_test)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: the existing ExUnit tests cover it (router_test.exs A1/C2/P2, line_routes_test.exs); a runner scenario needs a QA tenant with procurement installed and a TASK_WORKER actor with a login, which the roster does not have for any tenant that installs the module (actors.yaml)",
+    "tests": [
+      "test/letflow/modules/procurement/router_test.exs",
+      "test/letflow/modules/procurement/line_routes_test.exs",
+      "test/letflow/modules/procurement/registration_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-07",
+    "area": "procurement",
+    "title": "SECURITY: another tenant's token and ids are refused (uniform 404)",
+    "description": "A token of tenant A used against tenant B's document ids, for every read and write route, gets the same 404 as an absent or malformed id: the body does not distinguish absent, malformed, wrong type, other tenant or someone else's request (INV-1, INV-5, INV-10). The tenant comes from the token, never from the body or path; a tenant where the module is not installed answers 404 as well. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestDecide"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "a second tenant (B) with a submitted request",
+      "a tenant administrator token of tenant A"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN of tenant A",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.status"
+        ],
+        "route": [
+          "GET /api/v1/modules/procurement/purchase-requests/:id",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/submit",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/revise",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/content"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:69",
+          "lib/letflow/modules/procurement/router.ex:86",
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/router.ex:119",
+          "lib/letflow/modules/procurement/router.ex:133",
+          "lib/letflow/modules/procurement/router.ex:158",
+          "lib/letflow/modules/procurement/router.ex:167",
+          "lib/letflow/modules/procurement/decisions.ex:97"
+        ],
+        "result": "404 identical to an absent id; no decision, event or attachment row written in B"
+      }
+    ],
+    "inputs": [
+      "tenant B document id",
+      "tenant A token"
+    ],
+    "outputs": [
+      "404 bodies"
+    ],
+    "refusals": [
+      "absent, malformed, other-tenant ids give byte-identical 404 bodies without trace id (router_test A4, A5)",
+      "a non-installed module is 404 (Routers.Modules gate)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: covered by router_test.exs A4/A5 and the line/attachment route tests; a runner scenario needs two QA tenants with procurement installed and one administrator in each (roster: swiftroute and bilimbaga logins exist in actors.yaml but their provisioning for the runner is not confirmed)",
+    "tests": [
+      "test/letflow/modules/procurement/router_test.exs",
+      "test/letflow/modules/procurement/attachment_routes_test.exs",
+      "test/letflow/modules/procurement/line_routes_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-08",
+    "area": "procurement",
+    "title": "SECURITY: separation of duties (requester cannot decide, only the requester changes)",
+    "description": "The requester of a request cannot approve, reject or return it (403 self_decision, checked before the version binding). Only the requester may submit, revise, attach or replace; another administrator gets 404. Read of a request is for the requester and holders of the decide permission. Today the same role holds write and decide, so the split rests on this check, not on roles; a second administrator is needed to approve. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestDecide"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "two different tenant administrators in one tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN (requester)",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.record"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/decisions.ex:207"
+        ],
+        "result": "403 reason self_decision; no decision row"
+      },
+      {
+        "actor": "TENANT_ADMIN (not requester)",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.PurchaseRequests.submit_for_bpm"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests/:id/submit",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/revise",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:86",
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/router.ex:149",
+          "lib/letflow/modules/procurement/router.ex:183",
+          "lib/letflow/modules/procurement/purchase_requests.ex:241"
+        ],
+        "result": "404 as if the request did not exist"
+      }
+    ],
+    "inputs": [
+      "document_id",
+      "content_hash"
+    ],
+    "outputs": [
+      "refusals"
+    ],
+    "refusals": [
+      "self decision is 403 self_decision",
+      "a non-requester's submit, revise, attach or replace is 404 (router_test A2, A3)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: covered by router_test.exs A2/A3; a runner scenario needs two TENANT_ADMIN actors in a tenant that has procurement installed (qoimeks-qa2-admin and admin2 exist in the roster; installation of the module on that tenant is not confirmed)",
+    "tests": [
+      "test/letflow/modules/procurement/router_test.exs",
+      "test/letflow/modules/procurement/decisions_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-09",
+    "area": "procurement",
+    "title": "SECURITY: crafted request bodies are ignored or refused",
+    "description": "The caller, tenant, requester and document id never come from the body: create and revise silently ignore a client 'id' or 'requester' in the body (router request_body/1 drops both, router.ex:351-357) and store the token user as requester (purchase_request.ex:93-101); submit, decisions and line routes read only a whitelist of fields (unknown keys ignored); a body that is not a JSON object is treated as empty and refused by validation; a decision names the exact version and content hash (binding), so a stale or forged hash is refused; a client total that differs from the calculated one is 422. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestDecide"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.PurchaseRequest.build"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/revise"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:64",
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/purchase_request.ex:52",
+          "lib/letflow/modules/procurement/purchase_request.ex:240",
+          "lib/letflow/modules/procurement/router.ex:354"
+        ],
+        "result": "extra keys, a client 'id' and a client 'requester' are ignored and never stored (the requester is the token user); only a client total or line total that differs from the calculated one is 422 mismatch (purchase_request.ex:240-256)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.record"
+        ],
+        "route": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/decisions.ex:219"
+        ],
+        "result": "a hash or version not equal to the issued one is 422 binding_refused, same answer for draft, superseded, cancelled and nonexistent versions"
+      }
+    ],
+    "inputs": [
+      "body with extra keys",
+      "stale or forged content_hash"
+    ],
+    "outputs": [
+      "422 answers"
+    ],
+    "refusals": [
+      "unknown keys are ignored, never stored",
+      "a client total that differs from the calculated total is 422 mismatch",
+      "a forged hash is 422 binding_refused and the answer carries a reason code, never a hash"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: covered by purchase_request_test.exs, decisions_test.exs and router_test.exs; a runner scenario waits for the QA tenant with the module and two administrators",
+    "tests": [
+      "test/letflow/modules/procurement/purchase_request_test.exs",
+      "test/letflow/modules/procurement/decisions_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-10",
+    "area": "procurement",
+    "title": "SECURITY: upload types, size and scan of request files",
+    "description": "Request files are checked in a fixed order: requester, state, shape, content type against the allow-list (never text/html), size (25 MiB; the 2 MiB JSON body limit of the API pipeline answers 413 first), virus scan outside the transaction. A refusal writes nothing, not even the byte row. A download is served with a stored allow-listed type, attachment disposition, no-store and nosniff, so an uploaded file cannot be rendered by the browser. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestRead"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active",
+      "a draft request"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.attach",
+          "Letflow.Repository.Attachments.scan_content"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:149",
+          "lib/letflow/modules/procurement/router.ex:183",
+          "lib/letflow/modules/procurement/attachments.ex:129",
+          "lib/letflow/modules/procurement/attachments.ex:160"
+        ],
+        "result": "422 content_type_not_allowed, 413 file_too_large, 422 infected, 503 on scanner outage; nothing stored"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Attachments.download"
+        ],
+        "route": "GET /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/content",
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:167",
+          "lib/letflow/modules/procurement/router.ex:325"
+        ],
+        "result": "response headers content-disposition attachment, cache-control no-store, x-content-type-options nosniff"
+      }
+    ],
+    "inputs": [
+      "file_name",
+      "content_type",
+      "content_base64"
+    ],
+    "outputs": [
+      "refusals"
+    ],
+    "refusals": [
+      "a disallowed type is 422",
+      "a file over the cap is 413",
+      "bad base64 or a non-text field is 422 naming the field"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: covered by attachments_test.exs and attachment_routes_test.exs; a runner scenario needs a request owned by an administrator on a QA tenant with the module",
+    "tests": [
+      "test/letflow/modules/procurement/attachments_test.exs",
+      "test/letflow/modules/procurement/attachment_routes_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-11",
+    "area": "procurement",
+    "title": "SECURITY: token and tenant lookup (no token, wrong, expired, other realm)",
+    "description": "Every procurement route sits behind the authentication pipeline (Letflow.Plugs.AuthPipeline). A missing or malformed bearer header is 401 unauthorized 'missing or malformed Authorization header'; an invalid, expired or unverifiable token, or an unknown tenant slug with an API token, is 401 'invalid or expired bearer token' (an unknown slug is not told apart from a bad token); a token whose realm does not match the tenant is 401 'token realm does not match tenant'; a deactivated (purged) tenant is 403 tenant_inactive. The bodies are therefore NOT identical across all cases: the claim is that each case is refused with 401 (403 for a purged tenant) and no procurement handler runs. (no procurement screen exists in web/src: every task is an API call.)",
+    "actors": [
+      {
+        "role": "anonymous",
+        "permission": "none (refused)"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active"
+    ],
+    "tasks": [
+      {
+        "actor": "anonymous",
+        "forms": [],
+        "functions": [
+          "Letflow.Plugs.AuthPipeline"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests",
+          "GET /api/v1/modules/procurement/purchase-requests/:id",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/submit",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/revise",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/supplier",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/reference",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments",
+          "GET /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/content",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:69",
+          "lib/letflow/modules/procurement/router.ex:86",
+          "lib/letflow/modules/procurement/router.ex:97",
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/router.ex:119",
+          "lib/letflow/modules/procurement/router.ex:133",
+          "lib/letflow/modules/procurement/router.ex:137",
+          "lib/letflow/modules/procurement/router.ex:141",
+          "lib/letflow/modules/procurement/router.ex:145",
+          "lib/letflow/modules/procurement/router.ex:149",
+          "lib/letflow/modules/procurement/router.ex:158",
+          "lib/letflow/modules/procurement/router.ex:167",
+          "lib/letflow/modules/procurement/router.ex:183",
+          "lib/letflow/plugs/auth_pipeline.ex:213",
+          "lib/letflow/plugs/auth_pipeline.ex:216",
+          "lib/letflow/plugs/auth_pipeline.ex:219",
+          "lib/letflow/plugs/auth_pipeline.ex:228",
+          "lib/letflow/plugs/auth_pipeline.ex:253",
+          "lib/letflow/plugs/auth_pipeline.ex:271"
+        ],
+        "result": "401 unauthorized for missing/malformed header, invalid/expired token, unknown slug (API token) and realm mismatch (detail texts differ: 'missing or malformed Authorization header', 'invalid or expired bearer token', 'token realm does not match tenant'); 403 tenant_inactive for a purged tenant; no handler runs, nothing changed"
+      }
+    ],
+    "inputs": [
+      "no token / wrong token / token of another realm"
+    ],
+    "outputs": [
+      "401 (or 403 tenant_inactive) answers"
+    ],
+    "refusals": [
+      "each of no credential, wrong or expired token, unknown slug and realm mismatch is 401 and no handler runs; a purged tenant is 403 tenant_inactive",
+      "a wrong or unknown-slug API token gets the same 'invalid or expired bearer token' text (no tenant-existence oracle)"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: the pipeline is core and asserted in test/letflow/plugs/auth_pipeline_test.exs (401 for missing, malformed, invalid token and realm mismatch); a runner scenario would only repeat the core check against a procurement path and needs the QA tenant with the module",
+    "tests": [
+      "test/letflow/plugs/auth_pipeline_test.exs",
+      "test/letflow/plugs/auth_pipeline_scope_test.exs"
+    ]
+  },
+  {
+    "id": "BP-PROCUREMENT-12",
+    "area": "procurement",
+    "title": "SECURITY: idempotent retry and concurrent decisions",
+    "description": "A decision or a line event with the same idempotency key and the same body is returned again (replayed true) and writes nothing; the same key with another body is 409 idempotency_key_reused. The document row is locked (2 s lock timeout, 15 s statement timeout) so a decision cannot interleave with the issue of the next version; a timeout is 503 busy, nothing written. (no procurement screen exists in web/src (checked: no web/src/modules/procurement, no route in web/src/router.tsx): every task is an API call.)",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementRequestDecide"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ProcurementLineRecord"
+      }
+    ],
+    "preconditions": [
+      "module procurement installed for the tenant (depends on org and catalog_items)",
+      "a department (org unit) and a unit of measure exist and are active"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Procurement.Decisions.record",
+          "Letflow.Modules.Procurement.LineEvents.record_officer"
+        ],
+        "route": [
+          "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/supplier",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/reference",
+          "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/procurement/router.ex:104",
+          "lib/letflow/modules/procurement/router.ex:133",
+          "lib/letflow/modules/procurement/router.ex:137",
+          "lib/letflow/modules/procurement/router.ex:141",
+          "lib/letflow/modules/procurement/router.ex:145",
+          "lib/letflow/modules/procurement/decisions.ex:57",
+          "lib/letflow/modules/procurement/line_events.ex:115"
+        ],
+        "result": "replay 200 replayed true; key reuse 409; busy 503"
+      }
+    ],
+    "inputs": [
+      "idempotency_key"
+    ],
+    "outputs": [
+      "replayed flag"
+    ],
+    "refusals": [
+      "same key, another body: 409 idempotency_key_reused",
+      "lock timeout: 503 busy with nothing written"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "automation": "planned: covered by decisions_test.exs and line_events_test.exs (concurrency at context level); a runner scenario waits for the QA tenant with two administrators",
+    "tests": [
+      "test/letflow/modules/procurement/decisions_test.exs",
+      "test/letflow/modules/procurement/line_events_test.exs"
+    ]
+  }
+]
