@@ -97,6 +97,12 @@ defmodule Letflow.PlatformFunctions.Catalog do
   @doc """
   The entry map of a catalogue, as plain data for a response body. No atom
   leaks: the permission is a string and the source classes are strings.
+
+  The key composition of an entry is published under `idempotency_inputs` --
+  the INPUT NAMES that make a repeat the same call -- and not under the name
+  of the CALLER's idempotency key: that key belongs to `Letflow.Idempotency`
+  alone (the AC5 guard scans every source file for it), and a catalogue entry
+  must not look like one.
   """
   @spec entry_map(Entry.t()) :: map()
   def entry_map(%Entry{} = entry) do
@@ -106,7 +112,7 @@ defmodule Letflow.PlatformFunctions.Catalog do
       "version" => entry.version,
       "permission" => to_string(entry.permission),
       "platform_tenant_only" => entry.platform_tenant_only,
-      "idempotency_key" => entry.idempotency_key,
+      "idempotency_inputs" => entry.idempotency_key,
       "inputs" =>
         Enum.map(entry.inputs, fn input ->
           %{

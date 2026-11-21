@@ -77,6 +77,10 @@ activation flags the row `needs_reactivation` (REQ-515's existing path).
 The `platform_call` step is a SERVICE_TASK attribute, the fourth route of that node kind next to the HTTP endpoint, the catalogue
 service and the Lua script: `attributes["platform_call"] :: %{"function" => name, "args" => %{arg => %{"var" => v} | %{"const" => j}}}`.
 
+The read route's body publishes an entry's key composition under `idempotency_inputs` -- the input names that make a repeat the same
+call -- and never under the name of the CALLER's idempotency key: that key belongs to `Letflow.Idempotency` alone, and the AC5 guard of
+`test/letflow/idempotency_test.exs` scans every source file for it.
+
 ## The one code a company tenant ever sees
 
 A company tenant may not carry a `platform_call` step at all. Every path that touches such a definition -- the write path of a draft
@@ -93,6 +97,8 @@ same answer whether the function exists or not. A stranger may not learn which p
 | S4/S5 | a company user, or a platform user without the permission, starts the definition | `test/letflow/engine/platform_call_start_permission_test.exs`: the answer for an unknown definition |
 | S9 | the `activated_by` document is edited, or the activator lost the permission | `test/letflow/definitions/platform_call_activator_signature_test.exs`: the tampered MAC is refused; a revoked role refuses the call and flags the row `needs_reactivation` |
 | S13 | run-time catalogue tampering | `test/letflow/api/platform_catalogue_has_no_write_route_test.exs`: the route inventory holds one GET under the catalogue's mount and no write method |
+| S13 (read route) | a company tenant learns which platform functions exist | `test/letflow/routers/platform_functions_test.exs`: the platform admin of the platform tenant reads the catalogue; a company administrator and a company tenant whose stored token still carries `PLATFORM_ADMIN` are refused the uniform 403, and the refusal names no function |
+| catalogue shape | an entry drifts from the contract the designer reads | `test/letflow/platform_functions/catalog_test.exs`: the compiled chain, the platform atom, the platform-tenant flag and the EXACT key set of the entry map |
 
 ## Residual risks, stated plainly
 
