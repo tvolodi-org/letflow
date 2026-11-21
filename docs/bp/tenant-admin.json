@@ -1363,7 +1363,8 @@
         ],
         "route": null,
         "code_refs": [
-          "lib/letflow/engine/approval_rule_setting.ex:128"
+          "lib/letflow/engine/approval_rule_setting.ex:128",
+          "lib/letflow/definitions/role_binding.ex:213"
         ],
         "result": "when a definition is saved, the separate-person warning of a role binding is not shown for steps whose switch is OFF (lib/letflow/definitions/role_binding.ex:213, read-only use of the setting)"
       },
@@ -1377,7 +1378,7 @@
         "code_refs": [
           "lib/letflow/approval_rules.ex:69",
           "lib/letflow/modules/stock/documents.ex:306",
-          "lib/letflow/definitions/role_binding.ex:213"
+          "lib/letflow/modules/stock/old_app_writes.ex:262"
         ],
         "result": "the stock quick count posts at once when the quick-count approve switch is OFF (lib/letflow/modules/stock/documents.ex:306 and old_app_writes.ex:262 ask four_eyes_off?)"
       },
@@ -1470,11 +1471,12 @@
           "Letflow.ApprovalRules.four_eyes_off?",
           "Letflow.Engine.ApprovalRuleSetting.off_for_instance_step"
         ],
-        "route": null,
+        "route": "GET /api/v1/tasks/:id",
         "code_refs": [
           "lib/letflow/approval_rules.ex:54",
           "lib/letflow/approval_rules.ex:69",
-          "lib/letflow/engine/approval_rule_setting.ex:159"
+          "lib/letflow/engine/approval_rule_setting.ex:159",
+          "lib/letflow/routers/tasks.ex:340"
         ],
         "result": "the task detail tells the web whether self-approval is allowed (interactive and effective OFF)"
       }
@@ -2693,7 +2695,8 @@
     "security": true,
     "automation": "planned",
     "existing_tests": [
-      "scenario qoimeks-token-5-storekeeper-refused-shared-access (prose, not yet a runner script)"
+      "test/letflow/routers/shared_stock_access_test.exs",
+      "test/fixtures/uat/scenarios/qoimeks-token/qoimeks-token-5-storekeeper-refused-shared-access.yaml"
     ]
   },
   {
@@ -2754,7 +2757,7 @@
     "automation": "planned",
     "existing_tests": [
       "test/letflow/engine/separation_of_duties_test.exs",
-      "test/letflow/engine/approval_rules_default_test.exs",
+      "test/letflow/approval_rules_default_test.exs",
       "test/letflow/routers/approval_rules_test.exs"
     ]
   },
