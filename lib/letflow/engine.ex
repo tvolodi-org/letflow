@@ -931,8 +931,18 @@ defmodule Letflow.Engine do
   # administrator, a platform user without the permission -- gets the answer for an
   # UNKNOWN definition (INV-5), before the status case; the cause goes to the server log
   # only. A definition with no platform call starts exactly as before.
+  #
+  # The SUB_PROCESS children the definition starts count with it: a child inherits the
+  # parent's start variables, so a child that calls a platform function needs the same
+  # authority as a direct start. Without this, a platform PROCESS_OPERATOR could start an
+  # ordinary parent whose sub-process child named an active definition carrying
+  # `tenant.create`, and the child -- started with the operator's own variables -- would
+  # run the platform call.
   defp gate_start_permission({:ok, definition} = found, opts) do
-    case StartPermission.check(definition, Keyword.get(opts, :auth_context)) do
+    children =
+      SubProcess.child_definitions(definition.graph, Keyword.get(opts, :prefix))
+
+    case StartPermission.check(definition, Keyword.get(opts, :auth_context), children) do
       :ok ->
         found
 

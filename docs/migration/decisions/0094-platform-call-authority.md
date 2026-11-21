@@ -37,7 +37,10 @@ the activator's tenant must be the platform tenant (INV-10). Activation, version
 all three sign the `activated_by` document. The signed activator REPLACES the owner stamp for catalogue calls: the rule is "switched on
 by someone who holds the entry's permission, in the right tenant, with a signature checked at every call", not "unchanged since the
 module shipped it". The T-2430 rule carries over by input source class: a write-like input of a catalogue call reads only start
-variables or earlier platform-step outputs, never a human task's completer.
+variables or earlier platform-step outputs, never a human task's completer -- and never a FOREIGN SOURCE either: a graph that carries a
+write-like catalogue call carries no inline HTTP service task, no script-bound one and no sub-process, because such a node merges its
+own output into the same instance variables and could overwrite the value the call reads. The refusal is
+`:platform_call_foreign_source_refused`, at activation AND at dispatch (the dispatch guard re-checks the graph it is about to run).
 
 *Option B (rejected).* A new atom per definition class (`PlatformDefinitionsWrite`) needed to EDIT any definition in the platform
 tenant that contains a platform step. It blocks drawing and testing a draft and still needs the activation check.
@@ -47,13 +50,18 @@ tenant that contains a platform step. It blocks drawing and testing a draft and 
 
 **(d) The audit actor.** The lifecycle audit row carries the caller: the HTTP paths pass the caller's user id into the lifecycle
 functions, and a caller that is not a person (module code, a seed task) writes no actor. The reason REQ-195 gave for the `actor_id:
-nil` disposition (its AC11 forbade touching the definitions router) has lapsed; the router now supplies the actor, and the disposition
-survives for the non-HTTP callers only.
+nil` disposition (its AC11 forbade touching the definitions router) has lapsed; the router now supplies the actor. The row ALSO carries
+the KIND of the actor in the new tenant-scoped column `audit_entries.actor_kind` -- `user` or `system` -- so that "nobody" and "the
+system" are told apart BY THE ROW and not only by a `nil` actor id (the column is not part of REQ-195's canonical hashed form: the
+chain keeps its eleven fields, and the table's own immutability trigger keeps the kind from being edited afterwards).
 
 **(e) How a definition that calls a platform function is started.** The START PERMISSION of a definition is the catalogue permission of
 the entries its steps call, and the ONE start function (`Letflow.Engine.create/2`) checks it: the start variables of such a definition
 are trusted inputs, so the start needs the same authority the activation does. A caller without it, and every caller outside the
-platform tenant, gets the answer for an UNKNOWN definition (INV-5) and starts nothing.
+platform tenant, gets the answer for an UNKNOWN definition (INV-5) and starts nothing. The SUB_PROCESS children a definition starts
+count with it: a child inherits the parent's start variables, so a child that calls a platform function needs the same authority as a
+direct start. Until the server-side caller is propagated to a child's own activation (gap G3/G17), a child that carries a platform call
+is REFUSED at its activation -- fail closed, with the answer for an unknown definition.
 
 ## Choice and reasons
 
@@ -69,8 +77,9 @@ activation flags the row `needs_reactivation` (REQ-515's existing path).
 | `lib/letflow/platform_functions/entry.ex` | the entry shape: typed inputs with a source class, typed outputs, the permission, the side effects, the idempotency key, the platform-tenant flag |
 | `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules` |
 | `lib/letflow/platform_functions/guard.ex` | the RUN-TIME fence: the tenant (INV-10), the catalogue entry, the signature, and the activator's CURRENT permission (a loss flags the row `needs_reactivation`) |
-| `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, the entry, the activator's permission, the argument shape, the input source classes |
-| `lib/letflow/definitions/start_permission.ex` | the START permission of a definition, derived from its entries |
+| `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |
+| `lib/letflow/definitions/start_permission.ex` | the START permission of a definition, derived from its entries and from the entries of the SUB_PROCESS children it starts |
+| `lib/letflow/audit.ex`, `lib/letflow/audit/entry.ex` | the `actor_kind` of an audit row: `user` against `system` |
 | `lib/letflow/routers/platform_functions.ex` | the read route `GET /api/v1/platform-functions` (`:TenantsManage`); the only route the catalogue has |
 | `lib/letflow/engine/write_targets.ex` | the read keys of a catalogue call join the write-target keys: a completion body may not carry them (the T-2430 rule, extended) |
 
@@ -84,8 +93,13 @@ call -- and never under the name of the CALLER's idempotency key: that key belon
 ## The one code a company tenant ever sees
 
 A company tenant may not carry a `platform_call` step at all. Every path that touches such a definition -- the write path of a draft
-(and therefore the import), the designer's validate route, the activation, the promotion -- answers `:platform_call_not_allowed`, the
-same answer whether the function exists or not. A stranger may not learn which platform functions exist (INV-5).
+(and therefore the import), the UPDATE path (PUT and PATCH), the designer's validate route, the activation, the promotion -- answers
+`:platform_call_not_allowed`, the same answer whether the function exists or not, and the same 422 at the HTTP surface. A stranger may
+not learn which platform functions exist (INV-5).
+
+The rule is checked where the graph is written, and a SCAN TEST (`test/letflow/definitions/platform_call_write_paths_scan_test.exs`)
+lists every entry point that writes a definition row and fails when a new one appears without the check -- so "one path forgotten" cannot
+come back.
 
 ## Tests
 
@@ -99,13 +113,19 @@ same answer whether the function exists or not. A stranger may not learn which p
 | S13 | run-time catalogue tampering | `test/letflow/api/platform_catalogue_has_no_write_route_test.exs`: the route inventory holds one GET under the catalogue's mount and no write method |
 | S13 (read route) | a company tenant learns which platform functions exist | `test/letflow/routers/platform_functions_test.exs`: the platform admin of the platform tenant reads the catalogue; a company administrator and a company tenant whose stored token still carries `PLATFORM_ADMIN` are refused the uniform 403, and the refusal names no function |
 | catalogue shape | an entry drifts from the contract the designer reads | `test/letflow/platform_functions/catalog_test.exs`: the compiled chain, the platform atom, the platform-tenant flag and the EXACT key set of the entry map |
+| S3 (the write paths) | a company tenant PUTs or PATCHes a platform call into a draft | `test/letflow/definitions/platform_call_write_path_refused_test.exs`: create, PUT and PATCH answer the one fixed code (422) and store nothing |
+| S2 (the foreign sources) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: the activation refuses the graph, and the dispatch guard refuses it too |
+| the start of a parent | a platform PROCESS_OPERATOR starts a parent whose sub-process child calls `tenant.create` | `test/letflow/engine/platform_call_subprocess_start_refused_test.exs`: the answer for an unknown definition, nothing written; the child's own activation fails closed |
+| S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system` |
+| "one path forgotten" | a new definition write path skips the platform-call check | `test/letflow/definitions/platform_call_write_paths_scan_test.exs`: every entry point is classified and reaches the check its class demands |
 
 ## Residual risks, stated plainly
 
 * A stolen `PLATFORM_ADMIN` session can do everything the platform admin can, now also through a definition. The audit actor and the
   signed activator make it VISIBLE; they do not prevent it.
-* The `actor_kind` column of the audit table ("nobody" against "the system") is not part of this change: the table is tenant-scoped
-  and immutable, and adding a column to it is a separate migration. Until then a `nil` actor means "no human caller".
+* A SUB_PROCESS child that calls a platform function is refused outright until the server-side caller is propagated to the child's own
+  activation (gap G3/G17). The parent's start already refuses a caller without the entry's permission, so the child is unreachable for
+  the wrong caller; what the refusal costs today is that a platform admin cannot use such a child either.
 * A `platform_call` step runs nowhere yet: the step library (gap G1) owns the dispatcher. A definition that carries one starts, and its
   instance stops at that step with the ordinary "no route" failure -- no platform code is reached.
 * The start permission is DERIVED from the definition's catalogue calls. An explicit per-definition `start_permission` (a column) comes

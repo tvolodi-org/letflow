@@ -275,7 +275,7 @@ defmodule Letflow.TenantHostsTest do
       on_exit(fn ->
         Repo.query!(~s"""
         CREATE TABLE IF NOT EXISTS "#{t.schema_name}".audit_entries (
-          id uuid PRIMARY KEY, tenant_id uuid NOT NULL, actor_id uuid, action text NOT NULL,
+          id uuid PRIMARY KEY, tenant_id uuid NOT NULL, actor_id uuid, actor_kind text, action text NOT NULL,
           resource_type text NOT NULL, resource_id text NOT NULL,
           "timestamp" timestamp(6) without time zone NOT NULL, before_state jsonb, after_state jsonb,
           trace_id text, chain_hash text NOT NULL, prev_chain_hash text,

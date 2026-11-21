@@ -298,6 +298,9 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call` step
+          # (the UPDATE path runs the same rule the create path does).
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
           # GH #2590 / REQ-501 R2: the row is a module-shipped, stamped version (409).
           | {:error, :module_owned_definition}
           | {:error, variable_schema_error()}
@@ -1827,7 +1830,7 @@ defmodule Letflow.Definitions do
          {:ok, uuid} <- cast_update_id(id),
          :ok <- validate_update_name(attrs),
          :ok <- validate_update_version(attrs),
-         :ok <- validate_update_graph(attrs) do
+         :ok <- validate_update_graph(attrs, prefix) do
       run_update(uuid, prefix, build_update_set(attrs), Map.get(attrs, :variable_schemas))
     end
   end
@@ -1849,14 +1852,20 @@ defmodule Letflow.Definitions do
       else: :ok
   end
 
-  defp validate_update_graph(attrs) do
+  # T-2588 (pilot gap G2): the UPDATE path (PUT and PATCH) writes a graph like
+  # create/2 does, so it runs the SAME company-tenant rule: a company tenant may
+  # not carry a `platform_call` step, and the answer is the one fixed code
+  # `:platform_call_not_allowed`. Without this check a company TENANT_ADMIN
+  # could PUT a `platform_call` graph into a DRAFT and store it.
+  defp validate_update_graph(attrs, prefix) do
     if Map.has_key?(attrs, :graph) do
       with {:ok, graph_map} <- fetch_graph_map(attrs),
            {:ok, graph} <- convert_graph(graph_map),
            :ok <- check_graph_result(Graph.validate_graph(graph)),
            :ok <- check_graph_result(Graph.validate_node_attributes(graph)),
            :ok <- check_graph_result(Graph.validate_edge_conditions(graph)),
-           :ok <- check_graph_result(Graph.validate_flow(graph)) do
+           :ok <- check_graph_result(Graph.validate_flow(graph)),
+           :ok <- check_platform_call_tenant(graph, prefix) do
         :ok
       end
     else

@@ -51,25 +51,40 @@ defmodule Letflow.Definitions.StartPermission do
   `:roles`); nil when the caller is not an HTTP principal (module code, a
   sub-process child), which may not start a definition that calls a platform
   function.
+
+  `children` are the SUB_PROCESS child definitions the definition starts: a
+  child inherits the parent's start variables, so it needs the same authority
+  as a direct start. A child that calls a platform function therefore holds the
+  parent's start to the same permission.
   """
-  @spec check(map() | term(), map() | nil) :: :ok | {:error, :not_found}
-  def check(definition, auth_context) when is_map(definition) do
-    case required_permission_atoms(definition) do
+  @spec check(map() | term(), map() | nil, [map()]) :: :ok | {:error, :not_found}
+  def check(definition, auth_context, children \\ [])
+
+  def check(definition, auth_context, children) when is_map(definition) do
+    case required_permission_atoms(definition, children) do
       [] -> :ok
       required -> authorize(auth_context, required)
     end
   end
 
-  def check(_definition, _auth_context), do: :ok
+  def check(_definition, _auth_context, _children), do: :ok
 
-  defp required_permission_atoms(%{graph: graph_map}) do
-    case Graph.from_map(graph_map) do
-      {:ok, graph} -> required(graph)
-      :error -> []
-    end
+  defp required_permission_atoms(%{graph: graph_map}, children) do
+    own =
+      case Graph.from_map(graph_map) do
+        {:ok, graph} -> required(graph)
+        :error -> []
+      end
+
+    from_children =
+      children
+      |> Enum.flat_map(fn child -> required_permission_atoms(child, []) end)
+      |> Enum.uniq()
+
+    Enum.uniq(own ++ from_children)
   end
 
-  defp required_permission_atoms(_definition), do: []
+  defp required_permission_atoms(_definition, _children), do: []
 
   defp authorize(nil, _required), do: {:error, :not_found}
 

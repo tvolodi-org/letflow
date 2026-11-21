@@ -67,6 +67,18 @@ defmodule Letflow.Definitions.PlatformCalls do
   # a platform function instead of an HTTP endpoint or a Lua script.
   @node_types [:SERVICE_TASK]
 
+  # The node kinds that merge a value into the instance variables from OUTSIDE
+  # the graph's own trusted inputs: an inline HTTP service task, a script-bound
+  # service task, a sub-process (the child's completion output). A write-like
+  # catalogue call reads its arguments from the start variables or from an
+  # earlier platform step's output, so a foreign source in the same graph could
+  # overwrite the value the call reads -- a source the T-2430 rule (which
+  # compares the HUMAN TASK completer inputs) cannot see. The rule has the same
+  # shape as the `module_writes` one (T-2444, `write_target_sources_scan_test`
+  # WTS-4): "a service, script or sub-process node would add a source
+  # `WriteTargets` cannot see".
+  @foreign_source_types [:SERVICE_TASK, :SUB_PROCESS]
+
   @typedoc "One violation inside a node: a stable code."
   @type violation :: %{index: non_neg_integer(), code: atom()}
 
@@ -139,6 +151,34 @@ defmodule Letflow.Definitions.PlatformCalls do
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  @doc """
+  True when the graph carries a FOREIGN SOURCE (an inline HTTP service task, a
+  script-bound one or a sub-process) next to a WRITE-LIKE catalogue call.
+
+  The dispatch-time twin of the activation refusal: the instance variables a
+  running graph holds may already have been overwritten by such a node, so the
+  call is refused before it runs. A read-like catalogue call is not affected --
+  it reads nothing the platform writes.
+  """
+  @spec foreign_source_graph?(Graph.t() | [Graph.Node.t()] | term()) :: boolean()
+  def foreign_source_graph?(%Graph{nodes: nodes}) when is_list(nodes),
+    do: write_like_call?(nodes) and foreign_source?(nodes)
+
+  def foreign_source_graph?(nodes) when is_list(nodes),
+    do: write_like_call?(nodes) and foreign_source?(nodes)
+
+  def foreign_source_graph?(_other), do: false
+
+  @doc """
+  True when the graph declares at least one `platform_call` step.
+  """
+  @spec declares_call?(Graph.t() | [Graph.Node.t()] | term()) :: boolean()
+  def declares_call?(%Graph{nodes: nodes}) when is_list(nodes),
+    do: declared_nodes(nodes) != []
+
+  def declares_call?(nodes) when is_list(nodes), do: declared_nodes(nodes) != []
+  def declares_call?(_other), do: false
 
   @doc """
   The permission atoms the declared steps require of the person who STARTS an
@@ -271,19 +311,59 @@ defmodule Letflow.Definitions.PlatformCalls do
   # write: such a variable would let a person decide what the platform
   # function writes. The refusal is reported at activation, so the graph never
   # reaches a state where the engine has to refuse it at run time.
+  #
+  # The FOREIGN SOURCE rule (the same rule by source class, one step further):
+  # a write-like entry also reads no variable a node outside the graph's own
+  # trusted inputs may write. An inline HTTP service task, a script-bound one
+  # and a sub-process all merge their own output into the same instance
+  # variables, so they can overwrite the value the catalogue call reads -- a
+  # source the human-task comparison above cannot see. A graph that carries a
+  # write-like catalogue call therefore carries no foreign source at all.
   defp source_violations(entry, call, nodes) do
     if Entry.write_like?(entry) do
       completer_writable = completer_writable_keys(nodes)
 
-      if Enum.any?(trusted_vars(call), &(&1 in completer_writable)) do
-        [%{index: 0, code: :platform_call_input_source_refused}]
-      else
-        []
+      cond do
+        foreign_source?(nodes) ->
+          [%{index: 0, code: :platform_call_foreign_source_refused}]
+
+        Enum.any?(trusted_vars(call), &(&1 in completer_writable)) ->
+          [%{index: 0, code: :platform_call_input_source_refused}]
+
+        true ->
+          []
       end
     else
       []
     end
   end
+
+  # True when the graph carries a node that merges a value into the instance
+  # variables from outside its own trusted inputs. The `platform_call` step
+  # itself is a SERVICE_TASK, so a node that DECLARES a platform call is not a
+  # foreign source.
+  defp foreign_source?(nodes) do
+    Enum.any?(nodes, fn node ->
+      node.node_type in @foreign_source_types and not declares_platform_call?(node)
+    end)
+  end
+
+  # True when the graph declares a WRITE-LIKE catalogue call.
+  defp write_like_call?(nodes) do
+    nodes
+    |> declared_nodes()
+    |> Enum.any?(fn {_node, call} ->
+      case entry(call) do
+        {:ok, entry} -> Entry.write_like?(entry)
+        {:error, _reason} -> false
+      end
+    end)
+  end
+
+  defp declares_platform_call?(%Graph.Node{attributes: attributes}) when is_map(attributes),
+    do: Map.has_key?(attributes, @attribute) and Map.get(attributes, @attribute) != nil
+
+  defp declares_platform_call?(_node), do: false
 
   # The variable names a human task of the graph may write: the `completer_inputs`
   # list and the `form_schema` properties of every HUMAN_TASK node.

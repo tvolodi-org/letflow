@@ -841,6 +841,12 @@ defmodule Letflow.Routers.Definitions do
   defp render_write(conn, {:error, {:unknown_schema_version, _actual}}, :created),
     do: Response.unprocessable(conn, "unknown bpm_export_schema_version")
 
+  # T-2588 (pilot gap G2): a company tenant's `platform_call` step is refused
+  # with the ONE fixed code on every write path (create, PUT, PATCH, import) --
+  # the same 422 the activation and the promotion answer, never a 500.
+  defp render_write(conn, {:error, {:platform_calls_invalid, violations}}, _success_status),
+    do: Response.platform_calls_invalid(conn, violations)
+
   defp render_write(conn, {:error, :not_found}, _success_status), do: Response.not_found(conn)
 
   defp render_write(conn, {:error, :not_draft}, _success_status),

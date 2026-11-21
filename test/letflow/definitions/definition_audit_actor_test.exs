@@ -20,6 +20,8 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
   use Letflow.DataCase, async: false
 
   import Ecto.Query
+  import Plug.Conn
+  import Plug.Test
 
   alias Letflow.Audit
   alias Letflow.Definitions
@@ -65,6 +67,7 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
 
     assert [entry] = rows(ctx.tenant.schema_name, "definition.create")
     assert entry.actor_id == ctx.user.id
+    assert entry.actor_kind == "user"
     assert entry.resource_id == definition.id
   end
 
@@ -105,9 +108,11 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
 
     assert [deprecate] = rows(ctx.tenant.schema_name, "definition.deprecate")
     assert deprecate.actor_id == ctx.user.id
+    assert deprecate.actor_kind == "user"
 
     assert [archive] = rows(ctx.tenant.schema_name, "definition.archive")
     assert archive.actor_id == ctx.user.id
+    assert archive.actor_kind == "user"
   end
 
   test "the activation row carries the activator", ctx do
@@ -149,6 +154,8 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
 
     assert [entry] = rows(ctx.tenant.schema_name, "definition.create")
     assert entry.actor_id == nil
+    # D-179 (d): "nobody" and "the system" are told apart by the row itself.
+    assert entry.actor_kind == "system"
   end
 
   test "an actor that is not a UUID is read as nil, not as a crash (INV-8)", ctx do
@@ -166,5 +173,34 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
 
     assert [entry] = rows(ctx.tenant.schema_name, "definition.create")
     assert entry.actor_id == nil
+    # An actor that cannot be resolved to a person is not a person: the row
+    # says so rather than leaving the kind empty.
+    assert entry.actor_kind == "system"
+  end
+
+  test "an HTTP lifecycle route writes the caller's kind (S11)", ctx do
+    body = %{
+      "name" => "pcf-audit-http",
+      "version" => "1",
+      "graph" => trivial_graph()
+    }
+
+    conn =
+      conn("POST", "/")
+      |> Map.put(:body_params, body)
+      |> put_req_header("content-type", "application/json")
+      |> assign(:auth_context, %{
+        user_id: ctx.user.id,
+        tenant_id: ctx.tenant.tenant_id,
+        roles: ["TENANT_ADMIN"]
+      })
+      |> assign(:trace_id, "fixed-test-trace-id")
+      |> Letflow.Routers.Definitions.call(Letflow.Routers.Definitions.init([]))
+
+    assert conn.status == 201
+
+    assert [entry] = rows(ctx.tenant.schema_name, "definition.create")
+    assert entry.actor_id == ctx.user.id
+    assert entry.actor_kind == "user"
   end
 end

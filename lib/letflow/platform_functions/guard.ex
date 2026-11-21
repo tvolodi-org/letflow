@@ -22,6 +22,10 @@ defmodule Letflow.PlatformFunctions.Guard do
       entry's permission. The definition is marked `needs_reactivation` where
       the loss is discovered, so the existing reactivation path (REQ-515) heals
       it.
+    * `:platform_call_foreign_source_refused` -- the graph carries a node that
+      merges a value from outside its own trusted inputs (an inline HTTP
+      service task, a script-bound one, a sub-process) next to the write-like
+      catalogue call, so the value the call reads may have been overwritten.
 
   ## What it does NOT do
 
@@ -34,6 +38,8 @@ defmodule Letflow.PlatformFunctions.Guard do
 
   alias Letflow.Api.Authorization
   alias Letflow.Definitions.ActivatedBy
+  alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.Reactivation
   alias Letflow.Identity
   alias Letflow.PlatformFunctions.Catalog
@@ -46,6 +52,7 @@ defmodule Letflow.PlatformFunctions.Guard do
           | :platform_call_signature_invalid
           | :platform_call_permission_required
           | :platform_call_needs_reactivation
+          | :platform_call_foreign_source_refused
 
   @doc """
   The authority of one platform call, as `:ok` or `{:error, refusal}`.
@@ -69,6 +76,7 @@ defmodule Letflow.PlatformFunctions.Guard do
 
     with :ok <- check_tenant(prefix, tenant_id),
          {:ok, entry} <- check_function(function),
+         :ok <- check_foreign_sources(definition),
          :ok <- check_signature(definition, prefix),
          :ok <- check_permission(definition, entry, prefix) do
       :ok
@@ -92,6 +100,33 @@ defmodule Letflow.PlatformFunctions.Guard do
   end
 
   defp check_function(_function), do: {:error, :platform_call_function_unknown}
+
+  # The graph the call belongs to may carry a FOREIGN SOURCE (an inline HTTP
+  # service task, a script-bound one, a sub-process) next to the write-like
+  # catalogue call: such a node merges its own output into the same instance
+  # variables and can overwrite the value the call reads. The activation fence
+  # refuses such a graph; this is the dispatch-time twin of that refusal.
+  defp check_foreign_sources(definition) when is_map(definition) do
+    case Map.get(definition, :graph) do
+      graph_map when is_map(graph_map) ->
+        case Graph.from_map(graph_map) do
+          {:ok, %Graph{nodes: nodes}} ->
+            if PlatformCalls.foreign_source_graph?(nodes) do
+              {:error, :platform_call_foreign_source_refused}
+            else
+              :ok
+            end
+
+          _not_a_graph ->
+            :ok
+        end
+
+      _no_graph ->
+        :ok
+    end
+  end
+
+  defp check_foreign_sources(_definition), do: :ok
 
   defp check_signature(definition, prefix) when is_map(definition) do
     case ActivatedBy.verify(Map.get(definition, :activated_by), definition, prefix) do
