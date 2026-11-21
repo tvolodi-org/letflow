@@ -23,4 +23,4 @@ export const NAV_ROLE_PERMISSIONS = {
 export type NavRole = keyof typeof NAV_ROLE_PERMISSIONS
 
 /** Module ids the tenant of the role screens has installed (all registered modules). */
-export const ALL_MODULE_IDS = ['exam', 'org', 'locations', 'codes', 'catalog_items', 'stock', 'assets']
+export const ALL_MODULE_IDS = ['exam', 'org', 'locations', 'codes', 'catalog_items', 'stock', 'assets', 'maintenance']
