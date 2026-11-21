@@ -1803,7 +1803,12 @@
     "preconditions": [
       "a stock document issued with a pending Post task"
     ],
-    "inputs": [],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
     "outputs": [],
     "refusals": [
       "422 output_refused on a write-target key",
@@ -1818,6 +1823,7 @@
         "forms": [],
         "functions": [
           "stock_receipt/post",
+          "stock_issue/post",
           "stock.post_document"
         ],
         "route": [
@@ -1833,7 +1839,20 @@
         "result": "completion with a write-target key in the body: 422 output_refused; POST /instances for a module definition: refused as unknown; balance and document unchanged"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-09-crafted-completion-start-refused.json",
+    "dry_run": {
+      "tenant": "sss-rehearsal2",
+      "actors": {
+        "admin": "sss-rehearsal2-admin",
+        "storekeeper": "sss-rehearsal2-storekeeper"
+      },
+      "inputs": {
+        "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+        "place": "925d46bf-af76-4940-867d-9f4521536767",
+        "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+        "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+      }
+    }
   },
   {
     "id": "BP-STOCK-20",
