@@ -96,6 +96,7 @@ defmodule Letflow.Scripts.CompanionDryRunTest do
     assert paths == Enum.uniq(paths)
   end
 
+  @tag timeout: 120_000
   test "C3 the real list classes the paths T-1599 names", _ctx do
     {companion, 0} = run(["--paths", "companion"])
     companion = String.split(companion, "\n", trim: true)

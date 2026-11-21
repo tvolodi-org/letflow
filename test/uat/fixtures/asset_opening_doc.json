@@ -1,0 +1,51 @@
+{
+  "id": "asset_opening_doc",
+  "description": "A DRAFT opening document with one line for the fixture asset card, marked UAT-FIX-asset_opening_doc-<tenant> in its external reference (one live opening header may hold a reference pair, so a second run finds it). It gives the security cases a document id of the tenant that they can name in crafted requests; it is never issued.",
+  "leaves": "A draft that was created by this run is discarded by the cleanup (DELETE on the draft), nothing stays. If the discard is refused (the draft was issued by a case), an opening draft with the reference UAT-FIX-asset_opening_doc-<tenant> stays; it can be discarded by hand.",
+  "needs": ["asset_card"],
+  "inputs": ["org_unit", "location", "responsible"],
+  "provides": ["asset_doc_id"],
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {"entity_type": "assets_opening", "filters": [{"field": "external_ref_id", "op": "eq", "value": "UAT-FIX-asset_opening_doc-${tenant}"}]}
+      },
+      "expect": {"status": 200},
+      "save": {"asset_doc_id": {"pick": "$.items[0].field_values.document_id", "optional": true}}
+    },
+    {
+      "id": "f2",
+      "actor": "admin",
+      "skip_if": ["asset_doc_id"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/assets/documents",
+        "body": {
+          "kind": "opening",
+          "org_unit_id": "${org_unit}",
+          "note": "UAT fixture opening document ${run_id}",
+          "external_ref_system": "UAT-FIX",
+          "external_ref_id": "UAT-FIX-asset_opening_doc-${tenant}",
+          "lines": [
+            {"asset_id": "${asset_card_id}", "location_id": "${location}", "material_responsible_id": "${responsible}", "quantity": "1"}
+          ]
+        }
+      },
+      "expect": {"status": 201, "json": {"kind": "opening", "state": "draft"}},
+      "save": {"asset_doc_id": "$.id", "asset_doc_created": "yes"}
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["asset_doc_created"],
+      "do": {"api": "DELETE", "path": "/api/v1/modules/assets/documents/${asset_doc_id}"},
+      "expect": {"status": [204, 404, 409, 422]}
+    }
+  ]
+}

@@ -13,6 +13,7 @@ What is here:
 | `check_processes.py` | the static check of process and chain files (no network) |
 | `../../test/uat/processes/*.json` | the process files (one business process each), for example `BP-01-receive-goods.json` |
 | `../../test/uat/chains/*.json` | the chain files (an ordered list of processes) |
+| `../../test/uat/fixtures/*.json` | the fixture files (records a process needs to exist: section 2a) |
 | `tests/` | the tests, with a fake server |
 
 The sections 1 to 4 are for the **business analyst**: how to describe a process so that the runner can play it.
@@ -173,6 +174,48 @@ A **chain file** lists processes in order. The outputs of a process become the i
   it finished. So `BP-05` can still reverse the document of `BP-01`, and `BP-01`'s own cleanup then finds it already
   reversed: give such a cleanup step a tolerant `expect` (`{"status": [200, 409, 422]}`) or leave the undo to the
   later process. Cleanup of the processes that already ran always happens, also after a failure.
+
+---
+
+## 2a. Fixtures (records a process needs to exist)
+
+Some cases (the security negatives of assets, for example) need a record that does not exist on a QA tenant: an
+asset card, an opening document. A **fixture** is a small reusable file that makes it. A process (or a chain)
+names the fixtures it needs: `"fixtures": ["asset_opening_doc"]`.
+
+* The runner runs the fixtures **before** the steps, once per run (a fixture named by two processes runs once),
+  in the order given, after the fixtures they `need`. They share the context: what a fixture `provides` (for
+  example `asset_card_id`, `asset_doc_id`) can be used as `${asset_card_id}` by the processes and is in `context.json`.
+* Their cleanup runs **after** every process cleanup, in reverse order, always (also after a failure).
+* An unknown fixture name is exit 2 before anything runs; `check_processes.py` checks the names, that every
+  `${name}` is provided by a fixture or an input, and the fixture files themselves.
+
+A fixture file is process-like (`steps`, `cleanup`, `inputs`, the same step kinds), plus:
+
+| key | meaning |
+|---|---|
+| `id` | the file name without `.json` |
+| `description` | what it makes |
+| `leaves` | what stays on the tenant if the cleanup cannot remove it (for example a retired card) |
+| `provides` | the context names it saves (each must be saved by a step) |
+| `needs` | fixtures that run before it (optional) |
+| `inputs` | ids it needs from outside (the person who runs gives them with `--input`) |
+
+**Rules for writing one** (idempotent, self-cleaning):
+
+1. **Look first.** Step 1 looks for the record by a deterministic reference, for example the external reference
+   `UAT-FIX-<name>-${tenant}`, and saves the id with `"save": {"x_id": {"pick": "$.items[0].record_id", "optional": true}}`
+   (`optional`: nothing found leaves the name unset instead of failing).
+2. **Create only if not found:** the create step has `"skip_if": ["x_id"]` (skipped when the name is already set)
+   and saves the id plus a mark: `"save": {"x_id": "$.record_id", "x_created": "yes"}`.
+3. **Remove only what you created:** every cleanup step has `"requires": ["x_created"]`. A record that was found
+   (made by an earlier run) is never touched. `check_processes.py` fails a fixture cleanup step with no `requires`.
+4. Mark everything you create with the same reference, so a human can recognise it; say in `leaves` what stays.
+5. Never read or write a record that is not yours.
+
+Shipped: `asset_card` (provides `asset_card_id`; a minimal fixed-asset card without photo) and `asset_opening_doc`
+(needs `asset_card`; inputs `org_unit`, `location`, `responsible`; provides `asset_doc_id`; a draft opening document
+with one line, never issued). Run them on QA with real tokens like any process.
 
 ---
 
@@ -350,7 +393,7 @@ How to run the RC:
 `expect_repeat`, `save`, `requires`, `http_as`. `do` is exactly one of: `{api, path, body?, headers?}`,
 `{wait_task: {for_document, step, within_s?, interval_s?}, claim?, complete?: {body}}`, `{assert_only: {path, headers?}}`,
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
-`actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?}`, `{api, path, pick}`, `{secret: path}`
+`actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
 parentheses in decimal arithmetic. A string that is only `${name}` keeps the type of the value. `outputs` are
 evaluated right after the steps, so they may use names saved by steps (not by cleanup steps).
@@ -365,6 +408,7 @@ python3 -B -m unittest -v scripts/uat/tests/test_chain.py           # chains, cl
 python3 -B -m unittest -v scripts/uat/tests/test_issues.py          # --file-issues with a fake gh
 python3 -B -m unittest -v scripts/uat/tests/test_check_processes.py # the static check
 python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py          # dry-run --changed in a temp git repository
+python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: order, idempotent reuse, cleanup, static check
 ```
 
 `tests/fakes.py` is the shared fake: an HTTP server (a thread) with the stock routes BP-01 needs, the shared access
