@@ -251,6 +251,9 @@ defmodule Letflow.Plugs.ApiPipeline do
 
   forward("/instances", to: Letflow.Routers.Instances)
   forward("/definitions", to: Letflow.Routers.Definitions)
+  # T-2588 (pilot gap G2): the COMPILED platform function catalogue, read only.
+  # There is no write route: an entry exists only if it is compiled into the build.
+  forward("/platform-functions", to: Letflow.Routers.PlatformFunctions)
   forward("/tasks", to: Letflow.Routers.Tasks)
   forward("/documents", to: Letflow.Routers.Documents)
   forward("/promotions", to: Letflow.Routers.Promotions)

@@ -595,6 +595,8 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"GET", "/event-retention/summary"},
     {"POST", "/event-retention/retirements"},
     {"GET", "/event-retention/retirements/:id"},
+    # T-2588 (pilot gap G2): the COMPILED platform function catalogue, read only.
+    {"GET", "/platform-functions"},
     {"GET", "/admin/services"},
     {"POST", "/admin/services"},
     {"PATCH", "/admin/services/:service_id"},
@@ -604,13 +606,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 41 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 42 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 41
+      assert length(@platform_routes) == 42
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 

@@ -36,7 +36,10 @@ defmodule Letflow.Definitions.Reactivation do
   alias Letflow.TenantProvisioning
 
   @type reason ::
-          :activator_absent | :activator_deactivated | :activator_lost_entities_records_write
+          :activator_absent
+          | :activator_deactivated
+          | :activator_lost_entities_records_write
+          | :activator_lost_catalogue_permission
 
   @doc """
   Marks every ACTIVE, un-flagged definition of tenant schema `prefix` whose recorded activator
@@ -52,6 +55,43 @@ defmodule Letflow.Definitions.Reactivation do
     else
       :error -> {:error, :invalid_user_id}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Marks the ACTIVE definition `id` `needs_reactivation` with `reason`, when it is
+  not flagged already. Idempotent: an already flagged row keeps its first reason.
+
+  T-2588 (pilot gap G2): the platform-call authority rule discovers a lost
+  permission where the call would run, not where the role binding changed, so
+  this is the writer the run-time guard uses. The reason set stays closed.
+  """
+  @spec mark_definition(Ecto.UUID.t() | String.t(), reason(), String.t()) ::
+          {:ok, [Ecto.UUID.t()]} | {:error, term()}
+  def mark_definition(id, reason, prefix) when is_binary(prefix) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      Repo.transaction(fn ->
+        row =
+          ProcessDefinition
+          |> where(
+            [d],
+            d.id == ^uuid and d.status == :active and is_nil(d.needs_reactivation_at)
+          )
+          |> lock("FOR UPDATE")
+          |> Repo.one(prefix: prefix)
+
+        case row do
+          nil -> []
+          found -> [mark_row!(found, reason, tenant_id, prefix)]
+        end
+      end)
+      |> case do
+        {:ok, ids} -> {:ok, ids}
+        {:error, error} -> {:error, error}
+      end
+    else
+      :error -> {:error, :invalid_definition_id}
     end
   end
 

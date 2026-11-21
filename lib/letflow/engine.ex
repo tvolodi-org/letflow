@@ -520,6 +520,7 @@ defmodule Letflow.Engine do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.SnapshotStore
+  alias Letflow.Definitions.StartPermission
   alias Letflow.Engine.Contention
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ExecutionError
@@ -578,7 +579,11 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type opts :: [prefix: String.t(), module_start: boolean()]
+  # `auth_context` is the server-side request context of the caller (T-2588,
+  # pilot gap G2): a definition that calls a platform function may be started
+  # only by a holder of the entry's permission, and the check needs the
+  # caller's roles and tenant.
+  @type opts :: [prefix: String.t(), module_start: boolean(), auth_context: map() | nil]
 
   @type create_error ::
           {:error, :tenant_id_not_accepted}
@@ -868,6 +873,7 @@ defmodule Letflow.Engine do
     |> Definitions.get_by_id(opts)
     |> gate_uninstalled_owner(opts)
     |> gate_module_only_start(opts)
+    |> gate_start_permission(opts)
     |> interpret_definition_lookup()
   end
 
@@ -876,6 +882,7 @@ defmodule Letflow.Engine do
     |> Definitions.get_active_by_name(opts)
     |> gate_uninstalled_owner(opts)
     |> gate_module_only_start(opts)
+    |> gate_start_permission(opts)
     |> interpret_definition_lookup()
   end
 
@@ -915,6 +922,27 @@ defmodule Letflow.Engine do
   end
 
   defp gate_module_only_start(lookup, _opts), do: lookup
+
+  # T-2588 (pilot gap G2; decision record
+  # docs/migration/decisions/0094-platform-call-authority.md, decision (e)): a definition
+  # that calls a platform function reads TRUSTED inputs from the start variables, so it
+  # may be started only by a caller that holds the entry's permission (`:TenantsManage`
+  # for the tenant family), in the platform tenant. Everybody else -- a company tenant's
+  # administrator, a platform user without the permission -- gets the answer for an
+  # UNKNOWN definition (INV-5), before the status case; the cause goes to the server log
+  # only. A definition with no platform call starts exactly as before.
+  defp gate_start_permission({:ok, definition} = found, opts) do
+    case StartPermission.check(definition, Keyword.get(opts, :auth_context)) do
+      :ok ->
+        found
+
+      {:error, :not_found} ->
+        Logger.info("start refused: start permission definition_id=#{definition.id}")
+        {:error, :not_found}
+    end
+  end
+
+  defp gate_start_permission(lookup, _opts), do: lookup
 
   defp interpret_definition_lookup({:ok, definition}) do
     case definition do

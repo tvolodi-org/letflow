@@ -286,6 +286,8 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_downstream_only
             | :expression_references_reserved_variable
             | :extension_site_unknown_node
+            # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call`.
+            | :platform_call_not_allowed
 
     @type t :: %__MODULE__{
             code: code(),
@@ -1056,6 +1058,10 @@ defmodule Letflow.Definitions.Graph do
     # GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.2): a script binding is the third
     # alternative route; its own shape is CHK-10s below.
     |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
+    # T-2588 (pilot gap G2): a SERVICE_TASK bound to a platform function is a fourth
+    # route, next to the HTTP endpoint, the catalogue service and the Lua script: it
+    # carries no endpoint of its own.
+    |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") == nil))
     |> Enum.map(fn node ->
       %Violation{
         code: :missing_endpoint,
@@ -1099,7 +1105,8 @@ defmodule Letflow.Definitions.Graph do
 
       conflict =
         if blank_or_missing_string?(node.attributes, "endpoint") and
-             blank_or_missing_string?(node.attributes, "service_id") do
+             blank_or_missing_string?(node.attributes, "service_id") and
+             attribute_value(node.attributes, "platform_call") == nil do
           []
         else
           [
@@ -1107,7 +1114,7 @@ defmodule Letflow.Definitions.Graph do
               code: :conflicting_service_task_routes,
               message:
                 "Node '#{node.id}' (SERVICE_TASK) binds a script and also carries an " <>
-                  "'endpoint' or 'service_id'"
+                  "'endpoint', 'service_id' or 'platform_call'"
             }
           ]
         end
@@ -1157,7 +1164,12 @@ defmodule Letflow.Definitions.Graph do
     |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
     # GH 2534 PR 7c-1: a script-bound node ignores timeout_ms (the manifest's limits govern,
     # design 4.1), so CHK-11 does not apply to it.
-    |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
+    # T-2588 (pilot gap G2): a platform-call-bound node ignores it too: the call runs in
+    # the step library's own durable dispatcher, not in the request.
+    |> Enum.filter(
+      &(attribute_value(&1.attributes, "script_key") == nil and
+          attribute_value(&1.attributes, "platform_call") == nil)
+    )
     |> Enum.filter(&invalid_timeout?(&1.attributes))
     |> Enum.map(fn node ->
       value = attribute_value(node.attributes, "timeout_ms")

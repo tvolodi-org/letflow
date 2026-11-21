@@ -621,7 +621,11 @@ defmodule Letflow.Routers.Instances do
   ]
 
   defp handle_create(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2): the caller's auth_context reaches the ONE start function,
+    # which checks the definition's start permission (the catalogue permission of a
+    # `platform_call` step). A caller without it gets the answer for an unknown
+    # definition (INV-5).
+    opts = Keyword.put(conn.assigns.scoped_opts, :auth_context, conn.assigns.auth_context)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
