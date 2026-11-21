@@ -1,0 +1,129 @@
+# T-2441 (PM 2026-11-21). Run title: UAT onboarding-rehearsal. QA rehearsal tenant only, synthetic data, never production, never qoimeks-qa2, qoimeks-qa or qoimeks-client1-qa.
+# Purpose: the Excel load decides how Client 1's FIRST stock load runs. On the fresh tenant sss-rehearsal2 with the count rule Off (explicit since the proof walk, same effect as the D-165 default) the administrator checks and loads a prepared workbook, completes the load's approval alone, reads the balances, reverses the load, and the storekeeper is refused. Sibling of onboarding-rehearsal-1 and -2.
+# 1. Scope: sss-rehearsal2 (tenant slug, realm sss-rehearsal2, legal entity SSS 'SSS Rehearsal 2 LLC'; infra's statement of 2026-11-21). Never qoimeks-qa2, qoimeks-qa, qoimeks-client1-qa or sss-rehearsal.
+# 2. Actors: actor-sss-rehearsal2-admin (TENANT_ADMIN: StockWorkbookApply, StockApprove, StockRead, StockReverse) and actor-sss-rehearsal2-storekeeper (STOREKEEPER: no StockWorkbookApply, no StockApprove; docs/roles.md "Must not: load a balances workbook"; stock/access.ex permission(:workbook_apply); decision 0093). Both are in test/fixtures/uat/actors.yaml since T-2420; a live login is verified by acceptance (credentials in UAT_QA_ACTOR_SSS_REHEARSAL2_*_USER_*, none written here).
+# 3. Host and screens: https://sss-rehearsal2.letflow.qa.bizdala.com. Read on main: web/src/modules/stock/stockRoutes.tsx (admin/stock/workbook-import guarded by RequirePermission StockWorkbookApply, so the storekeeper gets PermissionDenied), web/src/modules/stock/register/BalancesPage.tsx (button "Stock workbook (Qoimeks layout)" always shown; button "Load balances from Excel" only with StockWorkbookApply), web/src/modules/stock/workbook/WorkbookImportPage.tsx and workbookMessages.ts, web/src/pages/tasks/taskMessages.ts (actions Approve / Reverse), lib/letflow/modules/stock/stock_workbook_import.ex (rules R1 to R12), lib/letflow/modules/stock/documents.ex workbook_apply (creates a stock_quick_count document, issues it, starts the approval; does NOT self-approve: only Documents.quick_count calls self_approve_count), docs/runbooks/stock-workbook-import.md ("Four eyes OFF").
+# 4. Data: ITEM1 (the item of the tenant, code read at run time) holds a positive quantity at WH1 (place, read at run time) as a PLAIN key: chosen org unit, no Responsible employee, no lot, base unit (otherwise rule R7 refuses the article and the load shows no change: then BLOCKED-by-environment, named so). A SECOND active item exists in the Items screen for the negative row (if not: that row's part is BLOCKED-by-environment; the item is made first by Import data, prepared outside). Record at the start the quantity of every Balances row (S0) and the number of pending tasks of the administrator (P0). No generator task is needed.
+# 5. Executable: browser steps by the runner's own script. The xlsx edit is "prepared outside the screens" (a script or a spreadsheet program of the walker, cells given below). Step 5 is API-driven and named so (a browser cannot send the body without the screen).
+# 6. Dry run: uat.sh preflight not run in this writing step (no acceptance credential source here); roster and scope are checked by the static check. Acceptance runs it once.
+# EXPECTATION CORRECTIONS: 3. (a) The task text allows "the load posts at once": on main the load does NOT post at once and has no self-approval; it leaves a pending approve task addressed to the administrator role, and with the count rule Off the loader (who holds StockApprove) completes it alone in My Tasks (runbook "Four eyes OFF"); the balances change only then. (b) A negative quantity is not refused as the whole file: rule R12 leaves out only that article (one remark, Russian text, its balance unchanged) and the other articles load. (c) The load screen's remarks are Russian in every language (hint stock.wb.result.remarksHint), so the remark text is read in Russian whatever the interface language.
+# Not UAT-observable: the posting counter and the ledger cause count_set (no screen); the 413 of an over-size body.
+---
+id: onboarding-rehearsal-3-excel-load-admin-and-storekeeper
+scope: sss-rehearsal2
+title: >-
+  The administrator loads a prepared Excel workbook on a tenant with the count rule Off, approves the load alone and reverses it, and the storekeeper is refused
+version: '1.0'
+tags:
+- onboarding
+- rehearsal
+- stock
+- workbook_import
+- excel_load
+- default_off
+- refusal
+- en
+- ru
+description: >-
+  Decision 0093 (StockApprove decides), owner decisions D-165 and D-164, REQ-884 (check), REQ-885 (load) and T-2239 (StockWorkbookApply for administrators only).
+  The administrator downloads the file "Stock workbook (Qoimeks layout)" from Balances and edits it outside the screens: ITEM1 at WH1 gets a new quantity,
+  a second item gets a NEGATIVE quantity (rule R12), and a row with an unknown article is added (rule R8). On the screen "Load balances from Excel" the check shows the
+  one change and the remarks; the load writes it as a document of the quick count kind and starts an approval. Two answers are possible by the code and ONE is right:
+  (A) the load posts at once - WRONG, the code does not do it, balances stay until approval; (B) the load leaves an approve task pending for the administrator and,
+  with the count rule Off, the loader completes it alone (no separation-of-duties refusal) - RIGHT. After that Balances equal the file for ITEM1 and the negative row's item is
+  unchanged. The administrator reverses the load (document Reverse, then completes the reversal task) and the balances return to S0. The storekeeper has no button, the screen shows
+  "no access" and the API answer is 403; nothing changes.
+actors:
+  admin: actor-sss-rehearsal2-admin
+  storekeeper: actor-sss-rehearsal2-storekeeper
+preconditions:
+- description: >-
+    The tenant sss-rehearsal2 (host https://sss-rehearsal2.letflow.qa.bizdala.com) exists with both logins; the count rule (quick count, step Approval) reads Off; ITEM1 holds a positive quantity at WH1 as a plain key; a second active item exists.
+  check: runner_prepared
+  detail: >-
+    If the rule reads On, if ITEM1's balance has a Responsible employee or a lot (rule R7), or a login is missing, every step is BLOCKED-by-environment. Nothing is switched to prepare it. Nobody else posts to the keys during the walk.
+steps:
+- step: 1
+  actor: admin
+  action: >-
+    The administrator signs in through the browser, opens Balances and records S0: item, place and quantity of every row, and P0, the pending tasks in My Tasks. The administrator presses "Stock workbook (Qoimeks layout)" / "Остатки для Excel (как в Qoimeks)" and saves the downloaded file.
+    The file is then PREPARED OUTSIDE THE SCREENS (a spreadsheet program or script of the walker; the screens do not edit it): the header row ("Артикул" in column A) stays; the walker keeps 3 to 5 data rows:
+    (a) the row of ITEM1 at WH1 with quantity (column C) set to S0 of that row plus 5; (b) a row of the SECOND item with column C = -1 and its place unchanged; (c) a row with an article that exists in no catalog (for example NOSUCHITEM-UAT), name and quantity 1, place WH1.
+    The walker records the exact cells. The first file is kept as is for step 5.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens "Load balances from Excel" / "Загрузка остатков из Excel" (the button on Balances, address /admin/stock/workbook-import), chooses the org unit of the balances, chooses the edited file and presses "Check" / "Проверить". The administrator reads the summary (rows read, changed, unchanged, remarks), the table "Changes" and the remarks.
+    The administrator does NOT yet press "Write balances from the file" / "Записать остатки из файла" and reads Balances in another tab: unchanged (S0).
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    The administrator presses "Write balances from the file" / "Записать остатки из файла" and reads the message "The load is recorded as document {number}..." / "Загрузка оформлена документом {number}...", which says that the balances change after the document is approved. The administrator records the document number and reads Balances: still S0 (the load did NOT post at once).
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    The administrator opens My Tasks, selects the approve task of that document (the pending count is P0 plus 1), presses "Claim" if the screen offers it and then "Approve" / "Утвердить". The screen accepts the completion by the same person who loaded the file. The administrator reads Balances: ITEM1 at WH1 equals the file's quantity (S0 plus 5); the row of the second item is unchanged (S0); no row for the unknown article exists. The pending count is back to P0.
+  via: ui
+- step: 5
+  actor: storekeeper
+  action: >-
+    The storekeeper signs in through the browser, opens Balances and looks for the button "Load balances from Excel" / "Загрузка остатков из Excel" (it is not shown; the button "Stock workbook (Qoimeks layout)" is). The storekeeper opens the address /admin/stock/workbook-import and reads what the screen shows. Then, API-driven and named so, the walker sends the first (unedited) workbook of step 1 with the storekeeper's token to the load route of the stock module for the org unit of step 2 (POST stock-workbook/apply) and reads the status. The administrator then reads Balances and the list "Previous loads" / "История загрузок": no new load, balances as after step 4.
+  expect_refusal: true
+  via: ui
+- step: 6
+  actor: admin
+  action: >-
+    CLEANUP. The administrator opens the stock documents list, opens the document of step 3, presses "Reverse" / "Сторнировать", chooses the reason "Other" / "Другое", types UAT onboarding-rehearsal-3 undo and confirms. Balances still show the loaded quantity. The administrator opens My Tasks, selects the reversal task of that document, claims it if offered and completes it ("Reverse" / "Сторнировать"). The administrator reads Balances: every row equals S0, the pending count is P0, and "Previous loads" shows the load as "Reversed" / "Сторнирован" (the screen's own state word).
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    The check writes nothing and shows exactly what the load would change; a negative quantity leaves out only its own article (rule R12) and an unknown article is skipped (rule R8); the file as a whole is not refused (REQ-884, REQ-885).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 2: one change (ITEM1 at WH1, book S0, file S0 plus 5, difference 5); remarks in Russian: one for the negative quantity of the second item ("отрицательный остаток" and "Остатки этого товара в системе не изменяются"), one for the unknown article ("артикул не найден"); the second item is not in the changes table; Balances unchanged. If the whole file is refused, or the negative row is loaded, that is a FAIL: DEFECT against REQ-884, expectation not weakened.
+    evidence: Screenshots of step 2 and of Balances before and after the check.
+  on_fail:
+    severity: MAJOR
+    business_impact: A client could load a negative balance or lose a good file because of one bad row.
+    suggested_action: route_to_backend_dev
+- id: EO-002
+  description: >-
+    Of the two possible answers the right one is: the load does not post at once; it leaves an approve task, and with the count rule Off the loader, who holds StockApprove, completes it alone and then the balances equal the file (runbook "Four eyes OFF"; decision 0093; D-165). The answer "posts at once" is NOT the behaviour of the code and is not accepted.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 3: Balances still S0 after the load message. Step 4: the approve task exists, the administrator completes it without a refusal (no "separation of duties" message); Balances show ITEM1 at S0 plus 5, the second item at S0, no unknown article; pending count P0. If the completion is refused for the same person with the rule Off, that is a FAIL: DEFECT against D-165 and the runbook.
+    evidence: Screenshots of steps 3 and 4 and of Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Client 1 with one administrator could not finish its first stock load.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: >-
+    The load is reversed like a quick count document: the administrator starts the reverse, completes the reversal task and every balance returns to the start.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 6: after the reverse, before the task, balances still show the loaded quantity; after the task every row equals S0, pending count P0, the load reads reversed.
+    evidence: Screenshots of step 6.
+  on_fail:
+    severity: MAJOR
+    business_impact: A wrong first load could not be undone.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: >-
+    The storekeeper cannot load a workbook: no button, the screen refuses, the API answers 403, nothing changes (StockWorkbookApply; docs/roles.md; INV-2).
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 5: no button "Load balances from Excel" on the storekeeper's Balances; the address shows the text "You do not have access to this area. Contact your tenant administrator." / "У вас нет доступа к этому разделу. Обратитесь к администратору организации." and no workbook form; the API call (named API-driven) answers 403 with the standard error shape and no document data; the administrator's read-back shows no new load and unchanged balances.
+    evidence: Screenshots of step 5, status and body of the API call, read-back of the administrator.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could rewrite all balances from a file.
+    suggested_action: route_to_backend_dev
