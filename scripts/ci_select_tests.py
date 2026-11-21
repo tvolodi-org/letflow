@@ -70,6 +70,13 @@ STANDARD_IDENTITY_PIN_TESTS = [
     "test/letflow/identity/binding_writers_scan_test.exs",
     "test/letflow/identity/tenant_update_changeset_removed_test.exs",
 ]
+# D-173: the business-process map documents. The committed document of every area must equal
+# the render of its map (scripts/bp/bp_doc.py), so the map and its plain-word description
+# cannot drift apart. The check is pure (no database, no model) and reads only the map
+# files, so it runs for EVERY standard change, including a web-only diff.
+STANDARD_BP_DOC_TEST = [
+    "test/scripts/bp_doc_test.exs",
+]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
 # Keep the family spelling used by risk_tests: the authority scan forbids the
@@ -439,7 +446,7 @@ def read_manifest(path):
 
 
 def safety_tests(all_tests):
-    return set(SINGLE_MODULE_PIN_TESTS + STANDARD_IDENTITY_PIN_TESTS) & set(all_tests)
+    return set(SINGLE_MODULE_PIN_TESTS + STANDARD_IDENTITY_PIN_TESTS + STANDARD_BP_DOC_TEST) & set(all_tests)
 
 
 def inventory_tests(changed, all_tests, root):

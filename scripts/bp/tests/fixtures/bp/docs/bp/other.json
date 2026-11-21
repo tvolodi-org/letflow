@@ -1,0 +1,27 @@
+[
+  {
+    "id": "BP-OTHER-01",
+    "area": "other",
+    "title": "Read a balance",
+    "description": "Anyone with StockRead sees the balance of an item at a place.",
+    "actors": [
+      {"role": "STOREKEEPER", "permission": "StockRead"}
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": ["admin/stock/balances"],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/balances",
+        "code_refs": ["lib/letflow/modules/stock/router.ex:300"],
+        "result": "the balance of the item at the place"
+      }
+    ],
+    "inputs": ["item_code", "place_code"],
+    "outputs": ["quantity"],
+    "refusals": [],
+    "scenario": null,
+    "status": "implemented"
+  }
+]
