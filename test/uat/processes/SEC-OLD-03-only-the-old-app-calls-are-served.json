@@ -1,0 +1,262 @@
+{
+  "id": "SEC-OLD-03",
+  "bp_entry": "BP-STOCK-30",
+  "title": "Old address: a valid shared value reaches only the old app's calls; every other path is 404 and writes nothing",
+  "description": "SECURITY (decision 0091 sections 6 and 11c; REQ-859, REQ-907, REQ-911). With a valid shared value the plain form and the /api form of the catalog read give the same answer. Every path outside the old app's six calls is answered 404 with the one body {\"error\": \"not found\"} after authentication: a doubled /api prefix, a standard API path (/api/v1/...) under the old address for a read and for a movement post, and the microphone call without /api. The post to the unserved path wrote nothing (the newest movement of the key and its balance are unchanged). Not run here: the 403 scope_enforcement_active answer needs the tenant's scope enforcement switched on, which is the platform operator's act (unit tests of test/letflow/routers/shared_stock_access_test.exs). Cleanup revokes the value.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/catalog"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.skus[0].id": {
+            "exists": true
+          },
+          "$.locations[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "first_sku": "$.skus[0].id",
+        "first_location": "$.locations[0].id"
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/catalog"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.skus[0].id": "${first_sku}",
+          "$.locations[0].id": "${first_location}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].sku_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$[0].sku_id",
+        "location_id": "$[0].location_id"
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "newest_before": {
+          "pick": "$[0].id",
+          "default": "none"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "b0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/api/catalog"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid9}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/voice",
+        "body": {}
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].id": {
+            "equals": "${newest_before}",
+            "default": "none"
+          }
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

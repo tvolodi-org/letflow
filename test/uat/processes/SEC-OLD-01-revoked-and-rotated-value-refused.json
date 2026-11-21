@@ -1,0 +1,303 @@
+{
+  "id": "SEC-OLD-01",
+  "bp_entry": "BP-STOCK-28",
+  "title": "Old address: a revoked or rotated-away shared value is refused with the one 401; the administrator alone manages the value",
+  "description": "SECURITY (decision 0091 sections 8.1 and 9; REQ-858, REQ-859). The storekeeper may not read, create or change the tenant's shared stock access (403, nothing created). A value that is not 64 to 256 hexadecimal characters is refused 422 shared_access_value_invalid and nothing is created. The administrator creates the value (V1); the old address accepts it. The administrator revokes it: the same V1 is now refused on a read and on a movement post with the one 401 body (status, title and detail identical), and the post wrote nothing. The administrator creates a new value (V2), which works; the administrator rotates it (V3): V2 is refused with the same 401 body. Cleanup revokes the active value. Three refused presented values spend three failure tokens of the runner's address (capacity 10 per address per decision 0091 section 8.1): run the SEC-OLD files one after another, never in a loop. Not expressible in a process file yet (runner gap, see the map entry): a request with no Authorization header and one with a never-issued value; the unit tests C2 of test/letflow/routers/shared_stock_access_address_test.exs cover them.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {
+          "value": "not-a-hexadecimal-value"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "shared_access_value_invalid"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/identity/shared-stock-access"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.value": {
+            "regex": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].sku_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$[0].sku_id",
+        "location_id": "$[0].location_id"
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "newest_before": {
+          "pick": "$[0].id",
+          "default": "none"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 204
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/catalog"
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.status": 401,
+          "$.title": "Unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.status": 401,
+          "$.title": "Unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].id": {
+            "equals": "${newest_before}",
+            "default": "none"
+          }
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "rotated_value": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/identity/shared-stock-access"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.exists": true,
+          "$.rotated_at": {
+            "regex": "^[0-9]{4}-"
+          }
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/catalog"
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.status": 401,
+          "$.title": "Unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

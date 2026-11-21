@@ -1,0 +1,405 @@
+{
+  "id": "SEC-OLD-06",
+  "bp_entry": "BP-STOCK-33",
+  "title": "Old address: with the four-eyes switch for counts ON, a count waits for one administrator; its client id never makes a second count",
+  "description": "SECURITY (REQ-912, REQ-913; decision 0091 section 9 amended by the PM decision of 2026-11-20). The tenant's switch for the quick count approve step is ON (qoimeks-qa2: ON, its UAT state). The phone posts a count (kind adjustment) of the book balance plus 1: the answer is 400 'Подсчёт принят и ждёт подтверждения администратора', the balance does not change; the same id and data again gives the same 400 and no second count; the same id with another number is 409. The tenant administrator finds the issued quick count (newest first) and approves it from My Tasks (the shared access cannot approve its own count while the switch is ON). The same id again now answers 200 with the count's movement row (quantity = the counted number), twice with the same movement id; the balance is the counted number. A reversal with a new id brings the balance back. Every operation id is a fresh UUID of the run (${uuid1}..${uuid5}, made by the runner), the same on a retry. The key is the input item and place (old-app numbers): an item with no balance anywhere at a place linked to an org unit, so the phone's own receipt of 2 units (s4, reversed in the cleanup) is the only row of the key and the count is not refused for rows of another responsible or lot (the first balance row of qoimeks-qa2 is such a key: 400 'Этот товар на этом месте числится за другим ответственным...', dry run of 2026-11-21). Precondition (UAT assumption, to be confirmed by the process owner): no count order freezes the place and no other walk posts or counts at that key during the run (the checks compare only what this run did). Cleanup cancels the count document if it was never approved, reverses the count if the run stopped before the reversal, and revokes the value.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "sku_id",
+    "location_id"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {
+      "sku_id": "469",
+      "location_id": "1"
+    },
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2"
+  },
+  "steps": [
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 2,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid4}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "receipt",
+          "$.qty": 2
+        }
+      },
+      "save": {
+        "receipt_movement": "$.id"
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "b0": "$[0].qty"
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "${b0 + 1}",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "Подсчёт принят и ждёт подтверждения администратора"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "${b0 + 1}",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "Подсчёт принят и ждёт подтверждения администратора"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "${b0 + 2}",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 409,
+        "json": {
+          "$.error": "this operation was already posted with different data"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents?kind=quick_count&state=issued&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "count_doc": "$.rows[0].id"
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${count_doc}",
+          "step": "approve",
+          "within_s": 60
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "${b0 + 1}",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.kind": "adjustment",
+          "$.qty": "${b0 + 1}"
+        }
+      },
+      "save": {
+        "count_movement": "$.id"
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "adjustment",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "${b0 + 1}",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${count_movement}"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0 + 1}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${count_movement}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.reverses": "${count_movement}"
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "count_doc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${count_doc}/cancel",
+        "body": {
+          "reason": "UAT cleanup of an old-address count that was not approved"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c8",
+      "http_as": "shared_access",
+      "requires": [
+        "count_movement"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${count_movement}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      }
+    },
+    {
+      "id": "c7",
+      "http_as": "shared_access",
+      "requires": [
+        "receipt_movement"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${receipt_movement}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      }
+    },
+    {
+      "id": "c9",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

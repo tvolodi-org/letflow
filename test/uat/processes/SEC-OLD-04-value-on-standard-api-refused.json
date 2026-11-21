@@ -1,0 +1,113 @@
+{
+  "id": "SEC-OLD-04",
+  "bp_entry": "BP-STOCK-31",
+  "title": "The shared value is never an API token: on the standard API of the tenant it is refused with the API's 401",
+  "description": "SECURITY (decision 0091 section 6: the old address is forwarded outside /api/v1 and never enters the API pipeline, so the value is never an API token; REQ-859). The administrator creates the tenant's shared value and reads the stock balances through the standard API with their own sign-in (200, the API works). The same shared value presented as the bearer on the standard API of the same tenant (the stock balances and the stock movements reads) is refused with the API pipeline's own 401 body (error unauthorized, detail invalid or expired bearer token), the same body for both reads. In this file the runner's old address is set to the tenant's own API host on purpose, so that the shared value is sent to /api/v1. Two refused presented values spend two failure tokens of the runner's address. Cleanup revokes the value.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qoimeks-qa2.letflow.qa.bizdala.com"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/balances"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances"
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.error": "unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/movements"
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.error": "unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}
