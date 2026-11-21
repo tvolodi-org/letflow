@@ -1,0 +1,195 @@
+{
+  "id": "BP-MASTER-04",
+  "bp_entry": "BP-MASTER-04",
+  "title": "Maintain the location tree",
+  "description": "A tenant administrator creates a top location and a child, renames the child, is refused when retiring the parent while the child is live, moves the child to the top level, retires both. The cleanup retires what is left. Needs the module locations installed on the tenant.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s1",
+          "code": "UAT-${run_id}-a",
+          "name": "UAT zone A",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "active": true,
+          "record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "node_a": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s2",
+          "code": "UAT-${run_id}-b",
+          "name": "UAT shelf B",
+          "node_kind": "shelf",
+          "parent_id": "${node_a}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "parent_id": "${node_a}"
+        }
+      },
+      "save": {
+        "node_b": "$.record_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${node_b}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s3",
+          "name": "UAT shelf B renamed"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "name": "UAT shelf B renamed"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_a}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s4"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "has_active_descendants"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_b}/move",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s5",
+          "parent_id": null
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_b}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s6"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "active": false
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_a}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04s7"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "active": false
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_b}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node_b"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node_a}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04c2"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node_a"
+      ]
+    }
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  }
+}
