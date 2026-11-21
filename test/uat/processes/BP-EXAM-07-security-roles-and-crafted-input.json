@@ -1,0 +1,90 @@
+{
+  "id": "BP-EXAM-07",
+  "bp_entry": "BP-EXAM-07",
+  "title": "Exam: roles and crafted input are refused",
+  "description": "A candidate (role CANDIDATE) must not write the question bank, read the grading queue or mark an answer; every session, answer, submit and certificate call on a session id that is not the candidate's own gets the same 404 as an id that does not exist; an administrator who names an authoring type that does not exist, or puts a field the grading body does not take (a grader identity), is refused before anything is looked up. Nothing is created: every call here is refused or is a read, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {"missing_id": "00000000-0000-4000-8000-000000000000"},
+  "dry_run": {
+    "tenant": "bilimbaga",
+    "actors": {"candidate": "bilimbaga-candidate", "admin": "bilimbaga-admin"},
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "candidate",
+      "do": {"api": "GET", "path": "/api/v1/modules/exam/exam-sessions/available"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s2",
+      "actor": "candidate",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/authoring/category", "body": {"field_values": {"name": "UAT ${run_id} refused"}}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s3",
+      "actor": "candidate",
+      "do": {"api": "DELETE", "path": "/api/v1/modules/exam/authoring/category/${missing_id}"},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s4",
+      "actor": "candidate",
+      "do": {"api": "GET", "path": "/api/v1/modules/exam/grading-queue"},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s5",
+      "actor": "candidate",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/grading-queue/${missing_id}/${missing_id}/grade", "body": {"score": 1}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s6",
+      "actor": "candidate",
+      "do": {"api": "GET", "path": "/api/v1/modules/exam/exam-sessions/${missing_id}"},
+      "expect_refused": {"status": 404}
+    },
+    {
+      "id": "s7",
+      "actor": "candidate",
+      "do": {"api": "PUT", "path": "/api/v1/modules/exam/exam-sessions/${missing_id}/answers/${missing_id}", "body": {"selected_option_ids": [], "time_spent_seconds": 1}},
+      "expect_refused": {"status": 404}
+    },
+    {
+      "id": "s8",
+      "actor": "candidate",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/exam-sessions/${missing_id}/submit", "body": {}},
+      "expect_refused": {"status": 404}
+    },
+    {
+      "id": "s9",
+      "actor": "candidate",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/exam-sessions/${missing_id}/certificate", "body": {}},
+      "expect_refused": {"status": 404}
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/authoring/not_an_authoring_type", "body": {"field_values": {"name": "x"}}},
+      "expect_refused": {"status": 404}
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/grading-queue/${missing_id}/${missing_id}/grade", "body": {"score": 1, "grader_id": "${missing_id}"}},
+      "expect_refused": {"status": 422}
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/exam/grading-queue/${missing_id}/${missing_id}/grade", "body": {"score": 1}},
+      "expect_refused": {"status": 404}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
