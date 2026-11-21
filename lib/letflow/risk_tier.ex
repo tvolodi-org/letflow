@@ -62,6 +62,7 @@ defmodule Letflow.RiskTier do
                           docs/frontend/x-ui-widget-vocabulary.md
                           docs/assets/stock-workflow-documents.md docs/assets/asset-register.md
                           docs/assets/asset-xlsx.md docs/assets/kz-forms-mapping.md
+                          docs/design/four-eyes-switch.md
                           docs/open-source/audit-report.md)
   @tests_excluded_prefixes ~w(test/fixtures/ test/support/ test/uat-reports/)
   @denied_basenames ~w(claude.md orchestrator.md git_merge.md mix.exs)

@@ -254,7 +254,10 @@ its "Minimum master data by API" first. The two OIDC-only switches (negative ope
 one-person company) are set on the Ledger settings and Approval rules screens; the four-eyes choice is the
 company's and the owner's (step 20). Every four-eyes rule of a new tenant is OFF by default (owner decision
 D-165), so a one-person company needs no switch to work out of the box; a company that wants a second person
-switches the rule ON, per document kind (step 20). For sss the count rule is already decided and is OFF (owner
+switches the rule ON, per document kind (step 20). There are two rules on the screen, the opening balances and
+the quick count; the Excel load follows the quick count rule. The external reference columns of the master data
+files (`external_ref_system`, `external_ref_id`) take lower-case letters, digits and underscores only (`sss`,
+`uom_pcs`, `item1`); `SSS` and `UOM-PCS` are refused with 'external_ref_system or external_ref_id is not valid'. For sss the count rule is already decided and is OFF (owner
 decision D-164, step 20). Production only after the same extract passed on the QA rehearsal tenant.
 
 **Check:** that runbook's compares (counts, quantities, masters) exit 0.
@@ -418,7 +421,7 @@ current value, `PUT /api/v1/approval-rules/:definition_name/:node_id` switches o
 |---|---|---|---|---|
 | Opening balance (`stock_opening`) | `stock_opening / approve` | OFF | separate choice: ON with its own reason, or left OFF | ON: the person who issued the opening cannot approve it; a second administrator approves it in My Tasks. OFF: the one administrator approves their own opening, and the audit shows "self-approved, four-eyes off". |
 | Count from the phone (`stock_quick_count`) | `stock_quick_count / approve` | OFF | **OFF** (D-164) | ON: the administrator who did not count must approve, so the count waits and the balance changes only after that. OFF: the count posts at once, as on the old server, and the audit shows "self-approved, four-eyes off". |
-| Excel load that creates counts | `stock_quick_count / approve` (the same rule as the count) | OFF | **OFF** — the same rule as the count (D-164) | The same as the count: with the rule ON the loader's own approval is refused `separation_of_duties` and the load waits for a second person; with it OFF the load posts at once. |
+| Excel load that creates counts | `stock_quick_count / approve` (the same rule as the count; the load has no rule of its own) | OFF | **OFF** — the same rule as the count (D-164) | The same as the count: with the rule ON the loader's own approval is refused `separation_of_duties` and the load waits for a second person; with it OFF the load posts at once. |
 | Asset opening (`assets_opening`), when the assets module is installed | `assets_opening / approve` | OFF | not part of this procedure | ON: the person who issued the asset opening cannot approve it; a second administrator approves it in My Tasks. OFF: the issuer approves their own opening and the audit shows "self-approved, four-eyes off". |
 
 A step of a definition the tenant wrote itself follows the same rule: OFF until its administrator switches it ON.
@@ -570,6 +573,12 @@ Open `https://<host>` and sign in as the company administrator. The menu group "
 «Администрирование организации» holds both screens.
 
 ### 2. Count rule OFF (owner decision D-164)
+
+The Approval rules screen lists TWO rules for stock: "Stock opening balances" (`stock_opening`) and the quick
+count (`stock_quick_count`). The Excel balances load has no rule of its own: it is built as a `stock_quick_count`
+document, so it follows the quick count rule. / На экране два правила для склада: «Остатки на начало»
+(`stock_opening`) и быстрый подсчёт (`stock_quick_count`). У загрузки остатков из Excel своего правила нет: она
+создаёт документ `stock_quick_count` и подчиняется правилу подсчёта.
 
 1. Open `/admin/approval-rules`: title "Approval rules" / «Правила утверждения».
 2. In the list, columns "Document type" / «Тип документа», "Step" / «Шаг», "Different person" / «Другой человек»,

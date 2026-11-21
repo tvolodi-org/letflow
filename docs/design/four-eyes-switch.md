@@ -195,7 +195,7 @@ Owner, D-165: "the rule of four eyes is now more exception than direct rule, at 
 
 | Question | Answer |
 |---|---|
-| Default of a NEW tenant | OFF for every step that names `distinct_from` (stock opening, count, workbook load, asset opening, tenant-authored steps): a step with no row in `approval_rule_settings` is OFF |
+| Default of a NEW tenant | OFF for every step that names `distinct_from` (stock opening, count, asset opening, tenant-authored steps; the Excel workbook load is a `stock_quick_count` document, so it IS the count rule and is not a third rule): a step with no row in `approval_rule_settings` is OFF |
 | Where the default lives | New tenant table `approval_rule_defaults` (at most one row, unique on `((true))`, `four_eyes_default` always false). A row means "no stored setting = OFF"; no row means "no stored setting = ON" (today's rule). Read by `Letflow.Engine.ApprovalRuleSetting.default_off/3` and `effective/5` |
 | Who writes the marker | Migration `20261120100001_create_approval_rule_defaults.exs`, only on the FIRST provisioning of a schema: its `public.tenant_schemas` row has `migrations_applied_at IS NULL` (stamped only after the first replay), and the schema has no `process_definitions` row and no `approval_rule_settings` row. Existing tenants get the table empty, whether or not they have installed a module; a schema with no registry row (sandbox pool) is not marked |
 | Existing tenants | No marker, no data written: every one keeps its rows and, with no row, ON. An upgrade flips nothing (test D6) |
@@ -204,7 +204,7 @@ Owner, D-165: "the rule of four eyes is now more exception than direct rule, at 
 | Reason text | Still required for every switch (ON or OFF), unchanged: the reason is the audit record of who decided. Dropping it for ON is possible later and is not part of this change |
 | Audit of a self-approval on the default | `task.self_approved` as before, plus `setting_source: "tenant_default"` and `setting_changed_at: null` (no row, so no change time) |
 | Fails closed | A missing or unreadable marker table means ON, as an unreadable row does |
-| One-admin tenant | A new tenant with ONE administrator issues and approves an opening, a count and a workbook load with no second person and no switch |
+| One-admin tenant | A new tenant with ONE administrator issues and approves an opening and a count (the workbook load is a count) with no second person and no switch |
 | Known limit | The publish-time advisory `distinct_from_single_member_role` (section 2 row 5) still shows for a default-OFF step; it refuses nothing |
 | Operator step | Before this lands, set EXPLICIT rows on `qoimeks-qa2` to their current values |
 

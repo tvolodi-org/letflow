@@ -150,6 +150,12 @@ The move rules of Qoimeks Client 1 and where Letflow meets them. State: built, t
 | Old copy kept 30 days | The Qoimeks copy and its extract are kept 30 days after the move | this section |
 | Own User-Agent | A scripted client behind Cloudflare sets its own User-Agent header (inventory item 9) | this section |
 
+## Values of the external reference columns
+
+`external_ref_system` and `external_ref_id` (units of measure, items and every other file of the table above) must be
+written in lower-case letters, digits and underscores: `sss`, `uom_pcs`, `item1` work; `SSS` and `UOM-PCS` are
+refused ('external_ref_system or external_ref_id is not valid'). Convert the values before the load.
+
 ## Minimum master data by API
 
 The calls a fresh QA company needs, in order. Every module write body carries an `idempotency_key` (a uuid) or is refused with
