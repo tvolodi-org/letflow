@@ -6,6 +6,16 @@
   "tenant": "${tenant}",
   "inputs": ["item", "place", "org_unit", "responsible"],
   "defaults": {"quantity": "5"},
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {"admin": "sss-rehearsal2-admin", "storekeeper": "sss-rehearsal2-storekeeper"},
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
   "steps": [
     {
       "id": "s0",
