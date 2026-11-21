@@ -8,8 +8,10 @@ its checks are described in `docs/bp/README.md`.
 `bp_doc.py` renders `docs/bp/<area>.json` into `docs/bp/<area>.md`: the processes of the area in a
 table, then every process in plain words (who may do it, the numbered steps with the screen and the
 call of each step, the refusals, the tests, the runner scenario, the status, the gaps), the orphans
-and the gaps of the area. The render is deterministic (sorted, no timestamp, no model), so the
-committed document must equal it -- `--check` is the gate, and the CI runs it.
+and the gaps of the area. The table carries the **Executed by** column (`direct` or
+`definition:<process_key>`, D-175) and the head of the document counts the two forms. The render is
+deterministic (sorted, no timestamp, no model), so the committed document must equal it -- `--check` is
+the gate, and the CI runs it.
 
 | file | what it is |
 |---|---|

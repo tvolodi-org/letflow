@@ -8,6 +8,11 @@ then every process in plain words: what it is, who may do it, the numbered steps
 screen and the call of each step, what it refuses, the tests, the runner scenario, the
 status and the gaps.
 
+The table carries the **Executed by** column (D-175): `direct` (a hard-coded route or
+function) or `definition:<process_key>` (the process runs as a BPM definition of the engine).
+A missing field means `direct`; the head of the document counts how many processes of the area
+are `direct` and how many are `definition:`.
+
     python3 scripts/bp/bp_doc.py mes             # write docs/bp/mes.md
     python3 scripts/bp/bp_doc.py all             # write every area
     python3 scripts/bp/bp_doc.py --check         # the gate: the committed .md must equal the render
@@ -226,6 +231,22 @@ def list_of(entry: dict, key: str) -> list[str]:
     return []
 
 
+def executed_by_of(entry: dict) -> str:
+    """Who runs the process: `direct` (a hard-coded route or function) or `definition:<key>`.
+
+    The field is optional: a missing one means `direct` (D-175 -- the existing entries are
+    direct until they are migrated). The value comes from the catalog's own reader, so the
+    document and the validator agree on what a missing field means.
+    """
+    value, _kind, _problem = _CATALOG.parse_executed_by(entry)
+    return value if isinstance(value, str) and value else "direct"
+
+
+def executed_by_counts(entries: list[dict]) -> dict[str, int]:
+    """How many processes of the area are `direct` and how many are `definition:`."""
+    return _CATALOG.executed_by_counts(entries)
+
+
 # ------------------------------------------------------------------------------------------- the render
 
 
@@ -394,16 +415,18 @@ def render_area(
         if status in counts:
             counts[status] += 1
     summary = ", ".join(f"{counts[status]} {status}" for status in STATUSES if counts[status])
+    by = executed_by_counts(processes)
     lines.append(
-        f"The area `{area}` has {len(processes)} process(es): {summary or 'no status yet'}."
+        f"The area `{area}` has {len(processes)} process(es): {summary or 'no status yet'}. "
+        f"Executed by: {by['direct']} direct, {by['definition']} definition."
     )
     lines.append("")
     lines.append("## The processes of the area")
     lines.append("")
     lines.append(
-        "| id | name | in one line | actors | status | scenario | security | machine-proven |"
+        "| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     for entry in processes:
         pid = flat(entry.get("id"))
         scenario_files = scenarios.get(pid, [])
@@ -418,6 +441,7 @@ def render_area(
                     cell(one_line(entry.get("description"))),
                     cell(actors),
                     cell(entry.get("status")),
+                    cell(executed_by_of(entry)),
                     "yes" if has_scenario else "no",
                     "yes" if is_security(entry) else "no",
                     cell(machine_proven(entry, scenario_files, proofs)),

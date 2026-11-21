@@ -75,11 +75,25 @@ class Render(ToolCase):
 
     def test_the_table_holds_every_process_with_its_status_and_actors(self):
         text = self.render()
-        self.assertIn("| id | name | in one line | actors | status | scenario | security | machine-proven |", text)
+        self.assertIn(
+            "| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |",
+            text,
+        )
         self.assertIn("| BP-DEMO-01 | Receive goods |", text)
-        self.assertIn("| STOREKEEPER, TENANT_ADMIN | implemented | yes | no | see report |", text)
+        self.assertIn("| STOREKEEPER, TENANT_ADMIN | implemented | direct | no | yes | see report |", text)
         self.assertIn("| BP-DEMO-02 | Security: another company's card is not reachable |", text)
         self.assertIn("| BP-DEMO-03 | Export the balances of a place |", text)
+
+    def test_the_executed_by_column_names_the_definition_and_reads_a_missing_field_as_direct(self):
+        text = self.render()
+        # BP-DEMO-01 names a definition; BP-DEMO-02 has no field at all: it is `direct`.
+        self.assertIn("| implemented | definition:demo.receive_goods | yes | no | see report |", text)
+        self.assertIn("| implemented | direct | no | yes | see report |", text)
+        self.assertIn("| planned | direct | no | no | see report |", text)
+
+    def test_the_head_of_the_document_counts_the_direct_and_the_definition_processes(self):
+        text = self.render()
+        self.assertIn("Executed by: 2 direct, 1 definition.", text)
 
     def test_a_process_is_rendered_with_its_steps_refusals_tests_and_scenario(self):
         text = self.render()
