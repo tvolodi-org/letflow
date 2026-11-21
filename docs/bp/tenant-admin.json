@@ -2835,5 +2835,521 @@
       "test/letflow/routers/number_sequences_test.exs",
       "test/letflow/routers/tenant_solutions_test.exs"
     ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-42",
+    "area": "tenant-admin",
+    "title": "SECURITY: Login lookup by host and company code: unknown host, bare host and unknown code answer the default",
+    "description": "Runner script of the public half of BP-TENANT-ADMIN-37. Before sign-in the web page asks which sign-in realm belongs to a host (?host=) or a company code (?realm=), the phone app asks by code (?slug=). A known company answers its own realm and company type. An unknown host, the bare platform host, no parameter and an unknown code answer the same default body (default realm, no company type, default branding); only the explicit company check (company_check=1 on the web, always on the phone) says found or not found. The logo of an unknown or missing code is the plain not-found answer.",
+    "actors": [
+      {
+        "role": "anyone before sign-in",
+        "permission": "none (public route)"
+      }
+    ],
+    "preconditions": [
+      "the company of the run exists and has a host registered",
+      "the unknown host and code are names no company holds"
+    ],
+    "tasks": [
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/tenant-config"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:231",
+          "lib/letflow/routers/tenant_config.ex:350"
+        ],
+        "result": "known host: the company's realm; unknown host, bare host, unknown code, no parameter: the same default body"
+      },
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/tenant-config/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:235"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for an unknown or missing code"
+      },
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/mobile/tenant-config",
+        "code_refs": [
+          "lib/letflow/routers/mobile_tenant_config.ex:215",
+          "lib/letflow/routers/mobile_tenant_config.ex:229"
+        ],
+        "result": "company_found true with the company's realm, or false with the default realm"
+      }
+    ],
+    "inputs": [
+      "company_host",
+      "unknown_host",
+      "bare_host",
+      "unknown_code"
+    ],
+    "outputs": [],
+    "refusals": [
+      "no error status for an unknown host or code: the default 200 body, identical to the no-parameter answer (anti-oracle)",
+      "the logo route answers 404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-01-login-host-and-realm-lookup.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-37",
+    "existing_tests": [
+      "test/letflow/routers/tenant_config_host_test.exs",
+      "test/letflow/routers/tenant_config_default_slug_test.exs",
+      "test/letflow/routers/mobile_tenant_config_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-43",
+    "area": "tenant-admin",
+    "title": "SECURITY: A signed-in administrator of another company: the token's company decides, this company's ids answer not-found",
+    "description": "Runner script of BP-TENANT-ADMIN-34. The company of an API request is the sign-in realm of the token (decision 0042, rejected alternative 9: no host-to-tenant binding by design), never the host: a valid token of company B sent to company A's address is company B, so it is not 401 and it sees only B. With it, A's user, A's stock document and A's API token (read, revoke) answer the same not-found as an id that does not exist, and A's token stays active.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN of company A",
+        "permission": "TokensManage, UsersManage, StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN of company B",
+        "permission": "the same, in company B"
+      }
+    ],
+    "preconditions": [
+      "two companies with one tenant administrator each",
+      "company A has at least one stock document"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/me/memberships"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:133",
+          "lib/letflow/routers/me.ex:117"
+        ],
+        "result": "the memberships list only company B, on company A's address"
+      },
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/users/:id",
+          "GET /api/v1/modules/stock/documents/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:223",
+          "lib/letflow/modules/stock/router.ex:717",
+          "lib/letflow/api/error.ex:199"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for A's ids and for an id that does not exist"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/identity/tokens",
+          "GET /api/v1/identity/tokens"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:278",
+          "lib/letflow/routers/identity.ex:282"
+        ],
+        "result": "A's own API token is minted and stays active after B's attempt"
+      },
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/tokens/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5); A's token is not revoked"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/tokens/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286"
+        ],
+        "result": "A revokes its own token (200, status revoked)"
+      }
+    ],
+    "inputs": [
+      "other_company"
+    ],
+    "outputs": [
+      "this_tenant_id"
+    ],
+    "refusals": [
+      "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for every id of the other company: the same status, title and detail as an id that does not exist (the script compares status, title and detail, not the whole body)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-02-other-company-token.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-34",
+    "existing_tests": [
+      "test/letflow/routers/req446_cross_tenant_denial_test.exs",
+      "test/letflow/plugs/auth_pipeline_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-44",
+    "area": "tenant-admin",
+    "title": "SECURITY: Administration routes per role: the tenant administrator reads them, the storekeeper is refused every read and change",
+    "description": "Runner script of part of BP-TENANT-ADMIN-33. The tenant administrator reads approval rules, ledger settings, audit, API tokens, users, groups and the shared access status (200). The storekeeper is refused the same reads and the changes of approval rule, ledger setting, API token and user with one identical 403, decided before the body is read. The approval rule and the ledger setting are unchanged at the end. Role grants, scoped role grants, company settings and the scope enforcement mode are NOT in the script yet: the runner's static check cannot match a route mounted under a two-part prefix (/tenant/...), see findings of T-2504.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage, LedgerSettingsManage, AuditRead, TokensManage, UsersManage, GroupsManage"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none of them (closed core list)"
+      }
+    ],
+    "preconditions": [
+      "the company has at least one approval rule row and one ledger setting row"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "GET /api/v1/ledger-settings",
+          "GET /api/v1/audit",
+          "GET /api/v1/identity/tokens",
+          "GET /api/v1/identity/users",
+          "GET /api/v1/identity/groups",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:32",
+          "lib/letflow/routers/ledger_settings.ex:30",
+          "lib/letflow/routers/audit.ex:155",
+          "lib/letflow/routers/identity.ex:282",
+          "lib/letflow/routers/identity.ex:219",
+          "lib/letflow/routers/identity.ex:253",
+          "lib/letflow/routers/identity.ex:292"
+        ],
+        "result": "200 for each read"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "PUT /api/v1/approval-rules/:definition_name/:node_id",
+          "GET /api/v1/ledger-settings",
+          "PUT /api/v1/ledger-settings/:registration",
+          "GET /api/v1/audit",
+          "GET /api/v1/identity/tokens",
+          "POST /api/v1/identity/tokens",
+          "GET /api/v1/identity/users",
+          "POST /api/v1/identity/users",
+          "GET /api/v1/identity/groups",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/routers/ledger_settings.ex:36",
+          "lib/letflow/routers/identity.ex:278",
+          "lib/letflow/routers/identity.ex:202",
+          "lib/letflow/plugs/authorize.ex:121",
+          "lib/letflow/api/authorization.ex:2317"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the storekeeper on every listed read and change"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-03-admin-routes-per-role.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-33",
+    "existing_tests": [
+      "test/letflow/api/authorization_enforcement_test.exs",
+      "test/letflow/modules/stock/storekeeper_test.exs",
+      "test/letflow/routers/tenant_auditor_routes_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-45",
+    "area": "tenant-admin",
+    "title": "SECURITY: Shared stock access value lifecycle: create, use, rotate, revoke, refused after revoke, never in the status",
+    "description": "Runner script of BP-TENANT-ADMIN-15 and BP-TENANT-ADMIN-39. The tenant administrator creates the shared access value (shown once), the old phone address accepts it, the administrator rotates it (the new value works, the status shows the rotation), revokes it, and the old address then refuses it with 401. The status never contains the value. The storekeeper is refused reading, creating and revoking it. The script starts only when no value exists, so a value in use is never revoked by a run.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (interactive sign-in, tenant-wide)"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none"
+      },
+      {
+        "role": "old phone app",
+        "permission": "the shared access value"
+      }
+    ],
+    "preconditions": [
+      "the company is listed for shared access on the deployment and no value exists",
+      "scope enforcement of the company is off"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access",
+          "DELETE /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/identity/shared-stock-access",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:296",
+          "lib/letflow/routers/identity.ex:1096",
+          "lib/letflow/routers/identity.ex:1108"
+        ],
+        "result": "201 with the value once (create, then rotate); the status shows exists, created_by, rotated_at and never the value"
+      },
+      {
+        "actor": "old phone app",
+        "forms": [],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:149",
+          "lib/letflow/routers/shared_stock_access.ex:85",
+          "lib/letflow/routers/shared_stock_access.ex:106"
+        ],
+        "result": "catalog and movements read with the value; after revoke 401 'invalid or expired bearer token'"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:300",
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; a second revoke 404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the storekeeper",
+      "401 at the old address after revoke",
+      "404 for a revoke with nothing to revoke"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-04-shared-access-lifecycle.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-39",
+    "existing_tests": [
+      "test/letflow/routers/shared_stock_access_test.exs",
+      "test/letflow/routers/tenant_admin_routes_test.exs",
+      "test/fixtures/uat/scenarios/qoimeks-token/qoimeks-token-1-admin-revokes-then-old-address-refused.yaml"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-46",
+    "area": "tenant-admin",
+    "title": "SECURITY: Platform routes need the platform role; the platform administrator is kept out of a company's approval and ledger switches",
+    "description": "The company list, one company's record (also the caller's own), the company create and the backup status are refused to a tenant administrator and a storekeeper with one 403; the platform administrator signed in to the platform company reads them. The platform administrator is refused the approval rules and the ledger settings of a company (explicit false clauses). Overlap: the tenant-administrator refusals over the wider platform route list are BP-PLATFORM-16 (test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json); this script adds the storekeeper's refusals, the platform administrator's allowed reads and the platform administrator's refusal on the company switches.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform company)",
+        "permission": "TenantsManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "no TenantsManage"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [
+      "a platform administrator account of the platform company"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN / STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/:slug",
+          "POST /api/v1/tenants",
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/tenants.ex:210",
+          "lib/letflow/routers/platform_status.ex:25"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/me",
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/:slug",
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/me.ex:113",
+          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/platform_status.ex:25"
+        ],
+        "result": "200; me shows platform_tenant true"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "GET /api/v1/ledger-settings"
+        ],
+        "code_refs": [
+          "lib/letflow/api/authorization.ex:2119",
+          "lib/letflow/api/authorization.ex:2122"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the tenant administrator and the storekeeper on platform routes, and for the platform administrator on the company's approval and ledger switches"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-05-platform-routes-need-platform-role.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/api/platform_admin_outside_platform_test.exs",
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_status_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-47",
+    "area": "tenant-admin",
+    "title": "SECURITY: The storekeeper does not hold the stock approve permission; the tenant administrator does (decision 0093)",
+    "description": "Decision 0093: the stock approve, post and reverse tasks require StockApprove, checked at claim and completion before the addressing rule; a holder-less caller gets the task-not-found answer. The script checks the permission through the approval-access route (storekeeper 403, administrator can_approve true) and the permission lists. NOT in the script: the storekeeper's direct claim and completion of the administrator's posting task by its id, and its absence from the storekeeper's My Tasks: the runner cannot hand one actor the id of a task found in another actor's inbox and has no 'absent from a list' check (see findings of T-2504); covered by test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "TasksComplete, StockPost, StockReverse; not StockApprove"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/approval-access",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:475"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/approval-access",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:475",
+          "lib/letflow/modules/stock/stock.ex:467",
+          "lib/letflow/api/authorization.ex:2137"
+        ],
+        "result": "200 can_approve true"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tasks/:id/claim",
+        "code_refs": [
+          "lib/letflow/tasks.ex:574",
+          "lib/letflow/tasks.ex:750"
+        ],
+        "result": "claim or completion of an approve/post/reverse task refused with the task-not-found answer (not in the runner script yet)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) on approval-access for the storekeeper",
+      "task-not-found for the storekeeper's claim or completion of a StockApprove task"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-06-storekeeper-cannot-approve.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/modules/stock/stock_approve_tasks_test.exs",
+      "test/letflow/routers/tasks_required_permission_test.exs",
+      "test/letflow/modules/stock/storekeeper_test.exs"
+    ]
   }
 ]
