@@ -41,12 +41,14 @@ class Denylist(unittest.TestCase):
         for f in files:
             self.assertEqual(retired.violations_in_file(f, RETIRED), [], f.name)
 
-    def test_the_four_sec_assets_files_are_blocked_and_on_an_active_tenant(self):
+    def test_the_four_sec_assets_files_are_not_blocked_and_on_an_active_tenant(self):
         files = sorted((REPO / "test/uat/processes").glob("SEC-ASSETS-0[1-4]-*.json"))
         self.assertEqual(len(files), 4)
         for f in files:
             doc = json.loads(f.read_text())
-            self.assertEqual(doc["dry_run"]["blocked_by"], "assets-module-on-active-tenant", f.name)
+            # the assets module is installed on qoimeks-qa2 since #4995: the four files run, they are not blocked
+            self.assertNotIn("blocked_by", doc["dry_run"], f.name)
+            self.assertIsNone(retired.retired_tenant_of(doc["dry_run"]["tenant"], RETIRED), f.name)
 
 
 class Static(CheckCase):

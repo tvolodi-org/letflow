@@ -14,6 +14,10 @@ Commands: `run` (one process), `chain` (an ordered list of processes with isolat
 `pass` lists for outputs handed on), `cleanup` (replay the recorded cleanup list of an aborted run, also
 `--cleanup <run dir>`) and `dry-run` (run every changed process file on QA with its own `dry_run` block).
 
+A chain file may say `"cleanup": "per_process"`: the cleanup of a process then runs right after that process
+(instead of after the last one of the chain), so that the next process meets the tenant without what the previous
+one created. The default is `"cleanup": "end"`.
+
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
 bp_dryrun capability reads exit 2 as "this runner has no such command yet".
@@ -48,6 +52,9 @@ INBOX_PAGES_MAX = 10
 RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 DO_KINDS = ("api", "wait_task", "assert_only", "repeat", "parallel")
+# When the cleanups of a chain's processes run: "end" (all of them after the last process, newest first)
+# or "per_process" (the cleanup of a process runs right after that process).
+CLEANUP_MODES = ("end", "per_process")
 DEFAULT_BASE_URL_TEMPLATE = "https://{tenant}.letflow.qa.bizdala.com"
 # ${uuid1} .. ${uuid12}: twelve fresh UUIDs per run (a client operation id of the old phone address must be a
 # new UUID for every operation and the same one on a retry; the run makes them, the process file only names them).
@@ -472,7 +479,10 @@ class Runner:
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
-                 overrides=None):
+                 overrides=None, cleanup_mode="end"):
+        if cleanup_mode not in CLEANUP_MODES:
+            raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.cleanup_mode = cleanup_mode  # a chain's "cleanup": when the cleanups of its processes run
         self.overrides = overrides or {}  # chain: process id -> {tenant, actors, old_base_url, base_url, inputs}
         self.tokens_by_tenant = {}
         self.process_tenants = {}
@@ -1007,13 +1017,16 @@ class Runner:
         shared = self.ctx
         over = self.overrides.get(process["id"])
         work = self._fresh_ctx(over) if over else (dict(shared) if isolated else shared)
+        base = set(work)  # the names the process starts with: everything else it creates
         self.ctx = work
         self.process = process
         entry = {"process": process["id"], "cleanup": process.get("cleanup") or [], "ctx": work, "done": False}
         self.entries.append(entry)
         try:
             with self._on(process["id"]):
-                return self._run_process_body(process, isolated, shared, work, entry)
+                ok = self._run_process_body(process, isolated, shared, work, entry)
+            entry["created"] = [name for name in work if name not in base]
+            return ok
         finally:
             self.ctx = shared
 
@@ -1064,15 +1077,38 @@ class Runner:
                                  "error": "the fixture did not provide: " + ", ".join(missing)})
         return ok
 
-    def cleanup_all(self) -> bool:
-        """Every recorded cleanup, newest process first. A failing step does not stop the next one."""
+    def cleanup_all(self, skip_cleaned=False) -> bool:
+        """Every recorded cleanup, newest process first. A failing step does not stop the next one.
+        skip_cleaned: the entries whose cleanup already ran in this run (per_process) are left alone."""
         ok = True
         for entry in reversed(self.entries):
+            if skip_cleaned and entry.get("cleaned"):
+                continue
             if not entry["done"]:
                 ok = self._cleanup_entry(entry) and ok
         return ok
 
-    def _cleanup_entry(self, entry) -> bool:
+    def _cleanup_of(self, process) -> bool:
+        """The cleanup of one process, right after that process (a chain with "cleanup": "per_process"):
+        with the frozen context of that process, and without handing its working values to the chain."""
+        entry = next((e for e in reversed(self.entries) if e["process"] == process["id"]), None)
+        if entry is None:
+            return True
+        ok = self._cleanup_entry(entry, merge=False)
+        self._drop_working_values(process, entry)
+        return ok
+
+    def _drop_working_values(self, process, entry):
+        """The working values of a process leave the chain context when its cleanup has run: only the
+        outputs the chain hands on (`pass`) stay."""
+        keep = set(self.pass_map.get(process["id"], []))
+        for name in entry.get("created") or []:
+            if name not in keep:
+                self.ctx.pop(name, None)
+
+    def _cleanup_entry(self, entry, merge=True) -> bool:
+        """The cleanup of one process, with the context it left behind. merge: what the cleanup changes
+        reaches the chain context (the end-of-chain cleanup); per_process keeps it out of the chain."""
         live, snapshot = self.ctx, entry["ctx"]
         work = dict(snapshot)
         self.ctx, self.process = work, {"id": entry["process"]}
@@ -1082,11 +1118,13 @@ class Runner:
                 for step in entry["cleanup"]:
                     ok = self.run_step(step, "cleanup") and ok
         finally:
-            for key, value in work.items():
-                if key not in snapshot or snapshot[key] != value:
-                    live[key] = value
+            if merge:
+                for key, value in work.items():
+                    if key not in snapshot or snapshot[key] != value:
+                        live[key] = value
             self.ctx = live
         entry["done"] = ok
+        entry["cleaned"] = True
         self.save_context()
         return ok
 
@@ -1104,6 +1142,7 @@ class Runner:
             return 1
         results = {}
         stopped = False
+        cleanup_ok = True
         try:
             for fixture in self.fixtures:
                 if stopped:
@@ -1121,13 +1160,17 @@ class Runner:
                     results[process["id"]] = None
                     continue
                 results[process["id"]] = self.run_process(process, isolated=len(self.processes) > 1)
+                if self.cleanup_mode == "per_process":
+                    # the cleanup of this process runs now, with its own context; a failing cleanup
+                    # fails the process and the run, but the next processes still run
+                    cleanup_ok = self._cleanup_of(process) and cleanup_ok
                 stopped = not results[process["id"]] and not self.keep_going
             # The final context is a report of the run. These outputs were not visible to later processes
             # unless their `pass` list copied them into the shared context above.
             self.ctx.update(self.process_outputs)
             self.save_context()
         finally:
-            cleanup_ok = self.cleanup_all()
+            cleanup_ok = self.cleanup_all(skip_cleaned=self.cleanup_mode == "per_process") and cleanup_ok
         self.process = {"id": self.label}
         sha_end = health_sha(self.health_url)
         build_moved = sha_end != sha_start
@@ -1259,6 +1302,7 @@ class Runner:
             f"- started: {started_at}   duration: {int((time.monotonic() - self.started_mono) * 1000)} ms",
             f"- build sha at start: {sha_start}   at end: {sha_end}" + ("   **build moved: the run fails**" if build_moved else ""),
             f"- steps: {'pass' if steps_ok else 'FAIL'}   cleanup: {'pass' if cleanup_ok else 'FAIL'}",
+            f"- cleanup mode: {self.cleanup_mode}",
             f"- verdict: **{'PASS' if ok else 'FAIL'}**",
         ]
         if first:
@@ -1284,6 +1328,13 @@ class Runner:
             row = (f"| {r.get('phase', '')} | {r.get('process', '')} | {r.get('step', '')} | {r.get('actor', '')} | {req} | "
                    f"{r.get('status', '')} | {mark} | {r.get('ms', '')} | {str(r.get('error', '')).replace('|', '/')} |")
             lines.append(("**>>** " + row) if r is first else row)
+        cleanups = [r for r in self.records if r.get("phase") == "cleanup"]
+        if cleanups:
+            lines += ["", "## Cleanup (the order it ran)", "", "| # | process | step | verdict | note |",
+                      "|---|---|---|---|---|"]
+            for number, r in enumerate(cleanups, 1):
+                lines.append(f"| {number} | {r.get('process', '')} | {r.get('step', '')} | {r.get('verdict', '')} | "
+                             f"{str(r.get('error', '')).replace('|', '/')} |")
         outputs = {}
         for p in self.processes:
             outputs.update({k: self.ctx.get(k) for k in (p.get("outputs") or {}) if k in self.ctx})
@@ -1439,6 +1490,9 @@ def load_chain(path) -> tuple:
     names = chain.get("processes") if isinstance(chain, dict) else None
     if not chain.get("id") or not isinstance(names, list) or not names:
         raise ConfigError("a chain file needs an id and a non-empty processes list")
+    mode = chain.get("cleanup", "end")
+    if mode not in CLEANUP_MODES:
+        raise ConfigError(f"chain: cleanup must be one of {', '.join(CLEANUP_MODES)}, got {mode!r}")
     here = Path(path).resolve().parent
     processes = []
     for entry in names:
@@ -1728,7 +1782,7 @@ def cmd_dry_run(args, out=None) -> int:
                         inputs=inputs, health_url=args.health_url, poll_interval=args.poll_interval, out=out,
                         build_sha=args.build_sha, old_base_url=block.get("old_base_url") or args.old_base_url,
                         keep_going=False, label=label, file_issues=False, fixtures=fixtures, pass_map=chain.get("pass"),
-                        overrides=overrides)
+                        overrides=overrides, cleanup_mode=chain.get("cleanup", "end"))
         code = runner.run(check_stable=(index == 0 and not args.no_stable_check))
         worst = max(worst, 1 if code else 0)
     print("dry-run: " + ("PASS" if worst == 0 else "FAIL") + f" ({len(files)} file(s), runs in {root_dir})", file=out)
@@ -1860,7 +1914,7 @@ def main_run(args) -> int:
                     health_url=args.health_url, poll_interval=args.poll_interval, run_id=run_id, build_sha=args.build_sha,
                     old_base_url=args.old_base_url or chain.get("old_base_url"), keep_going=getattr(args, "keep_going", False),
                     label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures,
-                    pass_map=chain.get("pass"), overrides=overrides)
+                    pass_map=chain.get("pass"), overrides=overrides, cleanup_mode=chain.get("cleanup", "end"))
     return runner.run(check_stable=not args.no_stable_check)
 
 
