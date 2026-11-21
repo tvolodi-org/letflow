@@ -322,6 +322,26 @@ remains visible without retaining the address or number.
    are in `run.jsonl` (and in the issue). Exit 0 = the candidate passed these processes.
 4. If the run was killed: `runner.py cleanup <dir>` before anything else touches the tenant.
 
+## 7a. The release-candidate chain for SSS (`test/uat/chains/rc-sss.json`)
+
+The chain plays, in this order: BP-01 receive, BP-02 issue, BP-03 transfer, BP-04 count, BP-05 reversal, BP-06 Excel
+load, BP-08 old-app phone operations, BP-09 crafted requests refused, BP-07 onboarding. Every process undoes what it
+posted (a reversal and its task), and the cleanup of the chain runs at the end in reverse order, so the stock of the
+tenant ends where it started (each process that moves stock ends with a check of the start balance).
+
+How to run the RC:
+
+1. `project/scripts/qa_stable.sh --wait` prints `sha=<sha> stable`.
+2. Fill the one input the chain cannot know: `place_to`, the id of a second place of the tenant (BP-03 moves goods
+   between `place_from` and `place_to`). Put it in `test/uat/chains/rc-sss.json` (`inputs` and `dry_run.inputs`) or
+   pass it on the command line (`--input place_to=<id>`). The other ids are the SSS fixture of `sss-rehearsal2`.
+3. `TEAM_ROOT=<team repository> python3 scripts/uat/runner.py chain test/uat/chains/rc-sss.json --build-sha <sha>
+   --file-issues --repo tvolodi-org/letflow --run-dir <dir>`
+4. Read `<dir>/summary.md`. Exit 0 on one sha = the candidate passed. A failure stops the chain (add `--keep-going`
+   to see the rest); `runner.py cleanup <dir>` undoes an aborted run.
+5. BP-08 calls the old address of the tenant: pass `--old-base-url https://qa.bizdala.com/qoimeks/<slug>/api` (or set
+   `old_base_url` in the chain file) for the tenant under test.
+
 ## 8. The process file, reference
 
 `{ "id", "bp_entry", "title", "description", "tenant": "${tenant}", "inputs": [names], "defaults": {name: value},
