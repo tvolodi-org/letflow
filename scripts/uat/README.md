@@ -468,3 +468,14 @@ python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: 
 `tests/fakes.py` is the shared fake: an HTTP server (a thread) with the stock routes BP-01 needs, the shared access
 routes and the old address, a fake token command, a fake `gh` and a fake `qa_stable.sh` written by the tests: no
 network, no model.
+
+## Tenant residue check (T-2548)
+
+Before the first process the runner lists, per tenant it touches, the newest 200 stock documents
+(`GET /api/v1/modules/stock/documents`) and the pending tasks of the `admin` actor's inbox and writes them to
+`residue_before.json` in the run dir. After the last cleanup it lists again: every document that was not there
+before and is not `reversed`, `cancelled` or `rejected`, and every new pending task, is residue. The run then FAILS
+with the row `tenant residue check` (tenant, number, kind, state). Documents that existed before are never reported.
+A tenant without an `admin` actor, or whose list answers 403/404, is skipped with a `residue baseline` row.
+`runner.py cleanup <run dir>` reads `residue_before.json` and runs the same comparison after the replay, so an
+interrupted run is judged too. `"residue_check": false` in a chain or process file turns it off (default on).

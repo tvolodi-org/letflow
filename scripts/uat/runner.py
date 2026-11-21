@@ -473,15 +473,21 @@ def origin_of(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}"
 
 
+RESIDUE_FINAL_STATES = ("reversed", "cancelled", "rejected")
+RESIDUE_DOC_LIMIT = 200  # the newest documents listed per tenant, before and after a run
+
+
 class Runner:
     """One run: fixtures share the base context; each chain process gets its own context plus passed outputs."""
 
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
-                 overrides=None, cleanup_mode="end"):
+                 overrides=None, cleanup_mode="end", residue_check=True):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
+        self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.cleanup_mode = cleanup_mode  # a chain's "cleanup": when the cleanups of its processes run
         self.overrides = overrides or {}  # chain: process id -> {tenant, actors, old_base_url, base_url, inputs}
         self.tokens_by_tenant = {}
@@ -1128,6 +1134,125 @@ class Runner:
         self.save_context()
         return ok
 
+    # -- tenant residue check -------------------------------------------------------------------
+
+    def _residue_targets(self) -> dict:
+        """tenant -> (base_url, actors) of every tenant this run touches whose processes keep the check on."""
+        targets = {}
+        if not self.residue_check:
+            return targets
+        own = [p for p in self.processes if p["id"] not in self.overrides]
+        if own or self.fixtures:
+            if not own or any(p.get("residue_check") is not False for p in own):
+                targets[self.tenant] = (self.base_url, self.actors)
+        for pid, over in self.overrides.items():
+            proc = next((p for p in self.processes if p["id"] == pid), None)
+            if proc is not None and proc.get("residue_check") is not False:
+                targets.setdefault(over["tenant"], (over["base_url"].rstrip("/"), over["actors"]))
+        return targets
+
+    @contextlib.contextmanager
+    def _switch(self, tenant, base_url, actors):
+        keep = (self.tenant, self.base_url, self.actors, self.tokens)
+        self.tenant, self.base_url, self.actors = tenant, base_url, actors
+        self.tokens = self.tokens_by_tenant.setdefault(tenant, {})
+        try:
+            yield
+        finally:
+            self.tenant, self.base_url, self.actors, self.tokens = keep
+
+    def _snapshot(self):
+        """-> (docs {id: {number, kind, state}}, open task ids) of the current tenant as admin; (None, why) when the
+        tenant cannot be read (no admin actor, route absent or refused); raises RunnerError on a transport fault."""
+        if "admin" not in self.actors:
+            return None, "no admin actor for this tenant"
+        docs, cursor = {}, None
+        while len(docs) < RESIDUE_DOC_LIMIT:
+            path = f"/api/v1/modules/stock/documents?limit=100" + (f"&cursor={cursor}" if cursor else "")
+            status, body, _ = self.request("admin", "GET", path)
+            if status in (403, 404):
+                return None, f"documents list answered {status}"
+            if status != 200 or not isinstance(body, dict):
+                raise RunnerError(f"documents list answered {status}")
+            for row in body.get("rows") or []:
+                if isinstance(row, dict) and row.get("id") is not None:
+                    docs[str(row["id"])] = {"number": row.get("number"), "kind": row.get("kind"), "state": row.get("state")}
+            cursor = body.get("next_cursor")
+            if not cursor or not body.get("rows"):
+                break
+        tasks, cursor = set(), None
+        for _ in range(5):
+            path = "/api/v1/tasks/inbox?page_size=200" + (f"&cursor={cursor}" if cursor else "")
+            status, body, _ = self.request("admin", "GET", path)
+            if status in (403, 404):
+                break
+            if status != 200 or not isinstance(body, dict):
+                raise RunnerError(f"inbox answered {status}")
+            for item in body.get("items") or []:
+                if isinstance(item, dict) and item.get("id") is not None and str(item.get("status", "PENDING")).upper() == "PENDING":
+                    tasks.add(str(item["id"]))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+        return docs, sorted(tasks)
+
+    def _residue_line(self, verdict, started, error=None, step="tenant residue check"):
+        record = {"ts": now_utc(), "phase": "residue", "step": step, "actor": "admin", "verdict": verdict,
+                  "ms": int((time.monotonic() - started) * 1000), "process": self.label}
+        if error:
+            record["error"] = error
+        self.write_line(record)
+        return verdict not in ("fail", "error")
+
+    def record_residue_baseline(self) -> bool:
+        """Before the first process: the documents and open tasks every touched tenant already has. A tenant that
+        cannot be read is reported as one row and left out of the comparison."""
+        ok = True
+        for tenant, (base_url, actors) in self._residue_targets().items():
+            started = time.monotonic()
+            try:
+                with self._switch(tenant, base_url, actors):
+                    docs, tasks = self._snapshot()
+            except RunnerError as err:
+                ok = self._residue_line("error", started, f"tenant {tenant}: baseline failed: {err}", "residue baseline") and ok
+                continue
+            if docs is None:
+                self._residue_line("skipped", started, f"tenant {tenant}: residue check skipped: {tasks}", "residue baseline")
+                continue
+            self.residue_before[tenant] = {"base_url": base_url, "actors": actors, "docs": docs, "tasks": tasks}
+        if self.residue_before:
+            self._atomic_write("residue_before.json", json.dumps(self.residue_before, indent=2, ensure_ascii=False))
+        return ok
+
+    def check_residue(self) -> bool:
+        """After the last cleanup: every document or open task that was not there before the run is residue, unless
+        the document is in a final state (reversed, cancelled, rejected). One row for the run; it fails on residue."""
+        started = time.monotonic()
+        if not self.residue_before:
+            return True
+        found, failed = [], []
+        for tenant, before in self.residue_before.items():
+            try:
+                with self._switch(tenant, before["base_url"], before["actors"]):
+                    docs, tasks = self._snapshot()
+            except RunnerError as err:
+                failed.append(f"tenant {tenant}: could not list after the run: {err}")
+                continue
+            if docs is None:
+                continue
+            for doc_id, doc in docs.items():
+                if doc_id not in before["docs"] and str(doc.get("state")) not in RESIDUE_FINAL_STATES:
+                    found.append(f"{tenant}: document {doc.get('number') or doc_id} ({doc.get('kind')}, state {doc.get('state')}, id {doc_id})")
+            for task_id in tasks:
+                if task_id not in before["tasks"]:
+                    found.append(f"{tenant}: open task {task_id}")
+        if not found and not failed:
+            return self._residue_line("pass", started)
+        text = "; ".join(found + failed)
+        if found:
+            text = "residue left by the run: " + text
+        return self._residue_line("fail" if found else "error", started, text)
+
     # -- the run ------------------------------------------------------------------------------
 
     def run(self, check_stable=True) -> int:
@@ -1143,6 +1268,7 @@ class Runner:
         results = {}
         stopped = False
         cleanup_ok = True
+        residue_ok = self.record_residue_baseline()
         try:
             for fixture in self.fixtures:
                 if stopped:
@@ -1172,6 +1298,7 @@ class Runner:
         finally:
             cleanup_ok = self.cleanup_all(skip_cleaned=self.cleanup_mode == "per_process") and cleanup_ok
         self.process = {"id": self.label}
+        residue_ok = self.check_residue() and residue_ok
         sha_end = health_sha(self.health_url)
         build_moved = sha_end != sha_start
         if build_moved:
@@ -1181,8 +1308,8 @@ class Runner:
         if self.file_issues:
             self._file_issues()
         self.save_context()
-        ok = steps_ok and cleanup_ok and not build_moved
-        self._summary(started_at, sha_start, sha_end, steps_ok, cleanup_ok, build_moved)
+        ok = steps_ok and cleanup_ok and residue_ok and not build_moved
+        self._summary(started_at, sha_start, sha_end, steps_ok, cleanup_ok, build_moved, residue_ok=residue_ok)
         print(f"{self.label}: {'PASS' if ok else 'FAIL'} (run dir {self.run_dir})", file=self.out, flush=True)
         return 0 if ok else 1
 
@@ -1195,6 +1322,11 @@ class Runner:
             return 2
         self.entries = [e for e in entries if isinstance(e, dict) and "cleanup" in e]
         self.replay = True
+        try:  # an interrupted run left its baseline: the replay compares against it
+            before = json.loads((self.run_dir / "residue_before.json").read_text(encoding="utf-8"))
+            self.residue_before = before if isinstance(before, dict) else {}
+        except (OSError, ValueError):
+            self.residue_before = {}
         started_at = now_utc()
         self.label = f"cleanup of {self.run_dir.name}"
         self.process = {"id": "cleanup"}
@@ -1208,8 +1340,10 @@ class Runner:
         if not self._tokens():
             return 1
         ok = self.cleanup_all()
+        residue_ok = self.check_residue()
         left = [e["process"] for e in self.entries if not e["done"]]
-        self._summary(started_at, sha, sha, True, ok, False, name="summary-cleanup.md")
+        self._summary(started_at, sha, sha, True, ok, False, name="summary-cleanup.md", residue_ok=residue_ok)
+        ok = ok and residue_ok
         print(f"cleanup of {self.run_dir}: {'PASS' if ok else 'FAIL'}" + (f" (not done: {', '.join(left)})" if left else ""),
               file=self.out, flush=True)
         return 0 if ok else 1
@@ -1291,8 +1425,8 @@ class Runner:
 
     # -- summary ------------------------------------------------------------------------------
 
-    def _summary(self, started_at, sha_start, sha_end, steps_ok, cleanup_ok, build_moved, name="summary.md"):
-        ok = steps_ok and cleanup_ok and not build_moved and sha_start is not None
+    def _summary(self, started_at, sha_start, sha_end, steps_ok, cleanup_ok, build_moved, name="summary.md", residue_ok=True):
+        ok = steps_ok and cleanup_ok and residue_ok and not build_moved and sha_start is not None
         first = next((r for r in self.records if r.get("verdict") in ("fail", "error")), None)
         lines = [
             f"# UAT run {self.label}",
@@ -1303,6 +1437,7 @@ class Runner:
             f"- build sha at start: {sha_start}   at end: {sha_end}" + ("   **build moved: the run fails**" if build_moved else ""),
             f"- steps: {'pass' if steps_ok else 'FAIL'}   cleanup: {'pass' if cleanup_ok else 'FAIL'}",
             f"- cleanup mode: {self.cleanup_mode}",
+            f"- tenant residue: {'pass' if residue_ok else 'FAIL'}",
             f"- verdict: **{'PASS' if ok else 'FAIL'}**",
         ]
         if first:
@@ -1914,7 +2049,8 @@ def main_run(args) -> int:
                     health_url=args.health_url, poll_interval=args.poll_interval, run_id=run_id, build_sha=args.build_sha,
                     old_base_url=args.old_base_url or chain.get("old_base_url"), keep_going=getattr(args, "keep_going", False),
                     label=label, file_issues=args.file_issues, repo=args.repo, gh_cmd=args.gh, fixtures=fixtures,
-                    pass_map=chain.get("pass"), overrides=overrides, cleanup_mode=chain.get("cleanup", "end"))
+                    pass_map=chain.get("pass"), overrides=overrides, cleanup_mode=chain.get("cleanup", "end"),
+                    residue_check=chain.get("residue_check") is not False)
     return runner.run(check_stable=not args.no_stable_check)
 
 
