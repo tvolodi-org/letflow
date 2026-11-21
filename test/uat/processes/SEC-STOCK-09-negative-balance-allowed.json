@@ -1,0 +1,249 @@
+{
+  "id": "SEC-STOCK-09",
+  "bp_entry": "BP-STOCK-41",
+  "title": "Negative balance rule ALLOWED: the same issue posts and the balance reads minus one",
+  "description": "Business rule, the other branch of SEC-STOCK-08, on the home tenant qoimeks-qa2 whose stock ledger setting allows negative balances (read at the start: the posting rule answers allowed; the walk stops there if the setting is different). The storekeeper issues one unit more than the balance; the administrator completes the Post task: posted, the balance reads -1. The rule is the tenant's own setting, the same document is refused on a tenant that refuses. The cleanup reverses the issue (the administrator completes the Reverse task), so the balance returns to its start.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/posting-rules"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "negative_balance": "allowed"
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "balance_before": "$.rows[0].quantity",
+        "uom": "$.rows[0].unit_ref"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} SEC-STOCK-09 issue of one unit more than the balance",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${balance_before + 1}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft",
+          "kind": "issue"
+        }
+      },
+      "save": {
+        "doc": "$.id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "posted_doc": "${doc}"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "entry_id": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "-1"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "storekeeper",
+      "requires": [
+        "doc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-09 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "posted_doc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-09 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_doc"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_doc}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "storekeeper",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ]
+}

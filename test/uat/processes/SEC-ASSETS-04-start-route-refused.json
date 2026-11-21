@@ -1,0 +1,296 @@
+{
+  "id": "SEC-ASSETS-04",
+  "bp_entry": "BP-ASSETS-17",
+  "title": "Asset posting processes cannot be started directly (four-eyes opening, write-off, change of kind, reversal)",
+  "description": "SECURITY, read-and-refuse only, on qoimeks-qa (the roster tenant that has the assets module). A tenant administrator tries to start every asset write process through the public start route with start values chosen by the caller (a document id, a posting, for the change of kind also a stock posting, for the reversal an entry to reverse): commission, change, hand-over, write-off, the opening with its four-eyes approval, the change of kind (by name and by id) and the reversal. Each is answered exactly like a start of a process that does not exist (404, same detail); the storekeeper, who may not start processes, is refused 403. Nothing is started or posted. Nothing is created, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa",
+    "actors": {
+      "admin": "qoimeks-qa-admin",
+      "storekeeper": "qoimeks-qa-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-sec-no-such-process-${run_id}",
+          "initial_variables": {}
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/active/assets_kind_change"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "name": "assets_kind_change",
+          "owner_module": "assets",
+          "status": "ACTIVE"
+        }
+      },
+      "save": {
+        "kind_change_def_id": "$.id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_commission",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_change",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_handover",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_writeoff",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_opening",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_kind_change",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b9",
+            "document_type": "assets_writeoff",
+            "version_no": 1,
+            "org_unit_id": "00000000-0000-4000-8000-0000000000ba",
+            "mark": "posted",
+            "posting": {
+              "lines": []
+            },
+            "stock_posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_reversal",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000bb",
+            "reason_code": "other",
+            "posting": {
+              "reverses_entry_id": "00000000-0000-4000-8000-0000000000bc"
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_id": "${kind_change_def_id}",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000bd",
+            "posting": {
+              "lines": []
+            },
+            "stock_posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "assets_writeoff",
+          "initial_variables": {}
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

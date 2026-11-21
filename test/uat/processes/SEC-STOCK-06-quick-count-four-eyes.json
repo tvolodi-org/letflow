@@ -1,0 +1,491 @@
+{
+  "id": "SEC-STOCK-06",
+  "bp_entry": "BP-STOCK-26",
+  "title": "Four-eyes on the quick count: the counter never approves the own count, the storekeeper never approves at all",
+  "description": "SECURITY, on a tenant whose quick count rule (four-eyes) is ON. The storekeeper counts one more unit than the book: the count waits for approval (issued), the balance is unchanged, the storekeeper is refused the approval access (403) and cannot claim or complete the approval task (the answer of a task that does not exist, 404). An administrator approves it: posted, balance plus 1. The administrator then counts the same item and place themself (book plus 2): the administrator's own approval is refused 403 separation_of_duties and nothing posts; the second administrator approves it: posted, balance book plus 3. The cleanup reverses both counts (the administrator completes each Reverse task), so the balance returns to its start. Precondition: the quick count rule is ON on the tenant (step s1 fails with state posted if it is OFF); no other count of this item at this place is open.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "admin2": "qoimeks-qa2-admin2",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "balance_before": "$.rows[0].quantity",
+        "uom": "$.rows[0].unit_ref"
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 1}",
+          "reason_code": "recount",
+          "reason_text": "UAT ${run_id} SEC-STOCK-06 count by the storekeeper"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "issued",
+          "kind": "quick_count"
+        }
+      },
+      "save": {
+        "qc1": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/approval-access"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/tasks?status=PENDING&page_size=1"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "approve",
+          "$.items[0].status": "PENDING"
+        }
+      },
+      "save": {
+        "task_1": "$.items[0].id",
+        "inst_1": "$.items[0].instance_id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/${inst_1}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.document_id": "${qc1}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_1}/claim",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_1}/complete",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${qc1}",
+          "step": "approve",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "posted_qc1": "${qc1}"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${qc1}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 3}",
+          "reason_code": "recount",
+          "reason_text": "UAT ${run_id} SEC-STOCK-06 count by the administrator"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "issued",
+          "kind": "quick_count"
+        }
+      },
+      "save": {
+        "qc2": "$.id"
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${qc2}",
+          "step": "approve",
+          "within_s": 30
+        },
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect_refused": {
+        "status": 403,
+        "code": "separation_of_duties"
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${qc2}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin2",
+      "do": {
+        "wait_task": {
+          "for_document": "${qc2}",
+          "step": "approve",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "posted_qc2": "${qc2}"
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${qc2}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "admin2",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 3}"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "qc2"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${qc2}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-06 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "posted_qc2"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_qc2}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-06 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_qc2"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_qc2}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "qc1"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${qc1}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-06 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "posted_qc1"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_qc1}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-06 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "requires": [
+        "posted_qc1"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_qc1}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "admin",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ]
+}

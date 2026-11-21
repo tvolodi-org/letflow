@@ -1290,7 +1290,7 @@
       "uniform 404 (INV-5)"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -1316,7 +1316,10 @@
         "result": "uniform 404 for every id route; the owner's token is not 404"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-ASSETS-02-cross-tenant-refused.json",
+    "planned_cases": [
+      "cross-tenant read of a real asset card or document: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)"
+    ]
   },
   {
     "id": "BP-ASSETS-15",
@@ -1372,7 +1375,8 @@
         "result": "403 for the storekeeper, including approval-access; the administrator can_approve; with the grant off, even GET /documents and POST /documents are refused"
       }
     ],
-    "scenario": "test/uat/processes/SEC-ASSETS-01-approval-permission.json"
+    "scenario": "test/uat/processes/SEC-ASSETS-01-approval-permission.json",
+    "note": "Also walked by the wider per-role matrix test/uat/processes/SEC-ASSETS-03-permission-matrix.json (bp_entry BP-ASSETS-15)."
   },
   {
     "id": "BP-ASSETS-16",
@@ -1435,7 +1439,7 @@
       "422 output_refused"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -1458,6 +1462,10 @@
         "result": "422 output_refused / refused as unknown definition; register unchanged"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-ASSETS-04-start-route-refused.json",
+    "planned_cases": [
+      "crafted completion of an asset post or reversal task pointing at another card or document: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)",
+      "change of kind on a foreign asset target: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)"
+    ]
   }
 ]
