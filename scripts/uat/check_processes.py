@@ -20,6 +20,8 @@ A process file is checked for:
   * `fixtures` (names of files in test/uat/fixtures/): each must exist; what they `provide` counts as defined;
     a fixture file itself needs description, leaves, provides (each saved by a step), a cleanup whose steps all
     have `requires`;
+  * a `platform_residue` block (what the run watches on the platform tenant, G18): only `definitions` and
+    `instances`, each a list of names; a ${name} in it must be defined like any other name;
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
 """
 
@@ -161,6 +163,29 @@ def actors_of(step) -> set:
     return found
 
 
+def check_platform_residue(doc, name, problems, defined):
+    """The `platform_residue` block of a process: what the run watches on the platform tenant (G18)."""
+    block = doc.get("platform_residue")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        problems.append(f"{name}: platform_residue must be an object {{definitions, instances}}")
+        return
+    unknown = set(block) - {"definitions", "instances"}
+    if unknown:
+        problems.append(f"{name}: platform_residue has unknown keys: " + ", ".join(sorted(unknown)))
+    for key in ("definitions", "instances"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            problems.append(f"{name}: platform_residue.{key} must be a list of names")
+            continue
+        for item in value:
+            for ref in sorted(refs(item) - defined):
+                problems.append(f"{name}: platform_residue.{key}: ${{{ref}}} is not an input and no step saves it")
+
+
 def check_process(doc, name, roles, routes, available, strict, problems, in_chain=False):
     """available: names defined before this process (chain inputs and earlier outputs). -> its outputs.
     In a chain every declared input must come from the chain or an earlier process."""
@@ -212,6 +237,7 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
     for out_name, expr in outputs.items():
         for name_ in sorted(refs(expr) - defined):
             problems.append(f"{name}: output {out_name}: ${{{name_}}} is not saved by any step")
+    check_platform_residue(doc, name, problems, defined)
     return set(outputs)
 
 

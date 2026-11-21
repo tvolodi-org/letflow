@@ -434,5 +434,44 @@ class RcSssChain(unittest.TestCase):
                                                      root=self.ROOT), [])
 
 
+class PlatformRunFiles(CheckCase):
+    """The wait_mail step and the platform_residue block of a platform process (G18)."""
+
+    def wait_step(self, sid="s6", **extra):
+        spec = {"recipient": "${admin_email}", "subject": "Tenant registered"}
+        spec.update(extra)
+        return {"id": sid, "actor": "admin", "do": {"wait_mail": spec}, "expect": {"status": 200}}
+
+    def test_a_wait_mail_step_is_accepted(self):
+        doc = self.mutated(lambda d: (d["inputs"].append("admin_email"),
+                                      d["steps"].append(self.wait_step())))
+        self.assertEqual(self.check(doc), [])
+
+    def test_an_undefined_name_in_a_wait_mail_step_is_caught(self):
+        doc = self.mutated(lambda d: d["steps"].append(self.wait_step()))
+        problems = self.check(doc)
+        self.assertTrue(any("${admin_email}" in p and "step s6" in p for p in problems), problems)
+
+    def test_a_platform_residue_block_is_accepted(self):
+        doc = self.mutated(lambda d: d.update(platform_residue={"definitions": ["platform.register_tenant"],
+                                                                 "instances": ["${doc_id}"]}))
+        self.assertEqual(self.check(doc), [])
+
+    def test_an_unknown_key_of_the_block_is_caught(self):
+        doc = self.mutated(lambda d: d.update(platform_residue={"tenants": ["uat-tmp-x"]}))
+        problems = self.check(doc)
+        self.assertTrue(any("platform_residue has unknown keys" in p for p in problems), problems)
+
+    def test_a_block_that_is_not_a_list_of_names_is_caught(self):
+        doc = self.mutated(lambda d: d.update(platform_residue={"definitions": "platform.register_tenant"}))
+        problems = self.check(doc)
+        self.assertTrue(any("platform_residue.definitions must be a list of names" in p for p in problems), problems)
+
+    def test_an_undefined_name_in_the_block_is_caught(self):
+        doc = self.mutated(lambda d: d.update(platform_residue={"instances": ["${never_saved}"]}))
+        problems = self.check(doc)
+        self.assertTrue(any("platform_residue.instances" in p and "${never_saved}" in p for p in problems), problems)
+
+
 if __name__ == "__main__":
     unittest.main()

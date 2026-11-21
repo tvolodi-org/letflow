@@ -115,11 +115,39 @@ Remember the id of the document as `doc_id`."*
 | you want to say | write |
 |---|---|
 | the person takes the task of a document in My Tasks and completes it | `"do": {"wait_task": {"for_document": "${doc_id}", "step": "post", "within_s": 30}, "claim": true, "complete": {"body": {}}}`. `step` is `post` for a receipt, issue or transfer and `reverse` for a reversal |
+| the system must send a mail and the process waits for it | `"do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}}` and `"expect": {"status": 200}`. See "Waiting for a mail" below |
 | only look and check (no change) | `"do": {"assert_only": {"path": "/api/v1/..."}}` and an `expect`. A read, never a body |
 | the same request twice (a retry: the system must not do it twice) | `"do": {"repeat": {"api": "POST", "path": "...", "body": {...}}}`, `"expect"` for the first answer and `"expect_repeat"` for the second (default: the same as the first) |
 | two people press at the same moment (concurrency) | `"do": {"parallel": [{...call 1...}, {...call 2...}]}` and `"expect": {"unordered": [{"status": 201}, {"status": 409}]}`: one wins, one is refused, in any order. A list `"expect": [e1, e2]` fixes the order |
 | the system must refuse | `"expect_refused": {"status": 422, "code": "output_refused"}` instead of `expect`: any `4xx` (or the given status) whose answer names the code. `"expect_refused": "output_refused"` is the short form |
 | the old phone address (shared access) | see below |
+
+**Waiting for a mail (`wait_mail`).** The step waits for a mail in the **mail trap** (Mailpit, the same trap
+`scripts/mail_trap.sh` reads) and matches it itself: the trap is asked by **recipient** only
+(`GET /api/v1/search?query=to:<recipient>`), and the **subject** of the message must be exactly the one the
+process names. A mail to somebody else, or with another subject, is not the mail: the step keeps waiting until
+`within_s` is over and then fails with `timeout: no mail to ... with the subject ...`.
+
+```json
+{"id": "s1", "actor": "platform-admin",
+ "do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}},
+ "expect": {"status": 200},
+ "save": {"mail_id": "$.message_id"}}
+```
+
+| key | meaning |
+|---|---|
+| `recipient` | the address the mail goes to (the trap accepts every address; the test uses `@uat.letflow.internal`) |
+| `subject` | the subject the mail must have, character for character. `"subject_contains": true` matches a subject that *contains* it (a mail with a prefix) |
+| `within_s`, `interval_s` | how long to wait (default 60 s) and how often to look (default 2 s; `--poll-interval` wins) |
+| `trap_url` | the trap to read, when it is not the one of the run |
+
+The trap of the run is `--mail-trap-url`, else the environment variable `MAIL_TRAP_URL`, else
+`http://127.0.0.1:8025` (the local trap; off the host open the tunnel of `docs/testing/uat-mail-trap.md` first).
+
+**The body of a mail never reaches the log.** The step logs the recipient, the subject and the id of the message
+that matched, and nothing else: the body of a mail carries links and tokens, so it is never read into a record.
+The recipient is masked like every other address in a log (the shape stays visible, the address does not).
 
 **Shared access (the old address).** The process creates the shared access value itself, uses it as the old app does,
 and revokes it in the cleanup. The value is kept in the memory of the runner only: it is never written to a file or
@@ -484,9 +512,12 @@ How to run the RC:
 
 `{ "id", "bp_entry", "title", "description", "tenant": "${tenant}", "inputs": [names], "defaults": {name: value},
 "dry_run": {tenant, actors, inputs, base_url?, old_base_url?}, "steps": [step], "outputs": {name: expression},
-"cleanup": [step] }`. A step: `id`, `actor` (not for `http_as`), `do`, one of `expect` / `expect_refused`, optional
+"cleanup": [step], "platform_residue": {definitions?: [names], instances?: [names]} }`. A step: `id`, `actor` (not for
+`http_as`), `do`, one of `expect` / `expect_refused`, optional
 `expect_repeat`, `save`, `requires`, `http_as`. `do` is exactly one of: `{api, path, body?, headers?}`,
-`{wait_task: {for_document, step, within_s?, interval_s?}, claim?, complete?: {body}}`, `{assert_only: {path, headers?}}`,
+`{wait_task: {for_document, step, within_s?, interval_s?}, claim?, complete?: {body}}`,
+`{wait_mail: {recipient, subject, within_s?, interval_s?, subject_contains?, trap_url?}}`,
+`{assert_only: {path, headers?}}`,
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
@@ -507,6 +538,8 @@ python3 -B -m unittest -v scripts/uat/tests/test_check_processes.py # the static
 python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py          # dry-run --changed in a temp git repository
 python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: order, idempotent reuse, cleanup, static check
 python3 -B -m unittest -v scripts/uat/tests/test_platform_actors.py # an actor of another tenant: its address, its token, the residue
+python3 -B -m unittest -v scripts/uat/tests/test_wait_mail.py       # the wait_mail step: the trap by recipient and subject, the body stays out of the log
+python3 -B -m unittest -v scripts/uat/tests/test_platform_residue.py # the residue of a platform run: the definition, the instances, the tenant
 ```
 
 `tests/fakes.py` is the shared fake: an HTTP server (a thread) with the stock routes BP-01 needs, the shared access
@@ -538,3 +571,49 @@ throwaway tenant (its slug starts with
 never reported, a **deactivated** one is final (QA cannot purge a tenant without a lifecycle row), and the fixed
 fixture tenant `uat-tmp-fixture` is never residue. The baseline of the platform tenants is in `platform_before.json`
 of the run directory.
+
+### The platform residue check of a platform run (G18)
+
+A platform run (the pilot of the tenant registration: the process runs in the platform tenant as the platform
+administrator) leaves more behind than a document: a **definition version** and an **instance**. A process says
+what the run watches in a `platform_residue` block:
+
+```json
+{
+  "id": "BP-PLATFORM-01",
+  "platform_residue": {
+    "definitions": ["platform.register_tenant"],
+    "instances": ["${instance_id}"]
+  },
+  "steps": [ ... ]
+}
+```
+
+| key | meaning |
+|---|---|
+| `definitions` | the names of the definitions of the platform tenant whose active version must be the one the run found |
+| `instances` | the instances of the platform tenant that must not be left open (a name the process saved, or the id itself) |
+
+The runner watches nothing until a process says so: a run without the block behaves exactly as before.
+
+**What the check does.**
+
+1. **The definition is back on its previous version.** Before the first process the runner reads the active
+   version rows of every named definition of the platform tenant (`GET /api/v1/definitions?status=active`) and
+   writes them to `platform_before.json`. After the last cleanup it reads them again: the run must have left the
+   definition on the version it found. The **id of the active version row** is what is compared, because a
+   rollback activates the row it had before (the same row, the same id) - and because the version string itself
+   (`1.0.0`) has the shape of a token and is therefore masked in a log. A definition left on another version is
+   residue: the row `tenant residue check` says `definition <name> is on the version <id>, the run left it on
+   <id>`.
+2. **No instance is left open.** Every instance the run started (the answer of a start carries its
+   `instance_id`) and every instance the block names is read after the last cleanup
+   (`GET /api/v1/instances/<id>`): an instance that is still `ACTIVE` is residue, the row says
+   `instance <id> is still open`. An instance that does not exist (it was deleted) is not left open.
+3. **No active throwaway tenant is left.** The tenant rule of the section above: a `uat-tmp-` tenant that the run
+   created and left **active** is residue. QA cannot purge a tenant that was created through
+   `POST /api/v1/tenants`, so a **deactivated** one is final.
+
+A baseline or a final listing that cannot be read fails the row (`baseline unavailable`, `final listing
+unavailable`): the check is never passed silently. The run FAILS with the row `tenant residue check` and the
+text of every finding.
