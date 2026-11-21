@@ -6,6 +6,12 @@
 # record_version_conflict; the genuine, unchanged posting task must still post normally.
 # Run by the OPERATOR, never by the UAT walker. Synthetic QA data only.
 #
+# NOTE (T-2444): from the build that closes the start route for module definitions, POST /instances
+# answers 404 for `stock_receipt` (a definition with module_writes is started by its module only), so
+# step 1 below ends with "the instance start returned no instance_id" there. The scenario that uses this
+# fixture (qoimeks-ledger-3 L7) needs another way to make a posting task of changed content; until then
+# it runs only against a build from before T-2444.
+#
 # Creates on tenant qoimeks-qa2 ONLY, through the public API as the tenant administrator:
 #   one extra stock_receipt instance for an issued receipt D, using the variables of D's genuine
 #   pending posting instance except that the first line quantity is raised by one unit.

@@ -123,6 +123,32 @@ defmodule Letflow.Modules.WriteTargetSourcesScanTest do
     assert Enum.sort(declared) == Enum.sort(@completer_provided)
   end
 
+  test "WTS-4 (T-2444) every module_writes definition is module-only at start, and has no foreign source" do
+    found =
+      for {name, pack} <- packs(),
+          definition <- Map.get(pack, "definitions", []),
+          {:ok, graph} = Graph.from_map(definition["graph"]),
+          WriteTargets.module_writes?(graph),
+          do: {name, definition["process_key"], graph}
+
+    # not vacuous: the stock and assets documents, openings, reversals, counts and the maintenance order
+    keys = Enum.map(found, fn {_p, key, _g} -> key end)
+
+    for key <- ~w(stock_receipt stock_opening stock_reversal stock_count_posting assets_commission
+                  assets_reversal maintenance_work_order) do
+      assert key in keys, "#{key} is not seen as module-only"
+    end
+
+    # a write definition has no node that merges a value from outside (the start variables are
+    # module-built, a completion body is refused by key): a service, script or sub-process node would
+    # add a source `WriteTargets` cannot see (route map T-2445, C6, C7, S2)
+    for {pack, key, graph} <- found,
+        node <- graph.nodes,
+        to_string(node.node_type) in ~w(SERVICE_TASK SCRIPT_TASK SUB_PROCESS) do
+      flunk("#{pack}/#{key}/#{node.id}: #{node.node_type} in a module_writes definition")
+    end
+  end
+
   describe "WTS-3 failing examples: the scan names each rewired argument" do
     defp real(pack, key, node, handler) do
       definition =

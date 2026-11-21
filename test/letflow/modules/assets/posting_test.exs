@@ -163,7 +163,8 @@ defmodule Letflow.Modules.Assets.PostingTest do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: "generic-dup-#{Ecto.UUID.generate()}"
         },
-        prefix: ctx.schema
+        prefix: ctx.schema,
+        module_start: true
       )
 
     second = D.pending_task(ctx, id, "post")

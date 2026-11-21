@@ -230,7 +230,8 @@ defmodule Letflow.EntityWritesFixture do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: unique("ew-start")
         },
-        prefix: schema
+        prefix: schema,
+        module_start: true
       )
 
     {created.instance_id, pending_task!(schema, created.instance_id)}
@@ -422,7 +423,8 @@ defmodule Letflow.EntityWritesFixture do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: unique("ew-svc-start")
         },
-        prefix: base.schema
+        prefix: base.schema,
+        module_start: true
       )
 
     [row] =

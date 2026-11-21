@@ -251,7 +251,8 @@ defmodule Letflow.Modules.Stock.ReversalTest do
                    actor_id: ctx.holder.id,
                    idempotency_key: "gen-#{Ecto.UUID.generate()}"
                  },
-                 prefix: ctx.schema
+                 prefix: ctx.schema,
+                 module_start: true
                )
 
       late =
