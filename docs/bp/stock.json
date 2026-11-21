@@ -1673,7 +1673,12 @@
         "result": "201 the reversal's own movement; 400 already reversed / reversal cannot be reversed / quantity must be positive"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-08-old-app-phone-operations.json",
+    "dry_run": {
+      "tenant": "qoimeks-qa2",
+      "actors": {"admin": "qoimeks-qa2-admin"},
+      "inputs": {}
+    }
   },
   {
     "id": "BP-STOCK-17",
