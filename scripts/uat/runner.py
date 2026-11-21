@@ -474,7 +474,8 @@ def origin_of(url: str) -> str:
 
 
 RESIDUE_FINAL_STATES = ("reversed", "cancelled", "rejected")
-RESIDUE_DOC_LIMIT = 200  # the newest documents listed per tenant, before and after a run
+RESIDUE_DOC_LIMIT = 200  # the newest non-final documents listed per tenant, before and after a run
+RESIDUE_CURSOR_RESTARTS = 3  # expired open-task cursors: restart from page one, then fail closed
 
 
 class Runner:
@@ -978,7 +979,7 @@ class Runner:
         return self.request(role, "POST", f"/api/v1/tasks/{task_id}/complete", body)
 
     def _inbox_page(self, role, cursor=None):
-        """The task-list endpoint shared by wait_task and the residue check, so they cannot drift apart."""
+        """The inbox endpoint used by wait_task; residue uses the status-filtered task list instead."""
         path = "/api/v1/tasks/inbox?page_size=200" + (f"&cursor={cursor}" if cursor else "")
         return self.request(role, "GET", path)
 
@@ -1195,9 +1196,31 @@ class Runner:
         finally:
             self.tenant, self.base_url, self.actors, self.tokens = keep
 
+    def _open_tasks(self):
+        """Open task ids, without paging closed history. An expired cursor restarts the whole listing at most
+        three times; partial ids from the abandoned attempt must not survive into the baseline."""
+        tasks, cursor, restarts = set(), None, 0
+        while True:
+            path = "/api/v1/tasks?status=PENDING&page_size=200" + (f"&cursor={cursor}" if cursor else "")
+            status, body, _ = self.request("admin", "GET", path)
+            if status == 410 and cursor:
+                if restarts >= RESIDUE_CURSOR_RESTARTS:
+                    raise RunnerError(f"open tasks answered 410 after {restarts} pagination restarts")
+                restarts += 1
+                tasks, cursor = set(), None
+                continue
+            if status != 200 or not isinstance(body, dict):
+                raise RunnerError(f"open tasks answered {status}")
+            for item in body.get("items") or []:
+                if isinstance(item, dict) and item.get("id") is not None and str(item.get("status", "PENDING")).upper() == "PENDING":
+                    tasks.add(str(item["id"]))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                return sorted(tasks)
+
     def _snapshot(self):
-        """-> (documents with their state, open task ids) of the current tenant as admin; (None, why) when there is
-        no admin or the document list is absent/refused. The caller fails the run on every unreadable snapshot."""
+        """-> (non-final documents with their state, open task ids) of the current tenant as admin; (None, why) when
+        there is no admin or the document list is absent/refused. The caller fails the run on every unreadable snapshot."""
         if "admin" not in self.actors:
             return None, "no admin actor for this tenant"
         docs, cursor = {}, None
@@ -1209,23 +1232,13 @@ class Runner:
             if status != 200 or not isinstance(body, dict):
                 raise RunnerError(f"documents list answered {status}")
             for row in body.get("rows") or []:
-                if isinstance(row, dict) and row.get("id") is not None:
+                if (isinstance(row, dict) and row.get("id") is not None
+                        and str(row.get("state")) not in RESIDUE_FINAL_STATES):
                     docs[str(row["id"])] = {"number": row.get("number"), "kind": row.get("kind"), "state": row.get("state")}
             cursor = body.get("next_cursor")
             if not cursor or not body.get("rows"):
                 break
-        tasks, cursor = set(), None
-        for _ in range(5):
-            status, body, _ = self._inbox_page("admin", cursor)
-            if status != 200 or not isinstance(body, dict):
-                raise RunnerError(f"inbox answered {status}")
-            for item in body.get("items") or []:
-                if isinstance(item, dict) and item.get("id") is not None and str(item.get("status", "PENDING")).upper() == "PENDING":
-                    tasks.add(str(item["id"]))
-            cursor = body.get("next_cursor")
-            if not cursor:
-                break
-        return docs, sorted(tasks)
+        return docs, self._open_tasks()
 
     def _residue_line(self, verdict, started, error=None, step="tenant residue check"):
         record = {"ts": now_utc(), "phase": "residue", "step": step, "actor": "admin", "verdict": verdict,
