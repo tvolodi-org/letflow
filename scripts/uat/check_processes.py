@@ -12,7 +12,7 @@ A process file is checked for:
     is named actor-<slug>-<role>, the role is the last part);
   * every ${name} is an input, a default, a built-in (tenant, run_id, now_utc, old_base_url), saved by
     an EARLIER step of the process, or (in a chain) an input or output of an EARLIER process;
-  * every api path starts with /api/ and matches a route of lib/letflow/modules/*/router.ex or
+  * every api path starts with /api/ and matches a route of lib/letflow/modules/stock/router.ex or
     lib/letflow/routers/*.ex (a loose check: the method and the end of the path, wildcards for :id);
     a step with http_as: shared_access is checked against lib/letflow/routers/shared_stock_access.ex;
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
@@ -56,15 +56,15 @@ class Routes:
         self.api = []  # (method, segs, mounts)
         self.shared = []
         files = [root / STOCK_ROUTER] + sorted((root / "lib/letflow/routers").glob("*.ex"))
-        # the other modules' own routers (org, locations, catalog_items, codes, ...): mounted at /api/v1/modules/<dir>
-        module_routers = sorted((root / "lib/letflow/modules").glob("*/router.ex"))
-        files += [f for f in module_routers if (root / STOCK_ROUTER) != f]
+        # the other modules' routers (exam, assets, ...) are mounted at /api/v1/modules/<module>
+        other = [f for f in sorted((root / "lib/letflow/modules").glob("*/router.ex")) if f != root / STOCK_ROUTER]
+        files += other
         for f in files:
             if not f.is_file():
                 continue
             rel = f.relative_to(root).as_posix()
             stem = f.stem.replace("_", "-")
-            if rel != STOCK_ROUTER and rel.startswith("lib/letflow/modules/"):
+            if rel != STOCK_ROUTER and f.stem == "router" and f.parent.parent.name == "modules":
                 mounts = [["modules", f.parent.name]]
             else:
                 mounts = [[stem], STOCK_MOUNT + [stem]] if rel != STOCK_ROUTER else [STOCK_MOUNT]
