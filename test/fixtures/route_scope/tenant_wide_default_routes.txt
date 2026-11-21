@@ -31,6 +31,7 @@ GET /instances/:id/timeline InstancesRead
 GET /instances/storage-usage AttachmentsRead
 GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
+GET /modules/assets/approval-access AssetsApprove
 GET /modules/assets/balances AssetsRead
 GET /modules/assets/cards/:id/lock AssetsRead
 GET /modules/assets/cards/:id/photos AssetsRead

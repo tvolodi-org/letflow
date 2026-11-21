@@ -7,7 +7,14 @@ defmodule Letflow.Api.AuthorizationOverlayTest do
   alias Letflow.Api.Authorization.AccessContext
   alias Letflow.Api.TenantGrants
 
-  @assets [:AssetsRead, :AssetsPost, :AssetsReverse, :AssetsReconcile, :AssetsCardWrite]
+  @assets [
+    :AssetsRead,
+    :AssetsPost,
+    :AssetsReverse,
+    :AssetsReconcile,
+    :AssetsCardWrite,
+    :AssetsApprove
+  ]
 
   test "A1 an empty overlay equals the baseline for every role and permission" do
     for role <- Authorization.roles(), p <- Authorization.permissions() do
@@ -28,13 +35,19 @@ defmodule Letflow.Api.AuthorizationOverlayTest do
     assert Authorization.role_allows?(:STOREKEEPER, :AssetsRead, overlay)
     assert Authorization.role_allows?(:STOREKEEPER, :AssetsPost, overlay)
 
-    for p <- [:AssetsReverse, :AssetsReconcile, :AssetsCardWrite],
+    for p <- [:AssetsReverse, :AssetsReconcile, :AssetsCardWrite, :AssetsApprove],
         do: refute(Authorization.role_allows?(:STOREKEEPER, p, overlay), inspect(p))
   end
 
   test "A3 anything outside grantable/0 is ignored: other roles, other atoms, bad shapes" do
     wide = %{
-      STOREKEEPER: [:AssetsReverse, :AssetsReconcile, :AssetsCardWrite, :TenantsManage],
+      STOREKEEPER: [
+        :AssetsReverse,
+        :AssetsReconcile,
+        :AssetsCardWrite,
+        :AssetsApprove,
+        :TenantsManage
+      ],
       TASK_WORKER: [:AssetsRead],
       CANDIDATE: [:AssetsRead, :AssetsPost]
     }
