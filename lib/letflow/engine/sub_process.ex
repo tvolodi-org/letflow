@@ -90,6 +90,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.VariableSchema
+  alias Letflow.Engine.WriteTargets
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.Registry.JsonSchema
@@ -345,11 +346,12 @@ defmodule Letflow.Engine.SubProcess do
              activation_failure()
              | {:graph_structure_invalid, term()}
              | {:activation_failed, term()}}
-  def prepare_child_activation(_parent_instance_id, parent_variables, %Graph.Node{} = node, opts) do
+  def prepare_child_activation(parent_instance_id, parent_variables, %Graph.Node{} = node, opts) do
     prefix = Keyword.get(opts, :prefix)
 
     with {:ok, definition} <- resolve_child_definition(node, prefix),
          {:ok, graph} <- Letflow.Engine.build_graph(definition.graph),
+         :ok <- refuse_module_only_child(graph, definition, parent_instance_id, prefix),
          {parsed_interface, _violations} <-
            SubProcessInterface.parse_interface(
              node.id,
@@ -407,6 +409,30 @@ defmodule Letflow.Engine.SubProcess do
       end
     end
   end
+
+  # T-2444: a definition with `module_writes` reads its write targets from the start variables, so it
+  # is started by its module only: as a child it needs a parent definition stamped with the SAME
+  # module (a module composes its own definitions). A tenant-made parent, whose completers or start
+  # variables could carry the targets, is answered as for an unknown definition. `owner_module` is a
+  # read-only stamp set by module install, never by a tenant.
+  defp refuse_module_only_child(graph, definition, parent_instance_id, prefix) do
+    if not WriteTargets.module_writes?(graph) or
+         same_module_parent?(definition, parent_instance_id, prefix),
+       do: :ok,
+       else: {:error, {:definition_not_found, :module_only_definition}}
+  end
+
+  defp same_module_parent?(%{owner_module: owner}, parent_instance_id, prefix)
+       when is_binary(owner) do
+    with {:ok, snapshot} <- SnapshotStore.get_by_instance_id(parent_instance_id, prefix: prefix),
+         {:ok, parent} <- Definitions.get_by_id(snapshot.definition_id, prefix: prefix) do
+      parent.owner_module == owner
+    else
+      _unknown -> false
+    end
+  end
+
+  defp same_module_parent?(_definition, _parent_instance_id, _prefix), do: false
 
   # GH #2694 -- the child's own pins, resolved FRESH for the child's definition with the same
   # lookup create/2 uses (catalog scoped to the tenant derived from the schema prefix, script

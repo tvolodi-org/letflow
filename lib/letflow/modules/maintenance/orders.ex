@@ -322,7 +322,8 @@ defmodule Letflow.Modules.Maintenance.Orders do
     }
 
     with :ok <- start_seam(),
-         {:ok, %{instance_id: instance_id}} <- Engine.create(attrs, prefix: prefix) do
+         {:ok, %{instance_id: instance_id}} <-
+           Engine.create(attrs, prefix: prefix, module_start: true) do
       {:ok, instance_id}
     else
       {:error, :definition_not_active} ->

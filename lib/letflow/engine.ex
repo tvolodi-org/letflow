@@ -578,7 +578,7 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type opts :: [prefix: String.t()]
+  @type opts :: [prefix: String.t(), module_start: boolean()]
 
   @type create_error ::
           {:error, :tenant_id_not_accepted}
@@ -653,6 +653,15 @@ defmodule Letflow.Engine do
 
   The idempotent-replay comparison includes the node: the same key with a different node (or with
   none) is `:idempotency_key_reuse`.
+
+  ## Module-only definitions (T-2444)
+
+  A definition any node of which carries `module_writes` (`Letflow.Engine.WriteTargets.module_writes?/1`)
+  is started only with `module_start: true` in `opts`, which the stock, assets and maintenance start code
+  sets and no route does (the router builds `opts` from the pipeline, never from the body). Any other
+  start (`POST /instances`, a scheduled job) answers `{:error, :definition_not_found}`, the answer for
+  an unknown definition (INV-5), before the status case. A SUB_PROCESS child of such a definition is
+  refused in `Letflow.Engine.SubProcess`. Reason: the write targets are read from the start variables.
 
   ## Module uninstall (decision 0066 D4, REQ-627)
 
@@ -858,6 +867,7 @@ defmodule Letflow.Engine do
     definition_id
     |> Definitions.get_by_id(opts)
     |> gate_uninstalled_owner(opts)
+    |> gate_module_only_start(opts)
     |> interpret_definition_lookup()
   end
 
@@ -865,6 +875,7 @@ defmodule Letflow.Engine do
     definition_name
     |> Definitions.get_active_by_name(opts)
     |> gate_uninstalled_owner(opts)
+    |> gate_module_only_start(opts)
     |> interpret_definition_lookup()
   end
 
@@ -885,6 +896,25 @@ defmodule Letflow.Engine do
   end
 
   defp gate_uninstalled_owner(lookup, _opts), do: lookup
+
+  # T-2444 (T-2443 review of T-2430): a definition whose nodes carry `module_writes` reads its write
+  # targets from the start variables, so only its module may start it (`module_start: true`, set by
+  # the stock, assets and maintenance start code, whose variables are built from stored documents).
+  # The public route, a scheduled job and any other caller answer as for an unknown definition
+  # (INV-5), before the status case; the cause goes to the server log only. A child start of a
+  # SUB_PROCESS node is refused alike in `SubProcess.resolve_child_definition/2`.
+  defp gate_module_only_start({:ok, definition} = found, opts) do
+    with false <- Keyword.get(opts, :module_start, false) == true,
+         {:ok, graph} <- build_graph(definition.graph),
+         true <- WriteTargets.module_writes?(graph) do
+      Logger.info("start refused: module-only definition definition_id=#{definition.id}")
+      {:error, :not_found}
+    else
+      _other -> found
+    end
+  end
+
+  defp gate_module_only_start(lookup, _opts), do: lookup
 
   defp interpret_definition_lookup({:ok, definition}) do
     case definition do
