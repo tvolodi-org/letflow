@@ -35,3 +35,11 @@ tool, so a caller in another area may exist.
 - Import functions called by the generic import route: covered by BP-MASTER-06 and BP-MASTER-07.
 - `Letflow.Modules.Codes.Code128.encode/1` (`lib/letflow/modules/codes/code128.ex`): used by the label print
   (BP-MASTER-10) through `Labels.render/1`.
+
+## Gaps that keep security entries partial (T-2552)
+
+Not orphans: these are things the product or the runner lacks, so a map entry stays `partial`.
+
+- BP-MASTER-14: a runner step that sends no credential, a malformed header or an expired token (runner feature, `auth: none`/`bad`). Meanwhile: Elixir auth pipeline tests; the other-company token is walked in BP-MASTER-12 and SEC-ID-02.
+- BP-MASTER-15: a runner step that sends a file body (xlsx, CSV) for the xlsx/csv limits (runner feature, file upload). Meanwhile: JSON limits walked in BP-MASTER-15; Elixir import tests.
+- BP-MASTER-16: a QA tenant with a record type whose scope is not tenant-wide (environment fixture). Meanwhile: unknown and retired code walked in BP-MASTER-16; Elixir resolve_router_test.
