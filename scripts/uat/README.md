@@ -275,6 +275,20 @@ Exit code **0**: every step, every cleanup step and the build check passed. **1*
 refused to start). **2**: bad command line or process file, nothing was run (`dry-run` never uses 2 for a failure:
 the `bp_dryrun` capability reads exit 2 as "this runner has no dry-run command yet").
 
+### Retired tenants and blocked files (T-2538)
+
+`test/uat/retired-tenants.json` lists the **retired QA tenants: `qoimeks-qa` (retired, never touch it) and
+`qoimeks-client1-qa` (client1, read-only: no runner run at all)**. `runner.py run|chain|cleanup`, `dry-run` and
+`check_processes.py` refuse a process, chain or fixture file, a `--tenant`, a `--actors` user (the slug or
+`<slug>-...`) or a base url that names one: **exit 2 before any request**, the message names the file and the tenant.
+One retired file refuses the whole `dry-run` batch (exit 2; this is the one case where `dry-run` exits 2, the
+`bp_dryrun` capability must treat it as a refusal, not as a missing command). Before a batch runs, one line per
+distinct tenant (`batch tenant <slug>: actors ...; N file(s)`) is printed, so nobody has to remember the list.
+
+A file whose `dry_run` block has `"blocked_by": "<reason>"` is **skipped with that reason** by `dry-run` and by a chain,
+and refused (exit 2) by `run`. SEC-ASSETS-01..04 carry `blocked_by: assets-module-on-active-tenant` until the assets
+module is installed on `qoimeks-qa2` (infra); then their `dry_run` tenant is `qoimeks-qa2` and the block goes.
+
 ### Preflight: the run starts only when all of this is true
 
 1. `GET /health` gives a build `sha`.

@@ -6,10 +6,11 @@
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
-    "tenant": "qoimeks-qa",
+    "blocked_by": "assets-module-on-active-tenant",
+    "tenant": "qoimeks-qa2",
     "actors": {
-      "admin": "qoimeks-qa-admin",
-      "storekeeper": "qoimeks-qa-storekeeper"
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
     },
     "inputs": {}
   },
