@@ -949,7 +949,8 @@
           "admin/stock/counts/:id -> CountsPage"
         ],
         "functions": [
-          "Letflow.Modules.Stock.FreezeGuard.check"
+          "Letflow.Modules.Stock.FreezeGuard.check",
+          "Letflow.Modules.Stock.FreezeGuard.hook"
         ],
         "route": [
           "POST /api/v1/modules/stock/counts/:id/open",
@@ -958,6 +959,8 @@
         "code_refs": [
           "web/src/modules/stock/stockRoutes.tsx:56",
           "lib/letflow/modules/stock/freeze_guard.ex:61",
+          "lib/letflow/modules/stock/freeze_guard.ex:110",
+          "lib/letflow/modules/stock/count_sheet.ex:127",
           "lib/letflow/modules/stock/router.ex:811",
           "lib/letflow/modules/stock/router.ex:790"
         ],
@@ -1742,7 +1745,7 @@
     "actors": [
       {
         "role": "TENANT_ADMIN",
-        "permission": "StockApprove"
+        "permission": "TENANT_ADMIN task role (assets_kind_change/post has no required_permission)"
       }
     ],
     "preconditions": [
