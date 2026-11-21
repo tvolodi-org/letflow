@@ -1,0 +1,314 @@
+{
+  "id": "BP-EXAM-02",
+  "bp_entry": "BP-EXAM-02",
+  "title": "Exam: build an exam (author side)",
+  "description": "The exam author (tenant administrator) creates an exam in draft with its pass mark, attempts, time limit and tab-leaving policy, adds a section and a random question rule that draws one question of a category, changes the exam as a whole (time limit 45), and sees an exam with a status outside the list refused. Everything is removed again, rule first, then section, exam and category. The exam stays draft so no candidate can start it. Not covered at API level: assigning the exam to a candidate (no route, see the gaps in the BP-EXAM-02 entry) and pinned questions (they need a question from BP-EXAM-01 kept alive; the rule step shows the same write path).",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {},
+  "dry_run": {
+    "tenant": "bilimbaga",
+    "actors": {
+      "admin": "actor-bilimbaga-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/category",
+        "body": {
+          "field_values": {
+            "name": {
+              "en": "UAT ${run_id} category"
+            },
+            "sort_order": 0
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "cat_a": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/exam",
+        "body": {
+          "field_values": {
+            "title": {
+              "en": "UAT ${run_id} exam"
+            },
+            "status": "draft",
+            "time_limit_minutes": 30,
+            "passing_score_pct": 60,
+            "max_attempts": 3,
+            "shuffle_questions": false,
+            "shuffle_options": false,
+            "show_answers": "never",
+            "on_tab_switch": "log",
+            "certificate_enabled": false
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "exam_id": "$.record_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/exam_section",
+        "body": {
+          "field_values": {
+            "exam_id": "${exam_id}",
+            "title": {
+              "en": "UAT ${run_id} section"
+            },
+            "sort_order": 1
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "section_id": "$.record_id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/exam_question_rule",
+        "body": {
+          "field_values": {
+            "exam_id": "${exam_id}",
+            "section_id": "${section_id}",
+            "mode": "random",
+            "category_id": "${cat_a}",
+            "count": 1,
+            "sort_order": 1
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "rule_id": "$.record_id"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/modules/exam/authoring/exam/${exam_id}",
+        "body": {
+          "field_values": {
+            "title": {
+              "en": "UAT ${run_id} exam"
+            },
+            "status": "draft",
+            "time_limit_minutes": 45,
+            "passing_score_pct": 60,
+            "max_attempts": 3,
+            "shuffle_questions": false,
+            "shuffle_options": false,
+            "show_answers": "never",
+            "on_tab_switch": "log",
+            "certificate_enabled": false
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/exam",
+        "body": {
+          "field_values": {
+            "title": {
+              "en": "UAT ${run_id} exam"
+            },
+            "status": "started",
+            "time_limit_minutes": 30,
+            "passing_score_pct": 60,
+            "max_attempts": 3,
+            "shuffle_questions": false,
+            "shuffle_options": false,
+            "show_answers": "never",
+            "on_tab_switch": "log",
+            "certificate_enabled": false
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam_question_rule/${rule_id}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam_section/${section_id}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam/${exam_id}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/category/${cat_a}"
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "rule_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam_question_rule/${rule_id}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "section_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam_section/${section_id}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "exam_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/exam/${exam_id}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "cat_a"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/category/${cat_a}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    }
+  ]
+}
