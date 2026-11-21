@@ -2288,7 +2288,7 @@
       "test/letflow/routers/tenant_auditor_routes_test.exs"
     ],
     "gaps": [
-      "Routes at the root of their prefix (PATCH /tenant/settings, PUT /tenant/scope-enforcement, POST /number-sequences, POST /data-export, role grants and scoped role grants) are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/..., /number-sequences, /data-export), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "Routes at the root of their prefix (PATCH /tenant/settings, PUT /tenant/scope-enforcement, role grants and scoped role grants) are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
       "TENANT_AUDITOR, PROCESS_DESIGNER and TASK_WORKER have no login in the actor roster (test/fixtures/uat/actors.yaml), so only TENANT_ADMIN and STOREKEEPER are played; the other roles are covered by test/letflow/api/permission_matrix_test.exs and authorization_enforcement_test.exs."
     ]
   },
@@ -2384,7 +2384,7 @@
       "test/letflow/routers/tenant_settings_scope_test.exs"
     ],
     "gaps": [
-      "The scoped role grant delete, the company settings change and the solution install of another company are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/..., /number-sequences, /data-export), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail); they stay with test/letflow/routers/req446_cross_tenant_denial_test.exs and tenant_settings_scope_test.exs."
+      "The scoped role grant delete, the company settings change and the solution install of another company are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail); they stay with test/letflow/routers/req446_cross_tenant_denial_test.exs and tenant_settings_scope_test.exs."
     ]
   },
   {
@@ -2526,7 +2526,7 @@
       "test/letflow/scope_enforcement_flip_authority_test.exs"
     ],
     "gaps": [
-      "PUT /tenant/scope-enforcement is a root route of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/..., /number-sequences, /data-export), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "PUT /tenant/scope-enforcement is a root route of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
       "The token and the scoped-administrator callers need credentials that are not in the roster, and the transition off to on changes the enforcement mode of a shared QA tenant; both stay with test/letflow/routers/tenant_scope_enforcement_refusal_kinds_test.exs and test/letflow/scope_enforcement_flip_authority_test.exs. Read-only parts of the same router are in SEC-ID-07 (integrity and token preconditions: administrator 200, storekeeper 403)."
     ]
   },
@@ -2866,7 +2866,7 @@
       "test/letflow/routers/tenant_solutions_test.exs"
     ],
     "gaps": [
-      "The crafted-body targets (PATCH /tenant/settings, POST /number-sequences, POST /tenant/solutions) are root routes of their prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/..., /number-sequences, /data-export), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The approval rule route is reached by SEC-ID-03 only with an empty body by the storekeeper (refused 403 before the body is read). Crafted write targets of the stock completion are played by BP-09 and BP-MASTER-13 (their own areas)."
+      "POST /number-sequences is matched by the static check but is not scripted for crafted bodies: its router takes only the five definition keys (Map.take in lib/letflow/routers/number_sequences.ex), so an unknown key or a body tenant id is dropped, not refused, and a created definition has no delete route to undo it. The crafted-body targets PATCH /tenant/settings and POST /tenant/solutions are root routes of their prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The approval rule route is reached by SEC-ID-03 only with an empty body by the storekeeper (refused 403 before the body is read). Crafted write targets of the stock completion are played by BP-09 and BP-MASTER-13 (their own areas)."
     ]
   },
   {
@@ -3131,7 +3131,7 @@
       "test/letflow/routers/tenant_auditor_routes_test.exs"
     ],
     "gaps": [
-      "Role grants, scoped role grants, company settings and the scope enforcement mode are root routes of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/..., /number-sequences, /data-export), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The other routes of the same family are in SEC-ID-07."
+      "Role grants, scoped role grants, company settings and the scope enforcement mode are root routes of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The other routes of the same family are in SEC-ID-07."
     ]
   },
   {

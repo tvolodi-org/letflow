@@ -2,7 +2,7 @@
   "id": "SEC-ID-07",
   "bp_entry": "BP-TENANT-ADMIN-33",
   "title": "Role matrix of the other administration routes: the tenant administrator reads them, the storekeeper is refused every read and change with one identical answer",
-  "description": "Second half of the role matrix of tenant administration (the first half is SEC-ID-03). The tenant administrator reads the data export datasets, the scope enforcement integrity report, the scope enforcement token preconditions and the role list: each answers 200. The storekeeper sends the same reads and the changes of the same families (create a role, rebind a role, set a label, set a currency, uninstall a module): every one is refused with 403 and the same body (Forbidden, insufficient permissions). The permission is checked before the id and the body are read, so the change requests carry an unknown id and an empty body on purpose: if a refusal were missing, the request would end in a not-found or a validation answer and change nothing. At the end the administrator reads the role list again: the same first role as at the start. Not in this file: the routes mounted at the root of their prefix (company settings, number sequences, data export download, scope enforcement mode, role grants, scoped role grants), which the static check of the runner cannot match yet, and the roles that have no login in the roster (tenant auditor, process designer, task worker); see the map entry. Read-only for the administrator; no cleanup.",
+  "description": "Second half of the role matrix of tenant administration (the first half is SEC-ID-03). The tenant administrator reads the data export datasets, the scope enforcement integrity report, the scope enforcement token preconditions and the role list: each answers 200. The storekeeper sends the same reads and the changes of the same families (create a role, rebind a role, set a label, set a currency, uninstall a module, list and create a number sequence, download a data export): every one is refused with 403 and the same body (Forbidden, insufficient permissions). The permission is checked before the id and the body are read, so the change requests carry an unknown id and an empty body on purpose: if a refusal were missing, the request would end in a not-found or a validation answer and change nothing. At the end the administrator reads the role list again: the same first role as at the start. Not in this file: the routes mounted at the root of a two-part prefix (company settings, scope enforcement mode, solution install, role grants, scoped role grants), which the static check of the runner cannot match yet, and the roles that have no login in the roster (tenant auditor, process designer, task worker); see the map entry. Read-only for the administrator; no cleanup.",
   "tenant": "${tenant}",
   "inputs": [],
   "defaults": {
@@ -98,6 +98,24 @@
     },
     {
       "id": "s14",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/number-sequences"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/number-sequences", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s16",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/data-export", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s17",
       "actor": "admin",
       "do": {"api": "GET", "path": "/api/v1/identity/roles"},
       "expect": {"status": 200, "json": {"$.items[0].id": "${first_role_before}"}}
