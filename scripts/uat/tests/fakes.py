@@ -161,6 +161,10 @@ def make_handler(state):
                 doc_id = f"doc-{len(state.docs) + 1}"
                 state.docs[doc_id] = {"state": "draft", "qty": Decimal(body["lines"][0]["quantity"])}
                 return self.reply(201, {"id": doc_id, "state": "draft"})
+            if method == "GET" and path == base + "/documents":
+                rows = [{"id": i, "kind": "receipt", "state": d["state"], "number": "R-" + i}
+                        for i, d in reversed(list(state.docs.items()))]
+                return self.reply(200, {"rows": rows, "next_cursor": None})
             if path.startswith(base + "/documents/"):
                 parts = path[len(base + "/documents/"):].split("/")
                 doc = state.docs.get(parts[0])
