@@ -1,0 +1,1779 @@
+[
+  {
+    "id": "BP-PLATFORM-01",
+    "area": "platform",
+    "title": "Register a tenant (company) directly and look it up",
+    "description": "The platform operator creates a tenant record with its schema, lists all tenants, opens one, and edits its settings. Only the operator of the platform tenant may do this; no tenant carve-out for its own record.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "the operator is signed in on the platform tenant",
+      "the slug is not used"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants",
+          "platform-dashboard"
+        ],
+        "functions": [
+          "Letflow.Identity.list_tenants"
+        ],
+        "route": [
+          "GET /api/v1/tenants"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:214",
+          "web/src/router.tsx:165",
+          "web/src/router.tsx:129",
+          "lib/letflow/routers/tenants.ex:426"
+        ],
+        "result": "the paginated list of all tenants"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Identity.create_tenant",
+          "Letflow.TenantOnboarding.provision_and_migrate"
+        ],
+        "route": [
+          "POST /api/v1/tenants"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:210",
+          "lib/letflow/routers/tenants.ex:398"
+        ],
+        "result": "201 with the tenant record; 409 slug already exists; 422 validation failed; 500 when provisioning fails (no rollback, see moduledoc OQ-5)"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants/:slug/edit"
+        ],
+        "functions": [
+          "Letflow.Identity.patch_tenant"
+        ],
+        "route": [
+          "GET /api/v1/tenants/:slug",
+          "PATCH /api/v1/tenants/:slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/tenants.ex:222",
+          "web/src/router.tsx:166",
+          "lib/letflow/routers/tenants.ex:475",
+          "lib/letflow/routers/tenants.ex:509"
+        ],
+        "result": "200 with the tenant record; unknown slug 404"
+      }
+    ],
+    "inputs": [
+      "slug",
+      "display name"
+    ],
+    "outputs": [
+      "tenant_id"
+    ],
+    "refusals": [
+      "anyone but the platform-tenant operator: fixed 403, also on an unmatched sub-path",
+      "duplicate slug: 409",
+      "no token: 401"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_scope_routes_test.exs",
+      "web/src/pages/admin/tenants (TenantsPage test)"
+    ],
+    "scenario": null,
+    "uat": "planned: the runner has no platform-tenant actor on one base url; refusals are automated in BP-PLATFORM-16",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-02",
+    "area": "platform",
+    "title": "Suspend, reactivate and purge a tenant",
+    "description": "The operator deactivates a tenant (its users get 403 tenant_inactive, its runtime is released), may reactivate it, and later purges its data once it is deactivated and past retention. The platform tenant cannot be deactivated; a purged tenant cannot be reactivated.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant exists and is not the platform tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants"
+        ],
+        "functions": [
+          "Letflow.Identity.deactivate_tenant",
+          "Letflow.TenantLifecycle.release_runtime"
+        ],
+        "route": [
+          "POST /api/v1/tenants/:slug/deactivate"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:226",
+          "web/src/router.tsx:165",
+          "lib/letflow/routers/tenants.ex:681"
+        ],
+        "result": "200 with status inactive; platform tenant: 409; unknown: 404"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants"
+        ],
+        "functions": [
+          "Letflow.Identity.reactivate_tenant"
+        ],
+        "route": [
+          "POST /api/v1/tenants/:slug/reactivate"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:234",
+          "web/src/router.tsx:165",
+          "lib/letflow/routers/tenants.ex:710"
+        ],
+        "result": "200 active again; purged tenant 409 'tenant was purged'"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants"
+        ],
+        "functions": [
+          "Letflow.TenantPurge.purge"
+        ],
+        "route": [
+          "POST /api/v1/tenants/:slug/purge"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:230",
+          "web/src/router.tsx:165",
+          "lib/letflow/routers/tenants.ex:724"
+        ],
+        "result": "200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown, platform tenant or no lifecycle row 404"
+      }
+    ],
+    "inputs": [
+      "slug"
+    ],
+    "outputs": [
+      "status",
+      "purged_at"
+    ],
+    "refusals": [
+      "deactivate of the platform tenant: 409",
+      "purge of an active tenant: 409 not_eligible",
+      "reactivate after purge: 409",
+      "non-operator: fixed 403"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_scope_routes_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: destructive on a shared QA tenant; needs a throw-away tenant made by BP-PLATFORM-01 first",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-03",
+    "area": "platform",
+    "title": "Give a company its own host name (set and remove)",
+    "description": "The operator sets or removes the company host of an existing tenant. The host is validated, audited on the tenant and the platform chains, and answers the changed flag.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant exists",
+      "the host is not reserved or used"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants/:slug/edit"
+        ],
+        "functions": [
+          "Letflow.TenantHosts.set_host"
+        ],
+        "route": [
+          "PUT /api/v1/tenants/:slug/hostname"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:255",
+          "web/src/router.tsx:166",
+          "lib/letflow/routers/tenants.ex:277"
+        ],
+        "result": "200 {tenant_id, slug, hostname, onboarding_id, changed}"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/tenants/:slug/edit"
+        ],
+        "functions": [
+          "Letflow.TenantHosts.remove_host"
+        ],
+        "route": [
+          "DELETE /api/v1/tenants/:slug/hostname"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:259",
+          "web/src/router.tsx:166",
+          "lib/letflow/routers/tenants.ex:277"
+        ],
+        "result": "200 with hostname null"
+      }
+    ],
+    "inputs": [
+      "slug",
+      "hostname"
+    ],
+    "outputs": [
+      "hostname",
+      "changed"
+    ],
+    "refusals": [
+      "invalid, reserved or taken host: refused by hostname_error",
+      "unknown slug: 404",
+      "non-operator: fixed 403"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_hostname_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: changes routing of a real host",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-04",
+    "area": "platform",
+    "title": "Set a tenant's script policy (kill switch, solo-audited)",
+    "description": "The operator reads a tenant's script policy and flips the platform kill switch or the platform flag that allows the solo_audited mode. Only the platform-owned fields are answered, never the tenant admin's reason or user id.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant exists",
+      "the caller signed in through OIDC (the two PUT routes)"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Policy"
+        ],
+        "route": [
+          "GET /api/v1/tenants/:slug/script-policy"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:240",
+          "lib/letflow/routers/tenants.ex:564"
+        ],
+        "result": "200 platform_policy_map"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Policy.set_platform_kill_switch"
+        ],
+        "route": [
+          "PUT /api/v1/tenants/:slug/script-policy/kill-switch"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:244",
+          "lib/letflow/routers/tenants.ex:576"
+        ],
+        "result": "200; entry on tenant chain (nil actor) and platform chain (operator id)"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Policy.set_platform_solo_audited"
+        ],
+        "route": [
+          "PUT /api/v1/tenants/:slug/script-policy/solo-audited"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:250",
+          "lib/letflow/routers/tenants.ex:607"
+        ],
+        "result": "200; the platform-owned solo_audited object"
+      }
+    ],
+    "inputs": [
+      "slug",
+      "on/allowed",
+      "reason"
+    ],
+    "outputs": [
+      "policy"
+    ],
+    "refusals": [
+      "non-OIDC credential on the PUTs",
+      "non-operator: fixed 403"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_script_policy_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-05",
+    "area": "platform",
+    "title": "Onboard a company (register, bind identity realm, pending administrators)",
+    "description": "The operator registers a company with a slug, display name and host (optionally an identity realm and the first administrator's e-mail). The tenant is created as migrating, its schema is provisioned, the host is recorded, the realm bound; a pending administrator grant waits for the first login and may be listed or revoked. The operator follows progress and result on screens.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "slug and host are free and not reserved",
+      "a realm id (when given) exists at the identity provider and is not bound to another tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/onboarding",
+          "admin/onboarding/new"
+        ],
+        "functions": [
+          "Letflow.Identity.create_tenant",
+          "Letflow.TenantOnboarding.provision_and_migrate"
+        ],
+        "route": [
+          "POST /api/v1/onboarding"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:189",
+          "web/src/router.tsx:161",
+          "web/src/router.tsx:162",
+          "lib/letflow/routers/onboarding.ex:285",
+          "lib/letflow/routers/onboarding.ex:510",
+          "lib/letflow/routers/onboarding.ex:564"
+        ],
+        "result": "created record with login state; field errors 422; duplicate host or realm refused"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/onboarding/:onboardingId/progress",
+          "admin/onboarding/:onboardingId/result"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/onboarding/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:193",
+          "web/src/router.tsx:163",
+          "web/src/router.tsx:164",
+          "lib/letflow/routers/onboarding.ex:831"
+        ],
+        "result": "the onboarding record and its state"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/onboarding"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/onboarding"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:209",
+          "web/src/router.tsx:161"
+        ],
+        "result": "the record of the host given in ?hostname="
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/onboarding/:id/bind-realm"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:197",
+          "lib/letflow/routers/onboarding.ex:849"
+        ],
+        "result": "the realm bound, or a reason when it cannot be"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/onboarding/:id/pending-admins"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:201"
+        ],
+        "result": "pending administrator grants"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:205"
+        ],
+        "result": "the grant revoked"
+      }
+    ],
+    "inputs": [
+      "slug",
+      "display_name",
+      "hostname",
+      "idp_realm_id (optional)",
+      "admin_email (optional)"
+    ],
+    "outputs": [
+      "onboarding id",
+      "tenant id"
+    ],
+    "refusals": [
+      "non-operator: fixed 403 on every route and on unmatched sub-paths",
+      "reserved or duplicate host / realm",
+      "the validation errors never echo the received value"
+    ],
+    "tests": [
+      "test/letflow/routers/onboarding_test.exs",
+      "test/letflow/routers/onboarding_pending_admin_test.exs",
+      "test/letflow/routers/onboarding_administrator_fields_test.exs",
+      "web/src/pages/admin/onboarding"
+    ],
+    "scenario": null,
+    "uat": "planned: creates a real tenant and realm binding",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-06",
+    "area": "platform",
+    "title": "Provision a tenant through the provisioner interface (create, suspend, resume, expire, delete)",
+    "description": "Infrastructure's provisioner, with its own credential class (not a user role), creates a demo tenant (201 first time, 200 replay), reads its status, suspends, resumes or expires it, and deletes it (202 while retention runs, 200 when purged). A read-only credential may only read.",
+    "actors": [
+      {
+        "role": "provisioner credential (write class)",
+        "permission": "ProvisionerAuth write class"
+      },
+      {
+        "role": "provisioner credential (read class)",
+        "permission": "ProvisionerAuth read class"
+      }
+    ],
+    "preconditions": [
+      "the deployment has a provisioner credential hash configured (otherwise the mount answers the standard 404)"
+    ],
+    "tasks": [
+      {
+        "actor": "provisioner (write)",
+        "forms": [],
+        "functions": [
+          "Letflow.TenantProvisioner.create",
+          "Letflow.TenantProvisioner.Request.parse"
+        ],
+        "route": [
+          "POST /admin/v1/tenants"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_v1.ex:69"
+        ],
+        "result": "201 {tenant_id, status, server_url, handover}; 200 on replay; 409 conflict (with `limit` for the cap and budgets); 400 invalid_request"
+      },
+      {
+        "actor": "provisioner (write or read)",
+        "forms": [],
+        "functions": [
+          "Letflow.TenantProvisioner.get"
+        ],
+        "route": [
+          "GET /admin/v1/tenants/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_v1.ex:86"
+        ],
+        "result": "200 {tenant_id, status, tier, created_at, expires_at, purged_at}"
+      },
+      {
+        "actor": "provisioner (write)",
+        "forms": [],
+        "functions": [
+          "Letflow.TenantProvisioner.transition"
+        ],
+        "route": [
+          "POST /admin/v1/tenants/:id/suspend",
+          "POST /admin/v1/tenants/:id/resume",
+          "POST /admin/v1/tenants/:id/expire"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_v1.ex:93",
+          "lib/letflow/routers/admin_v1.ex:97",
+          "lib/letflow/routers/admin_v1.ex:101"
+        ],
+        "result": "200 {tenant_id, status}"
+      },
+      {
+        "actor": "provisioner (write)",
+        "forms": [],
+        "functions": [
+          "Letflow.TenantProvisioner.delete",
+          "Letflow.TenantPurge"
+        ],
+        "route": [
+          "DELETE /admin/v1/tenants/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_v1.ex:105"
+        ],
+        "result": "202 deactivated waiting for retention; 200 deleted; 409 for a production tenant"
+      }
+    ],
+    "inputs": [
+      "tenant request body"
+    ],
+    "outputs": [
+      "tenant_id",
+      "status"
+    ],
+    "refusals": [
+      "no or wrong credential: 401 unauthorized",
+      "read credential on a write route: 403 before any body is read",
+      "anything else on the mount: 404 not_found",
+      "rate limit: 429 with retry-after"
+    ],
+    "tests": [
+      "test/letflow/routers/admin_v1_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: the credential is infra's, the runner cannot hold it",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-07",
+    "area": "platform",
+    "title": "Roll a module version out to the fleet of tenants",
+    "description": "The operator starts a fleet rollout of an installed module (the driver walks the tenant registry and applies the upgrade per tenant, halting after consecutive failures), lists rollouts page by page, reads one with its per-tenant outcomes, and resumes a halted one. The upgrade is never acknowledged on behalf of a tenant.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "ModuleRolloutsManage"
+      }
+    ],
+    "preconditions": [
+      "the module and its new version are registered"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/module-rollouts"
+        ],
+        "functions": [
+          "Letflow.ModuleUpgrade.Fleet.start"
+        ],
+        "route": [
+          "POST /api/v1/platform-module-rollouts"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_module_rollouts.ex:40",
+          "web/src/router.tsx:168"
+        ],
+        "result": "200 the rollout (a repeat returns the same rollout); 404 unknown module; 422 field error"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/module-rollouts"
+        ],
+        "functions": [
+          "Letflow.ModuleUpgrade.Fleet.list"
+        ],
+        "route": [
+          "GET /api/v1/platform-module-rollouts"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_module_rollouts.ex:44",
+          "web/src/router.tsx:168"
+        ],
+        "result": "200 {rollouts, next_cursor}; page_size 1..200; bad cursor 400"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/module-rollouts"
+        ],
+        "functions": [
+          "Letflow.ModuleUpgrade.Fleet.status"
+        ],
+        "route": [
+          "GET /api/v1/platform-module-rollouts/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_module_rollouts.ex:48",
+          "web/src/router.tsx:168"
+        ],
+        "result": "200 rollout and outcomes (ids, statuses, codes only); 404"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/module-rollouts"
+        ],
+        "functions": [
+          "Letflow.ModuleUpgrade.Fleet.resume"
+        ],
+        "route": [
+          "POST /api/v1/platform-module-rollouts/:id/resume"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_module_rollouts.ex:55",
+          "web/src/router.tsx:168"
+        ],
+        "result": "200; 404; 409 version_superseded"
+      }
+    ],
+    "inputs": [
+      "module_id"
+    ],
+    "outputs": [
+      "rollout id",
+      "per-tenant outcomes"
+    ],
+    "refusals": [
+      "non-operator: fixed 403",
+      "response carries no tenant name, schema name or record data"
+    ],
+    "tests": [
+      "test/letflow/routers/platform_module_rollouts_test.exs",
+      "web/src/pages/admin/module-rollouts"
+    ],
+    "scenario": null,
+    "uat": "planned: a start acts on every tenant, never run on shared QA by a script",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-08",
+    "area": "platform",
+    "title": "Run a tenant-schema migration across all tenants (fanout)",
+    "description": "The operator starts a platform-wide tenant migration rollout, follows its per-tenant outcomes in the console, and resumes it after a failure. A repeat start returns the same rollout (the natural key is entity type and attribute).",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "a tenant migration is pending"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/platform-migrations"
+        ],
+        "functions": [
+          "Letflow.Platform.MigrationRollout.start_rollout"
+        ],
+        "route": [
+          "POST /api/v1/platform-migrations/rollouts"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_migrations.ex:84",
+          "web/src/router.tsx:174"
+        ],
+        "result": "200 rollout_result; a re-run is a no-op shown by already_current"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/platform-migrations"
+        ],
+        "functions": [
+          "Letflow.Platform.MigrationRollout.rollout_status"
+        ],
+        "route": [
+          "GET /api/v1/platform-migrations/rollouts/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_migrations.ex:88",
+          "web/src/router.tsx:174"
+        ],
+        "result": "200 {rollout, outcomes}; 404 rollout_not_found"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/platform-migrations"
+        ],
+        "functions": [
+          "Letflow.Platform.MigrationRollout.resume_rollout"
+        ],
+        "route": [
+          "POST /api/v1/platform-migrations/rollouts/:id/resume"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_migrations.ex:92",
+          "web/src/router.tsx:174"
+        ],
+        "result": "200 rollout_result; 404"
+      }
+    ],
+    "inputs": [
+      "entity type",
+      "attribute"
+    ],
+    "outputs": [
+      "rollout id"
+    ],
+    "refusals": [
+      "non-operator: fixed 403"
+    ],
+    "tests": [
+      "test/letflow/routers/platform_migrations_test.exs",
+      "web/src/pages/admin/platform-migrations"
+    ],
+    "scenario": null,
+    "uat": "planned: acts on all tenants",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-09",
+    "area": "platform",
+    "title": "Retire the oldest eligible month of event history",
+    "description": "The operator reads the retention summary, starts the retirement of the oldest eligible month (the month is system-computed, never supplied), and follows the asynchronous retirement and its per-tenant outcomes.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "at least one month is eligible"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/event-retention"
+        ],
+        "functions": [
+          "Letflow.EventStore.RetentionOperations.retention_summary"
+        ],
+        "route": [
+          "GET /api/v1/event-retention/summary"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/event_retention.ex:67",
+          "web/src/router.tsx:192"
+        ],
+        "result": "200 summary map"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/event-retention"
+        ],
+        "functions": [
+          "Letflow.EventStore.RetentionOperations.retire_oldest_eligible_month"
+        ],
+        "route": [
+          "POST /api/v1/event-retention/retirements"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/event_retention.ex:71",
+          "web/src/router.tsx:192"
+        ],
+        "result": "202 retirement; 409 no_eligible_month"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/event-retention"
+        ],
+        "functions": [
+          "Letflow.EventStore.RetentionOperations.retirement_status"
+        ],
+        "route": [
+          "GET /api/v1/event-retention/retirements/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/event_retention.ex:75",
+          "web/src/router.tsx:192"
+        ],
+        "result": "200 {retirement, outcomes}; 404 retirement_not_found"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "retirement id"
+    ],
+    "refusals": [
+      "no caller-supplied year or month exists",
+      "non-operator: fixed 403",
+      "no eligible month: 409"
+    ],
+    "tests": [
+      "test/letflow/routers/event_retention_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: irreversible",
+    "status": "partial",
+    "gap": "the EventRetentionPage screen has no web test"
+  },
+  {
+    "id": "BP-PLATFORM-10",
+    "area": "platform",
+    "title": "Watch the platform: health, readiness, backup status, metrics",
+    "description": "Anyone (no login) can ask whether the build is up and which commit runs, and whether every part is ready; a scraper reads the Prometheus metrics (no tenant label ever); the operator sees backup job ages on the health dashboard and the platform dashboard of tenants.",
+    "actors": [
+      {
+        "role": "anyone (no login)",
+        "permission": "none"
+      },
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.BuildInfo.sha"
+        ],
+        "route": [
+          "GET /health"
+        ],
+        "code_refs": [
+          "lib/letflow/router.ex:123"
+        ],
+        "result": "200 {status: ok, sha}"
+      },
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.Readiness.run"
+        ],
+        "route": [
+          "GET /ready"
+        ],
+        "code_refs": [
+          "lib/letflow/router.ex:129"
+        ],
+        "result": "200 {status: ready, checks} when every part is ok, 503 with the failing part names otherwise"
+      },
+      {
+        "actor": "scraper",
+        "forms": [
+          "admin/metrics"
+        ],
+        "functions": [
+          "Letflow.Metrics.Registry"
+        ],
+        "route": [
+          "GET /metrics"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/metrics_exposition.ex:97",
+          "web/src/router.tsx:160"
+        ],
+        "result": "200 Prometheus text; no tenant_id or other per-tenant label"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/health"
+        ],
+        "functions": [
+          "Letflow.BackupStatus.read"
+        ],
+        "route": [
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_status.ex:25",
+          "web/src/router.tsx:159"
+        ],
+        "result": "200 {configured, jobs:[{job,state,ts,age_seconds}]}"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "platform-dashboard"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:129"
+        ],
+        "result": "the tenants overview (reads GET /api/v1/tenants)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "build sha",
+      "readiness",
+      "backup ages"
+    ],
+    "refusals": [
+      "backup status for anyone but the platform-tenant operator: fixed 403",
+      "no metric label carries a tenant or entity identifier"
+    ],
+    "tests": [
+      "test/letflow/iss1043_health_build_sha_test.exs",
+      "test/letflow/readiness_test.exs",
+      "test/letflow/routers/metrics_exposition_test.exs",
+      "test/letflow/routers/platform_status_test.exs",
+      "test/letflow/backup_status_test.exs",
+      "web/src/pages/admin/__tests__/HealthDashboardPage.test.tsx",
+      "web/src/pages/admin/__tests__/MetricsPage.test.tsx",
+      "web/src/pages/dashboard/__tests__/PlatformDashboardPage.test.tsx"
+    ],
+    "scenario": null,
+    "uat": "planned: GET /health with the runner's preflight is already used; a standalone process needs an actor-less step kind",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-11",
+    "area": "platform",
+    "title": "Maintain the global service catalogue (register, rescope, publish version, retire, delete)",
+    "description": "The operator lists every service of the global catalogue, registers a service, changes its scope or owner, publishes a new version, retires it, or deletes it. The catalogue is global: every tenant's entries are visible here, by design, so the whole surface is platform scope. The tenant-facing catalogue is a separate, tenant-filtered route.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "AdminServicesRead / AdminServicesManage (PlatformServicesManage)"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.list_all"
+        ],
+        "route": [
+          "GET /api/v1/admin/services"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:147",
+          "web/src/router.tsx:170"
+        ],
+        "result": "200 all entries"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.register"
+        ],
+        "route": [
+          "POST /api/v1/admin/services"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:151",
+          "web/src/router.tsx:170"
+        ],
+        "result": "created entry; 422 endpoint_url_reserved_variable for a URL naming the _sys namespace; generic 422 otherwise"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.update_scope"
+        ],
+        "route": [
+          "PATCH /api/v1/admin/services/:service_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:155",
+          "web/src/router.tsx:170"
+        ],
+        "result": "scope/owner updated; 404 only means no such service"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.publish"
+        ],
+        "route": [
+          "POST /api/v1/admin/services/:service_id/versions"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:163",
+          "web/src/router.tsx:170"
+        ],
+        "result": "a new version; 400 'version is required'"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.retire"
+        ],
+        "route": [
+          "POST /api/v1/admin/services/:service_id/retire"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:167",
+          "web/src/router.tsx:170"
+        ],
+        "result": "status moves to retired"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/services"
+        ],
+        "functions": [
+          "Letflow.ServiceCatalog.delete"
+        ],
+        "route": [
+          "DELETE /api/v1/admin/services/:service_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_services.ex:159",
+          "web/src/router.tsx:170"
+        ],
+        "result": "the entry deleted"
+      }
+    ],
+    "inputs": [
+      "service definition"
+    ],
+    "outputs": [
+      "service_id",
+      "version"
+    ],
+    "refusals": [
+      "non-operator (also a PLATFORM_ADMIN of another tenant): fixed 403, never sees another tenant's owner_tenant_id",
+      "reserved variable namespace in endpoint_url: 422"
+    ],
+    "tests": [
+      "test/letflow/routers/admin_services_test.exs",
+      "test/letflow/routers/admin_services_publish_retire_test.exs",
+      "test/letflow/routers/admin_services_reserved_endpoint_test.exs",
+      "web/src/pages/admin/services"
+    ],
+    "scenario": null,
+    "uat": "planned",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-12",
+    "area": "platform",
+    "title": "Platform owner handles problem reports from companies",
+    "description": "The owner of the platform company reads the inbox of problem reports and review items, opens one with its thread and screenshots, decides it, comments (JSON or multipart with images) and changes the state of a review item. Customer ids and prefixes are never taken from the request; responses are not cacheable.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "ProblemReportsManage"
+      }
+    ],
+    "preconditions": [
+      "a report or review item exists"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/problem-reports"
+        ],
+        "functions": [
+          "Letflow.ProblemReports.Inbox.list",
+          "Letflow.ProblemReports.Inbox.get"
+        ],
+        "route": [
+          "GET /api/v1/platform-problem-reports",
+          "GET /api/v1/platform-problem-reports/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_problem_reports.ex:17",
+          "lib/letflow/routers/platform_problem_reports.ex:22",
+          "web/src/router.tsx:169"
+        ],
+        "result": "list (?class=review for review rows) and one report with its thread"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/problem-reports"
+        ],
+        "functions": [
+          "Letflow.ProblemReports.Inbox.decide"
+        ],
+        "route": [
+          "POST /api/v1/platform-problem-reports/:id/decision"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_problem_reports.ex:26",
+          "web/src/router.tsx:169"
+        ],
+        "result": "the report decided; a review row is a 404 on this route"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/problem-reports"
+        ],
+        "functions": [
+          "Letflow.ProblemReports.Review.add_owner_entry",
+          "Letflow.ProblemReports.Review.set_owner_state"
+        ],
+        "route": [
+          "POST /api/v1/platform-problem-reports/:id/comments",
+          "POST /api/v1/platform-problem-reports/:id/state"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_problem_reports.ex:33",
+          "lib/letflow/routers/platform_problem_reports.ex:45",
+          "web/src/router.tsx:169"
+        ],
+        "result": "201 comment; state changed"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [
+          "admin/problem-reports"
+        ],
+        "functions": [
+          "Letflow.ProblemReports.Review.image"
+        ],
+        "route": [
+          "GET /api/v1/platform-problem-reports/:id/images/:image_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_problem_reports.ex:56",
+          "web/src/router.tsx:169"
+        ],
+        "result": "the image bytes with its content type"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "decision",
+      "thread entry"
+    ],
+    "refusals": [
+      "non-operator: fixed 403, also on unknown sub-paths"
+    ],
+    "tests": [
+      "test/letflow/routers/platform_problem_reports_test.exs",
+      "test/letflow/routers/platform_owner_items_test.exs",
+      "web/src/pages/admin/problem-reports"
+    ],
+    "scenario": null,
+    "uat": "planned",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-13",
+    "area": "platform",
+    "title": "A new company signs up; a user finds the company by e-mail",
+    "description": "Off by default. A visitor reads the sign-up configuration, submits a sign-up request (always a neutral 202 for a well-formed request) and confirms it with the mailed one-time token; the endpoint only records the request and creates no tenant. Separately, the e-mail-first login lookup answers neutrally (202) or discloses a single match (200), identical for every malformed input.",
+    "actors": [
+      {
+        "role": "anyone (no login)",
+        "permission": "none (public mounts)"
+      }
+    ],
+    "preconditions": [
+      "sign-up (LETFLOW_SIGNUP_ENABLED) or login discovery is switched on; otherwise every path answers the standard 404"
+    ],
+    "tasks": [
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/signup/config"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:55"
+        ],
+        "result": "200 the public config"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:66"
+        ],
+        "result": "202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup/verify"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:100"
+        ],
+        "result": "200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)"
+      },
+      {
+        "actor": "user",
+        "forms": [],
+        "functions": [
+          "Letflow.LoginDirectory.lookup_by_keys",
+          "Letflow.LoginDiscovery.decide"
+        ],
+        "route": [
+          "POST /api/login-discovery"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/login_discovery.ex:85"
+        ],
+        "result": "202 neutral, 200 single disclosed match, 429 rate limited; never 400/415/422/500 for malformed input"
+      }
+    ],
+    "inputs": [
+      "e-mail",
+      "company name"
+    ],
+    "outputs": [],
+    "refusals": [
+      "one generic 400 for every bad verification token",
+      "no e-mail, address, token or company name in logs or telemetry",
+      "disabled mount: standard 404 before anything runs"
+    ],
+    "tests": [
+      "test/letflow/routers/signup_http_test.exs",
+      "test/letflow/routers/signup_flag_test.exs",
+      "test/letflow/routers/login_discovery_test.exs",
+      "test/letflow/routers/login_discovery_mount_test.exs",
+      "test/letflow/routers/login_discovery_timing_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: public, abuse-limited, sends mail",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-14",
+    "area": "platform",
+    "title": "Promote a tested process definition into the production tenant",
+    "description": "A tenant administrator (or the platform operator) promotes the active version of a process definition from a test tenant into the caller's own tenant. The destination is always the caller's own tenant; the source may be only the caller's own tenant unless the caller is the platform-tenant operator.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "PromotionsManage (own tenant)"
+      },
+      {
+        "role": "PLATFORM_ADMIN (platform tenant)",
+        "permission": "PromotionsManage (may name another tenant as source)"
+      }
+    ],
+    "preconditions": [
+      "the source tenant has an active definition with that process key"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Definitions.Promotion.promote_active_definition",
+          "Letflow.Definitions.PromotionAccess.checker_for",
+          "Letflow.Api.TenantTarget.authorize_target_tenant"
+        ],
+        "route": [
+          "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:271",
+          "lib/letflow/routers/tenants.ex:760"
+        ],
+        "result": "201 the promoted definition; 403 insufficient permissions; invalid source: invalid_promotion_source; any other source tenant: the zero-detail 404"
+      }
+    ],
+    "inputs": [
+      "test_tenant_id",
+      "process_key"
+    ],
+    "outputs": [
+      "promoted definition"
+    ],
+    "refusals": [
+      "a source id of another tenant, a malformed or unknown id: identical 404, before any read",
+      "the target tenant is never a request value"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_scope_routes_test.exs"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json",
+    "uat": "the refusal half is automated in BP-PLATFORM-16; the success path is planned",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-15",
+    "area": "platform",
+    "title": "Prove a module's runtime is alive (runtime demo ping)",
+    "description": "A holder of RuntimeDemoRead calls the demo module's ping and gets the module's release version: the platform's proof that an installed module mounts its own router.",
+    "actors": [
+      {
+        "role": "any role holding RuntimeDemoRead",
+        "permission": "RuntimeDemoRead"
+      }
+    ],
+    "preconditions": [
+      "the runtime_demo module is installed in the tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "holder",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.RuntimeDemo.manifest"
+        ],
+        "route": [
+          "GET /api/v1/modules/runtime_demo/ping"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/runtime_demo/router.ex:15"
+        ],
+        "result": "200 {runtime_demo: true, release}"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "release version"
+    ],
+    "refusals": [
+      "a caller without the permission: 403"
+    ],
+    "tests": [
+      "test/letflow/modules/runtime_demo"
+    ],
+    "scenario": null,
+    "uat": "planned",
+    "status": "partial",
+    "gap": "demo module: its tests are checked by name only here"
+  },
+  {
+    "id": "BP-PLATFORM-16",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: the permission matrix of the platform routes (who may, who gets 403)",
+    "description": "Every platform route (tenants, onboarding, platform migrations, module rollouts, event retention, backup status, service catalogue, problem reports) is honoured only for a PLATFORM_ADMIN of the platform tenant. A tenant administrator, also of the company named in the path, and a PLATFORM_ADMIN of another tenant get the same fixed 403; the same on an unmatched sub-path; no token is 401. Nothing is created or changed.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "none of the platform permissions"
+      },
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "a tenant administrator of a company tenant on QA"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tenants",
+          "admin/onboarding",
+          "admin/module-rollouts",
+          "admin/platform-migrations",
+          "admin/event-retention",
+          "admin/problem-reports",
+          "admin/services",
+          "admin/health"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/:slug",
+          "GET /api/v1/onboarding",
+          "GET /api/v1/platform-status/backup",
+          "GET /api/v1/platform-module-rollouts",
+          "GET /api/v1/platform-migrations/rollouts/:id",
+          "GET /api/v1/event-retention/summary",
+          "GET /api/v1/admin/services",
+          "GET /api/v1/platform-problem-reports"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/platform_status.ex:25",
+          "lib/letflow/routers/platform_module_rollouts.ex:44",
+          "lib/letflow/routers/platform_migrations.ex:88",
+          "lib/letflow/routers/event_retention.ex:67",
+          "lib/letflow/routers/admin_services.ex:147",
+          "lib/letflow/routers/platform_problem_reports.ex:17",
+          "web/src/router.tsx:165",
+          "web/src/router.tsx:161",
+          "web/src/router.tsx:168",
+          "web/src/router.tsx:174",
+          "web/src/router.tsx:192",
+          "web/src/router.tsx:169",
+          "web/src/router.tsx:170",
+          "web/src/router.tsx:159"
+        ],
+        "result": "403 on each read, identical for the own slug and an unknown slug"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tenants/:slug/deactivate",
+          "POST /api/v1/tenants/:slug/purge",
+          "POST /api/v1/tenants",
+          "POST /api/v1/onboarding"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:226",
+          "lib/letflow/routers/tenants.ex:230",
+          "lib/letflow/routers/tenants.ex:210",
+          "lib/letflow/routers/onboarding.ex:189"
+        ],
+        "result": "403 on harmless write probes (an unknown slug, an empty body); nothing changes"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/tenants/:slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/tenants.ex:275"
+        ],
+        "result": "an unmatched sub-path under the tenants mount answers the same 403 as a matched one"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/platform_status.ex:25"
+        ],
+        "result": "the operator of the platform tenant gets 200 (positive control)"
+      }
+    ],
+    "inputs": [
+      "actor tokens"
+    ],
+    "outputs": [],
+    "refusals": [
+      "TENANT_ADMIN: 403 on every platform route",
+      "PLATFORM_ADMIN of another tenant: 403",
+      "no token: 401",
+      "unmatched sub-path: 403 for a non-operator (checked by the router test, not by the runner: its static check knows no unmatched path)"
+    ],
+    "tests": [
+      "test/letflow/routers/platform_scope_routes_test.exs",
+      "test/letflow/routers/platform_status_test.exs"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json",
+    "uat": "automated for the TENANT_ADMIN half (runner, read and harmless refusals); planned for the unmatched sub-path, the no-token, other-tenant PLATFORM_ADMIN and operator positive control (the runner holds one tenant and always has a token)",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-17",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: cross-tenant naming refused with a uniform 404 (promotion source, other company's slug)",
+    "description": "A token of tenant A that names tenant B's id as the promotion source gets the zero-detail 404, byte-identical to a source that does not exist, before any read of the source tenant. The destination of a promotion is never taken from the request.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "PromotionsManage (own tenant only)"
+      }
+    ],
+    "preconditions": [
+      "a tenant administrator of a company tenant on QA"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Api.TenantTarget.authorize_target_tenant"
+        ],
+        "route": [
+          "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:271",
+          "lib/letflow/routers/tenants.ex:760"
+        ],
+        "result": "404 for an unknown id and for another tenant's id; the same body"
+      }
+    ],
+    "inputs": [
+      "a foreign tenant id (an unused uuid is enough)"
+    ],
+    "outputs": [],
+    "refusals": [
+      "foreign or unknown source: 404 with no detail",
+      "slug in place of an id: the same 404"
+    ],
+    "tests": [
+      "test/letflow/routers/platform_scope_routes_test.exs",
+      "test/letflow/api/tenant_target_test.exs"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json",
+    "uat": "automated (the last step of BP-PLATFORM-16, with an unused id); the two-real-tenants variant is planned",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-18",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: the provisioner credential class (wrong, missing, read-only, unconfigured)",
+    "description": "The /admin/v1 mount is reachable only with the provisioner credential. A missing or wrong credential is 401; a read credential on a write route is 403 before any body is read; an unknown route is 404; an unconfigured deployment answers the standard unmatched-path 404, byte for byte, so the mount cannot be told from a missing route; create is rate limited.",
+    "actors": [
+      {
+        "role": "provisioner credential",
+        "permission": "ProvisionerAuth"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "provisioner (wrong credential)",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /admin/v1/tenants",
+          "GET /admin/v1/tenants/:id",
+          "POST /admin/v1/tenants/:id/suspend",
+          "POST /admin/v1/tenants/:id/resume",
+          "POST /admin/v1/tenants/:id/expire",
+          "DELETE /admin/v1/tenants/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/admin_v1.ex:69",
+          "lib/letflow/routers/admin_v1.ex:86",
+          "lib/letflow/routers/admin_v1.ex:93",
+          "lib/letflow/routers/admin_v1.ex:97",
+          "lib/letflow/routers/admin_v1.ex:101",
+          "lib/letflow/routers/admin_v1.ex:105"
+        ],
+        "result": "401 unauthorized; read class on the write routes 403"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "401, 403 (read class on write route), 404, 429 as the moduledoc table"
+    ],
+    "tests": [
+      "test/letflow/routers/admin_v1_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: needs the infra credential, which the runner must not hold",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-19",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: public inputs (sign-up, login discovery, metrics) leak nothing",
+    "description": "Public mounts answer uniformly: sign-up 202 neutral for every well-formed request, one generic 400 for any bad token, login discovery 202 for malformed input (never 400/415/422/500), timing-uniform; metrics carry no tenant or entity label; the host lookup of an unknown host is the standard answer.",
+    "actors": [
+      {
+        "role": "anyone (no login)",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [
+      "the mounts are enabled on the test deployment"
+    ],
+    "tasks": [
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/signup/verify",
+          "POST /api/login-discovery",
+          "GET /metrics"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:100",
+          "lib/letflow/routers/login_discovery.ex:85",
+          "lib/letflow/routers/metrics_exposition.ex:97"
+        ],
+        "result": "uniform answers; no e-mail, key, IP, slug or tenant id in the answer, the logs or the metric labels"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "malformed login discovery input: 202, never an error",
+      "wrong verification token: the single generic 400"
+    ],
+    "tests": [
+      "test/letflow/routers/signup_http_test.exs",
+      "test/letflow/routers/login_discovery_notifier_uniform_test.exs",
+      "test/letflow/routers/login_discovery_timing_test.exs",
+      "test/letflow/routers/metrics_exposition_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: public write endpoints that send mail are not probed on QA",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-20",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: separation between the platform tenant and company tenants (platform tenant protected, inactive tenant refused)",
+    "description": "The platform tenant can never be deactivated (409) or purged (404); a deactivated company's own callers get 403 tenant_inactive on every method before any sub-router runs; a purged tenant cannot be reactivated (409); there is no own-tenant carve-out on the tenant registry routes.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      },
+      {
+        "role": "TENANT_ADMIN of a deactivated tenant",
+        "permission": "none while inactive"
+      }
+    ],
+    "preconditions": [
+      "a throw-away tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tenants/:slug/deactivate",
+          "POST /api/v1/tenants/:slug/reactivate"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:226",
+          "lib/letflow/routers/tenants.ex:234",
+          "lib/letflow/routers/tenants.ex:681"
+        ],
+        "result": "409 platform tenant cannot be deactivated; 409 tenant was purged"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "409 platform_tenant_protected",
+      "403 tenant_inactive for the tenant's own callers",
+      "409 after purge"
+    ],
+    "tests": [
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_scope_routes_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned: needs a throw-away tenant (BP-PLATFORM-01/02 chain)",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-PLATFORM-21",
+    "area": "platform",
+    "security": true,
+    "title": "SECURITY: platform actions are separated by credential and by approval (onboarding realm, script kill switch)",
+    "description": "Binding an identity realm and flipping the script kill switch need an OIDC sign-in of the operator, are audited on the platform chain with the operator id, and a realm already bound to another tenant is refused. The first administrator of a new tenant gets no identity-provider admin rights, only a pending grant that the operator can list and revoke.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform tenant only)",
+        "permission": "TenantsManage"
+      }
+    ],
+    "preconditions": [
+      "a throw-away onboarding"
+    ],
+    "tasks": [
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/onboarding/:id/bind-realm",
+          "GET /api/v1/onboarding/:id/pending-admins",
+          "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:197",
+          "lib/letflow/routers/onboarding.ex:201",
+          "lib/letflow/routers/onboarding.ex:205",
+          "lib/letflow/routers/onboarding.ex:849"
+        ],
+        "result": "realm bind refused for a duplicate realm; pending grants listed and revoked"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "duplicate or already bound realm: not_bound with a reason",
+      "non-OIDC credential on the kill-switch PUT"
+    ],
+    "tests": [
+      "test/letflow/routers/onboarding_pending_admin_test.exs",
+      "test/letflow/routers/onboarding_test.exs",
+      "test/letflow/routers/tenants_script_policy_test.exs"
+    ],
+    "scenario": null,
+    "uat": "planned",
+    "status": "implemented"
+  }
+]
