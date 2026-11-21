@@ -5,19 +5,19 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `exam` has 7 process(es): 7 partial.
+The area `exam` has 7 process(es): 7 partial. Executed by: 7 direct, 0 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-EXAM-01 | Write the question bank | A tenant administrator (the exam author) keeps the question bank: categories (a tree), tags, questions with their answer options, and the... | TENANT_ADMIN | partial | no | no | see report |
-| BP-EXAM-02 | Build an exam | A tenant administrator assembles an exam: title, pass mark, number of attempts, time limit, availability window, the policy for a candida... | TENANT_ADMIN | partial | no | no | see report |
-| BP-EXAM-03 | Find and start an exam | A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. | CANDIDATE | partial | no | no | see report |
-| BP-EXAM-04 | Sit the exam and submit | The candidate answers the questions. Each answer is saved at once (single, multiple, true/false, likert, short text) with the time spent;... | CANDIDATE | partial | no | no | see report |
-| BP-EXAM-05 | Grade short-text answers | An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one ex... | TENANT_ADMIN | partial | no | no | see report |
-| BP-EXAM-06 | See my results and get the certificate | The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the ses... | CANDIDATE | partial | no | no | see report |
-| BP-EXAM-07 | Security: roles and crafted input are refused | The permission matrix of the exam module and the crafted-input refusals, at API level: the candidate cannot write the question bank, read... | CANDIDATE, TENANT_ADMIN | partial | yes | yes | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-EXAM-01 | Write the question bank | A tenant administrator (the exam author) keeps the question bank: categories (a tree), tags, questions with their answer options, and the... | TENANT_ADMIN | partial | direct | no | no | see report |
+| BP-EXAM-02 | Build an exam | A tenant administrator assembles an exam: title, pass mark, number of attempts, time limit, availability window, the policy for a candida... | TENANT_ADMIN | partial | direct | no | no | see report |
+| BP-EXAM-03 | Find and start an exam | A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. | CANDIDATE | partial | direct | no | no | see report |
+| BP-EXAM-04 | Sit the exam and submit | The candidate answers the questions. Each answer is saved at once (single, multiple, true/false, likert, short text) with the time spent;... | CANDIDATE | partial | direct | no | no | see report |
+| BP-EXAM-05 | Grade short-text answers | An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one ex... | TENANT_ADMIN | partial | direct | no | no | see report |
+| BP-EXAM-06 | See my results and get the certificate | The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the ses... | CANDIDATE | partial | direct | no | no | see report |
+| BP-EXAM-07 | Security: roles and crafted input are refused | The permission matrix of the exam module and the crafted-input refusals, at API level: the candidate cannot write the question bank, read... | CANDIDATE, TENANT_ADMIN | partial | direct | yes | yes | see report |
 
 ## BP-EXAM-01 -- Write the question bank
 

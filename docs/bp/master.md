@@ -5,28 +5,28 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `master` has 16 process(es): 12 implemented, 4 partial.
+The area `master` has 16 process(es): 12 implemented, 4 partial. Executed by: 16 direct, 0 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-MASTER-01 | Maintain legal entities and sites | The tenant administrator keeps the list of the company's legal entities (a code, a name, a 12-digit BIN) and sites (a place the company w... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-02 | Maintain the org unit tree | The tenant administrator builds the organisation as a tree of units (department, shop, team): adds a unit under a legal entity and a site... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-03 | Maintain positions and employees | The tenant administrator records the posts of each unit and the people who hold them: adds a position to a unit, an employee to a unit (o... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-04 | Maintain the location tree | The tenant administrator builds the tree of places goods and assets are kept at (warehouse, zone, shelf, bin): adds a place (the address... | TENANT_ADMIN | implemented | yes | no | see report |
-| BP-MASTER-05 | Link org units to locations | The tenant administrator says which places an org unit works at, so that a unit's people see only their places. | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-06 | Load the catalog (units, items, counterparties) from a file | Items, units of measure and counterparties are not typed in on a screen: the tenant administrator loads them from a CSV or Excel file wit... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-07 | Load org units, locations and codes from a file | To seed a new tenant the administrator loads legal entities, sites, units, location nodes, code tags and code assignments with the same g... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-08 | Maintain lots of an item | The tenant administrator records a lot (batch) of an active item with a code, a producer, a mark and an expiry date, corrects it and reti... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-MASTER-09 | Receive, assign, release and retire a code | Barcodes, QR codes and RFID tags are first received into the tenant (a batch of values with a kind), then assigned to one place, item or... | TENANT_ADMIN, STOREKEEPER | implemented | yes | no | see report |
-| BP-MASTER-10 | Print code labels | A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in... | TENANT_ADMIN, STOREKEEPER | implemented | no | no | see report |
-| BP-MASTER-11 | Security: permission matrix of the master data routes | Who may do what in org, locations, catalog lots and codes, and who is refused. | STOREKEEPER, TENANT_ADMIN | implemented | yes | yes | see report |
-| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | partial | no | yes | see report |
-| BP-MASTER-13 | Security: crafted write requests are refused and change nothing | Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key wit... | TENANT_ADMIN | implemented | yes | yes | see report |
-| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | no | yes | see report |
-| BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | no | yes | see report |
-| BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | no | yes | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-MASTER-01 | Maintain legal entities and sites | The tenant administrator keeps the list of the company's legal entities (a code, a name, a 12-digit BIN) and sites (a place the company w... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-02 | Maintain the org unit tree | The tenant administrator builds the organisation as a tree of units (department, shop, team): adds a unit under a legal entity and a site... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-03 | Maintain positions and employees | The tenant administrator records the posts of each unit and the people who hold them: adds a position to a unit, an employee to a unit (o... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-04 | Maintain the location tree | The tenant administrator builds the tree of places goods and assets are kept at (warehouse, zone, shelf, bin): adds a place (the address... | TENANT_ADMIN | implemented | direct | yes | no | see report |
+| BP-MASTER-05 | Link org units to locations | The tenant administrator says which places an org unit works at, so that a unit's people see only their places. | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-06 | Load the catalog (units, items, counterparties) from a file | Items, units of measure and counterparties are not typed in on a screen: the tenant administrator loads them from a CSV or Excel file wit... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-07 | Load org units, locations and codes from a file | To seed a new tenant the administrator loads legal entities, sites, units, location nodes, code tags and code assignments with the same g... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-08 | Maintain lots of an item | The tenant administrator records a lot (batch) of an active item with a code, a producer, a mark and an expiry date, corrects it and reti... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-MASTER-09 | Receive, assign, release and retire a code | Barcodes, QR codes and RFID tags are first received into the tenant (a batch of values with a kind), then assigned to one place, item or... | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | no | see report |
+| BP-MASTER-10 | Print code labels | A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
+| BP-MASTER-11 | Security: permission matrix of the master data routes | Who may do what in org, locations, catalog lots and codes, and who is refused. | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
+| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-13 | Security: crafted write requests are refused and change nothing | Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key wit... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
+| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | direct | no | yes | see report |
 
 ## BP-MASTER-01 -- Maintain legal entities and sites
 

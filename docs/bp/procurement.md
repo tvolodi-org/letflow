@@ -5,24 +5,24 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `procurement` has 12 process(es): 12 implemented.
+The area `procurement` has 12 process(es): 12 implemented. Executed by: 12 direct, 0 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-PROCUREMENT-01 | Raise and submit a purchase request | A requester (a tenant administrator, the only role holding the write permission today) saves a draft purchase request with lines, submits... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-PROCUREMENT-02 | Decide a purchase request: approve, reject or return | A second tenant administrator (not the requester) reads the request status, then records one decision on one exact version identified by... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-PROCUREMENT-03 | Record who handles an approved line, the supplier and the order | After approval the procurement officer role (today a tenant administrator) records for one line: the officer (an existing tenant user), t... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-PROCUREMENT-04 | Cancel a line and close a request | A line of an approved request is cancelled with a reason (at most 500 characters). | TENANT_ADMIN | implemented | no | no | see report |
-| BP-PROCUREMENT-05 | Attach, replace and download files of a purchase request | The requester adds a file to the request (JSON body: file_name, content_type, content_base64), replaces a file in its slot, and the reque... | TENANT_ADMIN | implemented | no | no | see report |
-| BP-PROCUREMENT-06 | SECURITY: permission matrix of the procurement routes | Each of the 14 routes is guarded by one permission (Write: create, submit, revise, attach, replace; Read: get, line get, attachment list... | TENANT_ADMIN, TASK_WORKER | implemented | no | yes | see report |
-| BP-PROCUREMENT-07 | SECURITY: another tenant's token and ids are refused (uniform 404) | A token of tenant A used against tenant B's document ids, for every read and write route, gets the same 404 as an absent or malformed id:... | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-PROCUREMENT-08 | SECURITY: separation of duties (requester cannot decide, only the requester changes) | The requester of a request cannot approve, reject or return it (403 self_decision, checked before the version binding). | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-PROCUREMENT-09 | SECURITY: crafted request bodies are ignored or refused | The caller, tenant, requester and document id never come from the body: create and revise silently ignore a client 'id' or 'requester' in... | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-PROCUREMENT-10 | SECURITY: upload types, size and scan of request files | Request files are checked in a fixed order: requester, state, shape, content type against the allow-list (never text/html), size (25 MiB;... | TENANT_ADMIN | implemented | no | yes | see report |
-| BP-PROCUREMENT-11 | SECURITY: token and tenant lookup (no token, wrong, expired, other realm) | Every procurement route sits behind the authentication pipeline (Letflow.Plugs.AuthPipeline). | anonymous | implemented | no | yes | see report |
-| BP-PROCUREMENT-12 | SECURITY: idempotent retry and concurrent decisions | A decision or a line event with the same idempotency key and the same body is returned again (replayed true) and writes nothing; the same... | TENANT_ADMIN | implemented | no | yes | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-PROCUREMENT-01 | Raise and submit a purchase request | A requester (a tenant administrator, the only role holding the write permission today) saves a draft purchase request with lines, submits... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-PROCUREMENT-02 | Decide a purchase request: approve, reject or return | A second tenant administrator (not the requester) reads the request status, then records one decision on one exact version identified by... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-PROCUREMENT-03 | Record who handles an approved line, the supplier and the order | After approval the procurement officer role (today a tenant administrator) records for one line: the officer (an existing tenant user), t... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-PROCUREMENT-04 | Cancel a line and close a request | A line of an approved request is cancelled with a reason (at most 500 characters). | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-PROCUREMENT-05 | Attach, replace and download files of a purchase request | The requester adds a file to the request (JSON body: file_name, content_type, content_base64), replaces a file in its slot, and the reque... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-PROCUREMENT-06 | SECURITY: permission matrix of the procurement routes | Each of the 14 routes is guarded by one permission (Write: create, submit, revise, attach, replace; Read: get, line get, attachment list... | TENANT_ADMIN, TASK_WORKER | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-07 | SECURITY: another tenant's token and ids are refused (uniform 404) | A token of tenant A used against tenant B's document ids, for every read and write route, gets the same 404 as an absent or malformed id:... | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-08 | SECURITY: separation of duties (requester cannot decide, only the requester changes) | The requester of a request cannot approve, reject or return it (403 self_decision, checked before the version binding). | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-09 | SECURITY: crafted request bodies are ignored or refused | The caller, tenant, requester and document id never come from the body: create and revise silently ignore a client 'id' or 'requester' in... | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-10 | SECURITY: upload types, size and scan of request files | Request files are checked in a fixed order: requester, state, shape, content type against the allow-list (never text/html), size (25 MiB;... | TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-11 | SECURITY: token and tenant lookup (no token, wrong, expired, other realm) | Every procurement route sits behind the authentication pipeline (Letflow.Plugs.AuthPipeline). | anonymous | implemented | direct | no | yes | see report |
+| BP-PROCUREMENT-12 | SECURITY: idempotent retry and concurrent decisions | A decision or a line event with the same idempotency key and the same body is returned again (replayed true) and writes nothing; the same... | TENANT_ADMIN | implemented | direct | no | yes | see report |
 
 ## BP-PROCUREMENT-01 -- Raise and submit a purchase request
 
