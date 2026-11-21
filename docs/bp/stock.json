@@ -2201,5 +2201,114 @@
       }
     ],
     "scenario": null
+  },
+  {
+    "id": "BP-STOCK-27",
+    "area": "stock",
+    "title": "New-company onboarding: fresh-tenant defaults, phone count without setup, explicit count rule",
+    "description": "A new company has the second-person approval of the quick count OFF by default (D-165). The storekeeper counts from the phone and the count posts at once, with no approval task (D-164, T-2410); the storekeeper cannot read or change the approval rules; an empty reason on a rule change is refused before anything is written. The explicit recording of the rule (ON, OFF, audit approval_rule.changed) is left to the browser scenario onboarding-rehearsal-2, because a rule row cannot be deleted and would spoil the fresh-tenant default. Cleanup reverses the count.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockQuickCount"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage"
+      }
+    ],
+    "preconditions": [
+      "a fresh tenant (new-tenant default marker) with the stock module installed",
+      "item, unit, place linked to the org unit, org unit and responsible employee exist; the key holds a balance row",
+      "the stock quick count definition is active (the first count activates it)",
+      "the caller of the approval rules is an interactive sign-in (OIDC) holding ApprovalRulesManage tenant-wide"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [
+      "count_doc_id",
+      "count_entry_id",
+      "balance_before"
+    ],
+    "refusals": [
+      "empty reason on a rule change: 422 invalid_reason",
+      "storekeeper on the approval rules: 403",
+      "a change equal to the current value is not stored (no row, no audit)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "admin/stock/quick-count -> QuickCountPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Stock.Documents.quick_count",
+          "Letflow.Modules.Stock.Documents.self_approve_count",
+          "Letflow.ApprovalRules.four_eyes_off?"
+        ],
+        "route": "POST /api/v1/modules/stock/quick-counts",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:670",
+          "lib/letflow/modules/stock/documents.ex:305",
+          "lib/letflow/approval_rules.ex:68",
+          "test/letflow/modules/stock/quick_count_self_approval_test.exs:1"
+        ],
+        "result": "with the rule OFF (default on a new tenant) the interactive caller's own count is approved by the system in the same call: state posted, balance moved by the difference, task.self_approved in the audit"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/approval-rules -> ApprovalRulesPage"
+        ],
+        "functions": [
+          "Letflow.ApprovalRules.list",
+          "Letflow.ApprovalRules.put"
+        ],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "PUT /api/v1/approval-rules/:definition_name/:node_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:32",
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/approval_rules.ex:78",
+          "lib/letflow/approval_rules.ex:115"
+        ],
+        "result": "the storekeeper gets 403; an empty reason is refused 422 invalid_reason before any write; (in the browser scenario) the rule row stores four_eyes, user, time and the exact reason, approval_rule.changed is audited and a change equal to the current value writes nothing"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/audit -> AuditLogPage"
+        ],
+        "functions": [
+          "Letflow.Audit.list_entries"
+        ],
+        "route": "GET /api/v1/audit",
+        "code_refs": [
+          "lib/letflow/routers/audit.ex:155",
+          "lib/letflow/audit.ex:355"
+        ],
+        "result": "(read in the browser scenario, not by the script) the newest approval_rule entry shows action approval_rule.changed with four_eyes false and the reason"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_reversal"
+        ],
+        "route": "POST /api/v1/modules/stock/documents/:id/reverse",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:654"
+        ],
+        "result": "cleanup: the count is reversed; the administrator completes the Reverse task; the balance returns to its start"
+      }
+    ],
+    "scenario": "test/uat/processes/BP-07-new-company-onboarding.json"
   }
 ]
