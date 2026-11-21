@@ -3,7 +3,7 @@
     "id": "BP-EXAM-01",
     "area": "exam",
     "title": "Write the question bank",
-    "description": "A tenant administrator (the exam author) keeps the question bank: categories (a tree), tags, questions with their answer options, and the links between them. In the question bank screen they list questions, open the editor, save a new or changed question, and delete one. A question may be a new version of an older one (lineage). The system refuses a category that is its own ancestor, a parent that does not exist, a second child on one question version, a version number that does not rise, and the deletion of a category or question that still has children.",
+    "description": "A tenant administrator (the exam author) keeps the question bank: categories (a tree), tags, questions with their answer options, and the links between them. In the question bank screen they list questions, open the editor, save a new or changed question, and delete one. A question may be a new version of an older one (lineage). The system refuses a category that is its own ancestor, a parent that does not exist, a second child on one question version, a version number that does not rise, and the deletion of a category or question that still has children. RUNNER SCOPE: the scenario plays create, whole replace and delete of a category and a question (answer options are not played: the dry-run tenant restricts is_correct for the author); the tree and lineage refusals (parent_cycle, parent_not_found, version_not_increasing, lineage_branch, the has_children refusals) are enforced by the code and its tests but are not in the dry run, because the active category definition on the dry-run tenant does not yet declare parent_id.",
     "actors": [
       {"role": "TENANT_ADMIN", "permission": "ExamAuthoringWrite"}
     ],
@@ -43,14 +43,14 @@
       "a body naming a field the caller's field restrictions hide is refused",
       "a stale expected_last_event_global_seq is 409"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-EXAM-01-write-the-question-bank.json",
+    "status": "implemented"
   },
   {
     "id": "BP-EXAM-02",
     "area": "exam",
     "title": "Build an exam",
-    "description": "A tenant administrator assembles an exam: title, pass mark, number of attempts, time limit, availability window, the policy for a candidate leaving the exam tab, the sections, the question rules (how many questions of which category or tag) and the manually pinned questions. They also assign the exam to candidates. The builder screens are shown only to a holder of the authoring permission. Every save is an authoring write of BP-EXAM-01 on the exam types.",
+    "description": "A tenant administrator assembles an exam: title, pass mark, number of attempts, time limit, availability window, the policy for a candidate leaving the exam tab, the sections, the question rules (how many questions of which category or tag) and the manually pinned questions. They also assign the exam to candidates. The builder screens are shown only to a holder of the authoring permission. Every save is an authoring write of BP-EXAM-01 on the exam types. STAYS PARTIAL: the assignment of an exam to a candidate has no route and no screen (only Authoring.create_assignment, called by the mix seed task, REQ-582), so the last task of this process cannot be done by a person; the builder write path itself is played by the scenario.",
     "actors": [
       {"role": "TENANT_ADMIN", "permission": "ExamAuthoringWrite"}
     ],
@@ -84,14 +84,14 @@
     "inputs": ["exam fields", "section, rule and pinned-question fields", "candidate ids to assign"],
     "outputs": ["exam id", "the exam in status draft or active"],
     "refusals": ["same as BP-EXAM-01: 403 without the permission, uniform 404 for an unknown type or another tenant's record"],
-    "scenario": null,
+    "scenario": "test/uat/processes/BP-EXAM-02-build-an-exam.json",
     "status": "partial"
   },
   {
     "id": "BP-EXAM-03",
     "area": "exam",
     "title": "Find and start an exam",
-    "description": "A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. The system checks in this order: the exam exists and is active, the candidate is assigned, the exam is not archived, the availability window is open, the attempts are not used up, no session of theirs is open. It then draws the questions (with a fresh seed) and fixes them in the session. If a session is already open the answer names it so the screen can continue it.",
+    "description": "A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. The system checks in this order: the exam exists and is active, the candidate is assigned, the exam is not archived, the availability window is open, the attempts are not used up, no session of theirs is open. It then draws the questions (with a fresh seed) and fixes them in the session. If a session is already open the answer names it so the screen can continue it. STAYS PARTIAL (no runner scenario): a candidate can start only an exam that is assigned to them, and nothing but the mix seed task writes an assignment (no route, no screen: Authoring.create_assignment, lib/letflow/modules/exam/authoring.ex:131). A runner process has no seed step, so the start cannot be played at API level without inventing behaviour. Needs: an assignment route or an exam_assignment fixture of the runner. The refusals of the candidate's session routes are played by BP-EXAM-07.",
     "actors": [
       {"role": "CANDIDATE", "permission": "ExamSessionStart"}
     ],
@@ -130,7 +130,7 @@
     "id": "BP-EXAM-04",
     "area": "exam",
     "title": "Sit the exam and submit",
-    "description": "The candidate answers the questions. Each answer is saved at once (single, multiple, true/false, likert, short text) with the time spent; the screen reports tab switches, loss of focus and leaving full screen. The server alone judges the deadline and what a signal does (warn or submit) from the exam's own policy. The candidate submits; the system scores the objective questions, and a session with a short-text answer waits for the examiner (BP-EXAM-05). A session past its deadline is closed by the system.",
+    "description": "The candidate answers the questions. Each answer is saved at once (single, multiple, true/false, likert, short text) with the time spent; the screen reports tab switches, loss of focus and leaving full screen. The server alone judges the deadline and what a signal does (warn or submit) from the exam's own policy. The candidate submits; the system scores the objective questions, and a session with a short-text answer waits for the examiner (BP-EXAM-05). A session past its deadline is closed by the system. STAYS PARTIAL (no runner scenario): it needs an open session, which BP-EXAM-03 cannot produce at API level (no assignment route). The refusals of the session routes (404 on an id that is not the caller's) are played by BP-EXAM-07. Needs the same assignment route or fixture.",
     "actors": [
       {"role": "CANDIDATE", "permission": "ExamSessionSave, ExamSessionSubmit, ExamSessionReportEvent, ExamSessionRead"}
     ],
@@ -184,7 +184,7 @@
     "id": "BP-EXAM-05",
     "area": "exam",
     "title": "Grade short-text answers",
-    "description": "An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one exam, in a chosen language), opens one answer, and gives a score between zero and the maximum of the question. When the last waiting answer of a session is marked the system finalises the session (score, pass/fail). An answer is marked once.",
+    "description": "An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one exam, in a chosen language), opens one answer, and gives a score between zero and the maximum of the question. When the last waiting answer of a session is marked the system finalises the session (score, pass/fail). An answer is marked once. STAYS PARTIAL (no runner scenario): it needs a submitted session with a short-text answer waiting for the examiner, which needs BP-EXAM-03 and BP-EXAM-04 first (no assignment route). The refusals of the grading routes (403 for a candidate, 422 for a body with a grader id, 404 on an unknown answer) are played by BP-EXAM-07.",
     "actors": [
       {"role": "TENANT_ADMIN", "permission": "ExamGradingRead, ExamGradingWrite"}
     ],
@@ -230,7 +230,7 @@
     "id": "BP-EXAM-06",
     "area": "exam",
     "title": "See my results and get the certificate",
-    "description": "The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the session is passed and the exam issues certificates, asks for the certificate and downloads it as a PDF. The first request issues it; every later request returns the same one.",
+    "description": "The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the session is passed and the exam issues certificates, asks for the certificate and downloads it as a PDF. The first request issues it; every later request returns the same one. STAYS PARTIAL (no runner scenario): it needs a finished session of a candidate, which the missing assignment route makes unreachable at API level; the certificate refusal on a session that is not the caller's (404) is played by BP-EXAM-07.",
     "actors": [
       {"role": "CANDIDATE", "permission": "ExamSessionRead, ExamCertificateIssue"}
     ],
@@ -323,6 +323,6 @@
       "separation of duties: the examiner role is held by the tenant administrator only, and the grader id is the caller's, never from the body (automated, step s11)"
     ],
     "scenario": "test/uat/processes/BP-EXAM-07-security-roles-and-crafted-input.json",
-    "status": "partial"
+    "status": "implemented"
   }
 ]
