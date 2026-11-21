@@ -39,7 +39,9 @@ defmodule Letflow.GH2747CursorTailContextTest do
     {:definitions_list_paginated, "DL:", [:mint, :uuid, :dt]},
     {:definitions_search_paginated, "DS:", [:mint, :rank_id, :dt]},
     {:service_catalog_list_for_tenant, "SC:", [:mint_dt, :string]},
-    {:service_catalog_list_all, "SCA:", [:mint_dt, :string]}
+    {:service_catalog_list_all, "SCA:", [:mint_dt, :string]},
+    {:service_catalog_list_for_tenant_v2, "SC2:", [:mint, :dt, :string]},
+    {:service_catalog_list_all_v2, "SCA2:", [:mint, :dt, :string]}
   ]
 
   @page_size 5
@@ -142,6 +144,17 @@ defmodule Letflow.GH2747CursorTailContextTest do
       )
 
   defp run(:service_catalog_list_all, cursor, _ctx),
+    do: ServiceCatalog.list_all(%{cursor: cursor, page_size: @page_size})
+
+  # The current service-catalog cursor generation: "<prefix><mint>:<created_at>:<service_id>".
+  defp run(:service_catalog_list_for_tenant_v2, cursor, ctx),
+    do:
+      ServiceCatalog.list_for_tenant(
+        %{cursor: cursor, page_size: @page_size},
+        ctx.tenant.tenant_id
+      )
+
+  defp run(:service_catalog_list_all_v2, cursor, _ctx),
     do: ServiceCatalog.list_all(%{cursor: cursor, page_size: @page_size})
 
   for {name, prefix, layout} <- @cases do
