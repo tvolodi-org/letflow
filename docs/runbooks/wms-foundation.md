@@ -556,7 +556,7 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     needed, and a tenant that installed 0.2.0 takes the new type and definitions through the module upgrade path
     (`lib/letflow/modules/tenant_module_upgrade.ex`, GH #3748).
 18. **The binding gap of `post_document` is closed at posting since REQ-903 (slice L7 part 2c, stock 0.24.0); `post_count` and
-    `post_kind_change_out` stay detected only.** `post_document` first reads the version named by its arguments
+    `post_kind_change_out` are bound to the instance start since T-2431.** `post_document` first reads the version named by its arguments
     (`HandlerWrites.read_document_version/3`, before the master checks of item 13) and refuses with 409
     `record_version_conflict` a posting that is not the issued current version of its document or whose content
     differs (version id, type, document id, org unit, cause, event time, write-off reason, legs), also when a holder of `StockPost` completes
@@ -565,8 +565,15 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     one pure module, `Letflow.Modules.Stock.Documents.Legs`, shared with the read side. The document read still
     answers `posting_check` `mismatch` (no detail) whenever the legs of its ledger entries differ from the issued
     content, a draft has an entry, a mark has no entry, or a cancelled document has a receipt with no reversal; that
-    detection is all that guards `post_count` (count.differences documents) and `post_kind_change_out` (change of kind
-    in assets). Master checks also run at posting since REQ-832 (item 13) (decision 0073 D6, decision 0078 D5, GH #3748, GH #4819).
+    detection stays as a second line. Since T-2431 (audit T-2429) all four handlers (`post_document`, `post_count`,
+    `post_kind_change_out`, `reverse_document`) also compare every write argument (document, version, org unit, mark,
+    reversal reason, the whole posting) with the variables the instance was STARTED with
+    (`HandlerWrites.read_instance_start/1`, the `INSTANCE_STARTED` event): another document, another posting or
+    another entry to reverse is the closed 422 `validation_failed` and nothing is written, so a task cannot post or
+    approve a document it was not started for (the four-eyes pair of one instance cannot be bypassed with another
+    instance's values). A start through the generic instance start route carries its own start values: for
+    `post_count`, `post_kind_change_out` and `reverse_document` that route stays a gap that only the permission to start the
+    definition guards. Master checks also run at posting since REQ-832 (item 13) (decision 0073 D6, decision 0078 D5, GH #3748, GH #4819).
 19. **The post and reverse tasks have no assignee.** Both nodes carry the role label `TENANT_ADMIN` (the graph needs a
     role), any user may open them, and the ledger authority step refuses a completer without `StockPost` or
     `StockReverse`, an API token included; the task then stays pending (`lib/letflow/ledger/handler_post.ex`,
