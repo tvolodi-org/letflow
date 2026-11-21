@@ -29,8 +29,14 @@ found):
 
 ## The 461 "not referenced" routes
 
-Cause: `check_routes.py` built route items from the verb line only (`end == line`), while `bp_inventory.py` items span
-the whole handler (`end`). A process task whose `code_refs` cites a line inside the handler counted for
-`check_catalog.py` but not for `check_routes.py`. Fix (this task, a small code change): `all_routes` takes `end` from
-the inventory item. After it, `check_routes.py`: 477 routes, 477 covered; `check_catalog.py`: every area 100%, PASS.
+Cause: a stale snapshot. The first `route-gaps.md` (T-2494) was generated before the area catalogs merged:
+stock.json and assets.json (db32d4e12, 07:17), platform.json (2c9dfe611, 07:24), designer.json (feceb4c92, 07:33),
+master.json (ccbd9ead6, 07:39). Measured with `python3 -B scripts/uat/check_routes.py --root <tree>`:
+- current tree, main's unmodified script: 477 routes, 477 covered, 0 not;
+- tree of 3bb4e3862 (the commit that added the tool), main's script: 181 not covered; with this branch's script: 180.
+
+So the matching difference (verb line versus handler range) accounts for one route on that tree and none now. The
+alignment is still correct and stays: `all_routes` takes `end` from the inventory item, as `check_catalog.py` does
+(small code change in this task). Both tools now agree: `check_routes.py` 477 covered; `check_catalog.py` every area
+100%, PASS.
 (`check_catalog.py` also stopped reporting `public-routes.json` as "not an area catalog".)

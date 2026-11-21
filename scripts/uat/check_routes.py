@@ -91,7 +91,7 @@ def all_routes(root: Path) -> list[dict]:
     mount = INV.mounts(root)
     platform = platform_routers()
     # the inventory item carries the area and the handler's line RANGE (`end`): a process task that cites a line
-    # inside the handler body covers the route, as in check_catalog.py (T-2510: without `end` 461 were "uncovered")
+    # inside the handler body covers the route, as in check_catalog.py (aligns the range with check_catalog.py, T-2510)
     owner: dict[tuple[str, int], dict] = {}
     for d in INV.inventory(root, "all"):
         if d["kind"] == "route":
