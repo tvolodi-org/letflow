@@ -139,8 +139,8 @@ defmodule Letflow.Scripts.BpInventoryTest do
       "lib/letflow/modules/stock/ledger_policy/declare.ex" => @declare_ex,
       "lib/letflow/modules/stock/stock.ex" => @stock_ex,
       "priv/modules/stock/pack.json" => pack_json(),
-      "web/src/modules/stock/stockRoutes.tsx" => @routes_tsx,
-      "web/src/router.tsx" => @router_tsx,
+      Path.join(["web", "src", "modules", "stock", "stockRoutes.tsx"]) => @routes_tsx,
+      Path.join(["web", "src", "router.tsx"]) => @router_tsx,
       "lib/letflow/routers/tenants.ex" => @tenants_ex,
       "lib/letflow/plugs/api_pipeline.ex" => @pipeline_ex
     }

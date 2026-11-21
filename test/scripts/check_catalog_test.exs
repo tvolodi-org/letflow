@@ -1,6 +1,6 @@
 defmodule Letflow.Scripts.CheckCatalogTest do
   @moduledoc """
-  T-2474 (D-168/D-169): `scripts/uat/check_catalog.py` validates `docs/bp/<area>.json` and the orphan files
+  T-2474 (D-168/D-169): `scripts/uat/check_catalog.py` validates the catalog file of the area and the orphan files
   and computes COVERAGE against the inventory. Every test runs the real script on a small fake checkout built
   in `tmp_dir` (one stock module: two routes, one screen, one rule), so coverage is exact: 4 items.
   """
@@ -43,13 +43,16 @@ defmodule Letflow.Scripts.CheckCatalogTest do
     files = %{
       "lib/letflow/modules/stock/router.ex" => @router_ex,
       "lib/letflow/modules/stock/ledger_policy/declare.ex" => @declare_ex,
-      "web/src/modules/stock/stockRoutes.tsx" => @routes_tsx,
+      Path.join(["web", "src", "modules", "stock", "stockRoutes.tsx"]) => @routes_tsx,
       "test/uat/processes/BP-STOCK-01.json" => "{}"
     }
 
     for {path, content} <- files, do: write(dir, path, content)
     dir
   end
+
+  # segments, not a literal path: a literal makes the CI path filters treat this fake checkout as a repo read
+  defp bp_path(name), do: Path.join(~w(docs bp) ++ [name])
 
   defp write(dir, path, content) do
     full = Path.join(dir, path)
@@ -106,7 +109,7 @@ defmodule Letflow.Scripts.CheckCatalogTest do
   end
 
   defp catalog(dir, entries, area \\ "stock") do
-    write(dir, "docs/bp/#{area}.json", Jason.encode!(entries))
+    write(dir, bp_path("#{area}.json"), Jason.encode!(entries))
   end
 
   defp run(dir, args \\ []),
@@ -158,7 +161,7 @@ defmodule Letflow.Scripts.CheckCatalogTest do
       "| GET /balances | lib/letflow/modules/stock/router.ex:4 | reads balances | REQ-1 | the read model | keep as a platform function |\n" <>
         "| declare | lib/letflow/modules/stock/ledger_policy/declare.ex:2 | declares postings | git log -S declare | posting core | give a process |\n"
 
-    write(dir, "docs/bp/orphans-stock.md", "# Orphans\n\n" <> @orphan_header <> rows)
+    write(dir, bp_path("orphans-stock.md"), "# Orphans\n\n" <> @orphan_header <> rows)
     {out, code} = run(dir)
     assert code == 0, out
     assert out =~ "COVERAGE stock: 4/4 = 100.0%"
@@ -176,7 +179,7 @@ defmodule Letflow.Scripts.CheckCatalogTest do
         "| c | lib/letflow/modules/stock/gone.ex:4 | x | h | w | remove |\n" <>
         "| d | lib/letflow/modules/stock/router.ex:2 | x | h | w | remove |\n"
 
-    write(dir, "docs/bp/orphans-stock.md", @orphan_header <> rows)
+    write(dir, bp_path("orphans-stock.md"), @orphan_header <> rows)
     {out, code} = run(dir)
     assert code == 1
     assert out =~ "orphan a: column 'what it does' is empty"
@@ -188,7 +191,7 @@ defmodule Letflow.Scripts.CheckCatalogTest do
   test "an orphan file with a wrong header is an error", %{tmp_dir: dir} do
     build(dir)
     catalog(dir, [entry()])
-    write(dir, "docs/bp/orphans-stock.md", "| function | file |\n|---|---|\n| a | b |\n")
+    write(dir, bp_path("orphans-stock.md"), "| function | file |\n|---|---|\n| a | b |\n")
     {out, code} = run(dir)
     assert code == 1
     assert out =~ "the table header must be | function | file:line"
@@ -262,12 +265,12 @@ defmodule Letflow.Scripts.CheckCatalogTest do
 
   test "invalid JSON and a non-list file are errors", %{tmp_dir: dir} do
     build(dir)
-    write(dir, "docs/bp/stock.json", "{not json")
+    write(dir, bp_path("stock.json"), "{not json")
     {out, code} = run(dir)
     assert code == 1
-    assert out =~ "docs/bp/stock.json: invalid JSON"
+    assert out =~ bp_path("stock.json") <> ": invalid JSON"
 
-    write(dir, "docs/bp/stock.json", "{}")
+    write(dir, bp_path("stock.json"), "{}")
     {out, code} = run(dir)
     assert code == 1
     assert out =~ "the file must be a JSON list of entries"
