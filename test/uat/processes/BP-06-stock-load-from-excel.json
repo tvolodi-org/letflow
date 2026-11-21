@@ -2,7 +2,7 @@
   "id": "BP-06",
   "bp_entry": "BP-STOCK-13",
   "title": "Stock load from Excel: the parts a JSON runner can play (download, refusals, list, nothing written)",
-  "description": "The administrator downloads the whole current stock as an Excel workbook; the storekeeper reads the list of earlier loads. Then the doors of the load are tried the way a person at the screen or a wrong caller meets them, and each must be refused with its stable reason and change nothing: the check and the load without an organisation unit, with an unknown unit and without a workbook; the load and the cancel by the storekeeper (a role without the Excel-load permission and without the approval permission); the cancel without a reason and of a load that does not exist. At the end the newest entry of the list of loads is the same as at the start. Nothing is created, so there is nothing to clean up. NOT PLAYED HERE (runner gap, see the run notes): the steps that send a workbook file (check with remarks, load, approve the load's task, balances equal the file, cancel the load), because the runner sends only JSON bodies and cannot upload a file; they stay in the prose group qoimeks-import until the runner has a file-body step.",
+  "description": "The administrator downloads the whole current stock as an Excel workbook; the storekeeper reads the list of earlier loads. Then the doors of the load are tried the way a person at the screen or a wrong caller meets them, and each must be refused with its stable reason and change nothing: the check and the load without an organisation unit, with an unknown unit and without a workbook; the load by the storekeeper (a role without the Excel-load permission); the cancel of a load that does not exist by the storekeeper (who may cancel a load, so the answer is not found) and by the administrator, and the cancel without a reason. At the end the newest entry of the list of loads is the same as at the start. Nothing is created, so there is nothing to clean up. NOT PLAYED HERE (runner gap, see the run notes): the steps that send a workbook file (check with remarks, load, approve the load's task, balances equal the file, cancel the load), because the runner sends only JSON bodies and cannot upload a file; they stay in the prose group qoimeks-import until the runner has a file-body step.",
   "tenant": "${tenant}",
   "inputs": ["org_unit"],
   "dry_run": {
@@ -59,8 +59,8 @@
     {
       "id": "s7",
       "actor": "storekeeper",
-      "do": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/imports/00000000-0000-4000-8000-000000000000/cancel", "body": {"reason": "UAT ${run_id} refusal check"}},
-      "expect_refused": {"status": 403}
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/imports/00000000-0000-4000-8000-000000000000/cancel", "body": {"reason": "UAT ${run_id} storekeeper cancel of unknown load"}},
+      "expect_refused": {"status": 404}
     },
     {
       "id": "s8",
