@@ -178,6 +178,11 @@ a receipt (`BP-01`) hands only its document id to the reversal (`BP-05`):
 * `processes` are looked up in `test/uat/processes/` by the id (`BP-01` finds `BP-01-receive-goods.json`), by the
   file name, or by a path relative to the chain file.
 * `tenant`, `actors`, `inputs`, `base_url`, `old_base_url` in the chain file are defaults; the command line wins.
+* An entry of `processes` may be an object, `{"process": "BP-08", "dry_run": true}` (tenant, actors, `base_url`,
+  `old_base_url` and inputs from the process's own `dry_run` block) or `{"process": ..., "tenant": ..., "actors": ...,
+  "old_base_url": ...}`. That process runs on its own tenant with only its own inputs (no ids of the chain's tenant;
+  only the chain's `pass` lists hand outputs on). The preflight (reachable, tokens) runs per distinct tenant, the
+  retired-tenant guard applies to every entry, and `summary.md` lists the tenant of each process.
 * A process may read a name only if the chain or a fixture gives it, it is a default, or an earlier process declares
   it as an `output` **and** the chain's `pass` list names it. An empty or absent `pass` hands on nothing. A `pass`
   entry that names an unknown process or a non-output is a usage error; `check_processes.py` and the runner check

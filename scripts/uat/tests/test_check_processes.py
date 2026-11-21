@@ -401,17 +401,21 @@ class RcSssChain(unittest.TestCase):
 
     def test_order_is_the_one_the_owner_gave(self):
         doc = json.loads(self.CHAIN.read_text())
-        self.assertEqual(doc["processes"], ["BP-01", "BP-02", "BP-03", "BP-04", "BP-05", "BP-06", "BP-08", "BP-09", "BP-07"])
+        self.assertEqual(doc["processes"], ["BP-01", "BP-02", "BP-03", "BP-04", "BP-05", "BP-06",
+                                         {"process": "BP-08", "dry_run": True}, "BP-09", "BP-07"])
 
     def test_every_process_resolves_and_passes_the_static_check(self):
         self.assertEqual(check_processes.check_files([self.CHAIN], root=self.ROOT, strict=True), [])
 
     def test_chain_gives_every_input_the_processes_need(self):
         doc = json.loads(self.CHAIN.read_text())
-        for name in doc["processes"]:
+        for entry in doc["processes"]:
+            name = entry["process"] if isinstance(entry, dict) else entry
             pdoc = json.loads(check_processes.runner.resolve_process_file(self.CHAIN.parent, name).read_text())
-            missing = [i for i in pdoc.get("inputs", []) if i not in doc["inputs"]]
+            own = set(pdoc.get("dry_run", {}).get("inputs") or {}) if isinstance(entry, dict) else set(doc["inputs"])
+            missing = [i for i in pdoc.get("inputs", []) if i not in own]
             self.assertEqual(missing, [], name)
+
     def test_second_place_is_a_fixture_and_no_placeholder_remains(self):
         doc = json.loads(self.CHAIN.read_text())
         self.assertIn("second_place", doc.get("fixtures") or [])

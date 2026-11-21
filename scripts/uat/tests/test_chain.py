@@ -492,8 +492,8 @@ class LogAndSummary(ChainCase):
         self.assertEqual(code, 1)
         text = (self.run_dir / "summary.md").read_text()
         self.assertIn("## Processes", text)
-        self.assertRegex(text, r"\| PA \| pass \| pass \| pass \| \d+ \|")
-        self.assertRegex(text, r"\| PB \| FAIL \| FAIL \| pass \| \d+ \| s2")
+        self.assertRegex(text, r"\| PA \| [^|]+ \| pass \| pass \| pass \| \d+ \|")
+        self.assertRegex(text, r"\| PB \| [^|]+ \| FAIL \| FAIL \| pass \| \d+ \| s2")
         self.assertIn("FIRST FAILING STEP: PB step s2", text)
         self.assertIn("**>>**", text)  # the row of that step is marked
         self.assertIn("duration:", text)
@@ -602,6 +602,85 @@ class ChainCli(ChainCase):
         code, out, err = self.main("chain", str(path), *self.common(), "--build-sha", "zzz")
         self.assertEqual(code, 1)
         self.assertIn("expected zzz", (self.run_dir / "run.jsonl").read_text())
+
+    # -- T-2540: a chain entry that runs on its own tenant --------------------------------------
+
+    def where(self, pid):
+        """The tenant a process's echo step reported (its body carries ${tenant})."""
+        return next(c[3]["t"] for c in self.state.calls("POST", "/echo") if c[3] and c[3].get("p") == pid)
+
+    def tenant_proc(self, pid, inputs=None, dry_run=None):
+        doc = proc(pid, [call("s1", "POST", "/api/v1/echo", {"p": pid, "t": "${tenant}"})], inputs=inputs)
+        if dry_run:
+            doc["dry_run"] = dry_run
+        return doc
+
+    def two_tenant_chain(self, entry, other_inputs=None, dry_run=None):
+        dry = dry_run or {"tenant": "other-qa", "actors": {"admin": "adm"}, "inputs": {}, "base_url": self.base}
+        procs = [self.tenant_proc("BP-A"), self.tenant_proc("BP-B", other_inputs, dry)]
+        path = self.write_chain(procs, {"processes": ["BP-A", entry], "tenant": "main-qa", "inputs": {"thing": "main-id"},
+                                        "actors": {"admin": "adm"}})
+        return path
+
+    def run_chain(self, path):
+        return self.main("chain", str(path), "--base-url", self.base, "--run-dir", str(self.run_dir), "--poll-interval", "0.01")
+
+    def test_a_two_tenant_chain_runs_each_process_against_its_tenant_and_lists_it(self):
+        path = self.two_tenant_chain({"process": "BP-B", "dry_run": True})
+        code, out, err = self.run_chain(path)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual((self.where("BP-A"), self.where("BP-B")), ("main-qa", "other-qa"))
+        summary = (self.run_dir / "summary.md").read_text()
+        self.assertIn("| BP-A | main-qa |", summary)
+        self.assertIn("| BP-B | other-qa |", summary)
+
+    def test_an_entry_may_name_its_own_tenant_and_actors_instead_of_dry_run(self):
+        entry = {"process": "BP-B", "tenant": "third-qa", "actors": {"admin": "adm"}, "base_url": self.base}
+        code, out, err = self.run_chain(self.two_tenant_chain(entry, dry_run={"tenant": "x"}))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.where("BP-B"), "third-qa")
+
+    def test_a_process_on_another_tenant_gets_no_ids_of_the_first_tenant(self):
+        path = self.two_tenant_chain({"process": "BP-B", "dry_run": True}, other_inputs=["thing"])
+        code, out, err = self.run_chain(path)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("BP-B: inputs missing: thing", err)
+        self.assertEqual(self.state.log, [])
+
+    def test_the_preflight_runs_per_distinct_tenant(self):
+        path = self.two_tenant_chain({"process": "BP-B", "dry_run": True})
+        code, out, err = self.run_chain(path)
+        self.assertEqual(code, 0, out + err)
+        steps = [x["step"] for x in self.lines() if x["phase"] == "preflight"]
+        for step in ("tenant", "tenant:other-qa", "token:admin", "token:other-qa:admin"):
+            self.assertIn(step, steps)
+
+    def test_an_unreachable_second_tenant_fails_the_preflight_before_any_step(self):
+        dry = {"tenant": "other-qa", "actors": {"admin": "adm"}, "inputs": {}, "base_url": "http://127.0.0.1:1"}
+        code, out, err = self.run_chain(self.two_tenant_chain({"process": "BP-B", "dry_run": True}, dry_run=dry))
+        self.assertEqual(code, 1, out + err)
+        line = next(x for x in self.lines() if x["step"] == "tenant:other-qa")
+        self.assertIn("not reachable", line["error"])
+        self.assertEqual([c for c in self.state.log if c[1].startswith("/api/")], [])
+
+    def test_a_retired_tenant_in_an_entry_exits_2_before_any_request(self):
+        for entry, dry in (({"process": "BP-B", "tenant": "qoimeks-qa", "actors": {"admin": "adm"}}, None),
+                           ({"process": "BP-B", "dry_run": True},
+                            {"tenant": "qoimeks-qa", "actors": {"admin": "adm"}, "inputs": {}, "base_url": self.base}),
+                           ({"process": "BP-B", "tenant": "ok-qa", "actors": {"admin": "qoimeks-qa-admin"}}, None)):
+            self.state.log.clear()
+            code, out, err = self.run_chain(self.two_tenant_chain(entry, dry_run=dry))
+            self.assertEqual(code, 2, out + err)
+            self.assertIn("retired", err)
+            self.assertEqual(self.state.log, [])
+
+    def test_the_shipped_rc_chain_runs_bp_08_on_its_own_tenant(self):
+        chain, processes = runner.load_chain(HERE.parent.parent.parent / "test" / "uat" / "chains" / "rc-sss.json")
+        over = runner.chain_overrides(chain, processes)
+        self.assertEqual(list(over), ["BP-08"])
+        self.assertEqual(over["BP-08"]["tenant"], "qoimeks-qa2")
+        self.assertEqual(over["BP-08"]["inputs"], {})
+        self.assertIn("qoimeks/qoimeks-qa2", over["BP-08"]["old_base_url"])
 
     def cleanups(self):
         return [c[3]["cleanup"] for c in self.state.calls("POST", "/echo") if c[3] and "cleanup" in c[3]]
