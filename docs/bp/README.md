@@ -35,6 +35,11 @@ python3 scripts/uat/check_catalog.py all             # every area; an area witho
 and ends with `check_catalog: PASS` or `FAIL`. Exit code 0 only when there is no error and every checked
 area is at 100%.
 
+`public-routes.json`, `dead-code.json`, `dead-code-allow.json` and `dead-code-baseline.json` are support files,
+**not area catalogs**; `route-gaps*.md` is not a catalog either. With no area argument, `check_catalog.py` skips
+these files silently. Any other `docs/bp/*.json` file whose name is not an area is still an error, and every area
+catalog is validated as usual.
+
 ## The inventory (what `bp_inventory.py` lists)
 
 Output: a JSON list of `{id, kind, path, line, name, end, aliases, area, ...}`; `end` is the last line the item

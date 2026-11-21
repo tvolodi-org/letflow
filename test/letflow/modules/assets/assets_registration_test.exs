@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.30.0"
+    assert m.version == "0.31.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -29,7 +29,8 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              :AssetsRead,
              :AssetsReconcile,
              :AssetsCountOrder,
-             :AssetsCountRecord
+             :AssetsCountRecord,
+             :AssetsApprove
            ]
 
     assert m.role_grants == %{}
@@ -51,6 +52,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"GET", "/balances", :AssetsRead},
              {"GET", "/movements", :AssetsRead},
              {"GET", "/reconcile", :AssetsReconcile},
+             {"GET", "/approval-access", :AssetsApprove},
              {"POST", "/documents", :AssetsPost},
              {"PUT", "/documents/:id", :AssetsPost},
              {"DELETE", "/documents/:id", :AssetsPost},

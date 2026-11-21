@@ -29,6 +29,7 @@ import secrets
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -52,8 +53,12 @@ DEFAULT_BASE_URL_TEMPLATE = "https://{tenant}.letflow.qa.bizdala.com"
 UUID_NAMES = tuple(f"uuid{i}" for i in range(1, 13))
 BUILTIN_NAMES = ("tenant", "TENANT", "run_id", "now_utc", "old_base_url") + UUID_NAMES
 
-SECRET_KEY = re.compile(r"pass(word)?|secret|token|authorization|api[_-]?key|credential", re.I)
-JWT_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*")
+SECRET_KEY = re.compile(r"pass(?:word|wd)?|secret|token|authorization|api[_-]?key|credential|access", re.I)
+JWT_SHAPE = re.compile(r"(?<![A-Za-z0-9_.-])[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?![A-Za-z0-9_.-])")
+BEARER_SHAPE = re.compile(r"\bBearer(?:[ \t]+[A-Za-z0-9._~+/=-]+)?", re.I)
+AUTHORIZATION_HEADER = re.compile(r"(?im)(?<![\"A-Za-z0-9_])(Authorization\s*:\s*)[^\r\n]*")
+EMAIL_SHAPE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
 
@@ -358,22 +363,46 @@ def match_unordered(expects: list, calls: list, mask=False):
 # -- redaction ----------------------------------------------------------------------------------
 
 
+def _mask_characters(match, pattern) -> str:
+    return re.sub(pattern, "*", match.group())
+
+
+def _mask_phone(match) -> str:
+    value = match.group()
+    if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        return value  # an ISO calendar date is not a phone number
+    if re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", value):
+        return value  # an all-numeric UUID is still an identifier, not a phone number
+    return _mask_characters(match, r"[0-9]")
+
+
+def redact_text(text: str) -> str:
+    """Mask credentials and contact details in free text, preserving punctuation and the shape of numbers."""
+    text = AUTHORIZATION_HEADER.sub(lambda m: m.group(1) + "***", text)
+    text = BEARER_SHAPE.sub("***", text)
+    text = JWT_SHAPE.sub("***", text)
+    text = EMAIL_SHAPE.sub(lambda m: _mask_characters(m, r"[A-Za-z0-9]"), text)
+    return PHONE_SHAPE.sub(_mask_phone, text)
+
+
 def redact(value):
-    """Mask the value of every key that looks like a secret, recursively."""
+    """Mask secret-looking fields and sensitive strings, recursively."""
     if isinstance(value, dict):
         return {k: ("***" if SECRET_KEY.search(str(k)) else redact(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [redact(v) for v in value]
+    if isinstance(value, str):
+        return redact_text(value)
     return value
 
 
 def excerpt(text, limit=RESPONSE_EXCERPT_MAX) -> str:
-    """The start of an answer for the log: a JSON answer is parsed and its secret-looking keys masked."""
+    """The start of an answer for the log, with secret fields and sensitive strings masked."""
     text = text or ""
     try:
         parsed = json.loads(text)
     except ValueError:
-        return text[:limit]
+        return redact_text(text)[:limit]
     return json.dumps(redact(parsed), ensure_ascii=False)[:limit]
 
 
@@ -480,11 +509,12 @@ class Runner:
     def scrub(self, text: str) -> str:
         for secret in self.secret_values:
             text = text.replace(secret, "***")
-        return JWT_SHAPE.sub("***", text)
+        return redact_text(text)
 
     def write_line(self, record: dict):
         record.setdefault("run_id", self.run_id)
         record.setdefault("process", self.process["id"])
+        record = redact(record)
         line = self.scrub(json.dumps(record, ensure_ascii=False, sort_keys=False))
         with open(self.run_dir / "run.jsonl", "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
@@ -502,15 +532,15 @@ class Runner:
 
     def save_context(self):
         if not self.replay:  # a cleanup replay must not overwrite the context of the run it cleans up
-            self._atomic_write("context.json", json.dumps(self.ctx, indent=2, ensure_ascii=False, default=str))
+            self._atomic_write("context.json", json.dumps(redact(self.ctx), indent=2, ensure_ascii=False, default=str))
         if self.entries:
-            self._atomic_write("cleanup.json", json.dumps(self.entries, indent=2, ensure_ascii=False, default=str))
+            self._atomic_write("cleanup.json", json.dumps(redact(self.entries), indent=2, ensure_ascii=False, default=str))
 
     def save_meta(self, started_at):
         meta = {"run_id": self.run_id, "label": self.label, "tenant": self.tenant, "base_url": self.base_url,
                 "health_url": self.health_url, "old_base_url": self.old_base_url, "actors": self.actors,
                 "started": started_at, "processes": [p["id"] for p in self.processes]}
-        self._atomic_write("meta.json", json.dumps(meta, indent=2, ensure_ascii=False))
+        self._atomic_write("meta.json", json.dumps(redact(meta), indent=2, ensure_ascii=False))
 
     # -- tokens -------------------------------------------------------------------------------
 
@@ -686,8 +716,8 @@ class Runner:
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
     @staticmethod
-    def _excerpt(text, secret_step, status):
-        if secret_step and 200 <= status < 300:
+    def _excerpt(text, secret_step, _status):
+        if secret_step:
             return "<withheld: the answer carries a secret>"
         return excerpt(text)
 
@@ -1143,13 +1173,13 @@ class Runner:
         outputs = {}
         for p in self.processes:
             outputs.update({k: self.ctx.get(k) for k in (p.get("outputs") or {}) if k in self.ctx})
-        lines += ["", "## Outputs", "", "```json", json.dumps(outputs, indent=2, default=str), "```", ""]
+        lines += ["", "## Outputs", "", "```json", json.dumps(redact(outputs), indent=2, default=str), "```", ""]
         for key in ("balance_before", "balance_after", "balance_end"):
             if key in self.ctx:
                 lines.append(f"- {key}: {self.ctx[key]}")
         if self.issues:
             lines += ["", "## Issues", ""] + [f"- {pid}: {url}" for pid, url in self.issues.items()]
-        lines += ["", "## Context at the end", "", "```json", json.dumps(self.ctx, indent=2, default=str, ensure_ascii=False), "```", ""]
+        lines += ["", "## Context at the end", "", "```json", json.dumps(redact(self.ctx), indent=2, default=str, ensure_ascii=False), "```", ""]
         (self.run_dir / name).write_text(self.scrub("\n".join(lines) + "\n"), encoding="utf-8")
 
 
@@ -1289,6 +1319,19 @@ def base_url_for(tenant: str, template=None) -> str:
     return (template or os.environ.get("UAT_BASE_URL_TEMPLATE") or DEFAULT_BASE_URL_TEMPLATE).format(tenant=tenant)
 
 
+def default_run_dir(run_id: str) -> Path:
+    """An absolute run directory outside the checkout; only an explicit CLI option may choose one inside it."""
+    configured = os.environ.get("UAT_RUN_DIR_ROOT")
+    task_dir = os.environ.get("TEAM_TASKDIR")
+    if configured:
+        root = Path(configured)
+    elif task_dir:
+        root = Path(task_dir) / "uat-runs"
+    else:
+        root = Path(tempfile.gettempdir()) / "letflow-uat-runs"
+    return root.expanduser().resolve() / run_id
+
+
 def cmd_dry_run(args, out=None) -> int:
     """Every changed process file on QA with its own dry_run block {tenant, actors, inputs}, self-cleaning.
     Exit 0 only when all pass; a failure is exit 1 (exit 2 is reserved for 'no such command')."""
@@ -1310,7 +1353,8 @@ def cmd_dry_run(args, out=None) -> int:
         for p in problems:
             print("  " + p, file=out)
         return 1
-    root_dir = Path(args.run_dir_root or os.path.join("uat-runs", "dry-run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
+    run_id = "dry-run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    root_dir = Path(args.run_dir_root) if args.run_dir_root else default_run_dir(run_id)
     worst = 0
     for index, path in enumerate(files):
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -1352,7 +1396,7 @@ def add_run_options(p):
     p.add_argument("--actors", help="actor=keycloak-user,... e.g. admin=qoimeks-qa-admin,storekeeper=qoimeks-qa-store")
     p.add_argument("--input", nargs="+", action="extend", default=[], metavar="NAME=VALUE", help="process inputs")
     p.add_argument("--input-file", help="JSON file with inputs (e.g. the context.json of an earlier run)")
-    p.add_argument("--run-dir", help="where run.jsonl, context.json and summary.md go (default uat-runs/<run id>)")
+    p.add_argument("--run-dir", help="where run.jsonl, context.json and summary.md go (default: UAT_RUN_DIR_ROOT, TEAM_TASKDIR/uat-runs, or the temp directory)")
     p.add_argument("--health-url", help="build sha source (default <base-url>/health)")
     p.add_argument("--poll-interval", type=float, help="seconds between task polls (default: the step's interval_s, 2)")
     p.add_argument("--build-sha", help="the build the run is for: /health must report it (a prefix is enough)")
@@ -1384,7 +1428,7 @@ def build_parser():
     dry.add_argument("--changed", action="store_true", help="the files that differ from origin/main (default)")
     dry.add_argument("--files", nargs="+", help="these files instead of the changed ones")
     dry.add_argument("--repo", help="the product checkout (default: the one this script is in)")
-    dry.add_argument("--run-dir-root", help="a directory for the run directories (one per file)")
+    dry.add_argument("--run-dir-root", help="a directory for the run directories (one per file; default: UAT_RUN_DIR_ROOT, TEAM_TASKDIR/uat-runs, or the temp directory)")
     dry.add_argument("--base-url", help="the same base url for every file (default: the dry_run block, then the template)")
     dry.add_argument("--base-url-template", help="URL with {tenant}")
     dry.add_argument("--health-url")
@@ -1407,7 +1451,7 @@ def read_inputs(args) -> dict:
 
 
 def new_run_dir(args, run_id) -> Path:
-    run_dir = Path(args.run_dir or os.path.join("uat-runs", run_id))
+    run_dir = Path(args.run_dir) if args.run_dir else default_run_dir(run_id)
     if (run_dir / "run.jsonl").exists():
         raise ConfigError(f"{run_dir}/run.jsonl exists: use a new --run-dir")
     return run_dir

@@ -16,12 +16,14 @@ import unittest
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 import runner  # noqa: E402
-from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, USERS, FakeServerCase, mock_env)  # noqa: E402,F401
+from fakes import (INPUTS, PROCESS_FILE, RUNNER_FILE, SECRET, SHARED_VALUE, USERS, FakeServerCase, mock_env)  # noqa: E402,F401
 
 
 class ExpressionAndSubstitution(unittest.TestCase):
@@ -106,7 +108,7 @@ class Loader(unittest.TestCase):
     def test_bp01_loads(self):
         process = runner.load_process(PROCESS_FILE)
         self.assertEqual(process["id"], "BP-01")
-        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s1", "s2", "s3", "s4", "s5"])
+        self.assertEqual([s["id"] for s in process["steps"]], ["s0", "s0b", "s1", "s2", "s3", "s4", "s5"])
         self.assertEqual([s["id"] for s in process["cleanup"]], ["c1", "c2", "c3"])
 
     def test_bad_files_are_refused(self):
@@ -121,12 +123,35 @@ class Loader(unittest.TestCase):
             runner.load_process("/nonexistent/process.json")
 
 
+class RunDirectories(unittest.TestCase):
+    def test_the_default_is_outside_the_current_git_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, timeout=30)
+            with contextlib.chdir(repo), mock.patch.dict(os.environ, {}, clear=True):
+                run_dir = runner.new_run_dir(SimpleNamespace(run_dir=None), "run-id")
+            self.assertTrue(run_dir.is_absolute())
+            self.assertFalse(run_dir.resolve().is_relative_to(repo.resolve()))
+            self.assertTrue(run_dir.resolve().is_relative_to(Path(tempfile.gettempdir()).resolve()))
+
+    def test_the_environment_roots_take_precedence_over_the_temp_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            uat_root = Path(tmp) / "uat"
+            task_dir = Path(tmp) / "task"
+            args = SimpleNamespace(run_dir=None)
+            with mock.patch.dict(os.environ, {"UAT_RUN_DIR_ROOT": str(uat_root), "TEAM_TASKDIR": str(task_dir)}, clear=True):
+                self.assertEqual(runner.new_run_dir(args, "run-id"), uat_root / "run-id")
+            with mock.patch.dict(os.environ, {"TEAM_TASKDIR": str(task_dir)}, clear=True):
+                self.assertEqual(runner.new_run_dir(args, "run-id"), task_dir / "uat-runs" / "run-id")
+
+
 class RunBP01(FakeServerCase):
     def test_happy_path_and_cleanup(self):
         code, r = self.run_process()
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         verdicts = self.verdicts()
-        for key in [("step", s) for s in ("s0", "s1", "s2", "s3", "s4", "s5")] + [("cleanup", c) for c in ("c1", "c2", "c3")]:
+        for key in [("step", s) for s in ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")] + [("cleanup", c) for c in ("c1", "c2", "c3")]:
             self.assertEqual(verdicts[key], "pass", key)
         self.assertEqual(self.state.qty, Decimal("7"))  # reversed: back to the start
         ctx = json.loads((self.run_dir / "context.json").read_text())
@@ -143,6 +168,7 @@ class RunBP01(FakeServerCase):
     def test_each_actor_uses_its_own_token_and_bodies_are_empty_for_tasks(self):
         self.run_process()
         by_step = {(c[0], c[1].split("?")[0]): c[2] for c in self.state.log}
+        self.assertEqual(by_step[("POST", "/api/v1/entities/query")], "admin")
         self.assertEqual(by_step[("POST", "/api/v1/modules/stock/documents")], "storekeeper")
         self.assertEqual(by_step[("POST", "/api/v1/modules/stock/documents/doc-1/issue")], "storekeeper")
         self.assertEqual(by_step[("POST", "/api/v1/tasks/task-1/complete")], "admin")
@@ -202,7 +228,7 @@ class Failures(FakeServerCase):
     def test_an_exception_in_a_step_does_not_skip_the_cleanup(self):
         process = self.process()
         # s5 reads a variable that does not exist: a RunnerError after the post task was completed
-        process["steps"][5]["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
+        next(s for s in process["steps"] if s["id"] == "s5")["do"]["path"] = "/api/v1/modules/stock/documents/${nope}"
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -222,7 +248,7 @@ class Failures(FakeServerCase):
 
     def test_cleanup_is_skipped_when_nothing_was_posted(self):
         process = self.process()
-        process["steps"][1]["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
+        next(s for s in process["steps"] if s["id"] == "s1")["do"]["body"]["org_unit_id"] = ""  # the fake refuses: 422
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         v = self.verdicts()
@@ -240,7 +266,7 @@ class Failures(FakeServerCase):
     def test_wait_task_times_out(self):
         self.state.task_visible_after = 10**6
         process = self.process()
-        process["steps"][3]["do"]["wait_task"]["within_s"] = 0.2
+        next(s for s in process["steps"] if s["id"] == "s3")["do"]["wait_task"]["within_s"] = 0.2
         code, _ = self.run_process(process)
         self.assertEqual(code, 1)
         s3 = next(x for x in self.lines() if x["step"] == "s3")
@@ -321,6 +347,57 @@ class NoSecrets(FakeServerCase):
         self.assertIn("visible", text)
         line = next(x for x in self.lines() if x["step"] == "a")
         self.assertEqual(line["request"]["password"], "***")
+
+    def test_every_sensitive_shape_is_redacted_in_every_run_artifact(self):
+        leaks = {
+            "password": "password-leak-731",
+            "passwd": "passwd-leak-732",
+            "secret": "secret-leak-733",
+            "token": "token-leak-734",
+            "api_key": "api-key-leak-735",
+            "shared_access": "shared-access-leak-736",
+            "authorization": "Bearer authorization-leak-737",
+            "note": "a Bearer loose-bearer-leak-738 in prose",
+            "jwt": "abc_def-123.ghiJKL_456.mnoPQR_789",
+            "email": "person@example.test",
+            "phone": "+7 (701) 234-56-78",
+        }
+        process = {
+            "id": "REDACT",
+            "steps": [{"id": "echo", "actor": "admin",
+                       "do": {"api": "POST", "path": "/api/v1/redaction-echo", "body": {"echo": "${leaks}"}},
+                       "expect": {"status": 201}}],
+        }
+        code, _ = self.run_process(process, inputs={"leaks": leaks})
+        self.assertEqual(code, 1)  # the fake echoes the request and its Authorization header in the failing answer
+        files = [self.run_dir / name for name in ("run.jsonl", "summary.md", "context.json", "cleanup.json")]
+        sensitive = ["Bearer", "TOKEN_", SECRET, "person@example.test", "+7 (701) 234-56-78",
+                     "abc_def-123.ghiJKL_456.mnoPQR_789", "authorization-leak-737", "loose-bearer-leak-738"]
+        sensitive += [value for key, value in leaks.items() if key not in ("authorization", "note", "jwt", "email", "phone")]
+        for path in files:
+            text = path.read_text()
+            for value in sensitive:
+                self.assertNotIn(value, text, f"{path.name} leaked {value}")
+        self.assertIn("+* (***) ***-**-**", (self.run_dir / "context.json").read_text())
+        self.assertIn("******@*******.****", (self.run_dir / "context.json").read_text())
+
+    def test_a_shared_access_value_is_withheld_from_an_error_response(self):
+        process = {
+            "id": "SECRET-ERROR",
+            "steps": [{"id": "create", "actor": "admin",
+                       "do": {"api": "POST", "path": "/api/v1/redaction-secret-error"},
+                       "expect": {"status": 201}, "save": {"shared_access": {"secret": "$.value"}}}],
+        }
+        code, _ = self.run_process(process, inputs={})
+        self.assertEqual(code, 1)
+        self.assertNotIn(SHARED_VALUE, self.all_text())
+        line = next(x for x in self.lines() if x["step"] == "create")
+        self.assertIn("withheld", line["response_excerpt"])
+
+    def test_non_sensitive_numbers_dates_and_uuids_keep_their_values(self):
+        values = {"quantity": "7.000000000", "date": "2026-11-21",
+                  "uuid": "12345678-1234-1234-1234-123456789012", "base_url": "http://127.0.0.1:8080"}
+        self.assertEqual(runner.redact(values), values)
 
     def test_a_token_that_slips_into_an_error_is_scrubbed(self):
         r = runner.Runner(self.process(), base_url=self.base, tenant="t", actors=USERS, run_dir=self.run_dir, inputs=INPUTS,

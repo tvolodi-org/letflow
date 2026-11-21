@@ -33,6 +33,14 @@ import re
 import sys
 from pathlib import Path
 
+# JSON support files under docs/bp/ that are not area catalogs (docs/bp/README.md).
+NON_AREA_FILES = frozenset({
+    "public-routes.json",
+    "dead-code.json",
+    "dead-code-allow.json",
+    "dead-code-baseline.json",
+})
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_ROOT = HERE.parents[1]
 STATUSES = ("implemented", "partial", "planned")
@@ -292,11 +300,11 @@ def main(argv: list[str] | None = None) -> int:
     all_entries: dict[str, list[dict]] = {}
     for a in areas:
         all_entries[a] = load_catalog(root, a, errors)
-    # a file for an area name that is not an area: docs/bp/<x>.json
+    # A JSON file for a name that is neither an area nor a documented support file is an error.
     bp_dir = root / "docs/bp"
     if bp_dir.is_dir() and not args.areas:
         for f in sorted(bp_dir.glob("*.json")):
-            if f.stem not in names:
+            if f.stem not in names and f.name not in NON_AREA_FILES:
                 errors.append(f"ERROR docs/bp/{f.name}: not an area catalog (areas: {', '.join(names)})")
     ids: dict[str, str] = {}
     for a, entries in all_entries.items():

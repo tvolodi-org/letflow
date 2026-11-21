@@ -200,9 +200,9 @@ packed =
     }
   end)
 
-# GH #3890 / REQ-752: one HUMAN_TASK with one module_writes line. The role label is only a label
-# (graph check CHK-09 wants one): the ledger authority step decides who may complete the task
-# (AssetsPost / AssetsReverse).
+# GH #3890 / REQ-752: one HUMAN_TASK with one module_writes line. The role label only routes the
+# task (graph check CHK-09 wants one): required_permission decides who may claim or complete it,
+# following the StockApprove guard of decision 0093 F1/F2.
 posting_args = fn names ->
   Map.new(names, fn name -> {name, %{"var" => name}} end)
 end
@@ -220,6 +220,7 @@ process_definition = fn id, key, node, handler, names ->
           "node_type" => "HUMAN_TASK",
           "attributes" => %{
             "role" => "TENANT_ADMIN",
+            "required_permission" => "AssetsApprove",
             "module_writes" => [
               %{"module" => "assets", "handler" => handler, "args" => posting_args.(names)}
             ]
@@ -255,6 +256,7 @@ kind_change_definition = fn ->
           "node_type" => "HUMAN_TASK",
           "attributes" => %{
             "role" => "TENANT_ADMIN",
+            "required_permission" => "AssetsApprove",
             "module_writes" => [
               %{
                 "module" => "assets",
@@ -296,6 +298,7 @@ opening_definition = fn ->
           "node_type" => "HUMAN_TASK",
           "attributes" => %{
             "role" => "TENANT_ADMIN",
+            "required_permission" => "AssetsApprove",
             "distinct_from" => ["submit"],
             "module_writes" => [
               %{

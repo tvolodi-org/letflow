@@ -299,6 +299,40 @@ defmodule Letflow.Scripts.CheckCatalogTest do
     assert out =~ "unknown area nonsense"
   end
 
+  test "documented non-area files are skipped; unknown JSON fails and areas are still checked", %{
+    tmp_dir: dir
+  } do
+    build(dir)
+    catalog(dir, [entry()])
+
+    for name <- [
+          "public-routes.json",
+          "dead-code.json",
+          "dead-code-allow.json",
+          "dead-code-baseline.json"
+        ] do
+      write(dir, bp_path(name), "{}")
+    end
+
+    for name <- ["route-gaps.md", "route-gaps-extra.md"],
+        do: write(dir, bp_path(name), "# Notes\n")
+
+    {out, code} = run(dir)
+    assert code == 0, out
+    refute out =~ "not an area catalog"
+
+    write(dir, bp_path("other.json"), "[]")
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ bp_path("other.json") <> ": not an area catalog"
+
+    File.rm!(Path.join(dir, bp_path("other.json")))
+    write(dir, bp_path("stock.json"), "{}")
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ bp_path("stock.json") <> ": the file must be a JSON list of entries"
+  end
+
   test "--json prints the missing items", %{tmp_dir: dir} do
     build(dir)
     catalog(dir, [entry(%{"tasks" => [hd(full_tasks())]})])

@@ -1,0 +1,95 @@
+{
+  "id": "SEC-ID-05",
+  "bp_entry": "BP-TENANT-ADMIN-46",
+  "title": "Platform routes need the platform role: a tenant administrator and a storekeeper are refused, the platform administrator is let in, and the platform administrator is kept out of a company's approval and ledger switches",
+  "description": "The company list, one company's record and the backup status are platform routes. The tenant administrator of the company (also for the company's own record) and the storekeeper are refused with 403 and the same body; a create request of a company by the tenant administrator is refused before its body is read (empty body on purpose: nothing could be created). The platform administrator (signed in to the platform company) reads them: 200. The platform administrator is refused the company's approval rules and ledger settings (403): those switches belong to the tenant administrator only. The me answer shows platform_tenant true only for the platform administrator. Read-only; no cleanup.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper", "platform-admin": "admin-user"},
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.platform_tenant": false, "$.roles[0]": "TENANT_ADMIN"}}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/tenants"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions", "$.items": {"absent": true}}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/tenants/${tenant}"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions", "$.slug": {"absent": true}}}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenants", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/platform-status/backup"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/tenants"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/platform-status/backup"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.platform_tenant": true, "$.roles[0]": "PLATFORM_ADMIN"}}
+    },
+    {
+      "id": "s9",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/tenants"},
+      "expect": {"status": 200, "json": {"$.items[0].slug": {"exists": true}}}
+    },
+    {
+      "id": "s10",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/tenants/${tenant}"},
+      "expect": {"status": 200, "json": {"$.slug": "${tenant}"}}
+    },
+    {
+      "id": "s11",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/platform-status/backup"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/approval-rules"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s13",
+      "actor": "platform-admin",
+      "do": {"api": "GET", "path": "/api/v1/ledger-settings"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

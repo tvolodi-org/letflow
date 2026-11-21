@@ -99,6 +99,9 @@ def make_handler(state):
             if method == "GET" and path == base + "/balances":
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
+            if method == "POST" and path == "/api/v1/entities/query":
+                return self.reply(200, {"items": [{"record_id": body["filters"][0]["value"],
+                                                    "field_values": {"base_uom_id": "uom-1"}}]})
             if method == "POST" and path == base + "/documents":
                 if not body or "catalog_uom_id" not in body["lines"][0] or not body.get("org_unit_id"):
                     return self.reply(422, {"title": "field_required"})
@@ -177,6 +180,10 @@ def make_handler(state):
                 return self.reply(201 if state.race_hits == 1 else 409, {"title": "conflict", "detail": "already_taken"})
             if method == "POST" and path == "/api/v1/refuse":
                 return self.reply(422, {"title": "Unprocessable Entity", "detail": "output_refused", "status": 422})
+            if method == "POST" and path == "/api/v1/redaction-secret-error":
+                return self.reply(500, {"value": SHARED_VALUE})
+            if method == "POST" and path == "/api/v1/redaction-echo":
+                return self.reply(200, {"request": body, "authorization": self.headers.get("Authorization")})
             if method == "POST" and path == "/api/v1/echo":
                 return self.reply(200, {"ok": True})
             if method == "GET" and path == "/api/v1/leak":

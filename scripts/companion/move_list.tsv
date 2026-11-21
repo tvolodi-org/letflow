@@ -40,6 +40,7 @@ scripts/uat_preflight.sh	companion	UAT preflight, a pipeline script (4.3)
 test/reports/	companion	test run reports of the old pipeline; NOT named in T-1599 section 4, classified by analogy with handoffs/: owner to confirm
 test/uat-reports/	companion	BA sign-offs of UAT runs; NOT named in T-1599 section 4, classified by analogy with docs/uat/: owner to confirm
 test/specs/	companion	test specs of the old pipeline per issue; NOT named in T-1599 section 4, classified by analogy with docs/: owner to confirm
+uat-runs/	companion	UAT run output (dry-run summaries, run.jsonl, context); BP scenario tasks committed it at the repo root; classified by analogy with test/uat-reports/: owner to confirm
 # --- stays (waits for an owner decision)
 docs/open-source/	stays	OSS-1 audit report; oss_audit_test and BACKEND_PATHS_RE read it, so it stays until the history decision (T-1599 section 9)
 # --- drop
