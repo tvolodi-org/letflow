@@ -1,0 +1,190 @@
+{
+  "id": "SEC-STOCK-10",
+  "bp_entry": "BP-STOCK-33",
+  "title": "Excel stock workbook: who may export, check, apply and cancel a load",
+  "description": "SECURITY, read-and-refuse only. The storekeeper may export the balances workbook and list the loads (200) and may run the check (it writes nothing; an empty body that is not a workbook is refused 422 xlsx_unreadable), but may not apply a load (403: applying is for administrators only). Both administrators pass the permission of the apply: with no workbook in the body they get 422 xlsx_unreadable, and without the org unit 422 org_unit_required, so nothing is loaded. Cancelling a load with an unknown id is 404, and the administrator of the FOREIGN tenant sss-rehearsal2 cancelling a real load of this tenant gets the same 404. The newest load of the tenant (read at the start) is unchanged at the end. Nothing is created, so there is nothing to clean up. Precondition: the tenant has at least one earlier workbook load (step s0).",
+  "tenant": "${tenant}",
+  "inputs": [
+    "org_unit"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "admin2": "qoimeks-qa2-admin2",
+      "storekeeper": "qoimeks-qa2-storekeeper",
+      "sss-rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/stock-workbook/imports"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].document_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "last_load": "$.rows[0].document_id",
+        "last_load_state": "$.rows[0].state"
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/stock-workbook"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/stock-workbook/imports"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].document_id": "${last_load}"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/check?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "xlsx_unreadable"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "xlsx_unreadable"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin2",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "xlsx_unreadable"
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "org_unit_required"
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/imports/00000000-0000-4000-8000-0000000000f1/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-10 probe"
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/imports/${last_load}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-10 cross-tenant probe"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/stock-workbook/imports"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].document_id": "${last_load}",
+          "$.rows[0].state": "${last_load_state}"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

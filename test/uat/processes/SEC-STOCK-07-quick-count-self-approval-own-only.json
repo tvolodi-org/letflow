@@ -1,0 +1,292 @@
+{
+  "id": "SEC-STOCK-07",
+  "bp_entry": "BP-STOCK-30",
+  "title": "Quick count with four-eyes OFF: the system approves only the counter's own count and grants nothing else",
+  "description": "SECURITY, on the FOREIGN rehearsal tenant sss-rehearsal2, whose quick count rule is OFF (owner decision D-164: one administrator, the storekeeper counts from the phone). The storekeeper counts one more unit than the book: the count of the storekeeper's OWN sign-in posts at once (posted, balance plus 1). Switching four-eyes off grants the storekeeper no approval right: the approval access is still refused (403). The storekeeper may ask for the reversal of the count, but cannot claim or complete the Reverse task (404, the answer of a task that does not exist): the count stays posted until the administrator completes it. The cleanup has the administrator complete the reversal, so the balance returns to its start. Precondition: the quick count rule is OFF on the tenant (step s1 fails with state issued if it is ON). Not walked here, because it needs the rule switched while a count is open (a tenant setting this walk does not change): a count made while the rule was ON stays waiting after the switch, and another person's count is never approved by the system (product test SA-3 of the self-approval tests).",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "balance_before": "$.rows[0].quantity",
+        "uom": "$.rows[0].unit_ref"
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 1}",
+          "reason_code": "recount",
+          "reason_text": "UAT ${run_id} SEC-STOCK-07 own count"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "posted",
+          "kind": "quick_count"
+        }
+      },
+      "save": {
+        "qc": "$.id",
+        "posted_qc": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/approval-access"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${qc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-07 reversal asked by the storekeeper"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/tasks?status=PENDING&page_size=1"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "reverse",
+          "$.items[0].status": "PENDING"
+        }
+      },
+      "save": {
+        "task_r": "$.items[0].id",
+        "inst_r": "$.items[0].instance_id"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/${inst_r}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.document_id": "${qc}"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_r}/claim",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_r}/complete",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${qc}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + 1}"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "posted_qc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_qc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-07 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "posted_qc"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_qc}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_qc"
+      ],
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${posted_qc}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "reversed"
+        }
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,388 @@
+{
+  "id": "SEC-STOCK-05",
+  "bp_entry": "BP-STOCK-21",
+  "title": "Permission matrix of the stock area per role: storekeeper, administrator, second administrator",
+  "description": "SECURITY, read-and-refuse only. Each role calls the stock routes. The storekeeper may read balances, the posting rule, documents, movements, counts, frozen places and the workbook loads (200), and is refused 403 on what only an administrator may do: the approval access (approve, post, reverse what another person prepared), the reconciliation, the workbook apply, the approval rules, the ledger settings, the shared access of the old phone app, reading and starting process instances. Both administrators read everything the storekeeper reads and also the approval access, the approval rules and the ledger settings (200); an unknown instance id is 404 for them (the permission is held, the instance does not exist), where the storekeeper got 403. The refused calls are refused before anything is read or written (the permission check), so nothing changes and there is nothing to clean up. The write routes an administrator may use are walked in SEC-STOCK-03, SEC-STOCK-06 and SEC-STOCK-11.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "org_unit"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "admin2": "qoimeks-qa2-admin2",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917"
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/balances?sku=${item}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/posting-rules"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents?limit=1"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/movements?sku=${item}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/counts"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/frozen-locations"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/stock-workbook/imports"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/approval-access"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/reconcile"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/approval-rules"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/ledger-settings"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/identity/shared-stock-access"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/00000000-0000-4000-8000-0000000000d1"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "stock_receipt",
+          "initial_variables": {}
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/balances?sku=${item}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/posting-rules"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents?limit=1"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/approval-access"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s20",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/approval-rules"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s21",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/ledger-settings"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s22",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/00000000-0000-4000-8000-0000000000d1"
+        }
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s23",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/balances?sku=${item}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s24",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/posting-rules"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s25",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents?limit=1"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s26",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/approval-access"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s27",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/approval-rules"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s28",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/ledger-settings"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s29",
+      "actor": "admin2",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/00000000-0000-4000-8000-0000000000d1"
+        }
+      },
+      "expect": {
+        "status": 404
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

@@ -1,0 +1,238 @@
+{
+  "id": "SEC-ASSETS-02",
+  "bp_entry": "BP-ASSETS-14",
+  "title": "Cross-tenant asset reads and writes are refused with the uniform not-found answer",
+  "description": "SECURITY, read-and-refuse only. Home tenant qoimeks-qa (has the assets module) and the FOREIGN tenant sss-rehearsal2 (stock only; its administrator signs in to their own company). The home administrator asks the asset routes for a real document of the foreign tenant (read at run time from the foreign tenant's own list) to read, reverse and issue it, and for a real stock document of its own tenant through the asset routes: every answer is the 404 of an id that does not exist (same title and detail). The foreign administrator gets the same 404 on the asset routes (its company has no assets module) and on this tenant's real stock document, which its owner still reads (control). A tenant key in an asset query is refused 422 invalid_filter. Not walked: an asset document of the home tenant read from the other company, because no roster tenant with the assets module holds an asset document today (data precondition; see the BA findings of T-2503). Nothing is created, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa",
+    "actors": {
+      "admin": "qoimeks-qa-admin",
+      "storekeeper": "qoimeks-qa-storekeeper",
+      "sss-rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/documents/00000000-0000-4000-8000-0000000000c3"
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents?limit=1"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "home_stock_doc": "$.rows[0].id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents?limit=1"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "foreign_doc": "$.rows[0].id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/documents/${foreign_doc}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/assets/documents/${foreign_doc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cross-tenant probe"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/assets/documents/${foreign_doc}/issue"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/documents/${home_stock_doc}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/documents"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/balances"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/assets/documents/${home_stock_doc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cross-tenant probe"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${home_stock_doc}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${home_stock_doc}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "id": "${home_stock_doc}"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/assets/balances?tenant_id=00000000-0000-4000-8000-0000000000c4"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_filter"
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

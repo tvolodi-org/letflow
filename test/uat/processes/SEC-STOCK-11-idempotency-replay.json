@@ -1,0 +1,518 @@
+{
+  "id": "SEC-STOCK-11",
+  "bp_entry": "BP-STOCK-34",
+  "title": "Retry and replay: a repeated create, issue, post, completion or reversal never acts twice",
+  "description": "SECURITY / integrity. The storekeeper creates an issue document of one unit with a client key: the same request again answers the SAME document (201, same id); the same key with a changed quantity is refused 409 idempotency_key_reuse. The issue with a second key: repeated, it answers the same issued document with the same number; without a key it is refused 409 document_not_draft; asking to post it while its post task waits is 409 posting_pending; the issue key used on another draft is refused 409 idempotency_key_reuse and that draft stays a draft. The administrator claims and completes the post task once (200); completing it again is refused 409 (the task is not pending) and the balance moved once (minus 1). Posting again is 409 document_posted; replaying the issue key answers the document as it is now (posted, same number), nothing more is posted. A second reversal while the first waits is 409 reversal_pending. The cleanup completes the reversal (balance back to its start), checks that reversing a reversed document is 409 document_reversed, and deletes the second draft.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "balance_before": "$.rows[0].quantity",
+        "uom": "$.rows[0].unit_ref",
+        "event_time": "${now_utc}"
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-create"
+        },
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${event_time}",
+          "note": "UAT ${run_id} SEC-STOCK-11 A",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "doc": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-create"
+        },
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${event_time}",
+          "note": "UAT ${run_id} SEC-STOCK-11 A",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "id": "${doc}",
+          "state": "draft"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-create"
+        },
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${event_time}",
+          "note": "UAT ${run_id} SEC-STOCK-11 A",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "2"
+            }
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "idempotency_key_reuse"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-issue"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      },
+      "save": {
+        "number": "$.number"
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-issue"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued",
+          "number": "${number}"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue"
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "document_not_draft"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/post"
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "posting_pending"
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${event_time}",
+          "note": "UAT ${run_id} SEC-STOCK-11 B",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "doc2": "$.id"
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc2}/issue",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-issue"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "idempotency_key_reuse"
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc2}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "draft"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.document_id": "${doc}"
+        }
+      },
+      "save": {
+        "task_p": "$.task_id",
+        "posted": "${doc}"
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_p}/complete",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 409
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before - 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/post"
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "document_posted"
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue",
+        "headers": {
+          "Idempotency-Key": "uat-${run_id}-issue"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "number": "${number}"
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before - 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s20",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-11 reversal"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s21",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-11 reversal twice"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "reversal_pending"
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "storekeeper",
+      "requires": [
+        "doc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-11 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "posted"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-11 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "posted"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-11 reversal of a reversed document"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "document_reversed"
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "storekeeper",
+      "requires": [
+        "doc2"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/stock/documents/${doc2}"
+      },
+      "expect": {
+        "status": 204
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "storekeeper",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ]
+}

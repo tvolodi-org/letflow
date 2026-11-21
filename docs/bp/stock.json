@@ -1815,7 +1815,7 @@
       "module definitions start only from module code"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -1875,7 +1875,7 @@
       "a tenant key in the query is 422 invalid_filter"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -1905,7 +1905,7 @@
         "result": "uniform 404 for every id route; the control call with the owner's token is not 404"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-STOCK-04-cross-tenant-refused.json"
   },
   {
     "id": "BP-STOCK-21",
@@ -1935,7 +1935,7 @@
       "403 for a role without the permission"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -1976,7 +1976,7 @@
         "result": "refused for reads and writes alike: the auditor holds no stock permission"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-STOCK-05-permission-matrix.json"
   },
   {
     "id": "BP-STOCK-22",
@@ -2176,7 +2176,7 @@
       "refused for the preparer and for a role without StockApprove"
     ],
     "status": "implemented",
-    "automation": "planned",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -2200,7 +2200,7 @@
         "result": "claim or completion of an approve/post task by the preparer or by a storekeeper is refused; nothing is written"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/SEC-STOCK-06-quick-count-four-eyes.json"
   },
   {
     "id": "BP-STOCK-27",
@@ -2310,5 +2310,495 @@
       }
     ],
     "scenario": "test/uat/processes/BP-07-new-company-onboarding.json"
+  },
+  {
+    "id": "BP-STOCK-28",
+    "area": "stock",
+    "title": "Four-eyes cannot be bypassed by starting a stock posting process directly (security)",
+    "description": "A tenant administrator starts a stock write process (receipt, issue, write-off, transfer, hand-over, return, reversal, opening, quick count, count posting) through the public start route with start values of the caller's choice: refused exactly as an unknown process (404), by name and by id; the storekeeper is refused 403; scheduled starts are closed while scheduled jobs are off (404). Nothing is started or posted.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "InstancesStart"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none (InstancesStart withheld)"
+      }
+    ],
+    "preconditions": [
+      "the stock write processes are active on the tenant",
+      "scheduled jobs switched off (platform setting)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "404 as an unknown definition (INV-5)",
+      "403 for a role without InstancesStart",
+      "404 for every scheduled-jobs call while the feature is off"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_receipt/post",
+          "stock_reversal/reverse",
+          "stock_opening/approve",
+          "stock_quick_count/approve",
+          "stock_count_posting/post"
+        ],
+        "route": [
+          "POST /api/v1/instances",
+          "GET /api/v1/definitions/active/:name",
+          "GET /api/v1/scheduled-jobs"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:416",
+          "lib/letflow/engine.ex:906",
+          "lib/letflow/routers/instances.ex:717",
+          "lib/letflow/routers/scheduled_jobs.ex:54",
+          "test/letflow/modules/stock/module_start_route_test.exs:1",
+          "test/letflow/engine/module_start_test.exs:1"
+        ],
+        "result": "404 with the detail of an unknown process for every stock write process; storekeeper 403; balance unchanged"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-01-start-route-refused.json"
+  },
+  {
+    "id": "BP-STOCK-29",
+    "area": "stock",
+    "title": "Four-eyes cannot be bypassed through a sub-process child (security)",
+    "description": "A process the tenant made itself, whose sub-process names a stock posting process, is activated and started with a forged posting: the child is refused (the stock process is started by its module only) and nothing is posted. Expected answer 404 as an unknown process; the cleanup retires the tenant process.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DefinitionsWrite, InstancesStart"
+      }
+    ],
+    "preconditions": [
+      "the tenant administrator may create and activate definitions"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "child start of a module-only definition from a tenant parent refused"
+    ],
+    "status": "partial",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_receipt/post"
+        ],
+        "route": [
+          "POST /api/v1/definitions",
+          "POST /api/v1/definitions/:id/activate",
+          "POST /api/v1/instances",
+          "POST /api/v1/definitions/:id/deprecate",
+          "POST /api/v1/definitions/:id/archive"
+        ],
+        "code_refs": [
+          "lib/letflow/engine/sub_process.ex:418",
+          "lib/letflow/engine.ex:1093",
+          "lib/letflow/routers/instances.ex:745",
+          "test/letflow/engine/module_start_test.exs:79"
+        ],
+        "result": "the child start is refused and nothing is posted; the start answer is 404 as for an unknown process (on QA 2c9dfe611 the route answers 500: defect reported by T-2503)"
+      }
+    ],
+    "scenario": null,
+    "planned_scenario": "docs/bp/planned/SEC-STOCK-02-sub-process-start-refused.json",
+    "note": "The start is refused and nothing is written, but the answer is 500 internal_error instead of the 404 of an unknown definition (DEFECT, p1 fix task). The walkthrough SEC-STOCK-02 expects 404; it is parked outside test/uat/processes/ so it is not in the dry-run set, and fails until the defect is fixed."
+  },
+  {
+    "id": "BP-STOCK-30",
+    "area": "stock",
+    "title": "Quick count with four-eyes OFF approves only the counter's own count (security)",
+    "description": "With the quick count rule OFF the system approves the storekeeper's own count at once (posted) and grants nothing else: the approval access stays refused, and the storekeeper cannot claim or complete the Reverse task of that count (404).",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockQuickCount, StockReverse"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "quick count rule OFF (stock_quick_count / approve)"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "403 approval access",
+      "404 claim or completion of a task the caller may not complete"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "stock_quick_count/approve",
+          "stock_reversal/reverse"
+        ],
+        "route": [
+          "POST /api/v1/modules/stock/quick-counts",
+          "GET /api/v1/modules/stock/approval-access",
+          "POST /api/v1/modules/stock/documents/:id/reverse",
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:670",
+          "lib/letflow/modules/stock/router.ex:688",
+          "lib/letflow/modules/stock/documents/posting.ex:837",
+          "lib/letflow/modules/stock/router.ex:475",
+          "lib/letflow/tasks.ex:804",
+          "test/letflow/modules/stock/quick_count_self_approval_test.exs:1"
+        ],
+        "result": "own count posted at once; approval access 403; Reverse task claim and completion 404 until the administrator completes it"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-07-quick-count-self-approval-own-only.json"
+  },
+  {
+    "id": "BP-STOCK-31",
+    "area": "stock",
+    "title": "Negative balance rule REFUSED: an issue of more than the balance does not post (security)",
+    "description": "On a tenant whose stock ledger setting refuses negative balances, the completion of the Post task of an issue of more than the balance is refused 409 insufficient_stock; the document stays issued and the balance is unchanged; the issue may then be cancelled.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost, StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "ledger setting: negative balances refused"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "409 insufficient_stock"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Stock.PostingRules.negative_allowed?",
+          "stock_issue/post",
+          "stock.post_document"
+        ],
+        "route": [
+          "GET /api/v1/modules/stock/posting-rules",
+          "POST /api/v1/tasks/:id/complete",
+          "POST /api/v1/modules/stock/documents/:id/cancel"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:246",
+          "lib/letflow/modules/stock/posting_rules.ex:16",
+          "lib/letflow/modules/stock/stock.ex:705",
+          "lib/letflow/ledger/codes.ex:16",
+          "test/letflow/modules/stock/negative_balance_test.exs:64"
+        ],
+        "result": "409 insufficient_stock, nothing posted, the document cancelled by the cleanup"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-08-negative-balance-refused.json"
+  },
+  {
+    "id": "BP-STOCK-32",
+    "area": "stock",
+    "title": "Negative balance rule ALLOWED: the same issue posts below zero",
+    "description": "On a tenant whose stock ledger setting allows negative balances, the same issue of more than the balance posts and the balance reads below zero; the cleanup reverses it.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost, StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "ledger setting: negative balances allowed"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Stock.PostingRules.negative_allowed?",
+          "stock_issue/post"
+        ],
+        "route": [
+          "GET /api/v1/modules/stock/posting-rules",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:246",
+          "lib/letflow/modules/stock/posting_rules.ex:16",
+          "test/letflow/modules/stock/negative_balance_test.exs:64"
+        ],
+        "result": "posted, the balance reads -1"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-09-negative-balance-allowed.json"
+  },
+  {
+    "id": "BP-STOCK-33",
+    "area": "stock",
+    "title": "Excel stock workbook: who may export, check, apply and cancel a load (security)",
+    "description": "The storekeeper may export the workbook, list the loads and run the check (writes nothing) but not apply a load (403); administrators pass the apply permission (a body without a workbook is 422 xlsx_unreadable, nothing loaded); a load of this tenant cancelled from another company is 404 as an unknown id.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockWorkbookApply, StockReverse"
+      }
+    ],
+    "preconditions": [
+      "at least one earlier workbook load on the tenant"
+    ],
+    "inputs": [
+      "org_unit"
+    ],
+    "outputs": [],
+    "refusals": [
+      "403 apply for the storekeeper",
+      "422 xlsx_unreadable",
+      "404 unknown or other company's load"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/stock/stock-workbook",
+          "GET /api/v1/modules/stock/stock-workbook/imports",
+          "POST /api/v1/modules/stock/stock-workbook/check",
+          "POST /api/v1/modules/stock/stock-workbook/apply"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:418",
+          "lib/letflow/modules/stock/router.ex:364",
+          "lib/letflow/modules/stock/router.ex:441",
+          "lib/letflow/modules/stock/router.ex:482",
+          "lib/letflow/modules/stock/router.ex:1672",
+          "priv/permission_matrix/effective.golden:650",
+          "test/letflow/modules/stock/stock_workbook_apply_test.exs:1"
+        ],
+        "result": "export and list 200, check 422 xlsx_unreadable on an empty body, apply 403"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/stock-workbook/apply",
+          "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:482",
+          "lib/letflow/modules/stock/router.ex:379",
+          "test/letflow/modules/stock/stock_workbook_cancel_test.exs:1"
+        ],
+        "result": "apply 422 xlsx_unreadable or org_unit_required, nothing loaded; cancel of an unknown or foreign id 404"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-10-workbook-load-permissions.json"
+  },
+  {
+    "id": "BP-STOCK-34",
+    "area": "stock",
+    "title": "Retry and replay never act twice (security)",
+    "description": "A repeated create with the same client key answers the same document, a changed body with the key is 409 idempotency_key_reuse; a repeated issue answers the same number; issue or post of a document in the wrong state is 409 (document_not_draft, posting_pending, document_posted); a completed task cannot be completed again (409); a second reversal is 409 reversal_pending, and of a reversed document 409 document_reversed. The balance moves once.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove, StockReverse"
+      }
+    ],
+    "preconditions": [
+      "none beyond the item, place, org unit and responsible"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "409 idempotency_key_reuse",
+      "409 task is not pending",
+      "409 reversal_pending / document_reversed"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/stock/documents",
+          "POST /api/v1/modules/stock/documents/:id/issue",
+          "POST /api/v1/modules/stock/documents/:id/post"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:571",
+          "lib/letflow/modules/stock/router.ex:604",
+          "lib/letflow/modules/stock/router.ex:635",
+          "lib/letflow/modules/stock/router.ex:1138",
+          "lib/letflow/modules/stock/documents/create_idempotency.ex:1",
+          "lib/letflow/modules/stock/documents/action_idempotency.ex:1",
+          "test/letflow/modules/stock/documents_idempotency_test.exs:100"
+        ],
+        "result": "same document and number on replay; 409 idempotency_key_reuse, document_not_draft, posting_pending, document_posted"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_issue/post",
+          "stock_reversal/reverse"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/complete",
+          "POST /api/v1/modules/stock/documents/:id/reverse"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:461",
+          "lib/letflow/modules/stock/documents/posting.ex:572"
+        ],
+        "result": "second completion 409; reversal_pending and document_reversed 409; balance moved once"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-11-idempotency-replay.json"
+  },
+  {
+    "id": "BP-STOCK-35",
+    "area": "stock",
+    "title": "A completer cannot redirect a post or reversal task to another document or entry (security)",
+    "description": "The storekeeper (no StockApprove) cannot claim or complete a post task (404). The administrator completing the post task of issue A with B's document id, version, org unit, mark or a posting, or completing the Reverse task of A with another ledger entry, a reason code or B's document id, is refused 422 output_refused: nothing posts or reverses, A and B keep their state, the balance is unchanged. The honest empty completion posts only A; the cleanup completes the reversal and cancels B.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "StockPost (no StockApprove)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "a balance row of the item at the place"
+    ],
+    "inputs": [
+      "item",
+      "place",
+      "org_unit",
+      "responsible"
+    ],
+    "outputs": [],
+    "refusals": [
+      "422 output_refused for a write-target key in a completion",
+      "404 claim or completion by a role without StockApprove"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "stock_issue/post",
+          "stock_reversal/reverse",
+          "stock.post_document",
+          "stock.reverse_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete",
+          "POST /api/v1/modules/stock/documents/:id/reverse",
+          "POST /api/v1/modules/stock/documents/:id/cancel"
+        ],
+        "code_refs": [
+          "lib/letflow/engine/write_targets.ex:14",
+          "lib/letflow/routers/tasks.ex:482",
+          "lib/letflow/tasks.ex:804",
+          "lib/letflow/modules/stock/router.ex:654",
+          "lib/letflow/modules/stock/router.ex:695",
+          "test/letflow/engine/write_targets_test.exs:1"
+        ],
+        "result": "422 output_refused for each crafted body; 404 for the storekeeper; the empty completion posts only A"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-STOCK-03-completion-write-targets-refused.json"
   }
 ]
