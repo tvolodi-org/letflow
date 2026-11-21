@@ -435,7 +435,7 @@
         "result": "the document reads posted with its entry id"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-03-transfer.json"
   },
   {
     "id": "BP-STOCK-05",
