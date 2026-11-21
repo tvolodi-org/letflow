@@ -35,9 +35,11 @@ python3 scripts/bp/bp_doc.py stock                   # write docs/bp/stock.md (t
 python3 scripts/bp/bp_doc.py --check                 # the committed documents must equal the render
 ```
 
-`check_catalog.py` prints one `COVERAGE <area>: n/m = p%` line per area, the uncovered items, every error,
-and ends with `check_catalog: PASS` or `FAIL`. Exit code 0 only when there is no error and every checked
-area is at 100%.
+`check_catalog.py` prints one `COVERAGE <area>: n/m = p%` line per area, the uncovered items, one
+`EXECUTED BY <area>: n direct, m definition` line per area (how the processes of the area run: a
+hard-coded route or a BPM definition -- see "Who runs a process" below), the `EXECUTED BY total` line,
+every error, and ends with `check_catalog: PASS` or `FAIL`. Exit code 0 only when there is no error and
+every checked area is at 100%.
 
 `public-routes.json`, `dead-code.json`, `dead-code-allow.json` and `dead-code-baseline.json` are support files,
 **not area catalogs**; `route-gaps*.md` is not a catalog either. With no area argument, `check_catalog.py` skips
@@ -105,6 +107,26 @@ The file is a JSON list. One entry per business process, written in the user's w
 | `tasks` | list | see below; at least one unless the status is `planned` |
 | `scenario` | text or `null` | repo-relative path of the runner script (`test/uat/processes/<id>.json`); must exist when not null |
 | `status` | `implemented` \| `partial` \| `planned` | `implemented` only when code **and** a test exist; `planned` needs the extra field `requirement` (a REQ id) |
+| `executed_by` | text | optional: `direct` (a hard-coded route or function) or `definition:<process_key>` (the process runs as a BPM definition of the engine, e.g. `definition:platform.register_tenant`); a missing field means `direct` (D-175) |
+
+### Who runs a process (`executed_by`, D-175)
+
+The owner's rule: **a new business process is a definition**, not a hard-coded route. The map says
+which of the two a process is:
+
+| value | meaning |
+|---|---|
+| `direct` | the process is a hard-coded route or function of the code (the default of every existing entry) |
+| `definition:<process_key>` | the process runs as a BPM definition of the engine; `<process_key>` names that definition (`platform.register_tenant`) |
+
+- The field is **optional**: a missing one means `direct`. The existing maps are not rewritten by the
+  tooling; the migration that writes the field out explicitly is a separate step.
+- `check_catalog.py` refuses any other form, and a `definition:` value must name a process key
+  (letters, digits, `_`, `-`, `.`).
+- `bp_doc.py` renders it as the **Executed by** column of the area table, and the head of the document
+  counts the two forms of the area.
+- `check_catalog.py` prints the counts of the whole run: one `EXECUTED BY <area>: n direct, m definition`
+  line per area and the `EXECUTED BY total` line.
 
 A **task** is one step of the process done by one actor:
 
@@ -148,8 +170,8 @@ file as one row of a Markdown table with exactly these columns, none empty:
 ## Statuses and checks the validator repeats
 
 `check_catalog.py` checks the form (fields, types, ids, statuses, resolving `code_refs`, existing
-`scenario` paths, coverage). It cannot check that a `code_refs` line really does what the task says:
-the `ba-validator` gate opens the file at the line and confirms it.
+`scenario` paths, the `executed_by` form, coverage). It cannot check that a `code_refs` line really does
+what the task says: the `ba-validator` gate opens the file at the line and confirms it.
 
 ## The route inventory (`check_routes.py`, D-170)
 
@@ -261,12 +283,17 @@ on the real checkout and is a global CI pin (`scripts/ci_select_tests.py`, the f
 runs for every change, a map change included. The unit tests of the tool run it on the real checkout too.
 
 The table holds one row per process: the id, the name, the process in one line, the actors, the status,
-whether a runner scenario exists, whether the process is a security (negative) one, and the
+**who runs it** (`direct` or `definition:<process_key>` -- see "Who runs a process" above), whether a runner
+scenario exists, whether the process is a security (negative) one, and the
 **Machine-proven** column. That column says `see report` in the committed document: the proof is in the
 runner's report, not in the repository. With `--proof DIR` (a directory of runner verdict files, the table
 `| process | build sha | result | when |`) the column reads `PASS on <sha> <date>` per process. That mode
 is never committed: it prints to stdout (or writes to `--out`, outside the checkout), because a proof
 belongs to one run on one build.
+
+The head of the document counts the area: "The area `stock` has 44 process(es): ... Executed by: 44 direct,
+0 definition." -- how many processes of the area are still a hard-coded route and how many already run as
+a BPM definition (D-175).
 
 The runner scenario of a process is found through the `bp_entry` of the scenario files
 (`test/uat/processes/*.json`): a scenario file names the process it walks, so one process can be walked

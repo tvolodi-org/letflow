@@ -5,15 +5,15 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `demo` has 3 process(es): 2 implemented, 1 planned.
+The area `demo` has 3 process(es): 2 implemented, 1 planned. Executed by: 2 direct, 1 definition.
 
 ## The processes of the area
 
-| id | name | in one line | actors | status | scenario | security | machine-proven |
-|---|---|---|---|---|---|---|---|
-| BP-DEMO-01 | Receive goods | The storekeeper records goods received at a place; a tenant administrator posts it from My Tasks; the balance rises. | STOREKEEPER, TENANT_ADMIN | implemented | yes | no | see report |
-| BP-DEMO-02 | Security: another company's card is not reachable | Negative process (D-170). A token of company A against the ids of company B answers one uniform 404, and nothing is written. | STOREKEEPER, TENANT_ADMIN | implemented | no | yes | see report |
-| BP-DEMO-03 | Export the balances of a place | Planned: the workbook of the balances does not exist yet. | TENANT_ADMIN | planned | no | no | see report |
+| id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
+|---|---|---|---|---|---|---|---|---|
+| BP-DEMO-01 | Receive goods | The storekeeper records goods received at a place; a tenant administrator posts it from My Tasks; the balance rises. | STOREKEEPER, TENANT_ADMIN | implemented | definition:demo.receive_goods | yes | no | see report |
+| BP-DEMO-02 | Security: another company's card is not reachable | Negative process (D-170). A token of company A against the ids of company B answers one uniform 404, and nothing is written. | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | yes | see report |
+| BP-DEMO-03 | Export the balances of a place | Planned: the workbook of the balances does not exist yet. | TENANT_ADMIN | planned | direct | no | no | see report |
 
 ## BP-DEMO-01 -- Receive goods
 
