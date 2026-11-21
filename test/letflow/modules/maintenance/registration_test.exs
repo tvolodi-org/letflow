@@ -1,6 +1,6 @@
 defmodule Letflow.Modules.Maintenance.RegistrationTest do
   @moduledoc """
-  REQ-893 criteria 1, 2 (source half) and 6 (as of REQ-894, version 0.2.0): the `maintenance` manifest is
+  REQ-893 criteria 1, 2 (source half) and 6 (as of REQ-897, version 0.5.0): the `maintenance` manifest is
   valid and registered, declares three permissions (REQ-894) and no grant, the release flag is off in every config but `config/test.exs`, and
   the pack matches the entity definitions. Pure: no database.
   """
@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     m = Maintenance.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "maintenance"
-    assert m.version == "0.4.0"
+    assert m.version == "0.5.0"
     assert m.depends_on == ["assets"]
     assert m.permissions == [:MaintenanceRequestCreate, :MaintenanceRead, :MaintenanceOrderManage]
     assert m.role_grants == %{}
@@ -28,8 +28,30 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
              "maintenance_work_order" => {:column, "org_unit_id"}
            }
 
+    # REQ-897: the two write handlers, each with its own fields of the order type
+    assert [done, closed] = m.write_handlers
+    assert done.name == "record_done"
+    assert done.targets == ["maintenance_work_order"]
+    assert done.updates == %{"maintenance_work_order" => ["work_done", "done_by", "done_at"]}
+    assert closed.name == "record_closed"
+    assert closed.targets == ["maintenance_work_order"]
+    assert closed.updates == %{"maintenance_work_order" => ["closed_by", "closed_at"]}
+    # each handler reads the order to bind its write to the task's own instance
+    assert done.reads == ["maintenance_work_order"]
+    assert closed.reads == ["maintenance_work_order"]
+
     assert Maintenance.router() == Letflow.Modules.Maintenance.Router
     assert Catalog.fetch("maintenance") == {:ok, Maintenance}
+  end
+
+  test "M-01: the upgrade window reaches the current version, so a bump strands no tenant" do
+    m = Maintenance.manifest()
+
+    # The record shape of both types is the one of 0.1.0, so every version from there to this
+    # one upgrades without a step. Without the window the version bump strands every tenant
+    # that holds an older one (T-1860, `test/letflow/modules/upgrade_window_test.exs` G1).
+    assert m.min_upgradable_from == "0.1.0"
+    assert {:ok, []} = Catalog.upgrade_path(m, m.min_upgradable_from, m.version)
   end
 
   test "M-02: config.exs and test.exs list Maintenance right after MesCore" do
@@ -38,7 +60,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     end
   end
 
-  test "M-03: the flag is false in config.exs, set nowhere else but test.exs, read only by enabled?/0" do
+  test "M-03: the flag is false in config.exs, set nowhere else but test.exs, read only by the flag module" do
     assert File.read!("config/config.exs") =~ ~r/config :letflow, :maintenance_enabled, false\n/
 
     others =
@@ -53,12 +75,15 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
 
     assert File.read!("config/test.exs") =~ "config :letflow, :maintenance_enabled, true"
 
+    # The reader is the READ itself, not a mention of the key in a doc: REQ-897 moved it into
+    # its own file, because the entry module of a module with write handlers is scanned for
+    # handler purity (the H4 scan forbids `Application` there).
     readers =
       "lib/**/*.ex"
       |> Path.wildcard()
-      |> Enum.filter(&(File.read!(&1) =~ ":maintenance_enabled"))
+      |> Enum.filter(&(File.read!(&1) =~ "Application.get_env(:letflow, :maintenance_enabled"))
 
-    assert readers == ["lib/letflow/modules/maintenance/maintenance.ex"]
+    assert readers == ["lib/letflow/modules/maintenance/flag.ex"]
   end
 
   test "M-04: enabled?/0 follows the flag and is false when the key is absent" do
@@ -92,8 +117,9 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     pack = "priv/modules/maintenance/pack.json" |> File.read!() |> Jason.decode!()
     assert pack["pack_id"] == "letflow-maintenance"
     assert pack["version"] == Maintenance.manifest().version
-    # REQ-896: the one process of the pack, a module-stamped draft at install
-    assert [%{"process_key" => "maintenance_work_order", "version" => "1.0.0"}] =
+    # REQ-896: the one process of the pack, a module-stamped draft at install;
+    # REQ-897: version 1.1.0, the two tasks call the module's write handlers
+    assert [%{"process_key" => "maintenance_work_order", "version" => "1.1.0"}] =
              pack["definitions"]
 
     names = Enum.map(pack["entity_definitions"], & &1["name"])
@@ -112,7 +138,7 @@ defmodule Letflow.Modules.Maintenance.RegistrationTest do
     text = File.read!("docs/roles.md")
 
     assert text =~
-             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2; REQ-895, part 3; REQ-896, part 4, version 0.4.0;"
+             "Module `maintenance` (REQ-893, CMMS slice 1 part 1; REQ-894, part 2; REQ-895, part 3; REQ-896, part 4; REQ-897, part 5, version 0.5.0;"
 
     for atom <- ["MaintenanceRequestCreate", "MaintenanceRead", "MaintenanceOrderManage"],
         do: assert(text =~ "`#{atom}`")

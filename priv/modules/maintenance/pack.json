@@ -41,6 +41,20 @@
                 ],
                 "type": "object"
               },
+              "module_writes": [
+                {
+                  "args": {
+                    "order_id": {
+                      "var": "maintenance_order_id"
+                    },
+                    "work_done": {
+                      "var": "work_done"
+                    }
+                  },
+                  "handler": "record_done",
+                  "module": "maintenance"
+                }
+              ],
               "role": "TENANT_ADMIN"
             },
             "id": "maintenance_work",
@@ -48,6 +62,17 @@
           },
           {
             "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "order_id": {
+                      "var": "maintenance_order_id"
+                    }
+                  },
+                  "handler": "record_closed",
+                  "module": "maintenance"
+                }
+              ],
               "role": "TENANT_ADMIN"
             },
             "id": "maintenance_close",
@@ -60,7 +85,7 @@
         ]
       },
       "process_key": "maintenance_work_order",
-      "version": "1.0.0"
+      "version": "1.1.0"
     }
   ],
   "entity_definitions": [
@@ -240,12 +265,12 @@
       "name": "maintenance_work_order"
     }
   ],
-  "exported_at": "2026-11-19T00:00:00Z",
+  "exported_at": "2026-11-20T00:00:00Z",
   "manifest": {
     "required_roles": []
   },
   "pack_id": "letflow-maintenance",
   "service_catalog_entries": [],
   "variable_schemas": [],
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

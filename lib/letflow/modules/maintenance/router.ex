@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Maintenance.Router do
   | `POST /orders` (body `request_id` or `asset_card_id`, `description`, `urgency`; `assignee_user_id`, `idempotency_key`) (REQ-896) | `MaintenanceOrderManage` | `Orders.create/3` | 201 order view |
   | `POST /orders/:id/assign` (body `user_id`) (REQ-896) | `MaintenanceOrderManage` | `Orders.assign/4` | 200 order view |
   | `GET /orders` (`status`, `asset_card_id`, `limit`, `cursor`) (REQ-896) | `MaintenanceRead` | `Orders.list/2` | 200 `rows, next_cursor` |
-  | `GET /orders/:id` (REQ-896) | `MaintenanceRead` | `Orders.get/2` | 200 order view |
+  | `GET /orders/:id` (REQ-896; the done and close record of REQ-897 in the view) | `MaintenanceRead` | `Orders.get/2` | 200 order view |
 
   Guards, in this order: the release flag (`Letflow.Modules.Maintenance.enabled?/0`; off answers the
   404 of an unknown path on every route, also for a tenant that installed the module while the flag

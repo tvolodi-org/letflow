@@ -116,10 +116,19 @@ packed =
 # REQ-896: the life of a work order. maintenance_work is routed to the role label TENANT_ADMIN (the
 # planner's inbox) and addressed to a user by create or assign; its form has one required text field.
 # maintenance_close is completed by a TENANT_ADMIN. No distinct_from (four-eyes is not in slice 1).
+#
+# REQ-897 (version 1.1.0): each of the two tasks calls one write handler of module maintenance, so
+# the order keeps what was done and who closed it. The order id is the instance variable
+# `maintenance_order_id` (set when the instance starts); `work_done` is the text the technician
+# typed in the task form, which the completion merges into the instance variables before the
+# handler runs. Neither handler posts to a ledger, so no permission is needed to complete a task
+# (only a posting line carries a run-time permission).
+order_id_var = %{"var" => "maintenance_order_id"}
+
 work_order_definition = %{
   "definition_id" => "00501000-0000-0040-0090-000000004804",
   "process_key" => "maintenance_work_order",
-  "version" => "1.0.0",
+  "version" => "1.1.0",
   "graph" => %{
     "nodes" => [
       %{"id" => "start", "node_type" => "START"},
@@ -134,13 +143,32 @@ work_order_definition = %{
             "properties" => %{
               "work_done" => %{"type" => "string", "minLength" => 1, "maxLength" => 2000}
             }
-          }
+          },
+          "module_writes" => [
+            %{
+              "module" => "maintenance",
+              "handler" => "record_done",
+              "args" => %{
+                "order_id" => order_id_var,
+                "work_done" => %{"var" => "work_done"}
+              }
+            }
+          ]
         }
       },
       %{
         "id" => "maintenance_close",
         "node_type" => "HUMAN_TASK",
-        "attributes" => %{"role" => "TENANT_ADMIN"}
+        "attributes" => %{
+          "role" => "TENANT_ADMIN",
+          "module_writes" => [
+            %{
+              "module" => "maintenance",
+              "handler" => "record_closed",
+              "args" => %{"order_id" => order_id_var}
+            }
+          ]
+        }
       },
       %{"id" => "end", "node_type" => "END"}
     ],
@@ -154,9 +182,9 @@ work_order_definition = %{
 
 document = %{
   "pack_id" => "letflow-maintenance",
-  "version" => "0.4.0",
+  "version" => "0.5.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
-  "exported_at" => "2026-11-19T00:00:00Z",
+  "exported_at" => "2026-11-20T00:00:00Z",
   "definitions" => [work_order_definition],
   "variable_schemas" => [],
   # MUST stay [] (decision 0027).

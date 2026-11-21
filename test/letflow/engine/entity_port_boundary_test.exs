@@ -96,7 +96,9 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
     "lib/letflow/ledger/capability.ex",
     # REQ-713: the stock module's handlers build the posting through the same seam
     "lib/letflow/modules/stock/handlers.ex",
-    "lib/letflow/modules/assets/handlers.ex"
+    "lib/letflow/modules/assets/handlers.ex",
+    # REQ-897: the maintenance module's work-order handlers write through HandlerWrites.update/3
+    "lib/letflow/modules/maintenance/handlers.ex"
   ]
 
   describe "port inventory over lib/** (SEC F8)" do

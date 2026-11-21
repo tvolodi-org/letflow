@@ -10,18 +10,30 @@ defmodule Letflow.Modules.Maintenance do
   0.3.0) adds the four photo routes of a request (`Letflow.Modules.Maintenance.Photos`, owner kind
   `maintenance_work_request` of `Letflow.Attachments.Owners`), no new atom. REQ-896 (part 4, version 0.4.0) adds the four work order routes
   (`Letflow.Modules.Maintenance.Orders`) and the pack process `maintenance_work_order`, no new atom.
+  REQ-897 (part 5, version 0.5.0) adds the two write handlers
+  (`Letflow.Modules.Maintenance.Handlers`) that store what was done on the work order and who
+  closed it; the pack process `maintenance_work_order` calls them from its two human tasks, still
+  no new atom.
   The manifest has no
-  `role_grants`, so the only holders are the two administrator catch-alls (decision 0055 D7). It has
-  no handler.
+  `role_grants`, so the only holders are the two administrator catch-alls (decision 0055 D7).
 
   ## Release flag
 
   `config :letflow, :maintenance_enabled` is `false` in `config/config.exs` and turned on only by
-  `config/test.exs`; `enabled?/0` is its only reader (no environment variable, no `runtime.exs` line).
+  `config/test.exs` (no environment variable, no `runtime.exs` line);
+  `Letflow.Modules.Maintenance.Flag.enabled?/0` is its only reader and `enabled?/0` here
+  delegates to it.
   While it is false `Letflow.Modules.Installs.install/3` of `"maintenance"` answers
   `{:error, :unknown_module}` before anything is written, so the install route answers the 404 of an
   unknown module id. Turning it on installs nothing anywhere: a tenant administrator installs the
   module per tenant on request, as every module.
+
+  ## Upgrade window
+
+  The manifest declares `min_upgradable_from: "0.1.0"`: the record shape of both types has been the
+  one of the module's first version, so every version from 0.1.0 to this one upgrades without a
+  step. Without the window a version bump would strand every tenant that holds an older one
+  (T-1860, `test/letflow/modules/upgrade_window_test.exs` G1).
 
   ## Not here
 
@@ -68,13 +80,13 @@ defmodule Letflow.Modules.Maintenance do
 
   @doc "True when the release flag `:maintenance_enabled` is on (default and production: off)."
   @spec enabled?() :: boolean()
-  def enabled?, do: Application.get_env(:letflow, :maintenance_enabled, false) == true
+  defdelegate enabled?(), to: Letflow.Modules.Maintenance.Flag
 
   @impl true
   defmanifest(
     id: "maintenance",
-    version: "0.4.0",
-    # T-2400: step-less window from 0.1.0 (the entity types and the pack process of 0.2.0..0.4.0 are
+    version: "0.5.0",
+    # T-2400: step-less window from 0.1.0 (the entity types and the pack process of 0.2.0..0.5.0 are
     # additive); the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["assets"],
@@ -101,7 +113,30 @@ defmodule Letflow.Modules.Maintenance do
     scope_declarations: %{
       "maintenance_work_request" => {:column, "org_unit_id"},
       "maintenance_work_order" => {:column, "org_unit_id"}
-    }
+    },
+    write_handlers: [
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "record_done",
+        function: {Letflow.Modules.Maintenance.Handlers, :record_done},
+        targets: ["maintenance_work_order"],
+        updates: %{"maintenance_work_order" => ["work_done", "done_by", "done_at"]},
+        reads: ["maintenance_work_order"],
+        args: %{
+          "order_id" => %{required: true},
+          "work_done" => %{required: true}
+        }
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "record_closed",
+        function: {Letflow.Modules.Maintenance.Handlers, :record_closed},
+        targets: ["maintenance_work_order"],
+        updates: %{"maintenance_work_order" => ["closed_by", "closed_at"]},
+        reads: ["maintenance_work_order"],
+        args: %{
+          "order_id" => %{required: true}
+        }
+      }
+    ]
   )
 
   @impl true
