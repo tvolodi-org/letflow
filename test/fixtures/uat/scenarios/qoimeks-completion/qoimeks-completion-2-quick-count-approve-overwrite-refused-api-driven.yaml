@@ -1,0 +1,171 @@
+# T-2433, group qoimeks-completion, scenario 2. Source: the T-2429 audit (state/tasks/T-2429/audit.md in the team repository), row S3 (quick count approve: four-eyes bypass
+# by completing someone else's approve task with one's own document's values) and section 3 item 3 (cross-instance four-eyes case). Fix tasks T-2430 and T-2431 are not on main; no REQ id of them exists
+# on origin/main, so none is cited (see the header of scenario 1). The expectation is what the audit asks for; today's code is expected to accept the crafted completion, so a walk before the fixes fails on purpose.
+# API-driven: no screen can send a crafted completion body.
+# 1. Scope: scope qoimeks-qa2, the existing synthetic QA tenant and realm (actors.yaml, T-2219); the group directory name is not the scope.
+# 2. Actors: actor-qoimeks-qa2-admin (TENANT_ADMIN) submits count B and, as a person who did NOT submit count A, holds the approve permission StockApprove and is the attacker of step 5; actor-qoimeks-qa2-storekeeper (STOREKEEPER) submits count A; actor-qoimeks-qa2-admin2 (TENANT_ADMIN, second administrator, T-2334) is the legitimate second person for B. All in actors.yaml; QA logins are an acceptance precondition (admin2 is the UAT assumption of T-2334, unverified): missing admin2 makes steps 7-9 BLOCKED-by-environment, the refusal steps still run.
+# 3. Host and screens: https://qoimeks-qa2.letflow.qa.bizdala.com; screens as in qoimeks-count-3 and qoimeks-count-6 ("Quick count", "Submit count", My Tasks, stock documents list, "Cancel document", "Reverse"); API routes GET /api/v1/tasks, GET /api/v1/tasks/:id, POST /api/v1/tasks/:id/claim and /complete (lib/letflow/routers/tasks.ex). The approve node of stock_quick_count (priv/modules/stock/pack.json) has distinct_from submit and required permission StockApprove.
+# 4. Data: two Balances rows with positive quantity, no lot, item without lot tracking, one place of one org unit each, different keys (key 1 for count A, key 2 for count B), no other responsible holding stock of the same item and place; read at run time. Record the Balances quantities, the history line counts of both rows and the documents list total at the start and compare to those. Needs stock_quick_count / approve rule ON (qa2 keeps explicit ON rows, as qoimeks-count-6 requires); otherwise BLOCKED-by-environment.
+# 5. Executable: browser for screen steps, a plain HTTP client with each actor's own credential for API steps; task ids and task variables are read at run time.
+# 6. Dry run: uat.sh preflight not run in this writing step (acceptance credential source and run title UAT qoimeks-completion needed); parse and schema checks only.
+# Not walked: the count posting task of a formal count order (audit row S4) - the tenant has no signed count order for this walk; the product test of the fix covers it.
+# EXPECTATION CORRECTIONS: 2 - (a) the attacker is the administrator, not the storekeeper, because only a StockApprove holder can complete the approve task at all; (b) the attacked task A was submitted by a different person, so its distinct_from rule passes for the administrator, which is exactly the hole.
+---
+id: qoimeks-completion-2-quick-count-approve-overwrite-refused-api-driven
+scope: qoimeks-qa2
+title: >-
+  API-driven: an administrator who counted B cannot approve it by completing someone else's approval task
+  with B's values; the count of B stays waiting for a different person
+version: '1.0'
+tags:
+- qoimeks
+- stock
+- quick_count
+- four_eyes
+- api-driven
+- refusal
+- security
+- completion
+- en
+description: >-
+  T-2429 audit row S3. With four-eyes ON for the quick count, the administrator submits count B (the approval
+  of B must come from someone else) and the storekeeper submits count A on another key. The administrator, who did
+  not submit A, claims A's approval task and sends a completion body naming B's document, version number, org unit
+  and posting: refused 422 output_refused, B still waiting, nothing posted. The administrator's own approval
+  task of B is still refused for the administrator (separation of duties). The second administrator approves B
+  with an empty body (the honest path) and it posts. Cleanup cancels A and reverses B.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+  admin2: actor-qoimeks-qa2-admin2
+preconditions:
+- description: >-
+    Approval rule state, explicit (owner D-165: a new tenant has the second-person approval OFF by default, so this walk never relies on the default). stock_quick_count / approve is ON.
+  check: system_seeded
+  detail: >-
+    Read the rule on the Approval rules screen at the start (administrator) and record it. If it is OFF or cannot be read, BLOCKED-by-environment; never switch it to make the walk pass.
+- description: Two Balances keys as in the Data line of the header (key 1, key 2) with positive quantities B1 and B2.
+  check: runner_prepared
+  detail: If no two such keys exist, BLOCKED-by-environment; create no stock.
+- description: The three actors sign in separately at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 with their own credentials from the acceptance credential source.
+  check: runner_prepared
+  detail: A missing login is BLOCKED-by-environment for the affected steps only; no role is granted.
+- description: No formal count order is open over the two places and nobody else posts to the keys during the walk.
+  check: system_seeded
+  detail: UAT assumption, to be confirmed by the process owner. If the screen names a count in progress or a frozen place, quote it and report BLOCKED-by-environment.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper opens Balances, records key 1 and key 2 with their quantities B1 and B2, opens the history of each
+    row (line counts H1 and H2) and notes the stock documents list total as N0.
+  via: ui
+- step: 2
+  actor: admin
+  action: >-
+    The administrator opens "Quick count", chooses key 2, types B2 plus 1, chooses the reason "Other", types the note
+    "UAT qoimeks-completion-2 B" and presses "Submit count". The document number is noted as CNT-B; the state reads
+    "Issued".
+  via: ui
+- step: 3
+  actor: storekeeper
+  action: >-
+    The storekeeper opens "Quick count", chooses key 1, types B1 plus 1, reason "Other", note "UAT qoimeks-completion-2 A"
+    and presses "Submit count". The document number is noted as CNT-A.
+  via: ui
+- step: 4
+  actor: admin
+  action: >-
+    API-driven. The runner, with the administrator's credential, lists the open tasks and finds the approval task of
+    CNT-A (task TA) and the approval task of CNT-B (task TB), reads both details and records the variables named
+    document id, version number, org unit id and posting (PA, PB); the two document ids differ. The runner takes TA (claim)
+    - the administrator did not submit CNT-A, so the claim is allowed.
+  via: api
+- step: 5
+  actor: admin
+  action: >-
+    API-driven, crafted body. The runner completes task TA with a body that sets the document id, the version number,
+    the org unit id and the posting to the values PB of count B, and nothing else. The answer is noted as R1.
+  expect_refusal: true
+  via: api
+- step: 6
+  actor: admin
+  action: >-
+    API-driven. The runner reads CNT-A and CNT-B through the stock documents read, the tasks TA and TB, Balances for
+    both keys and their histories.
+  via: api
+- step: 7
+  actor: admin
+  action: >-
+    API-driven, honest own approval. The runner, still with the administrator's credential, completes TB with an empty
+    body (the administrator submitted CNT-B). The answer is noted as R2.
+  expect_refusal: true
+  via: api
+- step: 8
+  actor: admin2
+  action: >-
+    The second administrator, signed in separately, opens My Tasks, selects the approval task of CNT-B, takes it
+    ("Claim") if offered and presses "Approve". The screen shows "Approved". The storekeeper then reads Balances: key 2
+    reads B2 plus 1 and its history has one new line; key 1 still reads B1.
+  via: ui
+- step: 9
+  actor: storekeeper
+  action: >-
+    Cleanup. The storekeeper opens CNT-A in the stock documents list, presses "Cancel document", chooses the reason "Other",
+    types the note "UAT qoimeks-completion-2 cleanup A" and confirms. Then opens CNT-B, presses "Reverse", reason "Other",
+    note "UAT qoimeks-completion-2 undo B" and confirms.
+  via: ui
+- step: 10
+  actor: admin2
+  action: >-
+    The second administrator opens My Tasks, selects the reversal task of CNT-B, takes it if offered and completes it
+    ("Reverse"). The storekeeper then reads Balances (key 1 at B1, key 2 at B2), the histories (H1 and H2 plus 2 lines
+    for key 2: posting and reversal; H1 unchanged) and the documents list total (N0 plus 2).
+  via: ui
+expected_outcomes:
+- id: EO-001
+  description: >-
+    Completing someone else's approval task with the values of one's own count is refused; the own count is not approved by that way (T-2429 audit row S3).
+  verification:
+    method: api_response
+    detail: >-
+      R1 is HTTP 422 with the code output_refused (retryable, application/problem+json). After step 6 CNT-A and CNT-B both read Issued, TA and TB are both still open,
+      Balances shows B1 and B2 and the histories show H1 and H2 lines (nothing posted). The body of R1 does not echo B's posting.
+    evidence: Status and body of R1; reads of both documents, both tasks, both Balances rows and histories after step 5.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A counter could approve their own count and change stock alone, defeating the four-eyes rule.
+    suggested_action: route_to_backend_dev
+- id: EO-002
+  description: The separation of duties on the own count still holds.
+  verification:
+    method: api_response
+    detail: >-
+      R2 is a refusal (HTTP 403 with the reason separation of duties, or 422 as the product answers; not 200). CNT-B still reads Issued and key 2 still reads B2.
+    evidence: Status and body of R2; read of CNT-B and key 2.
+  on_fail:
+    severity: BLOCKER
+    business_impact: One person could count and approve alone.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: The honest completion by a different administrator still works and posts only the count of B.
+  verification:
+    method: gui_screen
+    detail: >-
+      Step 8 shows "Approved". CNT-B reads Posted, key 2 reads B2 plus 1 with exactly one new history line; CNT-A is still Issued and key 1 reads B1.
+    evidence: Screenshots of step 8, the documents list and Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Counts could not be approved any more.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: The tenant is left as it began.
+  verification:
+    method: gui_screen
+    detail: >-
+      After step 10 CNT-A is Cancelled, CNT-B is Reversed, key 1 reads B1, key 2 reads B2, the history of key 2 has H2 plus 2 lines, that of key 1 has H1 lines, and the documents list total is N0 plus 2.
+    evidence: Screenshots of the documents list, Balances and the histories after step 10.
+  on_fail:
+    severity: MAJOR
+    business_impact: The walk would leave stock changed on the tenant.
+    suggested_action: route_to_backend_dev
