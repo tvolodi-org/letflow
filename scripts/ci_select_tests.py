@@ -84,10 +84,15 @@ STANDARD_BP_DOC_TEST = [
 # G-06: every outbound HTTP call site is inventoried and classified, and the
 # dispatch-time probes refuse a private-range URL, do not follow a redirect and
 # keep the URL out of the failure value.
+# G-07: every keyset cursor builder is inventoried, and the cursor/codec
+# properties hold over arbitrary legal ids, separators, legacy prefixes and
+# expiry; a cursor-paged listing shows every row exactly once.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
+    "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
+    "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
