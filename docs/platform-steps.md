@@ -77,10 +77,27 @@ does not run again), and the same key with DIFFERENT arguments is refused with
 
 The arming is INSERT-FIRST: the row is written with `ON CONFLICT (call_key) DO NOTHING`, so a
 double click, a retry or a poller restart can never raise on the unique index -- the row that
-carries the key is read back and the first result wins. A prefix that names no tenant schema is
-refused with `invalid_schema_name`: a MALFORMED name before any I/O (the derivation is pure), a
+carries the key is read back and the first result wins.
+
+### The prefix of a call
+
+Every public function of the dispatcher takes a prefix, and every one of them asks the same
+question first: does this prefix name a live tenant schema that CARRIES the dispatch table? A
+schema that is gone (the tenant was purged) or that never had the table (a tenant provisioned
+before this migration) cannot hold a dispatch row, so it is refused with `invalid_schema_name`.
+In the arming path a MALFORMED name is refused before any I/O (the derivation is pure) and a
 WELL-FORMED name that names no live schema before the row is written (the dispatcher asks
-Postgres, with a bound parameter, never with SQL text built from the caller's value).
+Postgres, with a bound parameter, never with SQL text built from the caller's value); on the
+dispatch paths the same question is asked by the same read.
+
+The question is asked on EVERY path -- the arming, the dispatch (`attempt_dispatch/2`), the due
+query (`due_dispatch_ids/2`), the poller cycle (`run_due/2`) and the outcome write
+(`record_outcome/3`) -- because the alternative is a raw database error out of a public function:
+a prefix that names no live schema makes the query fail with `42P01` (the relation does not
+exist), where the module promises an error tuple. The arming path was guarded first and the
+dispatch paths were not; a fix that covers one variant of the class leaves the next one live.
+`run_due/2` and `due_dispatch_ids/2` answer `{:error, :invalid_schema_name}` for such a prefix
+instead of a list of ids or a count map.
 
 ## The lease and the claim token: the body runs once
 
@@ -162,7 +179,10 @@ has exactly one definition per key.
   result of the attempt that owns the row. It ends with the bounds of the write side: a node id
   over the byte cap is refused before anything is written, a well-formed prefix that names no
   live schema is refused as such, the failure kind is a stable code and never a customer text,
-  and an outcome the row cannot carry is refused and leaves the row unchanged.
+  and an outcome the row cannot carry is refused and leaves the row unchanged. The last two
+  tests cover the CLASS of the prefix refusal (the same answer on every public path that takes
+  a prefix) and the INV-10 negative test of the new path (a row armed in a company tenant is
+  refused, the function never runs, the company row carries no outputs).
 * `test/letflow/platform_functions/platform_call_idempotent_replay_test.exs` -- S8: the replay of a
   call (one call, one result, one row) and the key reuse.
 * `test/letflow/definitions/platform_call_activator_signature_test.exs` -- S9: the signature and

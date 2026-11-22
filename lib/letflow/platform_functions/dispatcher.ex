@@ -91,6 +91,24 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   WELL-FORMED prefix that names no live tenant schema is refused the same
   way, before the row is written.
 
+  ## The prefix of a call
+
+  EVERY public function of this module takes a prefix, and EVERY one of them
+  asks the same question first: does this prefix name a live tenant schema
+  that CARRIES the dispatch table? A schema that is gone (the tenant was
+  purged) or that never had the table (a tenant provisioned before this
+  migration) cannot hold a dispatch row, so it is refused
+  `:invalid_schema_name` -- the arming, the dispatch, the due query and the
+  outcome write alike. The question is asked by a read with a BOUND parameter
+  (INV-7), never by SQL text built from the caller's value.
+
+  The check is on every path because the alternative is a raw database error
+  out of a public function: a prefix that names no live schema used to make
+  the dispatch path raise `42P01` (the relation does not exist) where the
+  module promises an error tuple (INV-8). The arming path was guarded first
+  and the dispatch path was not -- a fix that covers one variant of the class
+  leaves the next one live.
+
   ## The binding of a row to its node
 
   A dispatch row is bound to the node of the definition it claims to run: the
@@ -367,7 +385,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       belongs to is DERIVED from it, never taken from the caller: the row
       physically sits in this tenant's schema and must claim to be that
       tenant's (decision 0003's addendum). A prefix that names no tenant
-      schema -- malformed, or well-formed but absent -- is refused
+      schema a dispatch row can live in -- malformed, well-formed but absent,
+      or a schema without the dispatch table -- is refused
       `:invalid_schema_name` before the row is written;
     * `:instance_id`, `:definition_id`, `:node_id` -- where the step sits.
       The node id is a caller-supplied string, so it is byte-bounded like
@@ -388,7 +407,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   when the same key carries different arguments, `platform_function_unknown`
   for a name the compiled catalogue does not know, `platform_function_not_implemented`
   for a name the catalogue declares but has no body yet, `invalid_schema_name`
-  for a prefix that names no tenant schema, `platform_call_arg_invalid` for a
+  for a prefix that names no schema a dispatch row can live in,
+  `platform_call_arg_invalid` for a
   value over the input cap or a node id over its byte cap.
   """
   @spec arm(keyword()) :: {:ok, arm_result()} | {:error, term()}
@@ -401,6 +421,10 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     else
       {:error, :platform_call_arg_unknown}
     end
+  rescue
+    # A failure of the database itself (the schema check cannot be read) is a
+    # typed refusal and never an exception out of `arm/1` (INV-8).
+    _exception -> {:error, :platform_step_arm_failed}
   end
 
   defp arm_call(opts) do
@@ -450,11 +474,27 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   # The row is written INTO the prefix's schema, so a prefix that names no
   # LIVE schema is a refusal and not a database error: the derivation above
-  # only parses the name, it cannot know whether the schema exists. The
-  # check is a read with a BOUND parameter (INV-7): no SQL text is built
-  # from the caller's value.
+  # only parses the name, it cannot know whether the schema exists. Nor can
+  # it know whether the schema CARRIES the dispatch table: a tenant
+  # provisioned before this migration has a schema but no table, and a query
+  # against it raises `42P01` (the relation does not exist).
+  #
+  # So the check asks both questions in ONE read, with a BOUND parameter
+  # (INV-7): no SQL text is built from the caller's value -- the table's name
+  # is a literal of this module. EVERY public path that takes a prefix asks
+  # it, so that no path escapes with a raw database error (INV-8).
   defp check_tenant_schema(prefix) when is_binary(prefix) do
-    case Repo.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [prefix]) do
+    case Repo.query(
+           """
+           SELECT 1
+           FROM pg_namespace n
+           JOIN pg_class c ON c.relnamespace = n.oid
+           WHERE n.nspname = $1
+             AND c.relname = 'platform_step_dispatches'
+             AND c.relkind IN ('r', 'p')
+           """,
+           [prefix]
+         ) do
       {:ok, %{rows: [[1]]}} -> :ok
       _absent_or_unreadable -> {:error, :invalid_schema_name}
     end
@@ -491,17 +531,25 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   refusal, `platform_step_max_attempts` when the call was dead-lettered,
   `platform_step_in_flight` when another run holds the row and its lease has
   not expired, `platform_step_not_found` for a row that is not in this tenant
-  schema (or for an id that is not an id at all), or `platform_step_raised`
-  for an unexpected failure (INV-8: the step fails, the dispatcher does not
-  crash).
+  schema (or for an id that is not an id at all), `invalid_schema_name` for a
+  prefix that names no schema a dispatch row can live in, or
+  `platform_step_raised` for an unexpected failure (INV-8: the step fails, the
+  dispatcher does not crash).
   """
   @spec attempt_dispatch(Ecto.UUID.t(), String.t()) ::
           {:ok, {:advanced, map()}} | {:ok, {:already_final, map() | nil}} | {:error, term()}
   def attempt_dispatch(dispatch_id, prefix) when is_binary(prefix) do
-    case Ecto.UUID.cast(dispatch_id) do
-      {:ok, id} -> dispatch(id, prefix)
-      :error -> {:error, :platform_step_not_found}
+    with :ok <- check_tenant_schema(prefix) do
+      case Ecto.UUID.cast(dispatch_id) do
+        {:ok, id} -> dispatch(id, prefix)
+        :error -> {:error, :platform_step_not_found}
+      end
     end
+  rescue
+    # A failure of the database itself (a schema that lost its table between
+    # the check and the query) is a typed refusal and never an exception out
+    # of the dispatcher (INV-8).
+    _exception -> {:error, :platform_step_raised}
   end
 
   defp dispatch(dispatch_id, prefix) do
@@ -528,54 +576,74 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   when it is `running` and its lease has expired (the run that held it
   crashed).
 
-  Returns the counts of the cycle. Never raises.
+  Returns the counts of the cycle, or `{:error, reason}` when the cycle
+  cannot run at all -- `invalid_schema_name` for a prefix that names no
+  schema a dispatch row can live in. Never raises: a failure of the database
+  itself is `platform_step_raised`.
   """
-  @spec run_due(String.t(), pos_integer()) :: %{
-          claimed: non_neg_integer(),
-          advanced: non_neg_integer(),
-          failed: non_neg_integer()
-        }
+  @spec run_due(String.t(), pos_integer()) ::
+          %{
+            claimed: non_neg_integer(),
+            advanced: non_neg_integer(),
+            failed: non_neg_integer()
+          }
+          | {:error, term()}
   def run_due(prefix, limit \\ @default_batch_size)
       when is_binary(prefix) and is_integer(limit) and limit > 0 do
-    due_ids = due_dispatch_ids(prefix, limit)
+    case due_dispatch_ids(prefix, limit) do
+      {:error, reason} ->
+        {:error, reason}
 
-    Enum.reduce(
-      due_ids,
-      %{claimed: 0, advanced: 0, failed: 0},
-      fn dispatch_id, acc ->
-        result = attempt_dispatch(dispatch_id, prefix)
+      due_ids ->
+        Enum.reduce(
+          due_ids,
+          %{claimed: 0, advanced: 0, failed: 0},
+          fn dispatch_id, acc ->
+            # The schema was checked ONCE for the whole cycle (by the due
+            # query above), so the dispatch of a row does not ask again.
+            case dispatch(dispatch_id, prefix) do
+              {:ok, {:advanced, _outputs}} ->
+                %{acc | claimed: acc.claimed + 1, advanced: acc.advanced + 1}
 
-        case result do
-          {:ok, {:advanced, _outputs}} ->
-            %{acc | claimed: acc.claimed + 1, advanced: acc.advanced + 1}
+              {:ok, {:already_final, _outputs}} ->
+                %{acc | claimed: acc.claimed + 1}
 
-          {:ok, {:already_final, _outputs}} ->
-            %{acc | claimed: acc.claimed + 1}
-
-          {:error, _reason} ->
-            %{acc | claimed: acc.claimed + 1, failed: acc.failed + 1}
-        end
-      end
-    )
+              {:error, _reason} ->
+                %{acc | claimed: acc.claimed + 1, failed: acc.failed + 1}
+            end
+          end
+        )
+    end
+  rescue
+    _exception -> {:error, :platform_step_raised}
   end
 
   @doc """
   The ids of the rows that are due in `prefix`, oldest first.
+
+  A prefix that names no schema a dispatch row can live in is refused with
+  `{:error, :invalid_schema_name}` -- the same refusal every public path of
+  this module answers for it, so that no path escapes with a raw database
+  error (INV-8).
   """
-  @spec due_dispatch_ids(String.t(), pos_integer()) :: [Ecto.UUID.t()]
+  @spec due_dispatch_ids(String.t(), pos_integer()) :: [Ecto.UUID.t()] | {:error, term()}
   def due_dispatch_ids(prefix, limit \\ @default_batch_size)
       when is_binary(prefix) and is_integer(limit) and limit > 0 do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    with :ok <- check_tenant_schema(prefix) do
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    StepDispatch
-    |> where(
-      [d],
-      d.status in [:pending, :running] and d.next_attempt_at <= ^now
-    )
-    |> order_by([d], asc: d.next_attempt_at)
-    |> limit(^limit)
-    |> select([d], d.id)
-    |> Repo.all(prefix: prefix)
+      StepDispatch
+      |> where(
+        [d],
+        d.status in [:pending, :running] and d.next_attempt_at <= ^now
+      )
+      |> order_by([d], asc: d.next_attempt_at)
+      |> limit(^limit)
+      |> select([d], d.id)
+      |> Repo.all(prefix: prefix)
+    end
+  rescue
+    _exception -> {:error, :platform_step_raised}
   end
 
   # ── the catalogue and the arguments ─────────────────────────────────────────────────────
@@ -1027,8 +1095,10 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   The outcome is BOUNDED before the write: outputs that JSON cannot carry
   are refused with `{:error, :platform_step_bad_result}` and nothing is
   written, and a failure of the database itself is
-  `{:error, :platform_step_outcome_failed}`. The function never raises
-  (INV-8).
+  `{:error, :platform_step_outcome_failed}`. A prefix that names no schema a
+  dispatch row can live in is refused with
+  `{:error, :invalid_schema_name}`, the same answer every public path gives
+  it. The function never raises (INV-8).
 
   The function is public because the token it enforces is a property of the
   dispatcher a caller must be able to see: a result that was dropped is a
@@ -1039,32 +1109,38 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
           | {:error, :platform_step_lease_lost}
           | {:error, :platform_step_bad_result}
           | {:error, :platform_step_outcome_failed}
+          | {:error, :invalid_schema_name}
+          | {:error, :platform_step_raised}
   def record_outcome(dispatch, prefix, outcome)
       when is_binary(prefix) and is_map(dispatch) do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    with :ok <- check_tenant_schema(prefix) do
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    case outcome do
-      {:ok, outputs} when is_map(outputs) ->
-        with :ok <- encodable(outputs) do
+      case outcome do
+        {:ok, outputs} when is_map(outputs) ->
+          with :ok <- encodable(outputs) do
+            write_outcome(dispatch, prefix,
+              set: [status: :advanced, outputs: outputs, dispatched_at: now]
+            )
+          end
+
+        {:error, reason} ->
           write_outcome(dispatch, prefix,
-            set: [status: :advanced, outputs: outputs, dispatched_at: now]
+            set: [
+              status: :given_up,
+              last_failure_kind: failure_kind(reason),
+              dispatched_at: now
+            ]
           )
-        end
 
-      {:error, reason} ->
-        write_outcome(dispatch, prefix,
-          set: [
-            status: :given_up,
-            last_failure_kind: failure_kind(reason),
-            dispatched_at: now
-          ]
-        )
-
-      _other ->
-        # An outcome that is neither an output map nor a refusal is not a
-        # result at all: the dispatcher never raises (INV-8).
-        {:error, :platform_step_bad_result}
+        _other ->
+          # An outcome that is neither an output map nor a refusal is not a
+          # result at all: the dispatcher never raises (INV-8).
+          {:error, :platform_step_bad_result}
+      end
     end
+  rescue
+    _exception -> {:error, :platform_step_raised}
   end
 
   # The outputs go into a jsonb column, so they must be values JSON can

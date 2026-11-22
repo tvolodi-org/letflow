@@ -30,7 +30,14 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
       before anything is written, a well-formed prefix that names no live
       tenant schema is refused as such (the derivation alone cannot see it),
       the failure kind is a stable code and never a customer text, and an
-      outcome the row cannot carry is refused and leaves the row unchanged.
+      outcome the row cannot carry is refused and leaves the row unchanged;
+    * the CLASS of that refusal: a prefix that names no schema a dispatch row
+      can live in is refused the same way on EVERY public path that takes a
+      prefix -- the arming, the dispatch, the due query and the outcome write
+      -- so that no path escapes with a raw database error;
+    * the INV-10 negative test of the new path: a row armed in a COMPANY
+      tenant's schema is refused at dispatch, the function never runs and the
+      company row carries no outputs.
 
   `async: false`: the platform tenant pin is application configuration, which
   is VM-global.
@@ -423,7 +430,9 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     assert stored.outputs == nil
 
     # The row left the queue for good: it is not due any more.
-    refute dispatch.id in Dispatcher.due_dispatch_ids(ctx.tenant.schema_name)
+    due_ids = Dispatcher.due_dispatch_ids(ctx.tenant.schema_name)
+    assert is_list(due_ids)
+    refute dispatch.id in due_ids
   end
 
   test "D13: a row that is RUNNING with a live lease is not re-claimed -- the body does not run again",
@@ -717,6 +726,129 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
     assert stored.status == :running
     assert stored.outputs == nil
+  end
+
+  test "D22: a prefix that names no schema a dispatch row can live in is refused on EVERY path",
+       ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    running = claim_for_outcome(dispatch, ctx)
+
+    # Two kinds of prefix that cannot hold a dispatch row: a WELL-FORMED name
+    # that names no live schema (the tenant was purged), and a schema that
+    # exists but has no dispatch table (the `public` schema). Both must be
+    # refused on EVERY public path that takes a prefix -- the arming path was
+    # guarded first and the dispatch paths were not, and a fix that covers one
+    # variant of the class leaves the next one live.
+    for bad_prefix <- ["tenant_0123456789abcdef0123456789abcdef", "public"] do
+      assert {:error, :invalid_schema_name} =
+               Dispatcher.attempt_dispatch(dispatch.id, bad_prefix)
+
+      assert {:error, :invalid_schema_name} = Dispatcher.run_due(bad_prefix)
+      assert {:error, :invalid_schema_name} = Dispatcher.due_dispatch_ids(bad_prefix)
+
+      assert {:error, :invalid_schema_name} =
+               Dispatcher.record_outcome(running, bad_prefix, {:ok, %{"x" => "y"}})
+    end
+
+    # The real row is untouched by any of it: no status change, no outputs, no
+    # failure kind, and the tenant's own rows are still the one that was
+    # armed.
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :running
+    assert stored.outputs == nil
+    assert stored.last_failure_kind == nil
+    assert stored.dispatched_at == nil
+    assert length(rows(ctx)) == 1
+  end
+
+  test "D23: a row armed in a COMPANY tenant is refused at dispatch -- the function never runs",
+       ctx do
+    definition = activated(ctx)
+
+    # A company tenant: its own schema and its own rows, and NOT the platform
+    # tenant (the setup pinned the platform one).
+    company = Fx.tenant!("t2589-company")
+
+    # A FORGED definition row in the COMPANY's schema: the dispatcher's own
+    # load finds it, so the refusal that follows is the platform-tenant fence
+    # (INV-10) and not a missing definition. `Definitions.create/2` refuses a
+    # company tenant's draft that carries a platform call, so the write path
+    # cannot produce one -- a forged row needs the database itself.
+    company_definition = forged_definition!(company.schema_name, "pcf-t2589-company")
+
+    assert {:ok, %{status: :armed, dispatch: row}} =
+             Dispatcher.arm(
+               prefix: company.schema_name,
+               instance_id: Ecto.UUID.generate(),
+               definition_id: company_definition.id,
+               node_id: "call",
+               function: @function,
+               inputs: inputs(%{})
+             )
+
+    # The row's tenant is the COMPANY's: derived from the schema it sits in,
+    # never from the caller.
+    assert row.tenant_id == company.tenant_id
+
+    # THE refusal: a platform call does not run outside the platform tenant.
+    assert {:error, :platform_call_tenant_not_allowed} =
+             Dispatcher.attempt_dispatch(row.id, company.schema_name)
+
+    stored = Repo.get!(StepDispatch, row.id, prefix: company.schema_name)
+    assert stored.status == :given_up
+    assert stored.last_failure_kind == "platform_call_tenant_not_allowed"
+
+    # The function never ran: the row carries no outputs at all.
+    assert stored.outputs == nil
+    assert stored.dispatched_at != nil
+
+    # The POLLER pointed at the company tenant runs no body either: the second
+    # row (a different call, so a different idempotency key) is refused the
+    # same way.
+    assert {:ok, %{status: :armed, dispatch: polled}} =
+             Dispatcher.arm(
+               prefix: company.schema_name,
+               instance_id: Ecto.UUID.generate(),
+               definition_id: company_definition.id,
+               node_id: "call",
+               function: @function,
+               inputs: inputs(%{"slug" => "another-co"})
+             )
+
+    assert %{claimed: 1, advanced: 0, failed: 1} = Dispatcher.run_due(company.schema_name)
+
+    stored = Repo.get!(StepDispatch, polled.id, prefix: company.schema_name)
+    assert stored.status == :given_up
+    assert stored.last_failure_kind == "platform_call_tenant_not_allowed"
+    assert stored.outputs == nil
+
+    # The platform tenant's own row is untouched by either attempt.
+    assert {:ok, %{status: :armed, dispatch: platform_row}} = arm(ctx, definition)
+    assert length(rows(ctx)) == 1
+
+    stored = Repo.get!(StepDispatch, platform_row.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :pending
+    assert stored.attempt_index == 0
+    assert stored.outputs == nil
+    assert stored.last_failure_kind == nil
+  end
+
+  # A definition row written STRAIGHT into a company tenant's schema: the
+  # shape a forged row would have. `Definitions.create/2` refuses a company
+  # tenant's draft that carries a platform_call, so the write path cannot
+  # produce one -- a forged row needs the database itself.
+  defp forged_definition!(schema_name, name) do
+    %Definitions.ProcessDefinition{}
+    |> Definitions.ProcessDefinition.create_changeset(%{
+      name: name,
+      version: "1",
+      graph: Fx.graph(call()),
+      created_by: Ecto.UUID.generate()
+    })
+    |> Repo.insert!(prefix: schema_name)
   end
 
   # The state a claim leaves the row in while the body runs: `running`, the
