@@ -22,8 +22,14 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
 
   ## What is derived
 
-  Nothing in the matrix is written by hand except the reviewed expectation file
-  `test/fixtures/security_probes/g03_source_provenance.txt`:
+  The closed sets and the entries are DERIVED from the shipped source. Two
+  parts of the matrix are this file's own fixed lists: the `malformed`
+  family's checklist (the coverage map names each of its cases) and the
+  argument-shape alphabet (`@arg_shapes`). The reviewed expectation file
+  `test/fixtures/security_probes/g03_source_provenance.txt` states what each
+  generated cell must be.
+
+  Derived:
 
     * the closed set of SOURCE CLASSES is read from the shipped catalogue entry
       module (`@type source_class :: ...`);
