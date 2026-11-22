@@ -1,8 +1,8 @@
-defmodule Letflow.Security.Fixtures.RogueOutboundClient do
+defmodule Letflow.SecurityProbe.Fixtures.RogueOutboundClient do
   @moduledoc """
   The seeded failing case of the G-06 outbound probe (NOT compiled, NOT run:
   this file is text under `test/fixtures/`, read by
-  `test/letflow/security/outbound_http_inventory_test.exs`).
+  `test/letflow/security_probe/g06_outbound_http_inventory_test.exs`).
 
   It is a deliberately broken outbound channel. It breaks four of the probe's
   rules at once, so the probe cannot pass on an empty or partial scan:

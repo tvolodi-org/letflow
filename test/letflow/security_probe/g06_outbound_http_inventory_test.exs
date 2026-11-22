@@ -1,8 +1,8 @@
-defmodule Letflow.Security.OutboundHttpInventoryTest do
+defmodule Letflow.SecurityProbe.G06OutboundHttpInventoryTest do
   @moduledoc """
   G-06 of the team repo's `docs/security-coverage.md` §4: the **outbound
-  HTTP-client / call-site AST inventory** and the dispatch-time rules every
-  outbound channel must satisfy.
+  HTTP-client / call-site AST inventory** and the rules every outbound
+  channel must satisfy.
 
   The coverage map (§3.5, "New outbound channel") asks for a mechanical check
   that inventories *every* request call (`:httpc`, `Req`, `Finch`, `HTTPoison`,
@@ -20,8 +20,10 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   It is a pure AST scan over `lib/**/*.ex` (`test/**` is excluded: test bodies
   forge URLs on purpose, exactly as the sibling caller scans do). Every rule is
   a pure function over source text, and the real-tree tests and the synthetic
-  non-vacuity tests run the SAME function -- the pattern of
-  `test/letflow/entities/handler_writes_callers_test.exs`.
+  non-vacuity tests run the SAME functions -- through the SAME aggregate
+  entry point, `violations/2` -- so a rule that is dropped from the
+  accumulator, or neutered inside its own function, fails the synthetic cases
+  instead of passing quietly.
 
     * **I1 inventory** -- the scan finds every outbound call site. The
       inventory must not be empty, and it must contain exactly the seven real
@@ -48,13 +50,19 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
       only `:httpc.request/4` and `:httpc.cancel_request/1` are used. A new
       client (`Req`, `Finch`, `HTTPoison`, `Tesla`), a raw socket
       (`:gen_tcp.connect/3`, `:ssl.connect/3`) or a shell client
-      (`System.cmd("curl", ...)`) fails here: an adapter that does not go
-      through the shared validator is an SSRF bypass by construction.
-    * **I7 redirect policy** -- no call site passes `autoredirect: true` (or
-      `follow_redirect: true`) to `:httpc`. `:httpc` does not follow
-      redirects unless asked to, so the default is the safe one; a 3xx
-      answered by a validated host must not become a request to an
-      unvalidated one.
+      (`System.cmd("curl", ...)`, `System.shell("curl ...")`) fails here: an
+      adapter that does not go through the shared validator is an SSRF bypass
+      by construction.
+    * **I7 redirect policy** -- `:httpc` FOLLOWS up to five redirects BY
+      DEFAULT (`httpc.erl` sets `{autoredirect, true}` as the default
+      setting, and every 30X branch of `httpc_response.erl` is gated on it),
+      so the safe policy is to pass `{:autoredirect, false}` EXPLICITLY in the
+      request's own HTTPOptions -- the third argument of `:httpc.request/4`.
+      The check is made on the request call's own option list (resolved
+      through a local variable when the options are held in one): a function
+      that disables redirects on ANOTHER call does not disable them on this
+      one, and an option list that cannot be resolved to a literal list is
+      treated as not disabling them (the probe fails closed).
 
   ## Accepted limits (as in the sibling scans)
 
@@ -65,7 +73,7 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
 
   ## Cost
 
-  `@moduletag probe_cost_s: 3` -- one AST pass over `lib/`, no database, no
+  `@moduletag probe_cost_s: 7` -- one AST pass over `lib/`, no database, no
   network, no clock. Deterministic: the same tree always yields the same
   inventory.
   """
@@ -74,7 +82,7 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
 
   @moduletag :security_probe
   @moduletag :unit
-  @moduletag probe_cost_s: 3
+  @moduletag probe_cost_s: 7
 
   # ── the registry ────────────────────────────────────────────────────────────────────────────
   # One entry per outbound call site in `lib/`. `url_source` is the coverage
@@ -158,6 +166,11 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   # never reaches the validator.
   @raw_socket_clients [:gen_tcp, :ssl]
 
+  # Shell clients: a shell HTTP client is an outbound request that never
+  # reaches `:httpc` and therefore never reaches the validator. The scan
+  # looks for `System.cmd("curl", [url])` and `System.shell("curl ...")`.
+  @shell_http_clients ~w(curl wget nc ncat http httpie socat)
+
   # The validation seams the product already has: a test-only flag that turns
   # the SSRF gate off so a local test server can be reached. Each one DEFAULTS
   # to true (validation on); the flag name is the allowlist, so a new flag
@@ -210,10 +223,12 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   @doc """
   Every outbound call site in one source file.
 
-  Each hit is `%{client:, call:, arity:, line:, function:, function_arity:}`,
-  where `client` is the client module (`:httpc`, `:req`, ...) and
-  `function`/`function_arity` name the enclosing function. A call outside any
-  function (a module attribute) has `function: nil`.
+  Each hit is `%{client:, call:, arity:, line:, function:, function_arity:,
+  options:}`, where `client` is the client module (`:httpc`, `:req`, ...),
+  `function`/`function_arity` name the enclosing function and `options` is the
+  AST of the request's HTTPOptions argument (nil when the call carries no
+  options). A call outside any function (a module attribute) has
+  `function: nil`.
   """
   def outbound_calls(source) do
     {_ast, hits} = walk(parse(source), nil, [])
@@ -250,7 +265,7 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   defp walk({:&, _, [{:/, _, [callee, _arity]}]} = node, fun, acc) do
     case callee do
       {{:., dmeta, [receiver, call_name]}, _, []} ->
-        acc = record_client_call(receiver, call_name, :capture, dmeta, fun, acc)
+        acc = record_client_call(receiver, call_name, [], dmeta, fun, acc)
         {node, acc}
 
       _other ->
@@ -268,7 +283,7 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
 
       match?({:ok, _, _}, remote_call(kind)) ->
         {:ok, receiver, call_name} = remote_call(kind)
-        acc = record_client_call(receiver, call_name, length(args), meta, fun, acc)
+        acc = record_client_call(receiver, call_name, args, meta, fun, acc)
         {args, acc} = walk(args, fun, acc)
         {{kind, meta, args}, acc}
 
@@ -293,8 +308,8 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   defp head_signature(_other), do: {nil, 0}
 
   # A remote call whose receiver names an HTTP client.
-  defp record_client_call(receiver, call_name, arity, meta, fun, acc) do
-    case client_of(receiver) do
+  defp record_client_call(receiver, call_name, args, meta, fun, acc) do
+    case client_of(receiver, call_name, args) do
       nil ->
         acc
 
@@ -304,28 +319,73 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
         hit = %{
           client: client,
           call: call_name,
-          arity: arity,
+          arity: length(args),
           line: Keyword.get(meta, :line, 0),
           function: name,
-          function_arity: f_arity
+          function_arity: f_arity,
+          options: options_argument(call_name, args)
         }
 
         [hit | acc]
     end
   end
 
-  defp client_of(receiver) when is_atom(receiver) do
+  # The HTTPOptions of a request are its THIRD argument (`httpc:request/4`:
+  # Method, Request, HTTPOptions, Options). Any other call carries none.
+  defp options_argument(:request, args) when length(args) >= 3, do: Enum.at(args, 2)
+  defp options_argument(_call_name, _args), do: nil
+
+  defp client_of(receiver, _call_name, _args) when is_atom(receiver) do
     if receiver == :httpc or receiver in @raw_socket_clients, do: receiver, else: nil
   end
 
-  defp client_of({:__aliases__, _, parts}) do
+  defp client_of({:__aliases__, _, [:System]}, call_name, args)
+       when call_name in [:cmd, :shell] do
+    shell_client(call_name, args)
+  end
+
+  defp client_of({:__aliases__, _, parts}, _call_name, _args) do
     case Map.get(@foreign_clients, Atom.to_string(List.last(parts))) do
       nil -> nil
       client -> client
     end
   end
 
-  defp client_of(_other), do: nil
+  defp client_of(_other, _call_name, _args), do: nil
+
+  # `System.cmd("curl", [url])` and `System.shell("curl -s url")`: a shell
+  # client that never reaches the shared validator.
+  defp shell_client(:cmd, [command | _rest]) do
+    case shell_command(command) do
+      nil -> nil
+      command -> if command in @shell_http_clients, do: :"shell_#{command}", else: nil
+    end
+  end
+
+  defp shell_client(:shell, [command | _rest]) do
+    case shell_command(command) do
+      nil ->
+        nil
+
+      command ->
+        case Enum.find(
+               @shell_http_clients,
+               &(command == &1 or String.starts_with?(command, &1 <> " "))
+             ) do
+          nil -> nil
+          client -> :"shell_#{client}"
+        end
+    end
+  end
+
+  defp shell_client(_call_name, _args), do: nil
+
+  # The literal command of a shell call: a binary, or the literal prefix of a
+  # concatenation (`"curl -s " <> url`).
+  defp shell_command({:<>, _, [left | _rest]}), do: shell_command(left)
+  defp shell_command({:<<>>, _, [left | _rest]}), do: shell_command(left)
+  defp shell_command(command) when is_binary(command), do: command
+  defp shell_command(_other), do: nil
 
   # ── module analysis (I5) ────────────────────────────────────────────────────────────────────
 
@@ -434,26 +494,6 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   end
 
   @doc """
-  The functions of the module that reach `target` (the transitive callers).
-  """
-  def transitive_callers(calls, target) do
-    direct =
-      Enum.reduce(calls, MapSet.new(), fn {key, callees}, acc ->
-        if target in callees, do: MapSet.put(acc, key), else: acc
-      end)
-
-    Enum.reduce(1..(MapSet.size(direct) + 1), direct, fn _, set ->
-      Enum.reduce(calls, set, fn {key, callees}, acc ->
-        if key in acc and Enum.any?(callees, &MapSet.member?(set, &1)) do
-          MapSet.put(acc, key)
-        else
-          acc
-        end
-      end)
-    end)
-  end
-
-  @doc """
   True when the function turns the SSRF gate off through one of the known
   test-only seams. Every seam DEFAULTS to true (the gate is on); the third
   argument of `Application.get_env/3` must be the literal `true`.
@@ -477,17 +517,21 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
   @doc """
   The call sites the tree violates, as a list of human-readable strings. An
   empty list means the tree satisfies every rule.
+
+  This is the aggregate entry point: the real-tree test and every synthetic
+  non-vacuity case go through it, so a rule that is dropped from the
+  accumulator fails the synthetic cases.
   """
   def violations(sources, registry \\ @registry) do
     per_file =
       for {path, source} <- sources do
         hits = outbound_calls(source)
         functions = if hits == [], do: %{}, else: module_functions(source)
-        {path, hits, hits != [] and redirect_enabled?(source), functions}
+        {path, hits, functions}
       end
 
     discovered =
-      for {path, hits, _redirect, _functions} <- per_file,
+      for {path, hits, _functions} <- per_file,
           hit <- request_sites(hits),
           do: {path, hit}
 
@@ -541,69 +585,117 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
     foreign ++ wrong_httpc
   end
 
-  # I7: the redirect policy. `:httpc` does not follow a redirect unless it is
-  # told to, so the safe policy is the absence of the option.
+  # I7: the redirect policy. `:httpc` follows up to five redirects BY DEFAULT,
+  # so every request must carry `{:autoredirect, false}` in its OWN options
+  # (the third argument of `:httpc.request/4`).
   defp redirect_violations(per_file) do
-    enabled =
-      for {path, hits, redirect?, _functions} <- per_file,
-          redirect?,
-          hit <- hits,
-          hit.client == :httpc,
-          hit.call == :request,
-          do: "redirect following is enabled in #{path} (a 3xx would reach an unvalidated host)"
+    for {path, hits, functions} <- per_file,
+        hit <- hits,
+        hit.client == :httpc,
+        hit.call == :request,
+        message = redirect_message(hit, functions),
+        message != nil do
+      "#{path} line #{hit.line} #{message}"
+    end
+  end
 
-    not_disabled =
-      for {path, hits, _redirect?, functions} <- per_file,
-          hit <- hits,
-          hit.client == :httpc,
-          hit.call == :request,
-          body = body_of(functions, fn_key(hit.function, hit.function_arity)),
-          not redirect_disabled?(body),
-          do:
-            "#{path} line #{hit.line} does not disable redirect following " <>
-              "(:httpc follows up to five redirects unless autoredirect: false is passed)"
+  # The message for one request call site, or nil when it satisfies I7.
+  defp redirect_message(hit, functions) do
+    body = body_of(functions, fn_key(hit.function, hit.function_arity))
+    options = resolve_options(hit.options, body)
 
-    enabled ++ not_disabled
+    cond do
+      option_enabled?(options, :autoredirect) ->
+        "asks :httpc to follow redirects (a 3xx would reach an unvalidated host)"
+
+      option_enabled?(options, :follow_redirect) ->
+        "asks :httpc to follow redirects (a 3xx would reach an unvalidated host)"
+
+      option_present?(options, :autoredirect, false) ->
+        nil
+
+      true ->
+        "does not disable redirect following " <>
+          "(:httpc follows up to five redirects unless autoredirect: false is passed)"
+    end
   end
 
   @doc """
-  True when the body passes `autoredirect: false` to `:httpc`.
+  True when the request's own options disable redirect following.
 
-  The absence of the option is NOT safe: `:httpc` follows up to five
-  redirects by default, so a validated target that answers 302 sends the
-  next request to a host the validator never saw.
+  `options` is the AST of the request's HTTPOptions argument and `body` the
+  body of the function the request sits in (needed to resolve an option list
+  held in a local variable). The ABSENCE of the option is not safe: `:httpc`
+  follows up to five redirects by default, so a validated target that answers
+  302 sends the next request to a host the validator never saw. An option
+  list that cannot be resolved to a literal list counts as not disabling it
+  (the probe fails closed).
   """
-  def redirect_disabled?(body) do
-    {_ast, found} =
-      Macro.prewalk(body, false, fn
-        {:autoredirect, false} = node, _acc -> {node, true}
-        node, acc -> {node, acc}
-      end)
-
-    found
+  def redirect_disabled?(options, body) do
+    options
+    |> resolve_options(body)
+    |> option_present?(:autoredirect, false)
   end
 
-  @doc """
-  True when the source asks `:httpc` to follow a redirect.
-  """
-  def redirect_enabled?(source) do
-    {_ast, found} =
-      Macro.prewalk(parse(source), false, fn
-        {{:., _, _}, _, args} = node, acc when is_list(args) ->
-          {node, acc or Enum.any?(args, &redirect_option?/1)}
+  # The option list of a request, resolved to a literal list when it is one.
+  defp resolve_options(options, body) do
+    case var_key(options) do
+      nil ->
+        resolve_literal(options, body)
+
+      key ->
+        case Map.get(bindings(body), key) do
+          nil -> nil
+          right -> resolve_options(right, body)
+        end
+    end
+  end
+
+  defp resolve_literal(options, _body) when is_list(options), do: options
+
+  defp resolve_literal({:++, _, [left, _right]}, body), do: resolve_options(left, body)
+
+  defp resolve_literal(_other, _body), do: nil
+
+  # The key of a variable: `{:name, meta, context}` in an expression and
+  # `{:var, meta, [{name, meta, context}]}` in a pattern. `nil` for anything
+  # that is not a variable.
+  defp var_key({:var, _, [{name, _, context}]}) when is_atom(name), do: {name, context}
+
+  defp var_key({name, _meta, context})
+       when is_atom(name) and name != :__aliases__ and is_atom(context),
+       do: {name, context}
+
+  defp var_key(_other), do: nil
+
+  # The local bindings of a function body: `%{name => the AST of its value}`.
+  defp bindings(body) do
+    {_ast, bound} =
+      Macro.prewalk(body, %{}, fn
+        {:=, _, [left, right]} = node, acc ->
+          case var_key(left) do
+            nil -> {node, acc}
+            key -> {node, Map.put(acc, key, right)}
+          end
 
         node, acc ->
           {node, acc}
       end)
 
-    found
+    bound
   end
 
-  defp redirect_option?({key, value}) when key in [:autoredirect, :follow_redirect],
-    do: value == true
+  defp option_present?(options, key, value) when is_list(options) do
+    Enum.any?(options, &match?({^key, ^value}, &1))
+  end
 
-  defp redirect_option?(list) when is_list(list), do: Enum.any?(list, &redirect_option?/1)
-  defp redirect_option?(_other), do: false
+  defp option_present?(_options, _key, _value), do: false
+
+  defp option_enabled?(options, key) when is_list(options) do
+    Enum.any?(options, &match?({^key, true}, &1))
+  end
+
+  defp option_enabled?(_options, _key), do: false
 
   # I4: the URL source.
   defp source_violations(registry) do
@@ -760,26 +852,27 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
       assert source =~ "Req.get("
       assert source =~ "autoredirect: true"
 
-      # I1: the scan finds the fixture's call sites
-      hits = outbound_calls(source)
-      assert Enum.any?(hits, &(&1.client == :req))
-      assert Enum.any?(hits, &(&1.client == :httpc))
+      # the fixture is driven through the SAME aggregate entry point the
+      # real-tree test uses, so a rule that is dropped from the accumulator
+      # fails here
+      registry = [registry_entry(@rogue_fixture, "rogue_fetch/1", ":tenant_input")]
+
+      violations = violations([{@rogue_fixture, source}], registry)
 
       # I6: a foreign client is a violation
-      assert Enum.any?(
-               client_violations(for hit <- outbound_calls(source), do: {@rogue_fixture, hit}),
-               &(&1 =~ "only :httpc")
-             )
+      assert Enum.any?(violations, &(&1 =~ "only :httpc"))
 
       # I7: a redirect that follows is a violation
-      assert Enum.any?(
-               redirect_violations([{@rogue_fixture, outbound_calls(source), true, %{}}]),
-               &(&1 =~ "redirect")
-             )
+      assert Enum.any?(violations, &(&1 =~ "asks :httpc to follow redirects"))
 
       # I5: a tenant-influenced request with no validator on its path is a violation
-      assert dispatch_problems(source, "rogue_fetch/1") != []
-      assert Enum.any?(dispatch_problems(source, "rogue_fetch/1"), &(&1 =~ "UrlValidator"))
+      assert Enum.any?(
+               violations,
+               &(&1 =~ "no path to the request calls Letflow.Webhooks.UrlValidator.validate/1,2")
+             )
+
+      # I2: the second (foreign-client) entry point is not registered
+      assert Enum.any?(violations, &(&1 =~ "unregistered outbound call site"))
     end
 
     test "the rogue fixture is not a compiled module (it is text, so it cannot break the build)" do
@@ -803,27 +896,128 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
       end
     end
 
-    test "I6: a capture of a foreign client's function is flagged" do
+    test "I6: a captured client function (&Req.get/1) is flagged" do
       hits = outbound_calls("defmodule A do\n  def f, do: &Req.get/1\nend")
 
       assert Enum.any?(hits, &(&1.client == :req))
     end
 
-    test "I7: autoredirect: true is flagged, and the safe forms are not" do
-      assert redirect_enabled?(
-               "defmodule A do\n  def f, do: :httpc.request(:get, r, [autoredirect: true], [])\nend"
+    test "I6: a shell client (curl through System.cmd) is flagged" do
+      hits = outbound_calls("defmodule A do\n  def f(url), do: System.cmd(\"curl\", [url])\nend")
+
+      assert Enum.any?(hits, &(&1.client == :shell_curl))
+
+      shelled =
+        outbound_calls("defmodule A do\n  def f(url), do: System.shell(\"curl -s \" <> url)\nend")
+
+      assert Enum.any?(shelled, &(&1.client == :shell_curl))
+    end
+
+    test "I6: a shell command that is not an HTTP client is not flagged" do
+      hits = outbound_calls("defmodule A do\n  def f, do: System.cmd(\"git\", [\"status\"])\nend")
+
+      assert hits == []
+    end
+
+    test "I7: autoredirect: true is flagged, and the safe form is not" do
+      enabled = """
+      defmodule A do
+        def f(url) do
+          :httpc.request(:get, {String.to_charlist(url), []}, [autoredirect: true], [])
+        end
+      end
+      """
+
+      assert Enum.any?(
+               redirect_violations_of(enabled),
+               &(&1 =~ "asks :httpc to follow redirects")
              )
 
-      assert redirect_enabled?(
-               "defmodule A do\n  def f, do: :httpc.request(:get, r, [{:follow_redirect, true}], [])\nend"
-             )
+      safe = """
+      defmodule A do
+        def f(url) do
+          :httpc.request(:get, {String.to_charlist(url), []}, [{:autoredirect, false}], [])
+        end
+      end
+      """
 
-      refute redirect_enabled?(
-               "defmodule A do\n  def f, do: :httpc.request(:get, r, [autoredirect: false], [])\nend"
-             )
+      assert redirect_violations_of(safe) == []
+    end
 
-      refute redirect_enabled?(
-               "defmodule A do\n  def f, do: :httpc.request(:get, r, [{:timeout, 5_000}], [])\nend"
+    test "I7: a request that does not disable redirect following is flagged through the aggregate entry point" do
+      source = """
+      defmodule A do
+        def f(url) do
+          :httpc.request(:get, {String.to_charlist(url), []}, [{:timeout, 5_000}], [])
+        end
+      end
+      """
+
+      registry = [registry_entry("lib/synthetic.ex", "f/1", ":platform_config")]
+
+      violations = violations([{"lib/synthetic.ex", source}], registry)
+
+      assert Enum.any?(violations, &(&1 =~ "does not disable redirect following"))
+    end
+
+    test "I7: the check is on the request call itself, not on the enclosing function" do
+      source = """
+      defmodule A do
+        def f(url) do
+          :httpc.request(:get, {String.to_charlist(url), []}, [{:autoredirect, false}], [])
+          :httpc.request(:get, {String.to_charlist(url), []}, [{:timeout, 5_000}], [])
+        end
+      end
+      """
+
+      registry = [registry_entry("lib/synthetic.ex", "f/1", ":platform_config")]
+
+      violations = violations([{"lib/synthetic.ex", source}], registry)
+
+      flagged = Enum.filter(violations, &(&1 =~ "does not disable redirect following"))
+
+      # exactly ONE of the two requests is flagged: the one whose own options
+      # do not disable redirects
+      assert length(flagged) == 1
+
+      functions = module_functions(source)
+      {_kind, body} = Map.fetch!(functions, "f/1")
+
+      [without_option] =
+        source
+        |> outbound_calls()
+        |> Enum.filter(&(&1.client == :httpc and &1.call == :request))
+        |> Enum.reject(&redirect_disabled?(&1.options, body))
+
+      assert Enum.any?(flagged, &(&1 =~ "line #{without_option.line}"))
+    end
+
+    test "I7: options held in a local variable are resolved" do
+      in_variable = """
+      defmodule A do
+        def f(url) do
+          options = [{:timeout, 5_000}, {:autoredirect, false}]
+
+          :httpc.request(:get, {String.to_charlist(url), []}, options, [])
+        end
+      end
+      """
+
+      assert redirect_violations_of(in_variable) == []
+
+      without_option = """
+      defmodule A do
+        def f(url) do
+          options = [{:timeout, 5_000}]
+
+          :httpc.request(:get, {String.to_charlist(url), []}, options, [])
+        end
+      end
+      """
+
+      assert Enum.any?(
+               redirect_violations_of(without_option),
+               &(&1 =~ "does not disable redirect following")
              )
     end
 
@@ -859,6 +1053,26 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
       """
 
       assert dispatch_problems(guarded, "do_fetch/1") == []
+    end
+
+    test "I5: a tenant-influenced call site without the validator is flagged through the aggregate entry point" do
+      source = """
+      defmodule A do
+        def f(url) do
+          :httpc.request(:get, {String.to_charlist(url), []}, [{:autoredirect, false}], [])
+        end
+      end
+      """
+
+      registry = [registry_entry("lib/synthetic.ex", "f/1", ":tenant_input")]
+
+      violations = violations([{"lib/synthetic.ex", source}], registry)
+
+      # the I5 message is the only violation: the request does disable
+      # redirects and the client is the allowed one
+      assert violations == [
+               "lib/synthetic.ex f/1: no path to the request calls Letflow.Webhooks.UrlValidator.validate/1,2"
+             ]
     end
 
     test "I5: validate_syntactic/1 is NOT accepted as the dispatch-time validator" do
@@ -967,5 +1181,21 @@ defmodule Letflow.Security.OutboundHttpInventoryTest do
       assert Enum.any?(violations, &(&1 =~ "unregistered outbound call site"))
       assert Enum.any?(violations, &(&1 =~ "stale registry entry"))
     end
+  end
+
+  # ── helpers ─────────────────────────────────────────────────────────────────────────────────
+
+  # A registry entry for a synthetic source.
+  defp registry_entry(file, function, url_source) do
+    %{file: file, function: function, client: ":httpc", url_source: url_source, note: "n/a"}
+  end
+
+  # The I7 violations of one source file, through the same rule the
+  # aggregate entry point uses.
+  defp redirect_violations_of(source) do
+    hits = outbound_calls(source)
+    functions = if hits == [], do: %{}, else: module_functions(source)
+
+    redirect_violations([{"lib/synthetic.ex", hits, functions}])
   end
 end

@@ -1,15 +1,15 @@
-defmodule Letflow.Security.OutboundDispatchProbesTest do
+defmodule Letflow.SecurityProbe.G06OutboundDispatchProbesTest do
   @moduledoc """
   G-06 of the team repo's `docs/security-coverage.md` §4: the **common
   dispatch-time probes** for outbound HTTP channels -- SSRF refusal, redirect
   handling and error sanitisation.
 
-  `test/letflow/security/outbound_http_inventory_test.exs` proves, over the
-  AST, that every outbound channel is classified and that a tenant-influenced
-  one reaches the shared validator. This file proves the *behaviour* those
-  rules assume, and it does so with ONE probe implementation that every
-  channel is run through, so a channel added later is probed the same way
-  instead of getting its own hand-written test.
+  `test/letflow/security_probe/g06_outbound_http_inventory_test.exs` proves,
+  over the AST, that every outbound channel is classified and that a
+  tenant-influenced one reaches the shared validator. This file proves the
+  *behaviour* those rules assume, and it does so with ONE probe implementation
+  that every channel is run through, so a channel added later is probed the
+  same way instead of getting its own hand-written test.
 
   The three common probes:
 
@@ -40,7 +40,7 @@ defmodule Letflow.Security.OutboundDispatchProbesTest do
 
   ## Cost
 
-  `@moduletag probe_cost_s: 5` -- eight short tests, no database, no
+  `@moduletag probe_cost_s: 1` -- eight short tests, no database, no
   external network (every peer is a listener on 127.0.0.1), no clock, no
   retry.
   """
@@ -49,7 +49,7 @@ defmodule Letflow.Security.OutboundDispatchProbesTest do
 
   @moduletag :security_probe
   @moduletag :unit
-  @moduletag probe_cost_s: 5
+  @moduletag probe_cost_s: 1
 
   alias Letflow.Engine.ServiceTask.Config, as: ServiceTaskConfig
   alias Letflow.Engine.ServiceTaskDispatcher
@@ -61,7 +61,12 @@ defmodule Letflow.Security.OutboundDispatchProbesTest do
     node_id: "g06-probe",
     route_kind: :inline_url,
     method: :POST,
-    timeout_ms: 1_000,
+    # The timeout only matters when something hangs: the probes answer on
+    # 127.0.0.1 or are refused outright. It is deliberately generous, so a
+    # loaded shared host cannot turn a slow accept into a probe failure (the
+    # PM's flake rule: a probe that fails once and passes on rerun is a
+    # defect of the probe).
+    timeout_ms: 5_000,
     retry_limit: 0
   }
 
