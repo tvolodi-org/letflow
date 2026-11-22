@@ -172,14 +172,15 @@ defmodule Letflow.CiSelectTestsTest do
     end
   end
 
-  test "B5: stock and web changes retain fixed identity and global pins" do
+  test "B5: stock and web changes retain fixed identity, global and security-probe pins" do
     for changed <- ["lib/letflow/modules/stock/stock.ex", "web/src/x.tsx"] do
       {_, plan} = select([changed])
 
       for test <- [
             "test/letflow/api/permission_matrix_test.exs",
             "test/letflow/identity/binding_writers_scan_test.exs",
-            "test/letflow/identity/tenant_update_changeset_removed_test.exs"
+            "test/letflow/identity/tenant_update_changeset_removed_test.exs",
+            "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end
