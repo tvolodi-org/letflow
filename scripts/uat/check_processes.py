@@ -20,6 +20,10 @@ A process file is checked for:
   * `fixtures` (names of files in test/uat/fixtures/): each must exist; what they `provide` counts as defined;
     a fixture file itself needs description, leaves, provides (each saved by a step), a cleanup whose steps all
     have `requires`;
+  * a `platform_residue` block (what the run watches on the platform tenant, G18): only `definitions` and
+    `instances`, each a list of names; a ${name} in it must be defined like any other name;
+  * a `wait_mail` step (the mail trap, G18): a recipient, a subject and a time the runner can read (a number,
+    a numeric text or a ${name} of the context);
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
 """
 
@@ -161,6 +165,43 @@ def actors_of(step) -> set:
     return found
 
 
+def check_platform_residue(doc, name, problems, defined):
+    """The `platform_residue` block of a process: what the run watches on the platform tenant (G18)."""
+    block = doc.get("platform_residue")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        problems.append(f"{name}: platform_residue must be an object {{definitions, instances}}")
+        return
+    unknown = set(block) - {"definitions", "instances"}
+    if unknown:
+        problems.append(f"{name}: platform_residue has unknown keys: " + ", ".join(sorted(unknown)))
+    for key in ("definitions", "instances"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            problems.append(f"{name}: platform_residue.{key} must be a list of names")
+            continue
+        for item in value:
+            for ref in sorted(refs(item) - defined):
+                problems.append(f"{name}: platform_residue.{key}: ${{{ref}}} is not an input and no step saves it")
+
+
+def check_wait_mail(step, where, problems):
+    """The wait_mail step (G18): a recipient, a subject and a time the runner can read.
+
+    The loader (scripts/uat/runner.py) refuses the same shapes, so the two tools never disagree about one file."""
+    spec = (step.get("do") or {}).get("wait_mail")
+    if not isinstance(spec, dict):
+        return
+    if not all(isinstance(spec.get(key), str) and spec.get(key).strip() for key in ("recipient", "subject")):
+        problems.append(f"{where}wait_mail needs a recipient and a subject")
+    for key in ("within_s", "interval_s"):
+        if key in spec and not runner.wait_time_ok(spec[key]):
+            problems.append(f"{where}wait_mail {key} must be a number (a ${{name}} of the context is read as one)")
+
+
 def check_process(doc, name, roles, routes, available, strict, problems, in_chain=False):
     """available: names defined before this process (chain inputs and earlier outputs). -> its outputs.
     In a chain every declared input must come from the chain or an earlier process."""
@@ -207,11 +248,14 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
                 problems.append(f"{where(sid)}${{{name_}}} is not an input and no earlier step or process saves it")
             for method, path in calls_of(step):
                 check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access")
+            if "wait_mail" in (step.get("do") or {}):
+                check_wait_mail(step, where(sid), problems)
             defined |= saves(step)
     outputs = doc.get("outputs") or {}
     for out_name, expr in outputs.items():
         for name_ in sorted(refs(expr) - defined):
             problems.append(f"{name}: output {out_name}: ${{{name_}}} is not saved by any step")
+    check_platform_residue(doc, name, problems, defined)
     return set(outputs)
 
 
