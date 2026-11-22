@@ -104,6 +104,27 @@
 # tmp_dir is removed automatically; a run with any real failures always
 # preserves it regardless of this var.
 #
+# T-2652 (CI hang diagnosis): two more bounds, so a stalled step fails LOUDLY
+# and names itself instead of letting the shard run into the CI job limit:
+#   TEST_PARALLEL_FILE_TIMEOUT_S (default 120) -- per-TEST-FILE stall limit.
+#       A test file that starts no test and finishes no test for this many
+#       seconds is killed, and the file's name is printed. The limit is a
+#       STALL limit (time since the file's last test start), not a total file
+#       duration: in the measured corpus the slowest FILE takes ~288 s (nightly
+#       run 45000653967, shard 1/8, --slowest-modules) while the slowest single
+#       TEST takes ~26 s, so a total-duration limit would kill healthy files and
+#       a stall limit does not. 0 disables the limit.
+#   TEST_PARALLEL_CREATE_TIMEOUT_S (default 300) -- bound on the whole
+#       create+migrate phase (Step 1.7). A `mix ecto.create`/`ecto.migrate`
+#       that never returns used to hang the shard until the CI job limit (see
+#       run 45010058431, shard 3/8, 2026-11-22: the shard burned its whole
+#       2700 s in this phase, before any partition had launched).
+#       0 disables the limit.
+#   The file-level limit needs to know which file is running right now; the
+#   suite publishes that into $tmp_dir/markers/current-<partition>.txt (see
+#   test/support/file_timeout_marker.ex), and TEST_PARALLEL_FILE_MARKER_DIR is
+#   exported for the partitions so the marker formatter is installed.
+#
 # Overridable knob: TEST_PER_PARTITION_HEADROOM=<non-negative integer>
 # (default 0, a deliberate no-op -- N*0=0 leaves Step 1.5's formula
 # unchanged) -- ISS-0287 §4.1, adds an N-scaling connection-budget margin
@@ -637,6 +658,16 @@ cleanup_tmp_dir() {
     kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null
     kill "${watchdog_pids[$_idx]}" 2>/dev/null
   done
+  # T-2652: the create-phase watchdog (Step 1.7) and the per-partition
+  # file-timeout watchdogs (Step 2) must not outlive this script either.
+  if [ -n "${create_watchdog_pid:-}" ]; then
+    kill -- "-${create_watchdog_pid}" 2>/dev/null
+    kill "${create_watchdog_pid}" 2>/dev/null
+  fi
+  for _idx in "${!file_watchdog_pids[@]}"; do
+    kill -- "-${file_watchdog_pids[$_idx]}" 2>/dev/null
+    kill "${file_watchdog_pids[$_idx]}" 2>/dev/null
+  done
   # Signal delivery is asynchronous: the subshell's TERM trap (which kills its sleep) runs
   # only after we return. Give the watchdogs up to ~5 s to finish so the sleeps are gone
   # before this script exits (GH #2457); bounded, never waits on a watchdog that ignored it.
@@ -664,8 +695,35 @@ cleanup_tmp_dir() {
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/letflow_test_parallel.XXXXXX")
 _tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT exported
+# T-2652: declared BEFORE the trap below, so the trap's own reference to them is
+# never an unbound-variable lookup under `set -u` (the same reason ISS-1080 moved
+# the trap's own pid capture here).
+create_watchdog_pid=""
+declare -A file_watchdog_pids=()
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
+
+# T-2652: the marker directory the suites publish their currently running test
+# file into. Exported so the partitions' ExUnit run installs the marker
+# formatter (test/support/file_timeout_marker.ex); the per-file watchdog below
+# reads the marker to decide WHICH file stalled.
+marker_dir="$tmp_dir/markers"
+mkdir -p "$marker_dir"
+export TEST_PARALLEL_FILE_MARKER_DIR="$marker_dir"
+
+# T-2652: per-test-file stall limit (seconds). 0 disables it.
+file_timeout_s="${TEST_PARALLEL_FILE_TIMEOUT_S:-120}"
+if ! printf '%s' "$file_timeout_s" | grep -Eq '^[0-9]+$'; then
+  echo "test_parallel: ERROR TEST_PARALLEL_FILE_TIMEOUT_S='$file_timeout_s' is not a non-negative integer" >&2
+  exit 1
+fi
+
+# T-2652: bound on the create+migrate phase (Step 1.7). 0 disables it.
+create_timeout_s="${TEST_PARALLEL_CREATE_TIMEOUT_S:-300}"
+if ! printf '%s' "$create_timeout_s" | grep -Eq '^[0-9]+$'; then
+  echo "test_parallel: ERROR TEST_PARALLEL_CREATE_TIMEOUT_S='$create_timeout_s' is not a non-negative integer" >&2
+  exit 1
+fi
 
 max_concurrent_creates="${TEST_PARALLEL_MAX_CONCURRENT_CREATES:-4}"
 if ! printf '%s' "$max_concurrent_creates" | grep -Eq '^[1-9][0-9]*$'; then
@@ -729,6 +787,7 @@ reap_one_create() {
 }
 
 i="$FIRST"
+create_start_epoch=$(date +%s)
 while [ "$i" -le "$LAST" ]; do
   if [ "$in_flight" -ge "$max_concurrent_creates" ]; then
     reap_one_create
@@ -744,10 +803,48 @@ while [ "$i" -le "$LAST" ]; do
   i=$((i + 1))
 done
 
+# T-2652: bound the create+migrate phase. A `mix ecto.create`/`ecto.migrate`
+# that never returns used to hang the whole shard until the CI job limit: run
+# 45010058431 (shard 3/8, 2026-11-22) sat in exactly this phase for 43 minutes
+# (09:59:23 -> 10:42:37 UTC) and was killed by the job deadline, with no
+# partition ever launched and therefore no test file, no partition log and no
+# watchdog diagnostics to read. The watchdog below kills the in-flight create
+# jobs; `reap_one_create` then reports the failure with the create log inline
+# (the path that already exists), so the shard fails fast and loudly instead.
+if [ "$create_timeout_s" -gt 0 ]; then
+  (
+    _term=
+    trap '_term=1' TERM
+    while [ -z "$_term" ]; do
+      sleep 5
+      [ -n "$_term" ] && break
+      if [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ]; then
+        echo "test_parallel: ERROR the create+migrate phase exceeded TEST_PARALLEL_CREATE_TIMEOUT_S=${create_timeout_s}s -- killing the in-flight partition database job(s)" >&2
+        for _p in "${!create_pid_to_partition[@]}"; do
+          _part="${create_pid_to_partition[$_p]}"
+          echo "test_parallel: ---- last 20 lines of create-$_part.log ----" >&2
+          tail -n 20 "$tmp_dir/create-$_part.log" 2>/dev/null >&2
+          echo "test_parallel: ---- end create-$_part.log ----" >&2
+          kill -TERM -- "-$_p" 2>/dev/null
+        done
+        break
+      fi
+    done
+  ) &
+  create_watchdog_pid=$!
+fi
+
 # Drain remaining in-flight create/migrate jobs.
 while [ "$in_flight" -gt 0 ]; do
   reap_one_create
 done
+
+if [ -n "${create_watchdog_pid:-}" ]; then
+  kill -- "-${create_watchdog_pid}" 2>/dev/null
+  kill "${create_watchdog_pid}" 2>/dev/null
+  wait "${create_watchdog_pid}" 2>/dev/null
+  create_watchdog_pid=""
+fi
 
 echo "test_parallel: all $N partition databases created+migrated"
 
@@ -1011,6 +1108,15 @@ test_parallel_watchdog_diag() {
     tail -n 40 "$log" 2>/dev/null | cut -c1-300 | sed "s/^/${pfx}  /"
     k=$(test_parallel_diag_t grep -E '^[.F*]+$' "$log" 2>/dev/null | tr -d '\n' | wc -c | tr -d '[:space:]')
     echo "${pfx}approx tests finished: ${k:-0}"
+    # T-2652: which file was running, and which tests had started in it (the
+    # suite's own marker; see test/support/file_timeout_marker.ex). Without this
+    # the reader of a hung shard sees only a wall of dots.
+    if [ -f "$tmp_dir/markers/current-$idx.txt" ]; then
+      echo "${pfx}running test file marker:"
+      sed 's/^/'"${pfx}"'  /' "$tmp_dir/markers/current-$idx.txt" 2>/dev/null | cut -c1-300
+    else
+      echo "${pfx}running test file marker: none published"
+    fi
     now=$(date +%s)
     start="${part_start_epoch[$idx]:-$now}"
     echo "${pfx}running for $((now - start))s of TEST_PARALLEL_PARTITION_TIMEOUT_S=${partition_timeout_s}s"
@@ -1145,6 +1251,55 @@ while [ "$i" -le "$LAST" ]; do
     fi
   ) &
   watchdog_pids[$i]=$!
+
+  # T-2652: per-test-file stall watchdog. The suite publishes its currently
+  # running file into $marker_dir/current-<i>.txt (see
+  # test/support/file_timeout_marker.ex); when that file has neither started nor
+  # finished a test for TEST_PARALLEL_FILE_TIMEOUT_S seconds, the file is
+  # STUCK (a hung test, a deadlock, a blocked DB call) and the partition is
+  # killed with the file's name in the job log -- instead of the shard sitting
+  # there until the CI job limit kills the whole run.
+  #
+  # The limit is a STALL limit (time since the file's last test start), not the
+  # file's total duration: in the measured corpus the slowest FILE takes ~288 s
+  # (nightly run 45000653967, shard 1/8) while the slowest single TEST takes
+  # ~26 s, so a total-duration limit would kill healthy files and a stall limit
+  # does not.
+  if [ "$file_timeout_s" -gt 0 ]; then
+    (
+      _part_pid=${pids[$i]}
+      _marker="$marker_dir/current-$i.txt"
+      _plog="$tmp_dir/partition-$i.log"
+      _term=
+      trap '_term=1' TERM
+      while [ -z "$_term" ]; do
+        sleep 1
+        [ -n "$_term" ] && break
+        kill -0 "$_part_pid" 2>/dev/null || break
+        [ -f "$_marker" ] || continue
+        _progress=$(sed -n 's/^progress=//p' "$_marker" 2>/dev/null | head -n 1)
+        _file=$(sed -n 's/^file=//p' "$_marker" 2>/dev/null | head -n 1)
+        [ -n "$_progress" ] || continue
+        [ -n "$_file" ] || continue
+        _now=$(date +%s)
+        _stall=$((_now - _progress))
+        if [ "$_stall" -gt "$file_timeout_s" ]; then
+          # The partition may have finished between the marker write and this
+          # poll; a partition that already reported is never killed.
+          if grep -q '^Result: ' "$_plog" 2>/dev/null; then break; fi
+          echo "test_parallel: ERROR partition $i: test file $_file has not completed a test for ${_stall}s (TEST_PARALLEL_FILE_TIMEOUT_S=${file_timeout_s}s) -- killing the partition" >&2
+          sed 's/^/test_parallel: ERROR partition '"$i"': /' "$_marker" 2>/dev/null | cut -c1-300 >&2
+          kill -TERM -- "-$_part_pid" 2>/dev/null
+          sleep "$partition_kill_grace_s"
+          if kill -0 "$_part_pid" 2>/dev/null; then
+            kill -KILL -- "-$_part_pid" 2>/dev/null
+          fi
+          break
+        fi
+      done
+    ) &
+    file_watchdog_pids[$i]=$!
+  fi
 
   i=$((i + 1))
 done
