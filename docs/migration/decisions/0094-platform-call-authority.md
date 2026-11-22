@@ -37,9 +37,12 @@ the activator's tenant must be the platform tenant (INV-10). Activation, version
 all three sign the `activated_by` document. The signed activator REPLACES the owner stamp for catalogue calls: the rule is "switched on
 by someone who holds the entry's permission, in the right tenant, with a signature checked at every call", not "unchanged since the
 module shipped it". The T-2430 rule carries over by input source class: a write-like input of a catalogue call reads only start
-variables or earlier platform-step outputs, never a human task's completer -- and never a FOREIGN SOURCE either: a graph that carries a
-write-like catalogue call carries no inline HTTP service task, no script-bound one and no sub-process, because such a node merges its
-own output into the same instance variables and could overwrite the value the call reads. The refusal is
+variables or earlier platform-step outputs, never a human task's completer. A designer-fixed `%{"const" => json}` argument is a THIRD,
+signed source beside those two variable sources: it is accepted for any declared input, is not person-writable, and sits inside the
+signed graph hash, so the activator fixes its value at activation time rather than reading it at start time. No write-like input may
+come from a FOREIGN SOURCE either: a graph that carries a write-like catalogue call carries no inline HTTP service task, no
+script-bound one and no sub-process, because such a node merges its own output into the same instance variables and could overwrite
+the value the call reads. The refusal is
 `:platform_call_foreign_source_refused`, at activation AND at dispatch (the dispatch guard re-checks the graph it is about to run).
 The step kinds are EXCLUSIVE: a node that declares `platform_call` may not also carry `endpoint`, `service_id` or `script_key`. Such a
 node would otherwise be parsed by the runtime as the other route while the source rule exempted it as a closed catalogue call. Graph
@@ -58,6 +61,8 @@ nil` disposition (its AC11 forbade touching the definitions router) has lapsed; 
 the KIND of the actor in the new tenant-scoped column `audit_entries.actor_kind` -- `user` or `system` -- so that "nobody" and "the
 system" are told apart BY THE ROW and not only by a `nil` actor id (the column is not part of REQ-195's canonical hashed form: the
 chain keeps its eleven fields, and the table's own immutability trigger keeps the kind from being edited afterwards).
+`Audit.insert_entry/3` applies that default to EVERY audit row, not only to definition lifecycle rows: a valid user UUID means `user`;
+a missing or non-person actor means `system`.
 
 Every HTTP lifecycle path THAT WRITES a definition audit row carries the caller -- create, IMPORT, deactivate, archive. The import path
 is the one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the definition's
@@ -117,7 +122,9 @@ key. The later D-180 slice may add nullable lineage/binding data without changin
 
 The `platform_call` step is a SERVICE_TASK attribute, the fourth route of that node kind next to the HTTP endpoint, the catalogue
 service and the Lua script: `attributes["platform_call"] :: %{"function" => name, "args" => %{arg => %{"var" => v} | %{"const" => j}}}`.
-The routes are mutually exclusive on one node: a platform-call node carrying any of `endpoint`, `service_id` or `script_key` is invalid.
+A `const` is the third, designer-fixed source described in (b): it is accepted for any declared input and is signed inside the graph,
+fixing the value at activation time rather than start time. The routes are mutually exclusive on one node: a platform-call node carrying
+any of `endpoint`, `service_id` or `script_key` is invalid.
 
 The read route's body publishes an entry's key composition under `idempotency_inputs` -- the input names that make a repeat the same
 call -- and never under the name of the CALLER's idempotency key: that key belongs to `Letflow.Idempotency` alone, and the AC5 guard of
@@ -145,7 +152,7 @@ come back.
 | S9 | the `activated_by` document is edited, or the activator lost the permission | `test/letflow/definitions/platform_call_activator_signature_test.exs`: the tampered MAC is refused; a revoked role refuses the call and flags the row `needs_reactivation` |
 | S13 | run-time catalogue tampering | `test/letflow/api/platform_catalogue_has_no_write_route_test.exs`: the route inventory holds one GET under the catalogue's mount and no write method |
 | S13 (read route) | a company tenant learns which platform functions exist | `test/letflow/routers/platform_functions_test.exs`: the platform admin of the platform tenant reads the catalogue; a company administrator and a company tenant whose stored token still carries `PLATFORM_ADMIN` are refused the uniform 403, and the refusal names no function |
-| catalogue shape | an entry drifts from the contract the designer reads | `test/letflow/platform_functions/catalog_test.exs`: the compiled chain, the platform atom, the platform-tenant flag and the EXACT key set of the entry map |
+| catalogue shape | an entry drifts from the contract the designer reads | `test/letflow/platform_functions/catalog_test.exs`: the compiled chain, the platform atom, the platform-tenant flag and the EXACT key set of the entry map; compile-time validation refuses a write-like entry with a `:person` input while allowing one on a read-only entry |
 | S3 (the write paths) | a company tenant PUTs or PATCHes a platform call into a draft | `test/letflow/definitions/platform_call_write_path_refused_test.exs`: create, PUT and PATCH answer the one fixed code (422) and store nothing |
 | S2 (the foreign sources and dual-route exploit) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads; one node declares both `platform_call` and another route | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: graph validation, activation and dispatch refuse mixed routes with `:conflicting_platform_call_routes`; a dual-route node still triggers `:platform_call_foreign_source_refused` beside a write-like call |
 | the start of a parent | a platform PROCESS_OPERATOR starts a parent whose sub-process child calls `tenant.create` | `test/letflow/engine/platform_call_subprocess_start_refused_test.exs`: the answer for an unknown definition, nothing written; the child's own activation fails closed |

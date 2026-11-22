@@ -33,8 +33,9 @@ defmodule Letflow.PlatformFunctions.Guard do
   ## What it does NOT do
 
   It does not run the function and it does not decide the result: the step
-  library (gap G1) owns the dispatcher. This module is the fence the
-  dispatcher calls before it does anything.
+  library (gap G1) owns the dispatcher. `authorize_dispatch/1` has no production
+  caller yet; it is the fence G1's dispatcher must call before it does anything,
+  and its tests pin that contract in advance.
 
   Fail closed: every refusal is an error tuple, never a raise (INV-8).
   """

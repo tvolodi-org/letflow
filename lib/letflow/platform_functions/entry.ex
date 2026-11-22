@@ -161,8 +161,9 @@ defmodule Letflow.PlatformFunctions.Entry do
   end
 
   @doc """
-  One entry's own checks: a name, a permission, the platform flag, and inputs
-  whose source class is one of the three known ones.
+  One entry's own checks: a name, a permission, the platform flag, inputs
+  whose source class is one of the three known ones, and no `:person` input on
+  a write-like entry.
   """
   @spec validate!(t()) :: :ok
   def validate!(%__MODULE__{} = entry) do
@@ -185,6 +186,10 @@ defmodule Letflow.PlatformFunctions.Entry do
       other ->
         raise "platform function entry #{entry.name} has a malformed input: #{inspect(other)}"
     end)
+
+    if write_like?(entry) and Enum.any?(entry.inputs, &(&1.source_class == :person)) do
+      raise "platform function entry #{entry.name} is write-like and may not declare a :person input"
+    end
 
     :ok
   end

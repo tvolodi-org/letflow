@@ -113,5 +113,40 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
       assert Entry.write_like?(entry)
       assert Enum.all?(entry.inputs, &(&1.source_class != :person))
     end
+
+    test "catalogue validation refuses a write-like entry with a person input" do
+      entry = entry_with_source(:person, :write_tenant_registry)
+
+      assert_raise RuntimeError, ~r/write-like.*:person/, fn ->
+        Entry.validate_catalogue!([entry])
+      end
+    end
+
+    test "catalogue validation still allows a person input on a read-only entry" do
+      assert Entry.validate_catalogue!([entry_with_source(:person, :read)]) == :ok
+    end
+  end
+
+  defp entry_with_source(source_class, side_effect_class) do
+    %Entry{
+      name: "example.call",
+      family: :platform,
+      version: "1.0.0",
+      inputs: [
+        %Entry.Input{
+          name: "value",
+          type: :string,
+          required: true,
+          source_class: source_class
+        }
+      ],
+      outputs: [],
+      permission: :TenantsManage,
+      side_effects: [
+        %Entry.SideEffect{text: "an example side effect", class: side_effect_class}
+      ],
+      idempotency_key: ["value"],
+      platform_tenant_only: true
+    }
   end
 end
