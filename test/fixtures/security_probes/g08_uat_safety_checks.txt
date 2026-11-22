@@ -1,0 +1,13 @@
+# G-08: the safety checks of the UAT runner, as the probe's scenario observes them.
+# One line per check kind: kind | run | replay | note.
+# "yes" = the path makes the check, "no" = it does not, "except" = a reviewed divergence: the run makes the
+# check, the replay does not, and the note says why.
+# The scenario of the probe: one company tenant and one platform tenant, a stable build and an expected
+# build (--build-sha). Every line is reviewed: a new check of the runner needs a line here.
+health | yes | yes | the deployment answers with a build sha
+build_sha | yes | except | the expected build is an option of the run command; the cleanup command has none, so the replay judges the build that is deployed
+stable | yes | except | a run waits for a stable build before its first step; a replay judges the deployment that is already there and must clean up even when it is broken
+tenant | yes | yes | every tenant of the run answers before the first step
+token | yes | yes | a token for every actor of every tenant of the run
+build | yes | yes | the build must not move while the runner works
+residue | yes | yes | the documents, the open tasks, the watched definitions, the watched instances and the throwaway tenants

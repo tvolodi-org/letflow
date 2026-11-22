@@ -305,7 +305,10 @@ class PerProcessCleanup(ChainCase):
 
 class CleanupReplay(ChainCase):
     def abort_after_the_steps(self):
-        """A run that died after BP-01 posted: the steps ran, the cleanup did not."""
+        """A run that died after BP-01 posted: the steps ran, the cleanup did not.
+
+        A real run records the residue baseline and what it promises its cleanup replay before the first step
+        (G-08): the replay of the run dir judges the run against them."""
         process = runner.load_process(PROCESS_FILE)
         r = runner.Runner([process], base_url=self.base, tenant="qoimeks-qa2", actors=USERS, run_dir=self.run_dir,
                           inputs=dict(INPUTS), poll_interval=0.01, out=io.StringIO())
@@ -313,6 +316,8 @@ class CleanupReplay(ChainCase):
         r.save_meta("now")
         ok, _ = r.preflight()
         self.assertTrue(ok)
+        self.assertTrue(r.record_residue_baseline())
+        r._save_safety_expectations()
         self.assertTrue(r.run_process(process))
         return r
 
@@ -355,9 +360,14 @@ class CleanupReplay(ChainCase):
         del recorded[0]["ctx"]["posted_doc_id"]
         (self.run_dir / "cleanup.json").write_text(json.dumps(recorded))
         code, out, err = self.main("cleanup", str(self.run_dir), "--poll-interval", "0.01")
-        self.assertEqual(code, 0, out + err)
         self.assertEqual(self.state.calls("POST", "/reverse"), [])
         self.assertEqual({x["verdict"] for x in self.lines() if x["phase"] == "cleanup"}, {"skipped"})
+        # the receipt the run posted is still there: the replay cannot clean it up and says so (the residue
+        # check of the replay judges the run against the baseline the run recorded)
+        self.assertEqual(code, 1, out + err)
+        row = next(x for x in self.lines() if x["step"] == "tenant residue check")
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("document R-doc-1", row["error"])
 
     def test_replay_of_a_directory_without_a_record_is_a_usage_error(self):
         self.run_dir.mkdir(parents=True)

@@ -77,6 +77,13 @@ STANDARD_IDENTITY_PIN_TESTS = [
 STANDARD_BP_DOC_TEST = [
     "test/scripts/bp_doc_test.exs",
 ]
+# D-184/D-186: the security probes are mandatory on every bounded run: they are the mechanical
+# half of the security gates (the coverage map in the team repository names the open gaps).
+# Their module is also tagged security_probe for the operator's tagged checks hook.
+# G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+STANDARD_SECURITY_PROBE_TESTS = [
+    "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
 # Keep the family spelling used by risk_tests: the authority scan forbids the
@@ -446,7 +453,12 @@ def read_manifest(path):
 
 
 def safety_tests(all_tests):
-    return set(SINGLE_MODULE_PIN_TESTS + STANDARD_IDENTITY_PIN_TESTS + STANDARD_BP_DOC_TEST) & set(all_tests)
+    return set(
+        SINGLE_MODULE_PIN_TESTS
+        + STANDARD_IDENTITY_PIN_TESTS
+        + STANDARD_SECURITY_PROBE_TESTS
+        + STANDARD_BP_DOC_TEST
+    ) & set(all_tests)
 
 
 def inventory_tests(changed, all_tests, root):

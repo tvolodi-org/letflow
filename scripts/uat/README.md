@@ -407,8 +407,11 @@ chain (the cleanups of the fixtures still at the end).
 The run records every cleanup list, with the context it needs, in `cleanup.json` of the run directory as it goes,
 and what it needs to log in again in `meta.json`. If the run died (a crash, a kill), `runner.py cleanup <run-dir>`
 logs in again, replays the lists not yet `done` newest first, and writes `summary-cleanup.md`. It never touches
-`context.json`. Replaying twice does nothing the second time. Known limit: a document issued but not yet posted when
-the run died is not cancelled by a cleanup that needs `posted_doc_id`; cancel it by hand.
+`context.json`. Replaying twice does nothing the second time. The replay makes the same safety checks as the
+run itself (the preflight of every tenant, the build that must not move, the residue check) and judges the run
+against the baselines the run promised in `safety.json`; a baseline that is gone fails the replay closed (exit 1,
+the row `tenant residue check` says that the replay cannot judge the run). Known limit: a document issued but not
+yet posted when the run died is not cancelled by a cleanup that needs `posted_doc_id`; cancel it by hand.
 
 ### Issues (`--file-issues`)
 
@@ -476,7 +479,9 @@ checked against `shared_stock_access.ex`); a chain whose process file is missing
 * `context.json`: the run's shared inputs, fixture values and explicitly passed values, plus all declared outputs in
   the final report. Private working values of one process never become another process's inputs. It holds no token and
   no shared access value.
-* `cleanup.json`, `meta.json`: what `runner.py cleanup` replays (section 3). `issues.json`: the issues filed.
+* `cleanup.json`, `meta.json`: what `runner.py cleanup` replays (section 3). `safety.json`: what the run promises
+  its cleanup replay (the baselines the replay has to find and the platform watch it has to keep). `issues.json`:
+  the issues filed.
 
 Nothing secret is written: tokens and shared access values are kept in memory, never put in the log, and every one
 the runner has seen is replaced by `***` in every file before it is written. Secret-looking fields (password, passwd,
@@ -573,6 +578,13 @@ timeout) also FAILS with `tenant residue check` and `baseline unavailable` or `f
 never passed or skipped. `runner.py cleanup <run dir>` reads `residue_before.json` and runs the same comparison after
 the replay, so an interrupted run is judged too. `"residue_check": false` in a chain or process file turns it off
 (default on).
+
+**What the run promises its cleanup replay.** The run writes `safety.json` in the run dir: the baselines the
+replay has to find (`residue_tenants`, `platform_tenants`) and the platform watch it has to keep (`watch`). A
+replay that cannot find one of them **fails closed**: the row `tenant residue check` says that the replay
+cannot judge the run and the replay exits 1. It never passes a run it cannot judge (the T-2606 defect: the
+replay omitted the platform residue check and reported PASS with an instance still ACTIVE). The cleanup itself
+still runs: the replay undoes what it can and then says that it cannot judge the rest.
 
 **The platform tenants.** An actor object (the platform administrator) lives on the platform tenant, and what a
 platform run can leave behind there is not a document but a **tenant**: the runner lists the tenant registry
