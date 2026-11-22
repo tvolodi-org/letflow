@@ -48,6 +48,23 @@ defmodule Letflow.Definitions.NotifyCalls do
   dispatcher both read the declaration through it, so a step that passed
   activation cannot be read differently at dispatch time. It never queries,
   never raises and never logs the attribute it was given.
+
+  ## Extension point (owner decision D-180, not built here)
+
+  A standard definition is LOCKED for everyone inside its tenant, and a tenant
+  may later FORK it into its own copy (`custom`, recording
+  `based_on: <standard key>@<version>`); a per-tenant binding then says which
+  definition runs.
+
+  This step adds a definition FIELD (the `notify` attribute of a node), and it
+  needs NO column and NO map for `based_on` or `custom`: the attribute travels
+  with the definition document, so a forked copy carries the same `notify`
+  declaration in its own copy, and the delivery row references neither the
+  definition nor the address (INV-4).
+
+  Nothing here assumes that a definition is editable by whoever sees it, nor
+  that a tenant has exactly one definition per key: the template key and the
+  rules are read from the definition that is active for the instance.
   """
 
   alias Letflow.Definitions.Graph

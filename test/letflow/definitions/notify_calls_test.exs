@@ -33,10 +33,6 @@ defmodule Letflow.Definitions.NotifyCallsTest do
     }
   end
 
-  defp codes(declaration) do
-    codes(declaration, :SERVICE_TASK, %{}, [])
-  end
-
   defp codes(declaration, node_type, extra, extra_nodes) do
     the_node = notify_node(declaration, node_type, extra)
 

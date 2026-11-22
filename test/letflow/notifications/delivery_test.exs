@@ -32,7 +32,7 @@ defmodule Letflow.Notifications.DeliveryTest do
     # the notification step records `rate_limited` and sends nothing.
     assert Delivery.reasons() == ~w(no_email adapter_noop adapter_error rate_limited)
 
-    assert Delivery.changeset(Map.merge(@valid, %{status: "skipped", reason: "rate_limited"})).valid?()
+    assert Delivery.changeset(Map.merge(@valid, %{status: "skipped", reason: "rate_limited"})).valid?
   end
 
   test "D2 the CHECK constraints refuse the same rows" do

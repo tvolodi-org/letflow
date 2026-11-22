@@ -21,6 +21,11 @@
 #
 # No row is rewritten: the rows written before this migration keep their reason, which is
 # still in the new set. Replay is a no-op.
+#
+# EXTENSION POINT (owner decision D-180, not built here): a standard definition is LOCKED
+# and a tenant may later FORK it into its own copy (`custom`, `based_on`). This table
+# needs NO column for that: the row references the tenant and the template key, never the
+# definition, and a forked copy is a different definition row.
 defmodule Letflow.Repo.Migrations.AddRateLimitedNotificationReason do
   use Ecto.Migration
 

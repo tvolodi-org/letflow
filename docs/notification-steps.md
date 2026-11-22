@@ -81,6 +81,15 @@ sent. The row holds no address, no subject and no body (INV-4).
   atom) and the file channel (gap G12);
 * the designer fields (gap G5).
 
+## Extension point (owner decision D-180, not built here)
+
+A tenant may later FORK a standard definition into its own copy (`custom`, `based_on`, and a
+per-tenant binding of which definition runs). The notification step needs NO column and NO map
+for that: the `notify` attribute travels with the definition document, so a forked copy carries
+the same declaration in its own copy, and the delivery row references neither the definition nor
+the address. Nothing in this change assumes that a definition is editable by whoever sees it, or
+that a tenant has exactly one definition per key.
+
 ## The tests
 
 * `test/letflow/notification_steps/dispatcher_test.exs` -- the send, the cap
