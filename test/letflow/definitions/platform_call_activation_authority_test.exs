@@ -126,16 +126,7 @@ defmodule Letflow.Definitions.PlatformCallActivationAuthorityTest do
              )
 
     # a second version carrying the same platform call, switched on by the platform admin
-    {:ok, v2} =
-      Definitions.create(
-        %{
-          name: key,
-          version: "2",
-          graph: Fx.graph(create_call()),
-          created_by: Ecto.UUID.generate()
-        },
-        prefix: ctx.tenant.schema_name
-      )
+    v2 = Fx.version!(ctx.tenant.schema_name, Fx.graph(create_call()), key, "2")
 
     assert {:ok, _} =
              Definitions.activate(v2.id,

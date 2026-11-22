@@ -290,6 +290,19 @@ defmodule Letflow.Definitions.Graph do
             # and a platform-call node has no HTTP, catalogue-service or script route.
             | :platform_call_not_allowed
             | :conflicting_platform_call_routes
+            # T-2594 (pilot gap G13): the TYPED STEP MAPPING of a step that maps
+            # variables -- the declared reads and writes against the definition's
+            # own `variable_schemas`, the reserved engine namespace, and the
+            # variables a person may write.
+            | :step_mapping_declaration_missing
+            | :step_mapping_declaration_malformed
+            | :step_mapping_reserved_refused
+            | :step_mapping_variable_undeclared
+            | :step_mapping_type_mismatch
+            | :step_mapping_entry_type_mismatch
+            | :step_mapping_write_refused
+            | :step_mapping_write_not_declared
+            | :step_mapping_read_undeclared
 
     @type t :: %__MODULE__{
             code: code(),
