@@ -131,6 +131,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"docs/status/requirement_status.index.yaml", true, true},
     {"docs/status/work_board_cutover.yaml", true, true},
     {"docs/roles.md", true, true},
+    {"docs/security-advisories.md", true, true},
     {"docs/runbooks/x.md", true, false},
     {"docs/frontend/x-ui-widget-vocabulary.md", true, true},
     {"docs/migration/stage-7-simulation-uat-parity.md", true, true},
@@ -460,6 +461,14 @@ defmodule Letflow.CiBackendPathFilterTest do
 
       assert {"docs/roles.md", true} in table_violations(re)
       assert "docs/roles.md" in Enum.map(violations(re), &elem(&1, 0))
+    end
+
+    test "dropping the docs/security-advisories.md alternative is reported by table and scan" do
+      src = regex_source() |> drop_alternative(~S{docs/security-advisories\.md$})
+      re = compile!(src)
+
+      assert {"docs/security-advisories.md", true} in table_violations(re)
+      assert "docs/security-advisories.md" in Enum.map(violations(re), &elem(&1, 0))
     end
 
     test "dropping the handoffs/registry.json alternative is reported" do
