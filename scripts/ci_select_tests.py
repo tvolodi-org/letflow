@@ -464,6 +464,11 @@ def inventory_tests(changed, all_tests, root):
             ("priv/", "config/", "scripts/", ".github/", "deploy/", "rel/")
         ) or path == "mix.exs":
             required.add(FLAG_AUTHORITY_TEST)
+        # T-2606 (G18): the UAT runner and the static check of the process files are Python tooling whose
+        # only coverage is their own stdlib suite; a change of that tooling must run it (the test runs the
+        # whole suite). It is a mandatory check, not a candidate: it may not be deferred to the nightly run.
+        if path.startswith("scripts/uat/"):
+            required.add("test/scripts/uat_tooling_test.exs")
     return required & set(all_tests)
 
 
