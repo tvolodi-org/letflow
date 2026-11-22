@@ -507,9 +507,12 @@ defmodule Letflow.Plugs.CorsTest do
     end
 
     test "C2 a company origin is allowed on its OWN host and on no other host" do
-      for host <- ~w(acme.ai-letflow.com acme.qa.ai-letflow.com acme.qa.bizdala.com) do
-        origin = "https://#{host}"
-
+      for {host, origin} <- [
+            {"acme.ai-letflow.com", "https://acme.ai-letflow.com"},
+            {"acme.qa.ai-letflow.com", "https://acme.qa.ai-letflow.com"},
+            {"acme.qa.bizdala.com", "https://acme.qa.bizdala.com"},
+            {"acme.ai-letflow.com", "https://acme.ai-letflow.com:443"}
+          ] do
         actual =
           conn(:get, "https://#{host}/health") |> put_req_header("origin", origin) |> call()
 

@@ -72,7 +72,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 
 | Setting | Required in :prod | When unset | Source |
 |---|---|---|---|
-| `CORS_ALLOWED_ORIGINS` | no (the app's own origins; a company's own host needs no entry since T-2621) | the exact list is empty; only a company origin on its OWN host is allowed (the CORS decision is per host) | `config/runtime.exs` (REQ-118, T-2621) |
+| `CORS_ALLOWED_ORIGINS` | no (the app's own origins; a company's own host needs no entry since T-2621 — a LISTED origin is allowed on EVERY host, so list the app's own origins only) | the exact list is empty; only a company origin on its OWN host is allowed (the CORS decision is per host) | `config/runtime.exs` (REQ-118, T-2621) |
 | `DATABASE_URL` | yes | raises at boot (prod block) | `config/runtime.exs` |
 | `LETFLOW_AUTH_FAILURES_PER_MIN` | no | nothing written; the limiter keeps its built-in defaults; a non-positive-integer value raises | `config/runtime.exs`, `Letflow.Plugs.AuthAttemptLimit` |
 | `LETFLOW_BACKUP_STATUS_DIR` | no | nil: the readiness answer says backup status is "not configured here" | `config/runtime.exs`, `docs/runbooks/backup-restore.md` |

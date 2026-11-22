@@ -10,8 +10,12 @@ defmodule Letflow.Plugs.Cors do
 
   See `lib/letflow/design/req118-cors.md` for the full design and reasoning
   (CODE-DESIGN-VALIDATOR-approved) — summarized here. The per-host rule of
-  T-2621 below supersedes that record's company-suffix rule (the defect this
-  change fixes):
+  T-2621 below supersedes that record's decision-table row "Origin present,
+  not in allowlist → pass through unchanged — no CORS headers added, no halt
+  (§0.5)": a host now grants its OWN origin even though that origin is not in
+  the allowlist. (The record carries no company-suffix rule; the guarded
+  suffix list it predates grants no CORS allowance at all — the defect this
+  change fixes.)
 
   * **No credentials, ever.** `web/src/api/client.ts` holds its bearer token
     in memory and sends it as an `Authorization: Bearer <token>` header —
@@ -33,20 +37,24 @@ defmodule Letflow.Plugs.Cors do
     served from); a listed origin is allowed on every host.
   * **The allow decision is taken PER HOST (T-2621).** An origin is allowed
     only when it is one of the app's own fixed origins (above) or when it IS
-    the host the request is addressed to — `https://<that host>`, the origin of
-    the host itself (same-origin). Nothing else is allowed: another company's
-    origin, an origin that is not this host, a lookalike suffix
-    (`evil-<suffix>`, `<suffix>.evil.test`) and every malformed origin get the
-    SAME answer an unknown origin gets. Before T-2621 the guarded provisioner
-    suffix list (`LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES`) permitted
-    HTTPS company origins, which meant "any origin under an allowed suffix is
-    allowed on EVERY host that reaches the app": a preflight from one company
-    passed on another company's host and on the platform host. The suffix list
-    is a PROVISIONING policy (which hostname a company may be given); it
-    grants no CORS allowance at all now, and the decision does not depend on
-    it — a host grants an origin only when that origin is the host itself.
-    A preflight carries no tenant context, so the host is the only thing the
-    decision can be taken on.
+    the host the request is addressed to — `https://<that host>`, the origin OF
+    that host. The comparison is on the HOST NAME alone (the origin must be a
+    serialized `https://<host>` origin, default port 443), so this is a "same
+    host" grant, not a "same origin" one: behind the TLS-terminating proxy the
+    public scheme and port are not knowable from the conn. Nothing else is
+    allowed: another company's origin, an origin that is not this host, a
+    lookalike suffix (`evil-<suffix>`, `<suffix>.evil.test`) and every
+    malformed origin get the SAME answer an unknown origin gets. Before T-2621
+    the guarded provisioner suffix list
+    (`LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES`) permitted HTTPS company
+    origins, which meant "any origin under an allowed suffix is allowed on
+    EVERY host that reaches the app": a preflight from one company passed on
+    another company's host and on the platform host. The suffix list is a
+    PROVISIONING policy (which hostname a company may be given); it grants no
+    CORS allowance at all now, and the decision does not depend on it — a host
+    grants an origin only when that origin is the host itself. A preflight
+    carries no tenant context, so the host is the only thing the decision can
+    be taken on.
   * **Rejection is silent, not a 403.** CORS is a browser-enforced,
     response-header-driven mechanism — the server's only lever is which
     headers it emits. An unlisted `Origin` gets no CORS headers at all and
@@ -236,6 +244,8 @@ defmodule Letflow.Plugs.Cors do
         _other ->
           nil
       end
+    else
+      nil
     end
   end
 
