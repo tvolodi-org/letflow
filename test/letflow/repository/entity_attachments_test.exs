@@ -367,6 +367,48 @@ defmodule Letflow.Repository.EntityAttachmentsTest do
       assert length(items_same_tenant) == 1
     end
 
+    test "rows older than 24 hours remain pageable" do
+      {schema, entity_type, record_id} =
+        provisioned_tenant_with_record("cursor-issue-time-entity")
+
+      entries =
+        for n <- 1..3 do
+          assert {:ok, entry} =
+                   EntityAttachments.upload(
+                     upload_attrs(
+                       entity_type: entity_type,
+                       record_id: record_id,
+                       raw_bytes: "old-#{n}"
+                     ),
+                     prefix: schema
+                   )
+
+          entry
+        end
+
+      old =
+        DateTime.utc_now()
+        |> DateTime.add(-2 * 86_400, :second)
+        |> DateTime.truncate(:microsecond)
+
+      ids = Enum.map(entries, & &1.id)
+
+      Repo.update_all(from(a in EntityAttachment, where: a.id in ^ids), [set: [created_at: old]],
+        prefix: schema
+      )
+
+      params = %{entity_type: entity_type, record_id: record_id, page_size: 1}
+
+      assert {:ok, %{items: [_], next_cursor: cursor1}} =
+               EntityAttachments.list(Map.put(params, :cursor, nil), prefix: schema)
+
+      assert {:ok, %{items: [_], next_cursor: cursor2}} =
+               EntityAttachments.list(Map.put(params, :cursor, cursor1), prefix: schema)
+
+      assert {:ok, %{items: [_], next_cursor: nil}} =
+               EntityAttachments.list(Map.put(params, :cursor, cursor2), prefix: schema)
+    end
+
     test "cursor pagination walks at least two pages with no repeated ids, next_cursor is nil on the final page" do
       {schema, entity_type, record_id} = provisioned_tenant_with_record("ac-list-cursor")
 
