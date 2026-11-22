@@ -90,9 +90,146 @@
       "test/letflow/routers/platform_scope_routes_test.exs",
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
-    "scenario": null,
-    "uat": "planned: the runner has no platform-tenant actor on one base url; refusals are automated in BP-PLATFORM-16",
-    "status": "implemented"
+    "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
+    "uat": "skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "status": "implemented",
+    "acceptance": [
+      {
+        "n": 1,
+        "item": "Definition: the process is an ordinary editable, versioned definition in the platform tenant",
+        "today": "PARTIAL: the engine runs and versions definitions in the platform tenant (draft, active, deprecated); no registration definition exists, the process is route code",
+        "target": "definition platform.register_tenant exists in the platform tenant, not module-stamped, v1 active after the seed, every edit a new draft",
+        "proof": "runner step: GET definitions on the platform tenant shows the key with its versions (step blocked until G9/G10); source: lib/letflow/routers/definitions.ex:322",
+        "gap": "G9",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 2,
+        "item": "It works: executed by the BPM engine, started from the 'Register tenant' screen and the API, no direct code path",
+        "today": "MISSING: the screen posts to the onboarding route and POST /api/v1/tenants; both call Identity.create_tenant and TenantOnboarding.provision_and_migrate directly",
+        "target": "both starts create an instance of the active version and answer 202 with the instance id; nodes in order: validate, create tenant, provision schema and migrate, bind realm and administrators, notify by e-mail, end",
+        "proof": "runner steps s1..s6 of the skeleton (instance timeline lists the nodes in order); source-scan test of item 9",
+        "gap": "G1, G2, G3, G13",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 3,
+        "item": "A test script for the UAT runner, readable scenario JSON",
+        "today": "PARTIAL: the runner and its readable process files exist; no file for this process and no runner step that reads the mail trap existed before the wait_mail step",
+        "target": "test/uat/processes/BP-PLATFORM-01-register-tenant.json covers items 2, 6, 7 and 8",
+        "proof": "doc: the skeleton file (this task, dry_run blocked_by pilot-not-built); python3 scripts/uat/check_processes.py on it",
+        "gap": "G10, G18",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 4,
+        "item": "The runner executes it and keeps an execution log (per step: who, when, result, duration)",
+        "today": "EXISTS in the runner: run.jsonl has one line per step with ts, actor, verdict, ms, plus summary.md; the product-side step log per node is missing",
+        "target": "a run leaves run.jsonl and summary.md; the instance timeline shows the same steps with who, when, result, duration, attempts",
+        "proof": "runner output (run.jsonl, summary.md) read by the walk; product side: step-log test of G6",
+        "gap": "G6",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 5,
+        "item": "No fails: the runner passes twice in a row on one build with the residue check; no open high or medium finding",
+        "today": "PARTIAL: two-run procedure and residue check exist for tasks and documents of a company tenant, not for created tenants, definition versions or platform instances",
+        "target": "the second run finds no residue: created tenants deleted and purged, definition back on its previous version, no instance open",
+        "proof": "runner: two consecutive dry-runs on one build with the platform_residue block (definitions, instances); finding list empty of high and medium",
+        "gap": "G18, G21",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 6,
+        "item": "Configurability proof: the runner edits the definition through the designer API (adds the e-mail and 'file' notification steps), starts again, the mail and the file appear, one-step rollback; plus one Playwright test of the designer",
+        "today": "PARTIAL: one-step rollback exists (POST /api/v1/definitions/:process_key/rollback); the notify step, its designer fields and the file area are missing; the only Playwright CI job runs a fixed spec list, so a designer spec runs nowhere in CI",
+        "target": "start without notify step and see it end; draft with notify (e-mail to a catcher address and file) activated; second start: mail in the trap and file downloadable, first instance stays on v1; rollback; third start sends no mail",
+        "proof": "runner steps s7..s14 of the skeleton (wait_mail step); Playwright test of the designer on this definition (web/tests/e2e, to be added to a listed spec); source: lib/letflow/routers/definitions.ex:344",
+        "gap": "G4, G5, G8, G12, G19",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 7,
+        "item": "Step failures are visible and retryable (DLQ and step log); no secrets in the log",
+        "today": "PARTIAL: a failure is visible (DLQ row, instance ERROR, EXECUTION_ERROR event) but a DLQ retry re-dispatches nothing; delivery rows store no address or body (INV-4)",
+        "target": "a forced failure of the provision step leaves the instance in ERROR with the step and failure kind in the timeline and a DLQ entry; the platform admin retries it and the instance ends; a retry of a finished step changes nothing; no token, realm credential or mail body in any event, DLQ payload, timeline answer or run.jsonl line",
+        "proof": "runner steps s15..s18 of the skeleton; G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex:99",
+        "gap": "G6, G7",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 8,
+        "item": "Security: only the platform admin starts or edits it; company users get the uniform 404/403; the definition calls only catalogue functions it is allowed to",
+        "today": "PARTIAL: TenantsManage gates tenant creation and the uniform refusal pattern exists (BP-PLATFORM-16, -17, -20); no catalogue of functions and no allow-list exist",
+        "target": "start, create or activate a version, rollback and read the instances need TenantsManage in the platform tenant; company administrator and user get the same refusal, also cross-tenant; activation refuses an unknown function with a fixed code; a company-tenant definition cannot carry a platform step",
+        "proof": "runner steps s19..s22 of the skeleton (expect_refused); route tests test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
+        "gap": "G1, G2",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 9,
+        "item": "No bypass: the old direct registration paths are not a second way around the process",
+        "today": "MISSING: five paths create a tenant (see tenant_creating_paths); each calls the create and provision functions itself",
+        "target": "paths 1 to 4 become starts of the one definition; only the seed task keeps a direct call; no other caller of the create and provision functions in lib/",
+        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; runner step s23",
+        "gap": "G17",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 10,
+        "item": "The template page 'how to turn a business function into a real process'",
+        "today": "PARTIAL: a draft exists in the spike document (section 6); the page is not in the product",
+        "target": "docs/bp/process-template.md exists in the product, rewritten from what the pilot built; this row says 'definition' with its key and links the page",
+        "proof": "doc: the page file (planned, not yet on main) and the executed_by value of this row; check_catalog PASS",
+        "gap": "G20",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      }
+    ],
+    "executed_by": "direct",
+    "executed_by_target": "definition:platform.register_tenant",
+    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (planned, not yet on main). No definition exists today.",
+    "tenant_creating_paths": [
+      {
+        "n": 1,
+        "path": "POST /api/v1/onboarding, the 'Register tenant' screen (web/src/router.tsx:161)",
+        "calls": "lib/letflow/routers/onboarding.ex:516 Identity.create_tenant, :599 provision_and_migrate; then the onboarding record",
+        "today": "validates the form, creates the tenant and its schema directly, answers with the onboarding record",
+        "becomes": "a start of platform.register_tenant, answer 202 with the instance id (G3)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 2,
+        "path": "POST /api/v1/tenants (permission TenantsManage)",
+        "calls": "lib/letflow/routers/tenants.ex:404 Identity.create_tenant, :417 provision_and_migrate",
+        "today": "creates the tenant and provisions it directly, answers 201 (500 on provisioning failure, no rollback)",
+        "becomes": "the API start of the same definition, answer 202 with instance id and tenant id; the 201 scenarios change (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 3,
+        "path": "POST /admin/v1/tenants, the portfolio provisioner mount (QA only, decision 0072)",
+        "calls": "lib/letflow/routers/admin_v1.ex:76 TenantProvisioner.create/1 -> lib/letflow/tenant_provisioner.ex:313 create_provisioned_tenant",
+        "today": "chain provision, onboarding record, pending administrator grant, realm probe, default modules; replay by tenant_id",
+        "becomes": "a start with tier demo; replay by tenant_id answers the existing instance; the provisioner contract needs one amendment (answer 202, poll the existing GET) (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 4,
+        "path": "Self-service signup, POST /signup/verify (lib/letflow/signup.ex:161 Provisioning.start_async/1; resumed by signup/sweep.ex)",
+        "calls": "lib/letflow/signup/provisioning.ex:264 TenantProvisioner.create/1",
+        "today": "creates the tenant asynchronously after the e-mail is verified",
+        "becomes": "the signup step create_tenant starts the instance instead of the direct call; its welcome mail moves to the notify step later, not in the pilot (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 5,
+        "path": "mix letflow.seed, dev/test bootstrap (and scripts/demo/demo_platform_bootstrap.sh)",
+        "calls": "lib/mix/tasks/letflow.seed.ex:46 Identity.create_tenant, :73 provision_and_migrate",
+        "today": "creates the platform tenant itself",
+        "becomes": "kept as a direct call, with a stated reason: it runs before any definition can exist and Mix tasks are not in the release; test fixtures in test/support also stay",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      }
+    ]
   },
   {
     "id": "BP-PLATFORM-02",
