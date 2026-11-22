@@ -13,7 +13,10 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
       byte cap, before anything is written (SF-01);
     * the body refuses a tenant that is not provisioned: the grant lives in
       the tenant's own schema, so an unprovisioned tenant has nowhere to put
-      it.
+      it;
+    * the body's grant is audited as a SYSTEM write: no actor in either
+      chain, the explicit `created_via` marker, and no address in the entry
+      (INV-4).
 
   `async: false`: the platform tenant pin is application configuration, which
   is VM-global.
@@ -23,6 +26,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
 
   import Ecto.Query
 
+  alias Letflow.Audit.Entry
   alias Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins
   alias Letflow.PlatformFunctions.Registry
   alias Letflow.Support.PlatformTenantFixture, as: PlatformFx
@@ -43,6 +47,12 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
 
   defp grants(prefix) do
     from(g in "pending_tenant_admin_grants", select: g.id) |> Repo.all(prefix: prefix)
+  end
+
+  # Every audit entry of one action in one schema: the actor and the state
+  # the entry carries.
+  defp audit_entries(schema_name, action) do
+    Repo.all(from(e in Entry, where: e.action == ^action), prefix: schema_name)
   end
 
   test "G1 the body is registered and the catalogue declares it" do
@@ -88,5 +98,27 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
 
   test "G7 a value that is not a UUID is refused before the database sees it" do
     assert {:error, :platform_call_arg_invalid} = run("not-a-uuid", @email)
+  end
+
+  test "G8 the step's grant is audited as a SYSTEM write and carries no address",
+       %{platform: platform, tenant: tenant} do
+    assert {:ok, %{}} = run(tenant.tenant_id, @email)
+
+    # The tenant chain: no actor (a step runs outside any person's request)
+    # and the explicit marker of who wrote it.
+    assert [tenant_entry] = audit_entries(tenant.schema_name, "tenant.admin_grant.created")
+    assert tenant_entry.actor_id == nil
+    assert tenant_entry.after_state["created_via"] == "provisioning"
+
+    # The platform chain: no actor either, and the same marker.
+    assert [platform_entry] =
+             audit_entries(platform.schema_name, "platform.tenant_admin_grant.created")
+
+    assert platform_entry.actor_id == nil
+    assert platform_entry.after_state["created_via"] == "provisioning"
+
+    # The address is never written to an audit entry (INV-4).
+    refute inspect(tenant_entry) =~ @email
+    refute inspect(platform_entry) =~ @email
   end
 end

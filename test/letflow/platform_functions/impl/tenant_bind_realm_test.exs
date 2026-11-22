@@ -12,6 +12,11 @@ defmodule Letflow.PlatformFunctions.Impl.TenantBindRealmTest do
       audited ONCE;
     * the body refuses a DIFFERENT realm for a tenant that already has one
       (the step never replaces a realm behind the operator's back);
+    * the body refuses a realm ANOTHER tenant holds (the realm is the
+      identity provider's, so it belongs to one tenant only);
+    * the body's bind is audited as a SYSTEM write: no actor in either
+      chain, the explicit `actor_class` marker in the tenant chain, and no
+      customer text in the entry;
     * the body refuses a realm over its byte cap before anything is written
       (SF-01), a tenant that does not exist, and a value that is not a UUID.
 
@@ -23,6 +28,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantBindRealmTest do
 
   import Ecto.Query
 
+  alias Letflow.Audit.Entry
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformFunctions.Impl.TenantBindRealm
   alias Letflow.PlatformFunctions.Registry
@@ -53,6 +59,12 @@ defmodule Letflow.PlatformFunctions.Impl.TenantBindRealmTest do
       select: e.id
     )
     |> Repo.all(prefix: platform_prefix)
+  end
+
+  # Every audit entry of one action in one schema: the actor and the state
+  # the entry carries.
+  defp audit_entries(schema_name, action) do
+    Repo.all(from(e in Entry, where: e.action == ^action), prefix: schema_name)
   end
 
   test "B1 the body is registered and the catalogue declares it" do
@@ -102,5 +114,35 @@ defmodule Letflow.PlatformFunctions.Impl.TenantBindRealmTest do
 
   test "B7 a value that is not a UUID is refused before the database sees it" do
     assert {:error, :platform_call_arg_invalid} = run("not-a-uuid", @realm)
+  end
+
+  test "B8 a realm ANOTHER tenant holds is refused", %{tenant: tenant} do
+    other = TenantFixture.provisioned_tenant!(slug_prefix: "t2590-bind2")
+
+    assert {:ok, %{}} = run(tenant.tenant_id, @realm)
+
+    # The realm belongs to the first tenant now: the second one is refused
+    # and keeps no realm at all.
+    assert {:error, :platform_call_duplicate_realm} = run(other.tenant_id, @realm)
+    assert is_nil(bound_realm(other.tenant_id))
+  end
+
+  test "B9 the step's bind is audited as a SYSTEM write", %{platform: platform, tenant: tenant} do
+    assert {:ok, %{}} = run(tenant.tenant_id, @realm)
+
+    # The tenant chain: no actor (a step runs outside any person's request)
+    # and the explicit marker of who wrote it.
+    assert [tenant_entry] = audit_entries(tenant.schema_name, "tenant.idp_realm.bound")
+    assert tenant_entry.actor_id == nil
+    assert tenant_entry.after_state["actor_class"] == "provisioner"
+    assert tenant_entry.after_state["idp_realm_id"] == @realm
+
+    # The platform chain: no actor either.
+    assert [platform_entry] =
+             audit_entries(platform.schema_name, "platform.tenant_idp_realm.bound")
+
+    assert platform_entry.actor_id == nil
+    assert platform_entry.after_state["tenant_id"] == tenant.tenant_id
+    assert platform_entry.after_state["idp_realm_id"] == @realm
   end
 end

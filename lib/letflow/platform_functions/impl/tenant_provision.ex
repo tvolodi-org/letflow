@@ -42,6 +42,22 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvision do
   reaches the database: a value that is not a UUID is refused
   (`platform_call_arg_invalid`), never cast by the database layer (INV-8).
 
+  ## A purged tenant is never provisioned again
+
+  A tenant that was purged has no schema any more -- the purge dropped it,
+  and the purge's marker (`tenant_lifecycles.purged_at`) is never cleared.
+  Provisioning such a tenant would re-create what the purge removed and
+  would make it `:active` again, so the shared sequence refuses it
+  (`platform_call_tenant_purged`) BEFORE the first write: the very first act
+  of a provisioning is `CREATE SCHEMA IF NOT EXISTS`.
+
+  The refusal is the ROUTE's rule too, not a rule of the step: the route
+  path (`POST /tenants/:slug/reactivate`, `Letflow.Identity.
+  reactivate_tenant/1`) answers `{:error, :tenant_purged}` for the same
+  tenant, and the check sits in the shared sequence
+  (`Letflow.TenantOnboarding.provision_and_migrate/1`), so the route, the
+  provisioner, the recovery path and this step all carry it.
+
   ## What it never does
 
   It never raises (INV-8): every failure is an `{:error, code}` with a code
@@ -55,6 +71,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvision do
   @type refusal ::
           :platform_call_arg_invalid
           | :platform_call_tenant_not_found
+          | :platform_call_tenant_purged
           | :platform_call_provision_failed
 
   @doc """
@@ -97,6 +114,9 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvision do
 
       {:error, :tenant_not_found} ->
         {:error, :platform_call_tenant_not_found}
+
+      {:error, :tenant_purged} ->
+        {:error, :platform_call_tenant_purged}
 
       {:error, _reason} ->
         {:error, :platform_call_provision_failed}

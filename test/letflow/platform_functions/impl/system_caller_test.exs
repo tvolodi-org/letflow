@@ -5,11 +5,15 @@ defmodule Letflow.PlatformFunctions.Impl.SystemCallerTest do
 
   What the tests prove:
 
-    * the actor a system call writes is the nil UUID -- the codebase's own
-      "not a user" literal, never an invented user id;
     * the platform prefix comes from the server's own configuration, and a
       platform tenant that is not configured is refused (the body never
       invents a schema).
+
+  The audited rows of a step carry NO actor: the product's own system paths
+  write them, and the marker that says "a system wrote this" is in the entry
+  (`actor_class` / `created_via`) -- the bodies' own tests read those rows
+  back (`tenant_bind_realm_test.exs` B9, `tenant_grant_first_admins_test.exs`
+  G8).
 
   `async: false`: the platform tenant pin is application configuration, which
   is VM-global.
@@ -20,10 +24,6 @@ defmodule Letflow.PlatformFunctions.Impl.SystemCallerTest do
   alias Letflow.PlatformFunctions.Impl.SystemCaller
   alias Letflow.Support.PlatformTenantFixture, as: PlatformFx
   alias Letflow.TenantFixture
-
-  test "S1 the actor is the system's literal id, never a person" do
-    assert SystemCaller.actor_id() == "00000000-0000-0000-0000-000000000000"
-  end
 
   test "S2 the platform prefix is the configured platform tenant's schema" do
     platform = TenantFixture.provisioned_tenant!(slug_prefix: "t2590-sys")

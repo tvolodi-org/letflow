@@ -41,6 +41,15 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins do
   the RFC's limit in octets, and the same limit the normaliser applies. The
   tenant id is checked as a UUID before it reaches the database (INV-8).
 
+  ## Where the address lands
+
+  The address is never written to an audit entry and never logged (INV-4).
+  It IS written to the dispatch row's own `inputs` column: the dispatcher
+  stores the resolved arguments of the call it runs, and the row lives in
+  the platform tenant's schema. That is a personal datum in the platform's
+  own database, so the pilot's threat model names it (gap G6, the step log,
+  reads that row).
+
   ## What it never does
 
   It never raises (INV-8): every failure is an `{:error, code}` with a code

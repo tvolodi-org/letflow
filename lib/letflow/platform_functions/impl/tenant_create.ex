@@ -27,11 +27,22 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
 
     * the tenant with that slug exists and carries the same display name --
       the first result is returned (the same `tenant_id`), and no row is
-      written;
+      written. The tenant is ADOPTED: it may be one this step created, or
+      one that already existed. An existing tenant that is not `:active` is
+      activated by the chain's next step (`tenant.provision`) -- the same
+      activation `POST /tenants/:slug/reactivate` performs, and the
+      operator's own authority (`:TenantsManage` in the platform tenant)
+      covers it. The ROUTE refuses the same slug with a 409, so the step and
+      the route differ here ON PURPOSE: a step must be able to repeat
+      itself, a route answers the conflict;
     * the slug belongs to a DIFFERENT tenant (a different display name) --
       the slug is taken and the call is refused
-      (`platform_call_duplicate_slug`). The step never adopts a tenant it did
-      not create;
+      (`platform_call_duplicate_slug`). The step never takes over a tenant
+      it was not asked about;
+    * the tenant with that slug was PURGED -- its schema is gone and the
+      purge's marker (`tenant_lifecycles.purged_at`) is set -- the call is
+      refused (`platform_call_tenant_purged`): a purge is final, and no step
+      hands out a tenant that no longer exists;
     * two dispatchers race for the same slug -- the loser sees the duplicate
       and re-reads the row: the same rules as above decide the answer.
 
@@ -66,6 +77,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
   @type refusal ::
           :platform_call_arg_invalid
           | :platform_call_duplicate_slug
+          | :platform_call_tenant_purged
           | :platform_call_tenant_create_failed
 
   @doc """
@@ -112,11 +124,14 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
     end
   end
 
+  # A PURGED tenant is refused before anything else: its schema is gone and
+  # the purge's marker is never cleared, so the step must not hand it out
+  # (the chain's `tenant.provision` refuses the same tenant).
   defp replay(%{id: id, display_name: display_name}, name) do
-    if display_name == name do
-      {:ok, id}
-    else
-      {:error, :platform_call_duplicate_slug}
+    cond do
+      Identity.tenant_purged?(id) -> {:error, :platform_call_tenant_purged}
+      display_name == name -> {:ok, id}
+      true -> {:error, :platform_call_duplicate_slug}
     end
   end
 

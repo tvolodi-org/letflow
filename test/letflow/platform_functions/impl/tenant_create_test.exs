@@ -9,8 +9,11 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreateTest do
       catalogue's name;
     * the body is IDEMPOTENT: a second run of the same call changes nothing
       and answers the same tenant id -- the same call, not a second tenant;
-    * the body refuses a slug that belongs to ANOTHER tenant (it never adopts
-      a tenant it did not create);
+    * the body ADOPTS a tenant that already carries the slug and the name
+      (it answers that tenant's id and writes nothing), and it refuses a
+      slug that belongs to ANOTHER tenant;
+    * the body refuses a tenant that was PURGED (REQ-580): a purge is final,
+      so no step hands out a tenant that no longer exists;
     * the body refuses a value over its byte cap before anything is written
       (SF-01);
     * the ROUTE's answer does not change: the create the routes call still
@@ -27,6 +30,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreateTest do
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformFunctions.Impl.TenantCreate
   alias Letflow.PlatformFunctions.Registry
+  alias Letflow.TenantProvisioner.Lifecycle
 
   @slug "t2590-create"
   @name "T-2590 Create Ltd"
@@ -95,5 +99,38 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreateTest do
     # replay rule must not change it.
     assert {:error, :duplicate_slug} =
              TenantCreate.create_tenant(%{"slug" => @slug, "display_name" => @name})
+  end
+
+  test "C7 a repeat ADOPTS a tenant that existed before the step and writes nothing" do
+    # A tenant that exists BEFORE the step runs: the operator created it.
+    assert {:ok, %Tenant{id: tenant_id}} =
+             TenantCreate.create_tenant(%{"slug" => @slug, "display_name" => @name})
+
+    assert {:ok, %{"tenant_id" => ^tenant_id}} = run()
+
+    # The step adopted it: the same id, and the row carries the name the
+    # operator gave it -- the step wrote nothing.
+    assert [%Tenant{id: ^tenant_id, display_name: @name}] = tenants()
+  end
+
+  test "C8 a tenant that was PURGED is refused instead of adopted" do
+    assert {:ok, %{"tenant_id" => tenant_id}} = run()
+
+    # The marker the purge writes and never clears: the lifecycle row
+    # carries `purged_at`.
+    Repo.insert!(%Lifecycle{
+      tenant_id: tenant_id,
+      lifecycle: "deleted",
+      tier: "demo",
+      language: "en",
+      expires_at: nil,
+      deletion_requested_at: nil,
+      purged_at: DateTime.utc_now()
+    })
+
+    # A purge is final: the step hands out no tenant that no longer exists.
+    assert {:error, :platform_call_tenant_purged} = run()
+
+    assert [%Tenant{id: ^tenant_id}] = tenants()
   end
 end
