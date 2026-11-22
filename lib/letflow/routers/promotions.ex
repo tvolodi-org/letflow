@@ -879,6 +879,14 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.entity_writes_invalid(conn, violations)
 
+  # T-2588 (pilot gap G2): the promoted graph's `platform_call` steps were refused in the
+  # TARGET tenant (a company tenant may not carry a platform call at all).
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:platform_calls_invalid, violations}}}
+       ),
+       do: Response.platform_calls_invalid(conn, violations)
+
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)
 

@@ -509,6 +509,23 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- a `platform_call` step was refused by the authority rule (T-2588, pilot
+  gap G2: the platform tenant, the catalogue entry, the activator's permission, the
+  input source classes). The same body shape as `entity_writes_invalid/2`: the node, the
+  index and a stable code. No value, no hash and no function name ever appear.
+  """
+  @spec platform_calls_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def platform_calls_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "platform_calls_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
   HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
   namespace (GH #2623). The body echoes neither the URL nor the matched name.
   """

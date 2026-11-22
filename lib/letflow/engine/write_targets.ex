@@ -37,13 +37,21 @@ defmodule Letflow.Engine.WriteTargets do
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.Graph.Node
+  alias Letflow.Definitions.PlatformCalls
 
   @doc """
-  The variable names any node of `graph` reads through a `module_writes` `var` argument.
+  The variable names any node of `graph` reads through a `module_writes` `var` argument,
+  plus the ones a `platform_call` step reads (T-2588, pilot gap G2): a catalogue call reads
+  its arguments from the start variables or from an earlier platform step's output, never
+  from a person, so its keys are refused in a completion body exactly like a module
+  handler's write targets.
   """
   @spec write_read_keys(Graph.t() | term()) :: MapSet.t(String.t())
   def write_read_keys(%Graph{nodes: nodes}) when is_list(nodes) do
-    nodes |> Enum.flat_map(&node_read_keys/1) |> MapSet.new()
+    nodes
+    |> Enum.flat_map(&node_read_keys/1)
+    |> Kernel.++(PlatformCalls.read_keys(nodes))
+    |> MapSet.new()
   end
 
   def write_read_keys(_other), do: MapSet.new()

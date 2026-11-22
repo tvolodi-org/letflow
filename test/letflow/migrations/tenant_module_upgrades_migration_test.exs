@@ -86,39 +86,39 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     end
   end
 
-  test "T5 registered last, fresh tenant has it, replay restores a missing one", %{
+  test "T5 registered in the manifest, fresh tenant has it, replay restores a missing one", %{
     schema: schema,
     tenant_id: tenant_id
   } do
     # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys, REQ-710
     # CreateLedgerPartitionedTables, REQ-711 MoveLedgerFksToPartitions, REQ-626 CreateProcurementAttachments,
-    # REQ-577 CreateEntityTypeWriteAccessTables, REQ-635 CreateEntityScopeDeclarations, REQ-623, REQ-624, REQ-603, T-1389, T-2040 attachments, T-2133 upload_events after)
+    # REQ-577 CreateEntityTypeWriteAccessTables, REQ-635 CreateEntityScopeDeclarations, REQ-623, REQ-624, REQ-603, T-1389, T-2040 attachments, T-2133 upload_events, T-2588 AddActorKindToAuditEntries after)
     manifest = TenantProvisioning.tenant_scoped_migrations()
-    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -30)
+    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -31)
 
     assert {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys} =
-             Enum.at(manifest, -29)
+             Enum.at(manifest, -30)
 
     assert {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables} =
-             Enum.at(manifest, -28)
+             Enum.at(manifest, -29)
 
     assert {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions} =
-             Enum.at(manifest, -27)
+             Enum.at(manifest, -28)
 
     assert {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} =
-             Enum.at(manifest, -23)
+             Enum.at(manifest, -24)
 
     assert {20_261_105_400_001, Letflow.Repo.Migrations.AddPrintOverridePinToDocumentVersions} =
-             Enum.at(manifest, -22)
+             Enum.at(manifest, -23)
 
     assert {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
-             Enum.at(manifest, -21)
+             Enum.at(manifest, -22)
 
     assert {20_261_106_100_001, Letflow.Repo.Migrations.AddAcceptedManifestHashesToTenantModules} =
-             Enum.at(manifest, -19)
+             Enum.at(manifest, -20)
 
     assert {20_261_106_200_001, Letflow.Repo.Migrations.RaisePostingLegCap} =
-             Enum.at(manifest, -18)
+             Enum.at(manifest, -19)
 
     assert column_names(schema) != []
 

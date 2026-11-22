@@ -26,6 +26,8 @@ defmodule Letflow.Modules.WriteTargetSourcesScanTest do
 
   alias Letflow.Definitions.Graph
   alias Letflow.Engine.WriteTargets
+  alias Letflow.PlatformFunctions.Catalog
+  alias Letflow.PlatformFunctions.Entry
 
   @root Path.expand("../../..", __DIR__)
 
@@ -51,16 +53,81 @@ defmodule Letflow.Modules.WriteTargetSourcesScanTest do
   end
 
   # The violations of ONE definition (a decoded pack entry), as strings.
+  #
+  # T-2588 (pilot gap G2): the scan covers the `platform_call` steps too. A
+  # catalogue call reads its arguments from the start variables or from an earlier
+  # platform step's output, never from a person, so a WRITE-LIKE call reads no
+  # variable the completer of a human task may write -- the same rule as a module
+  # handler's write target, carried over by source class.
   defp violations(definition, pack_name) do
     {:ok, graph} = Graph.from_map(definition["graph"])
 
-    for node <- definition["graph"]["nodes"],
-        writes = get_in(node, ["attributes", "module_writes"]),
-        is_list(writes),
-        line <- writes,
-        {arg, source} <- line["args"] || %{},
-        violation <- source_violations(definition, pack_name, graph, node, line, arg, source),
-        do: violation
+    module =
+      for node <- definition["graph"]["nodes"],
+          writes = get_in(node, ["attributes", "module_writes"]),
+          is_list(writes),
+          line <- writes,
+          {arg, source} <- line["args"] || %{},
+          violation <-
+            source_violations(definition, pack_name, graph, node, line, arg, source),
+          do: violation
+
+    platform =
+      for node <- definition["graph"]["nodes"],
+          call = get_in(node, ["attributes", "platform_call"]),
+          is_map(call),
+          {arg, source} <- call["args"] || %{},
+          violation <-
+            platform_source_violations(definition, pack_name, graph, node, call, arg, source),
+          do: violation
+
+    module ++ platform
+  end
+
+  # The source rule of one `platform_call` argument: exactly %{"var" => key} or
+  # %{"const" => _}, and -- for a write-like call -- a var the engine refuses to the
+  # completer at its own node.
+  defp platform_source_violations(definition, pack, graph, node, call, arg, source) do
+    where = "#{pack}/#{definition["process_key"]}/#{node["id"]}/platform_call.#{arg}"
+
+    case source do
+      %{"const" => _} = only when map_size(only) == 1 ->
+        []
+
+      %{"var" => key} = only when is_binary(key) and map_size(only) == 1 ->
+        cond do
+          not write_like?(call) ->
+            []
+
+          refused_at_every_human_task?(graph, key) ->
+            []
+
+          true ->
+            ["#{where}: var #{inspect(key)} is completer-writable at its own node"]
+        end
+
+      other ->
+        ["#{where}: source #{inspect(other)} is not %{\"var\" => key} or %{\"const\" => _}"]
+    end
+  end
+
+  # The key is refused to the completer at EVERY human task of the graph: a
+  # human task that declares the key as its own input could write it, and the
+  # call would read what the person wrote.
+  defp refused_at_every_human_task?(graph, key) do
+    graph.nodes
+    |> Enum.filter(&(&1.node_type == :HUMAN_TASK))
+    |> Enum.all?(&(WriteTargets.refused_keys(graph, &1.id, %{key => 1}) == [key]))
+  end
+
+  # A call is write-like when its catalogue entry declares a side effect that is
+  # more than a read. An unknown function is treated as write-like: the
+  # activation refuses it anyway, and the scan must not be the softer of the two.
+  defp write_like?(call) do
+    case Catalog.fetch(call["function"]) do
+      {:ok, entry} -> Entry.write_like?(entry)
+      {:error, :not_found} -> true
+    end
   end
 
   defp source_violations(definition, pack, graph, node, line, arg, source) do
@@ -226,6 +293,43 @@ defmodule Letflow.Modules.WriteTargetSourcesScanTest do
         declared = declare(d, unquote(node), [var])
         assert Enum.any?(violations(declared, unquote(pack)), &(&1 =~ "completer-writable"))
       end
+    end
+  end
+
+  describe "T-2588: a platform_call step reads no variable a person may write" do
+    defp platform_call_fixture(name) do
+      [@root, "test", "fixtures", "platform_call", name]
+      |> Path.join()
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("definitions")
+      |> hd()
+    end
+
+    test "the fixed form (the call reads engine-owned data) passes the scan" do
+      assert violations(platform_call_fixture("fixed_pack.json"), "platform") == []
+    end
+
+    test "the hole form (the human task may write the call's read key) is reported by the scan" do
+      found = violations(platform_call_fixture("hole_pack.json"), "platform")
+      assert [message] = found
+      assert message =~ "platform_call"
+      assert message =~ "slug"
+      assert message =~ "completer-writable"
+    end
+
+    test "the scan is not vacuous: the fixed fixture really carries a platform_call" do
+      definition = platform_call_fixture("fixed_pack.json")
+
+      assert [node] =
+               for(
+                 node <- definition["graph"]["nodes"],
+                 call = get_in(node, ["attributes", "platform_call"]),
+                 is_map(call),
+                 do: node
+               )
+
+      assert get_in(node, ["attributes", "platform_call", "function"]) == "tenant.create"
     end
   end
 

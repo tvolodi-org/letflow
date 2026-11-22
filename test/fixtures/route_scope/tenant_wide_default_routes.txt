@@ -96,6 +96,7 @@ GET /modules/stock/stock-workbook/imports StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
+GET /platform-functions TenantsManage
 GET /platform-migrations/rollouts/:id TenantsManage
 GET /platform-module-rollouts ModuleRolloutsManage
 GET /platform-module-rollouts/:id ModuleRolloutsManage

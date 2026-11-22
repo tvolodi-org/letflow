@@ -1049,7 +1049,12 @@ defmodule Letflow.TenantProvisioning do
     # T-2415: the old Qoimeks empty-shelf count is a real zero count_set movement. The core validator
     # keeps zero refused for every other cause; the leg table's cause-blind CHECK is removed.
     {20_261_121_100_001, Letflow.Repo.Migrations.AllowZeroCountSetLegs,
-     "20261121100001_allow_zero_count_set_legs.exs"}
+     "20261121100001_allow_zero_count_set_legs.exs"},
+    # T-2588 (pilot gap G2, decision (d) of
+    # docs/migration/decisions/0094-platform-call-authority.md): audit_entries.actor_kind --
+    # "user" against "system". NULL for the rows written before this column existed.
+    {20_261_122_100_001, Letflow.Repo.Migrations.AddActorKindToAuditEntries,
+     "20261122100001_add_actor_kind_to_audit_entries.exs"}
   ]
 
   @doc """
