@@ -67,10 +67,12 @@ chain keeps its eleven fields, and the table's own immutability trigger keeps th
 `Audit.insert_entry/3` applies that default to EVERY audit row, not only to definition lifecycle rows: a valid user UUID means `user`;
 a missing or non-person actor means `system`.
 
-Every HTTP lifecycle path THAT WRITES a definition audit row carries the caller -- create, IMPORT, deactivate, archive. The import path
-is the one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the definition's
-`created_by` column) and had handed the context the prefix-only opts, so its `definition.create` row named nobody and claimed the system
-did it. The opts and the `imported_by` argument are BOTH the caller, and the row must say so.
+Every HTTP lifecycle path THAT WRITES a definition audit row carries the caller -- create, IMPORT, activate, reactivate, deactivate,
+archive, and the DELETE route (which writes the deactivate and archive rows). The two activation rows carry the ACTIVATOR's user id --
+the person who switched the version on -- and the other rows the caller's user id; both are the caller, and the row must say so. The
+import path is the one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the
+definition's `created_by` column) and had handed the context the prefix-only opts, so its `definition.create` row named nobody and
+claimed the system did it. The opts and the `imported_by` argument are BOTH the caller, and the row must say so.
 
 Two pre-existing exclusions are explicit: PUT/PATCH draft update and hard-delete write NO definition audit row, and version rollback
 writes the `DEFINITION_VERSION_ROLLED_BACK` EVENT (with its actor) rather than a definition audit row. This change does not invent rows on those paths;
@@ -159,9 +161,9 @@ come back.
 | S3 (the write paths) | a company tenant PUTs or PATCHes a platform call into a draft | `test/letflow/definitions/platform_call_write_path_refused_test.exs`: create, PUT and PATCH answer the one fixed code (422) and store nothing |
 | S2 (the foreign sources and dual-route exploit) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads; one node declares both `platform_call` and another route | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: graph validation, activation and dispatch refuse mixed routes with `:conflicting_platform_call_routes`; a dual-route node still triggers `:platform_call_foreign_source_refused` beside a write-like call |
 | the start of a parent | a platform PROCESS_OPERATOR starts a parent whose sub-process child calls `tenant.create` | `test/letflow/engine/platform_call_subprocess_start_refused_test.exs`: the answer for an unknown definition, nothing written; the child's own activation fails closed |
-| S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system`; the HTTP create and HTTP IMPORT routes both write the caller's row |
+| S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system`; EVERY HTTP lifecycle route is driven through the real router and writes the caller's row -- create, IMPORT, activate, reactivate, deactivate, archive and DELETE (T-2598, the pilot's guardrail gap G15, completed the proof of the routes T-2588 had wired); a system caller (the reactivation marker) and a module install write `system`, and the module install's row names the module that shipped it |
 | "one path forgotten" | a new definition write path skips the platform-call check | `test/letflow/definitions/platform_call_write_paths_scan_test.exs`: every entry point is classified and reaches the check its class demands; insert, changeset update (`update`/`update!`), update-all and delete writes are all derived |
-| "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands; the scanned ROOT may not shrink either -- every module of the definitions tree that writes a definition audit row is in it, or the scan says so |
+| "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands; a router path that reaches a writer which writes NO actor (the system class -- module code, a seed task, the reactivation marker) fails the scan, because a person made that request; the scanned ROOT may not shrink either -- every module of the definitions tree that writes a definition audit row is in it, or the scan says so |
 | the start over the route | the caller's authority never reaches the start gate, and the pilot's process can never be started | `test/letflow/routers/platform_call_start_route_test.exs`: over the real `POST /api/v1/instances`, the platform tenant's PLATFORM_ADMIN starts the definition (201); a platform user without the entry's permission and a company tenant's administrator get the answer for an unknown definition, and nothing is written |
 
 ## Residual risks, stated plainly
