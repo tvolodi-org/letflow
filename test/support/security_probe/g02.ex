@@ -50,6 +50,7 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   @doc "Parses one source file. Synthetic fixtures use the same entry point as the real tree."
   def scan_source(path, source) do
     ast = source |> Code.string_to_quoted!(columns: true) |> executable_ast()
+    {file_aliases, file_imports} = file_scope(ast)
 
     modules =
       ast
@@ -57,15 +58,19 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
       |> Enum.map(fn {module, body} ->
         body = unpipe(body)
         functions = functions_of(body)
-        aliases = aliases_of(body)
+        aliases = Map.merge(file_aliases, aliases_of(body))
+        imports = Map.merge(file_imports, imports_of(body))
+        local_names = local_names(functions)
 
         {module,
          %{
            path: path,
            aliases: aliases,
+           imports: imports,
+           local_names: local_names,
            functions: functions,
            public: public_functions(body),
-           options: option_writes(body, path, aliases)
+           options: option_writes(body, path, aliases, imports, local_names)
          }}
       end)
 
@@ -312,34 +317,121 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     end)
   end
 
+  # An alias or an import written at file scope applies to every module defined after it in the
+  # file, so the environment is built once per file and merged into each module's own environment.
+  # The module's own alias or import of the same name wins, as in Elixir.
+  defp file_scope(ast) do
+    {_ast, {_depth, aliases, imports}} =
+      Macro.traverse(
+        ast,
+        {0, %{}, %{}},
+        fn
+          {:defmodule, _, _} = node, {depth, aliases, imports} ->
+            {node, {depth + 1, aliases, imports}}
+
+          {:alias, _, _} = node, {0, aliases, imports} ->
+            {node, {0, alias_entry(node, aliases), imports}}
+
+          {:import, _, _} = node, {0, aliases, imports} ->
+            {node, {0, aliases, import_entry(node, imports)}}
+
+          node, {depth, aliases, imports} ->
+            {node, {depth, aliases, imports}}
+        end,
+        fn
+          {:defmodule, _, _} = node, {depth, aliases, imports} ->
+            {node, {depth - 1, aliases, imports}}
+
+          node, {depth, aliases, imports} ->
+            {node, {depth, aliases, imports}}
+        end
+      )
+
+    {aliases, imports}
+  end
+
   defp aliases_of(ast) do
     {_ast, aliases} =
       Macro.prewalk(ast, %{}, fn
-        {:alias, _, [{:__aliases__, _, parts}, opts]} = node, acc when is_list(opts) ->
-          name = Keyword.get(opts, :as, {:__aliases__, [], [List.last(parts)]})
-          {node, put_alias(acc, name, parts)}
-
-        {:alias, _, [{:__aliases__, _, parts}]} = node, acc ->
-          {node, Map.put(acc, List.last(parts), parts)}
-
-        {:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, children}]} = node, acc ->
-          acc =
-            Enum.reduce(children, acc, fn
-              {:__aliases__, _, rest}, aliases -> Map.put(aliases, List.last(rest), base ++ rest)
-              _other, aliases -> aliases
-            end)
-
-          {node, acc}
-
-        node, acc ->
-          {node, acc}
+        {:alias, _, _} = node, acc -> {node, alias_entry(node, acc)}
+        node, acc -> {node, acc}
       end)
 
     aliases
   end
 
-  defp put_alias(acc, {:__aliases__, _, [name]}, parts), do: Map.put(acc, name, parts)
-  defp put_alias(acc, _other, _parts), do: acc
+  defp alias_entry({:alias, _, [{:__aliases__, _, parts}, opts]}, acc) when is_list(opts) do
+    case Keyword.get(opts, :as) do
+      nil -> Map.put(acc, List.last(parts), parts)
+      {:__aliases__, _, [name]} -> Map.put(acc, name, parts)
+      name when is_atom(name) -> Map.put(acc, name, parts)
+      _other -> acc
+    end
+  end
+
+  defp alias_entry({:alias, _, [{:__aliases__, _, parts}]}, acc) do
+    Map.put(acc, List.last(parts), parts)
+  end
+
+  defp alias_entry({:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, children}]}, acc) do
+    Enum.reduce(children, acc, fn
+      {:__aliases__, _, rest}, aliases -> Map.put(aliases, List.last(rest), base ++ rest)
+      _other, aliases -> aliases
+    end)
+  end
+
+  defp alias_entry(_node, acc), do: acc
+
+  # An import brings the functions of one module into scope. The module's own imports win over the
+  # file's imports for the same module, as in Elixir.
+  defp imports_of(ast) do
+    {_ast, imports} =
+      Macro.prewalk(ast, %{}, fn
+        {:import, _, _} = node, acc -> {node, import_entry(node, acc)}
+        node, acc -> {node, acc}
+      end)
+
+    imports
+  end
+
+  defp import_entry({:import, _, [{:__aliases__, _, parts}]}, acc) do
+    Map.put(acc, alias_target(parts), %{only: :all, except: []})
+  end
+
+  defp import_entry({:import, _, [{:__aliases__, _, parts}, opts]}, acc) when is_list(opts) do
+    only = Keyword.get(opts, :only)
+
+    spec = %{
+      only: if(is_nil(only), do: :all, else: function_arities(only)),
+      except: function_arities(Keyword.get(opts, :except, []))
+    }
+
+    Map.put(acc, alias_target(parts), spec)
+  end
+
+  defp import_entry(_node, acc), do: acc
+
+  defp function_arities(list) do
+    for {name, arity} <- list, is_atom(name), is_integer(arity), do: {name, arity}
+  end
+
+  # The module an unqualified call comes from, when the module imported that function.
+  defp imported_target(imports, name, arity) do
+    imports
+    |> Enum.sort_by(fn {target, _spec} -> target end)
+    |> Enum.find_value(fn {target, spec} ->
+      if imported_function?(spec, name, arity), do: target
+    end)
+  end
+
+  defp imported_function?(%{only: :all, except: except}, name, arity),
+    do: {name, arity} not in except
+
+  defp imported_function?(%{only: only}, name, arity), do: {name, arity} in only
+
+  # A function the module defines itself is not the imported one, even when the import would
+  # provide the same name.
+  defp local_names(functions), do: MapSet.new(Map.keys(functions))
 
   defp functions_of(ast) do
     {_ast, functions} =
@@ -410,13 +502,22 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   end
 
   defp resolve_alias_parts(parts, aliases) do
-    case Map.fetch(aliases, hd(parts)) do
-      {:ok, base} -> base ++ tl(parts)
-      :error -> parts
-    end
+    resolved =
+      case Map.fetch(aliases, hd(parts)) do
+        {:ok, base} -> base ++ tl(parts)
+        :error -> parts
+      end
+
+    normalise_alias_parts(resolved)
   end
 
-  defp calls_of(body, aliases) do
+  # `alias Elixir.Ecto.Multi` names the same module as `alias Ecto.Multi`.
+  defp normalise_alias_parts([:"Elixir" | rest]) when rest != [], do: rest
+  defp normalise_alias_parts(parts), do: parts
+
+  defp alias_target(parts), do: parts |> normalise_alias_parts() |> Enum.join(".")
+
+  defp calls_of(body, aliases, imports, local_names) do
     {_ast, calls} =
       Macro.prewalk(body, [], fn
         {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _,
@@ -460,7 +561,7 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
           {node, [{:local, fun, arity, :capture} | acc]}
 
         {fun, _, args} = node, acc when is_atom(fun) and is_list(args) ->
-          {node, [{:local, fun, length(args), :call} | acc]}
+          {node, unqualified_call(fun, length(args), imports, local_names) ++ acc}
 
         node, acc ->
           {node, acc}
@@ -469,12 +570,29 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     calls
   end
 
+  # A call without a module prefix is either the module's own function or one the module imported.
+  defp unqualified_call(fun, arity, imports, local_names) do
+    local = {:local, fun, arity, :call}
+
+    if MapSet.member?(local_names, {fun, arity}) do
+      [local]
+    else
+      case imported_target(imports, fun, arity) do
+        nil -> [local]
+        target -> [local, {:remote, target, fun, arity, :call}]
+      end
+    end
+  end
+
   defp call_records(module, data) do
     aliases = data.aliases
+    imports = data.imports
+    local_names = data.local_names
 
     for {caller, bodies} <- data.functions,
         body <- bodies,
-        call <- calls_of(body, aliases) ++ variable_repo_calls(body, aliases),
+        call <-
+          calls_of(body, aliases, imports, local_names) ++ variable_repo_calls(body, aliases),
         record = call_record(call, data.path, caller, module),
         record != nil,
         do: record
@@ -684,7 +802,8 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
 
         calls =
           Enum.flat_map(bodies, fn body ->
-            calls_of(body, data.aliases) ++ variable_repo_calls(body, data.aliases)
+            calls_of(body, data.aliases, data.imports, data.local_names) ++
+              variable_repo_calls(body, data.aliases)
           end)
 
         calls = Enum.map(calls, &qualify_local_call(&1, module))
@@ -702,7 +821,7 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
 
   defp qualify_local_call(call, _module), do: call
 
-  defp option_writes(ast, path, aliases) do
+  defp option_writes(ast, path, aliases, imports, local_names) do
     {_ast, writes} =
       Macro.prewalk(ast, [], fn
         {{:., _, [{:__aliases__, _, parts}, operation]}, meta, args} = node, acc
@@ -716,6 +835,24 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
             end
           else
             {node, acc}
+          end
+
+        {operation, meta, args} = node, acc when is_atom(operation) and is_list(args) ->
+          # A call without a module prefix: an imported function writes the option just as a
+          # qualified call does.
+          if MapSet.member?(local_names, {operation, length(args)}) do
+            {node, acc}
+          else
+            case imported_target(imports, operation, length(args)) do
+              nil ->
+                {node, acc}
+
+              target ->
+                case option_call_record(target, operation, args, path, meta) do
+                  nil -> {node, acc}
+                  record -> {node, [record | acc]}
+                end
+            end
           end
 
         {:module_start, value} = node, acc ->

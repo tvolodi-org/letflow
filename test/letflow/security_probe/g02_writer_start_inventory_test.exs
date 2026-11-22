@@ -4,17 +4,19 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   `module_start` scan and the definition-context call-graph gap without executing application code.
 
   W1 pins every Repo and Ecto.Multi call under lib/ and priv/, including the repository variables
-  handed to transaction/Multi callbacks and any other receiver whose method name is a Repo mutation
-  verb. D1 derives every public writer in the `Letflow.Definitions` namespace whose local call graph
-  writes, including create, update/PUT/PATCH, import, activation, rollback and promotion. S1 pins
-  HTTP, module, scheduler and both SUB_PROCESS child starts, the child activation entry point
-  included. S2 fails closed on an unapproved or computed `module_start` option in every syntactic
-  form the detector sees: the `Keyword` and `Map` verbs, `List.keystore/4` and a literal keyword
-  pair, through a renamed module as well. S3 asserts that every Engine start entry reaches a
-  module-start gate (the root gate for a root instance, the child gate for a SUB_PROCESS child).
-  The N-tests are seeded failing variants: removing a real Repo.update, adding an unclassified
-  writer/start, hiding the start option behind Keyword.put or a computed value, and dropping a
-  start gate all produce drift.
+  handed to transaction/Multi callbacks, any other receiver whose method name is a Repo mutation
+  verb, and the repository functions brought into scope by an `import`. D1 derives every public
+  writer in the `Letflow.Definitions` namespace whose local call graph writes, including create,
+  update/PUT/PATCH, import, activation, rollback and promotion. S1 pins HTTP, module, scheduler and
+  both SUB_PROCESS child starts, the child activation entry point included. S2 fails closed on an
+  unapproved or computed `module_start` option in every syntactic form the detector sees: the
+  `Keyword` and `Map` verbs, `List.keystore/4` and a literal keyword pair, through a renamed module,
+  a file-scope alias, an `Elixir.`-prefixed alias or an imported function as well. S3 asserts that
+  every Engine start entry reaches a module-start gate (the root gate for a root instance, the child
+  gate for a SUB_PROCESS child). The N-tests are seeded failing variants: removing a real
+  Repo.update, adding an unclassified writer/start, hiding the start option behind Keyword.put or a
+  computed value, hiding it behind a file-scope alias or an import, hiding a Multi write behind an
+  `Elixir.`-prefixed alias, and dropping a start gate all produce drift.
   """
 
   use ExUnit.Case, async: true
@@ -442,6 +444,146 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     assert G02.unguarded_start_roots(G02.scan_source("synthetic/unguarded.ex", unguarded)) != []
 
     assert G02.unguarded_start_roots(G02.scan_source("synthetic/guarded.ex", guarded)) == []
+  end
+
+  test "N7 non-vacuity: a file-scope alias cannot hide a module_start write" do
+    source = """
+    alias Keyword, as: KW
+
+    defmodule RogueFileScope do
+      def start(opts), do: KW.put(opts, :module_start, true)
+    end
+    """
+
+    synthetic = G02.scan_source("synthetic/rogue_file_scope.ex", source)
+    violations = G02.module_start_violations(synthetic, @module_start_paths)
+
+    assert Enum.any?(violations, fn
+             {_, _, :put, :literal_true, _} -> true
+             _ -> false
+           end)
+
+    # The compliant control: the same file at a reviewed module path is accepted.
+    approved =
+      G02.scan_source("lib/letflow/modules/stock/documents/posting.ex", source)
+
+    assert G02.module_start_violations(approved, @module_start_paths) == []
+  end
+
+  test "N8 non-vacuity: an imported function cannot hide a module_start write" do
+    file_scope = """
+    import Keyword, only: [put: 3]
+
+    defmodule RogueFileImport do
+      def start(opts), do: put(opts, :module_start, true)
+    end
+    """
+
+    module_scope = """
+    defmodule RogueModuleImport do
+      import Map
+
+      def start(opts), do: put(opts, :module_start, true)
+    end
+    """
+
+    file_violations =
+      "synthetic/rogue_file_import.ex"
+      |> G02.scan_source(file_scope)
+      |> G02.module_start_violations(@module_start_paths)
+
+    assert Enum.any?(file_violations, fn
+             {_, _, :put, :literal_true, _} -> true
+             _ -> false
+           end)
+
+    module_violations =
+      "synthetic/rogue_module_import.ex"
+      |> G02.scan_source(module_scope)
+      |> G02.module_start_violations(@module_start_paths)
+
+    assert Enum.any?(module_violations, fn
+             {_, _, :map_put, :literal_true, _} -> true
+             _ -> false
+           end)
+
+    approved =
+      G02.scan_source("lib/letflow/modules/stock/documents/posting.ex", file_scope)
+
+    assert G02.module_start_violations(approved, @module_start_paths) == []
+  end
+
+  test "N9 non-vacuity: an Elixir-prefixed alias cannot hide a Multi or Repo write" do
+    source = """
+    alias Elixir.Ecto.Multi
+    alias Elixir.Letflow.Repo
+
+    defmodule RoguePrefixed do
+      def write(multi, changeset) do
+        Multi.insert(multi, :thing, changeset)
+        Repo.insert(changeset)
+      end
+    end
+    """
+
+    grouped = """
+    alias Elixir.{Ecto.Multi}
+
+    defmodule RogueGroupedPrefixed do
+      def write(multi, changeset), do: Multi.insert(multi, :thing, changeset)
+    end
+    """
+
+    calls =
+      "synthetic/rogue_prefixed.ex"
+      |> G02.scan_source(source)
+      |> G02.repo_inventory()
+
+    assert Enum.any?(
+             calls,
+             &(&1.class == :multi and &1.target == "Ecto.Multi" and &1.fun == :insert)
+           )
+
+    assert Enum.any?(
+             calls,
+             &(&1.class == :repo and &1.target == "Letflow.Repo" and &1.fun == :insert)
+           )
+
+    grouped_calls =
+      "synthetic/rogue_grouped_prefixed.ex"
+      |> G02.scan_source(grouped)
+      |> G02.repo_inventory()
+
+    assert Enum.any?(
+             grouped_calls,
+             &(&1.class == :multi and &1.target == "Ecto.Multi" and &1.fun == :insert)
+           )
+  end
+
+  test "N10 detector self-check: an imported repository function is inventoried" do
+    source = """
+    import Letflow.Repo
+
+    defmodule SyntheticImport do
+      def write(changeset), do: insert(changeset)
+      def read(query), do: all(query)
+    end
+    """
+
+    calls =
+      "synthetic/imported_repo.ex"
+      |> G02.scan_source(source)
+      |> G02.repo_inventory()
+
+    assert Enum.any?(
+             calls,
+             &(&1.class == :repo and &1.target == "Letflow.Repo" and &1.fun == :insert)
+           )
+
+    assert Enum.any?(
+             calls,
+             &(&1.class == :repo and &1.target == "Letflow.Repo" and &1.fun == :all)
+           )
   end
 
   test "T1: the class table lists every probe case with its test file and name" do
