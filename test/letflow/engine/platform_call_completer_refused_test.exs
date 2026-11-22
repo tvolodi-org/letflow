@@ -149,7 +149,7 @@ defmodule Letflow.Engine.PlatformCallCompleterRefusedTest do
              conn.resp_body |> Jason.decode!()
   end
 
-  test "S2-c: a completion body without the key is accepted (the rule is about the key, not the task)",
+  test "S2-c: a completion body without the key does not raise the key refusal (the rule is about the key, not the task)",
        ctx do
     draft = Fx.definition!(ctx.tenant.schema_name, graph(), "pcf-s2c")
 
@@ -196,10 +196,15 @@ defmodule Letflow.Engine.PlatformCallCompleterRefusedTest do
         prefix: ctx.tenant.schema_name
       )
 
-    # the KEY rule does not fire: the body carried no read key of the call. (The
+    # the KEY rule does not fire: the body carried no read key of the call.
+    #
+    # The completion itself is still refused, but for a DIFFERENT reason: the
     # step library of gap G1 does not dispatch the platform call yet, so the
-    # instance may stop at the SERVICE_TASK -- a different failure, not a refusal
-    # of the completion.)
-    refute match?({:error, {:output_refused, _}}, result)
+    # SERVICE_TASK has no endpoint to parse (`missing_url_and_service_id`: a
+    # platform_call node carries no endpoint, no service_id and no script_key).
+    # The instance therefore stops at the platform call -- a step failure, not a
+    # refusal of the completion body. The test says exactly that: the key rule
+    # is not what stopped it.
+    assert {:error, {:config_parse_failed, "call", :missing_url_and_service_id}} = result
   end
 end

@@ -17,6 +17,20 @@ defmodule Letflow.Definitions.DefinitionAuditActorPathsScanTest do
   definition AUDIT row (a function whose path reaches the context's own
   `record_definition_audit/6`), reads WHERE that function's audit actor comes
   from, and then requires every router path that calls it to carry that actor.
+  The ROOT of the derivation may not shrink either: the last test requires every
+  module of the definitions tree that CALLS an audit writer to be in
+  `@context_files`, or the scan says so (the marking writer of
+  `Letflow.Definitions.Reactivation` was outside the root while this moduledoc
+  claimed every definition audit writer).
+
+  Known limit, stated rather than papered over: the marking writer
+  (`Letflow.Definitions.Reactivation.mark_definition/3`) reaches the row through
+  the shared entry point `Definitions.record_audit/6`, which has a DEFAULT
+  argument, and the closure follows a call by its exact arity -- so it does not
+  step into the six-arity definition from a five-argument call, and that writer
+  is not derived yet. Its row names the system (`actor_kind "system"`), which is
+  the class decision (d) records for a caller that is not a person. Deriving it
+  needs the two further actor classes (`:arg_actor`, `:system_actor`).
 
   The audit actor has exactly two sources in the context, and the scan reads
   which one applies from the function's own body -- the scan does not trust a
@@ -43,11 +57,23 @@ defmodule Letflow.Definitions.DefinitionAuditActorPathsScanTest do
 
   @context_files %{
     "Letflow.Definitions" => "lib/letflow/definitions.ex",
-    "Letflow.Definitions.ExportImport" => "lib/letflow/definitions/export_import.ex"
+    "Letflow.Definitions.ExportImport" => "lib/letflow/definitions/export_import.ex",
+    # T-2588 (review of attempt 2): the marking writer of the definitions tree
+    # writes a definition audit row too (`Definitions.record_audit/6`). Its module
+    # belongs in the root, so a change in it is read by this scan and not
+    # silently outside it.
+    "Letflow.Definitions.Reactivation" => "lib/letflow/definitions/reactivation.ex"
   }
 
   @router_module "Letflow.Routers.Definitions"
   @router_file "lib/letflow/routers/definitions.ex"
+
+  # The definitions tree: every module that may write a definition audit row.
+  @definitions_tree ["lib/letflow/definitions.ex", "lib/letflow/definitions/**/*.ex"]
+
+  # The names under which a definition audit row is written. A module that
+  # CALLS one of them writes the row itself.
+  @audit_writer_names [:record_audit, :record_definition_audit]
 
   # The context's own audit writer. A public context function whose path
   # reaches it writes a definition audit row.
@@ -73,6 +99,9 @@ defmodule Letflow.Definitions.DefinitionAuditActorPathsScanTest do
   # ── the AST helpers ─────────────────────────────────────────────────────────
 
   defp parse(path), do: path |> File.read!() |> Code.string_to_quoted!()
+
+  # The module name a file defines.
+  defp module_name({:defmodule, _, [{:__aliases__, _, parts}, _body]}), do: Enum.join(parts, ".")
 
   defp aliases_of(ast) do
     {_ast, aliases} =
@@ -359,5 +388,45 @@ defmodule Letflow.Definitions.DefinitionAuditActorPathsScanTest do
     assert {:handle_import, [:opts_actor]} in paths
     assert {:handle_create, [:opts_actor]} in paths
     assert {:handle_activate, [:activator_actor]} in paths
+  end
+
+  # The class ratchet (owner D-184): the ROOT of the derivation may not shrink.
+  # A module of the definitions tree that writes a definition audit row and is
+  # not in `@context_files` would write rows the scan never reads -- the
+  # derivation would shrink silently. The reviewer of attempt 2 named this: the
+  # marking writer (`Letflow.Definitions.Reactivation`) was outside the root
+  # while the moduledoc claimed every definition audit writer.
+  test "the scanned root covers every module that writes a definition audit row" do
+    files =
+      @definitions_tree
+      |> Enum.flat_map(&Path.wildcard(Path.join(@root, &1)))
+      |> Enum.sort()
+
+    assert length(files) > 1, "the definitions tree must not be empty"
+
+    for file <- files do
+      ast = parse(file)
+      module = module_name(ast)
+      aliases = aliases_of(ast)
+      {functions, _public} = functions_of(ast)
+
+      writes? =
+        Enum.any?(functions, fn {_name_arity, body} ->
+          Enum.any?(calls_of(body, aliases), fn
+            {:local, name, _arity} -> name in @audit_writer_names
+            {:remote, _target, name, _arity} -> name in @audit_writer_names
+            _other -> false
+          end)
+        end)
+
+      if writes? do
+        assert Map.has_key?(@context_files, module),
+               """
+               #{inspect(module)} writes a definition audit row but is not in the scan's root.
+
+               Add it to @context_files, so the scan reads its actor wiring as well.
+               """
+      end
+    end
   end
 end

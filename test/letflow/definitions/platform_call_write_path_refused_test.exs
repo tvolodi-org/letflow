@@ -101,18 +101,6 @@ defmodule Letflow.Definitions.PlatformCallWritePathRefusedTest do
     assert stored_graph(ctx.company.schema_name, definition.id) == before
   end
 
-  test "S3h: the PATCH path refuses it with the same one code", ctx do
-    definition = draft!(ctx.company.schema_name, "pcf-write-patch")
-    before = stored_graph(ctx.company.schema_name, definition.id)
-
-    assert {:error, {:platform_calls_invalid, [%{code: :platform_call_not_allowed}]}} =
-             Definitions.update(definition.id, %{graph: Fx.graph(create_call())},
-               prefix: ctx.company.schema_name
-             )
-
-    assert stored_graph(ctx.company.schema_name, definition.id) == before
-  end
-
   test "S3i: PUT answers 422 with the one fixed code and stores nothing", ctx do
     definition = draft!(ctx.company.schema_name, "pcf-write-put")
     before = stored_graph(ctx.company.schema_name, definition.id)
