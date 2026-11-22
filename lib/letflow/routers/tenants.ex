@@ -833,6 +833,9 @@ defmodule Letflow.Routers.Tenants do
   defp render_promote(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  defp render_promote(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
   defp render_promote(conn, {:error, _other}), do: Response.internal_error(conn)
 
   # PROVENANCE (historical, not current decision authority):

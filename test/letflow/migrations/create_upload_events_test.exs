@@ -14,7 +14,7 @@ defmodule Letflow.CreateUploadEventsTest do
     schema = fx.schema_name
 
     assert {@version, CreateUploadEvents} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -5)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -6)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, CreateUploadEvents, prefix: schema, log: false)
