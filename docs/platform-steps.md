@@ -41,6 +41,18 @@ still verify against the tenant's signing key, and the activator must still hold
 permission (a permission lost since the activation marks the definition `needs_reactivation`, so
 the existing reactivation path heals it). A refused call never reaches the body.
 
+## What the call is, not only who may run it
+
+The fence proves WHO may run a call. The dispatcher proves WHAT the call is: the row is bound to
+the node of the definition it names. Before the body runs, the node is read out of the STORED
+graph and the row must agree with it -- the node must exist, it must declare a platform call, and
+that call must be the row's function with the row's arguments (an argument the node declares as a
+constant must carry exactly the declared value; an argument the node reads from a variable is the
+instance's own value, which the engine resolves). A row that names a function or arguments no
+definition declares is refused (`platform_call_node_missing`,
+`platform_call_node_not_declared`, `platform_call_function_mismatch`,
+`platform_call_arg_mismatch`) and never reaches the body.
+
 ## The durable row
 
 `platform_step_dispatches` (one row per platform step, in the tenant's own schema):
@@ -48,6 +60,9 @@ the existing reactivation path heals it). A refused call never reaches the body.
 * `call_key` -- the IDEMPOTENCY KEY of the call, composed by the dispatcher from the catalogue
   entry's declared key inputs (the slug for a registration). It is unique per tenant schema.
 * `input_fingerprint` -- the fingerprint of the whole argument set.
+* `tenant_id` -- the tenant the row belongs to, DERIVED from the schema the row is written into
+  (never taken from the caller): the row physically sits in that tenant's schema, so that is the
+  tenant it claims to belong to.
 * `status` -- `pending` (armed), `running` (claimed; the lease is `next_attempt_at`),
   `advanced` (the body returned its outputs), `given_up` (the call failed).
 * `outputs`, `attempt_index`, `last_failure_kind`, `dispatched_at` -- the per-step RESULT.
@@ -56,6 +71,19 @@ So: the same key with the SAME arguments is the SAME call (the first result is r
 does not run again), and the same key with DIFFERENT arguments is refused with
 `idempotency_key_reuse`. A crash between the claim and the result loses nothing: the row stays
 `running` and its lease expires, so the next claim takes it over.
+
+The arming is INSERT-FIRST: the row is written with `ON CONFLICT (call_key) DO NOTHING`, so a
+double click, a retry or a poller restart can never raise on the unique index -- the row that
+carries the key is read back and the first result wins. A prefix that names no tenant schema is
+refused with `invalid_schema_name` before any I/O.
+
+## The attempt cap
+
+A run killed uncatchably (the VM dies, the node is killed) leaves the row `running` with an
+expired lease, so the next claim takes it over. The number of such take-overs is capped
+(`Letflow.PlatformFunctions.Dispatcher.max_attempts/0`): a call that reaches the cap is
+DEAD-LETTERED -- the row leaves the queue for good and keeps the failure kind
+`platform_step_max_attempts`. The step log that shows it to a person is gap G6's job.
 
 ## Why the body runs outside the engine's transaction
 
@@ -76,8 +104,11 @@ has exactly one definition per key.
 ## The tests
 
 * `test/letflow/platform_functions/dispatcher_test.exs` -- the dispatcher, the authority fence,
-  the refusals, and the structural proof that the body runs outside every transaction the
-  dispatcher owns.
+  the refusals, the structural proof that the body runs outside every transaction the
+  dispatcher owns, and the security properties: the repeated arming does not raise, the row's
+  tenant is derived from the schema, a bad prefix is refused, the row is bound to the
+  definition's node, another tenant's row is never touched, and the attempt cap dead-letters a
+  call.
 * `test/letflow/platform_functions/platform_call_idempotent_replay_test.exs` -- S8: the replay of a
   call (one call, one result, one row) and the key reuse.
 * `test/letflow/definitions/platform_call_activator_signature_test.exs` -- S9: the signature and

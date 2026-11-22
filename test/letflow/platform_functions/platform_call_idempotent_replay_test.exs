@@ -82,7 +82,6 @@ defmodule Letflow.PlatformFunctions.PlatformCallIdempotentReplayTest do
   defp arm(ctx, definition, overrides \\ %{}) do
     Dispatcher.arm(
       prefix: ctx.tenant.schema_name,
-      tenant_id: ctx.tenant.tenant_id,
       instance_id: Ecto.UUID.generate(),
       definition_id: definition.id,
       node_id: "call",

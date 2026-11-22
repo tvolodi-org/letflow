@@ -54,6 +54,35 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     * the same key with DIFFERENT arguments is a key reuse: the dispatch is
       refused with `idempotency_key_reuse` and nothing runs.
 
+  The arming is INSERT-FIRST: the row is written with
+  `ON CONFLICT (call_key) DO NOTHING`, so a double click, a retry or a
+  poller restart can never raise on the unique index -- the row that carries
+  the key is read back and the first result wins.
+
+  ## The tenant of a row
+
+  A row physically sits in ONE tenant's schema, so the tenant it claims to
+  belong to is DERIVED from that schema
+  (`Letflow.TenantProvisioning.tenant_id_for_schema_name/1`), never accepted
+  from the caller (decision 0003's addendum). The derivation is pure, so a
+  prefix that names no tenant schema is refused `:invalid_schema_name`
+  before any I/O.
+
+  ## The binding of a row to its node
+
+  A dispatch row is bound to the node of the definition it claims to run: the
+  dispatcher re-derives the node's declared call from the STORED graph and
+  refuses a row whose function or arguments the node does not declare. The
+  authority fence proves WHO may run the call; this proves WHAT the call is.
+
+  ## The attempt cap
+
+  A run killed uncatchably leaves the row `running` with an expired lease, so
+  the next claim takes it over. The number of such takes is capped
+  (`max_attempts/0`): a call that reaches the cap is DEAD-LETTERED -- the row
+  leaves the queue for good and keeps the failure kind
+  `platform_step_max_attempts`.
+
   ## What it does NOT do
 
   It does not advance the instance and it does not merge the outputs into the
@@ -64,15 +93,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   import Ecto.Query
 
+  alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.PlatformFunctions.Catalog
   alias Letflow.PlatformFunctions.Entry
   alias Letflow.PlatformFunctions.Guard
   alias Letflow.PlatformFunctions.Registry
   alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
   @default_batch_size 64
   @lease_ms 60_000
+  @max_attempts 5
 
   defmodule StepDispatch do
     @moduledoc """
@@ -153,6 +186,13 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
     @doc """
     The changeset of the INSERT path -- `arm/1`'s own write.
+
+    The unique constraint on `call_key` is declared here so that a write that
+    hits the index is a CHANGESET error and not an `Ecto.ConstraintError`
+    (INV-8). The arming path does not rely on it: it writes with
+    `on_conflict: :nothing` and reads the row that carries the key back, so a
+    repeated arming of the same call replays the first result instead of
+    raising.
     """
     @spec arm_changeset(t(), map()) :: Ecto.Changeset.t()
     def arm_changeset(dispatch, attrs) do
@@ -186,6 +226,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
         :next_attempt_at,
         :created_at
       ])
+      |> unique_constraint(:call_key, name: :uniq_platform_step_dispatches_call_key)
     end
 
     @doc """
@@ -223,10 +264,11 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   `opts`:
 
-    * `:prefix` -- the tenant schema the step runs in;
-    * `:tenant_id` -- the tenant the INSTANCE runs in (the dispatcher may be
-      handed a row forged in another schema, so the instance's own tenant is
-      what the authority fence checks);
+    * `:prefix` -- the tenant schema the step runs in. The tenant the row
+      belongs to is DERIVED from it, never taken from the caller: the row
+      physically sits in this tenant's schema and must claim to be that
+      tenant's (decision 0003's addendum). A prefix that names no tenant
+      schema is refused `:invalid_schema_name` before any I/O;
     * `:instance_id`, `:definition_id`, `:node_id` -- where the step sits;
     * `:function` -- the catalogue entry's name;
     * `:inputs` -- the resolved arguments, keyed by the entry's declared
@@ -239,19 +281,20 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   armed again, and `{:error, reason}` otherwise -- `idempotency_key_reuse`
   when the same key carries different arguments, `platform_function_unknown`
   for a name the compiled catalogue does not know, `platform_function_not_implemented`
-  for a name the catalogue declares but has no body yet.
+  for a name the catalogue declares but has no body yet, `invalid_schema_name`
+  for a prefix that names no tenant schema.
   """
   @spec arm(keyword()) :: {:ok, arm_result()} | {:error, term()}
   def arm(opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
-    tenant_id = Keyword.get(opts, :tenant_id)
     instance_id = Keyword.get(opts, :instance_id)
     definition_id = Keyword.get(opts, :definition_id)
     node_id = Keyword.get(opts, :node_id)
     function = Keyword.get(opts, :function)
     inputs = Keyword.get(opts, :inputs) || %{}
 
-    with {:ok, entry} <- fetch_entry(function),
+    with {:ok, tenant_id} <- derive_tenant_id(prefix),
+         {:ok, entry} <- fetch_entry(function),
          :ok <- check_inputs(entry, inputs),
          {:ok, _mfa} <- fetch_implementation(function) do
       call_key = call_key(entry, inputs)
@@ -274,6 +317,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     end
   end
 
+  # The tenant of a row is DERIVED from the schema the row is written into,
+  # never accepted as an independently-trusted field from the caller
+  # (decision 0003's addendum: "the value written into a table's `tenant_id`
+  # column is derived by the writing context module from the Postgres schema
+  # (:prefix) it is already writing into for that call"). The derivation is
+  # PURE, so a prefix that names no tenant schema is refused before any I/O
+  # (INV-8: a caller mistake answers an error tuple, never a crash).
+  defp derive_tenant_id(prefix) when is_binary(prefix) do
+    TenantProvisioning.tenant_id_for_schema_name(prefix)
+  end
+
+  defp derive_tenant_id(_prefix), do: {:error, :invalid_schema_name}
+
   @doc """
   Claims the row, checks the authority of the call and runs the function.
 
@@ -285,8 +341,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   outputs, `{:ok, {:already_final, outputs}}` when the row had already run
   (the stored outputs are returned), and `{:error, reason}` otherwise -- the
   reason is the refusal of the authority fence, the code of the function's own
-  refusal, or `platform_step_raised` for an unexpected failure (INV-8: the
-  step fails, the dispatcher does not crash).
+  refusal, `platform_step_max_attempts` when the call was dead-lettered, or
+  `platform_step_raised` for an unexpected failure (INV-8: the step fails, the
+  dispatcher does not crash).
   """
   @spec attempt_dispatch(Ecto.UUID.t(), String.t()) ::
           {:ok, {:advanced, map()}} | {:ok, {:already_final, map() | nil}} | {:error, term()}
@@ -297,6 +354,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
       {:ok, {:claimed, row}} ->
         run(row, prefix)
+
+      {:ok, {:given_up, _row}} ->
+        {:error, :platform_step_max_attempts}
 
       {:error, reason} ->
         {:error, reason}
@@ -460,59 +520,56 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   # ── the arming ────────────────────────────────────────────────────────────────────────
 
+  # The INSERT is the atomic step of the arming: the row is written with
+  # `ON CONFLICT (call_key) DO NOTHING`, so a repeated arming of the SAME call
+  # is a no-op instead of an error. There is no read-then-write race left:
+  # the row that carries the key is read back AFTER the write, and it is
+  # either the row this call just wrote (its id is the id we tried to write)
+  # or the row another dispatcher wrote first -- the same call, whose first
+  # result is returned (S8: a double click, a retry or a poller restart may
+  # never raise).
   defp upsert(prefix, attrs) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    attempted_id = Ecto.UUID.generate()
 
-    result =
-      Repo.transaction(fn ->
+    changeset =
+      StepDispatch.arm_changeset(%StepDispatch{id: attempted_id}, %{
+        id: attempted_id,
+        tenant_id: attrs.tenant_id,
+        instance_id: attrs.instance_id,
+        definition_id: attrs.definition_id,
+        node_id: attrs.node_id,
+        function_name: attrs.function_name,
+        call_key: attrs.call_key,
+        input_fingerprint: attrs.input_fingerprint,
+        inputs: attrs.inputs,
+        status: :pending,
+        attempt_index: 0,
+        next_attempt_at: now,
+        created_at: now
+      })
+
+    case Repo.insert(changeset,
+           on_conflict: :nothing,
+           conflict_target: :call_key,
+           prefix: prefix
+         ) do
+      {:ok, _inserted} ->
         case Repo.get_by(StepDispatch, [call_key: attrs.call_key], prefix: prefix) do
-          nil ->
-            insert_row(prefix, attrs, now)
+          %StepDispatch{id: ^attempted_id} = row ->
+            {:ok, %{status: :armed, dispatch: row, outputs: nil}}
 
-          existing ->
+          %StepDispatch{} = existing ->
+            # Another dispatcher armed the same call first: the existing row IS
+            # this call, so it is handled like one.
             handle_existing(prefix, existing, attrs)
+
+          nil ->
+            {:error, :platform_step_arm_failed}
         end
-      end)
 
-    case result do
-      {:ok, {:ok, arm_result}} -> {:ok, arm_result}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp insert_row(prefix, attrs, now) do
-    row = %StepDispatch{id: Ecto.UUID.generate()}
-
-    row
-    |> StepDispatch.arm_changeset(%{
-      id: row.id,
-      tenant_id: attrs.tenant_id,
-      instance_id: attrs.instance_id,
-      definition_id: attrs.definition_id,
-      node_id: attrs.node_id,
-      function_name: attrs.function_name,
-      call_key: attrs.call_key,
-      input_fingerprint: attrs.input_fingerprint,
-      inputs: attrs.inputs,
-      status: :pending,
-      attempt_index: 0,
-      next_attempt_at: now,
-      created_at: now
-    })
-    |> Repo.insert(prefix: prefix)
-    |> case do
-      {:ok, inserted} ->
-        {:ok, %{status: :armed, dispatch: inserted, outputs: nil}}
-
-      {:error, %Ecto.Changeset{}} ->
-        # The unique index on `call_key` fired: another dispatcher armed the
-        # same call between the read and the write. The existing row IS this
-        # call, so it is read and handled like one.
-        case Repo.get_by(StepDispatch, [call_key: attrs.call_key], prefix: prefix) do
-          nil -> {:error, :platform_step_arm_failed}
-          existing -> handle_existing(prefix, existing, attrs)
-        end
+      {:error, _changeset} ->
+        {:error, :platform_step_arm_failed}
     end
   end
 
@@ -554,6 +611,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   # ── the claim ─────────────────────────────────────────────────────────────────────────
 
+  @doc """
+  The maximum number of attempts one call gets before it is DEAD-LETTERED.
+
+  A run killed uncatchably (the VM dies, the node is killed) leaves the row
+  `running` with a lease that expires, so the next claim takes it over.
+  Without a cap that take-over would go on forever -- one attempt a minute,
+  the attempt counter growing without bound. The cap is the DECISION that a
+  call which cannot complete is given up on; the row leaves the queue for
+  good and keeps the failure kind `platform_step_max_attempts`.
+  """
+  @spec max_attempts() :: pos_integer()
+  def max_attempts, do: @max_attempts
+
   defp claim(dispatch_id, prefix) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
@@ -571,6 +641,12 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
         %StepDispatch{status: status} = existing when status in [:advanced, :given_up] ->
           {:already_final, existing}
 
+        %StepDispatch{attempt_index: attempts} = existing when attempts >= @max_attempts ->
+          # The cap is reached: the call is DEAD-LETTERED. The row leaves the
+          # queue (its status is no longer `pending`/`running`, so the due
+          # query stops selecting it) and keeps the failure kind.
+          {:given_up, dead_letter(existing, prefix)}
+
         %StepDispatch{} = existing ->
           existing
           |> StepDispatch.claim_changeset(%{
@@ -587,11 +663,28 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     end)
   end
 
+  defp dead_letter(row, prefix) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    row
+    |> StepDispatch.terminal_changeset(%{
+      status: :given_up,
+      last_failure_kind: "platform_step_max_attempts",
+      dispatched_at: now
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> updated
+      {:error, _changeset} -> row
+    end
+  end
+
   # ── the run (outside every transaction this module owns) ──────────────────────────────
 
   defp run(row, prefix) do
     with {:ok, definition} <- load_definition(row, prefix),
          :ok <- authorize(definition, row, prefix),
+         :ok <- check_binding(definition, row),
          {:ok, mfa} <- fetch_implementation(row.function_name),
          {:ok, outputs} <- invoke(mfa, row) do
       record_success(row, prefix, outputs)
@@ -601,6 +694,68 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
         record_failure(row, prefix, reason)
         {:error, reason}
     end
+  end
+
+  # The row is BOUND to the definition's node. The fence above proves WHO may
+  # run the call; this proves WHAT the call is: the node the row names must
+  # exist in the definition's stored graph, it must declare a platform call,
+  # and that call must be the row's function with the row's arguments. An
+  # arming caller that is not the engine could otherwise run a function with
+  # arguments no definition declares -- outside the "declared variables only"
+  # rule of decision 0094.
+  defp check_binding(definition, row) do
+    with {:ok, nodes} <- graph_nodes(definition),
+         {:ok, call} <- PlatformCalls.node_call_binding(nodes, row.node_id),
+         :ok <- check_bound_function(call, row),
+         :ok <- check_bound_args(call, row) do
+      :ok
+    end
+  end
+
+  defp graph_nodes(definition) do
+    case Map.get(definition, :graph) do
+      graph_map when is_map(graph_map) ->
+        case Graph.from_map(graph_map) do
+          {:ok, %Graph{nodes: nodes}} -> {:ok, nodes}
+          _not_a_graph -> {:error, :platform_call_node_missing}
+        end
+
+      _no_graph ->
+        {:error, :platform_call_node_missing}
+    end
+  end
+
+  defp check_bound_function(%{"function" => function}, row) do
+    if function == row.function_name do
+      :ok
+    else
+      {:error, :platform_call_function_mismatch}
+    end
+  end
+
+  # The row's arguments are the node's DECLARED arguments and nothing else:
+  # the same names, and the same values for the arguments the node declares as
+  # constants. An argument the node reads from a variable is the instance's
+  # own value, which the engine resolves, so the dispatcher cannot check it --
+  # but it refuses a name the node never declared.
+  defp check_bound_args(%{"args" => args}, row) do
+    declared = MapSet.new(Map.keys(args))
+    given = MapSet.new(Map.keys(row.inputs))
+
+    cond do
+      declared != given -> {:error, :platform_call_arg_mismatch}
+      not consts_match?(args, row.inputs) -> {:error, :platform_call_arg_mismatch}
+      true -> :ok
+    end
+  end
+
+  defp consts_match?(args, inputs) do
+    Enum.all?(args, fn {name, source} ->
+      case source do
+        %{"const" => value} -> Map.get(inputs, name) == value
+        _other -> true
+      end
+    end)
   end
 
   defp load_definition(row, prefix) do
