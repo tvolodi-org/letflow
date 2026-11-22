@@ -1,0 +1,51 @@
+# G-01 ratchet: test/letflow/security_probe/g01_route_role_matrix_test.exs
+#
+# The matrix test's violations must equal these lines exactly. A new violation
+# fails the test (a new hole, or a new narrowing to review); a line that no
+# longer occurs fails it too (remove it: the ratchet only tightens).
+# Line format: RULE CALLER METHOD PATH (rules: docs/security-probes/G-01.md).
+#
+# M1 (denied caller not given the canonical denial), M2 (denied request
+# wrote), M4 (foreign id answered unlike a missing id), M5 (A wrote B), M6
+# (answer names B): none today. Never add a line for these rules without an
+# owner decision: each one is a security hole.
+
+# --- M3: a second gate narrows the golden (reviewed T-2627, not a hole) ------
+# Handler gates after `Letflow.Plugs.Authorize` answer the canonical 403 to a
+# caller the role golden allows. Example: `Letflow.Routers.ApprovalRules`
+# `guarded/2` needs an interactive sign-in (`credential == :oidc`) and a
+# tenant-wide grant (`Letflow.Api.Scope.require_tenant_wide/2`); the probe's
+# callers are API tokens. Over-denial, not over-grant; the allowed path of
+# these routes is outside this probe (docs/security-probes/G-01.md, limits).
+M3 A_STOREKEEPER POST /entities/records/:entity_type/import
+M3 A_TENANT_ADMIN DELETE /identity/shared-stock-access
+M3 A_TENANT_ADMIN GET /approval-rules
+M3 A_TENANT_ADMIN GET /identity/shared-stock-access
+M3 A_TENANT_ADMIN GET /ledger-settings
+M3 A_TENANT_ADMIN GET /tenant/role-grants
+M3 A_TENANT_ADMIN POST /identity/shared-stock-access
+M3 A_TENANT_ADMIN POST /tenant/modules/:module_id/reactivate
+M3 A_TENANT_ADMIN POST /tenant/modules/:module_id/uninstall
+M3 A_TENANT_ADMIN PUT /approval-rules/:definition_name/:node_id
+M3 A_TENANT_ADMIN PUT /identity/users/:id/service-principal
+M3 A_TENANT_ADMIN PUT /ledger-settings/:registration
+M3 A_TENANT_ADMIN PUT /tenant/role-grants
+M3 A_TENANT_ADMIN PUT /tenant/scope-enforcement
+M3 P_PLATFORM_ADMIN DELETE /identity/shared-stock-access
+M3 P_PLATFORM_ADMIN GET /identity/shared-stock-access
+M3 P_PLATFORM_ADMIN GET /tenant/role-grants
+M3 P_PLATFORM_ADMIN POST /identity/shared-stock-access
+M3 P_PLATFORM_ADMIN PUT /identity/users/:id/service-principal
+M3 P_PLATFORM_ADMIN PUT /tenant/role-grants
+M3 P_PLATFORM_ADMIN PUT /tenant/scope-enforcement
+
+# --- M7: real findings, reported by T-2627 (to be fixed, then removed here) --
+# F1: the exam list routes answer 500 (`:entity_type_not_found`) in a tenant
+# where the exam module is installed but its session types are not seeded.
+M7 A_CANDIDATE GET /modules/exam/exam-sessions/available
+M7 A_CANDIDATE GET /modules/exam/exam-sessions/mine
+M7 A_TENANT_ADMIN GET /modules/exam/exam-sessions/available
+M7 A_TENANT_ADMIN GET /modules/exam/exam-sessions/mine
+# F2: the platform operator's promote route raises (undefined_table) for a
+# nonexistent test-tenant id instead of answering a typed 404 (INV-8).
+M7 P_PLATFORM_ADMIN POST /tenants/:test_tenant_id/promote/:process_key
