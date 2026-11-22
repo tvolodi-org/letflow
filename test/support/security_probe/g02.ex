@@ -15,13 +15,14 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   be a Repo read; an unknown variable's Repo mutation verb is retained conservatively.
 
   The option inventory covers every syntactic write of `:module_start`: the `Keyword` verbs, the
-  `Map` verbs, `List.keystore/4` and a literal keyword pair, through renamed aliases as well. A
-  `module_start` merged from a computed keyword list is not resolvable without executing code and is
-  stated as a limit in the class table.
+  `Map` verbs, `List.keystore/4` and a literal keyword pair, through renamed aliases as well, and
+  through `apply/3`, `Kernel.apply/3` and `:erlang.apply/3` when the module resolves to `Keyword`,
+  `Map` or `List`. A `module_start` merged from a computed keyword list is not resolvable without
+  executing code and is stated as a limit in the class table.
   """
 
-  @repo_mutations ~w(insert insert! insert_all update update! update_all delete delete! delete_all)a
-  @multi_mutations @repo_mutations
+  @repo_mutations ~w(insert insert! insert_all update update! update_all upsert delete delete! delete_all)a
+  @multi_mutations ~w(insert insert! insert_all update update! update_all delete delete! delete_all)a
   @ignored_attributes [
     :moduledoc,
     :doc,
@@ -824,6 +825,19 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   defp option_writes(ast, path, aliases, imports, local_names) do
     {_ast, writes} =
       Macro.prewalk(ast, [], fn
+        # An option written through `apply/3` is a write like any other one. The module must be
+        # written as an alias or as the module atom, and the function must be a literal atom.
+        {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, meta, [module_node, fun, arg_list]} =
+            node,
+        acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
+        {{:., _, [:erlang, :apply]}, meta, [module_node, fun, arg_list]} = node, acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
+        {:apply, meta, [module_node, fun, arg_list]} = node, acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
         {{:., _, [{:__aliases__, _, parts}, operation]}, meta, args} = node, acc
         when is_atom(operation) and is_list(args) ->
           if Enum.all?(parts, &is_atom/1) do
@@ -865,29 +879,70 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     Enum.reverse(writes)
   end
 
-  defp option_call_record("Keyword", operation, [_opts, :module_start, value], path, meta)
+  # An `apply/3` write is recorded with the same rules as a direct call, under an `apply_` prefix
+  # so that the reviewer sees where the write came from.
+  defp apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc) do
+    case apply_option_write(module_node, fun, arg_list, aliases, path, meta) do
+      nil -> acc
+      record -> [record | acc]
+    end
+  end
+
+  defp apply_option_write(module_node, fun, arg_list, aliases, path, meta) do
+    if is_atom(fun) and is_list(arg_list) do
+      case apply_option_target(module_node, aliases) do
+        nil -> nil
+        target -> option_call_record(target, fun, arg_list, path, meta, "apply_")
+      end
+    end
+  end
+
+  # The module of an `apply/3` call: an alias (renamed, grouped or `Elixir.`-prefixed) resolved
+  # like any other alias, or the module atom itself.
+  defp apply_option_target({:__aliases__, _, parts}, aliases) do
+    if Enum.all?(parts, &is_atom/1) do
+      parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+    end
+  end
+
+  defp apply_option_target(module, _aliases) when is_atom(module) do
+    module |> Atom.to_string() |> apply_module_name()
+  end
+
+  defp apply_option_target(_module, _aliases), do: nil
+
+  defp apply_module_name("Elixir." <> name), do: name
+  defp apply_module_name(name), do: name
+
+  defp option_call_record(target, operation, args, path, meta) do
+    option_call_record(target, operation, args, path, meta, "")
+  end
+
+  defp option_call_record(target, operation, args, path, meta, prefix) do
+    case option_write(target, operation, args) do
+      nil -> nil
+      {form, value} -> option_record(path, :"#{prefix}#{form}", value, meta)
+    end
+  end
+
+  defp option_write("Keyword", operation, [_opts, :module_start, value])
        when operation in [:put, :put_new, :replace, :replace!] do
-    option_record(path, operation, value, meta)
+    {operation, value}
   end
 
-  defp option_call_record("Keyword", :delete, [_opts, :module_start], path, meta) do
-    option_record(path, :keyword_delete, :removed, meta)
-  end
+  defp option_write("Keyword", :delete, [_opts, :module_start]), do: {:keyword_delete, :removed}
 
-  defp option_call_record("Map", operation, [_opts, :module_start, value], path, meta)
+  defp option_write("Map", operation, [_opts, :module_start, value])
        when operation in [:put, :put_new, :replace, :replace!] do
-    option_record(path, map_option_form(operation), value, meta)
+    {map_option_form(operation), value}
   end
 
-  defp option_call_record("Map", :delete, [_opts, :module_start], path, meta) do
-    option_record(path, :map_delete, :removed, meta)
-  end
+  defp option_write("Map", :delete, [_opts, :module_start]), do: {:map_delete, :removed}
 
-  defp option_call_record("List", :keystore, [_opts, :module_start, _position, value], path, meta) do
-    option_record(path, :list_keystore, value, meta)
-  end
+  defp option_write("List", :keystore, [_opts, :module_start, _position, value]),
+    do: {:list_keystore, value}
 
-  defp option_call_record(_target, _operation, _args, _path, _meta), do: nil
+  defp option_write(_target, _operation, _args), do: nil
 
   defp map_option_form(:put), do: :map_put
   defp map_option_form(:put_new), do: :map_put_new

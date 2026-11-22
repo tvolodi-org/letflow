@@ -11,12 +11,14 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   both SUB_PROCESS child starts, the child activation entry point included. S2 fails closed on an
   unapproved or computed `module_start` option in every syntactic form the detector sees: the
   `Keyword` and `Map` verbs, `List.keystore/4` and a literal keyword pair, through a renamed module,
-  a file-scope alias, an `Elixir.`-prefixed alias or an imported function as well. S3 asserts that
+  a file-scope alias, an `Elixir.`-prefixed alias or an imported function as well, and through
+  `apply/3` when the module resolves to `Keyword`, `Map` or `List`. S3 asserts that
   every Engine start entry reaches a module-start gate (the root gate for a root instance, the child
   gate for a SUB_PROCESS child). The N-tests are seeded failing variants: removing a real
   Repo.update, adding an unclassified writer/start, hiding the start option behind Keyword.put or a
   computed value, hiding it behind a file-scope alias or an import, hiding a Multi write behind an
-  `Elixir.`-prefixed alias, and dropping a start gate all produce drift.
+  `Elixir.`-prefixed alias, hiding the start option behind `apply/3`, hiding a definition writer
+  behind `Repo.upsert`, and dropping a start gate all produce drift.
   """
 
   use ExUnit.Case, async: true
@@ -48,6 +50,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {"Letflow.Definitions", :assign_sequence, 2} => :supporting_write,
     {"Letflow.Definitions", :entity_writes_activated_by, 4} => :supporting_write,
     {"Letflow.Definitions", :record_audit, 5} => :supporting_write,
+    {"Letflow.Definitions", :record_audit, 6} => :supporting_write,
     {"Letflow.Definitions", :register_variable_schemas, 3} => :supporting_write,
     {"Letflow.Definitions.ActivatedBy", :ensure, 1} => :activation_write,
     {"Letflow.Definitions.ActivatedBy", :sign, 3} => :activation_write,
@@ -57,6 +60,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {"Letflow.Definitions.PromotionReviewStore", :mark_review_failed, 2} => :review_write,
     {"Letflow.Definitions.PromotionReviewStore", :reject_review, 3} => :review_write,
     {"Letflow.Definitions.PromotionReviewStore", :supersede_review, 3} => :review_write,
+    {"Letflow.Definitions.Reactivation", :mark_definition, 3} => :reactivation,
     {"Letflow.Definitions.Reactivation", :reconcile_group, 2} => :reactivation,
     {"Letflow.Definitions.Reactivation", :reconcile_user, 2} => :reactivation,
     {"Letflow.Definitions.Reactivation", :reconcile_users, 2} => :reactivation,
@@ -584,6 +588,115 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
              calls,
              &(&1.class == :repo and &1.target == "Letflow.Repo" and &1.fun == :all)
            )
+  end
+
+  test "N11 non-vacuity: an option written through apply/3 cannot hide a module_start write" do
+    plain = """
+    defmodule RogueApplyOption do
+      def start(opts), do: apply(Keyword, :put, [opts, :module_start, true])
+    end
+    """
+
+    aliased = """
+    alias Keyword, as: KW
+
+    defmodule RogueApplyAlias do
+      def start(opts), do: apply(KW, :put, [opts, :module_start, true])
+    end
+    """
+
+    prefixed = """
+    defmodule RogueApplyPrefixed do
+      def start(opts), do: apply(Elixir.Keyword, :put, [opts, :module_start, true])
+    end
+    """
+
+    kernel = """
+    defmodule RogueKernelApply do
+      def start(opts), do: Kernel.apply(Keyword, :put, [opts, :module_start, true])
+    end
+    """
+
+    erlang = """
+    defmodule RogueErlangApply do
+      def start(opts), do: :erlang.apply(Keyword, :put, [opts, :module_start, true])
+    end
+    """
+
+    atom = """
+    defmodule RogueAtomApply do
+      def start(opts), do: apply(:"Elixir.Keyword", :put, [opts, :module_start, true])
+    end
+    """
+
+    mapped = """
+    defmodule RogueApplyMap do
+      def start(opts), do: apply(Map, :put, [opts, :module_start, true])
+    end
+    """
+
+    removed = """
+    defmodule RogueApplyDelete do
+      def start(opts), do: apply(Keyword, :delete, [opts, :module_start])
+    end
+    """
+
+    for {source, form} <- [
+          {plain, :apply_put},
+          {aliased, :apply_put},
+          {prefixed, :apply_put},
+          {kernel, :apply_put},
+          {erlang, :apply_put},
+          {atom, :apply_put},
+          {mapped, :apply_map_put}
+        ] do
+      violations =
+        "synthetic/rogue_apply_option.ex"
+        |> G02.scan_source(source)
+        |> G02.module_start_violations(@module_start_paths)
+
+      assert Enum.any?(violations, fn
+               {_, _, ^form, :literal_true, _} -> true
+               _ -> false
+             end),
+             "the apply/3 write form #{form} was not seen"
+    end
+
+    deletions =
+      "synthetic/rogue_apply_delete.ex"
+      |> G02.scan_source(removed)
+      |> G02.module_start_violations(@module_start_paths)
+
+    assert Enum.any?(deletions, fn
+             {_, _, :apply_keyword_delete, :removed, _} -> true
+             _ -> false
+           end)
+
+    # The compliant control: the same write at a reviewed module path is accepted.
+    approved =
+      G02.scan_source("lib/letflow/modules/stock/documents/posting.ex", plain)
+
+    assert G02.module_start_violations(approved, @module_start_paths) == []
+  end
+
+  test "N12 non-vacuity: an upsert write is a definition writer" do
+    source = """
+    defmodule Letflow.Definitions.RogueUpsert do
+      alias Letflow.Repo
+      alias Letflow.Definitions.ProcessDefinition
+
+      def save(definition, attrs) do
+        changeset = ProcessDefinition.update_changeset(definition, attrs)
+        Repo.upsert(changeset)
+      end
+    end
+    """
+
+    synthetic = G02.scan_source("synthetic/definitions.ex", source)
+    entries = G02.definition_entries(synthetic)
+
+    assert {"Letflow.Definitions.RogueUpsert", :save, 2} in entries
+    assert G02.definition_drift(synthetic, entries) == []
   end
 
   test "T1: the class table lists every probe case with its test file and name" do
