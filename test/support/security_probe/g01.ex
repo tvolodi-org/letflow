@@ -26,8 +26,12 @@ defmodule Letflow.SecurityProbe.G01 do
     * **request shapes** -- `:missing`: a nonexistent id in every path
       parameter; `{:foreign, table}`: the same request with a real id of a
       populated foreign tenant B (one per table of B that has rows), for the
-      first A caller the oracle allows. Every mutating verb carries a body of
-      privileged attributes that name B (`privileged_body/1`).
+      first A caller the oracle allows; `{:own, table}`: every mutating route
+      with a parameter again with a real id of the company tenant A itself
+      (the write path on a real record; A's `process_definitions` id is a
+      draft). Every mutating verb carries one privileged body
+      (`privileged_body/1`): the definition and instance-start write shapes
+      with a `platform_call` graph, and attributes that name B.
 
   The probe has an OBSERVE half (`observe/2`: send the generated requests and
   record status, content type, body and the tables each request wrote) and a
@@ -55,7 +59,11 @@ defmodule Letflow.SecurityProbe.G01 do
     * `:M5` -- no request of an A caller writes a row of B;
     * `:M6` -- no answer to an A caller carries one of B's ids, its slug or
       its schema name;
-    * `:M7` -- no generated request crashes the pipeline or answers 5xx.
+    * `:M7` -- no generated request crashes the pipeline or answers 5xx;
+    * `:M8` -- no request of an A caller leaves a row of A (outside
+      `api_tokens` and `audit_entries`) holding the privileged body's
+      `platform_call` marker: a company tenant never stores a platform call
+      (T-2588).
 
   Each request runs in a transaction that is always rolled back, so every
   request sees the same starting state (no order dependence) and nothing a
@@ -73,6 +81,7 @@ defmodule Letflow.SecurityProbe.G01 do
   @ratchet_path "test/fixtures/security_probes/g01/ratchet.txt"
   @missing_id "00000000-0000-4000-8000-0000000000a1"
   @placeholder "<ID>"
+  @marker "g01-platform-call-marker"
 
   @doc "The nonexistent id of the `:missing` shape."
   def missing_id, do: @missing_id
@@ -91,6 +100,19 @@ defmodule Letflow.SecurityProbe.G01 do
 
   @doc "The routes the golden is the oracle for: the core routes and the golden modules' routes."
   def matrix_routes, do: Enum.filter(routes(), &golden_route?(&1, golden_modules()))
+
+  @shard_count 4
+
+  @doc """
+  The number of shard files the real-tree matrix is cut into (each one a
+  tagged probe file, `test/letflow/security_probe/g01_matrix_shard_<i>_test.exs`).
+  """
+  def shard_count, do: @shard_count
+
+  @doc "The matrix routes of shard `index`: those whose index in `matrix_routes/0` is `index` mod `shard_count/0`."
+  def shard_routes(index) when is_integer(index) and index >= 0 and index < @shard_count do
+    for {route, i} <- Enum.with_index(matrix_routes()), rem(i, @shard_count) == index, do: route
+  end
 
   @doc "The routes outside the golden (test-only / QA-only modules that `config/test.exs` appends)."
   def excluded_routes, do: Enum.reject(routes(), &golden_route?(&1, golden_modules()))
@@ -252,18 +274,75 @@ defmodule Letflow.SecurityProbe.G01 do
         do: {table, id}
   end
 
-  @doc "A body for a mutating verb: privileged attributes that name the foreign tenant."
+  @doc """
+  The marker the privileged body's `platform_call` carries. It occurs in no row
+  of the fixture world, so a row of a company tenant that contains it after a
+  request is a stored platform call (rule `:M8`).
+  """
+  def marker, do: @marker
+
+  @doc """
+  The graph of the privileged body: START -> a SERVICE_TASK bound to a
+  platform function (the `platform_call` node attribute, read by
+  `Letflow.Definitions.PlatformCalls`) -> END. The only thing wrong with it is
+  that a company tenant may not carry it (T-2588).
+  """
+  def privileged_graph do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "call",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{
+            "platform_call" => %{
+              "function" => "tenant.create",
+              "args" => %{"slug" => %{"const" => @marker}, "name" => %{"const" => @marker}}
+            }
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "call"},
+        %{"id" => "e2", "source" => "call", "target" => "end"}
+      ]
+    }
+  end
+
+  @doc """
+  A body for a mutating verb, the union of the route families' write shapes,
+  every value privileged or naming the foreign tenant:
+
+    * the definition write shape (`name`, `version`, `description`, `graph`):
+      the graph carries a `platform_call` node (`privileged_graph/0`), so a
+      definition create / PUT / PATCH reaches `check_platform_call_tenant`
+      (T-2588);
+    * the instance start shape (`initial_variables`, required by
+      `POST /instances`) with tenant B's ids and definition id (T-2444 MS-S4);
+    * top-level ids and grants naming B (`tenant_id`, `tenant_slug`,
+      `definition_id`, `instance_id`, `record_id`, `roles: [PLATFORM_ADMIN]`).
+  """
   def privileged_body(foreign) do
     ids = Map.new(foreign.pool)
+    definition_id = Map.get(ids, "process_definitions", @missing_id)
 
     %{
+      "name" => "g01-privileged",
+      "version" => "1",
+      "description" => "G-01 privileged body",
+      "graph" => privileged_graph(),
+      "initial_variables" => %{
+        "tenant_id" => foreign.tenant_id,
+        "definition_id" => definition_id
+      },
       "tenant_id" => foreign.tenant_id,
       "tenant_slug" => foreign.slug,
-      "definition_id" => Map.get(ids, "process_definitions", @missing_id),
+      "definition_id" => definition_id,
       "instance_id" => Map.get(ids, "process_instances", @missing_id),
       "record_id" => Map.get(ids, "entity_records", @missing_id),
       "roles" => ["PLATFORM_ADMIN"],
-      "platform_call" => %{"function" => "tenants.create"}
+      "platform_call" => %{"function" => "tenant.create"}
     }
   end
 
@@ -279,6 +358,8 @@ defmodule Letflow.SecurityProbe.G01 do
     * `:routes` -- the routes to probe;
     * `:golden`, `:overlay` -- the oracle inputs;
     * `:foreign` -- `%{tenant_id, slug, schema, pool}` of tenant B;
+    * `:own` -- `%{schema, pool}` of the company tenant A (the own shape and
+      the M8 search);
     * `:schemas` -- the schemas whose writes are recorded;
     * `:plug`, `:prefix` -- the plug under test and its path prefix
       (`Letflow.Router` and `"/api/v1"` for the real tree).
@@ -289,7 +370,7 @@ defmodule Letflow.SecurityProbe.G01 do
     Logger.put_process_level(self(), :error)
 
     try do
-      do_observe(world)
+      world |> Map.put(:relations, relations(world.schemas)) |> do_observe()
     after
       Logger.delete_process_level(self())
       Process.delete({__MODULE__, :counters})
@@ -316,7 +397,17 @@ defmodule Letflow.SecurityProbe.G01 do
         obs(world, caller, route, :allow, {:foreign, table}, id, body)
       end
 
-    matrix ++ foreign
+    own =
+      for route <- world.routes,
+          mutating?(route.method),
+          param_route?(route.path),
+          caller = first_allowed_a_caller(world, route),
+          caller != nil,
+          {table, id} <- world.own.pool do
+        obs(world, caller, route, :allow, {:own, table}, id, body)
+      end
+
+    matrix ++ foreign ++ own
   end
 
   defp first_allowed_a_caller(world, route) do
@@ -347,33 +438,88 @@ defmodule Letflow.SecurityProbe.G01 do
   @doc """
   One request through `world.plug`, isolated in a transaction (a savepoint of
   the sandbox transaction) that is always rolled back. The transaction's own
-  write counters (`pg_stat_xact_user_tables`) are read for `world.schemas`
-  before and after: PostgreSQL counts every attempted insert, update and
-  delete, also a rolled-back one, so a write the request made is seen.
+  write counters (`pg_stat_get_xact_tuples_inserted/updated/deleted`, the
+  functions behind `pg_stat_xact_user_tables`) are read for the tables of
+  `world.schemas` before and after: PostgreSQL counts every attempted insert,
+  update and delete, also a rolled-back one, so a write the request made is
+  seen.
 
-  Returns `%{status, type, body, crash, writes}`; `crash` is the exception
-  message when the pipeline raised (a 500 in production); `writes` is the
-  sorted `[{schema, table}]` list of written tables.
+  Returns `%{status, type, body, crash, writes, stored_marker}`; `crash` is
+  the exception message when the pipeline raised (a 500 in production);
+  `writes` is the sorted `[{schema, table}]` list of written tables;
+  `stored_marker` the tables of the company tenant that held the privileged
+  body's `platform_call` marker before the rollback (rule `:M8`).
   """
   def request(world, method, path, caller, body) do
     # The counters only grow inside the sandbox transaction, and nothing but
     # these requests runs between two reads: the previous request's "after"
     # read is this request's "before" read.
     before =
-      Process.get({__MODULE__, :counters}) || xact_writes(world.schemas)
+      Process.get({__MODULE__, :counters}) || xact_writes(world)
 
     # A handler's own nested transaction may mark this one for rollback, and
     # `Repo.transaction/1` then drops the function's value: the response is
     # passed out through the process dictionary instead.
     Repo.transaction(fn ->
-      Process.put({__MODULE__, :response}, dispatch(world, method, path, caller, body))
+      resp = dispatch(world, method, path, caller, body)
+      # Only a request with a body can carry the marker in.
+      stored = if body, do: stored_marker(world, before), else: []
+      Process.put({__MODULE__, :response}, Map.put(resp, :stored_marker, stored))
       Repo.rollback(:g01_isolated)
     end)
 
     resp = Process.delete({__MODULE__, :response})
-    after_counts = xact_writes(world.schemas)
+    after_counts = xact_writes(world)
     Process.put({__MODULE__, :counters}, after_counts)
     Map.put(resp, :writes, diff_writes(before, after_counts))
+  end
+
+  # The tables of the company tenant A (`world.own.schema`) that the request
+  # wrote and that now hold a row containing the privileged body's marker,
+  # read inside the request's transaction (before the rollback).
+  #
+  # A handler whose own nested transaction failed leaves the request's
+  # transaction aborted: it can commit nothing, and ANY query on it makes the
+  # connection disconnect, which would drop the whole sandbox transaction (the
+  # module installs with it). An empty nested transaction tells the two apart
+  # without a query (DBConnection answers `{:error, :rollback}` on an aborted
+  # transaction), so an aborted request answers `[]`. A handler that rescued a
+  # database error leaves the transaction aborted on the PostgreSQL side only:
+  # the first query answers 25P02 (`in_failed_sql_transaction`, no disconnect),
+  # and that request can commit nothing either.
+  #
+  # `audit_entries` is not a store of definitions: the audit trail records
+  # refused input by design (for example `tenant_settings.reject_unrecognized_keys`
+  # keeps the rejected keys' values), so a marker there is not a stored call.
+  defp stored_marker(world, before) do
+    case Repo.transaction(fn -> :ok end) do
+      {:ok, :ok} -> scan_marker(world, before)
+      {:error, _aborted} -> []
+    end
+  rescue
+    error in Postgrex.Error ->
+      if error.postgres && error.postgres.code == :in_failed_sql_transaction,
+        do: [],
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  defp scan_marker(world, before) do
+    schema = world.own.schema
+
+    written =
+      for {^schema, table} <- diff_writes(before, xact_writes(world)),
+          table not in ["api_tokens", "audit_entries"],
+          do: table
+
+    for table <- written,
+        %{rows: [[n]]} <- [
+          Repo.query!(
+            ~s|SELECT count(*) FROM "#{schema}"."#{table}" r WHERE r::text LIKE $1|,
+            ["%" <> @marker <> "%"]
+          )
+        ],
+        n > 0,
+        do: {schema, table}
   end
 
   defp dispatch(world, method, path, caller, body) do
@@ -405,14 +551,31 @@ defmodule Letflow.SecurityProbe.G01 do
     exception |> Exception.message() |> String.split("\n") |> hd() |> String.slice(0, 200)
   end
 
-  defp xact_writes(schemas) do
+  # The tables of `schemas`, `%{oid => {schema, table}}`, read once per
+  # observation run: the per-request counter read then asks only for these
+  # oids (about 1 ms, against about 4 ms for the `pg_stat_xact_user_tables`
+  # view over the whole test database).
+  defp relations(schemas) do
     %{rows: rows} =
       Repo.query!(
-        "SELECT schemaname, relname, n_tup_ins + n_tup_upd + n_tup_del FROM pg_stat_xact_user_tables WHERE schemaname = ANY($1)",
+        "SELECT c.oid, n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ANY($1) AND c.relkind IN ('r', 'p')",
         [schemas]
       )
 
-    Map.new(rows, fn [schema, table, count] -> {{schema, table}, count} end)
+    Map.new(rows, fn [oid, schema, table] -> {oid, {schema, table}} end)
+  end
+
+  # This transaction's write counters (attempted inserts + updates + deletes,
+  # rolled-back ones included) of every table of `world.relations` that has
+  # one, `%{{schema, table} => count}`.
+  defp xact_writes(world) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT o, x FROM (SELECT o, pg_stat_get_xact_tuples_inserted(o) + pg_stat_get_xact_tuples_updated(o) + pg_stat_get_xact_tuples_deleted(o) AS x FROM unnest($1::oid[]) AS u(o)) s WHERE x > 0",
+        [Map.keys(world.relations)]
+      )
+
+    Map.new(rows, fn [oid, count] -> {Map.fetch!(world.relations, oid), count} end)
   end
 
   defp diff_writes(before, after_counts) do
@@ -505,7 +668,12 @@ defmodule Letflow.SecurityProbe.G01 do
         do: [{:M7, o.caller, o.method, o.path, o.resp.crash || "status #{o.resp.status}"}],
         else: []
 
-    m5 ++ m6 ++ m7
+    m8 =
+      if o.tenant == :a and Map.get(o.resp, :stored_marker, []) != [],
+        do: [{:M8, o.caller, o.method, o.path, "stored #{inspect(o.resp.stored_marker)}"}],
+        else: []
+
+    m5 ++ m6 ++ m7 ++ m8
   end
 
   defp identity_rule(observations) do
@@ -530,6 +698,18 @@ defmodule Letflow.SecurityProbe.G01 do
   @doc "A violation as its ratchet line: `RULE CALLER METHOD PATH` (the detail is not pinned)."
   def ratchet_line({rule, caller, method, path, _detail}),
     do: Enum.join([rule, String.replace(caller, " ", "_"), method, path], " ")
+
+  @doc "The `{method, path}` a ratchet line names."
+  def ratchet_route(line) do
+    [_rule, _caller, method, path] = String.split(line, " ")
+    {method, path}
+  end
+
+  @doc "The committed ratchet lines that name one of `routes`."
+  def ratchet_lines_for(routes) do
+    keys = MapSet.new(routes, &{&1.method, &1.path})
+    Enum.filter(read_ratchet(), &MapSet.member?(keys, ratchet_route(&1)))
+  end
 
   @doc "The committed ratchet lines (comments and blank lines ignored)."
   def read_ratchet do

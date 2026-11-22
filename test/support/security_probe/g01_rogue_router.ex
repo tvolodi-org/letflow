@@ -17,10 +17,13 @@ defmodule Letflow.SecurityProbe.G01RogueRouter do
       missing one (an existence oracle) -> M4;
     * `GET /rogue/items/:id/owner` names tenant B's slug in its answer -> M6;
     * `GET /rogue/locked` gives the canonical 403 to every caller -> M3;
-    * `GET /rogue/crash` raises -> M7.
+    * `GET /rogue/crash` raises -> M7;
+    * `PATCH /rogue/definitions/:id` stores the request body (its
+      `platform_call` graph) into the company tenant's definition `:id`
+      without the platform-tenant check -> M8 (the T-2588 defect).
 
-  The foreign tenant is read from the process dictionary
-  (`put_foreign/1`), set by the test.
+  The foreign tenant and the company tenant's schema are read from the
+  process dictionary (`put_foreign/1`, `put_own/1`), set by the test.
   """
 
   use Plug.Router
@@ -32,9 +35,13 @@ defmodule Letflow.SecurityProbe.G01RogueRouter do
   plug(:dispatch)
 
   @key {__MODULE__, :foreign}
+  @own_key {__MODULE__, :own}
 
   @doc "Sets the foreign tenant the rogue routes leak and write (`%{schema, slug, pool}`)."
   def put_foreign(foreign), do: Process.put(@key, foreign)
+
+  @doc "Sets the company tenant whose definitions the rogue write route stores into (`%{schema}`)."
+  def put_own(own), do: Process.put(@own_key, own)
 
   @doc "The rogue routes, in the `G01.routes/0` shape."
   def routes do
@@ -44,7 +51,8 @@ defmodule Letflow.SecurityProbe.G01RogueRouter do
           {"POST", "/rogue/items"},
           {"GET", "/rogue/items/:id"},
           {"GET", "/rogue/items/:id/owner"},
-          {"GET", "/rogue/locked"}
+          {"GET", "/rogue/locked"},
+          {"PATCH", "/rogue/definitions/:id"}
         ],
         do: %{method: method, path: path, key: :AuditRead, router: __MODULE__}
   end
@@ -70,6 +78,24 @@ defmodule Letflow.SecurityProbe.G01RogueRouter do
     if id in foreign_ids,
       do: send_resp(conn, 404, ~s({"detail":"this record belongs to another tenant"})),
       else: Response.not_found(conn)
+  end
+
+  patch "/rogue/definitions/:id" do
+    {:ok, body, conn} = Plug.Conn.read_body(conn)
+    schema = Process.get(@own_key).schema
+
+    case Ecto.UUID.dump(id) do
+      {:ok, uuid} ->
+        Repo.query!(
+          ~s(UPDATE "#{schema}".process_definitions SET description = $1 WHERE id = $2),
+          [body, uuid]
+        )
+
+      :error ->
+        :ok
+    end
+
+    send_resp(conn, 200, ~s({"ok":true}))
   end
 
   get "/rogue/locked" do

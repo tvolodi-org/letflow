@@ -92,6 +92,10 @@ STANDARD_BP_DOC_TEST = [
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 STANDARD_SECURITY_PROBE_TESTS = [
+    "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
     "test/letflow/security_probe/g01_route_role_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",

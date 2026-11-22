@@ -6,18 +6,24 @@ defmodule Letflow.SecurityProbe.G01RouteRoleMatrixTest do
   oracle and the rules live in `Letflow.SecurityProbe.G01`; the class table is
   `docs/security-probes/G-01.md`.
 
-  The matrix test sends every route of the inventory, for every role, through
-  the full `Letflow.Router` pipeline with a real API token, and every id route
-  again with each real id of a populated foreign tenant. Its violations must
-  equal the committed ratchet `test/fixtures/security_probes/g01/ratchet.txt`
+  The real-tree matrix itself runs in the shard files
+  `test/letflow/security_probe/g01_matrix_shard_<i>_test.exs`
+  (`Letflow.SecurityProbe.G01Case.run_shard!/1`): every route of the
+  inventory, for every role, through the full `Letflow.Router` pipeline with a
+  real API token; every id route again with each real id of a populated
+  foreign tenant; every mutating id route again with each own id of the
+  company tenant (the write path). Each shard's violations must equal the
+  ratchet lines of its routes in `test/fixtures/security_probes/g01/ratchet.txt`
   exactly: a new violation fails (a new hole), and so does a ratchet line
   that no longer occurs (a fixed finding must leave the file, so the ratchet
   only tightens).
 
-  Non-vacuity: the rogue router (`Letflow.SecurityProbe.G01RogueRouter`)
-  goes through the SAME `G01.observe/1` and `G01.violations/2` and must trip
-  every rule M1..M7; the completeness tests prove the inventory, the role
-  list, the oracle and the foreign pool are not empty.
+  This file holds what the shards rest on. Non-vacuity: the rogue router
+  (`Letflow.SecurityProbe.G01RogueRouter`) goes through the SAME
+  `G01.observe/1` and `G01.violations/2` and must trip every rule M1..M8;
+  completeness: the inventory, the role list and the oracle are not empty, a
+  shard file exists for every shard index and together the shards hold every
+  matrix route, and every ratchet line names a matrix route.
 
   Deterministic: fixed ids, sorted routes, roles and pool, every request in a
   rolled-back transaction (no order dependence), no clock, no network.
@@ -27,126 +33,17 @@ defmodule Letflow.SecurityProbe.G01RouteRoleMatrixTest do
 
   use Letflow.DataCase, async: false
 
-  import Plug.Test, only: [conn: 2]
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias Letflow.Api.Authorization
-  alias Letflow.Api.Response
   alias Letflow.SecurityProbe.G01
+  alias Letflow.SecurityProbe.G01Case
   alias Letflow.SecurityProbe.G01RogueRouter
-  alias Letflow.Support.PlatformTenantFixture, as: Fixture
 
   @moduletag :security_probe
-  @moduletag probe_cost_s: 85
-  @moduletag timeout: 600_000
+  @moduletag probe_cost_s: 8
+  @moduletag timeout: 300_000
 
-  # Routes closed by a feature flag answer 404 to every caller; the probe opens
-  # them so their authorization is what it measures (restored on exit).
-  @flags [
-    {:record_triggers_enabled, true},
-    {:scheduled_jobs, [enabled: true]}
-  ]
+  @shard_glob "test/letflow/security_probe/g01_matrix_shard_*_test.exs"
 
-  defp open_flags! do
-    for {key, value} <- @flags do
-      original = Application.fetch_env(:letflow, key)
-      Application.put_env(:letflow, key, value)
-
-      on_exit(fn ->
-        case original do
-          {:ok, v} -> Application.put_env(:letflow, key, v)
-          :error -> Application.delete_env(:letflow, key)
-        end
-      end)
-    end
-  end
-
-  defp roles, do: Enum.map(Authorization.roles(), &Atom.to_string/1)
-
-  # Committed tenants (provisioning needs the sandbox's :auto mode) and their
-  # tokens; afterwards a fresh sandbox transaction holds everything else
-  # (module installs, every request), so none of it survives the test.
-  defp world!(opts) do
-    t = Fixture.three_tenants!()
-    Fixture.pin!(t.p.tenant_id)
-    open_flags!()
-
-    a_callers =
-      for role <- roles() do
-        %{
-          label: "A " <> role,
-          role: role,
-          platform?: false,
-          tenant: :a,
-          token: Fixture.mint_token!(t.a, [role]),
-          slug: t.a.tenant.slug,
-          schema: t.a.schema_name
-        }
-      end
-
-    p_admin = %{
-      label: "P PLATFORM_ADMIN",
-      role: "PLATFORM_ADMIN",
-      platform?: true,
-      tenant: :p,
-      token: Fixture.mint_token!(t.p, ["PLATFORM_ADMIN"]),
-      slug: t.p.tenant.slug,
-      schema: t.p.schema_name
-    }
-
-    # A token-holding user of B, so B's pool has rows even without installs.
-    _ = Fixture.mint_token!(t.b, ["TENANT_ADMIN"])
-
-    :ok = Sandbox.checkin(Letflow.Repo)
-    # The matrix holds this checkout for about two minutes: above the sandbox's
-    # default 120 s ownership timeout, after which the pool closes it.
-    :ok = Sandbox.checkout(Letflow.Repo, ownership_timeout: 600_000)
-
-    if opts[:install] do
-      G01.install_golden_modules!(t.a.schema_name)
-      G01.install_golden_modules!(t.b.schema_name)
-    end
-
-    foreign = %{
-      tenant_id: t.b.tenant_id,
-      slug: t.b.tenant.slug,
-      schema: t.b.schema_name,
-      pool: G01.foreign_pool(t.b.schema_name)
-    }
-
-    %{
-      tenants: t,
-      callers: a_callers ++ [p_admin],
-      golden: G01.golden(),
-      overlay: Letflow.Api.TenantGrants.load(t.a.schema_name),
-      foreign: foreign,
-      schemas: [t.a.schema_name, t.b.schema_name, t.p.schema_name, "public"],
-      plug: Letflow.Router,
-      prefix: "/api/v1"
-    }
-  end
-
-  defp canonical(fun) do
-    resp = fun.(conn(:get, "/"))
-
-    G01.normalise(
-      %{
-        status: resp.status,
-        type: Plug.Conn.get_resp_header(resp, "content-type"),
-        body: resp.resp_body
-      },
-      []
-    )
-  end
-
-  defp ctx(world) do
-    %{
-      canonical_403: canonical(&Response.forbidden(&1, "insufficient permissions")),
-      canonical_404: canonical(&Response.not_found/1),
-      concealed_keys: G01.concealed_keys(),
-      foreign: world.foreign
-    }
-  end
+  defp roles, do: G01Case.roles()
 
   describe "completeness (the generator is not empty)" do
     test "the inventory, the golden and the role list are not empty" do
@@ -194,14 +91,15 @@ defmodule Letflow.SecurityProbe.G01RouteRoleMatrixTest do
   end
 
   describe "non-vacuity: the seeded rogue router trips every rule" do
-    test "M1..M7 each name a rogue route" do
-      world = world!(install: false)
+    test "M1..M8 each name a rogue route" do
+      world = G01Case.world!(install: false)
       G01RogueRouter.put_foreign(world.foreign)
+      G01RogueRouter.put_own(world.own)
       world = %{world | plug: G01RogueRouter, prefix: ""}
       routes = G01RogueRouter.routes()
 
       observations = G01.observe(Map.put(world, :routes, routes))
-      found = G01.violations(observations, ctx(world))
+      found = G01.violations(observations, G01Case.ctx(world))
       by_rule = Enum.group_by(found, &elem(&1, 0), &{elem(&1, 2), elem(&1, 3)})
 
       assert world.foreign.pool != []
@@ -212,6 +110,7 @@ defmodule Letflow.SecurityProbe.G01RouteRoleMatrixTest do
       assert {"POST", "/rogue/items"} in Map.get(by_rule, :M5, [])
       assert {"GET", "/rogue/items/:id/owner"} in Map.get(by_rule, :M6, [])
       assert {"GET", "/rogue/crash"} in Map.get(by_rule, :M7, [])
+      assert {"PATCH", "/rogue/definitions/:id"} in Map.get(by_rule, :M8, [])
 
       # The ratchet comparison the real tree uses fails on these lines.
       lines = Enum.map(found, &G01.ratchet_line/1)
@@ -219,38 +118,78 @@ defmodule Letflow.SecurityProbe.G01RouteRoleMatrixTest do
     end
   end
 
-  describe "the real tree" do
-    test "route x role x tenant x shape: the violations equal the ratchet" do
-      world = world!(install: true)
-      routes = G01.matrix_routes()
+  describe "the privileged body reaches the write path (T-2588 anchor)" do
+    # The definition write routes of `Letflow.Routers.Definitions`, by policy
+    # key (the solution-pack routes share `:DefinitionsCreate` but take a pack,
+    # not a graph). The matrix shards send the
+    # same body to every mutating route; this test pins that, for the routes
+    # T-2588 was about, the body is not refused before the platform-call
+    # tenant check (`Letflow.Definitions` `check_platform_call_tenant/2`): a
+    # body the route refuses at validation would leave M8 vacuous there.
+    @write_keys [:DefinitionsCreate, :DefinitionsUpdate, :DefinitionsPatch]
 
-      assert length(world.foreign.pool) >= 8,
-             "foreign pool too small: #{inspect(Enum.map(world.foreign.pool, &elem(&1, 0)))}"
+    test "a company TENANT_ADMIN's platform_call graph is refused by the tenant check" do
+      world = G01Case.world!(install: false)
 
-      assert {"process_definitions", _} =
-               List.keyfind(world.foreign.pool, "process_definitions", 0)
+      routes =
+        Enum.filter(
+          G01.matrix_routes(),
+          &(&1.key in @write_keys and &1.router == Letflow.Routers.Definitions)
+        )
 
-      observations = G01.observe(Map.put(world, :routes, routes))
+      assert length(routes) == length(@write_keys)
 
-      matrix = Enum.count(observations, &(&1.shape == :missing))
-      assert matrix == length(routes) * length(world.callers)
-      assert Enum.any?(observations, &match?({:foreign, _}, &1.shape))
-      assert Enum.any?(observations, &(&1.expected == :deny))
-      assert Enum.any?(observations, &(&1.expected == :allow))
+      admin = Enum.filter(world.callers, &(&1.label == "A TENANT_ADMIN"))
 
-      violations = G01.violations(observations, ctx(world))
-      details = Map.new(violations, &{G01.ratchet_line(&1), elem(&1, 4)})
-      found = violations |> Enum.map(&G01.ratchet_line/1) |> Enum.uniq() |> Enum.sort()
-      pinned = G01.read_ratchet() |> Enum.sort()
+      world = %{world | callers: admin} |> Map.put(:routes, routes)
+      observations = G01.observe(world)
 
-      new = found -- pinned
-      gone = pinned -- found
+      # POST /definitions has no id (its :missing shape is the write); PUT and
+      # PATCH reach their draft through the own shape.
+      writes =
+        Enum.filter(observations, fn o ->
+          (o.shape == :missing and not G01.param_route?(o.path)) or
+            o.shape == {:own, "process_definitions"}
+        end)
 
-      assert new == [] and gone == [],
-             "G-01 ratchet #{G01.ratchet_path()} differs.\n" <>
-               "New violations (a new hole, or a new narrowing to review and pin):\n  " <>
-               Enum.map_join(new, "\n  ", &"#{&1}    -- #{details[&1]}") <>
-               "\nPinned lines that no longer occur (remove them):\n  " <> Enum.join(gone, "\n  ")
+      assert length(writes) == length(@write_keys)
+
+      for o <- writes do
+        assert o.resp.status == 422, "#{o.method} #{o.path} answered #{o.resp.status}"
+        assert %{"error" => "platform_calls_invalid"} = Jason.decode!(o.resp.body)
+      end
+
+      assert [] ==
+               Enum.filter(
+                 G01.violations(observations, G01Case.ctx(world)),
+                 &(elem(&1, 0) == :M8)
+               )
+    end
+  end
+
+  describe "the shards cover the matrix" do
+    test "a shard file exists for every shard index, and every shard has routes" do
+      indexes =
+        @shard_glob
+        |> Path.wildcard()
+        |> Enum.map(fn file ->
+          assert File.read!(file) =~ "@moduletag :security_probe", "#{file} is not tagged"
+          [_all, i] = Regex.run(~r/G01Case\.run_shard!\((\d+)\)/, File.read!(file))
+          String.to_integer(i)
+        end)
+        |> Enum.sort()
+
+      assert indexes == Enum.to_list(0..(G01.shard_count() - 1))
+
+      shards = Enum.map(indexes, &G01.shard_routes/1)
+      assert Enum.all?(shards, &(&1 != []))
+      assert Enum.sort(List.flatten(shards)) == Enum.sort(G01.matrix_routes())
+    end
+
+    test "every ratchet line names a matrix route" do
+      keys = MapSet.new(G01.matrix_routes(), &{&1.method, &1.path})
+      orphans = Enum.reject(G01.read_ratchet(), &MapSet.member?(keys, G01.ratchet_route(&1)))
+      assert orphans == [], "ratchet lines naming no matrix route: #{inspect(orphans)}"
     end
   end
 end

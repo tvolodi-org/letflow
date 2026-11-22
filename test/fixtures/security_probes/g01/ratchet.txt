@@ -1,13 +1,13 @@
-# G-01 ratchet: test/letflow/security_probe/g01_route_role_matrix_test.exs
+# G-01 ratchet: the shard files test/letflow/security_probe/g01_matrix_shard_<i>_test.exs
 #
-# The matrix test's violations must equal these lines exactly. A new violation
+# Each shard's violations must equal the lines of its routes exactly. A new violation
 # fails the test (a new hole, or a new narrowing to review); a line that no
 # longer occurs fails it too (remove it: the ratchet only tightens).
 # Line format: RULE CALLER METHOD PATH (rules: docs/security-probes/G-01.md).
 #
 # M1 (denied caller not given the canonical denial), M2 (denied request
 # wrote), M4 (foreign id answered unlike a missing id), M5 (A wrote B), M6
-# (answer names B): none today. Never add a line for these rules without an
+# (answer names B), M8 (a company tenant stored a platform call): none today. Never add a line for these rules without an
 # owner decision: each one is a security hole.
 
 # --- M3: a second gate narrows the golden (reviewed T-2627, not a hole) ------
