@@ -180,6 +180,7 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/api/permission_matrix_test.exs",
             "test/letflow/identity/binding_writers_scan_test.exs",
             "test/letflow/identity/tenant_update_changeset_removed_test.exs",
+            "test/letflow/security_probe/g02_writer_start_inventory_test.exs",
             "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
             "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
             "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs"

@@ -80,11 +80,13 @@ STANDARD_BP_DOC_TEST = [
 # D-184/D-186: the security probes are mandatory on every bounded run: they are the mechanical
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
+# G-02: the pure AST writer/start inventory is mandatory on every bounded run.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-06: every outbound HTTP call site is inventoried and classified, and the
 # dispatch-time probes refuse a private-range URL, do not follow a redirect and
 # keep the URL out of the failure value.
 STANDARD_SECURITY_PROBE_TESTS = [
+    "test/letflow/security_probe/g02_writer_start_inventory_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
