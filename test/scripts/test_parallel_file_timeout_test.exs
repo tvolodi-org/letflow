@@ -17,11 +17,17 @@ defmodule Letflow.Scripts.TestParallelFileTimeoutTest do
        job log names the file;
     2. the create+migrate phase limit (`TEST_PARALLEL_CREATE_TIMEOUT_S`): a partition
        database that never finishes being created is killed, and the job log says so
-       (this is the phase the 45010058431 shard actually hung in).
+       (this is the phase the 45010058431 shard actually hung in). The bound covers
+       the phase in full, including the admission wait inside the launch loop: with
+       more partitions than the create cap, the loop waits for a create job to
+       finish BEFORE it launches the last partition.
 
   The stub publishes the same marker file the real suite publishes
   (`test/support/file_timeout_marker.ex`), so the script is exercised through the
   contract it really has with the suite.
+
+  `TEST_PARALLEL_SCRIPT` overrides the script under test, so the same cases can be
+  run against an older revision of it (the red proof of a fix).
   """
 
   use ExUnit.Case, async: false
@@ -39,7 +45,10 @@ defmodule Letflow.Scripts.TestParallelFileTimeoutTest do
       System.get_env("TEST_PARALLEL_BASH") || System.get_env("UAT_PF_BASH") ||
         System.find_executable("bash")
 
-  defp script, do: Path.expand("../../scripts/test_parallel.sh", __DIR__)
+  defp script,
+    do:
+      System.get_env("TEST_PARALLEL_SCRIPT") ||
+        Path.expand("../../scripts/test_parallel.sh", __DIR__)
 
   # Stub `mix`, env-driven (STUB_MODE):
   #   pass      `mix test` prints a Result line and exits 0
@@ -181,6 +190,36 @@ defmodule Letflow.Scripts.TestParallelFileTimeoutTest do
       run_script(
         tmp,
         [{"STUB_MODE", "create"}, {"TEST_PARALLEL_CREATE_TIMEOUT_S", "3"}],
+        120_000
+      )
+
+    assert status != :timeout, "the script did not return:\n#{out}"
+    assert status != 0, "a hung create/migrate phase must fail the run:\n#{out}"
+
+    assert out =~ "TEST_PARALLEL_CREATE_TIMEOUT_S",
+           "the failure must name the limit that fired:\n#{out}"
+
+    assert out =~ "create+migrate phase",
+           "the failure must name the phase that hung:\n#{out}"
+  end
+
+  test "a create phase that blocks in the launch loop's admission wait still fails loudly", %{
+    tmp_dir: tmp
+  } do
+    # N=2 partitions against a create cap of 1: the launch loop's admission
+    # step waits for the FIRST create job to finish before it launches the
+    # second partition, so the phase bound has to be armed BEFORE that wait.
+    # With the bound armed after the launch loop, this run hangs forever --
+    # the exact shape of the 45010058431 shard-3 hang.
+    {status, out} =
+      run_script(
+        tmp,
+        [
+          {"STUB_MODE", "create"},
+          {"TEST_PARALLEL_N", "2"},
+          {"TEST_PARALLEL_MAX_CONCURRENT_CREATES", "1"},
+          {"TEST_PARALLEL_CREATE_TIMEOUT_S", "3"}
+        ],
         120_000
       )
 

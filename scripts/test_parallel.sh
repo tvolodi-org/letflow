@@ -119,6 +119,10 @@
 #       that never returns used to hang the shard until the CI job limit (see
 #       run 45010058431, shard 3/8, 2026-11-22: the shard burned its whole
 #       2700 s in this phase, before any partition had launched).
+#       The bound covers the phase in full, INCLUDING the admission wait
+#       inside the launch loop: with more partitions than the create cap the
+#       loop waits for a create job to finish before the last partition is
+#       even launched, so the bound is armed before that loop starts.
 #       0 disables the limit.
 #   The file-level limit needs to know which file is running right now; the
 #   suite publishes that into $tmp_dir/markers/current-<partition>.txt (see
@@ -658,11 +662,11 @@ cleanup_tmp_dir() {
     kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null
     kill "${watchdog_pids[$_idx]}" 2>/dev/null
   done
-  # T-2652: the create-phase watchdog (Step 1.7) and the per-partition
+  # T-2652: the create-phase deadline sentinel (Step 1.7) and the per-partition
   # file-timeout watchdogs (Step 2) must not outlive this script either.
-  if [ -n "${create_watchdog_pid:-}" ]; then
-    kill -- "-${create_watchdog_pid}" 2>/dev/null
-    kill "${create_watchdog_pid}" 2>/dev/null
+  if [ -n "${create_deadline_pid:-}" ]; then
+    kill -- "-${create_deadline_pid}" 2>/dev/null
+    kill "${create_deadline_pid}" 2>/dev/null
   fi
   for _idx in "${!file_watchdog_pids[@]}"; do
     kill -- "-${file_watchdog_pids[$_idx]}" 2>/dev/null
@@ -698,7 +702,7 @@ _tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT expor
 # T-2652: declared BEFORE the trap below, so the trap's own reference to them is
 # never an unbound-variable lookup under `set -u` (the same reason ISS-1080 moved
 # the trap's own pid capture here).
-create_watchdog_pid=""
+create_deadline_pid=""
 declare -A file_watchdog_pids=()
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
@@ -736,6 +740,78 @@ echo "test_parallel: seeding+migrating $N partition databases (capped at $max_co
 declare -A create_pid_to_partition
 in_flight=0
 
+# T-2652: the bound on the create+migrate phase.
+#
+# The bound has to be armed BEFORE the launch loop below, not after it: the
+# loop's admission step waits for a running create job whenever the number of
+# in-flight jobs has reached the create cap (`in_flight >=
+# max_concurrent_creates` -> reap_one_create). With more partitions than the
+# cap -- the CI default is 4 partitions against a cap of 4, so any N > cap
+# reaches this branch -- the loop blocks INSIDE the launch, before the last
+# partition's database is even created, and a bound installed after the loop
+# could therefore never fire in exactly the case it exists for.
+#
+# The sentinel is a plain background job that writes a flag file once the
+# bound is reached. `wait -n` inside reap_one_create returns as soon as ANY
+# background job finishes, so the sentinel's exit is what interrupts the
+# blocking wait; the flag file is what both wait paths test, and the sentinel
+# writes it BEFORE it exits, so it is visible to the main shell the moment
+# `wait -n` returns.
+create_deadline_flag="$tmp_dir/create-deadline.exceeded"
+create_start_epoch=$(date +%s)
+create_sentinel_rearms=0
+
+# 0 when the create+migrate phase is over its bound.
+create_deadline_reached() {
+  [ "$create_timeout_s" -gt 0 ] || return 1
+  [ -f "$create_deadline_flag" ] && return 0
+  [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ] && return 0
+  return 1
+}
+
+# Starts the deadline sentinel. Re-armable: a sentinel that dies before the
+# bound is reached (it must not, but a signal could do it) is replaced, so the
+# phase always keeps its bound.
+start_create_deadline_sentinel() {
+  create_deadline_pid=""
+  [ "$create_timeout_s" -gt 0 ] || return 0
+  (
+    _term=
+    trap '_term=1' TERM
+    while [ -z "$_term" ]; do
+      sleep 1
+      [ -n "$_term" ] && break
+      if [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ]; then
+        : > "$create_deadline_flag"
+        break
+      fi
+    done
+  ) &
+  create_deadline_pid=$!
+}
+
+# The create+migrate phase is over its bound: say so, kill the in-flight
+# create jobs (so the shard leaves no half-created partition database behind)
+# and end the run. Called from the main shell only, so `exit` ends the script.
+create_deadline_fail() {
+  echo "test_parallel: ERROR the create+migrate phase exceeded TEST_PARALLEL_CREATE_TIMEOUT_S=${create_timeout_s}s -- killing the in-flight partition database job(s)" >&2
+  for _p in "${!create_pid_to_partition[@]}"; do
+    _part="${create_pid_to_partition[$_p]}"
+    echo "test_parallel: ---- last 20 lines of create-$_part.log ----" >&2
+    tail -n 20 "$tmp_dir/create-$_part.log" 2>/dev/null >&2
+    echo "test_parallel: ---- end create-$_part.log ----" >&2
+    kill -TERM -- "-$_p" 2>/dev/null
+  done
+  # A create job that ignores TERM must not keep the shard hanging: escalate
+  # to KILL on its process group after a short grace, the same shape as the
+  # partition watchdog's TERM-then-KILL escalation.
+  sleep 2
+  for _p in "${!create_pid_to_partition[@]}"; do
+    kill -KILL -- "-$_p" 2>/dev/null
+  done
+  exit 1
+}
+
 # ISS-1080 (RC-C): reaps exactly ONE finished create/migrate job (both wait
 # sites below call this, so there is a single copy of the logic). On CI
 # (shard 1/3, loadavg 11) `wait -n -p finished_pid` returned without setting
@@ -748,8 +824,16 @@ in_flight=0
 # the status of an already-collected job and returns it again). A pid reported
 # by wait -n that is not one of ours is ignored without touching in_flight.
 # A failed create/migrate is reported and ends the run (exit 1) exactly as before.
+#
+# T-2652: BOTH wait paths are bounded by the create+migrate deadline. The
+# blocking `wait -n` is interrupted by the deadline sentinel (the only
+# background job in this phase that is not a create job), and the polling
+# fallback tests the same flag -- so the phase cannot hang past its bound
+# even when the wait happens inside the launch loop's admission step, where
+# more partitions than the create cap keep the loop waiting for a create job
+# before the last partition is ever launched.
 reap_one_create() {
-  local finished_pid="" finished_exit finished_partition p
+  local finished_pid="" finished_exit finished_partition p _polls
   while :; do
     finished_pid=""
     wait -n -p finished_pid
@@ -758,9 +842,33 @@ reap_one_create() {
       if [ -n "${create_pid_to_partition[$finished_pid]:-}" ]; then
         break
       fi
+      # A job that is not one of ours finished. The only such job in this
+      # phase is the deadline sentinel: the phase is over its bound.
+      if create_deadline_reached; then
+        create_deadline_fail
+      fi
+      # The sentinel exited without the bound being reached (it must not
+      # happen): re-arm it, so the phase keeps its bound.
+      if [ "$finished_pid" = "${create_deadline_pid:-}" ] && [ "$create_sentinel_rearms" -lt 5 ]; then
+        create_sentinel_rearms=$((create_sentinel_rearms + 1))
+        start_create_deadline_sentinel
+      fi
       continue
     fi
+    # `wait -n -p` reported no pid: poll the tracked pids instead. The
+    # deadline flag is tested in the same loop, so this path is bounded too.
+    _polls=0
     while :; do
+      if [ -f "$create_deadline_flag" ]; then
+        create_deadline_fail
+      fi
+      # The sentinel writes the flag, but re-check the clock once a second as
+      # well, so a sentinel that died before the bound still ends the phase
+      # instead of blocking it.
+      _polls=$((_polls + 1))
+      if [ $((_polls % 20)) -eq 0 ] && create_deadline_reached; then
+        create_deadline_fail
+      fi
       for p in "${!create_pid_to_partition[@]}"; do
         if ! kill -0 "$p" 2>/dev/null; then
           wait "$p"
@@ -786,11 +894,20 @@ reap_one_create() {
   fi
 }
 
+# The bound must be armed BEFORE the launch loop: the loop's admission step
+# can block in reap_one_create (see the comment above).
+start_create_deadline_sentinel
+
 i="$FIRST"
-create_start_epoch=$(date +%s)
 while [ "$i" -le "$LAST" ]; do
   if [ "$in_flight" -ge "$max_concurrent_creates" ]; then
     reap_one_create
+  fi
+
+  # The phase is over its bound: do not start one more create job (the bound
+  # has to end the phase, not be papered over by a fresh job).
+  if create_deadline_reached; then
+    create_deadline_fail
   fi
 
   (
@@ -803,47 +920,16 @@ while [ "$i" -le "$LAST" ]; do
   i=$((i + 1))
 done
 
-# T-2652: bound the create+migrate phase. A `mix ecto.create`/`ecto.migrate`
-# that never returns used to hang the whole shard until the CI job limit: run
-# 45010058431 (shard 3/8, 2026-11-22) sat in exactly this phase for 43 minutes
-# (09:59:23 -> 10:42:37 UTC) and was killed by the job deadline, with no
-# partition ever launched and therefore no test file, no partition log and no
-# watchdog diagnostics to read. The watchdog below kills the in-flight create
-# jobs; `reap_one_create` then reports the failure with the create log inline
-# (the path that already exists), so the shard fails fast and loudly instead.
-if [ "$create_timeout_s" -gt 0 ]; then
-  (
-    _term=
-    trap '_term=1' TERM
-    while [ -z "$_term" ]; do
-      sleep 5
-      [ -n "$_term" ] && break
-      if [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ]; then
-        echo "test_parallel: ERROR the create+migrate phase exceeded TEST_PARALLEL_CREATE_TIMEOUT_S=${create_timeout_s}s -- killing the in-flight partition database job(s)" >&2
-        for _p in "${!create_pid_to_partition[@]}"; do
-          _part="${create_pid_to_partition[$_p]}"
-          echo "test_parallel: ---- last 20 lines of create-$_part.log ----" >&2
-          tail -n 20 "$tmp_dir/create-$_part.log" 2>/dev/null >&2
-          echo "test_parallel: ---- end create-$_part.log ----" >&2
-          kill -TERM -- "-$_p" 2>/dev/null
-        done
-        break
-      fi
-    done
-  ) &
-  create_watchdog_pid=$!
-fi
-
 # Drain remaining in-flight create/migrate jobs.
 while [ "$in_flight" -gt 0 ]; do
   reap_one_create
 done
 
-if [ -n "${create_watchdog_pid:-}" ]; then
-  kill -- "-${create_watchdog_pid}" 2>/dev/null
-  kill "${create_watchdog_pid}" 2>/dev/null
-  wait "${create_watchdog_pid}" 2>/dev/null
-  create_watchdog_pid=""
+if [ -n "${create_deadline_pid:-}" ]; then
+  kill -- "-${create_deadline_pid}" 2>/dev/null
+  kill "${create_deadline_pid}" 2>/dev/null
+  wait "${create_deadline_pid}" 2>/dev/null
+  create_deadline_pid=""
 fi
 
 echo "test_parallel: all $N partition databases created+migrated"
