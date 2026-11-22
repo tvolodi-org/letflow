@@ -145,7 +145,8 @@ defmodule Letflow.CiDocsOnlyTest do
     # T-2220: +1 for production_tenant_onboarding_runbook_test.exs (reads docs/runbooks/production-tenant-onboarding.md)
     # T-2295 (REQ-893): +1 for maintenance/registration_test.exs (reads the roles table in docs/roles.md)
     # T-2390 (D-165): +1 for four_eyes_default_off_docs_test.exs (reads the four-eyes runbooks and docs/roles.md)
-    assert length(files) < 86, "docs test list grew to #{length(files)} files"
+    # T-2645: +1 for security_advisories_test.exs (reads docs/security-advisories.md)
+    assert length(files) < 87, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
     # T-1404: 79 files still ran 575 s on main; these DB suites (80 s each) only cite a docs
     # path in a moduledoc or a comment and must stay out
