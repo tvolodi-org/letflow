@@ -452,6 +452,30 @@ class PlatformRunFiles(CheckCase):
         problems = self.check(doc)
         self.assertTrue(any("${admin_email}" in p and "step s6" in p for p in problems), problems)
 
+    def test_a_wait_mail_time_that_is_a_number_is_accepted(self):
+        doc = self.mutated(lambda d: (d["inputs"].append("admin_email"),
+                                      d["steps"].append(self.wait_step(within_s=60, interval_s=2))))
+        self.assertEqual(self.check(doc), [])
+
+    def test_a_wait_mail_time_that_is_a_name_of_the_context_is_accepted(self):
+        # the value is substituted before it is read: the loader accepts it, so the checker does not report it
+        doc = self.mutated(lambda d: (d["inputs"].extend(["admin_email", "wait_s"]),
+                                      d["steps"].append(self.wait_step(within_s="${wait_s}"))))
+        self.assertEqual(self.check(doc), [])
+
+    def test_a_wait_mail_time_that_is_no_number_is_caught(self):
+        doc = self.mutated(lambda d: (d["inputs"].append("admin_email"),
+                                      d["steps"].append(self.wait_step(within_s="soon"))))
+        problems = self.check(doc)
+        self.assertTrue(any("wait_mail within_s must be a number" in p for p in problems), problems)
+
+    def test_a_wait_mail_step_without_a_recipient_and_a_subject_is_caught(self):
+        doc = self.mutated(lambda d: d["steps"].append({"id": "s6", "actor": "admin",
+                                                        "do": {"wait_mail": {"subject": "Tenant registered"}},
+                                                        "expect": {"status": 200}}))
+        problems = self.check(doc)
+        self.assertTrue(any("wait_mail needs a recipient and a subject" in p for p in problems), problems)
+
     def test_a_platform_residue_block_is_accepted(self):
         doc = self.mutated(lambda d: d.update(platform_residue={"definitions": ["platform.register_tenant"],
                                                                  "instances": ["${doc_id}"]}))

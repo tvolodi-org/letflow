@@ -139,7 +139,7 @@ process names. A mail to somebody else, or with another subject, is not the mail
 |---|---|
 | `recipient` | the address the mail goes to (the trap accepts every address; the test uses `@uat.letflow.internal`) |
 | `subject` | the subject the mail must have, character for character. `"subject_contains": true` matches a subject that *contains* it (a mail with a prefix) |
-| `within_s`, `interval_s` | how long to wait (default 60 s) and how often to look (default 2 s; `--poll-interval` wins) |
+| `within_s`, `interval_s` | how long to wait (default 60 s) and how often to look (default 2 s; `--poll-interval` wins). A number, a numeric text or a `${name}` of the context (the value is read after the substitution) |
 | `trap_url` | the trap to read, when it is not the one of the run. A plain http(s) address: a credential in it, a query or a fragment is refused (the trap needs none of them, and urllib cannot even connect through a credential) |
 
 The trap of the run is `--mail-trap-url`, else the environment variable `MAIL_TRAP_URL`, else
@@ -555,6 +555,10 @@ python3 -B -m unittest -v scripts/uat/tests/test_platform_residue.py # the resid
 routes and the old address, a fake token command, a fake `gh` and a fake `qa_stable.sh` written by the tests: no
 network, no model.
 
+The whole suite runs in the product CI too: `scripts/uat/` is a backend path (`scripts/ci_changed_paths.sh`), and
+`test/scripts/uat_tooling_test.exs` runs `python3 -B -m unittest discover -s scripts/uat/tests`, so a change of the
+runner is checked by the backend gate and not only by the team locally.
+
 ## Tenant residue check (T-2548)
 
 Before the first process the runner lists, per tenant it touches, up to 200 newest non-final stock documents with
@@ -613,8 +617,8 @@ The runner watches nothing until a process says so: a run without the block beha
    definition on the version it found. The **id of the active version row** is what is compared, because a
    rollback activates the row it had before (the same row, the same id) - and because the version string itself
    (`1.0.0`) has the shape of a token and is therefore masked in a log. A definition left on another version is
-   residue: the row `tenant residue check` says `definition <name> is on the version <id>, the run left it on
-   <id>`.
+   residue: the row `tenant residue check` says `definition <name> was on the version <id> before the run, it is
+   on the version <id> now`.
 2. **No instance is left open.** Every instance the run started (the answer of a start carries its
    `instance_id`) and every instance the block names is read after the last cleanup
    (`GET /api/v1/instances/<id>`): an instance that is still `ACTIVE` is residue, the row says
@@ -626,3 +630,15 @@ The runner watches nothing until a process says so: a run without the block beha
 A baseline or a final listing that cannot be read fails the row (`baseline unavailable`, `final listing
 unavailable`): the check is never passed silently. The run FAILS with the row `tenant residue check` and the
 text of every finding.
+
+**Who must be able to read the registry.** The check needs an actor that may read the tenant registry (the
+platform administrator). A tenant of the run whose actors may **not** read it is not a failure of the run: the
+platform tenant of the run is watched, and it is watched correctly. Only a run in which **no** group of actors can
+read the registry cannot watch the platform tenant; that run FAILS with `baseline unavailable: the tenant registry
+is not readable ..., no actor of this run reads the platform tenant, the run cannot watch it`.
+
+**The cleanup replay judges the same run.** `runner.py cleanup <run dir>` replays the cleanup list of an
+interrupted run and runs the same comparison after it. The watch of the run (the `platform_residue` block) and the
+instances the run started are kept in `platform_watch.json` of the run directory, so the replay does not pass while
+an instance of that run is still open: the row `tenant residue check` says `instance <id> is still open` and the
+replay FAILS.

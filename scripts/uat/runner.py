@@ -282,6 +282,30 @@ def referenced_names(value) -> set:
     return names
 
 
+def wait_time_ok(value) -> bool:
+    """Can the runner read this as a wait time (wait_mail within_s, interval_s)?
+
+    A number, a numeric text, or a whole ${...} reference: the value of a reference is substituted before it is
+    read, so the loader must not refuse a file whose time comes from a name of the context. The static checker
+    (scripts/uat/check_processes.py) asks this same question, so the two never disagree about one file."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    if _PLACEHOLDER.fullmatch(text):
+        return bool(_PLACEHOLDER.fullmatch(text).group(1).strip())
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
 # -- JSON path and assertions -------------------------------------------------------------------
 
 _PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]")
@@ -647,6 +671,7 @@ class Runner:
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
+        self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
@@ -1037,6 +1062,7 @@ class Runner:
             entry = {"instance_id": instance_id, "tenant": tenant, "base_url": base_url, "role": role}
             if entry not in self.started_instances:
                 self.started_instances.append(entry)
+                self._save_platform_watch()  # the cleanup replay of an interrupted run must know the instance
 
     def _tenant_create(self, step) -> dict:
         """The body of a step that creates a tenant (POST /api/v1/tenants), or None when it creates none."""
@@ -1260,8 +1286,8 @@ class Runner:
             raise RunnerError(f"wait_mail: {why}")
         shown = mask_mail_recipient(recipient)
         contains = bool(spec.get("subject_contains"))
-        within = float(spec.get("within_s", 60))
-        interval = self.poll_interval if self.poll_interval is not None else float(spec.get("interval_s", 2))
+        within = self._wait_time(spec, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
         deadline = time.monotonic() + within
         polls, message_id, problem = 0, None, None
         while True:
@@ -1278,6 +1304,18 @@ class Runner:
                       mail_to=shown, mail_subject=subject, mail_id=message_id)
         answer = {"to": shown, "subject": subject, "message_id": message_id}
         return 200, answer, json.dumps(answer, ensure_ascii=False)
+
+    @staticmethod
+    def _wait_time(spec, key, default):
+        """The wait time of a wait_mail step: a number, or the number a ${name} of the context gave. A value that
+        is no number is a step error, never a crash."""
+        if key not in spec:
+            return float(default)
+        value = spec[key]
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise RunnerError(f"wait_mail {key} must be a number, got {value!r}") from None
 
     def _find_mail(self, trap, recipient, subject, contains=False):
         """-> (message id, None) when the trap holds a mail to the recipient with the subject; (None, why) otherwise.
@@ -1590,7 +1628,20 @@ class Runner:
         """-> what the run watches on the platform tenant: {"definitions": [names], "instances": [names]}.
 
         A run watches nothing until a process says so in a `platform_residue` block; a run that watches
-        something watches it on every tenant it touches."""
+        something watches it on every tenant it touches.
+
+        The watch of a finished run is kept in the run dir (`platform_watch.json`): a cleanup replay judges the
+        run it replays, so it must know what that run watched, not only what the replayed cleanup steps say."""
+        watch = {"definitions": [], "instances": []}
+        for source in (self.platform_watch, self._watch_of_processes()):
+            for key in ("definitions", "instances"):
+                for name in source.get(key) or []:
+                    if name not in watch[key]:
+                        watch[key].append(name)
+        return watch
+
+    def _watch_of_processes(self) -> dict:
+        """-> the watch of the process blocks of this run."""
         watch = {"definitions": [], "instances": []}
         for proc in self.processes:
             block = proc.get("platform_residue") or {}
@@ -1599,6 +1650,27 @@ class Runner:
                     if name not in watch[key]:
                         watch[key].append(name)
         return watch
+
+    def _save_platform_watch(self):
+        """Keep the watch of the run and the instances it started in the run dir: the cleanup replay of an
+        interrupted run judges that run, so it needs both."""
+        self._atomic_write("platform_watch.json", json.dumps(
+            {"watch": self.platform_watch, "started": self.started_instances}, indent=2, ensure_ascii=False))
+
+    def _restore_platform_watch(self) -> None:
+        """Read the watch and the started instances of the run this replay cleans up."""
+        try:
+            state = json.loads((self.run_dir / "platform_watch.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(state, dict):
+            return
+        watch = state.get("watch")
+        if isinstance(watch, dict):
+            self.platform_watch = {key: [n for n in (watch.get(key) or []) if isinstance(n, str)]
+                                   for key in ("definitions", "instances")}
+        self.started_instances = [i for i in (state.get("started") or [])
+                                  if isinstance(i, dict) and isinstance(i.get("instance_id"), str)]
 
     def _definition_baseline(self, group, watch) -> dict:
         """-> {"role": ..., "active": {name: [ids of the active version rows]}} of the platform tenant, read by an
@@ -1681,8 +1753,8 @@ class Runner:
         for name, ids in (definitions.get("active") or {}).items():
             now = self._active_definitions(definitions["role"], name)
             if now != ids:
-                found.append(f"definition {name} is on the version {', '.join(now) or 'none'}, "
-                             f"the run left it on {', '.join(ids) or 'none'}")
+                found.append(f"definition {name} was on the version {', '.join(ids) or 'none'} before the run, "
+                             f"it is on the version {', '.join(now) or 'none'} now")
         if watch["definitions"] or watch["instances"]:
             for entry in self._watched_instances(tenant, watch):
                 role = entry.get("role") or before["role"]
@@ -1784,6 +1856,8 @@ class Runner:
         ok = True
         watch = self._platform_residue_watch()
         watched = bool(watch["definitions"] or watch["instances"])
+        self.platform_watch = watch
+        unreadable = []
         for group in self._residue_groups():
             tenant = group["tenant"]
             started = time.monotonic()
@@ -1803,8 +1877,10 @@ class Runner:
                     if definitions is not None:
                         self.platform_before[tenant]["definitions"] = definitions
                 elif watched:
-                    ok = self._residue_line("fail", started, f"baseline unavailable: tenant {tenant}: "
-                                          "the tenant registry is not readable") and ok
+                    # This group's actors may not read the registry. That is not a failure of the run: another
+                    # group of the run may be the platform tenant and may read it. Only a run in which NO group
+                    # can read the registry cannot watch the platform tenant (the check below).
+                    unreadable.append(tenant)
             if not group["plain"]:
                 continue  # a tenant with only actor objects: the platform check above is its check
             started = time.monotonic()
@@ -1821,12 +1897,16 @@ class Runner:
                                             "docs": docs, "tasks": tasks}
         if watched and not self.platform_before:
             started = time.monotonic()
-            ok = self._residue_line("fail", started, "baseline unavailable: no actor of this run reads the "
-                                  "platform tenant, the run cannot watch it") and ok
+            where = f" (tenant {', '.join(unreadable)})" if unreadable else ""
+            ok = self._residue_line("fail", started, "baseline unavailable: the tenant registry is not readable"
+                                  f"{where}, no actor of this run reads the platform tenant, the run cannot "
+                                  "watch it") and ok
         if self.residue_before:
             self._atomic_write("residue_before.json", json.dumps(self.residue_before, indent=2, ensure_ascii=False))
         if self.platform_before:
             self._atomic_write("platform_before.json", json.dumps(self.platform_before, indent=2, ensure_ascii=False))
+        if watched:
+            self._save_platform_watch()
         return ok
 
     def check_residue(self) -> bool:
@@ -1960,6 +2040,9 @@ class Runner:
             self.platform_before = platform if isinstance(platform, dict) else {}
         except (OSError, ValueError):
             self.platform_before = {}
+        # The run this replay cleans up watched the platform tenant and started instances: the replay judges
+        # that run, so it reads the watch of the run from the run dir.
+        self._restore_platform_watch()
         started_at = now_utc()
         self.label = f"cleanup of {self.run_dir.name}"
         self.process = {"id": "cleanup"}
@@ -2150,8 +2233,9 @@ def validate_step(step, where) -> None:
                                                   for key in ("recipient", "subject")):
             raise ConfigError(f"{where}: wait_mail needs a recipient and a subject")
         for key in ("within_s", "interval_s"):
-            if key in spec and not isinstance(spec[key], (int, float)):
-                raise ConfigError(f"{where}: wait_mail {key} must be a number")
+            if key in spec and not wait_time_ok(spec[key]):
+                raise ConfigError(f"{where}: wait_mail {key} must be a number "
+                                  "(a ${name} of the context is read as one)")
         if "trap_url" in spec and not isinstance(spec["trap_url"], str):
             raise ConfigError(f"{where}: wait_mail trap_url must be a text")
         if isinstance(spec.get("trap_url"), str) and spec["trap_url"].strip():

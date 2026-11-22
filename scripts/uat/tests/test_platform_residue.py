@@ -112,8 +112,9 @@ class TheDefinition(PlatformRun):
         self.assertEqual(code, 1)
         row = self.residue_row()
         self.assertEqual(row["verdict"], "fail")
-        self.assertIn(f"definition {DEFINITION} is on the version {DEFINITION_ID}-v2", row["error"])
-        self.assertIn(f"the run left it on {DEFINITION_ID}", row["error"])
+        # the version the run found and the version it left are named in that order
+        self.assertIn(f"definition {DEFINITION} was on the version {DEFINITION_ID} before the run", row["error"])
+        self.assertIn(f"it is on the version {DEFINITION_ID}-v2 now", row["error"])
 
     def test_without_the_block_the_definition_is_not_watched(self):
         doc = proc([activate()])
@@ -217,6 +218,98 @@ class TheThrowawayTenant(PlatformRun):
         code, _ = self.run_it(doc)
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         self.assertEqual(self.residue_row()["verdict"], "pass")
+
+
+class TheCleanupReplay(PlatformRun):
+    """The cleanup replay of an interrupted run judges that run: an instance it left open is residue there too.
+
+    The replay rebuilds the run from the run dir: the watch of the run and the instances it started are kept
+    there, so the replay does not pass while an instance of the run is still open."""
+
+    def replay(self):
+        out = io.StringIO()
+        runner_ = runner.Runner([{"id": "cleanup", "steps": []}], base_url=self.base, tenant="qoimeks-qa2",
+                                actors=self.actors(), run_dir=self.run_dir, poll_interval=0.01, out=out)
+        code = runner_.replay_cleanup()
+        row = next(x for x in runner_.records if x.get("step") == "tenant residue check")
+        return code, row
+
+    def test_the_replay_of_a_run_that_left_an_instance_open_fails(self):
+        doc = proc([start()], {"instances": ["${instance_id}"]})
+        code, _ = self.run_it(doc)
+        self.assertEqual(code, 1)
+        self.assertIn("instance inst-started-1 is still open", self.residue_row()["error"])
+
+        code, row = self.replay()
+        self.assertEqual(code, 1)
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("instance inst-started-1 is still open", row["error"])
+
+    def test_the_replay_of_a_run_that_closed_its_instance_passes(self):
+        doc = proc([start(), cancel()], {"instances": ["${instance_id}"]})
+        code, _ = self.run_it(doc)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+
+        code, row = self.replay()
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(row["verdict"], "pass")
+
+    def test_the_watch_and_the_started_instances_are_kept_in_the_run_dir(self):
+        doc = proc([start()], {"instances": ["${instance_id}"]})
+        self.run_it(doc)
+        state = json.loads((self.run_dir / "platform_watch.json").read_text())
+        self.assertEqual(state["watch"]["instances"], ["${instance_id}"])
+        self.assertEqual([i["instance_id"] for i in state["started"]], ["inst-started-1"])
+
+
+class TheSecondTenant(PlatformRun):
+    """A run that watches the platform and also touches a second tenant through an actor object.
+
+    The actors of the second tenant may not read the tenant registry. That is not a failure of the run: the
+    platform tenant of the run is watched, and it is watched correctly."""
+
+    def setUp(self):
+        super().setUp()
+        self.company_state = FakeStock()
+        self.company_state.users = {"company2-admin": "other-admin"}
+        self.company_state.platform_roles = set()
+        self.company_server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.company_state))
+        self.company_thread = threading.Thread(target=self.company_server.serve_forever,
+                                               kwargs={"poll_interval": 0.01}, daemon=True)
+        self.company_thread.start()
+        self.addCleanup(self.stop_company_server)
+        self.company_base = f"http://127.0.0.1:{self.company_server.server_address[1]}"
+
+    def stop_company_server(self):
+        self.company_server.shutdown()
+        self.company_server.server_close()
+
+    def actors(self):
+        actors = super().actors()
+        actors["company2-admin"] = {"user": "other-admin", "tenant": "other-company",
+                                    "base_url": self.company_base}
+        return actors
+
+    def test_a_second_tenant_that_may_not_read_the_registry_does_not_fail_the_run(self):
+        doc = proc([call("s1", "GET", "/api/v1/definitions", None, {"status": 200})],
+                   {"definitions": [DEFINITION]})
+        code, _ = self.run_it(doc)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        row = self.residue_row()
+        self.assertEqual(row["verdict"], "pass")
+        self.assertIsNone(row.get("error"))
+
+    def test_a_run_without_any_actor_that_reads_the_registry_still_fails(self):
+        # the platform actors of this run may not read the registry either: nobody watches the platform tenant
+        self.platform_state.platform_roles = set()
+        doc = proc([call("s1", "GET", "/api/v1/definitions", None, {"status": 200})],
+                   {"definitions": [DEFINITION]})
+        code, _ = self.run_it(doc)
+        self.assertEqual(code, 1)
+        row = self.residue_row()
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn("baseline unavailable", row["error"])
+        self.assertIn("the tenant registry is not readable", row["error"])
 
 
 class TheBlockMustBeReadable(PlatformRun):

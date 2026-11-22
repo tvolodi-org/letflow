@@ -47,8 +47,9 @@ class WaitMail(FakeServerCase, FakeTrapCase):
         out = io.StringIO()
         options = {"mail_trap_url": self.trap_url}
         options.update(kwargs)
+        inputs = options.pop("inputs", {})
         r = runner.Runner(doc, base_url=self.base, tenant="qoimeks-qa2", actors={"admin": "adm"},
-                          run_dir=self.run_dir, inputs={}, poll_interval=0.01, out=out, **options)
+                          run_dir=self.run_dir, inputs=inputs, poll_interval=0.01, out=out, **options)
         code = r.run()
         return code, r
 
@@ -128,6 +129,17 @@ class TheMailIsFound(WaitMail):
         code, _ = self.run_it(process(mail_step("s1", subject_contains=True)))
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         self.assertEqual(self.step_row("s1")["verdict"], "pass")
+
+    def test_a_time_that_comes_from_the_context_is_used(self):
+        self.trap.add(SUBJECT, RECIPIENT, body=BODY)
+        code, _ = self.run_it(process(mail_step("s1", within_s="${wait_s}")), inputs={"wait_s": 1})
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.step_row("s1")["verdict"], "pass")
+
+    def test_a_time_that_is_no_number_is_a_step_error_and_not_a_crash(self):
+        code, _ = self.run_it(process(mail_step("s1", within_s="soon")))
+        self.assertEqual(code, 1)
+        self.assertIn("within_s must be a number", self.step_row("s1")["error"])
 
     def test_the_exact_subject_does_not_match_a_prefixed_one(self):
         self.trap.add(f"[Letflow] {SUBJECT}", RECIPIENT, body=BODY)
@@ -257,6 +269,14 @@ class TheStepMustBeReadable(WaitMail):
             self.load({"id": "s1", "actor": "admin",
                        "do": {"wait_mail": {"recipient": RECIPIENT, "subject": SUBJECT, "within_s": "soon"}},
                        "expect": {"status": 200}})
+
+    def test_a_step_whose_time_is_a_name_of_the_context_is_accepted(self):
+        # the value is substituted before it is read: the loader must not refuse the file
+        doc = self.load({"id": "s1", "actor": "admin",
+                         "do": {"wait_mail": {"recipient": RECIPIENT, "subject": SUBJECT,
+                                              "within_s": "${wait_s}", "interval_s": "${poll_s}"}},
+                         "expect": {"status": 200}})
+        self.assertEqual(doc["steps"][0]["do"]["wait_mail"]["within_s"], "${wait_s}")
 
     def test_a_step_with_a_trap_address_that_carries_a_credential_is_refused(self):
         with self.assertRaises(runner.ConfigError):

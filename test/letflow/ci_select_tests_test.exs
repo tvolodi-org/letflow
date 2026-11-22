@@ -535,6 +535,23 @@ defmodule Letflow.CiSelectTestsTest do
     refute kv["skip_shards"] == "1 2 3 4 5 6 7 8"
   end
 
+  # T-2606 (G18): the UAT runner tooling has no mix test of its own; the test that runs its stdlib suite
+  # is a mandatory check for a change of that tooling, so it may not be deferred to the nightly run.
+  describe "UAT runner tooling (T-2606)" do
+    @tag timeout: 30_000
+    test "a change of the UAT runner runs the test of that tooling" do
+      {kv, plan} = select(["scripts/uat/runner.py"])
+      assert kv["mode"] == "selective"
+      assert Enum.any?(plan, &String.ends_with?(&1, " test/scripts/uat_tooling_test.exs"))
+    end
+
+    @tag timeout: 30_000
+    test "a change of a test of the UAT tooling runs the test of that tooling" do
+      {_, plan} = select(["scripts/uat/tests/test_platform_residue.py"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " test/scripts/uat_tooling_test.exs"))
+    end
+  end
+
   describe "pull-request diff range (T-1303)" do
     @tag :tmp_dir
     test "three dots list only the PR's files when the base branch moved", %{tmp_dir: dir} do

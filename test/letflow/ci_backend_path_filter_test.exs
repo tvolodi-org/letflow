@@ -117,6 +117,9 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"scripts/oss_audit/scanner.py", true, true},
     {"scripts/oss_audit/rules.py", true, true},
     {"scripts/companion/move_list.tsv", true, true},
+    {"scripts/uat/runner.py", true, true},
+    {"scripts/uat/check_processes.py", true, true},
+    {"scripts/uat/tests/test_platform_residue.py", true, true},
     {"docs/open-source/audit-report.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
@@ -536,6 +539,24 @@ defmodule Letflow.CiBackendPathFilterTest do
 
     test "scripts/pilot/qoimeks_masters_compare.py alone sets backend=true (REQ-881)" do
       assert %{"backend" => "true"} = run_filter(["scripts/pilot/qoimeks_masters_compare.py"])
+    end
+  end
+
+  # T-2606 (G18): the UAT runner and the static check of the process files are Python tooling with their own
+  # stdlib unit tests (scripts/uat/tests). No mix test maps to them, so without this rule a change of the
+  # runner would merge without any product CI job running: the backend gate runs
+  # test/scripts/uat_tooling_test.exs, which runs that suite.
+  describe "UAT runner tooling" do
+    test "scripts/uat/runner.py alone sets backend=true" do
+      assert %{"backend" => "true"} = run_filter(["scripts/uat/runner.py"])
+    end
+
+    test "a test of the UAT tooling alone sets backend=true" do
+      assert %{"backend" => "true"} = run_filter(["scripts/uat/tests/test_platform_residue.py"])
+    end
+
+    test "the tooling of the runner is covered by a test the backend gate runs" do
+      assert File.exists?("test/scripts/uat_tooling_test.exs")
     end
   end
 end

@@ -12,7 +12,7 @@ list into `scripts/ci_changed_paths.sh`. It prints three lines: `backend=`, `fro
 
 | Gate | Regex | Runs when a change touches |
 |---|---|---|
-| backend | `BACKEND_PATHS_RE` | `lib/`, `priv/`, `test/`, `config/`, `mix.*`, `scripts/*.sh`, `deploy/`, `.github/workflows/`, `docs/requirements.yaml`, `docs/roles.md`, `docs/runbooks/` and the other docs the suite reads by name |
+| backend | `BACKEND_PATHS_RE` | `lib/`, `priv/`, `test/`, `config/`, `mix.*`, `scripts/*.sh`, `scripts/uat/` (the UAT runner tooling; the backend gate runs its own suite through `test/scripts/uat_tooling_test.exs`), `deploy/`, `.github/workflows/`, `docs/requirements.yaml`, `docs/roles.md`, `docs/runbooks/` and the other docs the suite reads by name |
 | frontend | `FRONTEND_PATHS_RE` | `web/`, `priv/labels/`, `priv/permission_matrix/`, `ci.yml`, the script itself, and the two **kinds files** (below) |
 | mobile | `MOBILE_PATHS_RE` | `apps/mobile/`, `ci.yml`, the script itself |
 
