@@ -19,7 +19,13 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
       schema it is written into, a prefix that names no tenant schema is
       refused instead of crashing, a row is bound to the definition's node,
       another tenant's row is never touched, and a call that reaches the
-      attempt cap is dead-lettered.
+      attempt cap is dead-lettered;
+    * the CONFIRMED security findings: a row whose lease has not expired is
+      not re-claimed (the body runs once), two dispatchers of one row run the
+      body once, an id that is not an id answers the uniform refusal, a value
+      over the byte cap is refused before anything is written, an option the
+      dispatcher does not read is refused, and a stale attempt cannot
+      overwrite the result of the attempt that owns the row.
 
   `async: false`: the platform tenant pin is application configuration, which
   is VM-global.
@@ -107,7 +113,12 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     assert dispatch.status == :pending
     assert dispatch.attempt_index == 0
     assert dispatch.function_name == @function
-    assert dispatch.call_key == "platform.validate_registration|slug=acme"
+
+    # The key carries the function's name and a DIGEST of the declared key
+    # inputs: no raw tenant-controlled value reaches the key column.
+    assert String.starts_with?(dispatch.call_key, "platform.validate_registration|")
+    assert byte_size(dispatch.call_key) <= 255
+    refute dispatch.call_key =~ "acme"
 
     assert {:ok, {:advanced, outputs}} =
              Dispatcher.attempt_dispatch(dispatch.id, ctx.tenant.schema_name)
@@ -283,7 +294,6 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     assert {:ok, %{status: :armed, dispatch: dispatch}} =
              Dispatcher.arm(
                prefix: ctx.tenant.schema_name,
-               tenant_id: Ecto.UUID.generate(),
                instance_id: Ecto.UUID.generate(),
                definition_id: definition.id,
                node_id: "call",
@@ -291,9 +301,8 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
                inputs: inputs(%{})
              )
 
-    # The caller's tenant id is ignored: the row sits in the schema of
-    # `ctx.tenant`, so that is the tenant it claims to belong to (decision
-    # 0003's addendum).
+    # The row sits in the schema of `ctx.tenant`, so that is the tenant it
+    # claims to belong to (decision 0003's addendum).
     assert dispatch.tenant_id == ctx.tenant.tenant_id
   end
 
@@ -401,6 +410,175 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
 
     # The row left the queue for good: it is not due any more.
     refute dispatch.id in Dispatcher.due_dispatch_ids(ctx.tenant.schema_name)
+  end
+
+  test "D13: a row that is RUNNING with a live lease is not re-claimed -- the body does not run again",
+       ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    # The state a claim transaction leaves the row in while the body runs:
+    # `running`, the attempt that holds it, and the lease still in the future.
+    dispatch
+    |> StepDispatch.claim_changeset(%{
+      status: :running,
+      attempt_index: 1,
+      next_attempt_at: DateTime.add(DateTime.utc_now(), Dispatcher.lease_ms(), :millisecond)
+    })
+    |> Repo.update(prefix: ctx.tenant.schema_name)
+
+    # The first run is still in flight: a second dispatcher must NOT take the
+    # row over, or the body would run a second time for the same call (S8).
+    assert {:error, :platform_step_in_flight} =
+             Dispatcher.attempt_dispatch(dispatch.id, ctx.tenant.schema_name)
+
+    # Nothing changed: the row still belongs to the attempt that holds it,
+    # and the body did not run (no outputs).
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :running
+    assert stored.attempt_index == 1
+    assert stored.outputs == nil
+  end
+
+  test "D14: two dispatchers of ONE row run the body once", ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    parent = self()
+
+    tasks =
+      for _ <- 1..2 do
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Letflow.Repo, parent, self())
+          Dispatcher.attempt_dispatch(dispatch.id, ctx.tenant.schema_name)
+        end)
+      end
+
+    results = Task.await_many(tasks, 30_000)
+
+    # Exactly one of them ran the body. The other one either found the row
+    # already final (the first run had finished) or found the row in flight
+    # (its lease had not expired) -- never a second run of the body.
+    assert length(Enum.filter(results, &match?({:ok, {:advanced, _}}, &1))) == 1
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :advanced
+    assert stored.attempt_index == 1
+  end
+
+  test "D15: an id that is not an id answers the uniform not-found refusal", ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    # A malformed id must NOT reach the query (where it would raise a cast
+    # error): it answers the same refusal as an id that does not exist.
+    assert {:error, :platform_step_not_found} =
+             Dispatcher.attempt_dispatch("not-a-uuid", ctx.tenant.schema_name)
+
+    assert {:error, :platform_step_not_found} =
+             Dispatcher.attempt_dispatch(Ecto.UUID.generate(), ctx.tenant.schema_name)
+
+    # The real row was not touched by either attempt.
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :pending
+    assert stored.attempt_index == 0
+  end
+
+  test "D16: a value over the byte cap is refused before anything is written", ctx do
+    definition = activated(ctx)
+
+    # The key input is a tenant-controlled start variable. The dispatcher
+    # bounds it BEFORE it composes the key: the row must not be written with
+    # a key that does not fit its column.
+    assert {:error, :platform_call_arg_invalid} =
+             Dispatcher.arm(
+               prefix: ctx.tenant.schema_name,
+               instance_id: Ecto.UUID.generate(),
+               definition_id: definition.id,
+               node_id: "call",
+               function: @function,
+               inputs: inputs(%{"slug" => String.duplicate("a", 4097)})
+             )
+
+    assert rows(ctx) == []
+  end
+
+  test "D17: an option the dispatcher does not read is REFUSED, not ignored", ctx do
+    definition = activated(ctx)
+
+    # A caller must not believe that `:tenant_id` is honoured: the dispatcher
+    # refuses the option instead of dropping it in silence.
+    assert {:error, :platform_call_arg_unknown} =
+             Dispatcher.arm(
+               prefix: ctx.tenant.schema_name,
+               tenant_id: Ecto.UUID.generate(),
+               instance_id: Ecto.UUID.generate(),
+               definition_id: definition.id,
+               node_id: "call",
+               function: @function,
+               inputs: inputs(%{})
+             )
+
+    assert rows(ctx) == []
+  end
+
+  test "D18: a stale attempt cannot overwrite the result of the attempt that owns the row",
+       ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    # The state a claim leaves the row in while the body runs.
+    dispatch
+    |> StepDispatch.claim_changeset(%{
+      status: :running,
+      attempt_index: 1,
+      next_attempt_at: DateTime.add(DateTime.utc_now(), Dispatcher.lease_ms(), :millisecond)
+    })
+    |> Repo.update(prefix: ctx.tenant.schema_name)
+
+    stale = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+
+    # A LATER attempt takes the row over, so the row carries another
+    # attempt's number now.
+    stale
+    |> StepDispatch.claim_changeset(%{
+      status: :running,
+      attempt_index: 2,
+      next_attempt_at: DateTime.add(DateTime.utc_now(), Dispatcher.lease_ms(), :millisecond)
+    })
+    |> Repo.update(prefix: ctx.tenant.schema_name)
+
+    # The stale attempt (number 1) writes its result: the write must NOT
+    # land -- the attempt that owns the row now is number 2.
+    assert {:error, :platform_step_lease_lost} =
+             Dispatcher.record_outcome(
+               stale,
+               ctx.tenant.schema_name,
+               {:ok, %{"normalized_slug" => "acme"}}
+             )
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :running
+    assert stored.attempt_index == 2
+    assert stored.outputs == nil
+
+    # The attempt that owns the row writes its own result: it lands.
+    owner = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+
+    assert :ok =
+             Dispatcher.record_outcome(
+               owner,
+               ctx.tenant.schema_name,
+               {:ok, %{"normalized_slug" => "acme"}}
+             )
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :advanced
+    assert stored.outputs == %{"normalized_slug" => "acme"}
   end
 
   # ── the AST helpers of D6 ──────────────────────────────────────────────────────────────

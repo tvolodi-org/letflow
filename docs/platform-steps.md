@@ -58,7 +58,10 @@ definition declares is refused (`platform_call_node_missing`,
 `platform_step_dispatches` (one row per platform step, in the tenant's own schema):
 
 * `call_key` -- the IDEMPOTENCY KEY of the call, composed by the dispatcher from the catalogue
-  entry's declared key inputs (the slug for a registration). It is unique per tenant schema.
+  entry's declared key inputs (the slug for a registration). It carries a DIGEST of those inputs,
+  never the raw value: the key inputs are tenant-controlled (a start variable), and a digest
+  cannot overflow the key column (`varchar(255)` under a unique index) whatever a caller passes.
+  It is unique per tenant schema.
 * `input_fingerprint` -- the fingerprint of the whole argument set.
 * `tenant_id` -- the tenant the row belongs to, DERIVED from the schema the row is written into
   (never taken from the caller): the row physically sits in that tenant's schema, so that is the
@@ -76,6 +79,34 @@ The arming is INSERT-FIRST: the row is written with `ON CONFLICT (call_key) DO N
 double click, a retry or a poller restart can never raise on the unique index -- the row that
 carries the key is read back and the first result wins. A prefix that names no tenant schema is
 refused with `invalid_schema_name` before any I/O.
+
+## The lease and the claim token: the body runs once
+
+A platform step is the ONE place where a second run of the same body is expensive: the pilot's
+chain creates a tenant, provisions a schema, binds a realm. So the dispatcher holds two things.
+
+**The lease.** While a row is `running`, its `next_attempt_at` is the lease
+(`Dispatcher.lease_ms/0`, five minutes -- it must outlast the slowest body). A dispatcher that
+finds a `running` row whose lease has NOT expired must not take it over: the run that holds the
+row is still in flight. Such a dispatch is refused with `platform_step_in_flight` and the body does
+not run a second time. Only an EXPIRED lease (the run that held it was killed) may be taken over.
+
+**The claim token.** The attempt that holds the row holds the row's `attempt_index` with it. The
+result of an attempt is written only while the row still carries THAT number and is still
+`running`. An attempt whose lease expired and whose row a later attempt took over therefore cannot
+overwrite the result of the attempt that owns the row now: its outcome is dropped
+(`platform_step_lease_lost`) and the newer attempt's result stands.
+
+## The bounds of the arguments
+
+Every declared input is bounded BEFORE the dispatcher does anything with it: a value over 4096
+bytes is refused with `platform_call_arg_invalid` and nothing is written. The bodies bound their
+own values too, in bytes, before the trim, the length check and the regex walk them: the slug is
+at most 64 bytes, the display name at most 800 (four times its 200-character rule -- a safety
+bound, not a tighter rule) and the e-mail at most 254 (the RFC's limit is in octets).
+
+`arm/1` also refuses an option it does not read (`platform_call_arg_unknown`) instead of dropping
+it in silence: a caller must not believe that, say, `:tenant_id` is honoured.
 
 ## The attempt cap
 
@@ -108,7 +139,11 @@ has exactly one definition per key.
   dispatcher owns, and the security properties: the repeated arming does not raise, the row's
   tenant is derived from the schema, a bad prefix is refused, the row is bound to the
   definition's node, another tenant's row is never touched, and the attempt cap dead-letters a
-  call.
+  call. The last block of the file covers the mutual exclusion: a row whose lease has not expired
+  is not re-claimed, two dispatchers of one row run the body once, an id that is not an id
+  answers the uniform refusal, a value over the byte cap is refused before anything is written,
+  an option the dispatcher does not read is refused, and a stale attempt cannot overwrite the
+  result of the attempt that owns the row.
 * `test/letflow/platform_functions/platform_call_idempotent_replay_test.exs` -- S8: the replay of a
   call (one call, one result, one row) and the key reuse.
 * `test/letflow/definitions/platform_call_activator_signature_test.exs` -- S9: the signature and

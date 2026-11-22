@@ -51,6 +51,15 @@ defmodule Letflow.PlatformFunctions.Impl.ValidateRegistrationTest do
     end
   end
 
+  test "a slug one byte over the cap is refused before the rule runs" do
+    # The byte bound comes first: a value a tenant made huge is refused
+    # without the trim, the length check and the regex walking it (SF-01).
+    assert {:error, :platform_call_invalid_slug} =
+             ValidateRegistration.run(%{
+               inputs: inputs(%{"slug" => String.duplicate("a", 65)})
+             })
+  end
+
   test "a blank or oversized display name is refused with its own code" do
     assert {:error, :platform_call_invalid_display_name} =
              ValidateRegistration.run(%{inputs: inputs(%{"display_name" => "  "})})
@@ -61,12 +70,33 @@ defmodule Letflow.PlatformFunctions.Impl.ValidateRegistrationTest do
              })
   end
 
+  test "a display name one byte over the byte cap is refused before the rule runs" do
+    # 801 bytes: one byte over the byte bound (four times the character
+    # rule, so the rule itself never refuses a name the bound accepts).
+    name = String.duplicate("x", 801)
+    assert byte_size(name) == 801
+
+    assert {:error, :platform_call_invalid_display_name} =
+             ValidateRegistration.run(%{inputs: inputs(%{"display_name" => name})})
+  end
+
   test "an e-mail that is not an e-mail is refused with its own code" do
     for email <- ["", "admin", "admin@", "@acme.test", "admin@acme", "admin acme@test"] do
       assert {:error, :platform_call_invalid_email} =
                ValidateRegistration.run(%{inputs: inputs(%{"email" => email})}),
              "#{inspect(email)} should not be accepted"
     end
+  end
+
+  test "an e-mail one byte over the cap is refused before the rule runs" do
+    # 255 bytes: one byte over the RFC's 254 octets. The address is short in
+    # CHARACTERS (133), so the character rule alone would have accepted it.
+    email = String.duplicate("а", 122) <> "x" <> "@acme.test"
+    assert byte_size(email) == 255
+    assert String.length(email) == 133
+
+    assert {:error, :platform_call_invalid_email} =
+             ValidateRegistration.run(%{inputs: inputs(%{"email" => email})})
   end
 
   test "a missing value is refused, not guessed" do

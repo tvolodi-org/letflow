@@ -19,10 +19,12 @@
 #
 # `call_key` -- the IDEMPOTENCY KEY of the call, composed by the dispatcher from
 # the catalogue entry's declared key inputs (for the tenant family: the tenant
-# id; for a registration: the slug). The unique index below is what makes a
-# repeated dispatch the SAME call: the first result is returned, and a repeat
-# with DIFFERENT inputs is refused (`idempotency_key_reuse`) instead of
-# running the function a second time.
+# id; for a registration: the slug). The key carries a DIGEST of those inputs,
+# not the raw values: the key inputs are tenant-controlled (a start variable)
+# and a raw value could overflow this column, which is a `varchar(255)`. The
+# unique index below is what makes a repeated dispatch the SAME call: the
+# first result is returned, and a repeat with DIFFERENT inputs is refused
+# (`idempotency_key_reuse`) instead of running the function a second time.
 #
 # `input_fingerprint` -- the fingerprint of the whole resolved argument set.
 # Same key + same fingerprint = the same call (a replay); same key + different

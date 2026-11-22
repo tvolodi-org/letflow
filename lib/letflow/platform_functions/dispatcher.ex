@@ -33,6 +33,22 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   A crash between (1) and (3) loses nothing: the row stays `running` and its
   lease (`next_attempt_at`) expires, so the next claim takes it over.
 
+  ## The lease and the claim token
+
+  The lease is the row's `next_attempt_at` while it is `running`. A dispatcher
+  that finds a `running` row whose lease has NOT expired must NOT take it
+  over: the run that holds the row is still in flight, and a second run of
+  the same body for the same call is exactly the threat S8 names (a double
+  click, a retry, a poller restart). Such a dispatch is refused with
+  `platform_step_in_flight` and the body does not run a second time.
+
+  The attempt that holds the row holds a CLAIM TOKEN with it: the row's
+  `attempt_index`. The result of an attempt is written only while the row
+  still carries THAT number and is still `running`. An attempt whose lease
+  expired and whose row a later attempt took over therefore cannot overwrite
+  the result of the attempt that owns the row now: its outcome is dropped and
+  the answer is `platform_step_lease_lost`.
+
   ## The authority fence
 
   Every attempt calls `Letflow.PlatformFunctions.Guard.authorize_dispatch/1`
@@ -53,6 +69,12 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       is returned and the function is not run a second time;
     * the same key with DIFFERENT arguments is a key reuse: the dispatch is
       refused with `idempotency_key_reuse` and nothing runs.
+
+  The key inputs are TENANT-CONTROLLED values (a start variable), so the key
+  carries a DIGEST of them and never the raw value: no value a caller passes
+  can overflow the key column (`varchar(255)` under a unique index). A value
+  over the input cap is refused with `platform_call_arg_invalid` before
+  anything is written.
 
   The arming is INSERT-FIRST: the row is written with
   `ON CONFLICT (call_key) DO NOTHING`, so a double click, a retry or a
@@ -104,8 +126,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   alias Letflow.TenantProvisioning
 
   @default_batch_size 64
-  @lease_ms 60_000
+  @lease_ms 300_000
   @max_attempts 5
+
+  # The byte cap of ONE declared input value. The inputs are tenant-controlled
+  # values (a start variable), so they are bounded BEFORE the dispatcher does
+  # any per-character work on them (SF-01): over the cap is a typed refusal,
+  # never a write that fails in the database.
+  @max_input_bytes 4096
+
+  # The options `arm/1` accepts. An option outside this list is REFUSED, not
+  # ignored: a caller must not believe that an option the dispatcher does not
+  # read (`:tenant_id` above all) is honoured.
+  @arm_options [:prefix, :instance_id, :definition_id, :node_id, :function, :inputs]
 
   defmodule StepDispatch do
     @moduledoc """
@@ -274,6 +307,10 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     * `:inputs` -- the resolved arguments, keyed by the entry's declared
       input names.
 
+  An option outside this list is REFUSED (`platform_call_arg_unknown`), never
+  ignored: a caller must not believe that an option the dispatcher does not
+  read is honoured.
+
   Returns `{:ok, %{status: :armed, dispatch: row}}` for a new call,
   `{:ok, %{status: :replayed, dispatch: row, outputs: outputs}}` when the same
   call already ran (the first result is returned and nothing runs again),
@@ -282,10 +319,22 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   when the same key carries different arguments, `platform_function_unknown`
   for a name the compiled catalogue does not know, `platform_function_not_implemented`
   for a name the catalogue declares but has no body yet, `invalid_schema_name`
-  for a prefix that names no tenant schema.
+  for a prefix that names no tenant schema, `platform_call_arg_invalid` for a
+  value over the input cap.
   """
   @spec arm(keyword()) :: {:ok, arm_result()} | {:error, term()}
   def arm(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      case Keyword.validate(opts, @arm_options) do
+        {:ok, _validated} -> arm_call(opts)
+        {:error, _unknown} -> {:error, :platform_call_arg_unknown}
+      end
+    else
+      {:error, :platform_call_arg_unknown}
+    end
+  end
+
+  defp arm_call(opts) do
     prefix = Keyword.get(opts, :prefix)
     instance_id = Keyword.get(opts, :instance_id)
     definition_id = Keyword.get(opts, :definition_id)
@@ -341,13 +390,23 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   outputs, `{:ok, {:already_final, outputs}}` when the row had already run
   (the stored outputs are returned), and `{:error, reason}` otherwise -- the
   reason is the refusal of the authority fence, the code of the function's own
-  refusal, `platform_step_max_attempts` when the call was dead-lettered, or
-  `platform_step_raised` for an unexpected failure (INV-8: the step fails, the
-  dispatcher does not crash).
+  refusal, `platform_step_max_attempts` when the call was dead-lettered,
+  `platform_step_in_flight` when another run holds the row and its lease has
+  not expired, `platform_step_not_found` for a row that is not in this tenant
+  schema (or for an id that is not an id at all), or `platform_step_raised`
+  for an unexpected failure (INV-8: the step fails, the dispatcher does not
+  crash).
   """
   @spec attempt_dispatch(Ecto.UUID.t(), String.t()) ::
           {:ok, {:advanced, map()}} | {:ok, {:already_final, map() | nil}} | {:error, term()}
   def attempt_dispatch(dispatch_id, prefix) when is_binary(prefix) do
+    case Ecto.UUID.cast(dispatch_id) do
+      {:ok, id} -> dispatch(id, prefix)
+      :error -> {:error, :platform_step_not_found}
+    end
+  end
+
+  defp dispatch(dispatch_id, prefix) do
     case claim(dispatch_id, prefix) do
       {:ok, {:already_final, row}} ->
         {:ok, {:already_final, row.outputs}}
@@ -442,7 +501,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   defp fetch_implementation(_function), do: {:error, :not_found}
 
   # The arguments must be the entry's own: no unknown name, every required
-  # name present, every value of the declared type.
+  # name present, every value of the declared type and every value within
+  # the byte cap.
   defp check_inputs(%Entry{inputs: declared}, inputs) when is_map(inputs) do
     declared_names = MapSet.new(declared, & &1.name)
 
@@ -469,9 +529,22 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
             end
           end)
 
+        # The byte bound comes FIRST: an over-long value is refused before
+        # the dispatcher composes the key, fingerprints the arguments or
+        # hands them to the body (SF-01). Without it an over-long value
+        # would reach the database as a key that does not fit its column.
+        oversized =
+          Enum.any?(declared, fn input ->
+            case Map.get(inputs, input.name) do
+              nil -> false
+              value -> is_binary(value) and byte_size(value) > @max_input_bytes
+            end
+          end)
+
         cond do
           missing -> {:error, :platform_call_arg_missing}
           mistyped -> {:error, :platform_call_arg_invalid}
+          oversized -> {:error, :platform_call_arg_invalid}
           true -> :ok
         end
     end
@@ -485,16 +558,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   defp value_of_type?(:boolean, value), do: is_boolean(value)
   defp value_of_type?(_type, _value), do: false
 
-  # The KEY of the call: the function's name and the values of the entry's
-  # declared key inputs. A collision is safe -- the fingerprint check below
-  # refuses a different call that carries the same key.
+  # The KEY of the call: the function's name and a DIGEST of the entry's
+  # declared key inputs. The key inputs are tenant-controlled values (a start
+  # variable), so the key carries a digest and never the raw value: no value
+  # a caller passes can overflow the key column (`varchar(255)` under a
+  # unique index). A collision is safe -- the fingerprint check below refuses
+  # a different call that carries the same key.
   defp call_key(%Entry{name: name, idempotency_key: key_inputs}, inputs) do
-    parts =
-      Enum.map(key_inputs, fn key ->
+    composition =
+      Enum.map_join(key_inputs, "|", fn key ->
         "#{key}=#{Map.get(inputs, key)}"
       end)
 
-    Enum.join([name | parts], "|")
+    "#{name}|#{sha256_hex(composition)}"
   end
 
   # The FINGERPRINT of the whole argument set: same key + same fingerprint is
@@ -506,7 +582,11 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map_join("\n", fn {name, value} -> name <> "=" <> encode_value(value) end)
 
-    :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower)
+    sha256_hex(canonical)
+  end
+
+  defp sha256_hex(text) when is_binary(text) do
+    :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
   end
 
   # A value that JSON cannot carry (a tuple, a pid) still has to produce a
@@ -616,13 +696,24 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   A run killed uncatchably (the VM dies, the node is killed) leaves the row
   `running` with a lease that expires, so the next claim takes it over.
-  Without a cap that take-over would go on forever -- one attempt a minute,
-  the attempt counter growing without bound. The cap is the DECISION that a
-  call which cannot complete is given up on; the row leaves the queue for
-  good and keeps the failure kind `platform_step_max_attempts`.
+  Without a cap that take-over would go on forever -- one attempt a lease
+  period, the attempt counter growing without bound. The cap is the
+  DECISION that a call which cannot complete is given up on; the row leaves
+  the queue for good and keeps the failure kind `platform_step_max_attempts`.
   """
   @spec max_attempts() :: pos_integer()
   def max_attempts, do: @max_attempts
+
+  @doc """
+  The lease of a claim, in milliseconds: how long a run may hold the row
+  before another dispatcher may take it over.
+
+  The lease must outlast the slowest platform function body: a body that
+  outgrows it is retried by a later attempt (the bodies are idempotent by
+  contract) and the claim token keeps the stale attempt's result harmless.
+  """
+  @spec lease_ms() :: pos_integer()
+  def lease_ms, do: @lease_ms
 
   defp claim(dispatch_id, prefix) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -641,26 +732,44 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
         %StepDispatch{status: status} = existing when status in [:advanced, :given_up] ->
           {:already_final, existing}
 
-        %StepDispatch{attempt_index: attempts} = existing when attempts >= @max_attempts ->
-          # The cap is reached: the call is DEAD-LETTERED. The row leaves the
-          # queue (its status is no longer `pending`/`running`, so the due
-          # query stops selecting it) and keeps the failure kind.
-          {:given_up, dead_letter(existing, prefix)}
+        %StepDispatch{status: :running, next_attempt_at: lease} = existing ->
+          if DateTime.compare(lease, now) == :gt do
+            # The lease has NOT expired: the run that holds the row is still in
+            # flight. A second dispatcher must NOT take the row over -- the
+            # body would run a second time for the same call (S8).
+            Repo.rollback(:platform_step_in_flight)
+          else
+            # The lease has expired: the run that held it is gone (the node
+            # died), so this claim takes the row over.
+            claim_or_give_up(existing, now, prefix)
+          end
 
         %StepDispatch{} = existing ->
-          existing
-          |> StepDispatch.claim_changeset(%{
-            status: :running,
-            attempt_index: existing.attempt_index + 1,
-            next_attempt_at: DateTime.add(now, @lease_ms, :millisecond)
-          })
-          |> Repo.update(prefix: prefix)
-          |> case do
-            {:ok, updated} -> {:claimed, updated}
-            {:error, _changeset} -> Repo.rollback(:platform_step_claim_failed)
-          end
+          claim_or_give_up(existing, now, prefix)
       end
     end)
+  end
+
+  defp claim_or_give_up(%StepDispatch{attempt_index: attempts} = existing, _now, prefix)
+       when attempts >= @max_attempts do
+    # The cap is reached: the call is DEAD-LETTERED. The row leaves the
+    # queue (its status is no longer `pending`/`running`, so the due
+    # query stops selecting it) and keeps the failure kind.
+    {:given_up, dead_letter(existing, prefix)}
+  end
+
+  defp claim_or_give_up(existing, now, prefix) do
+    existing
+    |> StepDispatch.claim_changeset(%{
+      status: :running,
+      attempt_index: existing.attempt_index + 1,
+      next_attempt_at: DateTime.add(now, @lease_ms, :millisecond)
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> {:claimed, updated}
+      {:error, _changeset} -> Repo.rollback(:platform_step_claim_failed)
+    end
   end
 
   defp dead_letter(row, prefix) do
@@ -686,12 +795,12 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
          :ok <- authorize(definition, row, prefix),
          :ok <- check_binding(definition, row),
          {:ok, mfa} <- fetch_implementation(row.function_name),
-         {:ok, outputs} <- invoke(mfa, row) do
-      record_success(row, prefix, outputs)
+         {:ok, outputs} <- invoke(mfa, row),
+         :ok <- record_outcome(row, prefix, {:ok, outputs}) do
       {:ok, {:advanced, outputs}}
     else
       {:error, reason} ->
-        record_failure(row, prefix, reason)
+        _ = record_outcome(row, prefix, {:error, reason})
         {:error, reason}
     end
   end
@@ -802,27 +911,59 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
   # ── the result ────────────────────────────────────────────────────────────────────────
 
-  defp record_success(row, prefix, outputs) do
+  @doc """
+  Records the OUTCOME of an attempt into the row: the outputs of a succeeded
+  call or the failure kind of a refused one.
+
+  The write lands only while the row still carries THAT attempt's number
+  (`attempt_index`) and is still `running` -- the CLAIM TOKEN. An attempt
+  whose lease expired and whose row a later attempt took over therefore
+  cannot overwrite the result of the attempt that owns the row now: its
+  outcome is dropped and the answer is `{:error, :platform_step_lease_lost}`.
+
+  The function is public because the token it enforces is a property of the
+  dispatcher a caller must be able to see: a result that was dropped is a
+  result nobody can read.
+  """
+  @spec record_outcome(StepDispatch.t(), String.t(), {:ok, map()} | {:error, term()}) ::
+          :ok | {:error, :platform_step_lease_lost} | {:error, :platform_step_bad_result}
+  def record_outcome(dispatch, prefix, outcome)
+      when is_binary(prefix) and is_map(dispatch) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    row
-    |> StepDispatch.terminal_changeset(%{
-      status: :advanced,
-      outputs: outputs,
-      dispatched_at: now
-    })
-    |> Repo.update(prefix: prefix)
+    updates =
+      case outcome do
+        {:ok, outputs} when is_map(outputs) ->
+          [set: [status: :advanced, outputs: outputs, dispatched_at: now]]
+
+        {:error, reason} ->
+          [set: [status: :given_up, last_failure_kind: failure_kind(reason), dispatched_at: now]]
+
+        _other ->
+          # An outcome that is neither an output map nor a refusal is not a
+          # result at all: the dispatcher never raises (INV-8).
+          nil
+      end
+
+    case updates do
+      nil ->
+        {:error, :platform_step_bad_result}
+
+      updates ->
+        {count, _returned} =
+          StepDispatch
+          |> where([d], d.id == ^dispatch.id and d.attempt_index == ^dispatch.attempt_index)
+          |> where([d], d.status == :running)
+          |> Repo.update_all(updates, prefix: prefix)
+
+        if count == 1, do: :ok, else: {:error, :platform_step_lease_lost}
+    end
   end
 
-  defp record_failure(row, prefix, reason) do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-    row
-    |> StepDispatch.terminal_changeset(%{
-      status: :given_up,
-      last_failure_kind: to_string(reason),
-      dispatched_at: now
-    })
-    |> Repo.update(prefix: prefix)
-  end
+  # The failure kind is a STABLE code, never a customer text: the row is read
+  # by the step log (gap G6) and must not carry anything a tenant typed
+  # (INV-4). A reason that is not an atom is named by its inspection.
+  defp failure_kind(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp failure_kind(reason) when is_binary(reason), do: reason
+  defp failure_kind(reason), do: inspect(reason)
 end

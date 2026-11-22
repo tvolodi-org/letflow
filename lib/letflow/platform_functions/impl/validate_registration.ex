@@ -15,6 +15,15 @@ defmodule Letflow.PlatformFunctions.Impl.ValidateRegistration do
     * the e-mail: one `@`, a dot in the domain, no spaces, at most 254
       characters.
 
+  Every value is byte-bounded BEFORE the rule runs: a value over the cap is
+  refused with its own code, so the trim, the length check and the regex
+  never walk a value a tenant made huge (SF-01). The slug's bound is 64
+  bytes (its rule is ASCII, so the two are the same), the display name's is
+  800 bytes (four times its character rule: a safety bound, not a tighter
+  rule) and the e-mail's is 254 bytes -- the RFC's limit is in OCTETS, and
+  the character rule was looser than the RFC for an address that is not
+  ASCII.
+
   ## The contract with the dispatcher
 
   `run/1` never raises (INV-8): a bad value is an `{:error, code}` with a
@@ -27,8 +36,18 @@ defmodule Letflow.PlatformFunctions.Impl.ValidateRegistration do
   @slug_pattern ~r/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/
   @email_pattern ~r/^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
+  @max_slug_bytes 64
   @max_display_name_length 200
   @max_email_length 254
+
+  # The BYTE bounds. The slug's bound is its rule (the pattern is ASCII, so a
+  # slug of 64 characters is 64 bytes). The display name's bound is four
+  # times its character rule -- a safety bound that never refuses a name the
+  # rule accepts, but that stops the copy the trim makes of a huge value.
+  # The e-mail's bound is the RFC's 254 OCTETS: the character rule was looser
+  # than the RFC for an address that is not ASCII.
+  @max_display_name_bytes 800
+  @max_email_bytes 254
 
   @typedoc "The stable code of a refused registration."
   @type refusal ::
@@ -62,38 +81,55 @@ defmodule Letflow.PlatformFunctions.Impl.ValidateRegistration do
 
   def run(_other), do: {:error, :platform_call_invalid_slug}
 
+  # The BYTE bound comes first: a value over the cap is refused before the
+  # trim (which copies the value), before the length check and before the
+  # regex runs over it (SF-01). The caps are in BYTES, the rules in
+  # characters: a value that is short enough in characters but long in bytes
+  # is refused, which is the safe direction for a tenant-controlled value.
   defp validate_slug(slug) when is_binary(slug) do
-    trimmed = String.trim(slug)
-
-    if trimmed == "" or not Regex.match?(@slug_pattern, trimmed) do
+    if byte_size(slug) > @max_slug_bytes do
       {:error, :platform_call_invalid_slug}
     else
-      :ok
+      trimmed = String.trim(slug)
+
+      if trimmed == "" or not Regex.match?(@slug_pattern, trimmed) do
+        {:error, :platform_call_invalid_slug}
+      else
+        :ok
+      end
     end
   end
 
   defp validate_slug(_slug), do: {:error, :platform_call_invalid_slug}
 
   defp validate_display_name(display_name) when is_binary(display_name) do
-    trimmed = String.trim(display_name)
-
-    if trimmed == "" or String.length(trimmed) > @max_display_name_length do
+    if byte_size(display_name) > @max_display_name_bytes do
       {:error, :platform_call_invalid_display_name}
     else
-      :ok
+      trimmed = String.trim(display_name)
+
+      if trimmed == "" or String.length(trimmed) > @max_display_name_length do
+        {:error, :platform_call_invalid_display_name}
+      else
+        :ok
+      end
     end
   end
 
   defp validate_display_name(_display_name), do: {:error, :platform_call_invalid_display_name}
 
   defp validate_email(email) when is_binary(email) do
-    trimmed = String.trim(email)
-
-    if trimmed == "" or String.length(trimmed) > @max_email_length or
-         not Regex.match?(@email_pattern, trimmed) do
+    if byte_size(email) > @max_email_bytes do
       {:error, :platform_call_invalid_email}
     else
-      :ok
+      trimmed = String.trim(email)
+
+      if trimmed == "" or String.length(trimmed) > @max_email_length or
+           not Regex.match?(@email_pattern, trimmed) do
+        {:error, :platform_call_invalid_email}
+      else
+        :ok
+      end
     end
   end
 
