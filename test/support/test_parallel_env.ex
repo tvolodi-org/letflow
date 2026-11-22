@@ -39,6 +39,8 @@ defmodule Letflow.Test.TestParallelEnv do
     TEST_PARALLEL_PARTITION_KILL_GRACE_S
     TEST_PARALLEL_MAX_CONCURRENT_CREATES
     TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS
+    TEST_PARALLEL_FILE_TIMEOUT_S
+    TEST_PARALLEL_CREATE_TIMEOUT_S
     TEST_PARALLEL_SAMPLE_CONNECTIONS
     TEST_PARALLEL_TEMPLATE_READY_DIR
     TEST_PARALLEL_MANIFEST
@@ -56,7 +58,7 @@ defmodule Letflow.Test.TestParallelEnv do
   # The script sets this per child command itself; an ambient value (a shard job's own
   # `mix test` partition) must not leak into a script run under test. Scrubbed for CHILD
   # processes only: the BEAM running the suite already configured its Repo from it.
-  @child_only ~w(MIX_TEST_PARTITION)
+  @child_only ~w(MIX_TEST_PARTITION TEST_PARALLEL_FILE_MARKER_DIR)
 
   @doc "Names scrubbed from a spawned child's environment."
   @spec child_names() :: [String.t()]
