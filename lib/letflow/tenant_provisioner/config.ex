@@ -130,7 +130,7 @@ defmodule Letflow.TenantProvisioner.Config do
     end
   end
 
-  @doc "Guarded runtime company-host suffixes shared by provisioning, CORS and mail."
+  @doc "Guarded runtime company-host suffixes shared by provisioning and login-directory mail; since T-2621 they grant no CORS allowance (the CORS decision is taken per host, see `Letflow.Plugs.Cors`)."
   @spec allowed_hostname_suffixes() :: [String.t()]
   def allowed_hostname_suffixes do
     config = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
