@@ -80,18 +80,27 @@ STANDARD_BP_DOC_TEST = [
 # D-184/D-186: the security probes are mandatory on every bounded run: they are the mechanical
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
-# G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-05: the generated audit-writer by caller matrix and the database-row schema assertions
+# for actor id/kind, required fields and payload redaction.
 # G-06: every outbound HTTP call site is inventoried and classified, and the
 # dispatch-time probes refuse a private-range URL, do not follow a redirect and
 # keep the URL out of the failure value.
+# G-07: every keyset cursor builder is inventoried, and the cursor/codec
+# properties hold over arbitrary legal ids, separators, legacy prefixes and
+# expiry; a cursor-paged listing shows every row exactly once.
+# G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-03: the generated source-provenance matrix of the platform-call authority
 # rule: the catalogue validator refuses a write-like entry with a person input,
 # the activation refuses the foreign sources and the dual-route nodes, and the
 # variables a catalogue call reads are refused to a completer.
 STANDARD_SECURITY_PROBE_TESTS = [
-    "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
+    "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
+    "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
+    "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
+    "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g03_source_provenance_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
