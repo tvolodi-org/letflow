@@ -34,6 +34,11 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       unlisted reader or a stale entry fails with `file:line`. If a pattern ever becomes a
       maintenance burden, drop the describe and record the reason here (G0-G3 and the
       handler-level tests of items 5, 7, 11 and 20 do not depend on it).
+    * **G5** -- catch-all scan (T-2588, INV-8). Every router that `use`s
+      `Letflow.Api.AuthorizedRouter` declares EXACTLY ONE `authz_unmatched/1` marker
+      (`:platform_prefix` or `:ordinary`). Plug's generated `do_match/4` has one clause per
+      route and NO fallback, so a router without a catch-all RAISES on an unmatched path
+      instead of answering the uniform 403 / zero-detail 404.
 
   No database. `async: true` is safe: nothing here mutates global state.
   """
@@ -871,6 +876,142 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       for file <- ["lib/letflow/routers/admin_services.ex", "lib/letflow/routers/onboarding.ex"] do
         assert platform_only?(router_module(file)), file
       end
+    end
+  end
+
+  # --------------------------------------------------------------------------
+  # G5 -- catch-all scan (T-2588, INV-8)
+  # --------------------------------------------------------------------------
+
+  describe "G5: every AuthorizedRouter declares exactly one catch-all" do
+    # The two legal markers of `Letflow.Api.AuthorizedRouter.authz_unmatched/1`.
+    @legal_kinds ["platform_prefix", "ordinary"]
+
+    # [{line_number, kind}] for the catch-all declarations of `source` (doc heredocs and
+    # comment lines skipped, so a mention in prose is not a declaration). A call with an
+    # argument that is not one of the two markers reads as "illegal".
+    def catch_all_declarations(source) do
+      source
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.reduce({false, []}, fn {line, number}, {in_doc?, found} ->
+        quotes = length(String.split(line, ~s(""")) |> tl())
+        toggled? = rem(quotes, 2) == 1
+
+        cond do
+          in_doc? -> {not toggled?, found}
+          toggled? -> {true, found}
+          String.starts_with?(String.trim_leading(line), "#") -> {false, found}
+          true -> {false, found ++ catch_all_hit(line, number)}
+        end
+      end)
+      |> elem(1)
+    end
+
+    defp catch_all_hit(line, number) do
+      trimmed = String.trim_leading(line)
+
+      if Regex.match?(~r/^authz_unmatched\(/, trimmed) do
+        kind =
+          case Regex.run(~r/^authz_unmatched\(\s*:([a-z_]+)\s*\)/, trimmed) do
+            [_all, kind] -> kind
+            nil -> "illegal"
+          end
+
+        [{number, kind}]
+      else
+        []
+      end
+    end
+
+    # nil when the file is sound; otherwise the line that names the defect.
+    defp catch_all_offender(file, declarations) do
+      case declarations do
+        [{_line, kind}] ->
+          if kind in @legal_kinds,
+            do: nil,
+            else:
+              "#{file}: the catch-all marker #{inspect(kind)} is not one of #{inspect(@legal_kinds)}"
+
+        [] ->
+          "#{file}: declares NO catch-all (authz_unmatched(:platform_prefix | :ordinary))"
+
+        many ->
+          "#{file}: declares #{length(many)} catch-alls: #{inspect(many)}"
+      end
+    end
+
+    test "the scanner reads the marker of a catch-all and ignores docs and comments" do
+      bad = ~s'''
+      defmodule Bad do
+        use Letflow.Api.AuthorizedRouter
+
+        @moduledoc """
+        authz_unmatched(:platform_prefix) in a doc is ignored
+        """
+        # authz_unmatched(:ordinary) in a comment is ignored
+
+        authz_unmatched(:ordinary)
+      end
+      '''
+
+      assert catch_all_declarations(bad) == [{9, "ordinary"}]
+    end
+
+    test "the scanner flags a router without a catch-all and one with an illegal marker" do
+      without = ~s'''
+      defmodule Without do
+        use Letflow.Api.AuthorizedRouter
+
+        authz_get "/", :HelpRead do
+          conn
+        end
+      end
+      '''
+
+      assert catch_all_offender("without.ex", catch_all_declarations(without)) =~
+               "declares NO catch-all"
+
+      illegal = ~s'''
+      defmodule Illegal do
+        use Letflow.Api.AuthorizedRouter
+
+        authz_unmatched(:whatever)
+      end
+      '''
+
+      assert catch_all_offender("illegal.ex", catch_all_declarations(illegal)) =~ "is not one of"
+    end
+
+    test "every router that uses AuthorizedRouter declares exactly one catch-all of a legal kind" do
+      offenders =
+        for file <- scanned_files(),
+            source = File.read!(file),
+            String.contains?(source, "use Letflow.Api.AuthorizedRouter"),
+            offender = catch_all_offender(file, catch_all_declarations(source)),
+            offender != nil,
+            do: offender
+
+      assert offenders == [],
+             "router(s) without exactly one legal catch-all (authz_unmatched(:platform_prefix | " <>
+               ":ordinary)): an unmatched path under them RAISES instead of answering (INV-8):\n" <>
+               Enum.join(offenders, "\n")
+    end
+
+    test "the scan is not vacuous: it sees the routers and their catch-alls" do
+      users =
+        for file <- scanned_files(),
+            String.contains?(File.read!(file), "use Letflow.Api.AuthorizedRouter"),
+            do: file
+
+      assert length(users) >= 55
+      assert "lib/letflow/routers/tenants.ex" in users
+      assert "lib/letflow/routers/platform_functions.ex" in users
+      assert "lib/letflow/modules/runtime_demo/router.ex" in users
+
+      declarations = for file <- users, d <- catch_all_declarations(File.read!(file)), do: d
+
+      assert length(declarations) >= 55
     end
   end
 end

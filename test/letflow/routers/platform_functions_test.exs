@@ -32,9 +32,9 @@ defmodule Letflow.Routers.PlatformFunctionsTest do
     %{platform: tenants.p, company: tenants.a}
   end
 
-  defp read(token, slug) do
+  defp read(token, slug, suffix \\ "") do
     :get
-    |> Fixture.api_conn(@path, token, slug, nil)
+    |> Fixture.api_conn(@path <> suffix, token, slug, nil)
     |> Fixture.dispatch_api()
   end
 
@@ -88,6 +88,34 @@ defmodule Letflow.Routers.PlatformFunctionsTest do
       # the refusal names no function: a company tenant cannot learn what exists
       refute conn.resp_body =~ "tenant.create"
       refute conn.resp_body =~ "tenant.validate"
+    end
+  end
+
+  describe "an unmatched path under the mount" do
+    # INV-8: Plug's generated `do_match/4` has one clause per route and NO fallback, so a
+    # mount without the `authz_unmatched/1` catch-all RAISES on an unmatched path instead of
+    # answering. The catch-all answers the uniform 403 for a non-operator and the router's
+    # zero-detail 404 for the platform tenant's operator.
+    test "a company tenant is refused with the uniform 403, naming no function", ctx do
+      token = Fixture.mint_token!(ctx.company, ["TENANT_ADMIN"])
+
+      conn = read(token, ctx.company.tenant.slug, "/a/b/c")
+
+      assert conn.status == 403, conn.resp_body
+      refute conn.resp_body =~ "tenant.create"
+    end
+
+    test "the platform administrator of the platform tenant gets the zero-detail 404", ctx do
+      token = Fixture.mint_token!(ctx.platform, ["PLATFORM_ADMIN"])
+
+      conn = read(token, ctx.platform.tenant.slug, "/a/b/c")
+
+      assert conn.status == 404, conn.resp_body
+
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == 404
+      assert body["title"] == "Not Found"
+      refute conn.resp_body =~ "tenant.create"
     end
   end
 end

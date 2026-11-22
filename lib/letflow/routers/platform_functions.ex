@@ -21,6 +21,10 @@ defmodule Letflow.Routers.PlatformFunctions do
 
   The platform tenant is derived from the DB-resolved tenant of the request
   (`conn.assigns.auth_context.tenant_id`), never from a request field.
+
+  An unmatched sub-path of this mount answers the same 403 for a
+  non-operator (design OQ-4); this router's catch-all is
+  `authz_unmatched(:platform_prefix)`.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -39,4 +43,6 @@ defmodule Letflow.Routers.PlatformFunctions do
 
     Response.ok(conn, %{"items" => items})
   end
+
+  authz_unmatched(:platform_prefix)
 end

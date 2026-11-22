@@ -120,7 +120,7 @@ key. The later D-180 slice may add nullable lineage/binding data without changin
 | `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, exclusive step routes, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |
 | `lib/letflow/definitions/start_permission.ex` | the START permission of a definition, derived from its entries and from the entries of the SUB_PROCESS children it starts |
 | `lib/letflow/audit.ex`, `lib/letflow/audit/entry.ex` | the `actor_kind` of an audit row: `user` against `system` |
-| `lib/letflow/routers/platform_functions.ex` | the read route `GET /api/v1/platform-functions` (`:TenantsManage`); the only route the catalogue has |
+| `lib/letflow/routers/platform_functions.ex` | the read route `GET /api/v1/platform-functions` (`:TenantsManage`); the only route the catalogue has; the catch-all `authz_unmatched(:platform_prefix)` answers an unmatched sub-path (the uniform 403 for a non-operator, the zero-detail 404 for the platform tenant's operator) instead of raising |
 | `lib/letflow/engine/write_targets.ex` | the read keys of a catalogue call join the write-target keys: a completion body may not carry them (the T-2430 rule, extended) |
 
 The `platform_call` step is a SERVICE_TASK attribute, the fourth route of that node kind next to the HTTP endpoint, the catalogue

@@ -6,6 +6,10 @@ defmodule Letflow.Modules.RuntimeDemo.Router do
 
   It exists because the skew gate (503 `module_version_ahead` / `module_upgrade_required`) is served on a
   module's routes, before the permission check. It reads no tenant data and writes nothing.
+
+  An unmatched sub-path of this mount answers the same 403 for a
+  non-operator (design OQ-4); a module mount is an ordinary mount, so this
+  router's catch-all is `authz_unmatched(:ordinary)`.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -18,4 +22,6 @@ defmodule Letflow.Modules.RuntimeDemo.Router do
       "release" => Letflow.Modules.RuntimeDemo.manifest().version
     })
   end
+
+  authz_unmatched(:ordinary)
 end

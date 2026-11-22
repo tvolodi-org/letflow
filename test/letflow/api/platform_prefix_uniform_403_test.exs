@@ -2,7 +2,9 @@ defmodule Letflow.Api.PlatformPrefixUniform403Test do
   @moduledoc """
   ISS-0993 / ISS-0994 design section 12 item 19, NAMED TEST `uniform_403_platform_prefixes_for_non_operators`,
   A2 ENFORCING variant (spec `test/specs/ISS-0993-A2.md`): the five platform prefixes
-  (`/tenants`, `/onboarding`, `/platform-migrations`, `/event-retention`, `/admin/services`).
+  (`/tenants`, `/onboarding`, `/platform-migrations`, `/event-retention`, `/admin/services`),
+  and every platform mount added since (the platform function catalogue's `/platform-functions`,
+  T-2588, among them).
 
   For each NON-operator caller
 
@@ -121,6 +123,13 @@ defmodule Letflow.Api.PlatformPrefixUniform403Test do
          {:matched_existing_mutating, :post, "/", %{}},
          {:matched_nonexistent, :patch, "/no-such-service", %{}},
          {:matched_nonexistent_delete, :delete, "/no-such-service", nil},
+         {:unmatched_subpath, :get, "/x/y/z/w", nil},
+         {:unmatched_bare, :delete, "/", nil}
+       ]},
+      # T-2588: the platform function catalogue's read route (a platform mount, `:TenantsManage`).
+      {Letflow.Routers.PlatformFunctions,
+       [
+         {:matched_catalogue, :get, "/", nil},
          {:unmatched_subpath, :get, "/x/y/z/w", nil},
          {:unmatched_bare, :delete, "/", nil}
        ]}
