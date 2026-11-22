@@ -87,12 +87,17 @@ STANDARD_BP_DOC_TEST = [
 # G-07: every keyset cursor builder is inventoried, and the cursor/codec
 # properties hold over arbitrary legal ids, separators, legacy prefixes and
 # expiry; a cursor-paged listing shows every row exactly once.
+# G-13: the generated malformed-input / no-5xx matrix over every mutating route
+# (body shapes, content types, caps), the SUB_PROCESS child and start refusals
+# and the cursor codec fallback.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
+    "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
+    "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
