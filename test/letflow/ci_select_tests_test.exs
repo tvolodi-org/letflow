@@ -180,7 +180,8 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/api/permission_matrix_test.exs",
             "test/letflow/identity/binding_writers_scan_test.exs",
             "test/letflow/identity/tenant_update_changeset_removed_test.exs",
-            "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs"
+            "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+            "test/letflow/security_probe/g11_real_tree_probe_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end

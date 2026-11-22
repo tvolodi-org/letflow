@@ -621,6 +621,7 @@
 13 test/letflow/scheduled_jobs/schedule_test.exs 0.08
 13 test/letflow/scripts/policy_test.exs 21774.50
 13 test/letflow/scripts/vortex_karl_entities_access_test.exs 76.78
+13 test/letflow/security_probe/g11_real_tree_probe_test.exs 35000.00
 13 test/scripts/seed_meridian_entities_test.exs 1077.84
 14 test/letflow/api/platform_escalation_guard_test.exs 83170.07
 14 test/letflow/api/route_scope_resolver_test.exs 128.01

@@ -24,11 +24,15 @@ import re
 import subprocess
 import sys
 
+# T-2638 (G-11): the security probes are the mechanical half of the security gates. A change to
+# a probe (or to the triage list it reads) therefore gets the high-risk coverage: a gate that
+# guards the gates must not be changed unnoticed.
 SENSITIVE_RE = re.compile(
     # T-2137: priv/modules/<m>/ is excluded here; handled by single-module detection below.
     r"^(priv/(?!modules/)|config/|mix\.exs$|mix\.lock$|\.tool-versions$|\.formatter\.exs$|\.gitattributes$|"
     r"\.env\.example$|deploy/|\.github/|scripts/|handoffs/|test/support/|test/test_helper\.exs$|"
-    r"test/shard_manifest\.txt$|lib/mix/|lib/letflow/(application|repo|repository|ledger|event_store|"
+    r"test/shard_manifest\.txt$|test/letflow/security_probe/|lib/mix/|"
+    r"lib/letflow/(application|repo|repository|ledger|event_store|"
     r"release)(\.ex$|/))"
 )
 # T-1403: module-write authorization and module installs reach record triggers / handlers through the
@@ -81,8 +85,11 @@ STANDARD_BP_DOC_TEST = [
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-11: the route inventory and the secret scanner must run on the REAL tree, not only on the
+# fake checkouts their own tests use.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g11_real_tree_probe_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
