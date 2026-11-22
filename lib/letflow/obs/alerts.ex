@@ -555,8 +555,15 @@ defmodule Letflow.Obs.Alerts do
     headers = build_headers(auth_header)
     request = {String.to_charlist(hook.destination_url), headers, ~c"application/json", json_body}
 
+    # `autoredirect: false` is NOT the :httpc default: without it :httpc
+    # follows up to five redirects to a host the operator never named.
     result =
-      case :httpc.request(:post, request, [{:timeout, hook.timeout_ms}], []) do
+      case :httpc.request(
+             :post,
+             request,
+             [{:timeout, hook.timeout_ms}, {:autoredirect, false}],
+             []
+           ) do
         {:ok, {{_ver, status, _reason}, _headers, _body}} when status >= 200 and status < 300 ->
           :ok
 
