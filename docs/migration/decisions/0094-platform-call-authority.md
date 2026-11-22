@@ -39,7 +39,10 @@ by someone who holds the entry's permission, in the right tenant, with a signatu
 module shipped it". The T-2430 rule carries over by input source class: a write-like input of a catalogue call reads only start
 variables or earlier platform-step outputs, never a human task's completer. A designer-fixed `%{"const" => json}` argument is a THIRD,
 signed source beside those two variable sources: it is accepted for any declared input, is not person-writable, and sits inside the
-signed graph hash, so the activator fixes its value at activation time rather than reading it at start time. No write-like input may
+signed graph hash, so the activator fixes its value at activation time rather than reading it at start time. A variable name is ONE
+flat top-level key: a nested or dotted name such as `a.b` is malformed and is refused with `:platform_call_arg_source_invalid` at
+activation; the G1 dispatcher must resolve names only as flat keys and must never add dotted-path resolution, which would bypass the
+exact-match person-writable source comparison. No write-like input may
 come from a FOREIGN SOURCE either: a graph that carries a write-like catalogue call carries no inline HTTP service task, no
 script-bound one and no sub-process, because such a node merges its own output into the same instance variables and could overwrite
 the value the call reads. The refusal is

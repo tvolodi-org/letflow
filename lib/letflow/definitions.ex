@@ -198,7 +198,7 @@ defmodule Letflow.Definitions do
   # REQ-030 types -- lib/letflow/design/req030-definition-store-crud.md §4.0
   # ---------------------------------------------------------------------------------
 
-  @type opts :: [prefix: String.t()]
+  @type opts :: [prefix: String.t(), actor_id: Ecto.UUID.t() | nil]
 
   @type status :: ProcessDefinition.status()
 

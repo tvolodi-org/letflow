@@ -35,7 +35,8 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
   @context_files %{
     "Letflow.Definitions" => "lib/letflow/definitions.ex",
     "Letflow.Definitions.ExportImport" => "lib/letflow/definitions/export_import.ex",
-    "Letflow.Definitions.Promotion" => "lib/letflow/definitions/promotion.ex"
+    "Letflow.Definitions.Promotion" => "lib/letflow/definitions/promotion.ex",
+    "Letflow.Definitions.Reactivation" => "lib/letflow/definitions/reactivation.ex"
   }
 
   # The entry points of the definition write paths, and what each of them must
@@ -56,7 +57,11 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
     {"Letflow.Definitions.ExportImport", :import_with_variable_schemas} => :graph_write,
     {"Letflow.Definitions.Promotion", :promote_definition} => :switch_on,
     {"Letflow.Definitions.Promotion", :promote_active_definition} => :switch_on,
-    {"Letflow.Definitions.Promotion", :apply_review} => :switch_on
+    {"Letflow.Definitions.Promotion", :apply_review} => :switch_on,
+    {"Letflow.Definitions.Reactivation", :mark_definition} => :status_only,
+    {"Letflow.Definitions.Reactivation", :reconcile_user} => :status_only,
+    {"Letflow.Definitions.Reactivation", :reconcile_users} => :status_only,
+    {"Letflow.Definitions.Reactivation", :reconcile_group} => :status_only
   }
 
   @tenant_check :check_platform_call_tenant

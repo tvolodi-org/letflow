@@ -264,14 +264,19 @@ defmodule Letflow.Definitions.PlatformCalls do
         [%{index: 0, code: :platform_call_malformed}]
 
       true ->
-        case entry(call) do
-          {:error, :not_found} ->
-            [%{index: 0, code: :platform_call_function_unknown}]
+        case shape_violations(call) do
+          [] ->
+            case entry(call) do
+              {:error, :not_found} ->
+                [%{index: 0, code: :platform_call_function_unknown}]
 
-          {:ok, entry} ->
-            shape_violations(call) ++
-              authority_violations(entry, call, nodes, activator) ++
-              argument_violations(entry, call)
+              {:ok, entry} ->
+                authority_violations(entry, call, nodes, activator) ++
+                  argument_violations(entry, call)
+            end
+
+          violations ->
+            violations
         end
     end
   end
@@ -437,6 +442,12 @@ defmodule Letflow.Definitions.PlatformCalls do
   defp source_codes(%{"var" => var} = src) when map_size(src) == 1 do
     cond do
       not (is_binary(var) and String.trim(var) != "") ->
+        [:platform_call_arg_source_invalid]
+
+      String.contains?(var, ".") ->
+        # Instance variables are one flat namespace. Refusing a dotted name here
+        # keeps G1's dispatcher from turning it into a path that would bypass
+        # the exact top-level-key comparison of the person-writable source rule.
         [:platform_call_arg_source_invalid]
 
       VariableMerge.reserved_key?(var) ->
