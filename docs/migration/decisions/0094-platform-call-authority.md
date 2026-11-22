@@ -41,6 +41,10 @@ variables or earlier platform-step outputs, never a human task's completer -- an
 write-like catalogue call carries no inline HTTP service task, no script-bound one and no sub-process, because such a node merges its
 own output into the same instance variables and could overwrite the value the call reads. The refusal is
 `:platform_call_foreign_source_refused`, at activation AND at dispatch (the dispatch guard re-checks the graph it is about to run).
+The step kinds are EXCLUSIVE: a node that declares `platform_call` may not also carry `endpoint`, `service_id` or `script_key`. Such a
+node would otherwise be parsed by the runtime as the other route while the source rule exempted it as a closed catalogue call. Graph
+validation, activation and dispatch all refuse it with `:conflicting_platform_call_routes`; a dual-route node also remains a foreign
+source beside a write-like catalogue call.
 
 *Option B (rejected).* A new atom per definition class (`PlatformDefinitionsWrite`) needed to EDIT any definition in the platform
 tenant that contains a platform step. It blocks drawing and testing a draft and still needs the activation check.
@@ -55,10 +59,15 @@ the KIND of the actor in the new tenant-scoped column `audit_entries.actor_kind`
 system" are told apart BY THE ROW and not only by a `nil` actor id (the column is not part of REQ-195's canonical hashed form: the
 chain keeps its eleven fields, and the table's own immutability trigger keeps the kind from being edited afterwards).
 
-EVERY HTTP lifecycle path of the definitions router carries the caller -- create, IMPORT, deactivate, archive. The import path is the
-one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the definition's `created_by`
-column) and had handed the context the prefix-only opts, so its `definition.create` row named nobody and claimed the system did it.
-The opts and the `imported_by` argument are BOTH the caller, and the row must say so.
+Every HTTP lifecycle path THAT WRITES a definition audit row carries the caller -- create, IMPORT, deactivate, archive. The import path
+is the one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the definition's
+`created_by` column) and had handed the context the prefix-only opts, so its `definition.create` row named nobody and claimed the system
+did it. The opts and the `imported_by` argument are BOTH the caller, and the row must say so.
+
+Two pre-existing exclusions are explicit: PUT/PATCH draft update and hard-delete write NO definition audit row, and version rollback
+writes the `DEFINITION_VERSION_ROLLED_BACK` EVENT (with its actor) rather than a definition audit row. This change does not invent rows on those paths;
+the actor invariant governs every lifecycle audit row that is written. Adding audit rows to draft update or hard-delete is a later slice,
+not part of G2.
 
 A SCAN TEST (`test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`) keeps it that way. It derives, from the AST of the
 definition context modules, every public function that writes a definition AUDIT row, reads where that function's audit actor comes
@@ -80,6 +89,17 @@ Option A everywhere. The compiled catalogue keeps the "who may add a function" q
 replaces the owner stamp without opening a hole, because the signature is verified at every call and a permission lost since the
 activation flags the row `needs_reactivation` (REQ-515's existing path).
 
+## D-180 boundary: standard definitions and later forks
+
+The pilot definition is a STANDARD definition in the platform tenant. Under owner decision D-180 a standard definition is LOCKED for
+everyone inside a tenant, including `TENANT_ADMIN`; a tenant may later FORK a `custom` copy recording `based_on: <standard
+key>@<version>`, with a per-tenant binding choosing which copy runs. That fork/binding mechanism is NOT built in this change.
+
+G2 adds no definition field, column or table, so there is no schema migration to reserve for `based_on` or `custom`. The extension
+point is the definition's existing versioned row and graph: the start permission is derived independently from EACH definition's own
+graph, and nothing here assumes that a definition is editable by whoever can see it, or that a tenant has exactly one definition per
+key. The later D-180 slice may add nullable lineage/binding data without changing the authority checks in this record.
+
 ## What the code does
 
 | Where | What |
@@ -87,8 +107,9 @@ activation flags the row `needs_reactivation` (REQ-515's existing path).
 | `lib/letflow/platform_functions/catalog.ex` | the compiled catalogue: `list/1` (only the entries the caller's tenant may use), `fetch/1`, `permission_atoms/0`, `entry_map/1`. A duplicate or malformed entry is a COMPILE error |
 | `lib/letflow/platform_functions/entry.ex` | the entry shape: typed inputs with a source class, typed outputs, the permission, the side effects, the idempotency key, the platform-tenant flag |
 | `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules` |
-| `lib/letflow/platform_functions/guard.ex` | the RUN-TIME fence: the tenant (INV-10), the catalogue entry, the signature, and the activator's CURRENT permission (a loss flags the row `needs_reactivation`) |
-| `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |
+| `lib/letflow/platform_functions/guard.ex` | the RUN-TIME fence: the tenant (INV-10), the catalogue entry, exclusive step routes, foreign sources, the signature, and the activator's CURRENT permission (a loss flags the row `needs_reactivation`) |
+| `lib/letflow/definitions/graph.ex` | graph validation refuses a `platform_call` node that also carries `endpoint`, `service_id` or `script_key` with `:conflicting_platform_call_routes` |
+| `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, exclusive step routes, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |
 | `lib/letflow/definitions/start_permission.ex` | the START permission of a definition, derived from its entries and from the entries of the SUB_PROCESS children it starts |
 | `lib/letflow/audit.ex`, `lib/letflow/audit/entry.ex` | the `actor_kind` of an audit row: `user` against `system` |
 | `lib/letflow/routers/platform_functions.ex` | the read route `GET /api/v1/platform-functions` (`:TenantsManage`); the only route the catalogue has |
@@ -96,6 +117,7 @@ activation flags the row `needs_reactivation` (REQ-515's existing path).
 
 The `platform_call` step is a SERVICE_TASK attribute, the fourth route of that node kind next to the HTTP endpoint, the catalogue
 service and the Lua script: `attributes["platform_call"] :: %{"function" => name, "args" => %{arg => %{"var" => v} | %{"const" => j}}}`.
+The routes are mutually exclusive on one node: a platform-call node carrying any of `endpoint`, `service_id` or `script_key` is invalid.
 
 The read route's body publishes an entry's key composition under `idempotency_inputs` -- the input names that make a repeat the same
 call -- and never under the name of the CALLER's idempotency key: that key belongs to `Letflow.Idempotency` alone, and the AC5 guard of
@@ -125,10 +147,10 @@ come back.
 | S13 (read route) | a company tenant learns which platform functions exist | `test/letflow/routers/platform_functions_test.exs`: the platform admin of the platform tenant reads the catalogue; a company administrator and a company tenant whose stored token still carries `PLATFORM_ADMIN` are refused the uniform 403, and the refusal names no function |
 | catalogue shape | an entry drifts from the contract the designer reads | `test/letflow/platform_functions/catalog_test.exs`: the compiled chain, the platform atom, the platform-tenant flag and the EXACT key set of the entry map |
 | S3 (the write paths) | a company tenant PUTs or PATCHes a platform call into a draft | `test/letflow/definitions/platform_call_write_path_refused_test.exs`: create, PUT and PATCH answer the one fixed code (422) and store nothing |
-| S2 (the foreign sources) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: the activation refuses the graph, and the dispatch guard refuses it too |
+| S2 (the foreign sources and dual-route exploit) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads; one node declares both `platform_call` and another route | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: graph validation, activation and dispatch refuse mixed routes with `:conflicting_platform_call_routes`; a dual-route node still triggers `:platform_call_foreign_source_refused` beside a write-like call |
 | the start of a parent | a platform PROCESS_OPERATOR starts a parent whose sub-process child calls `tenant.create` | `test/letflow/engine/platform_call_subprocess_start_refused_test.exs`: the answer for an unknown definition, nothing written; the child's own activation fails closed |
 | S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system`; the HTTP create and HTTP IMPORT routes both write the caller's row |
-| "one path forgotten" | a new definition write path skips the platform-call check | `test/letflow/definitions/platform_call_write_paths_scan_test.exs`: every entry point is classified and reaches the check its class demands |
+| "one path forgotten" | a new definition write path skips the platform-call check | `test/letflow/definitions/platform_call_write_paths_scan_test.exs`: every entry point is classified and reaches the check its class demands; insert, changeset update (`update`/`update!`), update-all and delete writes are all derived |
 | "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands |
 
 ## Residual risks, stated plainly

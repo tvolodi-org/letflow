@@ -9,7 +9,7 @@ defmodule Letflow.PlatformFunctions.Guard do
   the platform tenant, the stored `activated_by` document may have been edited
   in the database, and the activator may have lost the permission.
 
-  ## The four refusals
+  ## The refusals
 
     * `:platform_call_tenant_not_allowed` -- the call does not run in the
       platform tenant (INV-10). A forged dispatch row in a company schema is
@@ -26,6 +26,9 @@ defmodule Letflow.PlatformFunctions.Guard do
       merges a value from outside its own trusted inputs (an inline HTTP
       service task, a script-bound one, a sub-process) next to the write-like
       catalogue call, so the value the call reads may have been overwritten.
+    * `:conflicting_platform_call_routes` -- the node declares a platform call
+      and also carries an `endpoint`, `service_id` or `script_key`; the runtime
+      would otherwise dispatch that other route.
 
   ## What it does NOT do
 
@@ -53,6 +56,7 @@ defmodule Letflow.PlatformFunctions.Guard do
           | :platform_call_permission_required
           | :platform_call_needs_reactivation
           | :platform_call_foreign_source_refused
+          | :conflicting_platform_call_routes
 
   @doc """
   The authority of one platform call, as `:ok` or `{:error, refusal}`.
@@ -76,7 +80,7 @@ defmodule Letflow.PlatformFunctions.Guard do
 
     with :ok <- check_tenant(prefix, tenant_id),
          {:ok, entry} <- check_function(function),
-         :ok <- check_foreign_sources(definition),
+         :ok <- check_graph_sources(definition),
          :ok <- check_signature(definition, prefix),
          :ok <- check_permission(definition, entry, prefix) do
       :ok
@@ -101,20 +105,25 @@ defmodule Letflow.PlatformFunctions.Guard do
 
   defp check_function(_function), do: {:error, :platform_call_function_unknown}
 
-  # The graph the call belongs to may carry a FOREIGN SOURCE (an inline HTTP
-  # service task, a script-bound one, a sub-process) next to the write-like
-  # catalogue call: such a node merges its own output into the same instance
-  # variables and can overwrite the value the call reads. The activation fence
-  # refuses such a graph; this is the dispatch-time twin of that refusal.
-  defp check_foreign_sources(definition) when is_map(definition) do
+  # A forged stored graph is checked again before dispatch. A platform-call
+  # node carrying another route is refused first: otherwise it could dispatch
+  # as outbound HTTP or a script while claiming to be a closed catalogue call.
+  # A foreign source beside a write-like call is refused as at activation,
+  # because its output can overwrite the value the call reads.
+  defp check_graph_sources(definition) when is_map(definition) do
     case Map.get(definition, :graph) do
       graph_map when is_map(graph_map) ->
         case Graph.from_map(graph_map) do
           {:ok, %Graph{nodes: nodes}} ->
-            if PlatformCalls.foreign_source_graph?(nodes) do
-              {:error, :platform_call_foreign_source_refused}
-            else
-              :ok
+            cond do
+              PlatformCalls.conflicting_route_graph?(nodes) ->
+                {:error, :conflicting_platform_call_routes}
+
+              PlatformCalls.foreign_source_graph?(nodes) ->
+                {:error, :platform_call_foreign_source_refused}
+
+              true ->
+                :ok
             end
 
           _not_a_graph ->
@@ -126,7 +135,7 @@ defmodule Letflow.PlatformFunctions.Guard do
     end
   end
 
-  defp check_foreign_sources(_definition), do: :ok
+  defp check_graph_sources(_definition), do: :ok
 
   defp check_signature(definition, prefix) when is_map(definition) do
     case ActivatedBy.verify(Map.get(definition, :activated_by), definition, prefix) do

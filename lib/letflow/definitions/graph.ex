@@ -286,8 +286,10 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_downstream_only
             | :expression_references_reserved_variable
             | :extension_site_unknown_node
-            # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call`.
+            # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call`,
+            # and a platform-call node has no HTTP, catalogue-service or script route.
             | :platform_call_not_allowed
+            | :conflicting_platform_call_routes
 
     @type t :: %__MODULE__{
             code: code(),
@@ -486,6 +488,7 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_role/1,
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
+        &check_service_task_platform_call_route/1,
         &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
@@ -1105,8 +1108,7 @@ defmodule Letflow.Definitions.Graph do
 
       conflict =
         if blank_or_missing_string?(node.attributes, "endpoint") and
-             blank_or_missing_string?(node.attributes, "service_id") and
-             attribute_value(node.attributes, "platform_call") == nil do
+             blank_or_missing_string?(node.attributes, "service_id") do
           []
         else
           [
@@ -1114,12 +1116,39 @@ defmodule Letflow.Definitions.Graph do
               code: :conflicting_service_task_routes,
               message:
                 "Node '#{node.id}' (SERVICE_TASK) binds a script and also carries an " <>
-                  "'endpoint', 'service_id' or 'platform_call'"
+                  "'endpoint' or 'service_id'"
             }
           ]
         end
 
       reference ++ conflict
+    end)
+  end
+
+  # T-2588 (pilot gap G2): a platform-call node is a CLOSED catalogue call. It
+  # must not also carry an outbound HTTP endpoint, a catalogue service id or a
+  # script binding. Otherwise the runtime would parse the node as that other
+  # route (ServiceTask.parse_config_from_node_attributes/1 ignores platform_call),
+  # while the platform-call source rules would exempt it as a trusted step.
+  # Messages name the node id only, never a URL or another attribute value.
+  @spec check_service_task_platform_call_route(t()) :: [Violation.t()]
+  defp check_service_task_platform_call_route(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") != nil))
+    |> Enum.filter(fn node ->
+      Enum.any?(
+        ["endpoint", "service_id", "script_key"],
+        &(attribute_value(node.attributes, &1) != nil)
+      )
+    end)
+    |> Enum.map(fn node ->
+      %Violation{
+        code: :conflicting_platform_call_routes,
+        message:
+          "Node '#{node.id}' (SERVICE_TASK) binds a platform call and also carries an " <>
+            "'endpoint', 'service_id' or 'script_key'"
+      }
     end)
   end
 

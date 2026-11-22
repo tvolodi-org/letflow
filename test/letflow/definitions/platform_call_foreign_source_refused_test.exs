@@ -15,7 +15,10 @@ defmodule Letflow.Definitions.PlatformCallForeignSourceRefusedTest do
   a foreign source at all -- the same shape the `module_writes` rule has
   (T-2444, `write_target_sources_scan_test.exs` WTS-4: "a service, script or
   sub-process node would add a source `WriteTargets` cannot see"). The refusal
-  is at activation AND at dispatch.
+  is at activation AND at dispatch. A node that itself declares BOTH
+  `platform_call` and `endpoint`/`service_id`/`script_key` is refused with
+  `:conflicting_platform_call_routes`: its platform-call declaration must not
+  exempt the other route from this rule.
 
   `async: false`: the platform tenant pin is application configuration, which is
   VM-global.
@@ -27,6 +30,7 @@ defmodule Letflow.Definitions.PlatformCallForeignSourceRefusedTest do
 
   alias Letflow.Definitions
   alias Letflow.Definitions.Activator
+  alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.PlatformFunctions.Guard
   alias Letflow.Repo
@@ -45,6 +49,13 @@ defmodule Letflow.Definitions.PlatformCallForeignSourceRefusedTest do
 
   defp create_call do
     Fx.call("tenant.create", %{
+      "slug" => %{"var" => "slug"},
+      "name" => %{"const" => "Acme"}
+    })
+  end
+
+  defp validate_call do
+    Fx.call("tenant.validate", %{
       "slug" => %{"var" => "slug"},
       "name" => %{"const" => "Acme"}
     })
@@ -103,6 +114,28 @@ defmodule Letflow.Definitions.PlatformCallForeignSourceRefusedTest do
     }
   end
 
+  # The exploit of the deep gate: the SAME node declares a closed platform call
+  # and an outbound/script route. Its declaration must not exempt it from the
+  # foreign-source rule.
+  defp dual_route_node(extra) do
+    %{
+      "id" => "foreign",
+      "node_type" => "SERVICE_TASK",
+      "attributes" => Map.merge(%{"platform_call" => validate_call()}, extra)
+    }
+  end
+
+  defp replace_graph!(schema_name, definition_id, graph) do
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^definition_id),
+        [set: [graph: graph]],
+        prefix: schema_name
+      )
+
+    Repo.get!(ProcessDefinition, definition_id, prefix: schema_name)
+  end
+
   test "an inline HTTP service task in the graph refuses the activation", ctx do
     draft =
       Fx.definition!(ctx.tenant.schema_name, graph_with(inline_http_node()), "pcf-foreign-http")
@@ -143,6 +176,104 @@ defmodule Letflow.Definitions.PlatformCallForeignSourceRefusedTest do
              )
 
     assert %{code: :platform_call_foreign_source_refused} = violation
+  end
+
+  test "a platform_call node carrying endpoint, service_id or script_key is refused by graph validation" do
+    for extra <- [
+          %{"endpoint" => "https://attacker.example/collect"},
+          %{"service_id" => "attacker-controlled-service"},
+          %{"script_key" => "notify", "script_version" => 1}
+        ] do
+      {:ok, graph} = Graph.from_map(Fx.graph(validate_call(), extra))
+      result = Graph.validate_node_attributes(graph)
+
+      refute result.valid
+      assert :conflicting_platform_call_routes in Enum.map(result.violations, & &1.code)
+
+      for violation <- result.violations,
+          violation.code == :conflicting_platform_call_routes do
+        assert violation.message =~ "'call'"
+        refute violation.message =~ "attacker"
+      end
+    end
+  end
+
+  test "a platform_call node that is also an outbound HTTP call is refused at activation", ctx do
+    draft =
+      Fx.definition!(
+        ctx.tenant.schema_name,
+        Fx.graph(validate_call()),
+        "pcf-dual-route-activation"
+      )
+
+    replace_graph!(
+      ctx.tenant.schema_name,
+      draft.id,
+      Fx.graph(validate_call(), %{"endpoint" => "https://attacker.example/collect"})
+    )
+
+    assert {:error, {:platform_calls_invalid, violations}} =
+             Definitions.activate(draft.id,
+               prefix: ctx.tenant.schema_name,
+               activator: activator(ctx)
+             )
+
+    assert %{node_id: "call", index: 0, code: :conflicting_platform_call_routes} in violations
+  end
+
+  test "a dual-route node remains a foreign source beside a write-like catalogue call", ctx do
+    draft =
+      Fx.definition!(
+        ctx.tenant.schema_name,
+        Fx.graph(create_call()),
+        "pcf-dual-route-foreign-source"
+      )
+
+    graph =
+      graph_with(dual_route_node(%{"endpoint" => "https://attacker.example/collect"}))
+
+    replace_graph!(ctx.tenant.schema_name, draft.id, graph)
+
+    assert {:error, {:platform_calls_invalid, violations}} =
+             Definitions.activate(draft.id,
+               prefix: ctx.tenant.schema_name,
+               activator: activator(ctx)
+             )
+
+    assert %{node_id: "foreign", index: 0, code: :conflicting_platform_call_routes} in violations
+
+    assert %{node_id: "call", index: 0, code: :platform_call_foreign_source_refused} in violations
+  end
+
+  test "the dispatch guard refuses a platform_call node that is also an outbound HTTP call",
+       ctx do
+    draft =
+      Fx.definition!(
+        ctx.tenant.schema_name,
+        Fx.graph(validate_call()),
+        "pcf-dual-route-dispatch"
+      )
+
+    assert {:ok, _} =
+             Definitions.activate(draft.id,
+               prefix: ctx.tenant.schema_name,
+               activator: activator(ctx)
+             )
+
+    stored =
+      replace_graph!(
+        ctx.tenant.schema_name,
+        draft.id,
+        Fx.graph(validate_call(), %{"endpoint" => "https://attacker.example/collect"})
+      )
+
+    assert {:error, :conflicting_platform_call_routes} =
+             Guard.authorize_dispatch(
+               definition: stored,
+               prefix: ctx.tenant.schema_name,
+               tenant_id: ctx.tenant.tenant_id,
+               function: "tenant.validate"
+             )
   end
 
   test "the dispatch guard refuses a graph that carries a foreign source", ctx do

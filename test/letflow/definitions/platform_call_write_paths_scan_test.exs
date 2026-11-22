@@ -235,7 +235,7 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
       Enum.any?(reached.calls, fn
         {:remote, mods, fun, _arity} ->
           (mods == "Repo" or String.ends_with?(mods, ".Repo")) and
-            fun in [:insert, :insert_all, :update_all, :delete, :delete_all]
+            fun in [:insert, :insert_all, :update, :update!, :update_all, :delete, :delete_all]
 
         _other ->
           false
@@ -258,6 +258,18 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
 
            A new entry point must be classified here (and reach the check its class demands).
            """
+  end
+
+  test "the write detector recognises changeset updates of definition rows" do
+    for fun <- [:update, :update!] do
+      reached = %{
+        calls: MapSet.new([{:remote, "Repo", fun, 2}]),
+        atoms: MapSet.new([:ProcessDefinition])
+      }
+
+      assert writes_definition_row?(reached),
+             "Repo.#{fun}/2 must be derived as a definition-row write"
+    end
   end
 
   test "every graph-writing entry point reaches the company-tenant check" do

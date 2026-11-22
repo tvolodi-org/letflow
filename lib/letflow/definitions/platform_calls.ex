@@ -31,7 +31,10 @@ defmodule Letflow.Definitions.PlatformCalls do
     5. a WRITE-LIKE entry (one whose side effects are more than a read) reads
        no variable that a human task of the same graph may write: the
        T-2430 rule carried over by source class, enforced the way
-       `Letflow.Engine.WriteTargets` refuses such a key at run time.
+       `Letflow.Engine.WriteTargets` refuses such a key at run time;
+    6. the node declares ONLY the platform-call route: no `endpoint`,
+       `service_id` or `script_key` beside it. The step kinds are exclusive, so
+       a closed catalogue call cannot dispatch as an outbound or script step.
 
   The signed `activated_by` document replaces the owner stamp for catalogue
   calls: instead of "unchanged since the module shipped it", the rule is
@@ -62,6 +65,7 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   @attribute "platform_call"
   @call_keys ["function", "args"]
+  @conflicting_route_attributes ["endpoint", "service_id", "script_key"]
 
   # The node types that may declare a `platform_call`: a SERVICE_TASK bound to
   # a platform function instead of an HTTP endpoint or a Lua script.
@@ -171,6 +175,21 @@ defmodule Letflow.Definitions.PlatformCalls do
   def foreign_source_graph?(_other), do: false
 
   @doc """
+  True when the graph carries a node that declares a `platform_call` and also
+  carries an HTTP, catalogue-service or script route. Such a node is never a
+  trusted platform step: the runtime would otherwise dispatch the other route
+  while the source rules exempted the node as a closed catalogue call.
+  """
+  @spec conflicting_route_graph?(Graph.t() | [Graph.Node.t()] | term()) :: boolean()
+  def conflicting_route_graph?(%Graph{nodes: nodes}) when is_list(nodes),
+    do: Enum.any?(nodes, &conflicting_route?/1)
+
+  def conflicting_route_graph?(nodes) when is_list(nodes),
+    do: Enum.any?(nodes, &conflicting_route?/1)
+
+  def conflicting_route_graph?(_other), do: false
+
+  @doc """
   True when the graph declares at least one `platform_call` step.
   """
   @spec declares_call?(Graph.t() | [Graph.Node.t()] | term()) :: boolean()
@@ -220,7 +239,7 @@ defmodule Letflow.Definitions.PlatformCalls do
       []
     else
       if PlatformTenant.platform_prefix?(prefix) do
-        call_violations(call, node_type, nodes, activator)
+        call_violations(call, node_type, attributes, nodes, activator)
       else
         # One fixed code for a company tenant: the answer must not tell whether
         # the function exists (INV-5).
@@ -233,8 +252,11 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   # ── the platform tenant ────────────────────────────────────────────────────────────────
 
-  defp call_violations(call, node_type, nodes, activator) do
+  defp call_violations(call, node_type, attributes, nodes, activator) do
     cond do
+      conflicting_route_attributes?(attributes) ->
+        [%{index: 0, code: :conflicting_platform_call_routes}]
+
       node_type not in @node_types ->
         [%{index: 0, code: :platform_call_node_type_not_supported}]
 
@@ -339,14 +361,27 @@ defmodule Letflow.Definitions.PlatformCalls do
   end
 
   # True when the graph carries a node that merges a value into the instance
-  # variables from outside its own trusted inputs. The `platform_call` step
-  # itself is a SERVICE_TASK, so a node that DECLARES a platform call is not a
-  # foreign source.
+  # variables from outside its own trusted inputs. A PURE `platform_call` step
+  # is exempt; a node that also carries an HTTP, catalogue-service or script
+  # route is not, because that other route can merge its own output.
   defp foreign_source?(nodes) do
     Enum.any?(nodes, fn node ->
-      node.node_type in @foreign_source_types and not declares_platform_call?(node)
+      node.node_type in @foreign_source_types and
+        (not declares_platform_call?(node) or conflicting_route?(node))
     end)
   end
+
+  defp conflicting_route?(%Graph.Node{attributes: attributes} = node) do
+    declares_platform_call?(node) and conflicting_route_attributes?(attributes)
+  end
+
+  defp conflicting_route?(_node), do: false
+
+  defp conflicting_route_attributes?(attributes) when is_map(attributes) do
+    Enum.any?(@conflicting_route_attributes, &(Map.get(attributes, &1) != nil))
+  end
+
+  defp conflicting_route_attributes?(_attributes), do: false
 
   # True when the graph declares a WRITE-LIKE catalogue call.
   defp write_like_call?(nodes) do

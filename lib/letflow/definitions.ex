@@ -3180,7 +3180,7 @@ defmodule Letflow.Definitions do
   # REQ-195 -- `draft` (the pre-activation row, already fetched/locked by
   # run_activate_transaction/4) is this audit row's before_state; `updated`
   # (the now-ACTIVE row) is its after_state. actor_id: nil, see
-  # record_definition_audit/5's own comment.
+  # record_definition_audit/6's own comment.
   defp activate_draft_row(
          %ProcessDefinition{id: id} = draft,
          prefix,
