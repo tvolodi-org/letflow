@@ -81,8 +81,11 @@ STANDARD_BP_DOC_TEST = [
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-10: every environment variable, application key, flag, secret and URL the product reads
+# must be in the config/env/flag registry, with its owner, its reason and its default.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g10_config_registry_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.

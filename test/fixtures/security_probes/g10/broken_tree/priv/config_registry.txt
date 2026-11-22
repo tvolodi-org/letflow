@@ -1,0 +1,17 @@
+# The fixture registry of the G-10 probe: a registry that breaks one rule per entry, so the
+# probe has to report every one of them. The rules it breaks:
+#
+#   * `:g10_flag_enabled` is a feature flag read with a default that turns it on;
+#   * `:g10_release_flag` is a feature flag a release configuration switches on;
+#   * `:g10_secret` is a secret read with a literal default;
+#   * `:g10_runtime_key` is read while the code is compiled but registered as a runtime read;
+#   * `:g10_stale` is registered but nobody reads it;
+#   * `:g10_url` names a validator that is not a module of the tree.
+#
+# `G10_UNREGISTERED_SETTING` is read by the fixture and is deliberately absent here.
+app_env|:letflow:g10_flag_enabled|platform|platform|runtime|flag|false|no|none|A fixture flag that is read with a default that turns it on.
+app_env|:letflow:g10_release_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on.
+app_env|:letflow:g10_secret|platform|platform|runtime|secret|none|yes|none|A fixture secret that is read with a literal default.
+app_env|:letflow:g10_runtime_key|platform|platform|runtime|plain|none|no|none|A fixture key that is read while the code is compiled.
+app_env|:letflow:g10_stale|platform|platform|runtime|plain|none|no|none|A fixture key nobody reads.
+app_env|:letflow:g10_url|platform|platform|runtime|url|none|no|Letflow.NoSuchValidator|A fixture URL whose validator is not a module of the tree.

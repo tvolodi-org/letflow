@@ -1,0 +1,246 @@
+# letflow config/env/flag registry
+# format: 1
+# columns: source name owner scope read kind default fail_closed validator reason
+#
+# Every environment variable and every application environment key the product reads has one
+# line here. The probe of gap G-10 (test/letflow/security_probe/g10_config_registry_test.exs)
+# derives the other half from the tree and fails until the two agree, so a new setting cannot
+# be added without saying who owns it, why it exists, how it is read and whether its absence
+# must fail closed.
+#
+# source      env (an operating system variable) or app_env (an application environment key)
+# name        the variable name, or the application key as `app:key`
+# owner       the area that owns the setting and answers for it
+# scope       platform (the whole deployment), module (one module), tenant (one tenant) or test
+# read        runtime (read when it is used) or compile_time (read while the code is compiled)
+# kind        plain, flag (a feature switch, off by default), guard (a safety switch, on by
+#             default), secret (a credential, by reference only) or url (an address)
+# default     none (the setting has no default), false, true, a number, or module (the owning
+#             module's own constant)
+# fail_closed yes when the absence of the setting must not take effect
+# validator   none (not a server side outbound destination), startup (checked while the
+#             application boots) or the module that validates it
+# reason      one plain sentence: why the setting exists
+#
+# A reason must not end in a question mark and must not be a placeholder. A refresh is not a
+# way to bypass a finding: a reviewer accounts for every added, removed or changed line.
+
+env|BPM_IDP_BASE_URL|web|platform|runtime|url|none|no|none|Base address of the identity provider the browser is sent to, a public link the server never fetches.
+env|CERTIFICATE_VERIFY_BASE_URL|exam|module|runtime|url|none|no|none|Base address of the certificate verification service the exam module offers a candidate.
+env|CORS_ALLOWED_ORIGINS|platform|platform|runtime|plain|none|no|none|Comma separated list of the browser origins allowed to call the API.
+env|DATABASE_URL|platform|platform|runtime|secret|none|yes|none|Connection string of the tenant database, whose password is part of it.
+env|GITHUB_STEP_SUMMARY|operations|platform|runtime|plain|none|no|none|Path of the CI step summary file the permission matrix task writes into.
+env|KEYCLOAK_BASE_URL|web|platform|runtime|url|none|no|none|Legacy name of the identity provider address the browser is sent to.
+env|LETFLOW_AUTH_FAILURES_PER_MIN|identity|platform|runtime|plain|1000000|no|none|Rate of failed sign-in attempts per minute at which a caller is refused.
+env|LETFLOW_BACKUP_STATUS_DIR|operations|platform|runtime|plain|none|no|none|Directory the backup status file is written to and read from.
+env|LETFLOW_BUILD_SHA|operations|platform|runtime|plain|none|no|none|Commit the running build was made from, reported by the build info.
+env|LETFLOW_DB_PORT|operations|platform|runtime|plain|none|no|none|Port of the local PostgreSQL instance the development and test databases live on.
+env|LETFLOW_DEFAULT_TENANT_SLUG|web|platform|runtime|plain|none|no|none|Slug of the tenant a client that names no tenant is sent to.
+env|LETFLOW_DEV_DB_CONFIRMED|operations|platform|runtime|plain|none|yes|none|Acknowledgement that the developer really means to point the application at the local database.
+env|LETFLOW_ENVIRONMENT_KIND|web|platform|runtime|plain|none|no|none|Kind of deployment the mobile client is talking to.
+env|LETFLOW_ENV_LABEL|web|platform|runtime|plain|none|no|none|Label of the deployment the client is told about.
+env|LETFLOW_ERROR_CAPTURE_ENABLED|operations|platform|runtime|flag|false|no|none|Switch of the server error capture, off until a deployment turns it on.
+env|LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR|operations|platform|runtime|plain|20|no|none|Number of new error signatures per hour that counts as a growth alert.
+env|LETFLOW_INCLUDE_RUNTIME_DEMO|operations|platform|runtime|flag|false|no|none|Switch that adds the runtime demo module to the module catalogue.
+env|LETFLOW_KEYCLOAK_PORT|operations|platform|runtime|plain|none|no|none|Port of the local identity provider the development stack runs.
+env|LETFLOW_LOGIN_DIRECTORY_LEGAL_CONFIRMATION|identity|platform|runtime|plain|none|no|none|Confirmation that the operator accepts the legal terms of the login directory.
+env|LETFLOW_LOGIN_DIRECTORY_PEPPER|identity|platform|runtime|secret|none|yes|none|Keyed HMAC pepper of the platform login directory, required and never defaulted.
+env|LETFLOW_LOGIN_DIRECTORY_PEPPER_ID|identity|platform|runtime|plain|none|no|none|Identifier of the current login directory pepper, published beside the hashes it protects.
+env|LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS|identity|platform|runtime|secret|none|yes|none|Previous login directory pepper, kept during a rotation so old hashes still verify.
+env|LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS_ID|identity|platform|runtime|plain|none|no|none|Identifier of the previous login directory pepper.
+env|LETFLOW_LOGIN_DISCOVERY_ENABLED|identity|platform|runtime|flag|false|no|none|Switch of the login discovery endpoint, off until a deployment turns it on.
+env|LETFLOW_LOGIN_DISCOVERY_MODE|identity|platform|runtime|plain|none|no|none|How a discovered login is answered, as a redirect or as a single page.
+env|LETFLOW_MODULE_ROLLOUT_HALT_AFTER|operations|platform|runtime|plain|none|no|none|Number of module upgrades after which a rollout halts for an operator.
+env|LETFLOW_MODULE_UPGRADE_ON_BOOT|operations|platform|runtime|flag|false|no|none|Switch that lets the application upgrade the installed modules while it starts.
+env|LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS|operations|platform|runtime|plain|none|no|none|Number of records one module upgrade transaction may rewrite.
+env|LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS|identity|platform|runtime|flag|false|yes|none|Switch that lets an administrator bind a realm that was never verified.
+env|LETFLOW_OWNER_LIST_SHA256|operations|platform|runtime|plain|none|yes|none|Hash of the owner list a report export is authorised against.
+env|LETFLOW_PLATFORM_TENANT_ID|identity|platform|runtime|plain|none|yes|none|Identifier of the tenant that holds the platform authority.
+env|LETFLOW_PROBLEM_REPORT_EXPORT_SHA256|operations|platform|runtime|plain|none|yes|none|Hash of the problem report export the operator authorises.
+env|LETFLOW_REALM_USERS_ENABLED|signup|platform|runtime|flag|false|no|none|Switch of the realm user provisioning of a signed-up tenant.
+env|LETFLOW_REALM_USERS_PROVISIONER_TOKEN|signup|platform|runtime|secret|none|yes|none|Bearer token the realm provisioner expects, read at the point of use and never stored.
+env|LETFLOW_REALM_USERS_PROVISIONER_URL|signup|platform|runtime|url|none|yes|startup|Address of the realm provisioner the sign-up calls.
+env|LETFLOW_RUNTIME_DEMO_RELEASE|operations|platform|runtime|plain|none|no|none|Release the runtime demo module is bound to.
+env|LETFLOW_SECRETS_MASTER_KEY|platform|platform|runtime|secret|none|yes|none|AES-256-GCM key that wraps every tenant secret, required in every environment and never defaulted.
+env|LETFLOW_SHARED_STOCK_ACCESS_TENANTS|stock|platform|runtime|plain|none|yes|none|Comma separated slugs of the tenants that may read each other's stock.
+env|LETFLOW_SIGNUP_ABANDON_DAYS|signup|platform|runtime|plain|none|no|none|Days after which an unfinished sign-up is abandoned.
+env|LETFLOW_SIGNUP_ALLOW_DOMAINS|signup|platform|runtime|plain|none|no|none|Domains whose sign-ups are always allowed.
+env|LETFLOW_SIGNUP_BASE_URL|signup|platform|runtime|url|none|no|none|Public address of the sign-up page, used to build links and never fetched by the server.
+env|LETFLOW_SIGNUP_CAPTCHA|signup|platform|runtime|plain|off|no|none|Captcha vendor of the sign-up, only unset or off is accepted until a vendor exists.
+env|LETFLOW_SIGNUP_DISPOSABLE_DOMAINS|signup|platform|runtime|plain|none|no|none|Domains refused at sign-up because they belong to a disposable mail provider.
+env|LETFLOW_SIGNUP_DOMAIN_CAP_EXEMPT|signup|platform|runtime|plain|none|no|none|Domains that are not counted against the hourly sign-up domain cap.
+env|LETFLOW_SIGNUP_DOMAIN_HOURLY_CAP|signup|platform|runtime|plain|none|no|none|Sign-ups per hour one domain may make.
+env|LETFLOW_SIGNUP_ENABLED|signup|platform|runtime|flag|false|no|none|Switch of the public tenant sign-up, off until a deployment turns it on.
+env|LETFLOW_SIGNUP_HOSTNAME_DOMAIN|signup|platform|runtime|plain|none|no|none|Hostname domain the sign-up addresses are built from.
+env|LETFLOW_SIGNUP_IP_HOURLY_CAP|signup|platform|runtime|plain|none|no|none|Sign-ups per hour one address may make.
+env|LETFLOW_SIGNUP_PENDING_CAP|signup|platform|runtime|plain|none|no|none|Pending sign-ups one tenant may hold at once.
+env|LETFLOW_SIGNUP_PROVISIONER_TOKEN|signup|platform|runtime|secret|none|yes|none|Bearer token the sign-up provisioner expects, read at the point of use and never stored.
+env|LETFLOW_SIGNUP_PROVISIONER_URL|signup|platform|runtime|url|none|yes|startup|Address of the provisioner the sign-up calls.
+env|LETFLOW_SIGNUP_RESEND_INTERVAL_SECONDS|signup|platform|runtime|plain|none|no|none|Minutes before a confirmation mail may be sent again.
+env|LETFLOW_SIGNUP_TOKEN_TTL_HOURS|signup|platform|runtime|plain|none|no|none|Hours a sign-up confirmation token stays valid.
+env|LETFLOW_SKIP_ECTO_SETUP|operations|platform|runtime|flag|false|no|none|Switch that skips the database setup of the test alias.
+env|LETFLOW_SMTP_PASSWORD|identity|platform|runtime|secret|none|yes|none|Password of the mail sender, read at the point of use and never stored.
+env|LETFLOW_SMTP_USERNAME|identity|platform|runtime|secret|none|yes|none|User of the mail sender, read at the point of use and never stored.
+env|LETFLOW_TRUSTED_PROXIES|platform|platform|runtime|plain|none|yes|none|CIDR list of the proxies whose forwarded address the client address is taken from.
+env|LETFLOW_VOICE_LLM_API_KEY|voice|module|runtime|secret|none|yes|none|API key of the voice language model provider.
+env|LETFLOW_VOICE_LLM_BASE_URL|voice|module|runtime|url|none|yes|startup|Address of the voice language model provider.
+env|LETFLOW_VOICE_LLM_JSON_MODE|voice|module|runtime|plain|none|no|none|Whether the voice language model must answer with JSON.
+env|LETFLOW_VOICE_LLM_MODEL|voice|module|runtime|plain|none|no|none|Name of the voice language model.
+env|LETFLOW_VOICE_LLM_PROVIDER|voice|module|runtime|plain|none|no|none|Provider of the voice language model.
+env|LETFLOW_VOICE_STT_API_KEY|voice|module|runtime|secret|none|yes|none|API key of the speech to text provider.
+env|LETFLOW_VOICE_STT_BASE_URL|voice|module|runtime|url|none|yes|startup|Address of the speech to text provider.
+env|LETFLOW_VOICE_STT_MODEL|voice|module|runtime|plain|none|no|none|Name of the speech to text model.
+env|LETFLOW_VOICE_STT_PROVIDER|voice|module|runtime|plain|none|no|none|Provider of the speech to text service.
+env|LOG_LEVEL|operations|platform|runtime|plain|info|no|none|Level the logger writes at.
+env|MIX_TEST_PARTITION|testing|test|runtime|plain|none|no|none|Number of the database partition a test run owns.
+env|MOBILE_OIDC_CLIENT_ID|web|platform|runtime|plain|none|no|none|OIDC client identifier the mobile application authenticates with.
+env|OIDC_CLIENT_ID|identity|platform|runtime|plain|none|no|none|OIDC client identifier the web application authenticates with.
+env|OIDC_ISSUER|identity|platform|runtime|url|none|no|startup|Issuer the tokens are accepted from, the legacy name of the identity provider address.
+env|OIDC_KEYCLOAK_BASE_URL|identity|platform|runtime|url|none|no|startup|Address of the identity provider the tokens are verified against.
+env|POOL_SIZE|operations|platform|runtime|plain|30|no|none|Number of connections the database pool may hold.
+env|PORT|operations|platform|runtime|plain|4000|no|none|Port the HTTP listener binds.
+env|RELEASE_NAME|operations|platform|runtime|plain|none|no|none|Name of the release the running build belongs to.
+env|RESERVED_HEADROOM|operations|platform|runtime|plain|2|no|none|Number of database connections kept free for the operator.
+env|TEST_PARALLEL_GROUP|testing|test|runtime|plain|none|no|none|Group of test partitions that may run at the same time.
+env|TEST_POOL_SIZE|testing|test|runtime|plain|none|no|none|Number of connections one test partition may hold.
+app_env|:letflow:Letflow.LoginDiscovery|identity|platform|runtime|plain|none|no|none|How the login discovery answers, the redirect mode and the size of the body it reads.
+app_env|:letflow:Letflow.LoginDiscovery.Notifier|identity|platform|runtime|plain|none|no|none|Which notifier the login discovery and the sign-up mails are sent with.
+app_env|:letflow:Letflow.LoginDiscovery.Notifier.Smtp|identity|platform|runtime|plain|none|no|none|Settings of the SMTP notifier, the host and the port of the mail sender.
+app_env|:letflow:Letflow.LoginDiscovery.Notifier.Smtp:allow_test_cacerts|identity|platform|compile_time|flag|false|no|none|Switch that lets the SMTP notifier trust the test certificate authority.
+app_env|:letflow:Letflow.Notifications|platform|platform|runtime|plain|none|no|none|Retry backoff of the notification deliveries.
+app_env|:letflow:Letflow.PlatformTenant|identity|platform|runtime|plain|none|yes|none|Identifier of the tenant that holds the platform authority.
+app_env|:letflow:Letflow.Plugs.AuthAttemptLimit|identity|platform|runtime|plain|none|no|none|Capacities of the sign-in attempt limiter.
+app_env|:letflow:Letflow.Plugs.ClientIp|platform|platform|runtime|plain|none|yes|none|CIDR list of the proxies whose forwarded address the client address is taken from.
+app_env|:letflow:Letflow.Plugs.ProvisionerAuth|provisioner|platform|runtime|plain|none|yes|none|Settings of the plug that authenticates the tenant provisioner.
+app_env|:letflow:Letflow.Plugs.ReportExportAuth|operations|platform|runtime|plain|none|yes|none|Hashes a report export is authorised against.
+app_env|:letflow:Letflow.Repo|operations|platform|runtime|plain|none|no|none|Connection settings of the tenant database.
+app_env|:letflow:Letflow.Routers.LoginDiscovery|identity|platform|runtime|plain|none|no|none|Switch of the login discovery router, off until a deployment turns it on.
+app_env|:letflow:Letflow.Signup|signup|platform|runtime|plain|none|no|none|Settings of the public tenant sign-up, its switch and its caps.
+app_env|:letflow:Letflow.Signup.RealmUsers|signup|platform|runtime|plain|none|no|none|Settings of the realm user provisioning of a signed-up tenant.
+app_env|:letflow:Letflow.TenantProvisioner|provisioner|platform|runtime|plain|none|yes|none|Settings of the tenant provisioner, its credential and its demo caps.
+app_env|:letflow:Limiter|identity|platform|runtime|plain|none|no|none|Buckets of the rate limiters that count the attempts per client.
+app_env|:letflow:activation_test_hooks_enabled?|testing|test|compile_time|flag|false|no|none|Compile-time switch of the activation test hooks, on in the test build only.
+app_env|:letflow:admission|platform|platform|runtime|plain|none|no|none|Capacity of the admission pool and the headroom kept free for the operator.
+app_env|:letflow:alert_hooks|operations|platform|runtime|plain|none|no|none|Where the operational alerts are sent.
+app_env|:letflow:allow_ledger_migration_down|ledger|module|runtime|flag|false|no|none|Switch that lets the ledger migrations be rolled back, on in the development and test builds only.
+app_env|:letflow:allow_localhost_idp_fallback|identity|platform|compile_time|flag|false|yes|none|Compile-time switch that lets a loopback identity provider answer, refused unless a development build asks for it.
+app_env|:letflow:anti_cheat_debounce_seconds|exam|module|runtime|plain|module|no|none|Debounce of the anti cheat signal of the exam module.
+app_env|:letflow:asset_notifications_enabled|assets|module|runtime|flag|false|no|none|Switch of the asset notification mails, off until a deployment turns it on.
+app_env|:letflow:assets_documents_clock|assets|module|runtime|plain|none|no|none|Clock the asset documents are stamped with.
+app_env|:letflow:assets_post_start_fail?|assets|module|runtime|plain|none|no|none|Seam that lets a test make the asset document posting fail.
+app_env|:letflow:attachment_scanner|platform|platform|runtime|plain|module|no|none|Scanner that inspects an uploaded attachment for a virus.
+app_env|:letflow:audit_chain_lock_post_lock_delay_fun|audit|module|runtime|plain|none|no|none|Seam that delays the audit chain lock after it was taken.
+app_env|:letflow:audit_export_cap|audit|module|runtime|plain|module|no|none|Upper bound on the rows one audit export returns.
+app_env|:letflow:authz_deny_log_clock|audit|module|runtime|plain|none|no|none|Clock the authorisation denials are stamped with.
+app_env|:letflow:authz_deny_log_window_s|audit|module|runtime|plain|module|no|none|Window in seconds the authorisation denials are counted over.
+app_env|:letflow:backup_status_dir|operations|platform|runtime|plain|none|no|none|Directory the backup status file is written to and read from.
+app_env|:letflow:build_sha|operations|platform|runtime|plain|none|no|none|Commit the running build was made from, reported by the build info.
+app_env|:letflow:check_boundaries_xref_runner|testing|test|runtime|plain|module|no|none|Seam that lets a test run the boundary check with its own runner.
+app_env|:letflow:check_test_executable_resolver|testing|test|runtime|plain|module|no|none|Seam that lets a test resolve the test executable itself.
+app_env|:letflow:cold_append_lock_timeout_ms|ledger|module|runtime|plain|none|no|none|Milliseconds a cold append waits for the event store lock.
+app_env|:letflow:config_env|operations|platform|runtime|plain|none|no|none|Environment the running build was configured for.
+app_env|:letflow:cors_allowed_origins|platform|platform|runtime|plain|module|no|none|Comma separated list of the browser origins allowed to call the API.
+app_env|:letflow:cross_tenant_promotion_operator_only|identity|platform|runtime|guard|true|no|none|Switch that keeps the cross tenant promotion for the platform operator only.
+app_env|:letflow:data_export_datasets|platform|platform|runtime|plain|none|no|none|Providers of the data export, one per module that offers a dataset.
+app_env|:letflow:data_export_page_limit|platform|platform|runtime|plain|module|no|none|Upper bound on the rows one page of a data export returns.
+app_env|:letflow:data_export_row_cap|platform|platform|runtime|plain|10000|no|none|Upper bound on the rows one data export returns.
+app_env|:letflow:deadline_sweep|scheduler|platform|runtime|plain|none|no|none|Sweep that closes the instances whose deadline has passed.
+app_env|:letflow:definitions_service_scope_validator|definitions|platform|runtime|plain|none|yes|none|Seam of the service scope validator of a definition.
+app_env|:letflow:demo_modules|modules|platform|compile_time|plain|none|no|none|Modules of the catalogue that are only part of a demonstration.
+app_env|:letflow:document_boot_check|documents|platform|runtime|plain|true|no|none|Check that refuses to start when a document renderer is missing.
+app_env|:letflow:document_renderers|documents|platform|runtime|plain|module|no|none|Renderer of every kind of document the platform writes.
+app_env|:letflow:document_renderers_override_enabled|documents|platform|compile_time|flag|false|no|none|Compile-time switch that lets a test replace the document renderers.
+app_env|:letflow:document_resolver_test_seam|documents|platform|compile_time|flag|false|no|none|Compile-time switch that lets a test name a document resolver double.
+app_env|:letflow:engine_test_seams|testing|test|compile_time|flag|false|no|none|Compile-time switch of the engine test seams, on in the test build only.
+app_env|:letflow:entity_port|platform|platform|runtime|plain|none|no|none|Module that owns the entity port of the platform.
+app_env|:letflow:entity_write_before_reads|scripts|platform|runtime|plain|none|no|none|Whether the entity write script reads before it writes.
+app_env|:letflow:entity_write_script_runner|scripts|platform|runtime|plain|module|no|none|Runner that executes the entity write script.
+app_env|:letflow:entity_writes_scope_keys|records|platform|runtime|plain|none|yes|none|Scope keys an entity write may reach, empty when none is granted.
+app_env|:letflow:error_capture|operations|platform|runtime|plain|none|no|none|Switch and bounds of the server error capture.
+app_env|:letflow:event_retention|event_store|platform|runtime|plain|none|no|none|Retention of the event store partitions.
+app_env|:letflow:exam_notifications_enabled|exam|module|runtime|flag|false|no|none|Switch of the exam notification mails, off until a deployment turns it on.
+app_env|:letflow:exam_snapshot_complete|exam|module|runtime|flag|false|no|none|Switch that says the exam snapshot of a tenant is complete.
+app_env|:letflow:force_poller_crash|scheduler|test|runtime|flag|false|no|none|Seam that lets a test make the scheduler poller crash.
+app_env|:letflow:form_validation_hook_enabled|scripts|platform|runtime|flag|false|no|none|Switch of the form validation hook, off until a deployment turns it on.
+app_env|:letflow:form_validation_script_runner|scripts|platform|runtime|plain|module|no|none|Runner that executes the form validation script.
+app_env|:letflow:invocation_lease|engine|platform|runtime|plain|none|no|none|Lease the WASM invocations are held under.
+app_env|:letflow:ledger_precondition_test_hook|ledger|test|runtime|plain|none|no|none|Seam that lets a test make the ledger precondition fail.
+app_env|:letflow:ledger_registry|ledger|platform|runtime|plain|none|no|none|Registry of the ledger modules the installation holds.
+app_env|:letflow:login_directory_keys|identity|platform|runtime|secret|none|yes|none|Keyed peppers of the login directory, current and previous, by reference only.
+app_env|:letflow:lua_emit_event_max_payload_bytes|engine|platform|runtime|plain|none|no|none|Upper bound on the payload one Lua event emission may carry.
+app_env|:letflow:lua_platform_service_caller|engine|platform|runtime|plain|module|no|none|Module that lets a Lua script call a service.
+app_env|:letflow:lua_platform_time_source|engine|platform|runtime|plain|module|no|none|Source of the time a Lua script reads.
+app_env|:letflow:maintenance_enabled|maintenance|module|runtime|flag|false|no|none|Release flag of the maintenance module, off everywhere but the test build.
+app_env|:letflow:maintenance_order_start_fail?|maintenance|module|runtime|plain|none|no|none|Seam that lets a test make a maintenance order fail to start.
+app_env|:letflow:module_rollout_batch|modules|platform|runtime|plain|module|no|none|Number of modules one rollout step upgrades.
+app_env|:letflow:module_rollout_halt_after|modules|platform|runtime|plain|module|no|none|Number of module upgrades after which a rollout halts for an operator.
+app_env|:letflow:module_upgrade_on_boot|modules|platform|runtime|flag|false|no|none|Switch that lets the application upgrade the installed modules while it starts.
+app_env|:letflow:module_upgrade_one_tx_max_records|modules|platform|runtime|plain|module|no|none|Number of records one module upgrade transaction may rewrite.
+app_env|:letflow:modules|modules|platform|compile_time|plain|none|no|none|Modules the installation holds, compiled into the catalogue.
+app_env|:letflow:modules_uninstall_enabled|modules|platform|runtime|flag|false|no|none|Switch of the module uninstall routes, off until a deployment turns it on.
+app_env|:letflow:number_sequences_clock|platform|platform|runtime|plain|none|no|none|Clock the issued numbers are stamped with.
+app_env|:letflow:oidc|identity|platform|runtime|plain|none|yes|none|Address and client identifier of the identity provider.
+app_env|:letflow:oidc_admin_bind_unverified_realms|identity|platform|runtime|flag|false|yes|none|Switch that lets an administrator bind a realm that was never verified.
+app_env|:letflow:oidc_claim_mapping|identity|platform|runtime|plain|none|no|none|Map of the token claims onto the roles and the tenant of a caller.
+app_env|:letflow:oidc_jit_provisioning|identity|platform|runtime|plain|none|no|none|Roles a just in time provisioned user of a realm receives.
+app_env|:letflow:oidc_realm_probe|identity|platform|runtime|plain|module|no|none|Probe that checks whether a realm is reachable.
+app_env|:letflow:old_app_count_between|stock|module|runtime|plain|none|no|none|Bound of the rows the old stock application may still write.
+app_env|:letflow:ordering|platform|platform|runtime|plain|none|no|none|Order in which the instances and the tasks are handed out.
+app_env|:letflow:platform_admin_token_max_ttl_days|identity|platform|runtime|plain|none|no|none|Upper bound on the lifetime of a platform administrator token.
+app_env|:letflow:plugin_handlers|platform|platform|runtime|plain|none|no|none|Handlers of the plugins the installation holds.
+app_env|:letflow:pollers_init_probe|scheduler|test|runtime|plain|none|no|none|Seam that lets a test observe the start of the pollers.
+app_env|:letflow:problems_base_uri|platform|platform|compile_time|url|none|no|none|Base address the problem documents are published under.
+app_env|:letflow:promotion_assertion_max_wait_ms|promotions|platform|runtime|plain|none|no|none|Milliseconds a promotion assertion waits for its condition.
+app_env|:letflow:promotion_assertion_pool|promotions|platform|runtime|plain|module|no|none|Pool the promotion assertions run in.
+app_env|:letflow:provisioner_public_base_url|provisioner|platform|runtime|url|none|yes|startup|Public address of the tenant provisioner.
+app_env|:letflow:public_read_kinds|platform|platform|runtime|plain|none|no|none|Kinds of document a caller may read without a tenant.
+app_env|:letflow:record_trigger_backlog_cap|records|platform|runtime|plain|module|no|none|Upper bound on the pending record triggers one tenant may hold.
+app_env|:letflow:record_trigger_depth_cap|records|platform|runtime|plain|module|no|none|Depth a chain of record triggers may reach.
+app_env|:letflow:record_trigger_dlq_enqueue|records|platform|runtime|plain|module|no|none|Function that puts a failed record trigger on the dead letter queue.
+app_env|:letflow:record_trigger_run_fun|records|platform|runtime|plain|module|no|none|Function that runs one record trigger.
+app_env|:letflow:record_trigger_script_runner|records|platform|runtime|plain|none|no|none|Runner that executes the script of a record trigger.
+app_env|:letflow:record_triggers_enabled|records|platform|runtime|flag|false|no|none|Switch of the record triggers, off until a deployment turns it on.
+app_env|:letflow:runtime_demo_release|modules|platform|runtime|plain|0.1.0|no|none|Release the runtime demo module is bound to.
+app_env|:letflow:sandbox_pool|platform|platform|runtime|plain|none|no|none|Sandbox pool the transactions of a request are taken from.
+app_env|:letflow:scheduled_jobs|scheduler|platform|runtime|plain|none|no|none|Jobs the scheduler runs and whether it runs them at all.
+app_env|:letflow:scheduler|scheduler|platform|runtime|plain|none|no|none|Module that hands out the work of the scheduler.
+app_env|:letflow:scope_allowed_ids_cap|scope_enforcement|platform|runtime|plain|none|no|none|Upper bound on the identifiers one scope node may allow.
+app_env|:letflow:scope_break_glass_lock_timeout_ms|scope_enforcement|platform|runtime|plain|module|no|none|Milliseconds the break glass scope waits for its lock.
+app_env|:letflow:scope_declaration_unmanaged_modules|scope_enforcement|platform|runtime|plain|none|yes|none|Modules whose scope is not declared, refused rather than assumed.
+app_env|:letflow:scope_mode_lenient_for_tests|scope_enforcement|test|runtime|flag|false|yes|none|Switch of the lenient scope mode, on in the test build only.
+app_env|:letflow:scope_shadow_flush_interval_ms|scope_enforcement|platform|runtime|plain|module|no|none|Milliseconds between two flushes of the shadow evidence.
+app_env|:letflow:scope_shadow_log_window_s|scope_enforcement|platform|runtime|plain|module|no|none|Window in seconds the shadow log is kept over.
+app_env|:letflow:scope_shadow_retention_days|scope_enforcement|platform|runtime|plain|module|no|none|Days the shadow evidence is kept.
+app_env|:letflow:script_admission_slots|scripts|platform|runtime|plain|none|no|none|Number of script executions the admission control lets run at once.
+app_env|:letflow:script_task_hmac_fun_override|scripts|platform|runtime|plain|none|yes|none|Seam that replaces the HMAC of a script task, refused unless a test asks for it.
+app_env|:letflow:script_task_runner|scripts|platform|runtime|plain|none|no|none|Runner that executes a script task.
+app_env|:letflow:script_task_sweep_fault|scripts|test|runtime|plain|none|no|none|Seam that lets a test make the script task sweep fail.
+app_env|:letflow:scripts_test_hooks|testing|test|runtime|flag|false|yes|none|Switch of the script test hooks, refused in a release build.
+app_env|:letflow:secrets_master_key|platform|platform|runtime|secret|none|yes|none|AES-256-GCM key that wraps every tenant secret, by reference only.
+app_env|:letflow:service_multi_probe|engine|test|runtime|plain|none|no|none|Seam that lets a test observe the service call of a multi step.
+app_env|:letflow:service_task_dispatcher|engine|platform|runtime|plain|none|no|none|Module that dispatches the service tasks of an instance.
+app_env|:letflow:script_task_dispatcher|scripts|platform|runtime|plain|none|no|none|Module that dispatches the script tasks of an instance.
+app_env|:letflow:service_task_ssrf_validation_enabled|engine|platform|runtime|guard|true|no|Letflow.Webhooks.UrlValidator|Switch of the address validation of a service task, on unless a test turns it off.
+app_env|:letflow:shared_access_authority|stock|platform|runtime|plain|none|yes|none|Module that decides whether a tenant may read another tenant's stock.
+app_env|:letflow:shared_stock_access_tenants|stock|platform|runtime|plain|none|yes|none|Slugs of the tenants that may read each other's stock.
+app_env|:letflow:start_http|platform|platform|runtime|plain|true|no|none|Switch that starts the HTTP listener of the application.
+app_env|:letflow:start_provisioner_sweep|provisioner|platform|runtime|plain|true|no|none|Switch that starts the sweep of the provisioner.
+app_env|:letflow:start_record_trigger_worker|records|platform|runtime|plain|true|no|none|Switch that starts the worker of the record triggers.
+app_env|:letflow:start_scheduler|scheduler|platform|runtime|plain|true|no|none|Switch that starts the scheduler.
+app_env|:letflow:start_script_task_dispatcher|scripts|platform|runtime|plain|true|no|none|Switch that starts the dispatcher of the script tasks.
+app_env|:letflow:start_service_task_dispatcher|engine|platform|runtime|plain|true|no|none|Switch that starts the dispatcher of the service tasks.
+app_env|:letflow:stock_count_max_lines|stock|module|runtime|plain|none|no|none|Upper bound on the lines one stock count sheet may hold.
+app_env|:letflow:stock_documents_clock|stock|module|runtime|plain|none|no|none|Clock the stock documents are stamped with.
+app_env|:letflow:stock_freeze_test_hook|stock|test|runtime|plain|none|no|none|Seam that lets a test freeze a stock period.
+app_env|:letflow:stock_post_start_fail?|stock|module|runtime|plain|none|no|none|Seam that lets a test make the stock document posting fail.
+app_env|:letflow:stock_reconcile_statement_timeout_ms|stock|module|runtime|plain|none|no|none|Milliseconds a stock reconciliation waits for its statement.
+app_env|:letflow:stock_workbook_balance_page|stock|module|runtime|plain|none|no|none|Number of rows one page of the stock workbook balance holds.
+app_env|:letflow:stock_workbook_import_max_changes|stock|module|runtime|plain|none|no|none|Upper bound on the changes one workbook import may write.
+app_env|:letflow:stock_workbook_import_max_rows|stock|module|runtime|plain|none|no|none|Upper bound on the rows one workbook import may read.
+app_env|:letflow:stock_workbook_max_rows|stock|module|runtime|plain|none|no|none|Upper bound on the rows one stock workbook may hold.
+app_env|:letflow:tenant_logo_upload_enabled|identity|platform|runtime|flag|false|no|none|Switch of the tenant logo upload, off until a deployment turns it on.
+app_env|:letflow:timer_fire_lock_timeout_ms|engine|platform|runtime|plain|none|no|none|Milliseconds the timer waits for its fire lock.
+app_env|:letflow:voice|voice|module|runtime|plain|none|yes|none|Settings of the voice providers, their models, their addresses and their keys.
+app_env|:letflow:voice_url_validation_enabled|voice|platform|runtime|guard|true|no|Letflow.Webhooks.UrlValidator|Switch of the address validation of a voice provider call, on unless a test turns it off.
+app_env|:letflow:webhook_ssrf_validation_enabled|webhooks|platform|runtime|guard|true|no|Letflow.Webhooks.UrlValidator|Switch of the address validation of a webhook delivery, on unless a test turns it off.
+app_env|:logger:default_handler|operations|platform|runtime|plain|none|no|none|Level the default logger handler writes at.
