@@ -87,8 +87,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   belong to is DERIVED from that schema
   (`Letflow.TenantProvisioning.tenant_id_for_schema_name/1`), never accepted
   from the caller (decision 0003's addendum). The derivation is pure, so a
-  prefix that names no tenant schema is refused `:invalid_schema_name`
-  before any I/O.
+  MALFORMED prefix is refused `:invalid_schema_name` before any I/O; a
+  WELL-FORMED prefix that names no live tenant schema is refused the same
+  way, before the row is written.
 
   ## The binding of a row to its node
 
@@ -96,6 +97,17 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   dispatcher re-derives the node's declared call from the STORED graph and
   refuses a row whose function or arguments the node does not declare. The
   authority fence proves WHO may run the call; this proves WHAT the call is.
+
+  ## The failure kind of a row
+
+  `last_failure_kind` is a STABLE CODE, never a customer text: the row is
+  read by the step log (gap G6) and must not carry anything a tenant typed
+  (INV-4). A reason that is an ATOM names a code of this module's own
+  vocabulary; a reason that is a BINARY is caller-supplied text and is
+  reduced to a code of the closed vocabulary, and to the generic code
+  `platform_step_failed` when it is none of them. Nothing is ever inspected:
+  an inspected reason would carry the customer's text into the row, and it
+  can be longer than the column that holds it.
 
   ## The attempt cap
 
@@ -134,6 +146,60 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # any per-character work on them (SF-01): over the cap is a typed refusal,
   # never a write that fails in the database.
   @max_input_bytes 4096
+
+  # The byte cap of the NODE ID. The node id is a caller-supplied string that
+  # goes into a `varchar(255)` column, and it is NOT one of the entry's
+  # declared inputs -- so the input cap does not cover it. The cap is in
+  # BYTES: the column counts characters, so a byte cap is the stricter of the
+  # two and can never overflow the column.
+  @max_node_id_bytes 255
+
+  # The byte cap of the failure kind in the row (`last_failure_kind` is a
+  # `varchar(255)`): a code longer than that is the generic code.
+  @max_failure_kind_bytes 255
+
+  # The CLOSED vocabulary of the codes the row may carry in
+  # `last_failure_kind`. A BINARY reason is caller-supplied text, so it is
+  # reduced to a code of this vocabulary -- and to the generic code when it is
+  # none of them. The vocabulary is closed on purpose: the row is read by the
+  # step log (gap G6), and a code nobody can enumerate is a code nobody can
+  # act on.
+  @failure_codes MapSet.new(~w(
+    conflicting_platform_call_routes
+    idempotency_key_reuse
+    invalid_schema_name
+    platform_call_arg_invalid
+    platform_call_arg_mismatch
+    platform_call_arg_missing
+    platform_call_arg_unknown
+    platform_call_definition_missing
+    platform_call_foreign_source_refused
+    platform_call_function_mismatch
+    platform_call_function_unknown
+    platform_call_invalid_display_name
+    platform_call_invalid_email
+    platform_call_invalid_slug
+    platform_call_needs_reactivation
+    platform_call_node_missing
+    platform_call_node_not_declared
+    platform_call_permission_required
+    platform_call_signature_invalid
+    platform_call_tenant_not_allowed
+    platform_function_not_implemented
+    platform_function_unknown
+    platform_step_arm_failed
+    platform_step_bad_result
+    platform_step_claim_failed
+    platform_step_in_flight
+    platform_step_lease_lost
+    platform_step_max_attempts
+    platform_step_not_found
+    platform_step_outcome_failed
+    platform_step_raised
+  ))
+
+  # The code a reason that names no code of the vocabulary is reduced to.
+  @generic_failure_kind "platform_step_failed"
 
   # The options `arm/1` accepts. An option outside this list is REFUSED, not
   # ignored: a caller must not believe that an option the dispatcher does not
@@ -301,8 +367,11 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       belongs to is DERIVED from it, never taken from the caller: the row
       physically sits in this tenant's schema and must claim to be that
       tenant's (decision 0003's addendum). A prefix that names no tenant
-      schema is refused `:invalid_schema_name` before any I/O;
-    * `:instance_id`, `:definition_id`, `:node_id` -- where the step sits;
+      schema -- malformed, or well-formed but absent -- is refused
+      `:invalid_schema_name` before the row is written;
+    * `:instance_id`, `:definition_id`, `:node_id` -- where the step sits.
+      The node id is a caller-supplied string, so it is byte-bounded like
+      the declared inputs (255 bytes);
     * `:function` -- the catalogue entry's name;
     * `:inputs` -- the resolved arguments, keyed by the entry's declared
       input names.
@@ -320,7 +389,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   for a name the compiled catalogue does not know, `platform_function_not_implemented`
   for a name the catalogue declares but has no body yet, `invalid_schema_name`
   for a prefix that names no tenant schema, `platform_call_arg_invalid` for a
-  value over the input cap.
+  value over the input cap or a node id over its byte cap.
   """
   @spec arm(keyword()) :: {:ok, arm_result()} | {:error, term()}
   def arm(opts) when is_list(opts) do
@@ -342,7 +411,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     function = Keyword.get(opts, :function)
     inputs = Keyword.get(opts, :inputs) || %{}
 
-    with {:ok, tenant_id} <- derive_tenant_id(prefix),
+    with :ok <- check_node_id(node_id),
+         {:ok, tenant_id} <- derive_tenant_id(prefix),
+         :ok <- check_tenant_schema(prefix),
          {:ok, entry} <- fetch_entry(function),
          :ok <- check_inputs(entry, inputs),
          {:ok, _mfa} <- fetch_implementation(function) do
@@ -371,13 +442,40 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # (decision 0003's addendum: "the value written into a table's `tenant_id`
   # column is derived by the writing context module from the Postgres schema
   # (:prefix) it is already writing into for that call"). The derivation is
-  # PURE, so a prefix that names no tenant schema is refused before any I/O
-  # (INV-8: a caller mistake answers an error tuple, never a crash).
-  defp derive_tenant_id(prefix) when is_binary(prefix) do
+  # PURE, so a MALFORMED prefix is refused before any I/O (INV-8: a caller
+  # mistake answers an error tuple, never a crash).
+  defp derive_tenant_id(prefix) do
     TenantProvisioning.tenant_id_for_schema_name(prefix)
   end
 
-  defp derive_tenant_id(_prefix), do: {:error, :invalid_schema_name}
+  # The row is written INTO the prefix's schema, so a prefix that names no
+  # LIVE schema is a refusal and not a database error: the derivation above
+  # only parses the name, it cannot know whether the schema exists. The
+  # check is a read with a BOUND parameter (INV-7): no SQL text is built
+  # from the caller's value.
+  defp check_tenant_schema(prefix) when is_binary(prefix) do
+    case Repo.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [prefix]) do
+      {:ok, %{rows: [[1]]}} -> :ok
+      _absent_or_unreadable -> {:error, :invalid_schema_name}
+    end
+  end
+
+  defp check_tenant_schema(_prefix), do: {:error, :invalid_schema_name}
+
+  # The node id is a caller-supplied string that goes into a `varchar(255)`
+  # column, and it is not one of the entry's declared inputs -- so the input
+  # cap does not cover it. It gets its own byte cap, and a node id that is
+  # not a string at all is refused the same way. The refusal is typed
+  # (INV-8): the row is never written with a value that does not fit.
+  defp check_node_id(node_id) when is_binary(node_id) do
+    if byte_size(node_id) <= @max_node_id_bytes do
+      :ok
+    else
+      {:error, :platform_call_arg_invalid}
+    end
+  end
+
+  defp check_node_id(_node_id), do: {:error, :platform_call_arg_invalid}
 
   @doc """
   Claims the row, checks the authority of the call and runs the function.
@@ -651,6 +749,11 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       {:error, _changeset} ->
         {:error, :platform_step_arm_failed}
     end
+  rescue
+    # A failure of the database itself (a constraint the changeset does not
+    # know, a schema that lost its table between the check and the write) is
+    # a typed refusal and never an exception out of `arm/1` (INV-8).
+    _exception -> {:error, :platform_step_arm_failed}
   end
 
   defp handle_existing(prefix, existing, attrs) do
@@ -921,49 +1024,101 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   cannot overwrite the result of the attempt that owns the row now: its
   outcome is dropped and the answer is `{:error, :platform_step_lease_lost}`.
 
+  The outcome is BOUNDED before the write: outputs that JSON cannot carry
+  are refused with `{:error, :platform_step_bad_result}` and nothing is
+  written, and a failure of the database itself is
+  `{:error, :platform_step_outcome_failed}`. The function never raises
+  (INV-8).
+
   The function is public because the token it enforces is a property of the
   dispatcher a caller must be able to see: a result that was dropped is a
   result nobody can read.
   """
   @spec record_outcome(StepDispatch.t(), String.t(), {:ok, map()} | {:error, term()}) ::
-          :ok | {:error, :platform_step_lease_lost} | {:error, :platform_step_bad_result}
+          :ok
+          | {:error, :platform_step_lease_lost}
+          | {:error, :platform_step_bad_result}
+          | {:error, :platform_step_outcome_failed}
   def record_outcome(dispatch, prefix, outcome)
       when is_binary(prefix) and is_map(dispatch) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    updates =
-      case outcome do
-        {:ok, outputs} when is_map(outputs) ->
-          [set: [status: :advanced, outputs: outputs, dispatched_at: now]]
+    case outcome do
+      {:ok, outputs} when is_map(outputs) ->
+        with :ok <- encodable(outputs) do
+          write_outcome(dispatch, prefix,
+            set: [status: :advanced, outputs: outputs, dispatched_at: now]
+          )
+        end
 
-        {:error, reason} ->
-          [set: [status: :given_up, last_failure_kind: failure_kind(reason), dispatched_at: now]]
+      {:error, reason} ->
+        write_outcome(dispatch, prefix,
+          set: [
+            status: :given_up,
+            last_failure_kind: failure_kind(reason),
+            dispatched_at: now
+          ]
+        )
 
-        _other ->
-          # An outcome that is neither an output map nor a refusal is not a
-          # result at all: the dispatcher never raises (INV-8).
-          nil
-      end
-
-    case updates do
-      nil ->
+      _other ->
+        # An outcome that is neither an output map nor a refusal is not a
+        # result at all: the dispatcher never raises (INV-8).
         {:error, :platform_step_bad_result}
-
-      updates ->
-        {count, _returned} =
-          StepDispatch
-          |> where([d], d.id == ^dispatch.id and d.attempt_index == ^dispatch.attempt_index)
-          |> where([d], d.status == :running)
-          |> Repo.update_all(updates, prefix: prefix)
-
-        if count == 1, do: :ok, else: {:error, :platform_step_lease_lost}
     end
+  end
+
+  # The outputs go into a jsonb column, so they must be values JSON can
+  # carry. The check and the write share ONE encoder: `Jason.encode/1` is
+  # what the column's dumper calls, so a value it refuses is refused here
+  # too -- a typed error instead of an exception out of the write (INV-8).
+  defp encodable(outputs) do
+    case Jason.encode(outputs) do
+      {:ok, _encoded} -> :ok
+      {:error, _reason} -> {:error, :platform_step_bad_result}
+    end
+  end
+
+  # The write of the outcome. It lands only while the row still carries THAT
+  # attempt's number and is still `running` (the CLAIM TOKEN). A failure of
+  # the database itself is a typed refusal and never an exception out of the
+  # public writer (INV-8).
+  defp write_outcome(dispatch, prefix, updates) do
+    {count, _returned} =
+      StepDispatch
+      |> where([d], d.id == ^dispatch.id and d.attempt_index == ^dispatch.attempt_index)
+      |> where([d], d.status == :running)
+      |> Repo.update_all(updates, prefix: prefix)
+
+    if count == 1, do: :ok, else: {:error, :platform_step_lease_lost}
+  rescue
+    _exception -> {:error, :platform_step_outcome_failed}
   end
 
   # The failure kind is a STABLE code, never a customer text: the row is read
   # by the step log (gap G6) and must not carry anything a tenant typed
-  # (INV-4). A reason that is not an atom is named by its inspection.
-  defp failure_kind(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp failure_kind(reason) when is_binary(reason), do: reason
-  defp failure_kind(reason), do: inspect(reason)
+  # (INV-4). A reason that is an ATOM names a code of this module's own
+  # vocabulary. A reason that is a BINARY is caller-supplied text: it is
+  # reduced to a code of the closed vocabulary, and to the generic code when
+  # it is none of them. A reason that is neither is the generic code too.
+  # Nothing is ever INSPECTED: an inspected reason would carry the
+  # customer's text into the row, and it can be longer than the column.
+  defp failure_kind(reason) when is_atom(reason) do
+    code = Atom.to_string(reason)
+
+    if byte_size(code) <= @max_failure_kind_bytes do
+      code
+    else
+      @generic_failure_kind
+    end
+  end
+
+  defp failure_kind(reason) when is_binary(reason) do
+    if MapSet.member?(@failure_codes, reason) do
+      reason
+    else
+      @generic_failure_kind
+    end
+  end
+
+  defp failure_kind(_reason), do: @generic_failure_kind
 end

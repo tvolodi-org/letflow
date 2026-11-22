@@ -78,7 +78,9 @@ does not run again), and the same key with DIFFERENT arguments is refused with
 The arming is INSERT-FIRST: the row is written with `ON CONFLICT (call_key) DO NOTHING`, so a
 double click, a retry or a poller restart can never raise on the unique index -- the row that
 carries the key is read back and the first result wins. A prefix that names no tenant schema is
-refused with `invalid_schema_name` before any I/O.
+refused with `invalid_schema_name`: a MALFORMED name before any I/O (the derivation is pure), a
+WELL-FORMED name that names no live schema before the row is written (the dispatcher asks
+Postgres, with a bound parameter, never with SQL text built from the caller's value).
 
 ## The lease and the claim token: the body runs once
 
@@ -100,13 +102,27 @@ overwrite the result of the attempt that owns the row now: its outcome is droppe
 ## The bounds of the arguments
 
 Every declared input is bounded BEFORE the dispatcher does anything with it: a value over 4096
-bytes is refused with `platform_call_arg_invalid` and nothing is written. The bodies bound their
+bytes is refused with `platform_call_arg_invalid` and nothing is written. The node id is bounded
+the same way (255 bytes): it is a caller-supplied string that goes into a `varchar(255)` column,
+and it is not one of the declared inputs, so it carries its own cap. The bodies bound their
 own values too, in bytes, before the trim, the length check and the regex walk them: the slug is
 at most 64 bytes, the display name at most 800 (four times its 200-character rule -- a safety
 bound, not a tighter rule) and the e-mail at most 254 (the RFC's limit is in octets).
 
 `arm/1` also refuses an option it does not read (`platform_call_arg_unknown`) instead of dropping
 it in silence: a caller must not believe that, say, `:tenant_id` is honoured.
+
+## The failure kind is a code, never a text
+
+`last_failure_kind` carries a STABLE CODE: the row is read by the step log (gap G6) and must not
+carry anything a tenant typed. A reason that is an atom names a code of the dispatcher's own
+vocabulary; a reason that is a BINARY is caller-supplied text and is reduced to a code of the
+closed vocabulary, and to the generic code `platform_step_failed` when it is none of them.
+Nothing is ever inspected -- an inspected reason would carry the customer's text into the row,
+and it can be longer than the column that holds it. The outcome is bounded before the write as
+well: outputs that JSON cannot carry are refused with `platform_step_bad_result` and nothing is
+written, and a failure of the database itself is `platform_step_outcome_failed`. The public
+writer never raises.
 
 ## The attempt cap
 
@@ -143,7 +159,10 @@ has exactly one definition per key.
   is not re-claimed, two dispatchers of one row run the body once, an id that is not an id
   answers the uniform refusal, a value over the byte cap is refused before anything is written,
   an option the dispatcher does not read is refused, and a stale attempt cannot overwrite the
-  result of the attempt that owns the row.
+  result of the attempt that owns the row. It ends with the bounds of the write side: a node id
+  over the byte cap is refused before anything is written, a well-formed prefix that names no
+  live schema is refused as such, the failure kind is a stable code and never a customer text,
+  and an outcome the row cannot carry is refused and leaves the row unchanged.
 * `test/letflow/platform_functions/platform_call_idempotent_replay_test.exs` -- S8: the replay of a
   call (one call, one result, one row) and the key reuse.
 * `test/letflow/definitions/platform_call_activator_signature_test.exs` -- S9: the signature and

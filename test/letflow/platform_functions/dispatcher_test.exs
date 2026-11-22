@@ -25,7 +25,12 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
       body once, an id that is not an id answers the uniform refusal, a value
       over the byte cap is refused before anything is written, an option the
       dispatcher does not read is refused, and a stale attempt cannot
-      overwrite the result of the attempt that owns the row.
+      overwrite the result of the attempt that owns the row;
+    * the bounds of the WRITE SIDE: a node id over its byte cap is refused
+      before anything is written, a well-formed prefix that names no live
+      tenant schema is refused as such (the derivation alone cannot see it),
+      the failure kind is a stable code and never a customer text, and an
+      outcome the row cannot carry is refused and leaves the row unchanged.
 
   `async: false`: the platform tenant pin is application configuration, which
   is VM-global.
@@ -269,10 +274,19 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     assert stored.outputs == nil
   end
 
-  test "D8: a prefix that names no tenant schema is refused before any I/O", ctx do
+  test "D8: a prefix that names no tenant schema is refused before the row is written", ctx do
     definition = activated(ctx)
 
-    for bad_prefix <- ["public", nil, "tenant_not-a-uuid", "tenant_ZZZ"] do
+    for bad_prefix <- [
+          "public",
+          nil,
+          "tenant_not-a-uuid",
+          "tenant_ZZZ",
+          # WELL-FORMED but absent: the derivation alone cannot see that no
+          # such schema exists, so the dispatcher asks Postgres before it
+          # writes a row into it.
+          "tenant_0123456789abcdef0123456789abcdef"
+        ] do
       assert {:error, :invalid_schema_name} =
                Dispatcher.arm(
                  prefix: bad_prefix,
@@ -579,6 +593,145 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
     assert stored.status == :advanced
     assert stored.outputs == %{"normalized_slug" => "acme"}
+  end
+
+  test "D19: a node id over the byte cap is refused before anything is written", ctx do
+    definition = activated(ctx)
+
+    # The node id is a caller-supplied string that goes into a `varchar(255)`
+    # column, and it is NOT one of the entry's declared inputs -- so the input
+    # cap does not cover it. It gets its own byte cap. The second case is
+    # MULTIBYTE (128 characters, 256 bytes): the cap is in BYTES, so it
+    # refuses earlier than a character count would.
+    multibyte = String.duplicate("ы", 128)
+    assert byte_size(multibyte) == 256
+
+    for bad_node_id <- [String.duplicate("n", 256), multibyte] do
+      assert {:error, :platform_call_arg_invalid} =
+               Dispatcher.arm(
+                 prefix: ctx.tenant.schema_name,
+                 instance_id: Ecto.UUID.generate(),
+                 definition_id: definition.id,
+                 node_id: bad_node_id,
+                 function: @function,
+                 inputs: inputs(%{})
+               )
+    end
+
+    # A node id that is not a string at all is refused the same way.
+    assert {:error, :platform_call_arg_invalid} =
+             Dispatcher.arm(
+               prefix: ctx.tenant.schema_name,
+               instance_id: Ecto.UUID.generate(),
+               definition_id: definition.id,
+               node_id: :not_a_node_id,
+               function: @function,
+               inputs: inputs(%{})
+             )
+
+    assert rows(ctx) == []
+  end
+
+  test "D20: the failure kind is a stable code, never a customer text", ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    running = claim_for_outcome(dispatch, ctx)
+
+    # A reason that carries what a tenant typed must not reach the row.
+    customer_text = "tenant acme already exists (admin@acme.test)"
+
+    assert :ok =
+             Dispatcher.record_outcome(running, ctx.tenant.schema_name, {:error, customer_text})
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :given_up
+    assert stored.last_failure_kind == "platform_step_failed"
+
+    # The failure text reaches no column of the row (the row's `inputs` are
+    # the CALL's own arguments and stay readable -- it is the failure text
+    # that must not be there).
+    refute stored.last_failure_kind =~ "acme"
+    refute stored.last_failure_kind =~ "admin@"
+    refute inspect(stored) =~ "already exists"
+
+    # A reason that is longer than the column that would hold it is reduced
+    # to the same code -- it never overflows the column and never raises.
+    assert {:ok, %{status: :armed, dispatch: long}} =
+             arm(ctx, definition, %{"slug" => "long-reason"})
+
+    long_running = claim_for_outcome(long, ctx)
+
+    assert :ok =
+             Dispatcher.record_outcome(
+               long_running,
+               ctx.tenant.schema_name,
+               {:error, String.duplicate("customer text ", 40)}
+             )
+
+    stored = Repo.get!(StepDispatch, long.id, prefix: ctx.tenant.schema_name)
+    assert stored.last_failure_kind == "platform_step_failed"
+
+    # A reason that is not a code at all is reduced to the same generic code.
+    assert {:ok, %{status: :armed, dispatch: other}} =
+             arm(ctx, definition, %{"slug" => "another-co"})
+
+    other_running = claim_for_outcome(other, ctx)
+
+    assert :ok =
+             Dispatcher.record_outcome(
+               other_running,
+               ctx.tenant.schema_name,
+               {:error, {:not, :a_code}}
+             )
+
+    stored = Repo.get!(StepDispatch, other.id, prefix: ctx.tenant.schema_name)
+    assert stored.last_failure_kind == "platform_step_failed"
+  end
+
+  test "D21: an outcome the row cannot carry is refused, and the row is unchanged", ctx do
+    definition = activated(ctx)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm(ctx, definition)
+
+    running = claim_for_outcome(dispatch, ctx)
+
+    # A tuple is a value the jsonb column's encoder cannot carry: the outcome
+    # is refused with a typed error and NOTHING is written (INV-8: the public
+    # writer never raises).
+    assert {:error, :platform_step_bad_result} =
+             Dispatcher.record_outcome(running, ctx.tenant.schema_name, {:ok, %{"x" => {1, 2}}})
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :running
+    assert stored.outputs == nil
+    assert stored.last_failure_kind == nil
+    assert stored.dispatched_at == nil
+
+    # An outcome that is neither an output map nor a refusal is refused the
+    # same way.
+    assert {:error, :platform_step_bad_result} =
+             Dispatcher.record_outcome(running, ctx.tenant.schema_name, :not_an_outcome)
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :running
+    assert stored.outputs == nil
+  end
+
+  # The state a claim leaves the row in while the body runs: `running`, the
+  # attempt that holds it, and the lease still in the future. The result of
+  # that attempt may then be written (the CLAIM TOKEN).
+  defp claim_for_outcome(dispatch, ctx) do
+    dispatch
+    |> StepDispatch.claim_changeset(%{
+      status: :running,
+      attempt_index: 1,
+      next_attempt_at: DateTime.add(DateTime.utc_now(), Dispatcher.lease_ms(), :millisecond)
+    })
+    |> Repo.update(prefix: ctx.tenant.schema_name)
+
+    Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
   end
 
   # ── the AST helpers of D6 ──────────────────────────────────────────────────────────────
