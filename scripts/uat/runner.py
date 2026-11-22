@@ -639,6 +639,9 @@ class Runner:
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
+        # What a cleanup replay cannot judge (G-08): a missing baseline is a failing residue row, never a
+        # skipped check.
+        self.baseline_problems = []
         self.cleanup_mode = cleanup_mode  # a chain's "cleanup": when the cleanups of its processes run
         self.overrides = {pid: dict(over, actors=normalize_actors(over.get("actors") or {}, f"chain entry {pid} actors"))
                           for pid, over in (overrides or {}).items()}
@@ -889,20 +892,24 @@ class Runner:
         self.write_line(record)
         return verdict != "error" and verdict != "fail"
 
-    def preflight(self, check_stable=True):
+    def preflight(self, check_stable=True, subject="the run"):
         """-> (ok, sha at start). The run starts only when this passes: a sha, the expected build, a stable
-        build, a reachable tenant and a token for every actor. Every tenant the run touches is checked."""
+        build, a reachable tenant and a token for every actor. Every tenant the run touches is checked.
+        The cleanup replay of a run dir makes the same checks (G-08): subject says who did not start."""
         started = time.monotonic()
         sha = health_sha(self.health_url)
         if not sha:
             self._pre_line("health", "error", started, method="GET", path="/health", sha=None,
-                           error="/health gave no build sha: the run did not start")
+                           error=f"/health gave no build sha: {subject} did not start")
             return False, None
         self._pre_line("health", "pass", started, method="GET", path="/health", sha=sha)
-        if self.build_sha and not sha_matches(sha, self.build_sha):
-            self._pre_line("build_sha", "fail", time.monotonic(), sha=sha,
-                           error=f"build is {sha}, expected {self.build_sha}: the run did not start")
-            return False, sha
+        if self.build_sha:
+            if not sha_matches(sha, self.build_sha):
+                self._pre_line("build_sha", "fail", time.monotonic(), sha=sha,
+                               error=f"build is {sha}, expected {self.build_sha}: {subject} did not start")
+                return False, sha
+            # The row is written whether the check passed or failed: a reader sees that the check was made.
+            self._pre_line("build_sha", "pass", time.monotonic(), sha=sha)
         stable = self._stable_check(sha) if check_stable else True
         if not stable:
             return False, sha
@@ -979,11 +986,6 @@ class Runner:
             return self._pre_line("stable", "fail", started,
                                   error=f"the build changed while waiting for it to be stable: {sha} -> {match.group(1)}")
         return self._pre_line("stable", "pass", started, sha=sha)
-
-    def _tokens(self):
-        """A token for every actor of the tenant of the run (the cleanup replay uses it)."""
-        groups = self.tenant_groups()
-        return self._group_tokens(groups[0], main=True)
 
     # -- steps --------------------------------------------------------------------------------
 
@@ -1913,11 +1915,12 @@ class Runner:
         """After the last cleanup: every document or open task that was not there before the run is residue, unless
         the document is in a final state (reversed, cancelled, rejected), and every throwaway platform tenant the
         run left active is residue. A run that watches the platform also fails when a watched definition is not on
-        its previous version or when an instance of the run is left open. One row for the run; it fails on residue."""
+        its previous version or when an instance of the run is left open. One row for the run; it fails on residue.
+        A baseline the replay cannot find is residue it cannot judge: the row fails (G-08)."""
         started = time.monotonic()
-        if not self.residue_before and not self.platform_before:
+        if not self.residue_before and not self.platform_before and not self.baseline_problems:
             return True  # an unreadable baseline already wrote its failing row (or the check is off)
-        found, failed, platform = [], [], []
+        found, failed, platform = [], list(self.baseline_problems), []
         watch = self._platform_residue_watch()
         for tenant, before in self.residue_before.items():
             try:
@@ -1961,6 +1964,63 @@ class Runner:
         parts += platform + failed
         return self._residue_line("fail", started, "; ".join(parts))
 
+    # -- the safety checks of a run and of its cleanup replay (G-08) ----------------------------
+
+    def _build_check(self, sha_start, sha_end) -> bool:
+        """The build must not move while the runner works: a step that ran against another build is no result of
+        this one. One row, whether it passed or failed, so a reader sees that the check was made."""
+        moved = sha_end != sha_start
+        row = {"phase": "preflight", "step": "build", "actor": "-", "verdict": "fail" if moved else "pass",
+               "sha": sha_end, "ms": 0}
+        if moved:
+            row["error"] = f"build moved: {sha_start} -> {sha_end}"
+        self.write_line(row)
+        return not moved
+
+    def _save_safety_expectations(self):
+        """What the cleanup replay of this run has to judge: the baselines it must find and the platform watch
+        it must keep. A replay without them cannot say whether the run was clean, so it fails closed."""
+        groups = self._residue_groups()
+        self._atomic_write("safety.json", json.dumps({
+            "residue_tenants": sorted({g["tenant"] for g in groups if g["plain"]}),
+            "platform_tenants": sorted(self.platform_before),
+            "watch": self._platform_residue_watch(),
+        }, indent=2, ensure_ascii=False))
+
+    def _replay_baseline_problems(self) -> list:
+        """What the replay of this run cannot judge: the run dir does not say what the run did, or a baseline the
+        run promised is gone. Every answer here is a failing residue row, never a skipped check."""
+        try:
+            state = json.loads((self.run_dir / "safety.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as err:
+            return [f"the run dir has no safety expectations ({err}): the replay cannot judge the run"]
+        if not isinstance(state, dict):
+            return ["the safety expectations of the run are not an object: the replay cannot judge the run"]
+        problems = []
+        for tenant in state.get("residue_tenants") or []:
+            if tenant not in self.residue_before:
+                problems.append(f"the residue baseline of tenant {tenant} is gone: the replay cannot judge the run")
+        for tenant in state.get("platform_tenants") or []:
+            if tenant not in self.platform_before:
+                problems.append(f"the platform baseline of tenant {tenant} is gone: the replay cannot judge the run")
+        promised = self._watch_names(state.get("watch") or {})
+        if promised:
+            if not self.platform_before:
+                problems.append("the run watched the platform tenant but no platform baseline is there: "
+                                "the replay cannot judge the run")
+            if promised != self._watch_names(self.platform_watch):
+                problems.append("the platform watch of the run is gone: the replay cannot judge the run")
+        return problems
+
+    @staticmethod
+    def _watch_names(watch) -> list:
+        """The names a platform watch holds, in the order of the watch."""
+        names = []
+        for key in ("definitions", "instances"):
+            for name in (watch or {}).get(key) or []:
+                names.append(f"{key}:{name}")
+        return names
+
     # -- the run ------------------------------------------------------------------------------
 
     def run(self, check_stable=True) -> int:
@@ -1977,6 +2037,7 @@ class Runner:
         stopped = False
         cleanup_ok = True
         residue_ok = self.record_residue_baseline()
+        self._save_safety_expectations()  # what a cleanup replay of this run has to judge (G-08)
         try:
             for fixture in self.fixtures:
                 if stopped:
@@ -2006,12 +2067,10 @@ class Runner:
         finally:
             cleanup_ok = self.cleanup_all(skip_cleaned=self.cleanup_mode == "per_process") and cleanup_ok
         self.process = {"id": self.label}
-        residue_ok = self.check_residue() and residue_ok
         sha_end = health_sha(self.health_url)
-        build_moved = sha_end != sha_start
-        if build_moved:
-            self.write_line({"phase": "preflight", "step": "build", "actor": "-", "verdict": "fail", "sha": sha_end,
-                             "ms": 0, "error": f"build moved: {sha_start} -> {sha_end}"})
+        build_ok = self._build_check(sha_start, sha_end)
+        build_moved = not build_ok
+        residue_ok = self.check_residue() and residue_ok
         steps_ok = all(v is True for v in results.values())
         if self.file_issues:
             self._file_issues()
@@ -2022,7 +2081,12 @@ class Runner:
         return 0 if ok else 1
 
     def replay_cleanup(self) -> int:
-        """Run the cleanup list of an aborted run again (cleanup.json of the run directory)."""
+        """Run the cleanup list of an aborted run again (cleanup.json of the run directory).
+
+        The replay judges the run it cleans up, so it makes the same safety checks as the run itself (G-08):
+        the preflight of every tenant the run touched, the build that must not move while the replay works and
+        the residue check. A baseline the run promised and that is gone is a failing residue row, never a
+        skipped check."""
         try:
             entries = json.loads((self.run_dir / "cleanup.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as err:
@@ -2043,23 +2107,24 @@ class Runner:
         # The run this replay cleans up watched the platform tenant and started instances: the replay judges
         # that run, so it reads the watch of the run from the run dir.
         self._restore_platform_watch()
+        # What the run promised the replay (G-08): without it the replay cannot judge the run.
+        self.baseline_problems = self._replay_baseline_problems()
         started_at = now_utc()
         self.label = f"cleanup of {self.run_dir.name}"
         self.process = {"id": "cleanup"}
         self.processes = [{"id": e["process"], "steps": [], "cleanup": e["cleanup"]} for e in self.entries]
-        started = time.monotonic()
-        sha = health_sha(self.health_url)
-        if not sha:
-            self._pre_line("health", "error", started, error="/health gave no build sha: nothing was cleaned up")
-            return 1
-        self._pre_line("health", "pass", started, sha=sha)
-        if not self._tokens():
+        pre_ok, sha = self.preflight(check_stable=False, subject="the replay")
+        if not pre_ok:
+            self._summary(started_at, sha, sha, False, True, False, name="summary-cleanup.md", residue_ok=False)
+            print(f"cleanup of {self.run_dir}: FAIL (preflight; run dir {self.run_dir})", file=self.out, flush=True)
             return 1
         ok = self.cleanup_all()
+        sha_end = health_sha(self.health_url)
+        build_ok = self._build_check(sha, sha_end)
         residue_ok = self.check_residue()
         left = [e["process"] for e in self.entries if not e["done"]]
-        self._summary(started_at, sha, sha, True, ok, False, name="summary-cleanup.md", residue_ok=residue_ok)
-        ok = ok and residue_ok
+        self._summary(started_at, sha, sha_end, True, ok, not build_ok, name="summary-cleanup.md", residue_ok=residue_ok)
+        ok = ok and residue_ok and build_ok
         print(f"cleanup of {self.run_dir}: {'PASS' if ok else 'FAIL'}" + (f" (not done: {', '.join(left)})" if left else ""),
               file=self.out, flush=True)
         return 0 if ok else 1
