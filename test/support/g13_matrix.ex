@@ -28,6 +28,11 @@ defmodule Letflow.Support.G13Matrix do
       (anything but the parser's own exceptions, which the pipeline answers
       itself).
     * `:echoed_request` -- the answer carries something from the request.
+    * `:wrong_refusal` -- the refusal is not the one the shape demands: the
+      exception kind or the status it carries is not the one the shape's own
+      `refusal:` pins (the CAPS dimension -- a body over the cap must be
+      answered 413, not 400; a media type no parser claims must be answered
+      415, not 400).
 
   The parser exceptions the pipeline owns are the ones `Plug.Parsers` raises:
   `Plug.Parsers.ParseError`, `Plug.Parsers.BadEncodingError`,
@@ -47,6 +52,21 @@ defmodule Letflow.Support.G13Matrix do
     Plug.Parsers.UnsupportedMediaTypeError,
     Plug.Parsers.RequestTooLargeError
   ]
+
+  # What each refusing shape demands: the exception kinds it may be refused
+  # with and the status that refusal must carry. The statuses are the ones the
+  # exceptions themselves carry (`Plug.Exception.status/1`), so the pipeline
+  # answers a refusal with the status the parser gave it.
+  #
+  # This table is what makes the CAPS dimension of the class enforceable: a
+  # body over the cap must be refused with `RequestTooLargeError` (413). Raise
+  # the pipeline's cap and the same body is refused with a parse error (400)
+  # -- the wrong refusal, and the probe says so.
+  @refusal_expectations %{
+    parse: {400, [Plug.Parsers.ParseError, Plug.Parsers.BadEncodingError]},
+    unsupported_media_type: {415, [Plug.Parsers.UnsupportedMediaTypeError]},
+    too_large: {413, [Plug.Parsers.RequestTooLargeError]}
+  }
 
   @doc """
   Every mutating route of the mounted tree, derived from the compiled route
@@ -225,6 +245,7 @@ defmodule Letflow.Support.G13Matrix do
     |> no_answer(outcome)
     |> server_error(outcome)
     |> unexpected_error(outcome)
+    |> wrong_refusal(outcome)
     |> echoed_request(outcome)
   end
 
@@ -239,6 +260,19 @@ defmodule Letflow.Support.G13Matrix do
   @doc "The status the parser's own exception carries (`Plug.Exception.status/1`)."
   @spec refusal_status(Exception.t()) :: integer()
   def refusal_status(exception), do: Plug.Exception.status(exception)
+
+  @doc """
+  What a shape's refusal must be: the status it must answer and the exception
+  kinds it may be refused with. `nil` for a shape that expects no refusal
+  (a body the parser accepts, or one whose refusal is the route's own
+  business).
+  """
+  @spec expected_refusal(map()) :: {integer(), [module()]} | nil
+  def expected_refusal(shape) when is_map(shape) do
+    Map.get(@refusal_expectations, Map.get(shape, :refusal))
+  end
+
+  def expected_refusal(_other), do: nil
 
   @doc "The typed problem document of a response, or `:not_a_problem_document`."
   @spec problem_document({integer(), list(), binary()}) :: {integer(), map()} | atom()
@@ -294,6 +328,37 @@ defmodule Letflow.Support.G13Matrix do
   defp unexpected_error(acc, %{raised: raised}) do
     if parser_exception?(raised), do: acc, else: [:unexpected_error | acc]
   end
+
+  # A refusal must be the refusal the shape demands: the exception kind it may
+  # be refused with and the status that refusal carries. A body over the cap
+  # refused with a parse error (400) instead of `RequestTooLargeError` (413) is
+  # the WRONG refusal -- a typed 4xx, but not the one the shape asked for.
+  defp wrong_refusal(acc, %{raised: raised} = outcome) when is_exception(raised) do
+    shape = Map.get(outcome, :shape)
+    status = answer_status(outcome)
+
+    if parser_exception?(raised) and is_map(shape) and is_integer(status) do
+      case expected_refusal(shape) do
+        {expected_status, expected_exceptions} ->
+          if raised.__struct__ in expected_exceptions and status == expected_status do
+            acc
+          else
+            [:wrong_refusal | acc]
+          end
+
+        nil ->
+          acc
+      end
+    else
+      acc
+    end
+  end
+
+  defp wrong_refusal(acc, _outcome), do: acc
+
+  # The status of the answer, or nil when the cell produced no answer.
+  defp answer_status(%{response: {status, _headers, _body}}) when is_integer(status), do: status
+  defp answer_status(_outcome), do: nil
 
   defp echoed_request(acc, %{response: {_status, _headers, body}} = outcome)
        when is_binary(body) do

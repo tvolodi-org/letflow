@@ -36,6 +36,7 @@ defmodule Letflow.SecurityProbe.G13MalformedInputMatrixTest do
 
   alias Letflow.Plugs.ApiPipeline
   alias Letflow.Support.G13Matrix
+  alias Letflow.Support.G13RogueEchoRouter
   alias Letflow.Support.G13RogueRouter
 
   # The shapes the parser itself refuses: the refusal must be a typed 4xx.
@@ -107,10 +108,24 @@ defmodule Letflow.SecurityProbe.G13MalformedInputMatrixTest do
              "no route refused a malformed body at all -- the matrix proved nothing"
 
       for outcome <- refused do
+        {expected_status, expected_exceptions} = expected_refusal!(outcome.shape)
+
+        assert outcome.raised.__struct__ in expected_exceptions,
+               """
+               #{outcome.shape.name} was refused with #{inspect(outcome.raised.__struct__)},
+               expected one of #{inspect(expected_exceptions)}
+               """
+
         assert outcome.response != nil,
                "#{outcome.route.method} #{outcome.route.path} refused a body without answering"
 
         {status, document} = G13Matrix.problem_document(outcome.response)
+
+        # The status the shape DEMANDS (the caps dimension: an over-cap body
+        # must be answered 413, an unsupported media type 415) -- not merely
+        # the status the exception happens to carry.
+        assert status == expected_status,
+               "#{outcome.shape.name} answered #{status}, expected #{expected_status}"
 
         assert status == G13Matrix.refusal_status(outcome.raised)
         assert document["status"] == status
@@ -173,6 +188,71 @@ defmodule Letflow.SecurityProbe.G13MalformedInputMatrixTest do
         G13Matrix.violations(%{raised: %RuntimeError{}, response: {400, [], "Bad Request"}})
 
       assert :unexpected_error in violation
+
+      # The refusal must be the one the shape demands: a body over the cap
+      # refused with a parse error (400) is the WRONG refusal, even though it
+      # is a typed 4xx.
+      violation =
+        G13Matrix.violations(%{
+          raised: %Plug.Parsers.ParseError{},
+          response: {400, [], "Bad Request"},
+          shape: %{refusal: :too_large, canary: nil}
+        })
+
+      assert :wrong_refusal in violation
+    end
+
+    test "the echo rule spots an answer that carries the request back" do
+      # The real tree never echoes, so an absence-only assertion over it holds
+      # even when the rule is dead. The seeded echo router is driven through
+      # the SAME aggregate entry point (`run/3`) and the SAME verdict, and the
+      # rule MUST fire on it.
+      routes = [hd(G13Matrix.mutating_routes())]
+      shapes = Enum.filter(G13Matrix.shapes(), & &1.canary)
+
+      assert shapes != [], "no shape carries a canary -- the echo rule cannot be probed"
+
+      outcomes = G13Matrix.run(routes, shapes, G13Matrix.driver(G13RogueEchoRouter))
+
+      assert outcomes != []
+
+      for outcome <- outcomes do
+        assert :echoed_request in outcome.violations,
+               """
+               the echo was NOT spotted on shape #{outcome.shape.name}:
+               #{inspect(outcome.violations)}
+               """
+      end
+    end
+
+    test "the echo rule fires on a synthetic answer that carries the canary" do
+      # The same rule, driven through the same aggregate entry point with a
+      # driver whose answer carries the shape's own canary.
+      echoing = fn _route, shape ->
+        %{raised: nil, response: {400, [], "echo: " <> shape.canary}}
+      end
+
+      shape = Enum.find(G13Matrix.shapes(), &(&1.name == "malformed_json"))
+
+      assert [outcome] =
+               G13Matrix.run([hd(G13Matrix.mutating_routes())], [shape], echoing)
+
+      assert :echoed_request in outcome.violations,
+             """
+             the echo was NOT spotted: #{inspect(outcome.violations)}
+             """
+    end
+  end
+
+  # The refusal a shape demands. A shape that expects no refusal must not have
+  # been refused at all, so a refusal there is a defect of the shape list.
+  defp expected_refusal!(shape) do
+    case G13Matrix.expected_refusal(shape) do
+      {status, exceptions} ->
+        {status, exceptions}
+
+      nil ->
+        flunk("#{shape.name} expects no refusal, so it must not raise a parser exception")
     end
   end
 end
