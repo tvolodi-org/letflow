@@ -12,13 +12,15 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   unapproved or computed `module_start` option in every syntactic form the detector sees: the
   `Keyword` and `Map` verbs, `List.keystore/4` and a literal keyword pair, through a renamed module,
   a file-scope alias, an `Elixir.`-prefixed alias or an imported function as well, and through
-  `apply/3` when the module resolves to `Keyword`, `Map` or `List`. S3 asserts that
-  every Engine start entry reaches a module-start gate (the root gate for a root instance, the child
-  gate for a SUB_PROCESS child). The N-tests are seeded failing variants: removing a real
-  Repo.update, adding an unclassified writer/start, hiding the start option behind Keyword.put or a
-  computed value, hiding it behind a file-scope alias or an import, hiding a Multi write behind an
-  `Elixir.`-prefixed alias, hiding the start option behind `apply/3`, hiding a definition writer
-  behind `Repo.upsert`, and dropping a start gate all produce drift.
+  `apply/3` when the module resolves to `Keyword`, `Map` or `List`. S3 judges each Engine start
+  entry by the gate of the kind of start it performs: an entry that can start a root instance must
+  reach `Letflow.Engine.gate_module_only_start/2`, an entry that reaches the SUB_PROCESS child
+  activation must reach `Letflow.Engine.SubProcess.refuse_module_only_child/4`; the two gates are
+  judged separately, so neither stands in for the other. The N-tests are seeded failing variants:
+  removing a real Repo.update, adding an unclassified writer/start, hiding the start option behind
+  Keyword.put or a computed value, hiding it behind a file-scope alias or an import, hiding a Multi
+  write behind an `Elixir.`-prefixed alias, hiding the start option behind `apply/3`, hiding a
+  definition writer behind `Repo.upsert`, and dropping a start gate all produce drift.
   """
 
   use ExUnit.Case, async: true
@@ -192,6 +194,23 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
 
     assert roots != []
     assert G02.unguarded_start_roots(scan) == []
+
+    # The rule is per kind, so each gate is pinned on its own: the root instance start reaches the
+    # root gate, and the child activation reaches the child gate. N13 removes each call site from a
+    # copy of the real tree and shows the rule reporting it.
+    assert G02.reaches_call?(
+             scan,
+             {"Letflow.Engine", :create, 2},
+             "Letflow.Engine",
+             :gate_module_only_start
+           )
+
+    assert G02.reaches_call?(
+             scan,
+             {"Letflow.Engine", :create, 2},
+             "Letflow.Engine.SubProcess",
+             :refuse_module_only_child
+           )
   end
 
   test "N1 non-vacuity: deleting one real Repo.update makes the inventory probe fail", %{
@@ -699,6 +718,64 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     assert G02.definition_drift(synthetic, entries) == []
   end
 
+  test "N13 non-vacuity: removing a module-start gate from the real tree is reported" do
+    scan = G02.scan()
+
+    engine_source = File.read!("lib/letflow/engine.ex")
+
+    without_root_gate =
+      engine_source
+      |> String.split("\n")
+      |> Enum.reject(&String.contains?(&1, "|> gate_module_only_start("))
+      |> Enum.join("\n")
+
+    assert without_root_gate != engine_source,
+           "the root module-start gate call site was not found in lib/letflow/engine.ex"
+
+    root_drift =
+      scan
+      |> replace_module("lib/letflow/engine.ex", without_root_gate)
+      |> G02.unguarded_start_roots()
+
+    assert Enum.any?(root_drift, fn
+             {:missing_guard, "Letflow.Engine", :gate_module_only_start,
+              {"Letflow.Engine", :create, 2}} ->
+               true
+
+             _other ->
+               false
+           end),
+           "the removal of the root module-start gate was not reported: #{inspect(root_drift)}"
+
+    sub_process_source = File.read!("lib/letflow/engine/sub_process.ex")
+
+    without_child_gate =
+      sub_process_source
+      |> String.split("\n")
+      |> Enum.reject(&String.contains?(&1, "<- refuse_module_only_child("))
+      |> Enum.join("\n")
+
+    assert without_child_gate != sub_process_source,
+           "the child module-start gate call site was not found in lib/letflow/engine/sub_process.ex"
+
+    child_drift =
+      scan
+      |> replace_module("lib/letflow/engine/sub_process.ex", without_child_gate)
+      |> G02.unguarded_start_roots()
+
+    assert Enum.any?(child_drift, fn
+             {:missing_guard, "Letflow.Engine.SubProcess", :refuse_module_only_child, _entry} ->
+               true
+
+             _other ->
+               false
+           end),
+           "the removal of the child module-start gate was not reported: #{inspect(child_drift)}"
+
+    # The compliant control: the real tree reaches both gates.
+    assert G02.unguarded_start_roots(scan) == []
+  end
+
   test "T1: the class table lists every probe case with its test file and name" do
     doc = File.read!("docs/security-probes/G-02.md")
     source = File.read!(__ENV__.file)
@@ -722,5 +799,17 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
       assert File.exists?(file), "the class table names a missing test file #{file}"
       assert File.read!(file) =~ name, "the class table names a missing test #{name} in #{file}"
     end
+  end
+
+  # A copy of the real tree with one module replaced by a mutated source. The scan keeps every
+  # other module of the real tree, so the call graph is the real one; the token is fresh, so the
+  # node-call cache of the original scan cannot serve the mutated module.
+  defp replace_module(scan, path, source) do
+    mutated = G02.scan_source(path, source)
+
+    {name, data} =
+      Enum.find(mutated.modules, fn {_name, data} -> data.path == path end)
+
+    %{scan | modules: Map.put(scan.modules, name, data), token: make_ref()}
   end
 end

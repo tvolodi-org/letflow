@@ -19,6 +19,12 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   through `apply/3`, `Kernel.apply/3` and `:erlang.apply/3` when the module resolves to `Keyword`,
   `Map` or `List`. A `module_start` merged from a computed keyword list is not resolvable without
   executing code and is stated as a limit in the class table.
+
+  The start-path rule judges each Engine start entry by the gate of the kind of start it performs:
+  an entry that can start a root instance must reach `Letflow.Engine.gate_module_only_start/2`, an
+  entry that reaches the SUB_PROCESS child activation must reach
+  `Letflow.Engine.SubProcess.refuse_module_only_child/4`. The two gates are judged separately, so
+  neither can stand in for the other.
   """
 
   @repo_mutations ~w(insert insert! insert_all update update! update_all upsert delete delete! delete_all)a
@@ -216,7 +222,14 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     end)
   end
 
-  @doc "Public Engine roots that start a root instance or reach a SUB_PROCESS child activation."
+  @doc """
+  Public Engine roots that start a root instance or reach a SUB_PROCESS child activation.
+
+  A root instance is started by `Letflow.Engine.create/2`, so an Engine entry that reaches it
+  can start a root instance too. A SUB_PROCESS child is activated by
+  `Letflow.Engine.SubProcess.prepare_child_activation/4` and by
+  `Letflow.Engine.SubProcess.append_start_multi/7`.
+  """
   def start_roots(scan) do
     direct =
       if get_in(scan.modules, ["Letflow.Engine", :functions, {:create, 2}]),
@@ -235,7 +248,8 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
                   entry,
                   "Letflow.Engine.SubProcess",
                   :prepare_child_activation
-                ),
+                ) or
+                reaches_call?(scan, entry, "Letflow.Engine", :create),
               do: entry
 
         :error ->
@@ -246,20 +260,52 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   end
 
   @doc """
-  Engine start entries that reach neither module-start gate.
+  Engine start entries that do not pass the module-start gate of their kind.
 
-  A root instance passes `Letflow.Engine.gate_module_only_start/2`; a SUB_PROCESS child passes
-  `Letflow.Engine.SubProcess.refuse_module_only_child/4`. An entry that reaches neither one can
-  start an instance without the module-only refusal (the T-2444/T-2588 class).
+  A root instance is started by `Letflow.Engine.create/2`, whose definition lookup passes
+  `Letflow.Engine.gate_module_only_start/2`; an entry that can start a root instance must reach
+  that gate. A SUB_PROCESS child is activated by
+  `Letflow.Engine.SubProcess.prepare_child_activation/4` and
+  `Letflow.Engine.SubProcess.append_start_multi/7`; an entry that reaches that activation must
+  reach `Letflow.Engine.SubProcess.refuse_module_only_child/4`.
+
+  Each entry is judged by the gate of the kind of start it performs, so neither gate stands in
+  for the other: removing the root module-start gate (T-2444) and removing the child gate
+  (T-2588) are each reported on their own.
   """
   def unguarded_start_roots(scan) do
-    roots = start_roots(scan)
+    Enum.flat_map(start_roots(scan), fn entry ->
+      root_drift =
+        if root_instance_start?(scan, entry),
+          do: guard_drift(scan, [entry], "Letflow.Engine", :gate_module_only_start, :present),
+          else: []
 
-    root_uncovered = guard_drift(scan, roots, "Letflow.Engine", :gate_module_only_start, :present)
+      child_drift =
+        if child_start?(scan, entry),
+          do:
+            guard_drift(
+              scan,
+              [entry],
+              "Letflow.Engine.SubProcess",
+              :refuse_module_only_child,
+              :present
+            ),
+          else: []
 
-    Enum.filter(root_uncovered, fn {:missing_guard, _target, _fun, entry} ->
-      not reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :refuse_module_only_child)
+      root_drift ++ child_drift
     end)
+  end
+
+  # The root instance start itself, or an entry whose closure reaches it.
+  defp root_instance_start?(_scan, {"Letflow.Engine", :create, 2}), do: true
+
+  defp root_instance_start?(scan, entry),
+    do: reaches_call?(scan, entry, "Letflow.Engine", :create)
+
+  # An entry that reaches the SUB_PROCESS child activation.
+  defp child_start?(scan, entry) do
+    reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :append_start_multi) or
+      reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :prepare_child_activation)
   end
 
   @doc "Fail closed on guard absence/partial coverage; :absent also pins deliberate introduction."
