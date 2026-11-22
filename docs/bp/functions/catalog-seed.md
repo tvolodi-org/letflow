@@ -1,191 +1,210 @@
-# Function catalog seed
+# Function catalog seed (reviewable)
 
-Written by the business analyst (T-2675, owner decision D-192). Machine twin: `catalog-seed.json` (loader TREE-3, T-2669). A **function** is a business capability named by the BA; a **feature** is a group of functions; a function is used by one or more business processes (BP ids of `docs/bp/*.json`, many-to-many). System functions, scripts and rules only support a function and are evidence links, not rows here.
+Task T-2675, owner decision D-192. A **feature** is a group of business **functions**; a function is named for what it does and is linked to every business process that uses it (many-to-many). Cross-cutting features come first (F-01..F-14), then the domain features of each application (F-20..). System functions, scripts and rules only support a function; they appear as evidence.
 
-Applications: `platform` (includes the areas platform, tenant-admin, designer, master), `wms` (areas stock, procurement), `assets`, `exam`, `maintenance`, `mes`. Order of rows: stock set, assets, procurement, then platform set, then the rest.
+Machine file: `catalog-seed.json` (same rows). Evidence = the first task route, form or system function of the process that matches the function.
 
-UAT/seed status: names are a BA proposal for the owner's one-time review; a function is listed only where at least one process in the map exercises it. The owner example "document preview" is not a row: no process in the map names a preview of a document (only a notification template preview, inside the notification function), so it is left out rather than invented.
+## Measures
 
-## Features
+- functions: 69
+- shared_functions: 60
+- shared_percent: 87.0
+- max_sharing: 41
+- max_sharing_function: FN-010 Claim a task from the work list
+- process_specific: 6
+- processes_total: 224
+- processes_covered: 224
+- uncovered processes: 0
 
-| Feature | Title | Application | Area | Functions |
-|---|---|---|---|---|
-| F-01 | Stock posting document feature | wms | stock | 13 |
-| F-02 | Stock counting document feature | wms | stock | 4 |
-| F-03 | Stock reporting and Excel exchange feature | wms | stock | 2 |
-| F-04 | Old-app phone operations feature | wms | stock | 5 |
-| F-05 | Asset register document feature | assets | assets | 9 |
-| F-06 | Asset counting document feature | assets | assets | 2 |
-| F-07 | Asset reporting feature | assets | assets | 1 |
-| F-08 | Purchase request approval feature | wms | procurement | 5 |
-| F-09 | Master data maintenance feature | platform | master | 7 |
-| F-10 | Barcode, QR and label feature | platform | master | 1 |
-| F-11 | Company administration feature | platform | tenant-admin | 7 |
-| F-12 | Access control feature | platform | tenant-admin | 6 |
-| F-13 | Module and configuration management feature | platform | tenant-admin | 6 |
-| F-14 | Notification and message feature | platform | tenant-admin | 2 |
-| F-15 | Process definition design feature | platform | designer | 5 |
-| F-16 | Process execution and task work feature | platform | designer | 4 |
-| F-17 | Record management feature | platform | designer | 5 |
-| F-18 | Automation and integration feature | platform | designer | 5 |
-| F-19 | Document printing and retention feature | platform | designer | 3 |
-| F-20 | Tenant lifecycle feature | platform | platform | 7 |
-| F-21 | Platform operation feature | platform | platform | 4 |
-| F-22 | Problem report handling feature | platform | platform | 1 |
-| F-23 | Public access feature | platform | platform | 2 |
-| F-24 | Security assurance feature | platform | platform | 9 |
-| F-25 | Maintenance work request and order feature | maintenance | maintenance | 6 |
-| F-26 | Exam authoring and sitting feature | exam | exam | 6 |
-| F-27 | Manufacturing module shell feature | mes | mes | 1 |
+Not a row: *Send to printer* and *Send by e-mail* (document output): no process in the map has a task that does either, so none is invented (a function with no process is a FAIL).
 
-## Functions
+## F-01 Document output feature (print, preview, save, send) (platform)
 
-| Function | Title | Feature | Application | Processes (BP) |
-|---|---|---|---|---|
-| FN-001 | Record a goods receipt | F-01 | wms | STOCK-01 |
-| FN-002 | Record a goods issue | F-01 | wms | STOCK-02, STOCK-40, STOCK-41 |
-| FN-003 | Write off stock | F-01 | wms | STOCK-03 |
-| FN-004 | Transfer stock between places | F-01 | wms | STOCK-04 |
-| FN-005 | Hand stock over to another responsible person | F-01 | wms | STOCK-05 |
-| FN-006 | Return goods | F-01 | wms | STOCK-06 |
-| FN-007 | Enter opening balances | F-01 | wms | STOCK-07 |
-| FN-008 | Approve and post a stock document (four-eyes Post task) | F-01 | wms | STOCK-01, STOCK-02, STOCK-03, STOCK-04, STOCK-05, STOCK-06, STOCK-07, STOCK-26, STOCK-33, STOCK-35, STOCK-37, STOCK-38, TENANT-ADMIN-20, TENANT-ADMIN-21 |
-| FN-009 | Reverse a posted document or cancel an issued one | F-01 | wms | STOCK-12, STOCK-44 |
-| FN-010 | Find, correct and discard a draft stock document | F-01 | wms | STOCK-14 |
-| FN-011 | Draft a stock document from a voice or typed phrase | F-01 | wms | STOCK-17, STOCK-25 |
-| FN-012 | Control negative balances per ledger | F-01 | wms | STOCK-40, STOCK-41, TENANT-ADMIN-22 |
-| FN-013 | Move stock to an asset (change of kind, stock side) | F-01 | wms | ASSETS-07, STOCK-18 |
-| FN-014 | Quick count of one item at one place | F-02 | wms | STOCK-08, STOCK-39 |
-| FN-015 | Issue and close a stock count order | F-02 | wms | STOCK-09 |
-| FN-016 | Sign a count sheet, review differences and post the result | F-02 | wms | STOCK-10 |
-| FN-017 | Export count paperwork and official forms (Inv-10, Inv-18) | F-02 | wms | STOCK-11 |
-| FN-018 | Show balances, movements and the stock card | F-03 | wms | STOCK-15 |
-| FN-019 | Exchange balances through an Excel workbook (export, check, apply, cancel) | F-03 | wms | STOCK-13, STOCK-42 |
-| FN-020 | Sign in the old phone app with the shared access value | F-04 | wms | STOCK-16, STOCK-24, STOCK-28, STOCK-29, STOCK-30, STOCK-31, STOCK-36, TENANT-ADMIN-15, TENANT-ADMIN-39, TENANT-ADMIN-45 |
-| FN-021 | Post once per client id from the phone | F-04 | wms | STOCK-32 |
-| FN-022 | Count from the phone with four-eyes on or off | F-04 | wms | STOCK-33, STOCK-34, STOCK-35 |
-| FN-023 | Look up a scanned code and read stock from the phone | F-04 | wms | STOCK-16, STOCK-36 |
-| FN-024 | Start a new company on stock with fresh-tenant defaults | F-04 | wms | STOCK-27 |
-| FN-025 | Keep an asset card (register, correct, retire) | F-05 | assets | ASSETS-01 |
-| FN-026 | Keep card photos | F-05 | assets | ASSETS-02, ASSETS-16 |
-| FN-027 | Commission an asset into the register | F-05 | assets | ASSETS-03 |
-| FN-028 | Change the responsible person of an asset | F-05 | assets | ASSETS-04 |
-| FN-029 | Hand an asset over to another org unit | F-05 | assets | ASSETS-05 |
-| FN-030 | Write off an asset | F-05 | assets | ASSETS-06 |
-| FN-031 | Open the asset register from existing cards | F-05 | assets | ASSETS-08 |
-| FN-032 | Reverse an asset document | F-05 | assets | ASSETS-09 |
-| FN-033 | Find, correct and discard a draft asset document | F-05 | assets | ASSETS-10 |
-| FN-034 | Order, sheet, scan and close an asset count | F-06 | assets | ASSETS-11 |
-| FN-035 | Decide count results and sign an asset count | F-06 | assets | ASSETS-12 |
-| FN-036 | Report asset balances, movements and reconcile | F-07 | assets | ASSETS-13 |
-| FN-037 | Print the official asset card form (DA-2) | F-19 | platform | ASSETS-01 |
-| FN-038 | Raise and submit a purchase request | F-08 | wms | PROCUREMENT-01 |
-| FN-039 | Decide a purchase request (approve, reject, return) | F-08 | wms | PROCUREMENT-02 |
-| FN-040 | Record handler, supplier and order of an approved line | F-08 | wms | PROCUREMENT-03 |
-| FN-041 | Cancel a line and close a purchase request | F-08 | wms | PROCUREMENT-04 |
-| FN-042 | Attach and download purchase request files | F-08 | wms | PROCUREMENT-05 |
-| FN-043 | Identify the company from its address and sign in | F-11 | platform | TENANT-ADMIN-01, TENANT-ADMIN-42 |
-| FN-044 | Show my access, modules and first screen | F-11 | platform | TENANT-ADMIN-02 |
-| FN-045 | Maintain company users (create, import, deactivate) | F-11 | platform | TENANT-ADMIN-03, TENANT-ADMIN-04, TENANT-ADMIN-05, TENANT-ADMIN-06, TENANT-ADMIN-07 |
-| FN-046 | Manage groups and role bindings | F-12 | platform | TENANT-ADMIN-08, TENANT-ADMIN-09 |
-| FN-047 | Read and change role grants | F-12 | platform | TENANT-ADMIN-10 |
-| FN-048 | Grant a role access to a part of the organisation (scope) | F-12 | platform | TENANT-ADMIN-11, TENANT-ADMIN-12 |
-| FN-049 | Name the first administrator | F-12 | platform | TENANT-ADMIN-13 |
-| FN-050 | Issue and revoke API tokens | F-12 | platform | TENANT-ADMIN-14 |
-| FN-051 | Set company settings, appearance and logo | F-13 | platform | TENANT-ADMIN-16, TENANT-ADMIN-17 |
-| FN-052 | Export and import the company configuration bundle | F-13 | platform | TENANT-ADMIN-18 |
-| FN-053 | Install, upgrade and remove modules and solutions | F-13 | platform | DESIGNER-05, TENANT-ADMIN-19 |
-| FN-054 | Install the manufacturing module shell | F-27 | mes | MES-01 |
-| FN-055 | Switch the four-eyes rule per process step | F-12 | platform | TENANT-ADMIN-20 |
-| FN-056 | Read the audit log | F-11 | platform | TENANT-ADMIN-23 |
-| FN-057 | Read my notifications | F-14 | platform | TENANT-ADMIN-24 |
-| FN-058 | Edit notification templates and read the delivery log | F-14 | platform | TENANT-ADMIN-26 |
-| FN-059 | Switch currencies and choose the company currency | F-13 | platform | TENANT-ADMIN-27 |
-| FN-060 | Override screen wording | F-13 | platform | TENANT-ADMIN-28 |
-| FN-061 | Define document number sequences | F-13 | platform | TENANT-ADMIN-29 |
-| FN-062 | Export company data sets | F-11 | platform | TENANT-ADMIN-30 |
-| FN-063 | Read help topics and use the master-data import page | F-11 | platform | TENANT-ADMIN-31 |
-| FN-064 | My settings and problem reports | F-11 | platform | TENANT-ADMIN-25 |
-| FN-065 | Work my tasks in My Tasks | F-16 | platform | DESIGNER-16, TENANT-ADMIN-32 |
-| FN-066 | Draft, check and change a process definition | F-15 | platform | DESIGNER-01 |
-| FN-067 | Activate, retire and archive a process definition | F-15 | platform | DESIGNER-02 |
-| FN-068 | Export, import and roll back a process definition | F-15 | platform | DESIGNER-03 |
-| FN-069 | Promote a definition between tenants with review | F-15 | platform | DESIGNER-04, PLATFORM-14 |
-| FN-070 | List services a process may call | F-15 | platform | DESIGNER-23, PLATFORM-11 |
-| FN-071 | Define a record type and activate it | F-17 | platform | DESIGNER-06, DESIGNER-33 |
-| FN-072 | Create, change, find and attach records | F-17 | platform | DESIGNER-07 |
-| FN-073 | Import and export records | F-17 | platform | DESIGNER-08 |
-| FN-074 | Save and share a list view | F-17 | platform | DESIGNER-09 |
-| FN-075 | Derive field values before a record is saved | F-17 | platform | DESIGNER-10 |
-| FN-076 | Run a script after a record event | F-18 | platform | DESIGNER-11 |
-| FN-077 | Write, test, publish and withdraw a business rule script | F-18 | platform | DESIGNER-12, DESIGNER-13, DESIGNER-32 |
-| FN-078 | Start a process and follow it | F-16 | platform | DESIGNER-14 |
-| FN-079 | Attach files to a running process | F-16 | platform | DESIGNER-15 |
-| FN-080 | Retry or discard failed jobs | F-16 | platform | DESIGNER-17 |
-| FN-081 | Notify another system by webhook | F-18 | platform | DESIGNER-18, DESIGNER-30 |
-| FN-082 | Map fields for an integration | F-18 | platform | DESIGNER-19 |
-| FN-083 | Run a job on a schedule | F-18 | platform | DESIGNER-20 |
-| FN-084 | Govern documents: retention, hold, print layout | F-19 | platform | DESIGNER-21 |
-| FN-085 | Print code labels as PDF | F-19 | platform | MASTER-10 |
-| FN-086 | Share a record read-only by public handle | F-23 | platform | DESIGNER-22 |
-| FN-087 | Check a certificate by its public handle | F-23 | platform | EXAM-06, PLATFORM-23 |
-| FN-088 | Register a tenant and look it up | F-20 | platform | PLATFORM-01 |
-| FN-089 | Suspend, reactivate and purge a tenant | F-20 | platform | PLATFORM-02 |
-| FN-090 | Give a company its own host name | F-20 | platform | PLATFORM-03 |
-| FN-091 | Set a tenant script policy (kill switch) | F-20 | platform | PLATFORM-04 |
-| FN-092 | Onboard a company and bind its identity realm | F-20 | platform | PLATFORM-05 |
-| FN-093 | Provision a tenant through the provisioner interface | F-20 | platform | PLATFORM-06, PLATFORM-18 |
-| FN-094 | Sign up a new company and find a company by e-mail | F-20 | platform | PLATFORM-13, PLATFORM-19 |
-| FN-095 | Roll a module version out to the fleet | F-21 | platform | PLATFORM-07 |
-| FN-096 | Run a tenant-schema migration across tenants | F-21 | platform | PLATFORM-08 |
-| FN-097 | Retire the oldest month of event history | F-21 | platform | PLATFORM-09 |
-| FN-098 | Watch platform health, readiness and metrics | F-21 | platform | PLATFORM-10, PLATFORM-15 |
-| FN-099 | Handle problem reports from companies | F-22 | platform | MAINTENANCE-12, MAINTENANCE-13, MAINTENANCE-20, PLATFORM-12 |
-| FN-100 | Maintain legal entities and sites | F-09 | platform | MASTER-01 |
-| FN-101 | Maintain the org unit tree | F-09 | platform | MASTER-02 |
-| FN-102 | Maintain positions and employees | F-09 | platform | MASTER-03 |
-| FN-103 | Maintain the location tree | F-09 | platform | MASTER-04 |
-| FN-104 | Link org units to locations | F-09 | platform | MASTER-05 |
-| FN-105 | Load catalog and org data from a file | F-09 | platform | MASTER-06, MASTER-07, MASTER-15 |
-| FN-106 | Maintain lots of an item | F-09 | platform | MASTER-08 |
-| FN-107 | Receive, assign, release and retire a code | F-10 | platform | MASTER-09, MASTER-16 |
-| FN-108 | Report a fault on an asset (work request) | F-25 | maintenance | MAINTENANCE-01, MAINTENANCE-02 |
-| FN-109 | Review work requests (list, read, reject) | F-25 | maintenance | MAINTENANCE-03 |
-| FN-110 | Create and assign a work order | F-25 | maintenance | MAINTENANCE-04, MAINTENANCE-05 |
-| FN-111 | Report work done and close a work order | F-25 | maintenance | MAINTENANCE-06, MAINTENANCE-07 |
-| FN-112 | Read and list work orders | F-25 | maintenance | MAINTENANCE-08 |
-| FN-113 | Show work requests and orders on screens and phone | F-25 | maintenance | MAINTENANCE-09, MAINTENANCE-10, MAINTENANCE-11 |
-| FN-114 | Keep the question bank | F-26 | exam | EXAM-01 |
-| FN-115 | Build an exam | F-26 | exam | EXAM-02 |
-| FN-116 | Find and start an exam | F-26 | exam | EXAM-03 |
-| FN-117 | Sit an exam and submit | F-26 | exam | EXAM-04 |
-| FN-118 | Grade short-text answers | F-26 | exam | EXAM-05 |
-| FN-119 | See exam results and the certificate | F-26 | exam | EXAM-06 |
-| FN-120 | Check the permission of the role on every route | F-24 | platform | ASSETS-15, DESIGNER-24, EXAM-07, MAINTENANCE-16, MASTER-11, MES-03, PLATFORM-16, PROCUREMENT-06, STOCK-21, TENANT-ADMIN-33, TENANT-ADMIN-44 |
-| FN-121 | Refuse cross-tenant access with a uniform 404 | F-24 | platform | ASSETS-14, DESIGNER-25, DESIGNER-26, MAINTENANCE-15, MASTER-12, PLATFORM-17, PLATFORM-20, PROCUREMENT-07, STOCK-20, TENANT-ADMIN-34, TENANT-ADMIN-43, TENANT-ADMIN-46 |
-| FN-122 | Refuse crafted bodies and write-target overwrites | F-24 | platform | ASSETS-17, DESIGNER-27, MAINTENANCE-14, MAINTENANCE-21, MASTER-13, MES-02, MES-04, PROCUREMENT-09, STOCK-19, TENANT-ADMIN-41 |
-| FN-123 | Resolve token and host credentials safely | F-24 | platform | DESIGNER-28, MAINTENANCE-17, MASTER-14, PLATFORM-22, PROCUREMENT-11, STOCK-22, TENANT-ADMIN-37 |
-| FN-124 | Validate uploads by type and size | F-24 | platform | ASSETS-16, DESIGNER-29, MAINTENANCE-18, PROCUREMENT-10, STOCK-23, TENANT-ADMIN-38 |
-| FN-125 | Enforce separation of duties | F-24 | platform | DESIGNER-31, MAINTENANCE-19, PLATFORM-21, PROCUREMENT-08, STOCK-26, TENANT-ADMIN-40, TENANT-ADMIN-47 |
-| FN-126 | Keep retries and concurrent decisions single-acting | F-24 | platform | PROCUREMENT-12, STOCK-43 |
-| FN-127 | Guard privilege escalation and the last administrator | F-24 | platform | TENANT-ADMIN-35, TENANT-ADMIN-36 |
-| FN-128 | Refuse the old address outside its rules | F-24 | platform | STOCK-24, STOCK-29, STOCK-30 |
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-001 Preview a document on screen | shared | 22: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: documents/:id -> DocumentPage; BP-ASSETS-04: documents/:id -> DocumentPage |
+| FN-002 Generate a printable document from a form template | shared | 5: BP-DESIGNER-21, BP-EXAM-06, BP-EXAM-07, BP-PLATFORM-23, BP-STOCK-15 | BP-DESIGNER-21: GET /api/v1/documents/print-overrides; BP-EXAM-06: POST /api/v1/modules/exam/exam-sessions/:id/certificate |
+| FN-003 Save a document or report as a file | shared | 15: BP-DESIGNER-03, BP-DESIGNER-05, BP-DESIGNER-08, BP-DESIGNER-21, BP-EXAM-06, BP-EXAM-07 ... | BP-DESIGNER-03: GET /api/v1/definitions/:id/export; BP-DESIGNER-05: POST /api/v1/solution-packs/export |
 
-## Coverage by area
+## F-02 Scanning, codes and recognition feature (platform)
 
-| Area | Processes used by at least one function | of |
-|---|---|---|
-| assets | 17 | 17 |
-| designer | 33 | 33 |
-| exam | 7 | 7 |
-| maintenance | 21 | 21 |
-| master | 16 | 16 |
-| mes | 4 | 4 |
-| platform | 23 | 23 |
-| procurement | 12 | 12 |
-| stock | 44 | 44 |
-| tenant-admin | 47 | 47 |
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-004 Assign and print a code or label for an item | single-process | 1: BP-MASTER-10 | BP-MASTER-10: POST /api/v1/modules/codes/labels |
+| FN-005 Resolve an item by a scanned code | shared | 9: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-MASTER-08, BP-MASTER-09 ... | BP-ASSETS-03: Letflow.Modules.Assets.Documents.Checks.card_lookup; BP-ASSETS-04: Letflow.Modules.Assets.Documents.Checks.card_lookup |
+| FN-006 Recognise an item or quantity by voice | shared | 6: BP-STOCK-17, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25, BP-STOCK-30, BP-STOCK-36 | BP-STOCK-17: POST /api/v1/modules/stock/voice/draft; BP-STOCK-23: POST /api/v1/modules/stock/voice/draft |
 
-Every one of the 10 areas has at least one function.
+## F-03 Notification feature (platform)
 
-Processes used by no function (named uncovered, left for the owner or a later pass): none.
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-007 Show and read my notifications | single-process | 1: BP-TENANT-ADMIN-24 | BP-TENANT-ADMIN-24: GET /api/v1/me/notifications |
+| FN-008 Define and deliver a notification by e-mail or another channel | single-process | 1: BP-TENANT-ADMIN-26 | BP-TENANT-ADMIN-26: GET /api/v1/notification-templates |
+| FN-009 Call an outside system when something happens (webhook) | shared | 5: BP-DESIGNER-18, BP-DESIGNER-19, BP-DESIGNER-24, BP-DESIGNER-25, BP-DESIGNER-30 | BP-DESIGNER-18: GET /api/v1/webhooks/subscriptions; BP-DESIGNER-19: POST /api/v1/integration-mappings |
+
+## F-04 Task routing and approval feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-010 Claim a task from the work list | shared | 41: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: POST /api/v1/tasks/:id/claim; BP-ASSETS-04: POST /api/v1/tasks/:id/claim |
+| FN-011 Complete a task with an outcome | shared | 37: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: POST /api/v1/tasks/:id/complete; BP-ASSETS-04: POST /api/v1/tasks/:id/complete |
+| FN-012 Set who approves a step (approval rules) | shared | 15: BP-ASSETS-15, BP-STOCK-15, BP-STOCK-21, BP-STOCK-26, BP-STOCK-27, BP-STOCK-35 ... | BP-ASSETS-15: GET /api/v1/modules/assets/approval-access; BP-STOCK-15: GET /api/v1/modules/stock/approval-access |
+| FN-013 Record a decision on a request | shared | 15: BP-PROCUREMENT-02, BP-PROCUREMENT-06, BP-PROCUREMENT-07, BP-PROCUREMENT-08, BP-PROCUREMENT-09, BP-PROCUREMENT-11 ... | BP-PROCUREMENT-02: POST /api/v1/modules/procurement/purchase-requests/:id/decisions; BP-PROCUREMENT-06: POST /api/v1/modules/procurement/purchase-requests/:id/decisions |
+| FN-014 Start a process instance | shared | 8: BP-ASSETS-17, BP-DESIGNER-14, BP-DESIGNER-15, BP-DESIGNER-27, BP-DESIGNER-29, BP-STOCK-19 ... | BP-ASSETS-17: POST /api/v1/instances; BP-DESIGNER-14: POST /api/v1/instances |
+
+## F-05 Accounting and ledger posting feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-015 Post a document to the ledger | shared | 26: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: assets.post_document; BP-ASSETS-04: assets.post_document |
+| FN-016 Reverse a posted document | shared | 12: BP-ASSETS-09, BP-ASSETS-14, BP-ASSETS-15, BP-STOCK-12, BP-STOCK-16, BP-STOCK-20 ... | BP-ASSETS-09: POST /api/v1/modules/assets/documents/:id/reverse; BP-ASSETS-14: POST /api/v1/modules/assets/documents/:id/reverse |
+| FN-017 Show balances and movements | shared | 17: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-13, BP-STOCK-15 ... | BP-ASSETS-03: GET /api/v1/modules/assets/balances; BP-ASSETS-04: GET /api/v1/modules/assets/balances |
+| FN-018 Reconcile the ledger with the records | shared | 4: BP-ASSETS-13, BP-ASSETS-15, BP-STOCK-15, BP-STOCK-21 | BP-ASSETS-13: GET /api/v1/modules/assets/reconcile; BP-ASSETS-15: GET /api/v1/modules/assets/reconcile |
+| FN-019 Set ledger and posting rules | shared | 9: BP-STOCK-02, BP-STOCK-09, BP-STOCK-15, BP-STOCK-40, BP-STOCK-41, BP-TENANT-ADMIN-22 ... | BP-STOCK-02: Letflow.Modules.Stock.PostingRules.negative_allowed?; BP-STOCK-09: GET /api/v1/modules/stock/frozen-locations |
+
+## F-06 Audit trail and user records feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-020 Read the audit trail | shared | 5: BP-STOCK-27, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-39, BP-TENANT-ADMIN-44 | BP-STOCK-27: GET /api/v1/audit; BP-TENANT-ADMIN-23: GET /api/v1/audit |
+| FN-021 Keep and retire old events (retention) | shared | 2: BP-PLATFORM-09, BP-PLATFORM-16 | BP-PLATFORM-09: GET /api/v1/event-retention/summary; BP-PLATFORM-16: GET /api/v1/event-retention/summary |
+
+## F-07 Excel import and export feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-022 Import records from an Excel or CSV file | shared | 14: BP-DESIGNER-03, BP-DESIGNER-08, BP-DESIGNER-29, BP-MAINTENANCE-13, BP-MAINTENANCE-20, BP-MASTER-06 ... | BP-DESIGNER-03: POST /api/v1/definitions/import; BP-DESIGNER-08: POST /api/v1/entities/records/:entity_type/import |
+| FN-023 Export records or a workbook to Excel | shared | 10: BP-MAINTENANCE-12, BP-MAINTENANCE-13, BP-MAINTENANCE-20, BP-STOCK-13, BP-STOCK-20, BP-STOCK-21 ... | BP-MAINTENANCE-12: Letflow.Plugs.ReportExportAuth; BP-MAINTENANCE-13: Letflow.Plugs.ReportExportAuth |
+
+## F-08 Attachments and photos feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-024 Attach a file or a photo to a record | shared | 15: BP-ASSETS-02, BP-ASSETS-16, BP-DESIGNER-07, BP-DESIGNER-15, BP-DESIGNER-29, BP-MAINTENANCE-02 ... | BP-ASSETS-02: POST /api/v1/modules/assets/cards/:id/photos; BP-ASSETS-16: POST /api/v1/modules/assets/cards/:id/photos |
+
+## F-09 Search and lookup feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-025 Search and filter records | shared | 3: BP-DESIGNER-01, BP-DESIGNER-07, BP-DESIGNER-09 | BP-DESIGNER-01: GET /api/v1/definitions/search; BP-DESIGNER-07: POST /api/v1/entities/query |
+| FN-026 Look up a master record by name | shared | 2: BP-DESIGNER-06, BP-DESIGNER-13 | BP-DESIGNER-06: GET /api/v1/entities/definitions/by-name/:name; BP-DESIGNER-13: GET /api/v1/script-policy/readable-masters |
+
+## F-10 Sign-in and access feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-027 Sign in and find my tenant | shared | 8: BP-PLATFORM-13, BP-PLATFORM-19, BP-PLATFORM-22, BP-PLATFORM-23, BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-17 ... | BP-PLATFORM-13: GET /api/signup/config; BP-PLATFORM-19: POST /api/signup/verify |
+| FN-028 Manage users and their status | shared | 13: BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-13 ... | BP-TENANT-ADMIN-03: GET /api/v1/identity/users; BP-TENANT-ADMIN-04: GET /api/v1/identity/users/import-template |
+| FN-029 Give roles, groups and scope to users | shared | 9: BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-34 ... | BP-TENANT-ADMIN-08: POST /api/v1/identity/groups; BP-TENANT-ADMIN-09: GET /api/v1/identity/roles |
+| FN-030 Issue and revoke an access token | shared | 9: BP-DESIGNER-22, BP-DESIGNER-26, BP-DESIGNER-30, BP-PLATFORM-23, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-34 ... | BP-DESIGNER-22: POST /api/v1/public-read-handles; BP-DESIGNER-26: GET /api/public/:kind/:handle |
+| FN-031 Share stock access with another tenant | shared | 13: BP-STOCK-28, BP-STOCK-29, BP-STOCK-30, BP-STOCK-31, BP-STOCK-32, BP-STOCK-33 ... | BP-STOCK-28: GET /api/v1/identity/shared-stock-access; BP-STOCK-29: GET /api/v1/identity/shared-stock-access |
+| FN-032 Manage my own account and preferences | shared | 7: BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-43 ... | BP-TENANT-ADMIN-01: GET /api/v1/me; BP-TENANT-ADMIN-02: GET /api/v1/me/access |
+
+## F-11 Master data and reference lists feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-033 Maintain places, sites and locations | shared | 9: BP-MASTER-01, BP-MASTER-04, BP-MASTER-05, BP-MASTER-07, BP-MASTER-11, BP-MASTER-12 ... | BP-MASTER-01: POST /api/v1/modules/org/sites; BP-MASTER-04: POST /api/v1/modules/locations/nodes |
+| FN-034 Maintain the organisation (units, employees, positions) | shared | 8: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-07, BP-MASTER-11, BP-MASTER-12 ... | BP-MASTER-01: POST /api/v1/modules/org/legal-entities; BP-MASTER-02: POST /api/v1/modules/org/units |
+| FN-035 Maintain items, currencies and number sequences | shared | 8: BP-MASTER-06, BP-MASTER-08, BP-MASTER-11, BP-MASTER-15, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-29 ... | BP-MASTER-06: ItemsPage; BP-MASTER-08: POST /api/v1/modules/catalog_items/lots |
+| FN-036 Define a record type and its fields | shared | 6: BP-DESIGNER-06, BP-DESIGNER-07, BP-DESIGNER-09, BP-DESIGNER-24, BP-DESIGNER-25, BP-DESIGNER-33 | BP-DESIGNER-06: POST /api/v1/entities/definitions; BP-DESIGNER-07: entities/:entityType |
+| FN-037 Create and change records of a defined type | shared | 6: BP-DESIGNER-07, BP-DESIGNER-08, BP-DESIGNER-29, BP-MASTER-06, BP-MASTER-07, BP-MASTER-15 | BP-DESIGNER-07: POST /api/v1/entities/records/:entity_type; BP-DESIGNER-08: POST /api/v1/entities/records/:entity_type/export |
+
+## F-12 Tenant and module configuration feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-038 Install, upgrade or remove a module for a tenant | shared | 7: BP-MES-01, BP-MES-02, BP-MES-03, BP-PLATFORM-07, BP-PLATFORM-16, BP-TENANT-ADMIN-19 ... | BP-MES-01: POST /api/v1/tenant/modules; BP-MES-02: POST /api/v1/tenant/modules |
+| FN-039 Set tenant settings, logo and hostname | shared | 9: BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-37 ... | BP-TENANT-ADMIN-01: GET /api/tenant-config/logo; BP-TENANT-ADMIN-16: GET /api/v1/tenant/settings |
+| FN-040 Export and import a tenant configuration | shared | 6: BP-DESIGNER-05, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-41 | BP-DESIGNER-05: POST /api/v1/solution-packs/export; BP-TENANT-ADMIN-18: GET /api/v1/tenant/config-bundle |
+| FN-041 Promote a configuration from one tenant to another | shared | 3: BP-DESIGNER-04, BP-DESIGNER-24, BP-DESIGNER-25 | BP-DESIGNER-04: POST /api/v1/promotions/plan; BP-DESIGNER-24: POST /api/v1/promotions |
+| FN-069 Override screen wording (labels) | process-specific | 1: BP-TENANT-ADMIN-28 | BP-TENANT-ADMIN-28: GET /api/v1/labels |
+
+## F-13 Process definition and automation feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-042 Design, validate and publish a process definition | shared | 12: BP-DESIGNER-01, BP-DESIGNER-02, BP-DESIGNER-03, BP-DESIGNER-04, BP-DESIGNER-06, BP-DESIGNER-24 ... | BP-DESIGNER-01: POST /api/v1/definitions; BP-DESIGNER-02: POST /api/v1/definitions/:id/activate |
+| FN-043 Write and publish a business rule script | shared | 3: BP-DESIGNER-12, BP-DESIGNER-24, BP-DESIGNER-31 | BP-DESIGNER-12: GET /api/v1/script-rules; BP-DESIGNER-24: POST /api/v1/script-rules/:key/versions |
+| FN-044 Control what scripts may do (script policy) | shared | 5: BP-DESIGNER-13, BP-DESIGNER-24, BP-DESIGNER-31, BP-DESIGNER-32, BP-PLATFORM-04 | BP-DESIGNER-13: GET /api/v1/script-policy; BP-DESIGNER-24: PUT /api/v1/script-policy/kill-switch |
+| FN-045 Run a job on a schedule or on a record change | shared | 6: BP-DESIGNER-10, BP-DESIGNER-11, BP-DESIGNER-14, BP-DESIGNER-20, BP-DESIGNER-25, BP-STOCK-37 | BP-DESIGNER-10: GET /api/v1/entity-type-hooks; BP-DESIGNER-11: GET /api/v1/record-trigger-bindings |
+
+## F-14 Platform operation feature (platform)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-046 Create, suspend, resume, expire and delete a tenant | shared | 16: BP-PLATFORM-01, BP-PLATFORM-02, BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06 ... | BP-PLATFORM-01: GET /api/v1/tenants; BP-PLATFORM-02: POST /api/v1/tenants/:slug/deactivate |
+| FN-047 Roll a platform migration or module out to tenants | shared | 3: BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-16 | BP-PLATFORM-07: POST /api/v1/platform-module-rollouts; BP-PLATFORM-08: POST /api/v1/platform-migrations/rollouts |
+| FN-048 Watch the health, backups and failed messages | shared | 11: BP-DESIGNER-17, BP-DESIGNER-23, BP-DESIGNER-24, BP-MAINTENANCE-12, BP-MAINTENANCE-20, BP-PLATFORM-01 ... | BP-DESIGNER-17: GET /api/v1/dlq; BP-DESIGNER-23: GET /api/v1/services |
+| FN-049 Receive and decide a problem report | shared | 5: BP-MAINTENANCE-12, BP-MAINTENANCE-20, BP-PLATFORM-12, BP-PLATFORM-16, BP-TENANT-ADMIN-25 | BP-MAINTENANCE-12: GET /maintenance/v1/problem-reports; BP-MAINTENANCE-20: GET /maintenance/v1/problem-reports |
+| FN-068 Prove a module's runtime is alive (runtime demo ping) | process-specific | 1: BP-PLATFORM-15 | BP-PLATFORM-15: GET /api/v1/modules/runtime_demo/ping |
+
+## F-20 Stock posting document feature (receive, issue, transfer) (wms)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-050 Create a draft stock document | shared | 27: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: documents/new -> DocumentNewPage; BP-ASSETS-04: documents/new -> DocumentNewPage |
+| FN-051 Issue a stock document (fix it and start its posting task) | shared | 26: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: documents/:id -> DocumentPage; BP-ASSETS-04: documents/:id -> DocumentPage |
+| FN-052 Cancel a document or count before it is posted | shared | 13: BP-ASSETS-11, BP-DESIGNER-14, BP-PROCUREMENT-04, BP-PROCUREMENT-06, BP-PROCUREMENT-11, BP-PROCUREMENT-12 ... | BP-ASSETS-11: POST /api/v1/modules/assets/counts/:id/cancel; BP-DESIGNER-14: POST /api/v1/instances/:id/cancel |
+
+## F-21 Stock counting document feature (wms)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-053 Plan and open a stock count | shared | 14: BP-STOCK-08, BP-STOCK-09, BP-STOCK-10, BP-STOCK-11, BP-STOCK-12, BP-STOCK-13 ... | BP-STOCK-08: POST /api/v1/modules/stock/quick-counts; BP-STOCK-09: POST /api/v1/modules/stock/counts |
+| FN-054 Approve count differences and post them | shared | 8: BP-STOCK-07, BP-STOCK-08, BP-STOCK-13, BP-STOCK-26, BP-STOCK-33, BP-STOCK-34 ... | BP-STOCK-07: stock_opening/approve; BP-STOCK-08: stock_quick_count/approve |
+
+## F-22 Fixed-asset document and card feature (assets)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-055 Create and issue an asset document | shared | 12: BP-ASSETS-01, BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07 ... | BP-ASSETS-01: Letflow.Modules.Assets.Documents.Checks.held?; BP-ASSETS-03: POST /api/v1/modules/assets/documents |
+| FN-056 Keep an asset card | shared | 5: BP-ASSETS-01, BP-ASSETS-02, BP-ASSETS-14, BP-ASSETS-15, BP-ASSETS-16 | BP-ASSETS-01: POST /api/v1/modules/assets/cards; BP-ASSETS-02: POST /api/v1/modules/assets/cards/:id/photos |
+| FN-057 Count assets | shared | 4: BP-ASSETS-11, BP-ASSETS-12, BP-ASSETS-14, BP-ASSETS-15 | BP-ASSETS-11: POST /api/v1/modules/assets/counts; BP-ASSETS-12: GET /api/v1/modules/assets/counts/:id/result |
+
+## F-23 Maintenance feature (maintenance)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-058 Raise a maintenance request | shared | 7: BP-MAINTENANCE-01, BP-MAINTENANCE-02, BP-MAINTENANCE-03, BP-MAINTENANCE-15, BP-MAINTENANCE-16, BP-MAINTENANCE-17 ... | BP-MAINTENANCE-01: POST /api/v1/modules/maintenance/requests; BP-MAINTENANCE-02: POST /api/v1/modules/maintenance/requests/:id/photos |
+| FN-059 Plan, assign and carry out a work order | shared | 11: BP-MAINTENANCE-04, BP-MAINTENANCE-05, BP-MAINTENANCE-06, BP-MAINTENANCE-07, BP-MAINTENANCE-08, BP-MAINTENANCE-14 ... | BP-MAINTENANCE-04: POST /api/v1/modules/maintenance/orders; BP-MAINTENANCE-05: POST /api/v1/modules/maintenance/orders/:id/assign |
+| FN-064 Web screens for work requests | process-specific | 1: BP-MAINTENANCE-09 | BP-MAINTENANCE-09: process title: Web screens for work requests |
+| FN-065 Web screens for work orders and My work orders | process-specific | 1: BP-MAINTENANCE-10 | BP-MAINTENANCE-10: process title: Web screens for work orders and My work orders |
+| FN-066 My work orders on the phone app and PWA | process-specific | 1: BP-MAINTENANCE-11 | BP-MAINTENANCE-11: process title: My work orders on the phone app and PWA |
+
+## F-24 Purchase request feature (wms)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-060 Create and submit a purchase request | shared | 12: BP-PROCUREMENT-01, BP-PROCUREMENT-02, BP-PROCUREMENT-03, BP-PROCUREMENT-04, BP-PROCUREMENT-05, BP-PROCUREMENT-06 ... | BP-PROCUREMENT-01: POST /api/v1/modules/procurement/purchase-requests; BP-PROCUREMENT-02: GET /api/v1/modules/procurement/purchase-requests/:id |
+
+## F-25 Exam feature (exam)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-061 Author an exam | shared | 3: BP-EXAM-01, BP-EXAM-02, BP-EXAM-07 | BP-EXAM-01: POST /api/v1/modules/exam/authoring/:entity_type; BP-EXAM-02: POST /api/v1/modules/exam/authoring/:entity_type |
+| FN-062 Run an exam session | shared | 4: BP-EXAM-03, BP-EXAM-04, BP-EXAM-06, BP-EXAM-07 | BP-EXAM-03: GET /api/v1/modules/exam/exam-sessions/available; BP-EXAM-04: GET /api/v1/modules/exam/exam-sessions/:id |
+| FN-063 Grade an exam | shared | 2: BP-EXAM-05, BP-EXAM-07 | BP-EXAM-05: GET /api/v1/modules/exam/grading-queue; BP-EXAM-07: GET /api/v1/modules/exam/grading-queue |
+
+## F-26 Production feature (mes)
+
+| Function | Kind | Processes | Evidence |
+|---|---|---|---|
+| FN-067 Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- | process-specific | 1: BP-MES-04 | BP-MES-04: process title: Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, ap |
+
+## Validation run (BA, T-2675 rework)
+
+All 224 BP ids exist; every function has an existing feature and at least one process; every evidence string was re-found in the cited process's task routes, forms or functions (0 mismatches); `check_catalog.py` prints PASS. Ten sampled rows, each with its quoted evidence:
+
+- FN-018 Reconcile the ledger: BP-STOCK-21 via `GET /api/v1/modules/stock/reconcile`.
+- FN-009 Call an outside system (webhook): BP-DESIGNER-30 via `POST /api/v1/webhooks/subscriptions`.
+- FN-033 Maintain places and locations: BP-STOCK-09 via `GET /api/v1/modules/stock/frozen-locations`.
+- FN-016 Reverse a posted document: BP-STOCK-44 via `POST /api/v1/modules/stock/documents/:id/reverse`.
+- FN-064 Web screens for work requests: BP-MAINTENANCE-09, process-specific (no task route).
+- FN-058 Raise a maintenance request: BP-MAINTENANCE-18 via `POST /api/v1/modules/maintenance/requests/:id/photos`.
+- FN-031 Share stock access: BP-TENANT-ADMIN-45 via `GET /api/v1/identity/shared-stock-access`.
+- FN-042 Design and publish a process definition: BP-STOCK-38 via `POST /api/v1/definitions`.
+- FN-025 Search and filter records: BP-DESIGNER-09 via `GET /api/v1/entity-views`.
+- FN-051 Issue a stock document: BP-STOCK-44 via `stock.post_document`.
+
+Links are route/form/function matches, so a security process that exercises a route is linked to the function that route serves.

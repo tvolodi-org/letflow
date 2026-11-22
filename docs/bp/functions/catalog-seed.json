@@ -1,250 +1,161 @@
 {
- "version": 1,
- "note": "Seed of the function catalog (T-2675, D-192). Application of platform covers the designer, tenant-admin and master areas.",
+ "version": 2,
+ "note": "Function catalog seed (T-2675, D-192), organised by capability. Links derive from the task routes, forms and functions in docs/bp/*.json; the evidence field names the first matching task item per process. Application platform covers the designer, tenant-admin and master areas; wms covers stock and procurement.",
+ "stats": {
+  "functions": 69,
+  "shared_functions": 60,
+  "shared_percent": 87.0,
+  "max_sharing": 41,
+  "max_sharing_function": "FN-010 Claim a task from the work list",
+  "process_specific": 6,
+  "processes_total": 224,
+  "processes_covered": 224
+ },
  "features": [
   {
    "id": "F-01",
-   "title": "Stock posting document feature",
-   "application": "wms",
-   "area": "stock"
+   "title": "Document output feature (print, preview, save, send)",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-02",
-   "title": "Stock counting document feature",
-   "application": "wms",
-   "area": "stock"
+   "title": "Scanning, codes and recognition feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-03",
-   "title": "Stock reporting and Excel exchange feature",
-   "application": "wms",
-   "area": "stock"
+   "title": "Notification feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-04",
-   "title": "Old-app phone operations feature",
-   "application": "wms",
-   "area": "stock"
+   "title": "Task routing and approval feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-05",
-   "title": "Asset register document feature",
-   "application": "assets",
-   "area": "assets"
+   "title": "Accounting and ledger posting feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-06",
-   "title": "Asset counting document feature",
-   "application": "assets",
-   "area": "assets"
+   "title": "Audit trail and user records feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-07",
-   "title": "Asset reporting feature",
-   "application": "assets",
-   "area": "assets"
+   "title": "Excel import and export feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-08",
-   "title": "Purchase request approval feature",
-   "application": "wms",
-   "area": "procurement"
+   "title": "Attachments and photos feature",
+   "application": "platform",
+   "cross_cutting": true
   },
   {
    "id": "F-09",
-   "title": "Master data maintenance feature",
+   "title": "Search and lookup feature",
    "application": "platform",
-   "area": "master"
+   "cross_cutting": true
   },
   {
    "id": "F-10",
-   "title": "Barcode, QR and label feature",
+   "title": "Sign-in and access feature",
    "application": "platform",
-   "area": "master"
+   "cross_cutting": true
   },
   {
    "id": "F-11",
-   "title": "Company administration feature",
+   "title": "Master data and reference lists feature",
    "application": "platform",
-   "area": "tenant-admin"
+   "cross_cutting": true
   },
   {
    "id": "F-12",
-   "title": "Access control feature",
+   "title": "Tenant and module configuration feature",
    "application": "platform",
-   "area": "tenant-admin"
+   "cross_cutting": true
   },
   {
    "id": "F-13",
-   "title": "Module and configuration management feature",
+   "title": "Process definition and automation feature",
    "application": "platform",
-   "area": "tenant-admin"
+   "cross_cutting": true
   },
   {
    "id": "F-14",
-   "title": "Notification and message feature",
+   "title": "Platform operation feature",
    "application": "platform",
-   "area": "tenant-admin"
-  },
-  {
-   "id": "F-15",
-   "title": "Process definition design feature",
-   "application": "platform",
-   "area": "designer"
-  },
-  {
-   "id": "F-16",
-   "title": "Process execution and task work feature",
-   "application": "platform",
-   "area": "designer"
-  },
-  {
-   "id": "F-17",
-   "title": "Record management feature",
-   "application": "platform",
-   "area": "designer"
-  },
-  {
-   "id": "F-18",
-   "title": "Automation and integration feature",
-   "application": "platform",
-   "area": "designer"
-  },
-  {
-   "id": "F-19",
-   "title": "Document printing and retention feature",
-   "application": "platform",
-   "area": "designer"
+   "cross_cutting": true
   },
   {
    "id": "F-20",
-   "title": "Tenant lifecycle feature",
-   "application": "platform",
-   "area": "platform"
+   "title": "Stock posting document feature (receive, issue, transfer)",
+   "application": "wms",
+   "cross_cutting": false
   },
   {
    "id": "F-21",
-   "title": "Platform operation feature",
-   "application": "platform",
-   "area": "platform"
+   "title": "Stock counting document feature",
+   "application": "wms",
+   "cross_cutting": false
   },
   {
    "id": "F-22",
-   "title": "Problem report handling feature",
-   "application": "platform",
-   "area": "platform"
+   "title": "Fixed-asset document and card feature",
+   "application": "assets",
+   "cross_cutting": false
   },
   {
    "id": "F-23",
-   "title": "Public access feature",
-   "application": "platform",
-   "area": "platform"
+   "title": "Maintenance feature",
+   "application": "maintenance",
+   "cross_cutting": false
   },
   {
    "id": "F-24",
-   "title": "Security assurance feature",
-   "application": "platform",
-   "area": "platform"
+   "title": "Purchase request feature",
+   "application": "wms",
+   "cross_cutting": false
   },
   {
    "id": "F-25",
-   "title": "Maintenance work request and order feature",
-   "application": "maintenance",
-   "area": "maintenance"
+   "title": "Exam feature",
+   "application": "exam",
+   "cross_cutting": false
   },
   {
    "id": "F-26",
-   "title": "Exam authoring and sitting feature",
-   "application": "exam",
-   "area": "exam"
-  },
-  {
-   "id": "F-27",
-   "title": "Manufacturing module shell feature",
+   "title": "Production feature",
    "application": "mes",
-   "area": "mes"
+   "cross_cutting": false
   }
  ],
  "functions": [
   {
    "id": "FN-001",
-   "title": "Record a goods receipt",
+   "title": "Preview a document on screen",
    "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-01"
-   ]
-  },
-  {
-   "id": "FN-002",
-   "title": "Record a goods issue",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-02",
-    "BP-STOCK-40",
-    "BP-STOCK-41"
-   ]
-  },
-  {
-   "id": "FN-003",
-   "title": "Write off stock",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-03"
-   ]
-  },
-  {
-   "id": "FN-004",
-   "title": "Transfer stock between places",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-04"
-   ]
-  },
-  {
-   "id": "FN-005",
-   "title": "Hand stock over to another responsible person",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-05"
-   ]
-  },
-  {
-   "id": "FN-006",
-   "title": "Return goods",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-06"
-   ]
-  },
-  {
-   "id": "FN-007",
-   "title": "Enter opening balances",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-07"
-   ]
-  },
-  {
-   "id": "FN-008",
-   "title": "Approve and post a stock document (four-eyes Post task)",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-09",
+    "BP-ASSETS-10",
+    "BP-ASSETS-14",
+    "BP-DESIGNER-21",
     "BP-STOCK-01",
     "BP-STOCK-02",
     "BP-STOCK-03",
@@ -252,1316 +163,2013 @@
     "BP-STOCK-05",
     "BP-STOCK-06",
     "BP-STOCK-07",
-    "BP-STOCK-26",
-    "BP-STOCK-33",
-    "BP-STOCK-35",
-    "BP-STOCK-37",
-    "BP-STOCK-38",
-    "BP-TENANT-ADMIN-20",
-    "BP-TENANT-ADMIN-21"
-   ]
+    "BP-STOCK-12",
+    "BP-STOCK-14",
+    "BP-STOCK-15",
+    "BP-STOCK-20",
+    "BP-TENANT-ADMIN-43"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "documents/:id -> DocumentPage",
+    "BP-ASSETS-04": "documents/:id -> DocumentPage",
+    "BP-ASSETS-05": "documents/:id -> DocumentPage",
+    "BP-ASSETS-06": "documents/:id -> DocumentPage",
+    "BP-ASSETS-07": "documents/:id -> DocumentPage",
+    "BP-ASSETS-08": "documents/:id -> DocumentPage",
+    "BP-ASSETS-09": "documents/:id -> DocumentPage",
+    "BP-ASSETS-10": "documents/:id -> DocumentPage",
+    "BP-ASSETS-14": "GET /api/v1/modules/assets/documents/:id",
+    "BP-DESIGNER-21": "GET /api/v1/documents/print-overrides",
+    "BP-STOCK-01": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-02": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-03": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-04": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-05": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-06": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-07": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-12": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-14": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/documents/:id/print",
+    "BP-STOCK-20": "GET /api/v1/modules/stock/documents/:id",
+    "BP-TENANT-ADMIN-43": "GET /api/v1/modules/stock/documents/:id"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-002",
+   "title": "Generate a printable document from a form template",
+   "feature": "F-01",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-21",
+    "BP-EXAM-06",
+    "BP-EXAM-07",
+    "BP-PLATFORM-23",
+    "BP-STOCK-15"
+   ],
+   "evidence": {
+    "BP-DESIGNER-21": "GET /api/v1/documents/print-overrides",
+    "BP-EXAM-06": "POST /api/v1/modules/exam/exam-sessions/:id/certificate",
+    "BP-EXAM-07": "POST /api/v1/modules/exam/exam-sessions/:id/certificate",
+    "BP-PLATFORM-23": "GET /api/public/certificate/:handle",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/stock-card/print"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-003",
+   "title": "Save a document or report as a file",
+   "feature": "F-01",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-03",
+    "BP-DESIGNER-05",
+    "BP-DESIGNER-08",
+    "BP-DESIGNER-21",
+    "BP-EXAM-06",
+    "BP-EXAM-07",
+    "BP-PROCUREMENT-05",
+    "BP-PROCUREMENT-10",
+    "BP-STOCK-13",
+    "BP-STOCK-20",
+    "BP-STOCK-21",
+    "BP-STOCK-23",
+    "BP-STOCK-42",
+    "BP-TENANT-ADMIN-30",
+    "BP-TENANT-ADMIN-33"
+   ],
+   "evidence": {
+    "BP-DESIGNER-03": "GET /api/v1/definitions/:id/export",
+    "BP-DESIGNER-05": "POST /api/v1/solution-packs/export",
+    "BP-DESIGNER-08": "POST /api/v1/entities/records/:entity_type/export",
+    "BP-DESIGNER-21": "GET /api/v1/documents/official-form-templates/:id/download",
+    "BP-EXAM-06": "GET /api/v1/modules/exam/exam-sessions/:id/certificate/download",
+    "BP-EXAM-07": "GET /api/v1/modules/exam/exam-sessions/:id/certificate/download",
+    "BP-PROCUREMENT-05": "Letflow.Modules.Procurement.Attachments.download",
+    "BP-PROCUREMENT-10": "Letflow.Modules.Procurement.Attachments.download",
+    "BP-STOCK-13": "GET /api/v1/modules/stock/stock-workbook",
+    "BP-STOCK-20": "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel",
+    "BP-STOCK-21": "POST /api/v1/modules/stock/stock-workbook/apply",
+    "BP-STOCK-23": "POST /api/v1/modules/stock/stock-workbook/check",
+    "BP-STOCK-42": "GET /api/v1/modules/stock/stock-workbook",
+    "BP-TENANT-ADMIN-30": "GET /api/v1/data-export/datasets",
+    "BP-TENANT-ADMIN-33": "POST /api/v1/data-export"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-004",
+   "title": "Assign and print a code or label for an item",
+   "feature": "F-02",
+   "application": "platform",
+   "processes": [
+    "BP-MASTER-10"
+   ],
+   "evidence": {
+    "BP-MASTER-10": "POST /api/v1/modules/codes/labels"
+   },
+   "kind": "single-process"
+  },
+  {
+   "id": "FN-005",
+   "title": "Resolve an item by a scanned code",
+   "feature": "F-02",
+   "application": "platform",
+   "processes": [
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-MASTER-08",
+    "BP-MASTER-09",
+    "BP-MASTER-11",
+    "BP-MASTER-13",
+    "BP-MASTER-16"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+    "BP-ASSETS-04": "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+    "BP-ASSETS-05": "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+    "BP-ASSETS-06": "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+    "BP-MASTER-08": "POST /api/v1/modules/catalog_items/lots",
+    "BP-MASTER-09": "POST /api/v1/modules/codes/receive",
+    "BP-MASTER-11": "POST /api/v1/modules/catalog_items/lots",
+    "BP-MASTER-13": "POST /api/v1/modules/codes/receive",
+    "BP-MASTER-16": "POST /api/v1/modules/codes/resolve"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-006",
+   "title": "Recognise an item or quantity by voice",
+   "feature": "F-02",
+   "application": "platform",
+   "processes": [
+    "BP-STOCK-17",
+    "BP-STOCK-23",
+    "BP-STOCK-24",
+    "BP-STOCK-25",
+    "BP-STOCK-30",
+    "BP-STOCK-36"
+   ],
+   "evidence": {
+    "BP-STOCK-17": "POST /api/v1/modules/stock/voice/draft",
+    "BP-STOCK-23": "POST /api/v1/modules/stock/voice/draft",
+    "BP-STOCK-24": "POST /qoimeks/:tenant_slug/voice",
+    "BP-STOCK-25": "POST /api/v1/modules/stock/voice/draft-text",
+    "BP-STOCK-30": "POST /qoimeks/:tenant_slug/voice",
+    "BP-STOCK-36": "POST /qoimeks/:tenant_slug/voice"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-007",
+   "title": "Show and read my notifications",
+   "feature": "F-03",
+   "application": "platform",
+   "processes": [
+    "BP-TENANT-ADMIN-24"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-24": "GET /api/v1/me/notifications"
+   },
+   "kind": "single-process"
+  },
+  {
+   "id": "FN-008",
+   "title": "Define and deliver a notification by e-mail or another channel",
+   "feature": "F-03",
+   "application": "platform",
+   "processes": [
+    "BP-TENANT-ADMIN-26"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-26": "GET /api/v1/notification-templates"
+   },
+   "kind": "single-process"
   },
   {
    "id": "FN-009",
-   "title": "Reverse a posted document or cancel an issued one",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "title": "Call an outside system when something happens (webhook)",
+   "feature": "F-03",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-12",
-    "BP-STOCK-44"
-   ]
+    "BP-DESIGNER-18",
+    "BP-DESIGNER-19",
+    "BP-DESIGNER-24",
+    "BP-DESIGNER-25",
+    "BP-DESIGNER-30"
+   ],
+   "evidence": {
+    "BP-DESIGNER-18": "GET /api/v1/webhooks/subscriptions",
+    "BP-DESIGNER-19": "POST /api/v1/integration-mappings",
+    "BP-DESIGNER-24": "POST /api/v1/webhooks/subscriptions",
+    "BP-DESIGNER-25": "GET /api/v1/integration-mappings/:id",
+    "BP-DESIGNER-30": "POST /api/v1/webhooks/subscriptions"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-010",
-   "title": "Find, correct and discard a draft stock document",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "title": "Claim a task from the work list",
+   "feature": "F-04",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-14"
-   ]
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-09",
+    "BP-ASSETS-17",
+    "BP-DESIGNER-16",
+    "BP-DESIGNER-25",
+    "BP-DESIGNER-27",
+    "BP-DESIGNER-28",
+    "BP-MAINTENANCE-06",
+    "BP-MAINTENANCE-07",
+    "BP-MAINTENANCE-14",
+    "BP-MAINTENANCE-19",
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-10",
+    "BP-STOCK-12",
+    "BP-STOCK-13",
+    "BP-STOCK-18",
+    "BP-STOCK-19",
+    "BP-STOCK-26",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-39",
+    "BP-STOCK-40",
+    "BP-STOCK-41",
+    "BP-STOCK-43",
+    "BP-STOCK-44",
+    "BP-TENANT-ADMIN-21",
+    "BP-TENANT-ADMIN-32",
+    "BP-TENANT-ADMIN-40",
+    "BP-TENANT-ADMIN-47"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-04": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-05": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-06": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-07": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-08": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-09": "POST /api/v1/tasks/:id/claim",
+    "BP-ASSETS-17": "POST /api/v1/tasks/:id/complete",
+    "BP-DESIGNER-16": "GET /api/v1/tasks/inbox",
+    "BP-DESIGNER-25": "GET /api/v1/tasks/:id",
+    "BP-DESIGNER-27": "POST /api/v1/tasks/:id/complete",
+    "BP-DESIGNER-28": "GET /api/v1/tasks/inbox",
+    "BP-MAINTENANCE-06": "GET /api/v1/tasks/inbox",
+    "BP-MAINTENANCE-07": "GET /api/v1/tasks/inbox",
+    "BP-MAINTENANCE-14": "POST /api/v1/tasks/:id/complete",
+    "BP-MAINTENANCE-19": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-01": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-02": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-03": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-04": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-05": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-06": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-07": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-08": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-10": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-12": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-13": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-18": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-19": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-26": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-33": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-34": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-39": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-40": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-41": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-43": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-44": "POST /api/v1/tasks/:id/claim",
+    "BP-TENANT-ADMIN-21": "POST /api/v1/tasks/:id/claim",
+    "BP-TENANT-ADMIN-32": "GET /api/v1/tasks/inbox",
+    "BP-TENANT-ADMIN-40": "POST /api/v1/tasks/:id/complete",
+    "BP-TENANT-ADMIN-47": "POST /api/v1/tasks/:id/claim"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-011",
-   "title": "Draft a stock document from a voice or typed phrase",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "title": "Complete a task with an outcome",
+   "feature": "F-04",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-17",
-    "BP-STOCK-25"
-   ]
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-09",
+    "BP-ASSETS-17",
+    "BP-DESIGNER-16",
+    "BP-DESIGNER-27",
+    "BP-MAINTENANCE-06",
+    "BP-MAINTENANCE-07",
+    "BP-MAINTENANCE-14",
+    "BP-MAINTENANCE-19",
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-10",
+    "BP-STOCK-12",
+    "BP-STOCK-13",
+    "BP-STOCK-18",
+    "BP-STOCK-19",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-39",
+    "BP-STOCK-40",
+    "BP-STOCK-41",
+    "BP-STOCK-43",
+    "BP-STOCK-44",
+    "BP-TENANT-ADMIN-21",
+    "BP-TENANT-ADMIN-32",
+    "BP-TENANT-ADMIN-40"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-04": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-05": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-06": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-07": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-08": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-09": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-17": "POST /api/v1/tasks/:id/complete",
+    "BP-DESIGNER-16": "POST /api/v1/tasks/:id/complete",
+    "BP-DESIGNER-27": "POST /api/v1/tasks/:id/complete",
+    "BP-MAINTENANCE-06": "POST /api/v1/tasks/:id/complete",
+    "BP-MAINTENANCE-07": "POST /api/v1/tasks/:id/complete",
+    "BP-MAINTENANCE-14": "POST /api/v1/tasks/:id/complete",
+    "BP-MAINTENANCE-19": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-01": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-02": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-03": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-04": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-05": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-06": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-07": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-08": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-10": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-12": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-13": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-18": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-19": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-33": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-34": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-39": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-40": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-41": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-43": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-44": "POST /api/v1/tasks/:id/complete",
+    "BP-TENANT-ADMIN-21": "POST /api/v1/tasks/:id/complete",
+    "BP-TENANT-ADMIN-32": "POST /api/v1/tasks/:id/complete",
+    "BP-TENANT-ADMIN-40": "POST /api/v1/tasks/:id/complete"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-012",
-   "title": "Control negative balances per ledger",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "title": "Set who approves a step (approval rules)",
+   "feature": "F-04",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-40",
-    "BP-STOCK-41",
-    "BP-TENANT-ADMIN-22"
-   ]
+    "BP-ASSETS-15",
+    "BP-STOCK-15",
+    "BP-STOCK-21",
+    "BP-STOCK-26",
+    "BP-STOCK-27",
+    "BP-STOCK-35",
+    "BP-STOCK-39",
+    "BP-TENANT-ADMIN-20",
+    "BP-TENANT-ADMIN-21",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-40",
+    "BP-TENANT-ADMIN-41",
+    "BP-TENANT-ADMIN-44",
+    "BP-TENANT-ADMIN-46",
+    "BP-TENANT-ADMIN-47"
+   ],
+   "evidence": {
+    "BP-ASSETS-15": "GET /api/v1/modules/assets/approval-access",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/approval-access",
+    "BP-STOCK-21": "GET /api/v1/modules/stock/approval-access",
+    "BP-STOCK-26": "GET /api/v1/modules/stock/approval-access",
+    "BP-STOCK-27": "Letflow.ApprovalRules.four_eyes_off?",
+    "BP-STOCK-35": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+    "BP-STOCK-39": "GET /api/v1/modules/stock/approval-access",
+    "BP-TENANT-ADMIN-20": "GET /api/v1/approval-rules",
+    "BP-TENANT-ADMIN-21": "Letflow.ApprovalRules.four_eyes_off?",
+    "BP-TENANT-ADMIN-33": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+    "BP-TENANT-ADMIN-40": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+    "BP-TENANT-ADMIN-41": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/approval-rules",
+    "BP-TENANT-ADMIN-46": "GET /api/v1/approval-rules",
+    "BP-TENANT-ADMIN-47": "GET /api/v1/modules/stock/approval-access"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-013",
-   "title": "Move stock to an asset (change of kind, stock side)",
-   "feature": "F-01",
-   "application": "wms",
-   "area": "stock",
+   "title": "Record a decision on a request",
+   "feature": "F-04",
+   "application": "platform",
    "processes": [
-    "BP-ASSETS-07",
-    "BP-STOCK-18"
-   ]
+    "BP-PROCUREMENT-02",
+    "BP-PROCUREMENT-06",
+    "BP-PROCUREMENT-07",
+    "BP-PROCUREMENT-08",
+    "BP-PROCUREMENT-09",
+    "BP-PROCUREMENT-11",
+    "BP-PROCUREMENT-12",
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-13",
+    "BP-STOCK-26",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-37",
+    "BP-STOCK-39"
+   ],
+   "evidence": {
+    "BP-PROCUREMENT-02": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-06": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-07": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-08": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-09": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-11": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-12": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-STOCK-07": "stock_opening/approve",
+    "BP-STOCK-08": "stock_quick_count/approve",
+    "BP-STOCK-13": "stock_quick_count/approve",
+    "BP-STOCK-26": "stock_quick_count/approve",
+    "BP-STOCK-33": "stock_quick_count/approve",
+    "BP-STOCK-34": "stock_quick_count/approve",
+    "BP-STOCK-37": "stock_opening/approve",
+    "BP-STOCK-39": "stock_quick_count/approve"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-014",
-   "title": "Quick count of one item at one place",
-   "feature": "F-02",
-   "application": "wms",
-   "area": "stock",
+   "title": "Start a process instance",
+   "feature": "F-04",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-08",
-    "BP-STOCK-39"
-   ]
+    "BP-ASSETS-17",
+    "BP-DESIGNER-14",
+    "BP-DESIGNER-15",
+    "BP-DESIGNER-27",
+    "BP-DESIGNER-29",
+    "BP-STOCK-19",
+    "BP-STOCK-37",
+    "BP-STOCK-38"
+   ],
+   "evidence": {
+    "BP-ASSETS-17": "POST /api/v1/instances",
+    "BP-DESIGNER-14": "POST /api/v1/instances",
+    "BP-DESIGNER-15": "POST /api/v1/instances/:id/attachments",
+    "BP-DESIGNER-27": "POST /api/v1/instances",
+    "BP-DESIGNER-29": "POST /api/v1/instances/:id/attachments",
+    "BP-STOCK-19": "POST /api/v1/instances",
+    "BP-STOCK-37": "POST /api/v1/instances",
+    "BP-STOCK-38": "POST /api/v1/instances"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-015",
-   "title": "Issue and close a stock count order",
-   "feature": "F-02",
-   "application": "wms",
-   "area": "stock",
+   "title": "Post a document to the ledger",
+   "feature": "F-05",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-09"
-   ]
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-17",
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-10",
+    "BP-STOCK-13",
+    "BP-STOCK-18",
+    "BP-STOCK-19",
+    "BP-STOCK-32",
+    "BP-STOCK-37",
+    "BP-STOCK-38",
+    "BP-STOCK-40",
+    "BP-STOCK-41",
+    "BP-STOCK-43",
+    "BP-STOCK-44"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "assets.post_document",
+    "BP-ASSETS-04": "assets.post_document",
+    "BP-ASSETS-05": "assets.post_document",
+    "BP-ASSETS-06": "assets.post_document",
+    "BP-ASSETS-07": "Letflow.Modules.Assets.LedgerPolicy.declare",
+    "BP-ASSETS-08": "assets.post_document",
+    "BP-ASSETS-17": "assets.post_document",
+    "BP-STOCK-01": "stock_receipt/post",
+    "BP-STOCK-02": "stock_issue/post",
+    "BP-STOCK-03": "stock.post_document",
+    "BP-STOCK-04": "stock.post_document",
+    "BP-STOCK-05": "stock.post_document",
+    "BP-STOCK-06": "stock.post_document",
+    "BP-STOCK-07": "stock.post_document",
+    "BP-STOCK-08": "stock.post_document",
+    "BP-STOCK-10": "Letflow.Modules.Stock.LedgerPolicy.declare",
+    "BP-STOCK-13": "stock.post_document",
+    "BP-STOCK-18": "Letflow.Modules.Stock.LedgerPolicy.declare",
+    "BP-STOCK-19": "stock_receipt/post",
+    "BP-STOCK-32": "stock.post_document",
+    "BP-STOCK-37": "stock_receipt/post",
+    "BP-STOCK-38": "stock_receipt/post",
+    "BP-STOCK-40": "stock_issue/post",
+    "BP-STOCK-41": "stock_issue/post",
+    "BP-STOCK-43": "stock_issue/post",
+    "BP-STOCK-44": "stock_issue/post"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-016",
-   "title": "Sign a count sheet, review differences and post the result",
-   "feature": "F-02",
-   "application": "wms",
-   "area": "stock",
+   "title": "Reverse a posted document",
+   "feature": "F-05",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-10"
-   ]
+    "BP-ASSETS-09",
+    "BP-ASSETS-14",
+    "BP-ASSETS-15",
+    "BP-STOCK-12",
+    "BP-STOCK-16",
+    "BP-STOCK-20",
+    "BP-STOCK-27",
+    "BP-STOCK-32",
+    "BP-STOCK-37",
+    "BP-STOCK-39",
+    "BP-STOCK-43",
+    "BP-STOCK-44"
+   ],
+   "evidence": {
+    "BP-ASSETS-09": "POST /api/v1/modules/assets/documents/:id/reverse",
+    "BP-ASSETS-14": "POST /api/v1/modules/assets/documents/:id/reverse",
+    "BP-ASSETS-15": "POST /api/v1/modules/assets/documents/:id/reverse",
+    "BP-STOCK-12": "POST /api/v1/modules/stock/documents/:id/reverse",
+    "BP-STOCK-16": "POST /qoimeks/:tenant_slug/movements/:id/reverse",
+    "BP-STOCK-20": "POST /api/v1/modules/stock/documents/:id/reverse",
+    "BP-STOCK-27": "POST /api/v1/modules/stock/documents/:id/reverse",
+    "BP-STOCK-32": "POST /qoimeks/:tenant_slug/movements/:id/reverse",
+    "BP-STOCK-37": "stock_reversal/reverse",
+    "BP-STOCK-39": "POST /api/v1/modules/stock/documents/:id/reverse",
+    "BP-STOCK-43": "POST /api/v1/modules/stock/documents/:id/reverse",
+    "BP-STOCK-44": "POST /api/v1/modules/stock/documents/:id/reverse"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-017",
-   "title": "Export count paperwork and official forms (Inv-10, Inv-18)",
-   "feature": "F-02",
-   "application": "wms",
-   "area": "stock",
+   "title": "Show balances and movements",
+   "feature": "F-05",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-11"
-   ]
-  },
-  {
-   "id": "FN-018",
-   "title": "Show balances, movements and the stock card",
-   "feature": "F-03",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-15"
-   ]
-  },
-  {
-   "id": "FN-019",
-   "title": "Exchange balances through an Excel workbook (export, check, apply, cancel)",
-   "feature": "F-03",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
-    "BP-STOCK-13",
-    "BP-STOCK-42"
-   ]
-  },
-  {
-   "id": "FN-020",
-   "title": "Sign in the old phone app with the shared access value",
-   "feature": "F-04",
-   "application": "wms",
-   "area": "stock",
-   "processes": [
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-13",
+    "BP-STOCK-15",
     "BP-STOCK-16",
-    "BP-STOCK-24",
+    "BP-STOCK-22",
     "BP-STOCK-28",
     "BP-STOCK-29",
     "BP-STOCK-30",
     "BP-STOCK-31",
-    "BP-STOCK-36",
-    "BP-TENANT-ADMIN-15",
+    "BP-STOCK-32",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-35",
+    "BP-STOCK-36"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "GET /api/v1/modules/assets/balances",
+    "BP-ASSETS-04": "GET /api/v1/modules/assets/balances",
+    "BP-ASSETS-05": "GET /api/v1/modules/assets/balances",
+    "BP-ASSETS-06": "GET /api/v1/modules/assets/balances",
+    "BP-ASSETS-13": "GET /api/v1/modules/assets/balances",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/balances",
+    "BP-STOCK-16": "GET /qoimeks/:tenant_slug/balances",
+    "BP-STOCK-22": "GET /qoimeks/:tenant_slug/balances",
+    "BP-STOCK-28": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-29": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-30": "GET /qoimeks/:tenant_slug/balances",
+    "BP-STOCK-31": "GET /api/v1/modules/stock/balances",
+    "BP-STOCK-32": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-33": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-34": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-35": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-36": "GET /qoimeks/:tenant_slug/movements"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-018",
+   "title": "Reconcile the ledger with the records",
+   "feature": "F-05",
+   "application": "platform",
+   "processes": [
+    "BP-ASSETS-13",
+    "BP-ASSETS-15",
+    "BP-STOCK-15",
+    "BP-STOCK-21"
+   ],
+   "evidence": {
+    "BP-ASSETS-13": "GET /api/v1/modules/assets/reconcile",
+    "BP-ASSETS-15": "GET /api/v1/modules/assets/reconcile",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/reconcile",
+    "BP-STOCK-21": "GET /api/v1/modules/stock/reconcile"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-019",
+   "title": "Set ledger and posting rules",
+   "feature": "F-05",
+   "application": "platform",
+   "processes": [
+    "BP-STOCK-02",
+    "BP-STOCK-09",
+    "BP-STOCK-15",
+    "BP-STOCK-40",
+    "BP-STOCK-41",
+    "BP-TENANT-ADMIN-22",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-44",
+    "BP-TENANT-ADMIN-46"
+   ],
+   "evidence": {
+    "BP-STOCK-02": "Letflow.Modules.Stock.PostingRules.negative_allowed?",
+    "BP-STOCK-09": "GET /api/v1/modules/stock/frozen-locations",
+    "BP-STOCK-15": "GET /api/v1/modules/stock/posting-rules",
+    "BP-STOCK-40": "GET /api/v1/modules/stock/posting-rules",
+    "BP-STOCK-41": "GET /api/v1/modules/stock/posting-rules",
+    "BP-TENANT-ADMIN-22": "GET /api/v1/ledger-settings",
+    "BP-TENANT-ADMIN-33": "PUT /api/v1/ledger-settings/:registration",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/ledger-settings",
+    "BP-TENANT-ADMIN-46": "GET /api/v1/ledger-settings"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-020",
+   "title": "Read the audit trail",
+   "feature": "F-06",
+   "application": "platform",
+   "processes": [
+    "BP-STOCK-27",
+    "BP-TENANT-ADMIN-23",
+    "BP-TENANT-ADMIN-33",
     "BP-TENANT-ADMIN-39",
-    "BP-TENANT-ADMIN-45"
-   ]
+    "BP-TENANT-ADMIN-44"
+   ],
+   "evidence": {
+    "BP-STOCK-27": "GET /api/v1/audit",
+    "BP-TENANT-ADMIN-23": "GET /api/v1/audit",
+    "BP-TENANT-ADMIN-33": "GET /api/v1/audit",
+    "BP-TENANT-ADMIN-39": "GET /api/v1/audit",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/audit"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-021",
-   "title": "Post once per client id from the phone",
-   "feature": "F-04",
-   "application": "wms",
-   "area": "stock",
+   "title": "Keep and retire old events (retention)",
+   "feature": "F-06",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-32"
-   ]
+    "BP-PLATFORM-09",
+    "BP-PLATFORM-16"
+   ],
+   "evidence": {
+    "BP-PLATFORM-09": "GET /api/v1/event-retention/summary",
+    "BP-PLATFORM-16": "GET /api/v1/event-retention/summary"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-022",
-   "title": "Count from the phone with four-eyes on or off",
-   "feature": "F-04",
-   "application": "wms",
-   "area": "stock",
+   "title": "Import records from an Excel or CSV file",
+   "feature": "F-07",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-33",
-    "BP-STOCK-34",
-    "BP-STOCK-35"
-   ]
+    "BP-DESIGNER-03",
+    "BP-DESIGNER-08",
+    "BP-DESIGNER-29",
+    "BP-MAINTENANCE-13",
+    "BP-MAINTENANCE-20",
+    "BP-MASTER-06",
+    "BP-MASTER-07",
+    "BP-MASTER-15",
+    "BP-STOCK-13",
+    "BP-STOCK-23",
+    "BP-TENANT-ADMIN-04",
+    "BP-TENANT-ADMIN-18",
+    "BP-TENANT-ADMIN-31",
+    "BP-TENANT-ADMIN-38"
+   ],
+   "evidence": {
+    "BP-DESIGNER-03": "POST /api/v1/definitions/import",
+    "BP-DESIGNER-08": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-DESIGNER-29": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-MAINTENANCE-13": "POST /maintenance/v1/owner-list/import",
+    "BP-MAINTENANCE-20": "POST /maintenance/v1/owner-list/import",
+    "BP-MASTER-06": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-MASTER-07": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-MASTER-15": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-STOCK-13": "admin/stock/workbook-import -> WorkbookImportPage",
+    "BP-STOCK-23": "admin/stock/workbook-import -> WorkbookImportPage",
+    "BP-TENANT-ADMIN-04": "GET /api/v1/identity/users/import-template",
+    "BP-TENANT-ADMIN-18": "POST /api/v1/tenant/config-bundle/import",
+    "BP-TENANT-ADMIN-31": "admin/import",
+    "BP-TENANT-ADMIN-38": "POST /api/v1/identity/users/import"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-023",
-   "title": "Look up a scanned code and read stock from the phone",
-   "feature": "F-04",
-   "application": "wms",
-   "area": "stock",
+   "title": "Export records or a workbook to Excel",
+   "feature": "F-07",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-16",
-    "BP-STOCK-36"
-   ]
+    "BP-MAINTENANCE-12",
+    "BP-MAINTENANCE-13",
+    "BP-MAINTENANCE-20",
+    "BP-STOCK-13",
+    "BP-STOCK-20",
+    "BP-STOCK-21",
+    "BP-STOCK-23",
+    "BP-STOCK-42",
+    "BP-TENANT-ADMIN-30",
+    "BP-TENANT-ADMIN-33"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-12": "Letflow.Plugs.ReportExportAuth",
+    "BP-MAINTENANCE-13": "Letflow.Plugs.ReportExportAuth",
+    "BP-MAINTENANCE-20": "Letflow.Plugs.ReportExportAuth",
+    "BP-STOCK-13": "GET /api/v1/modules/stock/stock-workbook",
+    "BP-STOCK-20": "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel",
+    "BP-STOCK-21": "POST /api/v1/modules/stock/stock-workbook/apply",
+    "BP-STOCK-23": "POST /api/v1/modules/stock/stock-workbook/check",
+    "BP-STOCK-42": "GET /api/v1/modules/stock/stock-workbook",
+    "BP-TENANT-ADMIN-30": "GET /api/v1/data-export/datasets",
+    "BP-TENANT-ADMIN-33": "POST /api/v1/data-export"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-024",
-   "title": "Start a new company on stock with fresh-tenant defaults",
-   "feature": "F-04",
-   "application": "wms",
-   "area": "stock",
+   "title": "Attach a file or a photo to a record",
+   "feature": "F-08",
+   "application": "platform",
    "processes": [
-    "BP-STOCK-27"
-   ]
+    "BP-ASSETS-02",
+    "BP-ASSETS-16",
+    "BP-DESIGNER-07",
+    "BP-DESIGNER-15",
+    "BP-DESIGNER-29",
+    "BP-MAINTENANCE-02",
+    "BP-MAINTENANCE-15",
+    "BP-MAINTENANCE-16",
+    "BP-MAINTENANCE-18",
+    "BP-PROCUREMENT-05",
+    "BP-PROCUREMENT-06",
+    "BP-PROCUREMENT-07",
+    "BP-PROCUREMENT-08",
+    "BP-PROCUREMENT-10",
+    "BP-PROCUREMENT-11"
+   ],
+   "evidence": {
+    "BP-ASSETS-02": "POST /api/v1/modules/assets/cards/:id/photos",
+    "BP-ASSETS-16": "POST /api/v1/modules/assets/cards/:id/photos",
+    "BP-DESIGNER-07": "POST /api/v1/entities/records/:entity_type/:record_id/attachments",
+    "BP-DESIGNER-15": "POST /api/v1/instances/:id/attachments",
+    "BP-DESIGNER-29": "POST /api/v1/instances/:id/attachments",
+    "BP-MAINTENANCE-02": "POST /api/v1/modules/maintenance/requests/:id/photos",
+    "BP-MAINTENANCE-15": "GET /api/v1/modules/maintenance/requests/:id/photos",
+    "BP-MAINTENANCE-16": "POST /api/v1/modules/maintenance/requests/:id/photos",
+    "BP-MAINTENANCE-18": "POST /api/v1/modules/maintenance/requests/:id/photos",
+    "BP-PROCUREMENT-05": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-06": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-07": "GET /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-08": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-10": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-11": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-025",
-   "title": "Keep an asset card (register, correct, retire)",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
+   "title": "Search and filter records",
+   "feature": "F-09",
+   "application": "platform",
    "processes": [
-    "BP-ASSETS-01"
-   ]
+    "BP-DESIGNER-01",
+    "BP-DESIGNER-07",
+    "BP-DESIGNER-09"
+   ],
+   "evidence": {
+    "BP-DESIGNER-01": "GET /api/v1/definitions/search",
+    "BP-DESIGNER-07": "POST /api/v1/entities/query",
+    "BP-DESIGNER-09": "GET /api/v1/entity-views"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-026",
-   "title": "Keep card photos",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
+   "title": "Look up a master record by name",
+   "feature": "F-09",
+   "application": "platform",
    "processes": [
-    "BP-ASSETS-02",
-    "BP-ASSETS-16"
-   ]
+    "BP-DESIGNER-06",
+    "BP-DESIGNER-13"
+   ],
+   "evidence": {
+    "BP-DESIGNER-06": "GET /api/v1/entities/definitions/by-name/:name",
+    "BP-DESIGNER-13": "GET /api/v1/script-policy/readable-masters"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-027",
-   "title": "Commission an asset into the register",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
+   "title": "Sign in and find my tenant",
+   "feature": "F-10",
+   "application": "platform",
    "processes": [
-    "BP-ASSETS-03"
-   ]
+    "BP-PLATFORM-13",
+    "BP-PLATFORM-19",
+    "BP-PLATFORM-22",
+    "BP-PLATFORM-23",
+    "BP-TENANT-ADMIN-01",
+    "BP-TENANT-ADMIN-17",
+    "BP-TENANT-ADMIN-37",
+    "BP-TENANT-ADMIN-42"
+   ],
+   "evidence": {
+    "BP-PLATFORM-13": "GET /api/signup/config",
+    "BP-PLATFORM-19": "POST /api/signup/verify",
+    "BP-PLATFORM-22": "any authenticated route, for example GET /api/v1/tenants",
+    "BP-PLATFORM-23": "GET /verify/:handle (web page)",
+    "BP-TENANT-ADMIN-01": "GET /api/tenant-config",
+    "BP-TENANT-ADMIN-17": "GET /api/mobile/tenant-config",
+    "BP-TENANT-ADMIN-37": "GET /api/tenant-config",
+    "BP-TENANT-ADMIN-42": "GET /api/tenant-config"
+   },
+   "kind": "shared"
   },
   {
    "id": "FN-028",
-   "title": "Change the responsible person of an asset",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-04"
-   ]
-  },
-  {
-   "id": "FN-029",
-   "title": "Hand an asset over to another org unit",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-05"
-   ]
-  },
-  {
-   "id": "FN-030",
-   "title": "Write off an asset",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-06"
-   ]
-  },
-  {
-   "id": "FN-031",
-   "title": "Open the asset register from existing cards",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-08"
-   ]
-  },
-  {
-   "id": "FN-032",
-   "title": "Reverse an asset document",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-09"
-   ]
-  },
-  {
-   "id": "FN-033",
-   "title": "Find, correct and discard a draft asset document",
-   "feature": "F-05",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-10"
-   ]
-  },
-  {
-   "id": "FN-034",
-   "title": "Order, sheet, scan and close an asset count",
-   "feature": "F-06",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-11"
-   ]
-  },
-  {
-   "id": "FN-035",
-   "title": "Decide count results and sign an asset count",
-   "feature": "F-06",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-12"
-   ]
-  },
-  {
-   "id": "FN-036",
-   "title": "Report asset balances, movements and reconcile",
-   "feature": "F-07",
-   "application": "assets",
-   "area": "assets",
-   "processes": [
-    "BP-ASSETS-13"
-   ]
-  },
-  {
-   "id": "FN-037",
-   "title": "Print the official asset card form (DA-2)",
-   "feature": "F-19",
+   "title": "Manage users and their status",
+   "feature": "F-10",
    "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-ASSETS-01"
-   ]
-  },
-  {
-   "id": "FN-038",
-   "title": "Raise and submit a purchase request",
-   "feature": "F-08",
-   "application": "wms",
-   "area": "procurement",
-   "processes": [
-    "BP-PROCUREMENT-01"
-   ]
-  },
-  {
-   "id": "FN-039",
-   "title": "Decide a purchase request (approve, reject, return)",
-   "feature": "F-08",
-   "application": "wms",
-   "area": "procurement",
-   "processes": [
-    "BP-PROCUREMENT-02"
-   ]
-  },
-  {
-   "id": "FN-040",
-   "title": "Record handler, supplier and order of an approved line",
-   "feature": "F-08",
-   "application": "wms",
-   "area": "procurement",
-   "processes": [
-    "BP-PROCUREMENT-03"
-   ]
-  },
-  {
-   "id": "FN-041",
-   "title": "Cancel a line and close a purchase request",
-   "feature": "F-08",
-   "application": "wms",
-   "area": "procurement",
-   "processes": [
-    "BP-PROCUREMENT-04"
-   ]
-  },
-  {
-   "id": "FN-042",
-   "title": "Attach and download purchase request files",
-   "feature": "F-08",
-   "application": "wms",
-   "area": "procurement",
-   "processes": [
-    "BP-PROCUREMENT-05"
-   ]
-  },
-  {
-   "id": "FN-043",
-   "title": "Identify the company from its address and sign in",
-   "feature": "F-11",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-01",
-    "BP-TENANT-ADMIN-42"
-   ]
-  },
-  {
-   "id": "FN-044",
-   "title": "Show my access, modules and first screen",
-   "feature": "F-11",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-02"
-   ]
-  },
-  {
-   "id": "FN-045",
-   "title": "Maintain company users (create, import, deactivate)",
-   "feature": "F-11",
-   "application": "platform",
-   "area": "tenant-admin",
    "processes": [
     "BP-TENANT-ADMIN-03",
     "BP-TENANT-ADMIN-04",
     "BP-TENANT-ADMIN-05",
     "BP-TENANT-ADMIN-06",
-    "BP-TENANT-ADMIN-07"
-   ]
+    "BP-TENANT-ADMIN-07",
+    "BP-TENANT-ADMIN-13",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-35",
+    "BP-TENANT-ADMIN-38",
+    "BP-TENANT-ADMIN-39",
+    "BP-TENANT-ADMIN-43",
+    "BP-TENANT-ADMIN-44"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-03": "GET /api/v1/identity/users",
+    "BP-TENANT-ADMIN-04": "GET /api/v1/identity/users/import-template",
+    "BP-TENANT-ADMIN-05": "POST /api/v1/identity/users/:id/sign-in",
+    "BP-TENANT-ADMIN-06": "POST /api/v1/identity/users/:id/status",
+    "BP-TENANT-ADMIN-07": "PUT /api/v1/identity/users/:id/service-principal",
+    "BP-TENANT-ADMIN-13": "GET /api/v1/identity/pending-admin-grants",
+    "BP-TENANT-ADMIN-33": "GET /api/v1/identity/users",
+    "BP-TENANT-ADMIN-34": "GET /api/v1/identity/users/:id",
+    "BP-TENANT-ADMIN-35": "POST /api/v1/identity/users/:id/status",
+    "BP-TENANT-ADMIN-38": "POST /api/v1/identity/users/import",
+    "BP-TENANT-ADMIN-39": "GET /api/v1/identity/users",
+    "BP-TENANT-ADMIN-43": "GET /api/v1/identity/users/:id",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/identity/users"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-046",
-   "title": "Manage groups and role bindings",
-   "feature": "F-12",
+   "id": "FN-029",
+   "title": "Give roles, groups and scope to users",
+   "feature": "F-10",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
     "BP-TENANT-ADMIN-08",
-    "BP-TENANT-ADMIN-09"
-   ]
-  },
-  {
-   "id": "FN-047",
-   "title": "Read and change role grants",
-   "feature": "F-12",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-10"
-   ]
-  },
-  {
-   "id": "FN-048",
-   "title": "Grant a role access to a part of the organisation (scope)",
-   "feature": "F-12",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
+    "BP-TENANT-ADMIN-09",
+    "BP-TENANT-ADMIN-10",
     "BP-TENANT-ADMIN-11",
-    "BP-TENANT-ADMIN-12"
-   ]
+    "BP-TENANT-ADMIN-12",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-35",
+    "BP-TENANT-ADMIN-36",
+    "BP-TENANT-ADMIN-44"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-08": "POST /api/v1/identity/groups",
+    "BP-TENANT-ADMIN-09": "GET /api/v1/identity/roles",
+    "BP-TENANT-ADMIN-10": "GET /api/v1/tenant/role-grants",
+    "BP-TENANT-ADMIN-11": "POST /api/v1/tenant/role-scope-grants",
+    "BP-TENANT-ADMIN-12": "GET /api/v1/tenant/scope-enforcement",
+    "BP-TENANT-ADMIN-34": "DELETE /api/v1/identity/groups/:id",
+    "BP-TENANT-ADMIN-35": "POST /api/v1/identity/roles/:id/rebind",
+    "BP-TENANT-ADMIN-36": "PUT /api/v1/tenant/scope-enforcement",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/identity/groups"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-049",
-   "title": "Name the first administrator",
-   "feature": "F-12",
+   "id": "FN-030",
+   "title": "Issue and revoke an access token",
+   "feature": "F-10",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-13"
-   ]
+    "BP-DESIGNER-22",
+    "BP-DESIGNER-26",
+    "BP-DESIGNER-30",
+    "BP-PLATFORM-23",
+    "BP-TENANT-ADMIN-14",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-35",
+    "BP-TENANT-ADMIN-43",
+    "BP-TENANT-ADMIN-44"
+   ],
+   "evidence": {
+    "BP-DESIGNER-22": "POST /api/v1/public-read-handles",
+    "BP-DESIGNER-26": "GET /api/public/:kind/:handle",
+    "BP-DESIGNER-30": "POST /api/v1/public-read-handles",
+    "BP-PLATFORM-23": "GET /api/public/certificate/:handle",
+    "BP-TENANT-ADMIN-14": "POST /api/v1/identity/tokens",
+    "BP-TENANT-ADMIN-34": "DELETE /api/v1/identity/tokens/:id",
+    "BP-TENANT-ADMIN-35": "POST /api/v1/identity/tokens",
+    "BP-TENANT-ADMIN-43": "POST /api/v1/identity/tokens",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/identity/tokens"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-050",
-   "title": "Issue and revoke API tokens",
-   "feature": "F-12",
+   "id": "FN-031",
+   "title": "Share stock access with another tenant",
+   "feature": "F-10",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-14"
-   ]
+    "BP-STOCK-28",
+    "BP-STOCK-29",
+    "BP-STOCK-30",
+    "BP-STOCK-31",
+    "BP-STOCK-32",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-35",
+    "BP-STOCK-36",
+    "BP-TENANT-ADMIN-15",
+    "BP-TENANT-ADMIN-39",
+    "BP-TENANT-ADMIN-44",
+    "BP-TENANT-ADMIN-45"
+   ],
+   "evidence": {
+    "BP-STOCK-28": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-29": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-30": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-31": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-32": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-33": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-34": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-35": "GET /api/v1/identity/shared-stock-access",
+    "BP-STOCK-36": "GET /api/v1/identity/shared-stock-access",
+    "BP-TENANT-ADMIN-15": "GET /api/v1/identity/shared-stock-access",
+    "BP-TENANT-ADMIN-39": "POST /api/v1/identity/shared-stock-access",
+    "BP-TENANT-ADMIN-44": "GET /api/v1/identity/shared-stock-access",
+    "BP-TENANT-ADMIN-45": "GET /api/v1/identity/shared-stock-access"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-051",
-   "title": "Set company settings, appearance and logo",
-   "feature": "F-13",
+   "id": "FN-032",
+   "title": "Manage my own account and preferences",
+   "feature": "F-10",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-16",
-    "BP-TENANT-ADMIN-17"
-   ]
+    "BP-TENANT-ADMIN-01",
+    "BP-TENANT-ADMIN-02",
+    "BP-TENANT-ADMIN-24",
+    "BP-TENANT-ADMIN-25",
+    "BP-TENANT-ADMIN-37",
+    "BP-TENANT-ADMIN-43",
+    "BP-TENANT-ADMIN-46"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-01": "GET /api/v1/me",
+    "BP-TENANT-ADMIN-02": "GET /api/v1/me/access",
+    "BP-TENANT-ADMIN-24": "GET /api/v1/me/notifications",
+    "BP-TENANT-ADMIN-25": "GET /api/v1/me/preferences",
+    "BP-TENANT-ADMIN-37": "GET /api/v1/me",
+    "BP-TENANT-ADMIN-43": "GET /api/v1/me/memberships",
+    "BP-TENANT-ADMIN-46": "GET /api/v1/me"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-052",
-   "title": "Export and import the company configuration bundle",
-   "feature": "F-13",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-18"
-   ]
-  },
-  {
-   "id": "FN-053",
-   "title": "Install, upgrade and remove modules and solutions",
-   "feature": "F-13",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-DESIGNER-05",
-    "BP-TENANT-ADMIN-19"
-   ]
-  },
-  {
-   "id": "FN-054",
-   "title": "Install the manufacturing module shell",
-   "feature": "F-27",
-   "application": "mes",
-   "area": "mes",
-   "processes": [
-    "BP-MES-01"
-   ]
-  },
-  {
-   "id": "FN-055",
-   "title": "Switch the four-eyes rule per process step",
-   "feature": "F-12",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-20"
-   ]
-  },
-  {
-   "id": "FN-056",
-   "title": "Read the audit log",
+   "id": "FN-033",
+   "title": "Maintain places, sites and locations",
    "feature": "F-11",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-23"
-   ]
+    "BP-MASTER-01",
+    "BP-MASTER-04",
+    "BP-MASTER-05",
+    "BP-MASTER-07",
+    "BP-MASTER-11",
+    "BP-MASTER-12",
+    "BP-MASTER-13",
+    "BP-MASTER-14",
+    "BP-STOCK-09"
+   ],
+   "evidence": {
+    "BP-MASTER-01": "POST /api/v1/modules/org/sites",
+    "BP-MASTER-04": "POST /api/v1/modules/locations/nodes",
+    "BP-MASTER-05": "POST /api/v1/modules/locations/links",
+    "BP-MASTER-07": "admin/locations",
+    "BP-MASTER-11": "POST /api/v1/modules/locations/nodes",
+    "BP-MASTER-12": "PATCH /api/v1/modules/locations/nodes/:id",
+    "BP-MASTER-13": "POST /api/v1/modules/locations/nodes",
+    "BP-MASTER-14": "POST /api/v1/modules/org/sites",
+    "BP-STOCK-09": "GET /api/v1/modules/stock/frozen-locations"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-057",
-   "title": "Read my notifications",
-   "feature": "F-14",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-24"
-   ]
-  },
-  {
-   "id": "FN-058",
-   "title": "Edit notification templates and read the delivery log",
-   "feature": "F-14",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-26"
-   ]
-  },
-  {
-   "id": "FN-059",
-   "title": "Switch currencies and choose the company currency",
-   "feature": "F-13",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-27"
-   ]
-  },
-  {
-   "id": "FN-060",
-   "title": "Override screen wording",
-   "feature": "F-13",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-28"
-   ]
-  },
-  {
-   "id": "FN-061",
-   "title": "Define document number sequences",
-   "feature": "F-13",
-   "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-29"
-   ]
-  },
-  {
-   "id": "FN-062",
-   "title": "Export company data sets",
+   "id": "FN-034",
+   "title": "Maintain the organisation (units, employees, positions)",
    "feature": "F-11",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-30"
-   ]
+    "BP-MASTER-01",
+    "BP-MASTER-02",
+    "BP-MASTER-03",
+    "BP-MASTER-07",
+    "BP-MASTER-11",
+    "BP-MASTER-12",
+    "BP-MASTER-13",
+    "BP-MASTER-14"
+   ],
+   "evidence": {
+    "BP-MASTER-01": "POST /api/v1/modules/org/legal-entities",
+    "BP-MASTER-02": "POST /api/v1/modules/org/units",
+    "BP-MASTER-03": "POST /api/v1/modules/org/positions",
+    "BP-MASTER-07": "admin/org",
+    "BP-MASTER-11": "POST /api/v1/modules/org/legal-entities",
+    "BP-MASTER-12": "POST /api/v1/modules/org/units/:id/retire",
+    "BP-MASTER-13": "POST /api/v1/modules/org/units/:id/retire",
+    "BP-MASTER-14": "admin/org"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-063",
-   "title": "Read help topics and use the master-data import page",
+   "id": "FN-035",
+   "title": "Maintain items, currencies and number sequences",
    "feature": "F-11",
    "application": "platform",
-   "area": "tenant-admin",
    "processes": [
-    "BP-TENANT-ADMIN-31"
-   ]
+    "BP-MASTER-06",
+    "BP-MASTER-08",
+    "BP-MASTER-11",
+    "BP-MASTER-15",
+    "BP-TENANT-ADMIN-27",
+    "BP-TENANT-ADMIN-29",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-41"
+   ],
+   "evidence": {
+    "BP-MASTER-06": "ItemsPage",
+    "BP-MASTER-08": "POST /api/v1/modules/catalog_items/lots",
+    "BP-MASTER-11": "POST /api/v1/modules/catalog_items/lots",
+    "BP-MASTER-15": "ItemsPage",
+    "BP-TENANT-ADMIN-27": "GET /api/v1/currencies",
+    "BP-TENANT-ADMIN-29": "POST /api/v1/number-sequences",
+    "BP-TENANT-ADMIN-33": "POST /api/v1/number-sequences",
+    "BP-TENANT-ADMIN-41": "POST /api/v1/number-sequences"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-064",
-   "title": "My settings and problem reports",
+   "id": "FN-036",
+   "title": "Define a record type and its fields",
    "feature": "F-11",
    "application": "platform",
-   "area": "tenant-admin",
-   "processes": [
-    "BP-TENANT-ADMIN-25"
-   ]
-  },
-  {
-   "id": "FN-065",
-   "title": "Work my tasks in My Tasks",
-   "feature": "F-16",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-16",
-    "BP-TENANT-ADMIN-32"
-   ]
-  },
-  {
-   "id": "FN-066",
-   "title": "Draft, check and change a process definition",
-   "feature": "F-15",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-01"
-   ]
-  },
-  {
-   "id": "FN-067",
-   "title": "Activate, retire and archive a process definition",
-   "feature": "F-15",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-02"
-   ]
-  },
-  {
-   "id": "FN-068",
-   "title": "Export, import and roll back a process definition",
-   "feature": "F-15",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-03"
-   ]
-  },
-  {
-   "id": "FN-069",
-   "title": "Promote a definition between tenants with review",
-   "feature": "F-15",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-04",
-    "BP-PLATFORM-14"
-   ]
-  },
-  {
-   "id": "FN-070",
-   "title": "List services a process may call",
-   "feature": "F-15",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-23",
-    "BP-PLATFORM-11"
-   ]
-  },
-  {
-   "id": "FN-071",
-   "title": "Define a record type and activate it",
-   "feature": "F-17",
-   "application": "platform",
-   "area": "designer",
    "processes": [
     "BP-DESIGNER-06",
+    "BP-DESIGNER-07",
+    "BP-DESIGNER-09",
+    "BP-DESIGNER-24",
+    "BP-DESIGNER-25",
     "BP-DESIGNER-33"
-   ]
+   ],
+   "evidence": {
+    "BP-DESIGNER-06": "POST /api/v1/entities/definitions",
+    "BP-DESIGNER-07": "entities/:entityType",
+    "BP-DESIGNER-09": "entities/:entityType",
+    "BP-DESIGNER-24": "POST /api/v1/entities/definitions",
+    "BP-DESIGNER-25": "GET /api/v1/entities/definitions/:id",
+    "BP-DESIGNER-33": "POST /api/v1/entities/definitions"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-072",
-   "title": "Create, change, find and attach records",
-   "feature": "F-17",
+   "id": "FN-037",
+   "title": "Create and change records of a defined type",
+   "feature": "F-11",
    "application": "platform",
-   "area": "designer",
    "processes": [
-    "BP-DESIGNER-07"
-   ]
-  },
-  {
-   "id": "FN-073",
-   "title": "Import and export records",
-   "feature": "F-17",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-08"
-   ]
-  },
-  {
-   "id": "FN-074",
-   "title": "Save and share a list view",
-   "feature": "F-17",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-09"
-   ]
-  },
-  {
-   "id": "FN-075",
-   "title": "Derive field values before a record is saved",
-   "feature": "F-17",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-10"
-   ]
-  },
-  {
-   "id": "FN-076",
-   "title": "Run a script after a record event",
-   "feature": "F-18",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-11"
-   ]
-  },
-  {
-   "id": "FN-077",
-   "title": "Write, test, publish and withdraw a business rule script",
-   "feature": "F-18",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-12",
-    "BP-DESIGNER-13",
-    "BP-DESIGNER-32"
-   ]
-  },
-  {
-   "id": "FN-078",
-   "title": "Start a process and follow it",
-   "feature": "F-16",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-14"
-   ]
-  },
-  {
-   "id": "FN-079",
-   "title": "Attach files to a running process",
-   "feature": "F-16",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-15"
-   ]
-  },
-  {
-   "id": "FN-080",
-   "title": "Retry or discard failed jobs",
-   "feature": "F-16",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-17"
-   ]
-  },
-  {
-   "id": "FN-081",
-   "title": "Notify another system by webhook",
-   "feature": "F-18",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-18",
-    "BP-DESIGNER-30"
-   ]
-  },
-  {
-   "id": "FN-082",
-   "title": "Map fields for an integration",
-   "feature": "F-18",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-19"
-   ]
-  },
-  {
-   "id": "FN-083",
-   "title": "Run a job on a schedule",
-   "feature": "F-18",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-20"
-   ]
-  },
-  {
-   "id": "FN-084",
-   "title": "Govern documents: retention, hold, print layout",
-   "feature": "F-19",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-DESIGNER-21"
-   ]
-  },
-  {
-   "id": "FN-085",
-   "title": "Print code labels as PDF",
-   "feature": "F-19",
-   "application": "platform",
-   "area": "designer",
-   "processes": [
-    "BP-MASTER-10"
-   ]
-  },
-  {
-   "id": "FN-086",
-   "title": "Share a record read-only by public handle",
-   "feature": "F-23",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-DESIGNER-22"
-   ]
-  },
-  {
-   "id": "FN-087",
-   "title": "Check a certificate by its public handle",
-   "feature": "F-23",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-EXAM-06",
-    "BP-PLATFORM-23"
-   ]
-  },
-  {
-   "id": "FN-088",
-   "title": "Register a tenant and look it up",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-01"
-   ]
-  },
-  {
-   "id": "FN-089",
-   "title": "Suspend, reactivate and purge a tenant",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-02"
-   ]
-  },
-  {
-   "id": "FN-090",
-   "title": "Give a company its own host name",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-03"
-   ]
-  },
-  {
-   "id": "FN-091",
-   "title": "Set a tenant script policy (kill switch)",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-04"
-   ]
-  },
-  {
-   "id": "FN-092",
-   "title": "Onboard a company and bind its identity realm",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-05"
-   ]
-  },
-  {
-   "id": "FN-093",
-   "title": "Provision a tenant through the provisioner interface",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-06",
-    "BP-PLATFORM-18"
-   ]
-  },
-  {
-   "id": "FN-094",
-   "title": "Sign up a new company and find a company by e-mail",
-   "feature": "F-20",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-13",
-    "BP-PLATFORM-19"
-   ]
-  },
-  {
-   "id": "FN-095",
-   "title": "Roll a module version out to the fleet",
-   "feature": "F-21",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-07"
-   ]
-  },
-  {
-   "id": "FN-096",
-   "title": "Run a tenant-schema migration across tenants",
-   "feature": "F-21",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-08"
-   ]
-  },
-  {
-   "id": "FN-097",
-   "title": "Retire the oldest month of event history",
-   "feature": "F-21",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-09"
-   ]
-  },
-  {
-   "id": "FN-098",
-   "title": "Watch platform health, readiness and metrics",
-   "feature": "F-21",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-PLATFORM-10",
-    "BP-PLATFORM-15"
-   ]
-  },
-  {
-   "id": "FN-099",
-   "title": "Handle problem reports from companies",
-   "feature": "F-22",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-MAINTENANCE-12",
-    "BP-MAINTENANCE-13",
-    "BP-MAINTENANCE-20",
-    "BP-PLATFORM-12"
-   ]
-  },
-  {
-   "id": "FN-100",
-   "title": "Maintain legal entities and sites",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-01"
-   ]
-  },
-  {
-   "id": "FN-101",
-   "title": "Maintain the org unit tree",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-02"
-   ]
-  },
-  {
-   "id": "FN-102",
-   "title": "Maintain positions and employees",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-03"
-   ]
-  },
-  {
-   "id": "FN-103",
-   "title": "Maintain the location tree",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-04"
-   ]
-  },
-  {
-   "id": "FN-104",
-   "title": "Link org units to locations",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-05"
-   ]
-  },
-  {
-   "id": "FN-105",
-   "title": "Load catalog and org data from a file",
-   "feature": "F-09",
-   "application": "platform",
-   "area": "master",
-   "processes": [
+    "BP-DESIGNER-07",
+    "BP-DESIGNER-08",
+    "BP-DESIGNER-29",
     "BP-MASTER-06",
     "BP-MASTER-07",
     "BP-MASTER-15"
-   ]
+   ],
+   "evidence": {
+    "BP-DESIGNER-07": "POST /api/v1/entities/records/:entity_type",
+    "BP-DESIGNER-08": "POST /api/v1/entities/records/:entity_type/export",
+    "BP-DESIGNER-29": "POST /api/v1/entities/records/:entity_type/:record_id/attachments",
+    "BP-MASTER-06": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-MASTER-07": "POST /api/v1/entities/records/:entity_type/import",
+    "BP-MASTER-15": "POST /api/v1/entities/records/:entity_type/import"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-106",
-   "title": "Maintain lots of an item",
-   "feature": "F-09",
+   "id": "FN-038",
+   "title": "Install, upgrade or remove a module for a tenant",
+   "feature": "F-12",
    "application": "platform",
-   "area": "master",
    "processes": [
-    "BP-MASTER-08"
-   ]
-  },
-  {
-   "id": "FN-107",
-   "title": "Receive, assign, release and retire a code",
-   "feature": "F-10",
-   "application": "platform",
-   "area": "master",
-   "processes": [
-    "BP-MASTER-09",
-    "BP-MASTER-16"
-   ]
-  },
-  {
-   "id": "FN-108",
-   "title": "Report a fault on an asset (work request)",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-01",
-    "BP-MAINTENANCE-02"
-   ]
-  },
-  {
-   "id": "FN-109",
-   "title": "Review work requests (list, read, reject)",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-03"
-   ]
-  },
-  {
-   "id": "FN-110",
-   "title": "Create and assign a work order",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-04",
-    "BP-MAINTENANCE-05"
-   ]
-  },
-  {
-   "id": "FN-111",
-   "title": "Report work done and close a work order",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-06",
-    "BP-MAINTENANCE-07"
-   ]
-  },
-  {
-   "id": "FN-112",
-   "title": "Read and list work orders",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-08"
-   ]
-  },
-  {
-   "id": "FN-113",
-   "title": "Show work requests and orders on screens and phone",
-   "feature": "F-25",
-   "application": "maintenance",
-   "area": "maintenance",
-   "processes": [
-    "BP-MAINTENANCE-09",
-    "BP-MAINTENANCE-10",
-    "BP-MAINTENANCE-11"
-   ]
-  },
-  {
-   "id": "FN-114",
-   "title": "Keep the question bank",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-01"
-   ]
-  },
-  {
-   "id": "FN-115",
-   "title": "Build an exam",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-02"
-   ]
-  },
-  {
-   "id": "FN-116",
-   "title": "Find and start an exam",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-03"
-   ]
-  },
-  {
-   "id": "FN-117",
-   "title": "Sit an exam and submit",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-04"
-   ]
-  },
-  {
-   "id": "FN-118",
-   "title": "Grade short-text answers",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-05"
-   ]
-  },
-  {
-   "id": "FN-119",
-   "title": "See exam results and the certificate",
-   "feature": "F-26",
-   "application": "exam",
-   "area": "exam",
-   "processes": [
-    "BP-EXAM-06"
-   ]
-  },
-  {
-   "id": "FN-120",
-   "title": "Check the permission of the role on every route",
-   "feature": "F-24",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-ASSETS-15",
-    "BP-DESIGNER-24",
-    "BP-EXAM-07",
-    "BP-MAINTENANCE-16",
-    "BP-MASTER-11",
+    "BP-MES-01",
+    "BP-MES-02",
     "BP-MES-03",
+    "BP-PLATFORM-07",
     "BP-PLATFORM-16",
-    "BP-PROCUREMENT-06",
-    "BP-STOCK-21",
-    "BP-TENANT-ADMIN-33",
-    "BP-TENANT-ADMIN-44"
-   ]
+    "BP-TENANT-ADMIN-19",
+    "BP-TENANT-ADMIN-33"
+   ],
+   "evidence": {
+    "BP-MES-01": "POST /api/v1/tenant/modules",
+    "BP-MES-02": "POST /api/v1/tenant/modules",
+    "BP-MES-03": "POST /api/v1/tenant/modules/:module_id/uninstall",
+    "BP-PLATFORM-07": "POST /api/v1/platform-module-rollouts",
+    "BP-PLATFORM-16": "GET /api/v1/platform-module-rollouts",
+    "BP-TENANT-ADMIN-19": "POST /api/v1/tenant/modules",
+    "BP-TENANT-ADMIN-33": "POST /api/v1/tenant/modules"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-121",
-   "title": "Refuse cross-tenant access with a uniform 404",
-   "feature": "F-24",
+   "id": "FN-039",
+   "title": "Set tenant settings, logo and hostname",
+   "feature": "F-12",
    "application": "platform",
-   "area": "platform",
    "processes": [
-    "BP-ASSETS-14",
+    "BP-TENANT-ADMIN-01",
+    "BP-TENANT-ADMIN-16",
+    "BP-TENANT-ADMIN-17",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-37",
+    "BP-TENANT-ADMIN-38",
+    "BP-TENANT-ADMIN-41",
+    "BP-TENANT-ADMIN-42"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-01": "GET /api/tenant-config/logo",
+    "BP-TENANT-ADMIN-16": "GET /api/v1/tenant/settings",
+    "BP-TENANT-ADMIN-17": "PUT /api/v1/tenant/logo",
+    "BP-TENANT-ADMIN-33": "PATCH /api/v1/tenant/settings",
+    "BP-TENANT-ADMIN-34": "PATCH /api/v1/tenant/settings",
+    "BP-TENANT-ADMIN-37": "GET /api/tenant-config/logo",
+    "BP-TENANT-ADMIN-38": "PUT /api/v1/tenant/logo",
+    "BP-TENANT-ADMIN-41": "PATCH /api/v1/tenant/settings",
+    "BP-TENANT-ADMIN-42": "GET /api/tenant-config/logo"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-040",
+   "title": "Export and import a tenant configuration",
+   "feature": "F-12",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-05",
+    "BP-TENANT-ADMIN-18",
+    "BP-TENANT-ADMIN-19",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-38",
+    "BP-TENANT-ADMIN-41"
+   ],
+   "evidence": {
+    "BP-DESIGNER-05": "POST /api/v1/solution-packs/export",
+    "BP-TENANT-ADMIN-18": "GET /api/v1/tenant/config-bundle",
+    "BP-TENANT-ADMIN-19": "POST /api/v1/tenant/solutions",
+    "BP-TENANT-ADMIN-34": "POST /api/v1/tenant/solutions",
+    "BP-TENANT-ADMIN-38": "POST /api/v1/tenant/config-bundle/import",
+    "BP-TENANT-ADMIN-41": "POST /api/v1/tenant/solutions"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-041",
+   "title": "Promote a configuration from one tenant to another",
+   "feature": "F-12",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-04",
+    "BP-DESIGNER-24",
+    "BP-DESIGNER-25"
+   ],
+   "evidence": {
+    "BP-DESIGNER-04": "POST /api/v1/promotions/plan",
+    "BP-DESIGNER-24": "POST /api/v1/promotions",
+    "BP-DESIGNER-25": "GET /api/v1/promotions/:id"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-042",
+   "title": "Design, validate and publish a process definition",
+   "feature": "F-13",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-01",
+    "BP-DESIGNER-02",
+    "BP-DESIGNER-03",
+    "BP-DESIGNER-04",
+    "BP-DESIGNER-06",
+    "BP-DESIGNER-24",
     "BP-DESIGNER-25",
     "BP-DESIGNER-26",
-    "BP-MAINTENANCE-15",
-    "BP-MASTER-12",
-    "BP-PLATFORM-17",
-    "BP-PLATFORM-20",
-    "BP-PROCUREMENT-07",
-    "BP-STOCK-20",
-    "BP-TENANT-ADMIN-34",
-    "BP-TENANT-ADMIN-43",
-    "BP-TENANT-ADMIN-46"
-   ]
-  },
-  {
-   "id": "FN-122",
-   "title": "Refuse crafted bodies and write-target overwrites",
-   "feature": "F-24",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-ASSETS-17",
-    "BP-DESIGNER-27",
-    "BP-MAINTENANCE-14",
-    "BP-MAINTENANCE-21",
-    "BP-MASTER-13",
-    "BP-MES-02",
-    "BP-MES-04",
-    "BP-PROCUREMENT-09",
-    "BP-STOCK-19",
-    "BP-TENANT-ADMIN-41"
-   ]
-  },
-  {
-   "id": "FN-123",
-   "title": "Resolve token and host credentials safely",
-   "feature": "F-24",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
     "BP-DESIGNER-28",
-    "BP-MAINTENANCE-17",
-    "BP-MASTER-14",
-    "BP-PLATFORM-22",
-    "BP-PROCUREMENT-11",
-    "BP-STOCK-22",
-    "BP-TENANT-ADMIN-37"
-   ]
-  },
-  {
-   "id": "FN-124",
-   "title": "Validate uploads by type and size",
-   "feature": "F-24",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
-    "BP-ASSETS-16",
-    "BP-DESIGNER-29",
-    "BP-MAINTENANCE-18",
-    "BP-PROCUREMENT-10",
-    "BP-STOCK-23",
-    "BP-TENANT-ADMIN-38"
-   ]
-  },
-  {
-   "id": "FN-125",
-   "title": "Enforce separation of duties",
-   "feature": "F-24",
-   "application": "platform",
-   "area": "platform",
-   "processes": [
     "BP-DESIGNER-31",
-    "BP-MAINTENANCE-19",
+    "BP-STOCK-37",
+    "BP-STOCK-38"
+   ],
+   "evidence": {
+    "BP-DESIGNER-01": "POST /api/v1/definitions",
+    "BP-DESIGNER-02": "POST /api/v1/definitions/:id/activate",
+    "BP-DESIGNER-03": "GET /api/v1/definitions/:id/export",
+    "BP-DESIGNER-04": "definitions/:id/promotions/:reviewId",
+    "BP-DESIGNER-06": "GET /api/v1/entities/definitions/:id",
+    "BP-DESIGNER-24": "POST /api/v1/definitions",
+    "BP-DESIGNER-25": "GET /api/v1/definitions/:id",
+    "BP-DESIGNER-26": "GET /api/v1/definitions/:id",
+    "BP-DESIGNER-28": "GET /api/v1/definitions",
+    "BP-DESIGNER-31": "POST /api/v1/definitions/:id/reactivate",
+    "BP-STOCK-37": "GET /api/v1/definitions/active/:name",
+    "BP-STOCK-38": "POST /api/v1/definitions"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-043",
+   "title": "Write and publish a business rule script",
+   "feature": "F-13",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-12",
+    "BP-DESIGNER-24",
+    "BP-DESIGNER-31"
+   ],
+   "evidence": {
+    "BP-DESIGNER-12": "GET /api/v1/script-rules",
+    "BP-DESIGNER-24": "POST /api/v1/script-rules/:key/versions",
+    "BP-DESIGNER-31": "POST /api/v1/script-rules/:key/versions/:version/confirm"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-044",
+   "title": "Control what scripts may do (script policy)",
+   "feature": "F-13",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-13",
+    "BP-DESIGNER-24",
+    "BP-DESIGNER-31",
+    "BP-DESIGNER-32",
+    "BP-PLATFORM-04"
+   ],
+   "evidence": {
+    "BP-DESIGNER-13": "GET /api/v1/script-policy",
+    "BP-DESIGNER-24": "PUT /api/v1/script-policy/kill-switch",
+    "BP-DESIGNER-31": "PUT /api/v1/script-policy/sod",
+    "BP-DESIGNER-32": "PUT /api/v1/script-policy/kill-switch",
+    "BP-PLATFORM-04": "GET /api/v1/tenants/:slug/script-policy"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-045",
+   "title": "Run a job on a schedule or on a record change",
+   "feature": "F-13",
+   "application": "platform",
+   "processes": [
+    "BP-DESIGNER-10",
+    "BP-DESIGNER-11",
+    "BP-DESIGNER-14",
+    "BP-DESIGNER-20",
+    "BP-DESIGNER-25",
+    "BP-STOCK-37"
+   ],
+   "evidence": {
+    "BP-DESIGNER-10": "GET /api/v1/entity-type-hooks",
+    "BP-DESIGNER-11": "GET /api/v1/record-trigger-bindings",
+    "BP-DESIGNER-14": "POST /api/v1/instances/:id/advance-timer",
+    "BP-DESIGNER-20": "POST /api/v1/scheduled-jobs",
+    "BP-DESIGNER-25": "GET /api/v1/scheduled-jobs/:id",
+    "BP-STOCK-37": "GET /api/v1/scheduled-jobs"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-046",
+   "title": "Create, suspend, resume, expire and delete a tenant",
+   "feature": "F-14",
+   "application": "platform",
+   "processes": [
+    "BP-PLATFORM-01",
+    "BP-PLATFORM-02",
+    "BP-PLATFORM-03",
+    "BP-PLATFORM-04",
+    "BP-PLATFORM-05",
+    "BP-PLATFORM-06",
+    "BP-PLATFORM-13",
+    "BP-PLATFORM-14",
+    "BP-PLATFORM-16",
+    "BP-PLATFORM-17",
+    "BP-PLATFORM-18",
+    "BP-PLATFORM-19",
+    "BP-PLATFORM-20",
     "BP-PLATFORM-21",
-    "BP-PROCUREMENT-08",
-    "BP-STOCK-26",
-    "BP-TENANT-ADMIN-40",
-    "BP-TENANT-ADMIN-47"
-   ]
+    "BP-PLATFORM-22",
+    "BP-TENANT-ADMIN-46"
+   ],
+   "evidence": {
+    "BP-PLATFORM-01": "GET /api/v1/tenants",
+    "BP-PLATFORM-02": "POST /api/v1/tenants/:slug/deactivate",
+    "BP-PLATFORM-03": "PUT /api/v1/tenants/:slug/hostname",
+    "BP-PLATFORM-04": "GET /api/v1/tenants/:slug/script-policy",
+    "BP-PLATFORM-05": "POST /api/v1/onboarding",
+    "BP-PLATFORM-06": "POST /admin/v1/tenants",
+    "BP-PLATFORM-13": "GET /api/signup/config",
+    "BP-PLATFORM-14": "POST /api/v1/tenants/:test_tenant_id/promote/:process_key",
+    "BP-PLATFORM-16": "GET /api/v1/tenants",
+    "BP-PLATFORM-17": "POST /api/v1/tenants/:test_tenant_id/promote/:process_key",
+    "BP-PLATFORM-18": "POST /admin/v1/tenants",
+    "BP-PLATFORM-19": "POST /api/signup/verify",
+    "BP-PLATFORM-20": "POST /api/v1/tenants/:slug/deactivate",
+    "BP-PLATFORM-21": "POST /api/v1/onboarding/:id/bind-realm",
+    "BP-PLATFORM-22": "any authenticated route, for example GET /api/v1/tenants",
+    "BP-TENANT-ADMIN-46": "GET /api/v1/tenants"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-126",
-   "title": "Keep retries and concurrent decisions single-acting",
-   "feature": "F-24",
+   "id": "FN-047",
+   "title": "Roll a platform migration or module out to tenants",
+   "feature": "F-14",
    "application": "platform",
-   "area": "platform",
    "processes": [
-    "BP-PROCUREMENT-12",
-    "BP-STOCK-43"
-   ]
+    "BP-PLATFORM-07",
+    "BP-PLATFORM-08",
+    "BP-PLATFORM-16"
+   ],
+   "evidence": {
+    "BP-PLATFORM-07": "POST /api/v1/platform-module-rollouts",
+    "BP-PLATFORM-08": "POST /api/v1/platform-migrations/rollouts",
+    "BP-PLATFORM-16": "GET /api/v1/platform-module-rollouts"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-127",
-   "title": "Guard privilege escalation and the last administrator",
-   "feature": "F-24",
+   "id": "FN-048",
+   "title": "Watch the health, backups and failed messages",
+   "feature": "F-14",
    "application": "platform",
-   "area": "platform",
    "processes": [
-    "BP-TENANT-ADMIN-35",
-    "BP-TENANT-ADMIN-36"
-   ]
+    "BP-DESIGNER-17",
+    "BP-DESIGNER-23",
+    "BP-DESIGNER-24",
+    "BP-MAINTENANCE-12",
+    "BP-MAINTENANCE-20",
+    "BP-PLATFORM-01",
+    "BP-PLATFORM-10",
+    "BP-PLATFORM-11",
+    "BP-PLATFORM-16",
+    "BP-PLATFORM-19",
+    "BP-TENANT-ADMIN-46"
+   ],
+   "evidence": {
+    "BP-DESIGNER-17": "GET /api/v1/dlq",
+    "BP-DESIGNER-23": "GET /api/v1/services",
+    "BP-DESIGNER-24": "POST /api/v1/dlq/:id/retry",
+    "BP-MAINTENANCE-12": "GET /maintenance/v1/error-groups",
+    "BP-MAINTENANCE-20": "GET /maintenance/v1/error-groups",
+    "BP-PLATFORM-01": "platform-dashboard",
+    "BP-PLATFORM-10": "GET /health",
+    "BP-PLATFORM-11": "GET /api/v1/admin/services",
+    "BP-PLATFORM-16": "GET /api/v1/platform-status/backup",
+    "BP-PLATFORM-19": "GET /metrics",
+    "BP-TENANT-ADMIN-46": "GET /api/v1/platform-status/backup"
+   },
+   "kind": "shared"
   },
   {
-   "id": "FN-128",
-   "title": "Refuse the old address outside its rules",
-   "feature": "F-24",
+   "id": "FN-049",
+   "title": "Receive and decide a problem report",
+   "feature": "F-14",
    "application": "platform",
-   "area": "platform",
    "processes": [
-    "BP-STOCK-24",
+    "BP-MAINTENANCE-12",
+    "BP-MAINTENANCE-20",
+    "BP-PLATFORM-12",
+    "BP-PLATFORM-16",
+    "BP-TENANT-ADMIN-25"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-12": "GET /maintenance/v1/problem-reports",
+    "BP-MAINTENANCE-20": "GET /maintenance/v1/problem-reports",
+    "BP-PLATFORM-12": "GET /api/v1/platform-problem-reports",
+    "BP-PLATFORM-16": "GET /api/v1/platform-problem-reports",
+    "BP-TENANT-ADMIN-25": "POST /api/v1/me/problem-reports"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-050",
+   "title": "Create a draft stock document",
+   "feature": "F-20",
+   "application": "wms",
+   "processes": [
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-14",
+    "BP-STOCK-16",
+    "BP-STOCK-17",
+    "BP-STOCK-21",
+    "BP-STOCK-22",
+    "BP-STOCK-28",
     "BP-STOCK-29",
-    "BP-STOCK-30"
-   ]
+    "BP-STOCK-30",
+    "BP-STOCK-32",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-35",
+    "BP-STOCK-36",
+    "BP-STOCK-43"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "documents/new -> DocumentNewPage",
+    "BP-ASSETS-04": "documents/new -> DocumentNewPage",
+    "BP-ASSETS-05": "documents/new -> DocumentNewPage",
+    "BP-ASSETS-06": "documents/new -> DocumentNewPage",
+    "BP-ASSETS-07": "documents/new -> DocumentNewPage",
+    "BP-ASSETS-08": "documents/new -> DocumentNewPage",
+    "BP-STOCK-01": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-02": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-03": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-04": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-05": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-06": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-07": "POST /api/v1/modules/stock/documents",
+    "BP-STOCK-14": "GET /api/v1/modules/stock/documents",
+    "BP-STOCK-16": "GET /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-17": "admin/stock/documents/new -> DocumentNewPage",
+    "BP-STOCK-21": "GET /api/v1/modules/stock/documents",
+    "BP-STOCK-22": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-28": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-29": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-30": "GET /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-32": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-33": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-34": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-35": "POST /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-36": "GET /qoimeks/:tenant_slug/movements",
+    "BP-STOCK-43": "POST /api/v1/modules/stock/documents"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-051",
+   "title": "Issue a stock document (fix it and start its posting task)",
+   "feature": "F-20",
+   "application": "wms",
+   "processes": [
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-09",
+    "BP-ASSETS-10",
+    "BP-ASSETS-14",
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-12",
+    "BP-STOCK-13",
+    "BP-STOCK-14",
+    "BP-STOCK-19",
+    "BP-STOCK-20",
+    "BP-STOCK-32",
+    "BP-STOCK-40",
+    "BP-STOCK-43",
+    "BP-STOCK-44"
+   ],
+   "evidence": {
+    "BP-ASSETS-03": "documents/:id -> DocumentPage",
+    "BP-ASSETS-04": "documents/:id -> DocumentPage",
+    "BP-ASSETS-05": "documents/:id -> DocumentPage",
+    "BP-ASSETS-06": "documents/:id -> DocumentPage",
+    "BP-ASSETS-07": "documents/:id -> DocumentPage",
+    "BP-ASSETS-08": "documents/:id -> DocumentPage",
+    "BP-ASSETS-09": "documents/:id -> DocumentPage",
+    "BP-ASSETS-10": "documents/:id -> DocumentPage",
+    "BP-ASSETS-14": "documents/:id -> DocumentPage",
+    "BP-STOCK-01": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-02": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-03": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-04": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-05": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-06": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-07": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-08": "stock.post_document",
+    "BP-STOCK-12": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-13": "stock.post_document",
+    "BP-STOCK-14": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-19": "stock.post_document",
+    "BP-STOCK-20": "admin/stock/documents/:id -> DocumentPage",
+    "BP-STOCK-32": "stock.post_document",
+    "BP-STOCK-40": "stock.post_document",
+    "BP-STOCK-43": "POST /api/v1/modules/stock/documents/:id/issue",
+    "BP-STOCK-44": "stock.post_document"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-052",
+   "title": "Cancel a document or count before it is posted",
+   "feature": "F-20",
+   "application": "wms",
+   "processes": [
+    "BP-ASSETS-11",
+    "BP-DESIGNER-14",
+    "BP-PROCUREMENT-04",
+    "BP-PROCUREMENT-06",
+    "BP-PROCUREMENT-11",
+    "BP-PROCUREMENT-12",
+    "BP-STOCK-09",
+    "BP-STOCK-12",
+    "BP-STOCK-13",
+    "BP-STOCK-20",
+    "BP-STOCK-40",
+    "BP-STOCK-42",
+    "BP-STOCK-44"
+   ],
+   "evidence": {
+    "BP-ASSETS-11": "POST /api/v1/modules/assets/counts/:id/cancel",
+    "BP-DESIGNER-14": "POST /api/v1/instances/:id/cancel",
+    "BP-PROCUREMENT-04": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+    "BP-PROCUREMENT-06": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+    "BP-PROCUREMENT-11": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+    "BP-PROCUREMENT-12": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+    "BP-STOCK-09": "POST /api/v1/modules/stock/counts/:id/cancel",
+    "BP-STOCK-12": "POST /api/v1/modules/stock/documents/:id/cancel",
+    "BP-STOCK-13": "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel",
+    "BP-STOCK-20": "POST /api/v1/modules/stock/documents/:id/cancel",
+    "BP-STOCK-40": "POST /api/v1/modules/stock/documents/:id/cancel",
+    "BP-STOCK-42": "POST /api/v1/modules/stock/stock-workbook/imports/:id/cancel",
+    "BP-STOCK-44": "POST /api/v1/modules/stock/documents/:id/cancel"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-053",
+   "title": "Plan and open a stock count",
+   "feature": "F-21",
+   "application": "wms",
+   "processes": [
+    "BP-STOCK-08",
+    "BP-STOCK-09",
+    "BP-STOCK-10",
+    "BP-STOCK-11",
+    "BP-STOCK-12",
+    "BP-STOCK-13",
+    "BP-STOCK-20",
+    "BP-STOCK-21",
+    "BP-STOCK-26",
+    "BP-STOCK-27",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-37",
+    "BP-STOCK-39"
+   ],
+   "evidence": {
+    "BP-STOCK-08": "POST /api/v1/modules/stock/quick-counts",
+    "BP-STOCK-09": "POST /api/v1/modules/stock/counts",
+    "BP-STOCK-10": "POST /api/v1/modules/stock/counts/:id/sheet-signatures",
+    "BP-STOCK-11": "GET /api/v1/modules/stock/counts/:id/paperwork/:kind",
+    "BP-STOCK-12": "POST /api/v1/modules/stock/counts/:id/reverse",
+    "BP-STOCK-13": "stock_quick_count/approve",
+    "BP-STOCK-20": "GET /api/v1/modules/stock/counts/:id",
+    "BP-STOCK-21": "POST /api/v1/modules/stock/quick-counts",
+    "BP-STOCK-26": "stock_quick_count/approve",
+    "BP-STOCK-27": "POST /api/v1/modules/stock/quick-counts",
+    "BP-STOCK-33": "stock_quick_count/approve",
+    "BP-STOCK-34": "stock_quick_count/approve",
+    "BP-STOCK-37": "stock_quick_count/approve",
+    "BP-STOCK-39": "POST /api/v1/modules/stock/quick-counts"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-054",
+   "title": "Approve count differences and post them",
+   "feature": "F-21",
+   "application": "wms",
+   "processes": [
+    "BP-STOCK-07",
+    "BP-STOCK-08",
+    "BP-STOCK-13",
+    "BP-STOCK-26",
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-37",
+    "BP-STOCK-39"
+   ],
+   "evidence": {
+    "BP-STOCK-07": "stock_opening/approve",
+    "BP-STOCK-08": "stock_quick_count/approve",
+    "BP-STOCK-13": "stock_quick_count/approve",
+    "BP-STOCK-26": "stock_quick_count/approve",
+    "BP-STOCK-33": "stock_quick_count/approve",
+    "BP-STOCK-34": "stock_quick_count/approve",
+    "BP-STOCK-37": "stock_opening/approve",
+    "BP-STOCK-39": "stock_quick_count/approve"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-055",
+   "title": "Create and issue an asset document",
+   "feature": "F-22",
+   "application": "assets",
+   "processes": [
+    "BP-ASSETS-01",
+    "BP-ASSETS-03",
+    "BP-ASSETS-04",
+    "BP-ASSETS-05",
+    "BP-ASSETS-06",
+    "BP-ASSETS-07",
+    "BP-ASSETS-08",
+    "BP-ASSETS-09",
+    "BP-ASSETS-10",
+    "BP-ASSETS-14",
+    "BP-ASSETS-15",
+    "BP-ASSETS-17"
+   ],
+   "evidence": {
+    "BP-ASSETS-01": "Letflow.Modules.Assets.Documents.Checks.held?",
+    "BP-ASSETS-03": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-04": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-05": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-06": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-07": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-08": "POST /api/v1/modules/assets/documents",
+    "BP-ASSETS-09": "POST /api/v1/modules/assets/documents/:id/reverse",
+    "BP-ASSETS-10": "GET /api/v1/modules/assets/documents",
+    "BP-ASSETS-14": "GET /api/v1/modules/assets/documents/:id",
+    "BP-ASSETS-15": "POST /api/v1/modules/assets/documents/:id/reverse",
+    "BP-ASSETS-17": "assets.post_document"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-056",
+   "title": "Keep an asset card",
+   "feature": "F-22",
+   "application": "assets",
+   "processes": [
+    "BP-ASSETS-01",
+    "BP-ASSETS-02",
+    "BP-ASSETS-14",
+    "BP-ASSETS-15",
+    "BP-ASSETS-16"
+   ],
+   "evidence": {
+    "BP-ASSETS-01": "POST /api/v1/modules/assets/cards",
+    "BP-ASSETS-02": "POST /api/v1/modules/assets/cards/:id/photos",
+    "BP-ASSETS-14": "GET /api/v1/modules/assets/cards/:id/lock",
+    "BP-ASSETS-15": "POST /api/v1/modules/assets/cards",
+    "BP-ASSETS-16": "POST /api/v1/modules/assets/cards/:id/photos"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-057",
+   "title": "Count assets",
+   "feature": "F-22",
+   "application": "assets",
+   "processes": [
+    "BP-ASSETS-11",
+    "BP-ASSETS-12",
+    "BP-ASSETS-14",
+    "BP-ASSETS-15"
+   ],
+   "evidence": {
+    "BP-ASSETS-11": "POST /api/v1/modules/assets/counts",
+    "BP-ASSETS-12": "GET /api/v1/modules/assets/counts/:id/result",
+    "BP-ASSETS-14": "GET /api/v1/modules/assets/counts/:id",
+    "BP-ASSETS-15": "POST /api/v1/modules/assets/counts"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-058",
+   "title": "Raise a maintenance request",
+   "feature": "F-23",
+   "application": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-01",
+    "BP-MAINTENANCE-02",
+    "BP-MAINTENANCE-03",
+    "BP-MAINTENANCE-15",
+    "BP-MAINTENANCE-16",
+    "BP-MAINTENANCE-17",
+    "BP-MAINTENANCE-18"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-01": "POST /api/v1/modules/maintenance/requests",
+    "BP-MAINTENANCE-02": "POST /api/v1/modules/maintenance/requests/:id/photos",
+    "BP-MAINTENANCE-03": "GET /api/v1/modules/maintenance/requests",
+    "BP-MAINTENANCE-15": "GET /api/v1/modules/maintenance/requests/:id",
+    "BP-MAINTENANCE-16": "POST /api/v1/modules/maintenance/requests",
+    "BP-MAINTENANCE-17": "GET /api/v1/modules/maintenance/requests",
+    "BP-MAINTENANCE-18": "POST /api/v1/modules/maintenance/requests/:id/photos"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-059",
+   "title": "Plan, assign and carry out a work order",
+   "feature": "F-23",
+   "application": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-04",
+    "BP-MAINTENANCE-05",
+    "BP-MAINTENANCE-06",
+    "BP-MAINTENANCE-07",
+    "BP-MAINTENANCE-08",
+    "BP-MAINTENANCE-14",
+    "BP-MAINTENANCE-15",
+    "BP-MAINTENANCE-16",
+    "BP-MAINTENANCE-17",
+    "BP-MAINTENANCE-19",
+    "BP-MAINTENANCE-21"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-04": "POST /api/v1/modules/maintenance/orders",
+    "BP-MAINTENANCE-05": "POST /api/v1/modules/maintenance/orders/:id/assign",
+    "BP-MAINTENANCE-06": "maintenance_work_order/maintenance_work",
+    "BP-MAINTENANCE-07": "maintenance_work_order/maintenance_close",
+    "BP-MAINTENANCE-08": "GET /api/v1/modules/maintenance/orders",
+    "BP-MAINTENANCE-14": "maintenance_work_order/maintenance_work",
+    "BP-MAINTENANCE-15": "GET /api/v1/modules/maintenance/orders/:id",
+    "BP-MAINTENANCE-16": "GET /api/v1/modules/maintenance/orders",
+    "BP-MAINTENANCE-17": "POST /api/v1/modules/maintenance/orders",
+    "BP-MAINTENANCE-19": "POST /api/v1/modules/maintenance/orders/:id/assign",
+    "BP-MAINTENANCE-21": "POST /api/v1/modules/maintenance/orders/:id/assign"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-060",
+   "title": "Create and submit a purchase request",
+   "feature": "F-24",
+   "application": "wms",
+   "processes": [
+    "BP-PROCUREMENT-01",
+    "BP-PROCUREMENT-02",
+    "BP-PROCUREMENT-03",
+    "BP-PROCUREMENT-04",
+    "BP-PROCUREMENT-05",
+    "BP-PROCUREMENT-06",
+    "BP-PROCUREMENT-07",
+    "BP-PROCUREMENT-08",
+    "BP-PROCUREMENT-09",
+    "BP-PROCUREMENT-10",
+    "BP-PROCUREMENT-11",
+    "BP-PROCUREMENT-12"
+   ],
+   "evidence": {
+    "BP-PROCUREMENT-01": "POST /api/v1/modules/procurement/purchase-requests",
+    "BP-PROCUREMENT-02": "GET /api/v1/modules/procurement/purchase-requests/:id",
+    "BP-PROCUREMENT-03": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/officer",
+    "BP-PROCUREMENT-04": "POST /api/v1/modules/procurement/purchase-requests/:id/lines/:line_no/cancel",
+    "BP-PROCUREMENT-05": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-06": "POST /api/v1/modules/procurement/purchase-requests",
+    "BP-PROCUREMENT-07": "GET /api/v1/modules/procurement/purchase-requests/:id",
+    "BP-PROCUREMENT-08": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions",
+    "BP-PROCUREMENT-09": "POST /api/v1/modules/procurement/purchase-requests",
+    "BP-PROCUREMENT-10": "POST /api/v1/modules/procurement/purchase-requests/:id/attachments",
+    "BP-PROCUREMENT-11": "POST /api/v1/modules/procurement/purchase-requests",
+    "BP-PROCUREMENT-12": "POST /api/v1/modules/procurement/purchase-requests/:id/decisions"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-061",
+   "title": "Author an exam",
+   "feature": "F-25",
+   "application": "exam",
+   "processes": [
+    "BP-EXAM-01",
+    "BP-EXAM-02",
+    "BP-EXAM-07"
+   ],
+   "evidence": {
+    "BP-EXAM-01": "POST /api/v1/modules/exam/authoring/:entity_type",
+    "BP-EXAM-02": "POST /api/v1/modules/exam/authoring/:entity_type",
+    "BP-EXAM-07": "POST /api/v1/modules/exam/authoring/:entity_type"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-062",
+   "title": "Run an exam session",
+   "feature": "F-25",
+   "application": "exam",
+   "processes": [
+    "BP-EXAM-03",
+    "BP-EXAM-04",
+    "BP-EXAM-06",
+    "BP-EXAM-07"
+   ],
+   "evidence": {
+    "BP-EXAM-03": "GET /api/v1/modules/exam/exam-sessions/available",
+    "BP-EXAM-04": "GET /api/v1/modules/exam/exam-sessions/:id",
+    "BP-EXAM-06": "GET /api/v1/modules/exam/exam-sessions/mine",
+    "BP-EXAM-07": "GET /api/v1/modules/exam/exam-sessions/:id"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-063",
+   "title": "Grade an exam",
+   "feature": "F-25",
+   "application": "exam",
+   "processes": [
+    "BP-EXAM-05",
+    "BP-EXAM-07"
+   ],
+   "evidence": {
+    "BP-EXAM-05": "GET /api/v1/modules/exam/grading-queue",
+    "BP-EXAM-07": "GET /api/v1/modules/exam/grading-queue"
+   },
+   "kind": "shared"
+  },
+  {
+   "id": "FN-064",
+   "title": "Web screens for work requests",
+   "feature": "F-23",
+   "application": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-09"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-09": "process title: Web screens for work requests"
+   },
+   "kind": "process-specific"
+  },
+  {
+   "id": "FN-065",
+   "title": "Web screens for work orders and My work orders",
+   "feature": "F-23",
+   "application": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-10"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-10": "process title: Web screens for work orders and My work orders"
+   },
+   "kind": "process-specific"
+  },
+  {
+   "id": "FN-066",
+   "title": "My work orders on the phone app and PWA",
+   "feature": "F-23",
+   "application": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-11"
+   ],
+   "evidence": {
+    "BP-MAINTENANCE-11": "process title: My work orders on the phone app and PWA"
+   },
+   "kind": "process-specific"
+  },
+  {
+   "id": "FN-067",
+   "title": "Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) --",
+   "feature": "F-26",
+   "application": "mes",
+   "processes": [
+    "BP-MES-04"
+   ],
+   "evidence": {
+    "BP-MES-04": "process title: Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, ap"
+   },
+   "kind": "process-specific"
+  },
+  {
+   "id": "FN-068",
+   "title": "Prove a module's runtime is alive (runtime demo ping)",
+   "feature": "F-14",
+   "application": "platform",
+   "processes": [
+    "BP-PLATFORM-15"
+   ],
+   "evidence": {
+    "BP-PLATFORM-15": "GET /api/v1/modules/runtime_demo/ping"
+   },
+   "kind": "process-specific"
+  },
+  {
+   "id": "FN-069",
+   "title": "Override screen wording (labels)",
+   "feature": "F-12",
+   "application": "platform",
+   "processes": [
+    "BP-TENANT-ADMIN-28"
+   ],
+   "evidence": {
+    "BP-TENANT-ADMIN-28": "GET /api/v1/labels"
+   },
+   "kind": "process-specific"
   }
  ],
  "uncovered_processes": []
