@@ -47,6 +47,7 @@ defmodule Letflow.Notifications do
   alias Letflow.LoginDiscovery.Dispatch
   alias Letflow.LoginDiscovery.Notifier.Noop
   alias Letflow.NotificationTemplates
+  alias Letflow.Notifications.Address
   alias Letflow.Notifications.Delivery
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -55,6 +56,12 @@ defmodule Letflow.Notifications do
   @default_locale "en"
   @max_value_chars 500
   @email_copy_per_hour 20
+  # The outbound send cap of a tenant (T-2592, gap G4): the ceiling of the
+  # `notifications.outbound_cap_per_hour` / `notifications.outbound_cap_per_day`
+  # settings. A tenant may lower its own cap; it may not raise it above the
+  # platform ceiling (the cap is a cost guard of the platform, not a preference).
+  @default_outbound_cap_per_hour 60
+  @default_outbound_cap_per_day 500
   @default_backoff_ms [1_000, 5_000]
 
   @doc """
@@ -230,6 +237,151 @@ defmodule Letflow.Notifications do
     _exception -> warn_write_failed()
   catch
     _kind, _reason -> warn_write_failed()
+  end
+
+  @doc """
+  Sends ONE registered template to an ADDRESS -- the notification step of the
+  "Register a tenant" pilot (T-2592, gap G4).
+
+  The other send path (`deliver/7`) reaches a USER of the tenant and reads the
+  address from the user's own row. This one reaches an address the CALLER
+  resolved from a variable of the running instance, so it checks the address
+  itself (`Letflow.Notifications.Address`) and it is bound by the tenant's
+  OUTBOUND SEND CAP.
+
+  The cap: the tenant's own delivery log is the counter -- the log holds no
+  address (INV-4), so the cap is counted per tenant and per template key, never
+  per address. Only the attempts that reached the adapter count (`sent` and
+  `failed`): a send the cap refused costs nothing and must not keep the tenant
+  blocked. The caps are SETTINGS (`notifications.outbound_cap_per_hour`,
+  `notifications.outbound_cap_per_day`), not rules: an absent or malformed
+  setting falls back to the platform default.
+
+  Over the cap the row records `skipped` / `rate_limited` and NOTHING is sent.
+
+  The row it writes holds no address, no subject and no body (INV-4): the
+  recipient of an address send is not a user, so `recipient_user_id` is empty.
+
+  Never raises. Returns the outcome of the attempt as `{status, reason}` -- the
+  same vocabulary the row carries -- so the caller (the notification step) can
+  record it as the step's result.
+  """
+  @spec deliver_to_address(
+          String.t(),
+          term(),
+          term(),
+          map(),
+          String.t(),
+          String.t(),
+          keyword()
+        ) :: {String.t(), String.t() | nil}
+  def deliver_to_address(
+        template_key,
+        address,
+        trigger_ref,
+        values,
+        prefix,
+        tenant_id,
+        opts \\ []
+      )
+      when is_binary(template_key) and is_map(values) do
+    retries = Keyword.get(opts, :retries, 0)
+    tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
+    locale = locale_of(tenant)
+
+    {status, reason} =
+      address_outcome(template_key, address, values, prefix, tenant, locale, retries)
+
+    log(
+      %{
+        tenant_id: tenant_id,
+        template_key: template_key,
+        locale: locale_string(locale),
+        recipient_user_id: nil,
+        status: status,
+        reason: reason,
+        trigger_ref: trigger_ref
+      },
+      prefix
+    )
+
+    {status, reason}
+  rescue
+    _exception ->
+      warn_write_failed()
+      {"failed", "adapter_error"}
+  catch
+    _kind, _reason ->
+      warn_write_failed()
+      {"failed", "adapter_error"}
+  end
+
+  defp address_outcome(template_key, address, values, prefix, tenant, locale, retries) do
+    cond do
+      not Address.valid?(address) ->
+        # No address, or one a mail server would refuse: nothing is sent.
+        {"skipped", "no_email"}
+
+      send_capped?(prefix, template_key, tenant) ->
+        # Over the cap: the row says so, nothing leaves the platform.
+        {"skipped", "rate_limited"}
+
+      true ->
+        with {:ok, %{subject: subject, body: body}} <-
+               NotificationTemplates.preview(prefix, template_key, locale, nil, nil, values) do
+          send_message(%{to: address, subject: subject, body: body}, retries)
+        else
+          _error -> {"failed", "adapter_error"}
+        end
+    end
+  end
+
+  # The tenant's send cap. Fail closed: a count that cannot be read counts as
+  # over the cap (a flood is cheaper than a missed cap).
+  defp send_capped?(prefix, template_key, tenant) do
+    {hour_cap, day_cap} = outbound_caps(tenant)
+
+    count_outbound(prefix, template_key, 3600) >= hour_cap or
+      count_outbound(prefix, template_key, 86_400) >= day_cap
+  end
+
+  defp count_outbound(prefix, template_key, seconds) do
+    since = DateTime.add(DateTime.utc_now(), -seconds, :second)
+
+    Repo.aggregate(
+      from(d in Delivery,
+        where:
+          d.template_key == ^template_key and is_nil(d.recipient_user_id) and
+            d.status in ["sent", "failed"] and d.inserted_at > ^since
+      ),
+      :count,
+      prefix: prefix
+    )
+  rescue
+    _exception -> @default_outbound_cap_per_day * 1000
+  catch
+    _kind, _reason -> @default_outbound_cap_per_day * 1000
+  end
+
+  # The caps are SETTINGS, not rules: an absent or malformed setting falls back
+  # to the platform default. A tenant cannot raise the cap above the default by
+  # writing a setting -- only lower it.
+  defp outbound_caps(tenant) do
+    settings =
+      case tenant do
+        %Tenant{settings: settings} when is_map(settings) -> settings
+        _other -> %{}
+      end
+
+    {setting_cap(settings, "notifications.outbound_cap_per_hour", @default_outbound_cap_per_hour),
+     setting_cap(settings, "notifications.outbound_cap_per_day", @default_outbound_cap_per_day)}
+  end
+
+  defp setting_cap(settings, key, default) do
+    case Map.get(settings, key) do
+      value when is_integer(value) and value > 0 and value <= default -> value
+      _other -> default
+    end
   end
 
   defp outcome(template_key, values_fun, user_id, prefix, tenant, locale, retries) do

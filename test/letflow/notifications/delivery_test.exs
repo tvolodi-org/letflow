@@ -27,7 +27,12 @@ defmodule Letflow.Notifications.DeliveryTest do
     assert Delivery.changeset(Map.merge(@valid, %{status: "skipped", reason: "adapter_noop"})).valid?
 
     assert Delivery.statuses() == ~w(sent failed skipped)
-    assert Delivery.reasons() == ~w(no_email adapter_noop adapter_error)
+
+    # T-2592 (pilot gap G4): the reason set grew by ONE value -- the send cap of
+    # the notification step records `rate_limited` and sends nothing.
+    assert Delivery.reasons() == ~w(no_email adapter_noop adapter_error rate_limited)
+
+    assert Delivery.changeset(Map.merge(@valid, %{status: "skipped", reason: "rate_limited"})).valid?()
   end
 
   test "D2 the CHECK constraints refuse the same rows" do
@@ -46,6 +51,8 @@ defmodule Letflow.Notifications.DeliveryTest do
     assert {:error, %Postgrex.Error{}} = insert.("failed", nil)
     assert {:ok, _} = insert.("sent", nil)
     assert {:ok, _} = insert.("failed", "adapter_error")
+    # T-2592 (pilot gap G4): the send cap's reason is in the closed set too.
+    assert {:ok, _} = insert.("skipped", "rate_limited")
   end
 
   test "D3 the table holds no subject, body, address or error column" do

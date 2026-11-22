@@ -169,6 +169,7 @@ defmodule Letflow.Definitions.Graph do
   """
 
   alias Letflow.Api.Authorization
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Engine.Expr
 
   @type node_type ::
@@ -489,6 +490,7 @@ defmodule Letflow.Definitions.Graph do
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
         &check_service_task_platform_call_route/1,
+        &check_service_task_notify/1,
         &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
@@ -1065,6 +1067,10 @@ defmodule Letflow.Definitions.Graph do
     # route, next to the HTTP endpoint, the catalogue service and the Lua script: it
     # carries no endpoint of its own.
     |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") == nil))
+    # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth
+    # route, next to the HTTP endpoint, the catalogue service, the Lua script and
+    # the platform call: it carries no endpoint of its own.
+    |> Enum.filter(&(attribute_value(&1.attributes, "notify") == nil))
     |> Enum.map(fn node ->
       %Violation{
         code: :missing_endpoint,
@@ -1152,6 +1158,27 @@ defmodule Letflow.Definitions.Graph do
     end)
   end
 
+  # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth route
+  # (next to the HTTP endpoint, the catalogue service, the Lua script and the
+  # platform call). The rules of the declaration live in
+  # `Letflow.Definitions.NotifyCalls` -- ONE parse, shared with the dispatcher,
+  # so a step that passed this check cannot be read differently at dispatch time.
+  # Messages name the node id only, never a template key, an address or a value.
+  @spec check_service_task_notify(t()) :: [Violation.t()]
+  defp check_service_task_notify(%__MODULE__{nodes: nodes}) do
+    for node <- nodes,
+        node.node_type == :SERVICE_TASK,
+        attribute_value(node.attributes, "notify") != nil,
+        violation <- NotifyCalls.violations(node, nodes) do
+      %Violation{
+        code: violation.code,
+        message:
+          "Node '#{node.id}' (SERVICE_TASK) carries an invalid 'notify' attribute " <>
+            "(#{violation.code})"
+      }
+    end
+  end
+
   # REQ-569 / GH #3246 (decision 0067 D9, slice F-1): a HUMAN_TASK node may name a form-validation
   # script with "validation_script_key" + "validation_script_version". Both or neither: the key must
   # match Letflow.Scripts.Validation.key?/1 and the version be an integer >= 1. The message names the
@@ -1195,9 +1222,12 @@ defmodule Letflow.Definitions.Graph do
     # design 4.1), so CHK-11 does not apply to it.
     # T-2588 (pilot gap G2): a platform-call-bound node ignores it too: the call runs in
     # the step library's own durable dispatcher, not in the request.
+    # T-2592 (pilot gap G4): a notification-bound node ignores it as well: the send runs
+    # in the notification step's own runner, under the adapter's timeout.
     |> Enum.filter(
       &(attribute_value(&1.attributes, "script_key") == nil and
-          attribute_value(&1.attributes, "platform_call") == nil)
+          attribute_value(&1.attributes, "platform_call") == nil and
+          attribute_value(&1.attributes, "notify") == nil)
     )
     |> Enum.filter(&invalid_timeout?(&1.attributes))
     |> Enum.map(fn node ->

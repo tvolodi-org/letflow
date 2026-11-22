@@ -1059,7 +1059,12 @@ defmodule Letflow.TenantProvisioning do
     # function call (the dispatcher that runs a platform step OUTSIDE the engine's
     # transaction). Empty table for every existing tenant; no row altered.
     {20_261_122_200_001, Letflow.Repo.Migrations.CreatePlatformStepDispatches,
-     "20261122200001_create_platform_step_dispatches.exs"}
+     "20261122200001_create_platform_step_dispatches.exs"},
+    # T-2592 (pilot gap G4): the delivery log's reason set grows by `rate_limited`
+    # -- the notification step's send cap refuses a send over the cap and records the
+    # refusal in the log. No row is rewritten; the constraint on `reason` only widens.
+    {20_261_123_100_001, Letflow.Repo.Migrations.AddRateLimitedNotificationReason,
+     "20261123100001_add_rate_limited_notification_reason.exs"}
   ]
 
   @doc """
