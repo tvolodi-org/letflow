@@ -18,19 +18,37 @@ and the dispatcher are gap G1a (T-2589).
 | The registry | `Letflow.PlatformFunctions.Registry` | WHICH CODE runs a name. Closed twice over: a name the catalogue does not know has no body (`:platform_function_unknown`), and a name the catalogue declares but that has no body yet is refused (`:platform_function_not_implemented`). A body whose name is not in the catalogue is a COMPILE error. |
 | The dispatcher | `Letflow.PlatformFunctions.Dispatcher` | RUNS a step: arm the durable row, claim it, check the authority, run the body, write the result. |
 
-## The one registered function
+## The registered functions
 
-`platform.validate_registration` (family `:platform`, permission `:TenantsManage`, platform tenant
-only): it checks the slug, the display name and the e-mail of a registration and returns
-`normalized_slug` and `email_domain`. It has NO side effect -- it reads nothing, writes nothing
-and sends nothing out. It exists to prove the whole path of a platform step (catalogue entry,
-closed registry, durable dispatcher, authority fence, per-step result row) before a function
-with real side effects is registered.
+| Name | Body | What it does |
+|---|---|---|
+| `platform.validate_registration` | `Impl.ValidateRegistration` | Checks the slug, the display name and the e-mail of a registration and returns `normalized_slug` and `email_domain`. NO side effect: it reads nothing, writes nothing and sends nothing out. It proves the whole path of a platform step (catalogue entry, closed registry, durable dispatcher, authority fence, per-step result row). |
+| `tenant.create` | `Impl.TenantCreate` | Writes the tenant row of the global registry. A repeat of the same call returns the first result; a slug that belongs to ANOTHER tenant is refused. |
+| `tenant.provision` | `Impl.TenantProvision` | Creates the tenant's schema, replays its migrations, seeds its roles and its HMAC key, and activates the tenant. A repeat changes nothing. |
+| `tenant.bind_realm` | `Impl.TenantBindRealm` | Binds the identity provider's realm to the tenant. A repeat binds nothing a second time; a different realm for a bound tenant is refused. |
+| `tenant.grant_first_admins` | `Impl.TenantGrantFirstAdmins` | Stores the pending grant of the tenant's first administrator in the tenant's own schema. A repeat stores nothing a second time. |
+| `tenant.install_default_modules` | `Impl.TenantInstallDefaultModules` | Installs the tenant's default modules. A repeat installs nothing a second time (the installer answers `:already_installed`). |
 
-The tenant family of the pilot (`tenant.validate`, `tenant.create`, `tenant.provision`,
-`tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules`) is DECLARED
-in the catalogue -- the authority rule of gap G2 needs the names -- but has no body yet, so the
+`tenant.validate` (the read-only check of the pilot's tenant family) is DECLARED in the
+catalogue -- the authority rule of gap G2 needs the name -- and has no body yet, so the
 dispatcher refuses it with `:platform_function_not_implemented` instead of pretending it ran.
+
+## The code of the routes now sits behind the bodies
+
+The code that creates a tenant, provisions it, binds its realm, grants its first administrator
+and installs its default modules used to sit in the routes (`POST /tenants`,
+`POST /onboarding`, `POST /onboarding/:id/bind-realm`) and in the provisioner
+(`POST /admin/v1/tenants`). Since T-2590 (gap G1b) that code lives in the modules above, and
+the routes call THOSE modules: the route and the platform step run ONE implementation, and the
+route's answers (a 409 for a duplicate slug, a 409 for a realm that is already bound, a 404 for
+an unknown tenant) do not change. The pilot's later steps (gap G17) will make the routes START
+the definition instead of calling the code directly; until then the routes work as they always
+did.
+
+A step runs outside any person's request, so it has no operator to name: the bodies that write
+an audited row use the SYSTEM path of the product (`bind_provisioned_realm`,
+`create_provisioned`) and the nil UUID as the actor. The person who switched a version on is
+recorded where it belongs, in the definition version's signed `activated_by` document.
 
 ## The authority fence
 
@@ -190,3 +208,11 @@ has exactly one definition per key.
 * `test/letflow/platform_functions/registry_test.exs` and
   `test/letflow/platform_functions/impl/validate_registration_test.exs` -- the closed registry and
   the harmless body.
+* `test/letflow/platform_functions/impl/tenant_create_test.exs`,
+  `tenant_provision_test.exs`, `tenant_bind_realm_test.exs`,
+  `tenant_grant_first_admins_test.exs`, `tenant_install_default_modules_test.exs` and
+  `system_caller_test.exs` -- the bodies of the tenant family (gap G1b): each one is
+  registered, each one is IDEMPOTENT (a second run changes nothing and answers the same), and
+  each one refuses a value over its byte cap, an unknown tenant and a value that is not a UUID.
+  The registry test also scans the routes and the provisioner: the direct calls are gone, the
+  implementation modules carry them.

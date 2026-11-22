@@ -190,10 +190,14 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_arg_mismatch
     platform_call_arg_missing
     platform_call_arg_unknown
+    platform_call_default_modules_failed
     platform_call_definition_missing
+    platform_call_duplicate_realm
+    platform_call_duplicate_slug
     platform_call_foreign_source_refused
     platform_call_function_mismatch
     platform_call_function_unknown
+    platform_call_grant_failed
     platform_call_invalid_display_name
     platform_call_invalid_email
     platform_call_invalid_slug
@@ -201,8 +205,14 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_node_missing
     platform_call_node_not_declared
     platform_call_permission_required
+    platform_call_provision_failed
+    platform_call_realm_already_bound
+    platform_call_realm_bind_failed
     platform_call_signature_invalid
+    platform_call_tenant_create_failed
+    platform_call_tenant_not_active
     platform_call_tenant_not_allowed
+    platform_call_tenant_not_found
     platform_function_not_implemented
     platform_function_unknown
     platform_step_arm_failed
