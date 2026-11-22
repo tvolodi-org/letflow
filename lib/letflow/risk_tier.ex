@@ -26,7 +26,7 @@ defmodule Letflow.RiskTier do
       `docs/anti-patterns.md`, `docs/frontend/x-ui-widget-vocabulary.md`,
       `docs/assets/stock-workflow-documents.md`, `docs/assets/asset-register.md`,
       `docs/assets/asset-xlsx.md`, `docs/assets/kz-forms-mapping.md`,
-      `docs/open-source/audit-report.md`). Every `.yaml`
+      `docs/security-advisories.md`, `docs/open-source/audit-report.md`). Every `.yaml`
       under `docs/` (including `requirements.yaml`) is never short.
 
   Never allow-listed, whatever the class: any path containing `risk_tier` (this helper and
@@ -63,6 +63,7 @@ defmodule Letflow.RiskTier do
                           docs/assets/stock-workflow-documents.md docs/assets/asset-register.md
                           docs/assets/asset-xlsx.md docs/assets/kz-forms-mapping.md
                           docs/design/four-eyes-switch.md
+                          docs/security-advisories.md
                           docs/open-source/audit-report.md)
   @tests_excluded_prefixes ~w(test/fixtures/ test/support/ test/uat-reports/)
   @denied_basenames ~w(claude.md orchestrator.md git_merge.md mix.exs)

@@ -25,9 +25,10 @@ defmodule Letflow.Plugs.MultipartLengthLimitTest do
   @small_limit 10_000
   @headerless_parts 10_000
 
-  # The product's own multipart limits: the shared API pipeline and the old app's voice.
+  # The product's own multipart limit: the shared API pipeline. The old app's voice route
+  # has its own parser (10 MiB, `lib/letflow/routers/shared_stock_access.ex`); its option
+  # shape is covered above with a small limit, so that the test stays fast.
   @api_pipeline_limit 26_214_400
-  @old_app_voice_limit 10_485_760
 
   defp multipart_conn(body, boundary) do
     conn(:post, "/", body)
