@@ -84,10 +84,15 @@ STANDARD_BP_DOC_TEST = [
 # G-06: every outbound HTTP call site is inventoried and classified, and the
 # dispatch-time probes refuse a private-range URL, do not follow a redirect and
 # keep the URL out of the failure value.
+# G-03: the generated source-provenance matrix of the platform-call authority
+# rule: the catalogue validator refuses a write-like entry with a person input,
+# the activation refuses the foreign sources and the dual-route nodes, and the
+# variables a catalogue call reads are refused to a completer.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
