@@ -1,0 +1,1568 @@
+{
+ "version": 1,
+ "note": "Seed of the function catalog (T-2675, D-192). Application of platform covers the designer, tenant-admin and master areas.",
+ "features": [
+  {
+   "id": "F-01",
+   "title": "Stock posting document feature",
+   "application": "wms",
+   "area": "stock"
+  },
+  {
+   "id": "F-02",
+   "title": "Stock counting document feature",
+   "application": "wms",
+   "area": "stock"
+  },
+  {
+   "id": "F-03",
+   "title": "Stock reporting and Excel exchange feature",
+   "application": "wms",
+   "area": "stock"
+  },
+  {
+   "id": "F-04",
+   "title": "Old-app phone operations feature",
+   "application": "wms",
+   "area": "stock"
+  },
+  {
+   "id": "F-05",
+   "title": "Asset register document feature",
+   "application": "assets",
+   "area": "assets"
+  },
+  {
+   "id": "F-06",
+   "title": "Asset counting document feature",
+   "application": "assets",
+   "area": "assets"
+  },
+  {
+   "id": "F-07",
+   "title": "Asset reporting feature",
+   "application": "assets",
+   "area": "assets"
+  },
+  {
+   "id": "F-08",
+   "title": "Purchase request approval feature",
+   "application": "wms",
+   "area": "procurement"
+  },
+  {
+   "id": "F-09",
+   "title": "Master data maintenance feature",
+   "application": "platform",
+   "area": "master"
+  },
+  {
+   "id": "F-10",
+   "title": "Barcode, QR and label feature",
+   "application": "platform",
+   "area": "master"
+  },
+  {
+   "id": "F-11",
+   "title": "Company administration feature",
+   "application": "platform",
+   "area": "tenant-admin"
+  },
+  {
+   "id": "F-12",
+   "title": "Access control feature",
+   "application": "platform",
+   "area": "tenant-admin"
+  },
+  {
+   "id": "F-13",
+   "title": "Module and configuration management feature",
+   "application": "platform",
+   "area": "tenant-admin"
+  },
+  {
+   "id": "F-14",
+   "title": "Notification and message feature",
+   "application": "platform",
+   "area": "tenant-admin"
+  },
+  {
+   "id": "F-15",
+   "title": "Process definition design feature",
+   "application": "platform",
+   "area": "designer"
+  },
+  {
+   "id": "F-16",
+   "title": "Process execution and task work feature",
+   "application": "platform",
+   "area": "designer"
+  },
+  {
+   "id": "F-17",
+   "title": "Record management feature",
+   "application": "platform",
+   "area": "designer"
+  },
+  {
+   "id": "F-18",
+   "title": "Automation and integration feature",
+   "application": "platform",
+   "area": "designer"
+  },
+  {
+   "id": "F-19",
+   "title": "Document printing and retention feature",
+   "application": "platform",
+   "area": "designer"
+  },
+  {
+   "id": "F-20",
+   "title": "Tenant lifecycle feature",
+   "application": "platform",
+   "area": "platform"
+  },
+  {
+   "id": "F-21",
+   "title": "Platform operation feature",
+   "application": "platform",
+   "area": "platform"
+  },
+  {
+   "id": "F-22",
+   "title": "Problem report handling feature",
+   "application": "platform",
+   "area": "platform"
+  },
+  {
+   "id": "F-23",
+   "title": "Public access feature",
+   "application": "platform",
+   "area": "platform"
+  },
+  {
+   "id": "F-24",
+   "title": "Security assurance feature",
+   "application": "platform",
+   "area": "platform"
+  },
+  {
+   "id": "F-25",
+   "title": "Maintenance work request and order feature",
+   "application": "maintenance",
+   "area": "maintenance"
+  },
+  {
+   "id": "F-26",
+   "title": "Exam authoring and sitting feature",
+   "application": "exam",
+   "area": "exam"
+  },
+  {
+   "id": "F-27",
+   "title": "Manufacturing module shell feature",
+   "application": "mes",
+   "area": "mes"
+  }
+ ],
+ "functions": [
+  {
+   "id": "FN-001",
+   "title": "Record a goods receipt",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-01"
+   ]
+  },
+  {
+   "id": "FN-002",
+   "title": "Record a goods issue",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-02",
+    "BP-STOCK-40",
+    "BP-STOCK-41"
+   ]
+  },
+  {
+   "id": "FN-003",
+   "title": "Write off stock",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-03"
+   ]
+  },
+  {
+   "id": "FN-004",
+   "title": "Transfer stock between places",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-04"
+   ]
+  },
+  {
+   "id": "FN-005",
+   "title": "Hand stock over to another responsible person",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-05"
+   ]
+  },
+  {
+   "id": "FN-006",
+   "title": "Return goods",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-06"
+   ]
+  },
+  {
+   "id": "FN-007",
+   "title": "Enter opening balances",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-07"
+   ]
+  },
+  {
+   "id": "FN-008",
+   "title": "Approve and post a stock document (four-eyes Post task)",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-01",
+    "BP-STOCK-02",
+    "BP-STOCK-03",
+    "BP-STOCK-04",
+    "BP-STOCK-05",
+    "BP-STOCK-06",
+    "BP-STOCK-07",
+    "BP-STOCK-26",
+    "BP-STOCK-33",
+    "BP-STOCK-35",
+    "BP-STOCK-37",
+    "BP-STOCK-38",
+    "BP-TENANT-ADMIN-20",
+    "BP-TENANT-ADMIN-21"
+   ]
+  },
+  {
+   "id": "FN-009",
+   "title": "Reverse a posted document or cancel an issued one",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-12",
+    "BP-STOCK-44"
+   ]
+  },
+  {
+   "id": "FN-010",
+   "title": "Find, correct and discard a draft stock document",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-14"
+   ]
+  },
+  {
+   "id": "FN-011",
+   "title": "Draft a stock document from a voice or typed phrase",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-17",
+    "BP-STOCK-25"
+   ]
+  },
+  {
+   "id": "FN-012",
+   "title": "Control negative balances per ledger",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-40",
+    "BP-STOCK-41",
+    "BP-TENANT-ADMIN-22"
+   ]
+  },
+  {
+   "id": "FN-013",
+   "title": "Move stock to an asset (change of kind, stock side)",
+   "feature": "F-01",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-ASSETS-07",
+    "BP-STOCK-18"
+   ]
+  },
+  {
+   "id": "FN-014",
+   "title": "Quick count of one item at one place",
+   "feature": "F-02",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-08",
+    "BP-STOCK-39"
+   ]
+  },
+  {
+   "id": "FN-015",
+   "title": "Issue and close a stock count order",
+   "feature": "F-02",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-09"
+   ]
+  },
+  {
+   "id": "FN-016",
+   "title": "Sign a count sheet, review differences and post the result",
+   "feature": "F-02",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-10"
+   ]
+  },
+  {
+   "id": "FN-017",
+   "title": "Export count paperwork and official forms (Inv-10, Inv-18)",
+   "feature": "F-02",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-11"
+   ]
+  },
+  {
+   "id": "FN-018",
+   "title": "Show balances, movements and the stock card",
+   "feature": "F-03",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-15"
+   ]
+  },
+  {
+   "id": "FN-019",
+   "title": "Exchange balances through an Excel workbook (export, check, apply, cancel)",
+   "feature": "F-03",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-13",
+    "BP-STOCK-42"
+   ]
+  },
+  {
+   "id": "FN-020",
+   "title": "Sign in the old phone app with the shared access value",
+   "feature": "F-04",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-16",
+    "BP-STOCK-24",
+    "BP-STOCK-28",
+    "BP-STOCK-29",
+    "BP-STOCK-30",
+    "BP-STOCK-31",
+    "BP-STOCK-36",
+    "BP-TENANT-ADMIN-15",
+    "BP-TENANT-ADMIN-39",
+    "BP-TENANT-ADMIN-45"
+   ]
+  },
+  {
+   "id": "FN-021",
+   "title": "Post once per client id from the phone",
+   "feature": "F-04",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-32"
+   ]
+  },
+  {
+   "id": "FN-022",
+   "title": "Count from the phone with four-eyes on or off",
+   "feature": "F-04",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-33",
+    "BP-STOCK-34",
+    "BP-STOCK-35"
+   ]
+  },
+  {
+   "id": "FN-023",
+   "title": "Look up a scanned code and read stock from the phone",
+   "feature": "F-04",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-16",
+    "BP-STOCK-36"
+   ]
+  },
+  {
+   "id": "FN-024",
+   "title": "Start a new company on stock with fresh-tenant defaults",
+   "feature": "F-04",
+   "application": "wms",
+   "area": "stock",
+   "processes": [
+    "BP-STOCK-27"
+   ]
+  },
+  {
+   "id": "FN-025",
+   "title": "Keep an asset card (register, correct, retire)",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-01"
+   ]
+  },
+  {
+   "id": "FN-026",
+   "title": "Keep card photos",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-02",
+    "BP-ASSETS-16"
+   ]
+  },
+  {
+   "id": "FN-027",
+   "title": "Commission an asset into the register",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-03"
+   ]
+  },
+  {
+   "id": "FN-028",
+   "title": "Change the responsible person of an asset",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-04"
+   ]
+  },
+  {
+   "id": "FN-029",
+   "title": "Hand an asset over to another org unit",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-05"
+   ]
+  },
+  {
+   "id": "FN-030",
+   "title": "Write off an asset",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-06"
+   ]
+  },
+  {
+   "id": "FN-031",
+   "title": "Open the asset register from existing cards",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-08"
+   ]
+  },
+  {
+   "id": "FN-032",
+   "title": "Reverse an asset document",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-09"
+   ]
+  },
+  {
+   "id": "FN-033",
+   "title": "Find, correct and discard a draft asset document",
+   "feature": "F-05",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-10"
+   ]
+  },
+  {
+   "id": "FN-034",
+   "title": "Order, sheet, scan and close an asset count",
+   "feature": "F-06",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-11"
+   ]
+  },
+  {
+   "id": "FN-035",
+   "title": "Decide count results and sign an asset count",
+   "feature": "F-06",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-12"
+   ]
+  },
+  {
+   "id": "FN-036",
+   "title": "Report asset balances, movements and reconcile",
+   "feature": "F-07",
+   "application": "assets",
+   "area": "assets",
+   "processes": [
+    "BP-ASSETS-13"
+   ]
+  },
+  {
+   "id": "FN-037",
+   "title": "Print the official asset card form (DA-2)",
+   "feature": "F-19",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-ASSETS-01"
+   ]
+  },
+  {
+   "id": "FN-038",
+   "title": "Raise and submit a purchase request",
+   "feature": "F-08",
+   "application": "wms",
+   "area": "procurement",
+   "processes": [
+    "BP-PROCUREMENT-01"
+   ]
+  },
+  {
+   "id": "FN-039",
+   "title": "Decide a purchase request (approve, reject, return)",
+   "feature": "F-08",
+   "application": "wms",
+   "area": "procurement",
+   "processes": [
+    "BP-PROCUREMENT-02"
+   ]
+  },
+  {
+   "id": "FN-040",
+   "title": "Record handler, supplier and order of an approved line",
+   "feature": "F-08",
+   "application": "wms",
+   "area": "procurement",
+   "processes": [
+    "BP-PROCUREMENT-03"
+   ]
+  },
+  {
+   "id": "FN-041",
+   "title": "Cancel a line and close a purchase request",
+   "feature": "F-08",
+   "application": "wms",
+   "area": "procurement",
+   "processes": [
+    "BP-PROCUREMENT-04"
+   ]
+  },
+  {
+   "id": "FN-042",
+   "title": "Attach and download purchase request files",
+   "feature": "F-08",
+   "application": "wms",
+   "area": "procurement",
+   "processes": [
+    "BP-PROCUREMENT-05"
+   ]
+  },
+  {
+   "id": "FN-043",
+   "title": "Identify the company from its address and sign in",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-01",
+    "BP-TENANT-ADMIN-42"
+   ]
+  },
+  {
+   "id": "FN-044",
+   "title": "Show my access, modules and first screen",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-02"
+   ]
+  },
+  {
+   "id": "FN-045",
+   "title": "Maintain company users (create, import, deactivate)",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-03",
+    "BP-TENANT-ADMIN-04",
+    "BP-TENANT-ADMIN-05",
+    "BP-TENANT-ADMIN-06",
+    "BP-TENANT-ADMIN-07"
+   ]
+  },
+  {
+   "id": "FN-046",
+   "title": "Manage groups and role bindings",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-08",
+    "BP-TENANT-ADMIN-09"
+   ]
+  },
+  {
+   "id": "FN-047",
+   "title": "Read and change role grants",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-10"
+   ]
+  },
+  {
+   "id": "FN-048",
+   "title": "Grant a role access to a part of the organisation (scope)",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-11",
+    "BP-TENANT-ADMIN-12"
+   ]
+  },
+  {
+   "id": "FN-049",
+   "title": "Name the first administrator",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-13"
+   ]
+  },
+  {
+   "id": "FN-050",
+   "title": "Issue and revoke API tokens",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-14"
+   ]
+  },
+  {
+   "id": "FN-051",
+   "title": "Set company settings, appearance and logo",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-16",
+    "BP-TENANT-ADMIN-17"
+   ]
+  },
+  {
+   "id": "FN-052",
+   "title": "Export and import the company configuration bundle",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-18"
+   ]
+  },
+  {
+   "id": "FN-053",
+   "title": "Install, upgrade and remove modules and solutions",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-DESIGNER-05",
+    "BP-TENANT-ADMIN-19"
+   ]
+  },
+  {
+   "id": "FN-054",
+   "title": "Install the manufacturing module shell",
+   "feature": "F-27",
+   "application": "mes",
+   "area": "mes",
+   "processes": [
+    "BP-MES-01"
+   ]
+  },
+  {
+   "id": "FN-055",
+   "title": "Switch the four-eyes rule per process step",
+   "feature": "F-12",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-20"
+   ]
+  },
+  {
+   "id": "FN-056",
+   "title": "Read the audit log",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-23"
+   ]
+  },
+  {
+   "id": "FN-057",
+   "title": "Read my notifications",
+   "feature": "F-14",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-24"
+   ]
+  },
+  {
+   "id": "FN-058",
+   "title": "Edit notification templates and read the delivery log",
+   "feature": "F-14",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-26"
+   ]
+  },
+  {
+   "id": "FN-059",
+   "title": "Switch currencies and choose the company currency",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-27"
+   ]
+  },
+  {
+   "id": "FN-060",
+   "title": "Override screen wording",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-28"
+   ]
+  },
+  {
+   "id": "FN-061",
+   "title": "Define document number sequences",
+   "feature": "F-13",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-29"
+   ]
+  },
+  {
+   "id": "FN-062",
+   "title": "Export company data sets",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-30"
+   ]
+  },
+  {
+   "id": "FN-063",
+   "title": "Read help topics and use the master-data import page",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-31"
+   ]
+  },
+  {
+   "id": "FN-064",
+   "title": "My settings and problem reports",
+   "feature": "F-11",
+   "application": "platform",
+   "area": "tenant-admin",
+   "processes": [
+    "BP-TENANT-ADMIN-25"
+   ]
+  },
+  {
+   "id": "FN-065",
+   "title": "Work my tasks in My Tasks",
+   "feature": "F-16",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-16",
+    "BP-TENANT-ADMIN-32"
+   ]
+  },
+  {
+   "id": "FN-066",
+   "title": "Draft, check and change a process definition",
+   "feature": "F-15",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-01"
+   ]
+  },
+  {
+   "id": "FN-067",
+   "title": "Activate, retire and archive a process definition",
+   "feature": "F-15",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-02"
+   ]
+  },
+  {
+   "id": "FN-068",
+   "title": "Export, import and roll back a process definition",
+   "feature": "F-15",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-03"
+   ]
+  },
+  {
+   "id": "FN-069",
+   "title": "Promote a definition between tenants with review",
+   "feature": "F-15",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-04",
+    "BP-PLATFORM-14"
+   ]
+  },
+  {
+   "id": "FN-070",
+   "title": "List services a process may call",
+   "feature": "F-15",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-23",
+    "BP-PLATFORM-11"
+   ]
+  },
+  {
+   "id": "FN-071",
+   "title": "Define a record type and activate it",
+   "feature": "F-17",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-06",
+    "BP-DESIGNER-33"
+   ]
+  },
+  {
+   "id": "FN-072",
+   "title": "Create, change, find and attach records",
+   "feature": "F-17",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-07"
+   ]
+  },
+  {
+   "id": "FN-073",
+   "title": "Import and export records",
+   "feature": "F-17",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-08"
+   ]
+  },
+  {
+   "id": "FN-074",
+   "title": "Save and share a list view",
+   "feature": "F-17",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-09"
+   ]
+  },
+  {
+   "id": "FN-075",
+   "title": "Derive field values before a record is saved",
+   "feature": "F-17",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-10"
+   ]
+  },
+  {
+   "id": "FN-076",
+   "title": "Run a script after a record event",
+   "feature": "F-18",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-11"
+   ]
+  },
+  {
+   "id": "FN-077",
+   "title": "Write, test, publish and withdraw a business rule script",
+   "feature": "F-18",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-12",
+    "BP-DESIGNER-13",
+    "BP-DESIGNER-32"
+   ]
+  },
+  {
+   "id": "FN-078",
+   "title": "Start a process and follow it",
+   "feature": "F-16",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-14"
+   ]
+  },
+  {
+   "id": "FN-079",
+   "title": "Attach files to a running process",
+   "feature": "F-16",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-15"
+   ]
+  },
+  {
+   "id": "FN-080",
+   "title": "Retry or discard failed jobs",
+   "feature": "F-16",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-17"
+   ]
+  },
+  {
+   "id": "FN-081",
+   "title": "Notify another system by webhook",
+   "feature": "F-18",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-18",
+    "BP-DESIGNER-30"
+   ]
+  },
+  {
+   "id": "FN-082",
+   "title": "Map fields for an integration",
+   "feature": "F-18",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-19"
+   ]
+  },
+  {
+   "id": "FN-083",
+   "title": "Run a job on a schedule",
+   "feature": "F-18",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-20"
+   ]
+  },
+  {
+   "id": "FN-084",
+   "title": "Govern documents: retention, hold, print layout",
+   "feature": "F-19",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-DESIGNER-21"
+   ]
+  },
+  {
+   "id": "FN-085",
+   "title": "Print code labels as PDF",
+   "feature": "F-19",
+   "application": "platform",
+   "area": "designer",
+   "processes": [
+    "BP-MASTER-10"
+   ]
+  },
+  {
+   "id": "FN-086",
+   "title": "Share a record read-only by public handle",
+   "feature": "F-23",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-DESIGNER-22"
+   ]
+  },
+  {
+   "id": "FN-087",
+   "title": "Check a certificate by its public handle",
+   "feature": "F-23",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-EXAM-06",
+    "BP-PLATFORM-23"
+   ]
+  },
+  {
+   "id": "FN-088",
+   "title": "Register a tenant and look it up",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-01"
+   ]
+  },
+  {
+   "id": "FN-089",
+   "title": "Suspend, reactivate and purge a tenant",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-02"
+   ]
+  },
+  {
+   "id": "FN-090",
+   "title": "Give a company its own host name",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-03"
+   ]
+  },
+  {
+   "id": "FN-091",
+   "title": "Set a tenant script policy (kill switch)",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-04"
+   ]
+  },
+  {
+   "id": "FN-092",
+   "title": "Onboard a company and bind its identity realm",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-05"
+   ]
+  },
+  {
+   "id": "FN-093",
+   "title": "Provision a tenant through the provisioner interface",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-06",
+    "BP-PLATFORM-18"
+   ]
+  },
+  {
+   "id": "FN-094",
+   "title": "Sign up a new company and find a company by e-mail",
+   "feature": "F-20",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-13",
+    "BP-PLATFORM-19"
+   ]
+  },
+  {
+   "id": "FN-095",
+   "title": "Roll a module version out to the fleet",
+   "feature": "F-21",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-07"
+   ]
+  },
+  {
+   "id": "FN-096",
+   "title": "Run a tenant-schema migration across tenants",
+   "feature": "F-21",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-08"
+   ]
+  },
+  {
+   "id": "FN-097",
+   "title": "Retire the oldest month of event history",
+   "feature": "F-21",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-09"
+   ]
+  },
+  {
+   "id": "FN-098",
+   "title": "Watch platform health, readiness and metrics",
+   "feature": "F-21",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PLATFORM-10",
+    "BP-PLATFORM-15"
+   ]
+  },
+  {
+   "id": "FN-099",
+   "title": "Handle problem reports from companies",
+   "feature": "F-22",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-MAINTENANCE-12",
+    "BP-MAINTENANCE-13",
+    "BP-MAINTENANCE-20",
+    "BP-PLATFORM-12"
+   ]
+  },
+  {
+   "id": "FN-100",
+   "title": "Maintain legal entities and sites",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-01"
+   ]
+  },
+  {
+   "id": "FN-101",
+   "title": "Maintain the org unit tree",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-02"
+   ]
+  },
+  {
+   "id": "FN-102",
+   "title": "Maintain positions and employees",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-03"
+   ]
+  },
+  {
+   "id": "FN-103",
+   "title": "Maintain the location tree",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-04"
+   ]
+  },
+  {
+   "id": "FN-104",
+   "title": "Link org units to locations",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-05"
+   ]
+  },
+  {
+   "id": "FN-105",
+   "title": "Load catalog and org data from a file",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-06",
+    "BP-MASTER-07",
+    "BP-MASTER-15"
+   ]
+  },
+  {
+   "id": "FN-106",
+   "title": "Maintain lots of an item",
+   "feature": "F-09",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-08"
+   ]
+  },
+  {
+   "id": "FN-107",
+   "title": "Receive, assign, release and retire a code",
+   "feature": "F-10",
+   "application": "platform",
+   "area": "master",
+   "processes": [
+    "BP-MASTER-09",
+    "BP-MASTER-16"
+   ]
+  },
+  {
+   "id": "FN-108",
+   "title": "Report a fault on an asset (work request)",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-01",
+    "BP-MAINTENANCE-02"
+   ]
+  },
+  {
+   "id": "FN-109",
+   "title": "Review work requests (list, read, reject)",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-03"
+   ]
+  },
+  {
+   "id": "FN-110",
+   "title": "Create and assign a work order",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-04",
+    "BP-MAINTENANCE-05"
+   ]
+  },
+  {
+   "id": "FN-111",
+   "title": "Report work done and close a work order",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-06",
+    "BP-MAINTENANCE-07"
+   ]
+  },
+  {
+   "id": "FN-112",
+   "title": "Read and list work orders",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-08"
+   ]
+  },
+  {
+   "id": "FN-113",
+   "title": "Show work requests and orders on screens and phone",
+   "feature": "F-25",
+   "application": "maintenance",
+   "area": "maintenance",
+   "processes": [
+    "BP-MAINTENANCE-09",
+    "BP-MAINTENANCE-10",
+    "BP-MAINTENANCE-11"
+   ]
+  },
+  {
+   "id": "FN-114",
+   "title": "Keep the question bank",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-01"
+   ]
+  },
+  {
+   "id": "FN-115",
+   "title": "Build an exam",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-02"
+   ]
+  },
+  {
+   "id": "FN-116",
+   "title": "Find and start an exam",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-03"
+   ]
+  },
+  {
+   "id": "FN-117",
+   "title": "Sit an exam and submit",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-04"
+   ]
+  },
+  {
+   "id": "FN-118",
+   "title": "Grade short-text answers",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-05"
+   ]
+  },
+  {
+   "id": "FN-119",
+   "title": "See exam results and the certificate",
+   "feature": "F-26",
+   "application": "exam",
+   "area": "exam",
+   "processes": [
+    "BP-EXAM-06"
+   ]
+  },
+  {
+   "id": "FN-120",
+   "title": "Check the permission of the role on every route",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-ASSETS-15",
+    "BP-DESIGNER-24",
+    "BP-EXAM-07",
+    "BP-MAINTENANCE-16",
+    "BP-MASTER-11",
+    "BP-MES-03",
+    "BP-PLATFORM-16",
+    "BP-PROCUREMENT-06",
+    "BP-STOCK-21",
+    "BP-TENANT-ADMIN-33",
+    "BP-TENANT-ADMIN-44"
+   ]
+  },
+  {
+   "id": "FN-121",
+   "title": "Refuse cross-tenant access with a uniform 404",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-ASSETS-14",
+    "BP-DESIGNER-25",
+    "BP-DESIGNER-26",
+    "BP-MAINTENANCE-15",
+    "BP-MASTER-12",
+    "BP-PLATFORM-17",
+    "BP-PLATFORM-20",
+    "BP-PROCUREMENT-07",
+    "BP-STOCK-20",
+    "BP-TENANT-ADMIN-34",
+    "BP-TENANT-ADMIN-43",
+    "BP-TENANT-ADMIN-46"
+   ]
+  },
+  {
+   "id": "FN-122",
+   "title": "Refuse crafted bodies and write-target overwrites",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-ASSETS-17",
+    "BP-DESIGNER-27",
+    "BP-MAINTENANCE-14",
+    "BP-MAINTENANCE-21",
+    "BP-MASTER-13",
+    "BP-MES-02",
+    "BP-MES-04",
+    "BP-PROCUREMENT-09",
+    "BP-STOCK-19",
+    "BP-TENANT-ADMIN-41"
+   ]
+  },
+  {
+   "id": "FN-123",
+   "title": "Resolve token and host credentials safely",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-DESIGNER-28",
+    "BP-MAINTENANCE-17",
+    "BP-MASTER-14",
+    "BP-PLATFORM-22",
+    "BP-PROCUREMENT-11",
+    "BP-STOCK-22",
+    "BP-TENANT-ADMIN-37"
+   ]
+  },
+  {
+   "id": "FN-124",
+   "title": "Validate uploads by type and size",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-ASSETS-16",
+    "BP-DESIGNER-29",
+    "BP-MAINTENANCE-18",
+    "BP-PROCUREMENT-10",
+    "BP-STOCK-23",
+    "BP-TENANT-ADMIN-38"
+   ]
+  },
+  {
+   "id": "FN-125",
+   "title": "Enforce separation of duties",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-DESIGNER-31",
+    "BP-MAINTENANCE-19",
+    "BP-PLATFORM-21",
+    "BP-PROCUREMENT-08",
+    "BP-STOCK-26",
+    "BP-TENANT-ADMIN-40",
+    "BP-TENANT-ADMIN-47"
+   ]
+  },
+  {
+   "id": "FN-126",
+   "title": "Keep retries and concurrent decisions single-acting",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-PROCUREMENT-12",
+    "BP-STOCK-43"
+   ]
+  },
+  {
+   "id": "FN-127",
+   "title": "Guard privilege escalation and the last administrator",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-TENANT-ADMIN-35",
+    "BP-TENANT-ADMIN-36"
+   ]
+  },
+  {
+   "id": "FN-128",
+   "title": "Refuse the old address outside its rules",
+   "feature": "F-24",
+   "application": "platform",
+   "area": "platform",
+   "processes": [
+    "BP-STOCK-24",
+    "BP-STOCK-29",
+    "BP-STOCK-30"
+   ]
+  }
+ ],
+ "uncovered_processes": []
+}
