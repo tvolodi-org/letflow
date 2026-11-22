@@ -9,9 +9,9 @@ Machine file: `catalog-seed.json` (same rows). Evidence = the first task route, 
 - functions: 69
 - shared_functions: 60
 - shared_percent: 87.0
-- max_sharing: 41
-- max_sharing_function: FN-010 Claim a task from the work list
-- process_specific: 6
+- max_sharing: 37
+- max_sharing_function: FN-011 Complete a task with an outcome
+- process_specific: 9
 - processes_total: 224
 - processes_covered: 224
 - uncovered processes: 0
@@ -22,7 +22,7 @@ Not a row: *Send to printer* and *Send by e-mail* (document output): no process 
 
 | Function | Kind | Processes | Evidence |
 |---|---|---|---|
-| FN-001 Preview a document on screen | shared | 22: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: documents/:id -> DocumentPage; BP-ASSETS-04: documents/:id -> DocumentPage |
+| FN-001 Preview a document on screen | shared | 20: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: documents/:id -> DocumentPage; BP-ASSETS-04: documents/:id -> DocumentPage |
 | FN-002 Generate a printable document from a form template | shared | 5: BP-DESIGNER-21, BP-EXAM-06, BP-EXAM-07, BP-PLATFORM-23, BP-STOCK-15 | BP-DESIGNER-21: GET /api/v1/documents/print-overrides; BP-EXAM-06: POST /api/v1/modules/exam/exam-sessions/:id/certificate |
 | FN-003 Save a document or report as a file | shared | 15: BP-DESIGNER-03, BP-DESIGNER-05, BP-DESIGNER-08, BP-DESIGNER-21, BP-EXAM-06, BP-EXAM-07 ... | BP-DESIGNER-03: GET /api/v1/definitions/:id/export; BP-DESIGNER-05: POST /api/v1/solution-packs/export |
 
@@ -30,7 +30,7 @@ Not a row: *Send to printer* and *Send by e-mail* (document output): no process 
 
 | Function | Kind | Processes | Evidence |
 |---|---|---|---|
-| FN-004 Assign and print a code or label for an item | single-process | 1: BP-MASTER-10 | BP-MASTER-10: POST /api/v1/modules/codes/labels |
+| FN-004 Assign and print a code or label for an item | process-specific | 1: BP-MASTER-10 | BP-MASTER-10: POST /api/v1/modules/codes/labels |
 | FN-005 Resolve an item by a scanned code | shared | 9: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-MASTER-08, BP-MASTER-09 ... | BP-ASSETS-03: Letflow.Modules.Assets.Documents.Checks.card_lookup; BP-ASSETS-04: Letflow.Modules.Assets.Documents.Checks.card_lookup |
 | FN-006 Recognise an item or quantity by voice | shared | 6: BP-STOCK-17, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25, BP-STOCK-30, BP-STOCK-36 | BP-STOCK-17: POST /api/v1/modules/stock/voice/draft; BP-STOCK-23: POST /api/v1/modules/stock/voice/draft |
 
@@ -38,15 +38,15 @@ Not a row: *Send to printer* and *Send by e-mail* (document output): no process 
 
 | Function | Kind | Processes | Evidence |
 |---|---|---|---|
-| FN-007 Show and read my notifications | single-process | 1: BP-TENANT-ADMIN-24 | BP-TENANT-ADMIN-24: GET /api/v1/me/notifications |
-| FN-008 Define and deliver a notification by e-mail or another channel | single-process | 1: BP-TENANT-ADMIN-26 | BP-TENANT-ADMIN-26: GET /api/v1/notification-templates |
+| FN-007 Show and read my notifications | process-specific | 1: BP-TENANT-ADMIN-24 | BP-TENANT-ADMIN-24: GET /api/v1/me/notifications |
+| FN-008 Define and deliver a notification by e-mail or another channel | process-specific | 1: BP-TENANT-ADMIN-26 | BP-TENANT-ADMIN-26: GET /api/v1/notification-templates |
 | FN-009 Call an outside system when something happens (webhook) | shared | 5: BP-DESIGNER-18, BP-DESIGNER-19, BP-DESIGNER-24, BP-DESIGNER-25, BP-DESIGNER-30 | BP-DESIGNER-18: GET /api/v1/webhooks/subscriptions; BP-DESIGNER-19: POST /api/v1/integration-mappings |
 
 ## F-04 Task routing and approval feature (platform)
 
 | Function | Kind | Processes | Evidence |
 |---|---|---|---|
-| FN-010 Claim a task from the work list | shared | 41: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: POST /api/v1/tasks/:id/claim; BP-ASSETS-04: POST /api/v1/tasks/:id/claim |
+| FN-010 Claim a task from the work list | shared | 28: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: POST /api/v1/tasks/:id/claim; BP-ASSETS-04: POST /api/v1/tasks/:id/claim |
 | FN-011 Complete a task with an outcome | shared | 37: BP-ASSETS-03, BP-ASSETS-04, BP-ASSETS-05, BP-ASSETS-06, BP-ASSETS-07, BP-ASSETS-08 ... | BP-ASSETS-03: POST /api/v1/tasks/:id/complete; BP-ASSETS-04: POST /api/v1/tasks/:id/complete |
 | FN-012 Set who approves a step (approval rules) | shared | 15: BP-ASSETS-15, BP-STOCK-15, BP-STOCK-21, BP-STOCK-26, BP-STOCK-27, BP-STOCK-35 ... | BP-ASSETS-15: GET /api/v1/modules/assets/approval-access; BP-STOCK-15: GET /api/v1/modules/stock/approval-access |
 | FN-013 Record a decision on a request | shared | 15: BP-PROCUREMENT-02, BP-PROCUREMENT-06, BP-PROCUREMENT-07, BP-PROCUREMENT-08, BP-PROCUREMENT-09, BP-PROCUREMENT-11 ... | BP-PROCUREMENT-02: POST /api/v1/modules/procurement/purchase-requests/:id/decisions; BP-PROCUREMENT-06: POST /api/v1/modules/procurement/purchase-requests/:id/decisions |
@@ -192,19 +192,22 @@ Not a row: *Send to printer* and *Send by e-mail* (document output): no process 
 |---|---|---|---|
 | FN-067 Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- | process-specific | 1: BP-MES-04 | BP-MES-04: process title: Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, ap |
 
-## Validation run (BA, T-2675 rework)
 
-All 224 BP ids exist; every function has an existing feature and at least one process; every evidence string was re-found in the cited process's task routes, forms or functions (0 mismatches); `check_catalog.py` prints PASS. Ten sampled rows, each with its quoted evidence:
+## Validation (10 sampled rows checked against the BP tasks)
 
-- FN-018 Reconcile the ledger: BP-STOCK-21 via `GET /api/v1/modules/stock/reconcile`.
-- FN-009 Call an outside system (webhook): BP-DESIGNER-30 via `POST /api/v1/webhooks/subscriptions`.
-- FN-033 Maintain places and locations: BP-STOCK-09 via `GET /api/v1/modules/stock/frozen-locations`.
-- FN-016 Reverse a posted document: BP-STOCK-44 via `POST /api/v1/modules/stock/documents/:id/reverse`.
-- FN-064 Web screens for work requests: BP-MAINTENANCE-09, process-specific (no task route).
-- FN-058 Raise a maintenance request: BP-MAINTENANCE-18 via `POST /api/v1/modules/maintenance/requests/:id/photos`.
-- FN-031 Share stock access: BP-TENANT-ADMIN-45 via `GET /api/v1/identity/shared-stock-access`.
-- FN-042 Design and publish a process definition: BP-STOCK-38 via `POST /api/v1/definitions`.
-- FN-025 Search and filter records: BP-DESIGNER-09 via `GET /api/v1/entity-views`.
-- FN-051 Issue a stock document: BP-STOCK-44 via `stock.post_document`.
+Every link of every function was re-found: its evidence string occurs in a route, form or function of a task of that process. Sampled rows (one process each, quoted):
 
-Links are route/form/function matches, so a security process that exercises a route is linked to the function that route serves.
+| Row | Process | Evidence found in the process tasks |
+|---|---|---|
+| FN-001 Preview a document on screen | BP-STOCK-02 Issue goods | admin/stock/documents/:id -> DocumentPage |
+| FN-005 Resolve an item by a scanned code | BP-MASTER-08 Maintain lots of an item | POST /api/v1/modules/catalog_items/lots |
+| FN-010 Claim a task from the work list | BP-STOCK-05 Hand over to another responsible person | POST /api/v1/tasks/:id/claim |
+| FN-011 Complete a task with an outcome | BP-STOCK-05 Hand over to another responsible person | POST /api/v1/tasks/:id/complete |
+| FN-016 Reverse a posted document | BP-STOCK-27 New-company onboarding: fresh-tenant defaults, pho | POST /api/v1/modules/stock/documents/:id/reverse |
+| FN-018 Reconcile the ledger with the records | BP-STOCK-15 Balances, movements, stock card and official stock | GET /api/v1/modules/stock/reconcile |
+| FN-025 Search and filter records | BP-DESIGNER-07 Create, change, find and attach to records | POST /api/v1/entities/query |
+| FN-033 Maintain places, sites and locations | BP-MASTER-11 Security: permission matrix of the master data rou | POST /api/v1/modules/locations/nodes |
+| FN-040 Export and import a tenant configuration | BP-TENANT-ADMIN-34 SECURITY: Cross-tenant read and write refused: a t | POST /api/v1/tenant/solutions |
+| FN-050 Create a draft stock document | BP-STOCK-14 Find, correct and discard a draft document | GET /api/v1/modules/stock/documents |
+
+Task evidence not found over all 621 links: 0; 4 process-specific rows (FN-064..FN-067) use the process title as evidence, which is valid for them.

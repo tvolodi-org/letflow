@@ -5,9 +5,9 @@
   "functions": 69,
   "shared_functions": 60,
   "shared_percent": 87.0,
-  "max_sharing": 41,
-  "max_sharing_function": "FN-010 Claim a task from the work list",
-  "process_specific": 6,
+  "max_sharing": 37,
+  "max_sharing_function": "FN-011 Complete a task with an outcome",
+  "process_specific": 9,
   "processes_total": 224,
   "processes_covered": 224
  },
@@ -155,7 +155,6 @@
     "BP-ASSETS-09",
     "BP-ASSETS-10",
     "BP-ASSETS-14",
-    "BP-DESIGNER-21",
     "BP-STOCK-01",
     "BP-STOCK-02",
     "BP-STOCK-03",
@@ -165,7 +164,6 @@
     "BP-STOCK-07",
     "BP-STOCK-12",
     "BP-STOCK-14",
-    "BP-STOCK-15",
     "BP-STOCK-20",
     "BP-TENANT-ADMIN-43"
    ],
@@ -179,7 +177,6 @@
     "BP-ASSETS-09": "documents/:id -> DocumentPage",
     "BP-ASSETS-10": "documents/:id -> DocumentPage",
     "BP-ASSETS-14": "GET /api/v1/modules/assets/documents/:id",
-    "BP-DESIGNER-21": "GET /api/v1/documents/print-overrides",
     "BP-STOCK-01": "admin/stock/documents/:id -> DocumentPage",
     "BP-STOCK-02": "admin/stock/documents/:id -> DocumentPage",
     "BP-STOCK-03": "admin/stock/documents/:id -> DocumentPage",
@@ -189,7 +186,6 @@
     "BP-STOCK-07": "admin/stock/documents/:id -> DocumentPage",
     "BP-STOCK-12": "admin/stock/documents/:id -> DocumentPage",
     "BP-STOCK-14": "admin/stock/documents/:id -> DocumentPage",
-    "BP-STOCK-15": "GET /api/v1/modules/stock/documents/:id/print",
     "BP-STOCK-20": "GET /api/v1/modules/stock/documents/:id",
     "BP-TENANT-ADMIN-43": "GET /api/v1/modules/stock/documents/:id"
    },
@@ -268,7 +264,7 @@
    "evidence": {
     "BP-MASTER-10": "POST /api/v1/modules/codes/labels"
    },
-   "kind": "single-process"
+   "kind": "process-specific"
   },
   {
    "id": "FN-005",
@@ -333,7 +329,7 @@
    "evidence": {
     "BP-TENANT-ADMIN-24": "GET /api/v1/me/notifications"
    },
-   "kind": "single-process"
+   "kind": "process-specific"
   },
   {
    "id": "FN-008",
@@ -346,7 +342,7 @@
    "evidence": {
     "BP-TENANT-ADMIN-26": "GET /api/v1/notification-templates"
    },
-   "kind": "single-process"
+   "kind": "process-specific"
   },
   {
    "id": "FN-009",
@@ -382,15 +378,9 @@
     "BP-ASSETS-07",
     "BP-ASSETS-08",
     "BP-ASSETS-09",
-    "BP-ASSETS-17",
     "BP-DESIGNER-16",
-    "BP-DESIGNER-25",
-    "BP-DESIGNER-27",
-    "BP-DESIGNER-28",
     "BP-MAINTENANCE-06",
     "BP-MAINTENANCE-07",
-    "BP-MAINTENANCE-14",
-    "BP-MAINTENANCE-19",
     "BP-STOCK-01",
     "BP-STOCK-02",
     "BP-STOCK-03",
@@ -402,19 +392,12 @@
     "BP-STOCK-10",
     "BP-STOCK-12",
     "BP-STOCK-13",
-    "BP-STOCK-18",
-    "BP-STOCK-19",
     "BP-STOCK-26",
     "BP-STOCK-33",
-    "BP-STOCK-34",
     "BP-STOCK-39",
-    "BP-STOCK-40",
-    "BP-STOCK-41",
-    "BP-STOCK-43",
     "BP-STOCK-44",
     "BP-TENANT-ADMIN-21",
     "BP-TENANT-ADMIN-32",
-    "BP-TENANT-ADMIN-40",
     "BP-TENANT-ADMIN-47"
    ],
    "evidence": {
@@ -423,41 +406,28 @@
     "BP-ASSETS-05": "POST /api/v1/tasks/:id/claim",
     "BP-ASSETS-06": "POST /api/v1/tasks/:id/claim",
     "BP-ASSETS-07": "POST /api/v1/tasks/:id/claim",
-    "BP-ASSETS-08": "POST /api/v1/tasks/:id/complete",
+    "BP-ASSETS-08": "POST /api/v1/tasks/:id/claim",
     "BP-ASSETS-09": "POST /api/v1/tasks/:id/claim",
-    "BP-ASSETS-17": "POST /api/v1/tasks/:id/complete",
-    "BP-DESIGNER-16": "GET /api/v1/tasks/inbox",
-    "BP-DESIGNER-25": "GET /api/v1/tasks/:id",
-    "BP-DESIGNER-27": "POST /api/v1/tasks/:id/complete",
-    "BP-DESIGNER-28": "GET /api/v1/tasks/inbox",
-    "BP-MAINTENANCE-06": "GET /api/v1/tasks/inbox",
-    "BP-MAINTENANCE-07": "GET /api/v1/tasks/inbox",
-    "BP-MAINTENANCE-14": "POST /api/v1/tasks/:id/complete",
-    "BP-MAINTENANCE-19": "POST /api/v1/tasks/:id/complete",
+    "BP-DESIGNER-16": "POST /api/v1/tasks/:id/claim",
+    "BP-MAINTENANCE-06": "POST /api/v1/tasks/:id/claim",
+    "BP-MAINTENANCE-07": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-01": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-02": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-03": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-04": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-05": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-06": "POST /api/v1/tasks/:id/claim",
-    "BP-STOCK-07": "POST /api/v1/tasks/:id/complete",
-    "BP-STOCK-08": "POST /api/v1/tasks/:id/complete",
+    "BP-STOCK-07": "POST /api/v1/tasks/:id/claim",
+    "BP-STOCK-08": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-10": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-12": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-13": "POST /api/v1/tasks/:id/claim",
-    "BP-STOCK-18": "POST /api/v1/tasks/:id/complete",
-    "BP-STOCK-19": "POST /api/v1/tasks/:id/complete",
     "BP-STOCK-26": "POST /api/v1/tasks/:id/claim",
     "BP-STOCK-33": "POST /api/v1/tasks/:id/claim",
-    "BP-STOCK-34": "POST /api/v1/tasks/:id/complete",
     "BP-STOCK-39": "POST /api/v1/tasks/:id/claim",
-    "BP-STOCK-40": "POST /api/v1/tasks/:id/complete",
-    "BP-STOCK-41": "POST /api/v1/tasks/:id/complete",
-    "BP-STOCK-43": "POST /api/v1/tasks/:id/complete",
     "BP-STOCK-44": "POST /api/v1/tasks/:id/claim",
     "BP-TENANT-ADMIN-21": "POST /api/v1/tasks/:id/claim",
-    "BP-TENANT-ADMIN-32": "GET /api/v1/tasks/inbox",
-    "BP-TENANT-ADMIN-40": "POST /api/v1/tasks/:id/complete",
+    "BP-TENANT-ADMIN-32": "POST /api/v1/tasks/:id/claim",
     "BP-TENANT-ADMIN-47": "POST /api/v1/tasks/:id/claim"
    },
    "kind": "shared"
