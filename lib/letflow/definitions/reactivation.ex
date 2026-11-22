@@ -21,8 +21,11 @@ defmodule Letflow.Definitions.Reactivation do
   run-time check treats an absent or inactive activator as `entity_write_needs_reactivation`.
 
   Reasons are a closed set (no ids, no free text): `activator_absent`, `activator_deactivated`,
-  `activator_lost_entities_records_write`. The audit rows carry `actor_id: nil` (REQ-195's
-  convention for definition lifecycle rows); the state projection carries the reason.
+  `activator_lost_entities_records_write`. The audit rows carry no actor (`actor_id: nil`) and
+  say so in the row itself: `actor_kind: "system"`, because the caller here is module code and
+  not a person (decision (d) of
+  `docs/migration/decisions/0094-platform-call-authority.md`; the "nobody" and "the system" are
+  told apart by that column). The state projection carries the reason.
   """
 
   import Ecto.Query
