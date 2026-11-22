@@ -125,6 +125,48 @@ defmodule Letflow.Definitions.PlatformCalls do
   end
 
   @doc """
+  The platform call a node of `nodes` declares, as
+  `{:ok, %{"function" => name, "args" => args}}`, or an error:
+
+    * `:platform_call_node_missing` -- the graph carries no node of that id;
+    * `:platform_call_node_not_declared` -- the node carries no well-formed
+      `platform_call` attribute.
+
+  This is the READ side of the binding between a dispatch row and the
+  definition's graph: the step library's dispatcher (gap G1) re-derives the
+  node's call from the STORED graph before it runs anything, so a row that
+  names a function or arguments the definition does not declare is refused
+  before the body runs.
+  """
+  @spec node_call_binding(Graph.t() | [Graph.Node.t()] | term(), term()) ::
+          {:ok, map()} | {:error, atom()}
+  def node_call_binding(nodes, node_id) when is_binary(node_id) do
+    case Enum.find(node_list(nodes), &(&1.id == node_id)) do
+      nil -> {:error, :platform_call_node_missing}
+      node -> node_call(node)
+    end
+  end
+
+  def node_call_binding(_nodes, _node_id), do: {:error, :platform_call_node_missing}
+
+  defp node_list(%Graph{nodes: nodes}) when is_list(nodes), do: nodes
+  defp node_list(nodes) when is_list(nodes), do: nodes
+  defp node_list(_other), do: []
+
+  defp node_call(%Graph.Node{attributes: attributes}) when is_map(attributes) do
+    case Map.get(attributes, @attribute) do
+      %{"function" => function, "args" => args}
+      when is_binary(function) and function != "" and is_map(args) ->
+        {:ok, %{"function" => function, "args" => args}}
+
+      _no_call ->
+        {:error, :platform_call_node_not_declared}
+    end
+  end
+
+  defp node_call(_node), do: {:error, :platform_call_node_not_declared}
+
+  @doc """
   The sorted, de-duplicated names of the catalogue functions the declared steps
   call (well-formed calls only), for the `activated_by` document.
   """
