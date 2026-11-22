@@ -887,6 +887,14 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.platform_calls_invalid(conn, violations)
 
+  # T-2594 (pilot gap G13): the promoted graph's TYPED STEP MAPPING was refused in the
+  # TARGET tenant (a declared read or write the target definition does not declare).
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:step_mappings_invalid, violations}}}
+       ),
+       do: Response.step_mappings_invalid(conn, violations)
+
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)
 
