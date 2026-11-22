@@ -203,4 +203,38 @@ defmodule Letflow.Definitions.DefinitionAuditActorTest do
     assert entry.actor_id == ctx.user.id
     assert entry.actor_kind == "user"
   end
+
+  # The IMPORT route is the second HTTP lifecycle route that creates a definition
+  # row (REQ-034's import path, driven through `Definitions.create/2` by
+  # `ExportImport.import_with_variable_schemas/4`). Its handler passes the caller's
+  # user id as the separate `imported_by` argument, which reaches only the
+  # definition's `created_by` column -- the lifecycle audit row's actor comes from
+  # the `opts` the handler hands over, so the handler must carry the caller there
+  # too, or the row names nobody and claims the system did it.
+  test "the import route writes the caller's kind on the definition.create row (S11)", ctx do
+    body = %{
+      "bpm_export_schema_version" => "bpm/definition/v1",
+      "name" => "pcf-audit-import",
+      "version" => "1",
+      "graph" => trivial_graph()
+    }
+
+    conn =
+      conn("POST", "/import")
+      |> Map.put(:body_params, body)
+      |> put_req_header("content-type", "application/json")
+      |> assign(:auth_context, %{
+        user_id: ctx.user.id,
+        tenant_id: ctx.tenant.tenant_id,
+        roles: ["TENANT_ADMIN"]
+      })
+      |> assign(:trace_id, "fixed-test-trace-id")
+      |> Letflow.Routers.Definitions.call(Letflow.Routers.Definitions.init([]))
+
+    assert conn.status == 201
+
+    assert [entry] = rows(ctx.tenant.schema_name, "definition.create")
+    assert entry.actor_id == ctx.user.id
+    assert entry.actor_kind == "user"
+  end
 end

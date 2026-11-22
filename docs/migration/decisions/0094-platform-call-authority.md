@@ -55,6 +55,17 @@ the KIND of the actor in the new tenant-scoped column `audit_entries.actor_kind`
 system" are told apart BY THE ROW and not only by a `nil` actor id (the column is not part of REQ-195's canonical hashed form: the
 chain keeps its eleven fields, and the table's own immutability trigger keeps the kind from being edited afterwards).
 
+EVERY HTTP lifecycle path of the definitions router carries the caller -- create, IMPORT, deactivate, archive. The import path is the
+one that was easy to forget: it passes the caller as the separate `imported_by` argument (which reaches the definition's `created_by`
+column) and had handed the context the prefix-only opts, so its `definition.create` row named nobody and claimed the system did it.
+The opts and the `imported_by` argument are BOTH the caller, and the row must say so.
+
+A SCAN TEST (`test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`) keeps it that way. It derives, from the AST of the
+definition context modules, every public function that writes a definition AUDIT row, reads where that function's audit actor comes
+from (the `opts[:actor_id]` a caller passes, or the activator a caller passes), and requires every router path that calls such a
+function to carry that actor. Nothing in it is a hand-written list of paths, so a new definition-writing route that forgets the actor
+fails the scan.
+
 **(e) How a definition that calls a platform function is started.** The START PERMISSION of a definition is the catalogue permission of
 the entries its steps call, and the ONE start function (`Letflow.Engine.create/2`) checks it: the start variables of such a definition
 are trusted inputs, so the start needs the same authority the activation does. A caller without it, and every caller outside the
@@ -116,8 +127,9 @@ come back.
 | S3 (the write paths) | a company tenant PUTs or PATCHes a platform call into a draft | `test/letflow/definitions/platform_call_write_path_refused_test.exs`: create, PUT and PATCH answer the one fixed code (422) and store nothing |
 | S2 (the foreign sources) | an inline HTTP, script or sub-process node overwrites the value the catalogue call reads | `test/letflow/definitions/platform_call_foreign_source_refused_test.exs`: the activation refuses the graph, and the dispatch guard refuses it too |
 | the start of a parent | a platform PROCESS_OPERATOR starts a parent whose sub-process child calls `tenant.create` | `test/letflow/engine/platform_call_subprocess_start_refused_test.exs`: the answer for an unknown definition, nothing written; the child's own activation fails closed |
-| S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system` |
+| S11 (the audit actor) | a lifecycle row says nothing about who did it | `test/letflow/definitions/definition_audit_actor_test.exs`: a person's row says `user`, a non-HTTP caller's row says `system`; the HTTP create and HTTP IMPORT routes both write the caller's row |
 | "one path forgotten" | a new definition write path skips the platform-call check | `test/letflow/definitions/platform_call_write_paths_scan_test.exs`: every entry point is classified and reaches the check its class demands |
+| "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands |
 
 ## Residual risks, stated plainly
 

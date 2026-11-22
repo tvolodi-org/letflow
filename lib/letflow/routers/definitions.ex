@@ -1200,7 +1200,13 @@ defmodule Letflow.Routers.Definitions do
   # with that contract), plus REQ-082's own `variable_schemas` addition.
 
   defp handle_import(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2, decision (d)): the caller's user id is the actor of the
+    # definition lifecycle audit row the import writes. `actor_opts/1` is the same
+    # scoped-opts-plus-actor the create path uses -- the import's `imported_by`
+    # argument reaches only the definition's `created_by` column, so the opts must
+    # carry the caller too, or the `definition.create` row names nobody and claims
+    # the system did it.
+    opts = actor_opts(conn)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
