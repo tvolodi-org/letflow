@@ -55,20 +55,27 @@ suite, including exam and slow tests. Required check names stay
   Static checks, boundary checks
   and the production permission golden check still run in `backend_static`. A fixed
   pin that cannot fit fails selection rather than disappearing from the gate.
-- The whole-tree source scans (the "real tree" scans: a test that reads the whole `lib/`
-  tree and pins it with an allowlist, a ledger or a count) are reserved for every diff
-  that touches the backend source (`lib/`, `priv/`, `config/`, `scripts/`). Every such
-  reader is a member of the class, including a file that also holds database-backed
-  cases: the scan itself is a pure function of the tree, and leaving such a file out
-  left a real whole-tree scan (`write_handler_registration_surface_test.exs`) deferrable,
-  so a forbidden handler caller could merge unseen. The stamp opener scan is reserved as
+- The whole-tree source scans (the "real tree" scans: a test that reads a whole tree of
+  the backend source and pins it with an allowlist, a ledger or a count) are reserved for
+  every diff that touches the backend source (`lib/`, `priv/`, `config/`, `scripts/`,
+  `test/support/`). Every such reader is a member of the class, including a file that
+  also holds database-backed cases: the scan itself is a pure function of the tree, and
+  leaving such a file out left a real whole-tree scan
+  (`write_handler_registration_surface_test.exs`) deferrable, so a forbidden handler
+  caller could merge unseen. A reader counts whether it reads the tree directly (a glob
+  over a backend-source root) or through a helper: the scan of the role-scope-grants
+  writers calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in the called
+  scanner and not in the test source, and a literal-only discovery left that scan
+  outside the class and its pin unverified. A scan of a tree outside the backend source
+  (the handoff tree, the test tree) is not a member: a backend-source diff cannot break
+  its pin. The stamp opener scan is reserved as
   well whenever the diff adds or changes a `Repo.query` / `SQL.query` /
   `Ecto.Adapters.SQL.query` call, or touches a file of that scan's `@dynamic_sql_files`
   list (the list is read from the scan itself, never from a hand list). A scan that is
   only a candidate is deferred to the nightly run when the budget is exceeded, and a
   deferred scan is a scan that does not run: main went red on `0d2bbf8b5` because the
   stamp opener scan ran only in the extended run, so ~21 non-literal SQL sites merged
-  unseen (T-2691). The class is derived from the tree, so a whole-tree scan that lands
+  unseen (T-2689). The class is derived from the tree, so a whole-tree scan that lands
   later is covered on the day it lands.
 - A reserved check is never omitted. The 120 seconds per partition budget the optional
   candidates; a reserved check that does not fit its partition's budget is admitted

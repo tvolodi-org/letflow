@@ -17,14 +17,17 @@ An unrecoverable selector error exits nonzero; CI must never run without a plan.
 --nightly-log-dir compares real failure headings with a successful standard push
 plan at the same SHA and emits selector miss lines with the test name.
 
-T-2691: the whole-tree source scans (the "real tree" scans: a test that reads the whole
-`lib/` tree and pins it) are MANDATORY for a diff that touches the backend source, and
-the stamp opener scan is mandatory whenever the diff adds or changes a query call site or
-touches a file of its @dynamic_sql_files list. A scan that is only a candidate is
-deferred to the nightly run when the budget is exceeded, and a deferred scan is a scan
-that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran only in
-the extended run. Every whole-tree reader is a member of that class, including a file
-that also holds database-backed cases: the scan itself is a pure function of the tree.
+T-2691: the whole-tree source scans (the "real tree" scans: a test that reads a whole
+tree of the backend source and pins it) are MANDATORY for a diff that touches the backend
+source, and the stamp opener scan is mandatory whenever the diff adds or changes a query
+call site or touches a file of its @dynamic_sql_files list. A scan that is only a
+candidate is deferred to the nightly run when the budget is exceeded, and a deferred scan
+is a scan that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran
+only in the extended run. Every whole-tree reader is a member of that class, including a
+file that also holds database-backed cases: the scan itself is a pure function of the
+tree. A member reads a whole tree either directly (a glob over a backend-source root) or
+through a helper module of lib/ that walks a tree; a scan of a tree outside the backend
+source (the handoff tree, the test tree) is not a member.
 A mandatory check is never omitted, so the file cap and the per-partition target budget
 the optional candidates only; the whole run's budget is the hard bound.
 """
@@ -35,6 +38,10 @@ import os
 import re
 import subprocess
 import sys
+
+# The helper-module index of a tree, cached per root: the class derivation reads it for
+# every test file, and the tree does not change while the selector runs.
+_HELPER_INDEX = {}
 
 SENSITIVE_RE = re.compile(
     # T-2137: priv/modules/<m>/ is excluded here; handled by single-module detection below.
@@ -129,20 +136,44 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
-# T-2691: the whole-tree source scans (the "real tree" scans): a test that reads the whole
-# `lib/` tree and pins it (an allowlist, a ledger or a count). A diff that touches the tree
-# can break such a pin, so the scan is a MANDATORY check of a backend-source diff: as a mere
-# CANDIDATE it is deferred to the nightly run when the budget is exceeded, and that is how
-# ~21 non-literal SQL sites merged unseen (T-2689; main went red on 0d2bbf8b5 because the
-# stamp opener scan ran only in the extended run). The class is DERIVED from the tree, never
-# a hand list, so a scan that lands later is covered on the day it lands.
+# T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole
+# tree of the backend source and pins it (an allowlist, a ledger or a count). A diff that
+# touches the tree can break such a pin, so the scan is a MANDATORY check of a
+# backend-source diff: as a mere CANDIDATE it is deferred to the nightly run when the
+# budget is exceeded, and that is how ~21 non-literal SQL sites merged unseen (T-2689;
+# main went red on 0d2bbf8b5 because the stamp opener scan ran only in the extended run).
+# The class is DERIVED from the tree, never a hand list, so a scan that lands later is
+# covered on the day it lands.
 #
 # The class does NOT exclude a scan whose file also holds database-backed cases: the scan
 # itself is a pure function of the tree, and the file that carries it is still a whole-tree
 # reader (T-2691 rework: `write_handler_registration_surface_test.exs` reads every
 # `lib/**/*.ex` and pins the allowed write-handler callers; it was excluded only because the
 # file also uses `Letflow.DataCase`, so a forbidden caller could merge unseen).
-WHOLE_TREE_READ_RE = re.compile(r"[\"']lib/\*\*")
+#
+# A member reads a whole tree in one of TWO ways, and both count:
+#   * directly: a glob over a backend-source root ("lib/**", "priv/**/*",
+#     "lib/letflow/modules/**/*");
+#   * through a helper: the test calls a module of lib/ that walks a tree, and the roots
+#     that helper scans lie in the backend source (the review's counterexample:
+#     `Scan.scan(["lib", "priv/modules"])` in the role-scope-grants writer scan, whose
+#     helper reads every file under those roots). A helper-backed scan is a whole-tree
+#     reader exactly like a direct one, so it belongs to the class (T-2691 rework 2).
+# A scan of a tree OUTSIDE the backend source (the handoff tree, the test tree) is not a
+# member: a backend-source diff cannot break its pin.
+WHOLE_TREE_GLOB_RE = re.compile(r"[\"']([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)/\*\*")
+# A module alias in a test file: `alias Full.Name` or `alias Full.Name, as: Short`.
+ALIAS_RE = re.compile(
+    r"^\s*alias\s+([A-Z][A-Za-z0-9_.]*)(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?", re.M
+)
+# A call of an aliased or fully qualified module: `Short.fun(args)`.
+MODULE_CALL_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\.([a-z_][A-Za-z0-9_?!]*)\(([^()]*)\)"
+)
+# A list-valued module attribute: `@name [ ... ]`.
+LIST_ATTRIBUTE_RE = re.compile(r"@(\w+)\s*\[")
+# A directory literal: a relative path whose last segment has no file extension.
+DIRECTORY_LITERAL_RE = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 # The roots the whole-tree scans read: lib/ (the sources), priv/ (migrations and seeds),
 # config/, scripts/ and test/support/ (four of the scans read the support tree as well,
 # so a change there can break their pin).
@@ -553,19 +584,123 @@ def attribute_block(text, name):
 
 
 def whole_tree_scan_tests(all_tests, root):
-    """The whole-tree source scans: a test that reads the whole `lib/` tree and pins it.
+    """The whole-tree source scans: a test that reads a whole tree of the backend source.
 
     Such a scan is a pure function of the tree, so a diff that touches the tree can break
     its pin. Derived from the tree, so a scan that lands later is covered on the day it
     lands. A file that also holds database-backed cases is still a member: the exclusion of
     such files left real whole-tree scans deferrable (T-2691 rework).
+
+    A member reads a whole tree either directly (a glob over a backend-source root) or
+    through a helper module of `lib/` that walks a tree (T-2691 rework 2: the role-scope-
+    grants writer scan calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in
+    the called scanner and not in the test source; a literal-only discovery left that scan
+    deferrable and its pin unverified).
     """
     scans = set()
     for path in all_tests:
         text = read(os.path.join(root, path)) or ""
-        if WHOLE_TREE_READ_RE.search(text):
+        if not text:
+            continue
+        if whole_tree_glob_roots(text) or indirect_tree_roots(text, root):
             scans.add(path)
     return scans
+
+
+def source_root(literal):
+    """The backend-source root a directory literal names, or None.
+
+    A literal that names a file (its last segment has an extension) is not a root, and a
+    root outside the backend source (the handoff tree, the test tree) is not a root of this
+    class: a backend-source diff cannot break the pin of a scan of another tree.
+    """
+    if not DIRECTORY_LITERAL_RE.match(literal):
+        return None
+    if "." in literal.rsplit("/", 1)[-1]:
+        return None
+    if BACKEND_SOURCE_RE.match(literal + "/"):
+        return literal
+    return None
+
+
+def whole_tree_glob_roots(text):
+    """The backend-source roots a source file reads as a whole tree (`lib/**` -> "lib")."""
+    roots = set()
+    for m in WHOLE_TREE_GLOB_RE.finditer(text):
+        root = source_root(m.group(1))
+        if root:
+            roots.add(root)
+    return roots
+
+
+def helper_module_index(root):
+    """The modules of lib/ and test/support/ that walk a tree, by name, with their file.
+
+    Only a tree-walking module can be the helper of a whole-tree reader, so the index
+    holds those alone (cached per root: the tree does not change while the selector runs).
+    """
+    key = os.path.abspath(root)
+    cached = _HELPER_INDEX.get(key)
+    if cached is not None:
+        return cached
+    index = {}
+    for pattern in ("lib/**/*.ex", "test/support/**/*.ex"):
+        for path in sorted(glob.glob(os.path.join(root, pattern), recursive=True)):
+            text = read(path)
+            if not text or not walks_a_tree(text):
+                continue
+            for module in DEFMODULE_RE.findall(text):
+                index.setdefault(module, path)
+    _HELPER_INDEX[key] = index
+    return index
+
+
+def walks_a_tree(text):
+    """True when a module walks a tree: a `Path.wildcard` over a `**` pattern."""
+    return "Path.wildcard" in text and '"**' in text
+
+
+def indirect_tree_roots(text, root):
+    """The backend-source roots a test reads as a whole tree through a helper module.
+
+    The helper must be a module of lib/ (or of test/support/) that walks a tree; the roots
+    it scans are the ones it declares (`@default_roots` and its other list attributes) and
+    the ones the test passes to the call.
+    """
+    aliases = {}
+    for full, short in ALIAS_RE.findall(text):
+        aliases[short or full.rsplit(".", 1)[-1]] = full
+    index = helper_module_index(root)
+    roots = set()
+    for module, _function, arguments in MODULE_CALL_RE.findall(text):
+        target = aliases.get(module)
+        if target is None and "." in module:
+            target = module
+        if target is None:
+            matches = [v for k, v in aliases.items() if k.rsplit(".", 1)[-1] == module]
+            target = matches[0] if matches else None
+        if not target or target not in index:
+            continue
+        helper = read(index[target]) or ""
+        if not walks_a_tree(helper):
+            continue
+        candidates = set()
+        argument = arguments.strip()
+        if argument.startswith("["):
+            candidates.update(re.findall(r'"([^"]*)"', argument))
+        elif argument.startswith("@"):
+            block = attribute_block(text, argument[1:])
+            if block:
+                candidates.update(re.findall(r'"([^"]*)"', block))
+        for name in LIST_ATTRIBUTE_RE.findall(helper):
+            block = attribute_block(helper, name)
+            if block:
+                candidates.update(re.findall(r'"([^"]*)"', block))
+        for candidate in candidates:
+            scanned = source_root(candidate)
+            if scanned:
+                roots.add(scanned)
+    return roots
 
 
 def dynamic_sql_files(root, scan_test=DYNAMIC_SQL_SCAN_TEST):
