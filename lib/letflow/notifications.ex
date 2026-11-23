@@ -67,6 +67,7 @@ defmodule Letflow.Notifications do
   alias Letflow.NotificationTemplates
   alias Letflow.Notifications.Address
   alias Letflow.Notifications.Delivery
+  alias Letflow.Notifications.File, as: NotificationFile
   alias Letflow.Notifications.Files
   alias Letflow.Notifications.OutboundCap
   alias Letflow.Repo
@@ -672,6 +673,63 @@ defmodule Letflow.Notifications do
     |> Ecto.Query.limit(100)
     |> Repo.all(prefix: prefix)
   end
+
+  @doc """
+  Whether the step that sends this template for this trigger reference already
+  did its work (pilot gap G7: "a retry of a step that already did its work
+  changes nothing").
+
+  The mail channel already SENT: a `notification_deliveries` row with the
+  status `sent`. The file channel already wrote its file: a
+  `notification_files` row for the same template and trigger. A delivery that
+  FAILED is NOT "already done" -- that step may be sent again.
+
+  The rows carry no address and no body (INV-4): the check is on the channel,
+  the template key, the trigger reference and the status only. The trigger
+  reference must be a UUID; a reference that is not one is answered `false`
+  (no row can carry it). A schema that has neither table (a tenant
+  provisioned before those migrations) answers `false` rather than raising
+  (INV-8).
+  """
+  @spec already_delivered?(String.t(), String.t(), String.t(), keyword()) :: boolean()
+  def already_delivered?(channel, template_key, trigger_ref, opts)
+      when is_binary(channel) and is_binary(template_key) and is_binary(trigger_ref) and
+             is_list(opts) do
+    prefix = Keyword.get(opts, :prefix)
+
+    case Ecto.UUID.cast(trigger_ref) do
+      {:ok, uuid} -> delivered?(channel, template_key, uuid, prefix)
+      :error -> false
+    end
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?("email", template_key, uuid, prefix) do
+    query =
+      from(d in Delivery,
+        where: d.template_key == ^template_key and d.trigger_ref == ^uuid and d.status == "sent",
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: prefix)
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?("file", template_key, uuid, prefix) do
+    query =
+      from(f in NotificationFile,
+        where: f.template_key == ^template_key and f.trigger_ref == ^uuid,
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: prefix)
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?(_other, _template_key, _uuid, _prefix), do: false
 
   # Total: the outcome row is a record of what happened, so a row that cannot
   # be written must not change what the caller is told (a mail that went out is

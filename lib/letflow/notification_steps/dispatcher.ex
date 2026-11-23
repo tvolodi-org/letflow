@@ -107,6 +107,44 @@ defmodule Letflow.NotificationSteps.Dispatcher do
     _kind, _reason -> {:error, :notify_step_failed}
   end
 
+  @doc """
+  Retries a notification step that failed (pilot gap G7: a step failure is
+  visible AND retryable).
+
+  A notification step is NOT idempotent by nature: it SENDS. So the retry
+  asks the delivery log first whether the step already did its work: a mail
+  that was SENT, or a file that was written, for this template and this
+  trigger reference. Such a step is NOT sent again -- the retry answers
+  `{:ok, %{status: "already_done"}}` and nothing leaves the platform. A step
+  whose send FAILED (or that never got a row) is sent again.
+
+  The arguments are the step's own (`raw` the node's `notify` attribute,
+  `variables` the instance variables) and the context (`opts`: `:prefix`,
+  `:trigger_ref`, `:labels`) -- the SAME context `run/3` takes, so the retry
+  cannot read the step differently than the run did.
+
+  Never raises.
+  """
+  @spec retry(term(), map(), keyword()) :: {:ok, map()} | {:error, atom()}
+  def retry(raw, variables, opts) when is_list(opts) and is_map(variables) do
+    with {:ok, declaration} <- NotifyCalls.parse(raw),
+         {:ok, trigger_ref} <- trigger_ref(opts) do
+      if Notifications.already_delivered?(
+           declaration.channel,
+           declaration.template_key,
+           trigger_ref,
+           prefix: prefix(opts)
+         ) do
+        {:ok, %{status: "already_done", reason: nil}}
+      else
+        case run(raw, variables, opts) do
+          {:ok, status, reason} -> {:ok, %{status: status, reason: reason}}
+          {:error, code} -> {:error, code}
+        end
+      end
+    end
+  end
+
   # The two channels. The mail channel leaves the platform; the file channel
   # writes into the tenant's own file area (`Letflow.Notifications.Files`).
   # Both reserve the tenant's send cap BEFORE they do anything, and both
