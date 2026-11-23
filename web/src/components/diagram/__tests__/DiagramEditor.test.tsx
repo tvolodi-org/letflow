@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import type { DefinitionGraph, NodeType } from '@/types/api'
@@ -19,6 +20,11 @@ import { useDiagramDraft, type DiagramDraft } from '@/hooks/useDiagramDraft'
 import type { DraftCheck } from '@/hooks/useValidateDraft'
 import { positionOf, readAttrs } from '@/utils/canvas/graphEdit'
 expect.extend(jestDomMatchers)
+
+// T-2599: the step panel reads the platform function catalogue (a tenant-scoped query), so the tree needs a
+// session and a query client. The catalogue itself is answered empty: the picker's own tests cover its content.
+vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ session: { tenant_id: 'tenant-1' } }) }))
+vi.mock('@/api/platformFunctions', () => ({ platformFunctionsApi: { list: vi.fn(() => Promise.resolve({ items: [] })) } }))
 
 let width = 1200
 class RO {
@@ -85,9 +91,11 @@ function Harness({ seed = GRAPH, violations = [], check = { phase: 'idle' } as D
 }
 const renderEditor = (props: React.ComponentProps<typeof Harness> = {}) =>
   render(
-    <ProcessDiagramIntlProvider>
-      <Harness {...props} />
-    </ProcessDiagramIntlProvider>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ProcessDiagramIntlProvider>
+        <Harness {...props} />
+      </ProcessDiagramIntlProvider>
+    </QueryClientProvider>,
   )
 const nodeIds = () => latest.graph.nodes.map((n) => n.id)
 const openNode = (id: string) => {

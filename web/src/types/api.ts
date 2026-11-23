@@ -818,3 +818,41 @@ export interface EntityAggregateRequest {
 export interface EntityAggregateResponse {
   results: { group?: Record<string, unknown>; values: Record<string, unknown> }[]
 }
+
+// ── Platform function catalogue (T-2599, pilot gap G5a) ─────────────────────
+//
+// The COMPILED catalogue of platform functions, as `GET /api/v1/platform-functions` publishes it
+// (`Letflow.PlatformFunctions.Catalog.entry_map/1`). There is no write route: an entry exists only if it is
+// compiled into the build.
+
+/** One typed input of a catalogue entry. `source_class` is `start`, `step` or `person`. */
+export interface PlatformFunctionInput {
+  name: string
+  type: string
+  required: boolean
+  source_class: string
+}
+
+/** One typed output of a catalogue entry. */
+export interface PlatformFunctionOutput {
+  name: string
+  type: string
+}
+
+/** One catalogue entry. */
+export interface PlatformFunctionEntry {
+  name: string
+  family: string
+  version: string
+  permission: string
+  platform_tenant_only: boolean
+  idempotency_inputs: string[]
+  inputs: PlatformFunctionInput[]
+  outputs: PlatformFunctionOutput[]
+  side_effects: { text: string; class: string }[]
+}
+
+/** The catalogue the caller's tenant may use. */
+export interface PlatformFunctionCatalogue {
+  items: PlatformFunctionEntry[]
+}

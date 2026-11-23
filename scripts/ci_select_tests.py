@@ -80,6 +80,8 @@ STANDARD_BP_DOC_TEST = [
 # D-184/D-186: the security probes are mandatory on every bounded run: they are the mechanical
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
+# G-01: the generated real-HTTP route x role x tenant x request-shape matrix (golden as the
+# oracle, foreign/missing byte identity, no write on denial or into another tenant).
 # G-05: the generated audit-writer by caller matrix and the database-row schema assertions
 # for actor id/kind, required fields and payload redaction.
 # G-06: every outbound HTTP call site is inventoried and classified, and the
@@ -90,6 +92,11 @@ STANDARD_BP_DOC_TEST = [
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 STANDARD_SECURITY_PROBE_TESTS = [
+    "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
+    "test/letflow/security_probe/g01_route_role_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",

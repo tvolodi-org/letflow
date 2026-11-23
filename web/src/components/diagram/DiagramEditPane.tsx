@@ -35,6 +35,8 @@ export interface DiagramEditPaneProps {
   onReload: () => void
   /** Screen harness only: a fixed starting state (selection, problems, a banner) for the screenshots. */
   demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean; stale?: boolean; versionTaken?: boolean; loading?: boolean }
+  /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
+  tenantId?: string | null
 }
 
 function classify(err: unknown): NonNullable<SaveError> {
@@ -48,7 +50,7 @@ function classify(err: unknown): NonNullable<SaveError> {
   return { kind: 'other', message }
 }
 
-export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo }: DiagramEditPaneProps) {
+export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
@@ -226,6 +228,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           violations={violations}
           check={check}
           initialSelected={demo?.selected}
+          tenantId={tenantId}
           toolbar={{
             onSave: () => void save(),
             onDiscard: () => {
