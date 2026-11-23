@@ -43,10 +43,19 @@ defmodule Letflow.Notifications.Files do
   sweep that CALLS it is not part of this change (the tenant's scheduled jobs
   are the place for it); the rule and the function are here, with their tests.
 
-  ## Never raises
+  ## Never raises on a prefix that names no tenant
 
   Every failure is an error tuple: a prefix that names no tenant, a file that
-  is too large, a row that cannot be written.
+  is too large, a declared name over the byte cap, a row that cannot be
+  written.
+
+  EVERY entry point checks the prefix FIRST, before it touches the database:
+  `write/2`, `list/1`, `fetch/2` and `delete_expired/1` all resolve the
+  tenant through `Letflow.TenantProvisioning.tenant_id_for_schema_name/1` and
+  answer `{:error, :invalid_schema_name}` (or `:error` for `fetch/2`) for a
+  prefix that is not the name of a tenant schema -- the same shape as the mail
+  channel (`Letflow.Notifications.deliver_to_address/6`). A malformed prefix
+  never reaches the query, so it never becomes a database error.
   """
 
   import Ecto.Query
@@ -86,19 +95,25 @@ defmodule Letflow.Notifications.Files do
 
   The tenant of the row is derived from `prefix`. Returns `{:ok, row}` or
   `{:error, code}`; the codes are `:invalid_schema_name` (the prefix names no
-  tenant), `:file_too_large` (the bytes are over the cap) and
+  tenant), `:file_name_invalid` (the declared name is over the byte cap or is
+  not valid UTF-8), `:file_too_large` (the bytes are over the cap) and
   `:file_write_failed` (the row could not be written).
+
+  The prefix is resolved by the tenant check, so a prefix that is not a tenant
+  schema name is refused THERE -- with the code the read paths use too. The
+  fallback answers only for attrs that are not a map.
   """
   @spec write(String.t(), map()) :: {:ok, File.t()} | {:error, atom()}
-  def write(prefix, attrs) when is_binary(prefix) and is_map(attrs) do
+  def write(prefix, attrs) when is_map(attrs) do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, name} <- declared_name(Map.get(attrs, :declared_name)),
          {:ok, bytes} <- bytes(attrs),
          :ok <- size(bytes) do
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
       attrs = %{
         tenant_id: tenant_id,
-        name: stored_name(Map.get(attrs, :declared_name)),
+        name: name,
         template_key: Map.get(attrs, :template_key),
         content_type: Map.get(attrs, :content_type) || @content_type,
         byte_size: byte_size(bytes),
@@ -122,48 +137,54 @@ defmodule Letflow.Notifications.Files do
   The tenant's files, newest first, at most 100 rows. The BYTES are never
   selected here (the list is a list of names, not of payloads). The tenant is
   the `:prefix` only (INV-1).
-  """
-  @spec list(String.t()) :: {:ok, [map()]}
-  def list(prefix) when is_binary(prefix) do
-    rows =
-      from(f in File,
-        select: %{
-          id: f.id,
-          name: f.name,
-          template_key: f.template_key,
-          content_type: f.content_type,
-          byte_size: f.byte_size,
-          sha256: f.sha256,
-          trigger_ref: f.trigger_ref,
-          inserted_at: f.inserted_at,
-          expires_at: f.expires_at
-        },
-        order_by: [desc: f.inserted_at, desc: f.id],
-        limit: 100
-      )
-      |> Repo.all(prefix: prefix)
 
-    {:ok, rows}
+  A prefix that names no tenant is refused before the query:
+  `{:error, :invalid_schema_name}`.
+  """
+  @spec list(String.t()) :: {:ok, [map()]} | {:error, :invalid_schema_name}
+  def list(prefix) when is_binary(prefix) do
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, _tenant_id} ->
+        rows =
+          from(f in File,
+            select: %{
+              id: f.id,
+              name: f.name,
+              template_key: f.template_key,
+              content_type: f.content_type,
+              byte_size: f.byte_size,
+              sha256: f.sha256,
+              trigger_ref: f.trigger_ref,
+              inserted_at: f.inserted_at,
+              expires_at: f.expires_at
+            },
+            order_by: [desc: f.inserted_at, desc: f.id],
+            limit: 100
+          )
+          |> Repo.all(prefix: prefix)
+
+        {:ok, rows}
+
+      {:error, :invalid_schema_name} ->
+        {:error, :invalid_schema_name}
+    end
   end
 
-  def list(_prefix), do: {:ok, []}
+  def list(_prefix), do: {:error, :invalid_schema_name}
 
   @doc """
   One file of the tenant of `prefix`, WITH its bytes. `:error` when the row
   does not exist in this tenant's schema: a file of another tenant is not
   found, it is never read (INV-1, INV-5).
+
+  A prefix that names no tenant answers `:error` too -- the same answer as a
+  file that is not there, so the caller learns nothing about the prefix.
   """
   @spec fetch(String.t(), term()) :: {:ok, File.t()} | :error
   def fetch(prefix, id) when is_binary(prefix) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        case Repo.one(from(f in File, where: f.id == ^uuid), prefix: prefix) do
-          nil -> :error
-          row -> {:ok, row}
-        end
-
-      :error ->
-        :error
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, _tenant_id} -> fetch_row(prefix, id)
+      {:error, :invalid_schema_name} -> :error
     end
   end
 
@@ -172,18 +193,27 @@ defmodule Letflow.Notifications.Files do
   @doc """
   Removes the files whose retention moment has passed. Returns the number of
   files removed. The bytes leave with the row (there is no other copy).
+
+  A prefix that names no tenant is refused before the query:
+  `{:error, :invalid_schema_name}`.
   """
-  @spec delete_expired(String.t()) :: {:ok, non_neg_integer()}
+  @spec delete_expired(String.t()) :: {:ok, non_neg_integer()} | {:error, :invalid_schema_name}
   def delete_expired(prefix) when is_binary(prefix) do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, _tenant_id} ->
+        now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    {count, _rows} =
-      Repo.delete_all(from(f in File, where: f.expires_at <= ^now), prefix: prefix)
+        {count, _rows} =
+          Repo.delete_all(from(f in File, where: f.expires_at <= ^now), prefix: prefix)
 
-    {:ok, count}
+        {:ok, count}
+
+      {:error, :invalid_schema_name} ->
+        {:error, :invalid_schema_name}
+    end
   end
 
-  def delete_expired(_prefix), do: {:ok, 0}
+  def delete_expired(_prefix), do: {:error, :invalid_schema_name}
 
   @doc """
   The name the SERVER generates for a file: a sanitised stem of the declared
@@ -232,7 +262,9 @@ defmodule Letflow.Notifications.Files do
 
   @doc """
   The cap of the declared name, in bytes. The name is checked before it is
-  sanitised (SF-01: the byte bound comes first).
+  sanitised (SF-01: the byte bound comes first) and the check lives HERE, in
+  the area that publishes the cap: `write/2` refuses a name over it with
+  `{:error, :file_name_invalid}`.
   """
   @spec max_declared_name_bytes() :: pos_integer()
   def max_declared_name_bytes, do: @max_declared_name_bytes
@@ -249,6 +281,40 @@ defmodule Letflow.Notifications.Files do
     case Map.get(attrs, :bytes) do
       bytes when is_binary(bytes) and byte_size(bytes) > 0 -> {:ok, bytes}
       _other -> {:error, :file_write_failed}
+    end
+  end
+
+  # The DECLARED name, bounded BEFORE it is walked (SF-01: the byte bound comes
+  # first). The cap the area publishes (`max_declared_name_bytes/0`) is the cap
+  # the area ENFORCES: the sanitiser walks the name's characters, so a name
+  # over the cap must not reach it, and a name that is not valid UTF-8 must
+  # not reach it either (the walk raises on an invalid sequence).
+  #
+  # The name that is STORED is the server's own (`stored_name/1`); the declared
+  # name is only ever the raw material of its stem.
+  defp declared_name(name) when is_binary(name) do
+    if byte_size(name) <= @max_declared_name_bytes and String.valid?(name) do
+      {:ok, stored_name(name)}
+    else
+      {:error, :file_name_invalid}
+    end
+  end
+
+  # A name that is not text at all (a missing name, a number) is no name: the
+  # server generates one, the way it always did.
+  defp declared_name(_other), do: {:ok, stored_name("")}
+
+  # The row itself, with its bytes.
+  defp fetch_row(prefix, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        case Repo.one(from(f in File, where: f.id == ^uuid), prefix: prefix) do
+          nil -> :error
+          row -> {:ok, row}
+        end
+
+      :error ->
+        :error
     end
   end
 

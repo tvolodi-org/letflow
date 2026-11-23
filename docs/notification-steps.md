@@ -175,6 +175,27 @@ fresh uuid -- so even a name that slipped past the fence cannot become a path.
 The tenant of the row is derived from the schema the row is written into, never
 from the caller (INV-1 (c)).
 
+**The area enforces its own caps, on its own side of the fence.** The fence
+refuses a path-like name at activation, and the AREA refuses it too: the
+declared name is bounded (`Files.max_declared_name_bytes/0`, 255 bytes) and
+checked for valid UTF-8 BEFORE the sanitiser walks its characters (SF-01: the
+byte bound comes first); a name over the cap is refused with
+`{:error, :file_name_invalid}` and nothing is written. The area is also the
+place where a prefix is checked: every entry point (`write/2`, `list/1`,
+`fetch/2`, `delete_expired/1`) resolves the tenant BEFORE it touches the
+database, so a prefix that names no tenant is an error tuple
+(`{:error, :invalid_schema_name}`, or `:error` for `fetch/2`) and never a
+database error (INV-8).
+
+**A refused step answers a typed 422 at the request surface.** The fence's
+refusal reaches the caller as `422 notify_calls_invalid` with the fixed code of
+the violation (`notify_file_name_invalid`) on every path that switches a version
+on -- the activation, the reactivation, the version rollback, the promotion
+apply and the review-free promotion -- and never as a 500. The write path
+answers the same code through the graph rule's own violation
+(`422 definition graph failed validation`), and it stores nothing. The proof is
+`test/letflow/definitions/notify_calls_refused_activation_test.exs`.
+
 **The cap holds the file channel too.** The send cap is counted per tenant and
 per CHANNEL (the G2 record, option A (c) item 7), and the file channel has its
 own counter rows: a tenant that sends a lot of mail may still write its files,

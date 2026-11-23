@@ -848,7 +848,11 @@ defmodule Letflow.Routers.Definitions do
     do: Response.platform_calls_invalid(conn, violations)
 
   # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the notification
-  # fence's refusal at the draft/write path.
+  # fence's refusal at the draft/write path. The write path answers the graph rule's own
+  # violation today (the node attribute is checked before the row is written -- see
+  # `test/letflow/definitions/notify_calls_refused_activation_test.exs`), so this clause is
+  # the same typed 422 for a write path that runs the fence itself: the sibling answer of
+  # every path, never a 500.
   defp render_write(conn, {:error, {:notify_calls_invalid, violations}}, _success_status),
     do: Response.notify_calls_invalid(conn, violations)
 
