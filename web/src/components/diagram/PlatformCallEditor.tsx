@@ -6,6 +6,10 @@
  *  VARIABLE of the process (`var`) or to a FIXED value (`const`), and the two mapping sides the server reads
  *  (`reads`, `writes`) are derived from that mapping — the designer never types a type by hand.
  *
+ *  The type of a row is the DECLARED one — the JSON-Schema name the server reads, never the catalogue's own name
+ *  (a uuid is declared as a string). A variable name that breaks the rule (a dot, the reserved namespace, an empty
+ *  name) is refused in the field, with the field's own error, and never reaches the graph.
+ *
  *  The component owns no graph: every change is a `PlatformCall` handed to `onChange`, and the caller writes it
  *  into the node's `platform_call` attribute through the usual graph edit.
  */
@@ -19,7 +23,10 @@ import type { ApiError, PlatformFunctionEntry, PlatformFunctionInput } from '@/t
 import {
   argSource,
   argText,
+  declaredTypeName,
   emptyPlatformCall,
+  isPlainVariableName,
+  isReservedVariableName,
   parseConst,
   readConflicts,
   withArg,
@@ -126,13 +133,13 @@ export function PlatformCallEditor({ call, catalogue, onChange }: PlatformCallEd
                   key={output.name}
                   label={
                     <span className="lf-pd__mono">
-                      {output.name}: {output.type}
+                      {output.name}: {declaredTypeName(output.type)}
                     </span>
                   }
                   checked={output.name in call.writes}
                   onChange={(checked) => {
                     const writes = { ...call.writes }
-                    if (checked) writes[output.name] = output.type
+                    if (checked) writes[output.name] = declaredTypeName(output.type)
                     else delete writes[output.name]
                     commit({ ...call, writes })
                   }}
@@ -158,31 +165,52 @@ interface ArgRowProps {
   onChange: (call: PlatformCall) => void
 }
 
+/** The name a variable argument may carry: plain (not empty, no dot, within the bound) and outside the system's
+ *  reserved namespace. The server refuses both (`platform_call_arg_source_invalid`,
+ *  `platform_call_arg_sys_reference`); the field refuses them before the name reaches the graph. */
+function isUsableVariableName(name: string): boolean {
+  return isPlainVariableName(name) && !isReservedVariableName(name)
+}
+
 /** One argument of the chosen function: where its value comes from (a variable or a fixed value) and what it is.
  *  The constant's TEXT is local state, so a half-typed number stays in the field; only a value that fits the
- *  declared type reaches the graph. */
+ *  declared type reaches the graph. The variable NAME has a rule of its own, so it is local state too: a name that
+ *  breaks the rule stays in the field with its error and never reaches the graph. */
 function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
   const source = argSource(call, input.name)
-  const [text, setText] = useState(() => (source === 'const' ? argText(call, input.name, input.type) : ''))
+  // The type of the row is the DECLARED one: the JSON-Schema name the server reads (a uuid is declared as a string).
+  const type = declaredTypeName(input.type)
+  const [text, setText] = useState(() => (source === 'const' ? argText(call, input.name, type) : ''))
   const [error, setError] = useState<ConstError | null>(null)
+  const initialVarText = source === 'var' ? argText(call, input.name, type) : ''
+  const [varText, setVarText] = useState(initialVarText)
+  // A name that is already broken when the panel opens (a hand-authored definition) shows its error at once; an
+  // empty field shows nothing until it is written in.
+  const [varTouched, setVarTouched] = useState(() => initialVarText !== '' && !isUsableVariableName(initialVarText))
+  const varError = varTouched && !isUsableVariableName(varText)
 
   const changeSource = (next: string) => {
     setText('')
     setError(null)
+    setVarText('')
+    setVarTouched(false)
     if (next === '') onChange(withArg(call, input.name, null, null))
     else if (next === 'var') onChange(withArg(call, input.name, 'var', ''))
     else onChange(withArg(call, input.name, 'const', ''))
   }
 
-  const changeText = (next: string) => {
-    if (source === 'var') {
-      onChange(withArg(call, input.name, 'var', next))
-      return
-    }
+  const changeVarText = (next: string) => {
+    setVarText(next)
+    setVarTouched(true)
+    if (!isUsableVariableName(next)) return
+    onChange(withArg(call, input.name, 'var', next))
+  }
+
+  const changeConstText = (next: string) => {
     setText(next)
-    const parsed = parseConst(input.type, next)
+    const parsed = parseConst(type, next)
     if (parsed.ok) {
       setError(null)
       onChange(withArg(call, input.name, 'const', parsed.value))
@@ -191,14 +219,14 @@ function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
     }
   }
 
-  const value = source === 'const' ? text : argText(call, input.name, input.type)
+  const value = source === 'const' ? text : varText
   const constError = error ? e(`processDiagram.edit.platform.constError.${error}`) : undefined
 
   return (
     <div className="lf-pd-edit__arg" data-testid={`platform-arg-${input.name}`}>
       <p className="lf-pd-edit__arg-head">
         <span className="lf-pd__mono">{input.name}</span>
-        <span className="lf-pd__mono">{input.type}</span>
+        <span className="lf-pd__mono">{type}</span>
         <span className="lf-hint">
           {input.required ? e('processDiagram.edit.platform.required') : e('processDiagram.edit.platform.optional')}
           {' · '}
@@ -214,10 +242,15 @@ function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
         data-testid={`platform-arg-source-${input.name}`}
       />
       {source === 'var' && (
-        <Field label={e('processDiagram.edit.platform.variableName')} width="m" hint={e('processDiagram.edit.platform.variableHint')}>
+        <Field
+          label={e('processDiagram.edit.platform.variableName')}
+          width="m"
+          hint={e('processDiagram.edit.platform.variableHint')}
+          error={varError ? e('processDiagram.edit.platform.variableError') : undefined}
+        >
           <input
             value={value}
-            onChange={(ev) => changeText(ev.target.value)}
+            onChange={(ev) => changeVarText(ev.target.value)}
             data-testid={`platform-arg-var-${input.name}`}
           />
         </Field>
@@ -226,7 +259,7 @@ function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
         <Field label={e('processDiagram.edit.platform.value')} width="m" error={constError}>
           <input
             value={value}
-            onChange={(ev) => changeText(ev.target.value)}
+            onChange={(ev) => changeConstText(ev.target.value)}
             data-testid={`platform-arg-const-${input.name}`}
           />
         </Field>

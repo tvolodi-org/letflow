@@ -44,6 +44,14 @@ const NUMBER_ENTRY: PlatformFunctionEntry = {
   outputs: [],
 }
 
+/** An entry of the REAL catalogue: a uuid in, a uuid out (the tenant family publishes `type: :uuid`). */
+const UUID_ENTRY: PlatformFunctionEntry = {
+  ...ENTRY,
+  name: 'tenant.create',
+  inputs: [{ name: 'tenant_id', type: 'uuid', required: true, source_class: 'step' }],
+  outputs: [{ name: 'tenant_id', type: 'uuid' }],
+}
+
 const CATALOGUE: PlatformCatalogueState = { entries: [ENTRY, NUMBER_ENTRY], loading: false, error: null, onRetry: () => {} }
 
 function Harness({
@@ -183,5 +191,41 @@ describe('PlatformCallEditor', () => {
     expect(screen.getByTestId('platform-arg-slug')).toBeInTheDocument()
     const outputs = screen.getByTestId('platform-call-outputs')
     expect(within(outputs).getByText(/normalized_slug/)).toBeInTheDocument()
+  })
+
+  it('F10 a uuid-typed argument and output are declared with their JSON-Schema name', () => {
+    const onCall = vi.fn()
+    render(
+      <Harness
+        catalogue={{ entries: [UUID_ENTRY], loading: false, error: null, onRetry: () => {} }}
+        onCall={onCall}
+      />,
+    )
+    fireEvent.change(selectIn('platform-call-function'), { target: { value: 'tenant.create' } })
+    fireEvent.change(selectIn('platform-arg-source-tenant_id'), { target: { value: 'var' } })
+    fireEvent.change(screen.getByTestId('platform-arg-var-tenant_id'), { target: { value: 'tenant' } })
+    // The server accepts only the six JSON-Schema names: a uuid is declared as a string.
+    expect(onCall).toHaveBeenLastCalledWith(expect.objectContaining({ reads: { tenant: 'string' } }))
+    fireEvent.click(screen.getByTestId('platform-call-output-tenant_id'))
+    expect(onCall).toHaveBeenLastCalledWith(expect.objectContaining({ writes: { tenant_id: 'string' } }))
+  })
+
+  it('F11 a variable name that breaks the rule is refused at the field', () => {
+    const onCall = vi.fn()
+    render(<Harness onCall={onCall} />)
+    fireEvent.change(selectIn('platform-call-function'), { target: { value: 'platform.validate_registration' } })
+    fireEvent.change(selectIn('platform-arg-source-slug'), { target: { value: 'var' } })
+    onCall.mockClear()
+    // A dotted name is a path, not a variable: the field refuses it and the graph keeps the last valid value.
+    fireEvent.change(screen.getByTestId('platform-arg-var-slug'), { target: { value: 'tenant.slug' } })
+    expect(onCall).not.toHaveBeenCalled()
+    expect(screen.getByText('The name of a variable: not empty, without a dot, and not a name of the system.')).toBeInTheDocument()
+    // A reserved name is refused too.
+    fireEvent.change(screen.getByTestId('platform-arg-var-slug'), { target: { value: '_sys' } })
+    expect(onCall).not.toHaveBeenCalled()
+    // A plain name reaches the graph.
+    fireEvent.change(screen.getByTestId('platform-arg-var-slug'), { target: { value: 'tenant_slug' } })
+    expect(onCall).toHaveBeenLastCalledWith(expect.objectContaining({ args: { slug: { var: 'tenant_slug' } } }))
+    expect(screen.queryByText('The name of a variable: not empty, without a dot, and not a name of the system.')).not.toBeInTheDocument()
   })
 })

@@ -25,6 +25,17 @@ const PLATFORM_CALL = {
   writes: { normalized_slug: 'string' },
 }
 
+/** The same step with a variable name that breaks the rule (a dotted name): the field shows its own error. */
+const BROKEN_PLATFORM_CALL = {
+  ...PLATFORM_CALL,
+  args: {
+    slug: { var: 'tenant.slug' },
+    display_name: { const: 'Acme' },
+    email: { var: 'admin_email' },
+  },
+  reads: { 'tenant.slug': 'string', admin_email: 'string' },
+}
+
 const GRAPH: DefinitionGraph = {
   nodes: [
     n('start', 'START', null),
@@ -49,6 +60,19 @@ const DEF: ProcessDefinition = {
   created_by: 'harness',
   created_at: '2026-11-01T09:00:00Z',
   updated_at: '2026-11-02T09:00:00Z',
+}
+
+/** The same definition with a variable name that breaks the rule — the state the picker's field refuses. */
+const BROKEN_DEF: ProcessDefinition = {
+  ...DEF,
+  graph: {
+    ...GRAPH,
+    nodes: GRAPH.nodes.map((node) =>
+      node.id === 'call'
+        ? { ...node, attributes: { platform_call: BROKEN_PLATFORM_CALL } }
+        : node,
+    ),
+  },
 }
 
 const CATALOGUE = {
@@ -99,10 +123,10 @@ function catalogueRoute(mode: CatalogueMode): FixtureRoute {
   }
 }
 
-function routes(mode: CatalogueMode): FixtureRoute[] {
+function routes(mode: CatalogueMode, def: ProcessDefinition = DEF): FixtureRoute[] {
   return [
-    { match: (p, m) => m === 'POST' && p.endsWith('/validate'), reply: () => ({ status: 200, body: { status: 'valid', findings: [], definition_id: DEF.id } }) },
-    { match: (p, m) => m === 'GET' && p.endsWith(`/definitions/${DEF.id}`), reply: () => ({ status: 200, body: DEF }) },
+    { match: (p, m) => m === 'POST' && p.endsWith('/validate'), reply: () => ({ status: 200, body: { status: 'valid', findings: [], definition_id: def.id } }) },
+    { match: (p, m) => m === 'GET' && p.endsWith(`/definitions/${def.id}`), reply: () => ({ status: 200, body: def }) },
     catalogueRoute(mode),
   ]
 }
@@ -136,4 +160,6 @@ export const platformCallPickerScreens: HarnessScreen[] = [
   { name: 'pd-platform-loading', routes: routes('pending'), render: () => frame('Register tenant', { demo: SELECTED }) },
   // The catalogue could not be read.
   { name: 'pd-platform-error', routes: routes('failed'), render: () => frame('Register tenant', { demo: SELECTED }) },
+  // A variable name that breaks the rule (a dotted name): the field refuses it and shows its own error.
+  { name: 'pd-platform-var-error', routes: routes('entries', BROKEN_DEF), render: () => frame('Register tenant', { demo: SELECTED, def: BROKEN_DEF }) },
 ]

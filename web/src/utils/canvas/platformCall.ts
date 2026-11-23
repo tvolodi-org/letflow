@@ -11,6 +11,10 @@
  *    - `writes` holds the catalogue OUTPUTS the step writes, with the output's own type — the server refuses a
  *      write the step's contract does not produce (`step_mapping_write_not_declared`).
  *
+ *  A declared type is a JSON-Schema type NAME, never the catalogue's own: the catalogue publishes a uuid as
+ *  "uuid", the server accepts only the six JSON-Schema names (`Letflow.Definitions.StepMapping`), so the type is
+ *  translated on the way in (`declaredTypeName/1` — the server's own table, where a uuid is a string).
+ *
  *  The constant of an argument follows the TYPE the catalogue declares for it: a `string` input takes the text
  *  as it is, a `number`/`integer` input takes a number, a `boolean` input takes true/false, and an
  *  `object`/`array` input takes JSON. A text that does not fit the type is refused here, before it reaches the
@@ -37,8 +41,38 @@ export interface PlatformCall {
 /** The JSON-Schema type names a declaration may use — the closed list of `Letflow.Definitions.StepMapping`. */
 export const PLATFORM_TYPE_NAMES = ['array', 'boolean', 'integer', 'number', 'object', 'string'] as const
 
+/** One of the six names above. */
+export type PlatformTypeName = (typeof PLATFORM_TYPE_NAMES)[number]
+
+/** The catalogue publishes its OWN type names (`uuid`), but a declaration may only use the six JSON-Schema names the
+ *  server accepts. The table is the server's own: `Letflow.Definitions.StepMapping`'s `contract_family/1` and the
+ *  canonical platform-call fixture (`test/support/platform_call_fixture.ex`) map a uuid to a string — a uuid is a
+ *  string in the instance variables. A type the platform does not know constrains nothing there, so it is declared
+ *  as a string here too. */
+const CATALOGUE_TYPE_TO_DECLARED: Record<string, PlatformTypeName | undefined> = {
+  string: 'string',
+  uuid: 'string',
+  number: 'number',
+  integer: 'integer',
+  boolean: 'boolean',
+  object: 'object',
+  array: 'array',
+}
+
+/** The JSON-Schema type name a catalogue type is DECLARED with — the type the server compares with the variable's
+ *  own schema type. The catalogue's own name is never copied into a declaration. */
+export function declaredTypeName(catalogueType: string): PlatformTypeName {
+  return CATALOGUE_TYPE_TO_DECLARED[catalogueType] ?? 'string'
+}
+
 /** The bound on a variable name (the `variable_schemas.variable_key` column: `varchar(255)`). */
 export const MAX_VARIABLE_NAME_BYTES = 255
+
+/** The reserved namespace of the instance variables (`Letflow.Engine.VariableMerge`): `_sys` and everything under
+ *  `_sys.`. A platform call may not read it — the server refuses it (`platform_call_arg_sys_reference`). */
+export function isReservedVariableName(name: unknown): boolean {
+  return typeof name === 'string' && (name === '_sys' || name.startsWith('_sys.'))
+}
 
 /** A variable name is plain when it is a non-empty binary of at most the bound and carries no dot: the instance
  *  variables are one flat namespace, so a dotted name would be a path, not a variable. */
@@ -173,8 +207,9 @@ export function withArg(call: PlatformCall, name: string, source: PlatformSource
 }
 
 /** The READS of a call: every variable the step really reads, with the type of the catalogue input it comes from.
- *  The first input that names a variable wins: two inputs of DIFFERENT types on one variable are a conflict the
- *  UI reports (`readConflicts/2`), not a silent choice. */
+ *  The type is the DECLARED one (`declaredTypeName/1`), the JSON-Schema name the server reads: the catalogue's own
+ *  type name is never copied into a declaration. The first input that names a variable wins: two inputs of
+ *  DIFFERENT types on one variable are a conflict the UI reports (`readConflicts/2`), not a silent choice. */
 export function deriveReads(call: PlatformCall, entry: PlatformFunctionEntry): Record<string, string> {
   const reads: Record<string, string> = {}
   for (const input of entry.inputs) {
@@ -182,12 +217,14 @@ export function deriveReads(call: PlatformCall, entry: PlatformFunctionEntry): R
     if (!arg || !('var' in arg)) continue
     const name = arg.var
     if (name === '' || name in reads) continue
-    reads[name] = input.type
+    reads[name] = declaredTypeName(input.type)
   }
   return reads
 }
 
-/** The variables two inputs of DIFFERENT types would both read — a mapping the server cannot satisfy. */
+/** The variables two inputs of DIFFERENT types would both read — a mapping the server cannot satisfy. The types are
+ *  the DECLARED ones: two arguments that declare the same type (a uuid and a string) are no conflict, because the
+ *  server compares the declared types. */
 export function readConflicts(call: PlatformCall, entry: PlatformFunctionEntry): string[] {
   const seen = new Map<string, string>()
   const conflicts = new Set<string>()
@@ -196,19 +233,20 @@ export function readConflicts(call: PlatformCall, entry: PlatformFunctionEntry):
     if (!arg || !('var' in arg)) continue
     const name = arg.var
     if (name === '') continue
+    const type = declaredTypeName(input.type)
     const previous = seen.get(name)
-    if (previous === undefined) seen.set(name, input.type)
-    else if (previous !== input.type) conflicts.add(name)
+    if (previous === undefined) seen.set(name, type)
+    else if (previous !== type) conflicts.add(name)
   }
   return [...conflicts].sort()
 }
 
-/** The WRITES of a call: the catalogue outputs the step writes, with the output's own type. A name that is not an
- *  output of the entry is dropped: the server refuses a write the step's contract does not produce. */
+/** The WRITES of a call: the catalogue outputs the step writes, with the DECLARED type of the output. A name that is
+ *  not an output of the entry is dropped: the server refuses a write the step's contract does not produce. */
 export function deriveWrites(call: PlatformCall, entry: PlatformFunctionEntry): Record<string, string> {
   const writes: Record<string, string> = {}
   for (const output of entry.outputs) {
-    if (output.name in call.writes) writes[output.name] = output.type
+    if (output.name in call.writes) writes[output.name] = declaredTypeName(output.type)
   }
   return writes
 }

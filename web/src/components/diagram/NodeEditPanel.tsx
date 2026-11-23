@@ -169,6 +169,7 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
             // T-2599: the step calls a platform function — the picker and the typed argument mapping.
             <div data-testid="edit-platform-call">
               <PlatformCallEditor
+                key={node.id}
                 call={platformCall}
                 catalogue={catalogue}
                 onChange={(next) => onApply(setPlatformCall(graph, node.id, next), undefined, `platform:${node.id}`)}
@@ -176,7 +177,7 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => onApply(removePlatformCall(graph, node.id), e('announce.scriptReplaced'))}
+                onClick={() => onApply(removePlatformCall(graph, node.id), e('announce.platformCallRemoved'))}
                 data-testid="edit-use-script-from-platform"
               >
                 {e('platform.useScript')}

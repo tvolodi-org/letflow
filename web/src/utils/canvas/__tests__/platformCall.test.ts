@@ -2,7 +2,8 @@
  *  argument mapping. P1 the call is read from the attribute (and a malformed one is "no call"), P2 the reads are
  *  derived from the `var` arguments, P3 the writes are derived from the catalogue outputs, P4 the two mapping
  *  sides are what the server reads, P5 the constant follows the declared type, P6 the conflict of two arguments
- *  of different types on one variable is reported. */
+ *  of different types on one variable is reported, P9 the rule of a variable name, P10 a catalogue type is
+ *  DECLARED with its JSON-Schema name. */
 import { describe, expect, it } from 'vitest'
 import type { PlatformFunctionEntry } from '@/types/api'
 import {
@@ -47,6 +48,14 @@ const mixedEntry: PlatformFunctionEntry = {
     { name: 'retries', type: 'integer', required: false, source_class: 'start' },
   ],
   outputs: [{ name: 'schema_name', type: 'string' }],
+}
+
+/** An entry of the REAL catalogue: a uuid in, a uuid out (the tenant family publishes `type: :uuid`). */
+const uuidEntry: PlatformFunctionEntry = {
+  ...entry,
+  name: 'tenant.create',
+  inputs: [{ name: 'tenant_id', type: 'uuid', required: true, source_class: 'step' }],
+  outputs: [{ name: 'tenant_id', type: 'uuid' }],
 }
 
 describe('platformCall', () => {
@@ -121,6 +130,9 @@ describe('platformCall', () => {
     expect(readConflicts(call, mixedEntry)).toEqual(['shared'])
     const same = withArg(withArg(emptyPlatformCall(entry.name), 'slug', 'var', 'x'), 'display_name', 'var', 'x')
     expect(readConflicts(same, entry)).toEqual([])
+    // Two arguments that DECLARE the same type are no conflict: a uuid and a string are both declared as a string.
+    const uuidAndString = withArg(withArg(emptyPlatformCall(mixedEntry.name), 'tenant_id', 'var', 'shared'), 'slug', 'var', 'shared')
+    expect(readConflicts(uuidAndString, { ...mixedEntry, inputs: [...mixedEntry.inputs, { name: 'slug', type: 'string', required: true, source_class: 'start' }] })).toEqual([])
   })
 
   it('P7 the argument source is read back from the mapping', () => {
@@ -145,5 +157,23 @@ describe('platformCall', () => {
     expect(isPlainVariableName('')).toBe(false)
     expect(isPlainVariableName('x'.repeat(256))).toBe(false)
     expect(isPlainVariableName('x'.repeat(255))).toBe(true)
+  })
+
+  it('P10 a catalogue type is DECLARED with its JSON-Schema name (a uuid is a string)', () => {
+    // The server accepts only the six JSON-Schema names (`Letflow.Definitions.StepMapping`), so the catalogue's own
+    // type names cannot be copied into the declaration.
+    // The READ of a uuid-typed argument is declared as a string.
+    const read = withArg(emptyPlatformCall(uuidEntry.name), 'tenant_id', 'var', 'tenant')
+    expect(deriveReads(read, uuidEntry)).toEqual({ tenant: 'string' })
+    // The WRITE of a uuid-typed output is declared as a string.
+    const written = { ...emptyPlatformCall(uuidEntry.name), writes: { tenant_id: 'string' } }
+    expect(deriveWrites(written, uuidEntry)).toEqual({ tenant_id: 'string' })
+    // The whole mapping the server reads.
+    expect(withDerivedMapping(read, uuidEntry)).toEqual({
+      function: 'tenant.create',
+      args: { tenant_id: { var: 'tenant' } },
+      reads: { tenant: 'string' },
+      writes: {},
+    })
   })
 })

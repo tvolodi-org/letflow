@@ -3,7 +3,8 @@
  *  step that calls a platform function, and the route kinds of a step stay EXCLUSIVE — a step carries a platform
  *  call OR a script, never both (the server refuses a node that carries both).
  *  N1 the picker is shown with the function and its arguments, N2 the step can be switched onto a platform
- *  function (the script binding is dropped), N3 a platform call can be dropped for a script. */
+ *  function (the script binding is dropped), N3 a platform call can be dropped for a script, N4 the announcement of
+ *  that drop names the platform call (a platform call replaces no service binding and asks for no script key). */
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -49,6 +50,7 @@ const graphWith = (attributes: Record<string, unknown>): DefinitionGraph => ({
 })
 
 let latest: DefinitionGraph = graphWith({})
+let announced = ''
 
 function Harness({ attributes }: { attributes: Record<string, unknown> }) {
   const [graph, setGraph] = useState(() => graphWith(attributes))
@@ -58,8 +60,9 @@ function Harness({ attributes }: { attributes: Record<string, unknown> }) {
       <NodeEditPanel
         graph={graph}
         nodeId="call"
-        onApply={(result) => {
+        onApply={(result, announce) => {
           if (result.ok) setGraph(result.graph)
+          announced = announce ?? ''
         }}
         onClose={() => {}}
         onSelectEdge={() => {}}
@@ -111,5 +114,8 @@ describe('NodeEditPanel — the platform call', () => {
     )
     fireEvent.click(screen.getByTestId('edit-use-script-from-platform'))
     expect(callAttrs().platform_call).toBeUndefined()
+    // The announcement names the platform call: no service binding was replaced and no script key is asked for.
+    expect(announced).toBe('The platform function was removed; the step has no route until a script is named.')
+    expect(announced).not.toContain('Service binding replaced by a script')
   })
 })
