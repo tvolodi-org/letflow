@@ -26,10 +26,29 @@ defmodule Letflow.Definitions.StartPermission do
       own row, and it is evaluated in the CALLER's own tenant scope, so a
       company definition may declare one too.
 
+  The DECLARED requirement is evaluated with the ROLE MATRIX
+  (`Letflow.Api.Authorization.has_permission_in_scope?/4`), the same notion the
+  activation fence below uses: a caller without one of the roles the matrix
+  names for the declared atom is refused. An atom that EVERY role holds
+  (`:MyAccessRead` and its two siblings) therefore still admits every caller
+  with a role -- the fence sees the same table and calls such a declaration
+  "not weaker", so the two decisions agree.
+
+  ## The children count with the parent
+
+  A SUB_PROCESS child inherits the parent's start variables, so it needs the
+  same authority as a direct start. BOTH of the child's requirements join the
+  parent's start: the child's DERIVED atoms (T-2588) and the child's DECLARED
+  atom (T-2591). A child that declares a permission the caller does not hold
+  therefore cannot be started through its parent either.
+
+  ## The declaration may not be weaker than the steps need
+
   The declared permission may not be WEAKER than the derived one: activation
   refuses a version whose `start_permission` does not imply every derived
-  permission (`activation_violation/1`). A weaker declaration would look like a
-  guard while granting less than the step actually needs.
+  permission of the definition AND of the children it starts
+  (`activation_violation/2`). A weaker declaration would look like a guard
+  while granting less than the step actually needs.
 
   ## The answer
 
@@ -45,6 +64,11 @@ defmodule Letflow.Definitions.StartPermission do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.PlatformTenant
+
+  # The atom that stands for a DECLARED permission the platform does not know:
+  # no caller holds it, so a start with it is refused. It is not a permission
+  # atom of the table, so it can never be granted by a role or by a grant.
+  @unknown_permission :__unknown_start_permission__
 
   @doc """
   The permission atoms a definition's `platform_call` steps require of the
@@ -92,48 +116,54 @@ defmodule Letflow.Definitions.StartPermission do
   end
 
   @doc """
-  The permission atoms a caller must hold to start `definition`: the DECLARED
-  one (when it has one) together with the DERIVED ones.
-  """
-  @spec required_atoms(map() | term(), [map()]) :: [atom()]
-  def required_atoms(definition, children \\ []) do
-    derived = required_permission_atoms(definition, children)
+  The DECLARED permission atoms of a definition and of the children it starts:
+  the atom each `start_permission` column names.
 
-    declared =
+  A name the platform does not know is the sentinel `@unknown_permission`: no
+  caller holds it, so a start with it is refused and an activation with it is
+  refused too.
+  """
+  @spec declared_atoms(map() | term(), [map()]) :: [atom()]
+  def declared_atoms(definition, children \\ [])
+
+  def declared_atoms(definition, children) when is_map(definition) do
+    own =
       case declared(definition) do
         {:ok, atom} -> [atom]
-        _other -> []
+        {:error, :unknown} -> [@unknown_permission]
+        :none -> []
       end
 
-    Enum.uniq(declared ++ derived)
+    from_children =
+      children
+      |> Enum.flat_map(fn child -> declared_atoms(child, []) end)
+      |> Enum.uniq()
+
+    Enum.uniq(own ++ from_children)
   end
+
+  def declared_atoms(_definition, _children), do: []
 
   @doc """
   The authority of one start: `:ok` when the caller may start `definition`,
   `{:error, :not_found}` when it may not (the INV-5 answer).
 
   `auth_context` is the server-side request context (`:user_id`, `:tenant_id`,
-  `:roles`); nil when the caller is not an HTTP principal (module code, a
-  sub-process child), which may not start a definition that calls a platform
-  function.
+  `:roles` and the tenant's `:role_overlay`); nil when the caller is not an
+  HTTP principal (module code, a sub-process child), which may not start a
+  definition that calls a platform function.
 
   `children` are the SUB_PROCESS child definitions the definition starts: a
   child inherits the parent's start variables, so it needs the same authority
   as a direct start. A child that calls a platform function therefore holds the
-  parent's start to the same permission.
+  parent's start to the same permission, and so does a child that DECLARES one.
   """
   @spec check(map() | term(), map() | nil, [map()]) :: :ok | {:error, :not_found}
   def check(definition, auth_context, children \\ [])
 
   def check(definition, auth_context, children) when is_map(definition) do
     derived = required_permission_atoms(definition, children)
-
-    declared =
-      case declared(definition) do
-        {:ok, atom} -> [atom]
-        {:error, :unknown} -> [:__unknown_start_permission__]
-        :none -> []
-      end
+    declared = declared_atoms(definition, children)
 
     if derived == [] and declared == [] do
       # A definition with no requirement starts exactly as it always did -- a
@@ -176,28 +206,33 @@ defmodule Letflow.Definitions.StartPermission do
   defp authorize(auth_context, derived, declared) when is_map(auth_context) do
     user_id = Map.get(auth_context, :user_id)
     tenant_id = Map.get(auth_context, :tenant_id)
-    roles = Map.get(auth_context, :roles) || []
+    role_strings = Map.get(auth_context, :roles) || []
+
+    # The tenant's grant overlay, resolved by the route's own authorization
+    # (`Letflow.Plugs.Authorize`): the start reads the SAME facts the route
+    # read, so a caller who holds the declared permission through a grant is
+    # not refused a start the route allowed.
+    overlay = Map.get(auth_context, :role_overlay) || %{}
 
     if not is_binary(user_id) do
       {:error, :not_found}
     else
       platform? = PlatformTenant.platform_tenant?(tenant_id)
 
-      context = %Authorization.AccessContext{
-        user_id: user_id,
-        roles: Authorization.roles_from_strings(roles),
-        platform_tenant?: platform?
-      }
+      # The ONE role resolution (`Letflow.Api.Authorization.effective_roles/2`):
+      # `:PLATFORM_ADMIN` counts only in the platform tenant, exactly as the
+      # route's own authorization decided it.
+      roles = Authorization.effective_roles(role_strings, platform?)
 
       derived_ok? =
         derived == [] or
           (platform? and
-             Enum.all?(derived, &(Authorization.evaluate_access(context, &1).kind == :Allow)))
+             Enum.all?(derived, &Authorization.has_permission_in_scope?(roles, &1, true)))
 
       declared_ok? =
         Enum.all?(declared, fn
-          :__unknown_start_permission__ -> false
-          atom -> Authorization.evaluate_access(context, atom).kind == :Allow
+          @unknown_permission -> false
+          atom -> Authorization.has_permission_in_scope?(roles, atom, platform?, overlay)
         end)
 
       if derived_ok? and declared_ok? do
@@ -212,51 +247,74 @@ defmodule Letflow.Definitions.StartPermission do
 
   @doc """
   The activation-time refusal of a DECLARED `start_permission` that is weaker
-  than a permission the definition's own steps require: `nil` when the
-  declaration is acceptable, `{:start_permission_too_weak, declared, required}`
-  when it is not.
+  than a permission the definition's steps require: `nil` when the declaration
+  is acceptable, `{:start_permission_too_weak, declared, required}` when it is
+  not, and `{:start_permission_unknown, name}` when a declaration names a
+  permission the platform does not know.
 
   "Weaker" is decided over the ROLE TABLE: the declared permission is weaker
   when some role holds it that does NOT hold the required one. A declared
   permission that is exactly the required one, or a stronger one, is accepted.
 
+  The required permissions are the DERIVED ones of the definition AND of the
+  children it starts (`children`): the start check demands the same set, so
+  the fence may not be narrower than the check it guards.
+
   A definition with no `platform_call` step has no derived requirement, so
   every declared permission is acceptable: the declaration is then the ONLY
   requirement of the start.
   """
-  @spec activation_violation(map() | term()) ::
+  @spec activation_violation(map() | term(), [map()]) ::
           nil | {:start_permission_too_weak, atom(), atom()} | {:start_permission_unknown, term()}
-  def activation_violation(definition) when is_map(definition) do
-    case declared(definition) do
-      {:error, :unknown} ->
-        {:start_permission_unknown, Map.get(definition, :start_permission)}
+  def activation_violation(definition, children \\ [])
 
-      {:ok, declared_atom} ->
-        derived =
-          case Map.get(definition, :graph) do
-            graph_map when is_map(graph_map) ->
-              case Graph.from_map(graph_map) do
-                {:ok, graph} -> required(graph)
-                :error -> []
-              end
+  def activation_violation(definition, children) when is_map(definition) do
+    case unknown_declaration(definition, children) do
+      nil ->
+        case declared(definition) do
+          {:ok, declared_atom} ->
+            required_permission_atoms(definition, children)
+            |> Enum.reject(&implies?(declared_atom, &1))
+            |> case do
+              [] ->
+                nil
 
-            _other ->
-              []
-          end
+              [required_atom | _rest] ->
+                {:start_permission_too_weak, declared_atom, required_atom}
+            end
 
-        derived
-        |> Enum.reject(&implies?(declared_atom, &1))
-        |> case do
-          [] -> nil
-          [required_atom | _rest] -> {:start_permission_too_weak, declared_atom, required_atom}
+          _none ->
+            nil
         end
 
-      :none ->
-        nil
+      name ->
+        {:start_permission_unknown, name}
     end
   end
 
-  def activation_violation(_definition), do: nil
+  def activation_violation(_definition, _children), do: nil
+
+  # The name of the first DECLARED permission the platform does not know: the
+  # definition's own, or a child's (a child is activated on its own, but its
+  # unknown declaration would make the parent's start impossible for everybody,
+  # so the parent's activation refuses it too).
+  defp unknown_declaration(definition, children) do
+    own =
+      case declared(definition) do
+        {:error, :unknown} -> Map.get(definition, :start_permission)
+        _known -> nil
+      end
+
+    from_children =
+      Enum.find_value(children, fn child ->
+        case unknown_declaration(child, []) do
+          nil -> nil
+          name -> name
+        end
+      end)
+
+    own || from_children
+  end
 
   @doc """
   True when `declared` is NOT WEAKER than `required`: every role that holds

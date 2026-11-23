@@ -148,6 +148,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.ValidationWarnings
   alias Letflow.PlatformTenant
   alias Letflow.Engine.EntityPort
+  alias Letflow.Engine.SubProcess
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
@@ -795,7 +796,7 @@ defmodule Letflow.Definitions do
       %ProcessDefinition{status: :active, needs_reactivation_at: %DateTime{}} ->
         with :ok <- check_entity_writes(definition, prefix, activator),
              :ok <- check_platform_calls(definition, prefix, activator),
-             :ok <- check_start_permission(definition),
+             :ok <- check_start_permission(definition, prefix),
              :ok <- check_step_mappings(definition, prefix) do
           reactivate_row(definition, prefix, tenant_id, activator)
         else
@@ -1949,9 +1950,15 @@ defmodule Letflow.Definitions do
   # T-2591 (pilot gap G3; decision record
   # docs/migration/decisions/0094-platform-call-authority.md, decision (e)): the DECLARED start
   # permission of a definition is a permission ATOM NAME. A name the platform does not know is
-  # refused at the WRITE path (create, PUT, PATCH, and therefore the import), so a definition
-  # never carries a permission that no caller can hold: an unknown name would make the start
-  # impossible for everybody, which is a safe failure but a useless definition.
+  # refused at the WRITE path that can set the column -- `create/2` and
+  # `create_with_variable_schemas/3` -- so a definition never carries a permission that no
+  # caller can hold: an unknown name would make the start impossible for everybody, which is a
+  # safe failure but a useless definition.
+  #
+  # The UPDATE path (PUT, PATCH) does not carry the field (`build_update_set/1` sets name,
+  # version, description, graph and stage), and the import does not either: a version that is
+  # created from another one carries the declaration only if the creator sends it. The column
+  # is therefore settable where a version is CREATED, never where a version is edited.
   #
   # The name is read out of the permission table, never turned into an atom by the caller's
   # string (no atom is born of untrusted input).
@@ -1988,11 +1995,18 @@ defmodule Letflow.Definitions do
   # needs. The check runs on the four activation paths (activate, reactivate, version
   # rollback, promotion apply) and in the designer's read-only precheck, so a version that
   # activation would refuse is refused in the designer too.
+  #
+  # The required permissions are those of the definition AND of the SUB_PROCESS children it
+  # starts (the same set the start check demands, T-2591 security gate): the fence may not be
+  # narrower than the check it guards. The children are resolved in the tenant's own schema,
+  # exactly as the start resolves them.
   @doc false
-  @spec check_start_permission(ProcessDefinition.t() | map()) ::
+  @spec check_start_permission(ProcessDefinition.t() | map(), String.t()) ::
           :ok | {:error, {:start_permission_invalid, map()}}
-  def check_start_permission(definition) when is_map(definition) do
-    case StartPermission.activation_violation(definition) do
+  def check_start_permission(definition, prefix) when is_map(definition) do
+    children = SubProcess.child_definitions(Map.get(definition, :graph), prefix)
+
+    case StartPermission.activation_violation(definition, children) do
       nil ->
         :ok
 
@@ -2740,7 +2754,7 @@ defmodule Letflow.Definitions do
          :ok <- check_reserved_references(definition),
          :ok <- check_entity_writes(definition, prefix, activator),
          :ok <- check_platform_calls(definition, prefix, activator),
-         :ok <- check_start_permission(definition),
+         :ok <- check_start_permission(definition, prefix),
          :ok <- check_step_mappings(definition, prefix) do
       check_script_bindings(definition, prefix)
     end
@@ -3688,7 +3702,7 @@ defmodule Letflow.Definitions do
             with :ok <- check_reserved_references(target_row),
                  :ok <- check_entity_writes(target_row, prefix, activator),
                  :ok <- check_platform_calls(target_row, prefix, activator),
-                 :ok <- check_start_permission(target_row),
+                 :ok <- check_start_permission(target_row, prefix),
                  :ok <- check_step_mappings(target_row, prefix),
                  :ok <- check_script_bindings(target_row, prefix) do
               swap_active_pointer(current_active, target_row, prefix, activator)

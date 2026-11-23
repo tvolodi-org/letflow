@@ -182,17 +182,6 @@ defmodule Letflow.Api.Response do
   def created(conn, body), do: send_json(conn, 201, body)
 
   @doc """
-  HTTP 202 -- the request was accepted and the work continues in the background
-  (T-2591, pilot gap G3: the "Register tenant" screen starts the platform's
-  registration PROCESS and the instance runs on).
-
-  The body names the instance that was started, so the caller can read its
-  timeline.
-  """
-  @spec accepted(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def accepted(conn, body), do: send_json(conn, 202, body)
-
-  @doc """
   HTTP 204 — No Content.
 
   PROVENANCE (historical, not current decision authority):

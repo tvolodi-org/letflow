@@ -151,4 +151,22 @@ defmodule Letflow.PlatformProcessesTest do
 
     assert {:error, :definition_not_found} = start(auth_context)
   end
+
+  # T-2591 (the security gate's INV-8 finding): the seam answers a TYPED error
+  # when the caller omits a required option. It never raises: the next slice
+  # calls it from a route, and a route that forgets an option must not answer a
+  # 500.
+  test "a missing actor or idempotency key is a typed error, never a raise" do
+    assert {:error, :missing_actor_id} =
+             PlatformProcesses.start_register_tenant(form(),
+               idempotency_key: "pp-missing-actor",
+               auth_context: %{user_id: Ecto.UUID.generate(), roles: []}
+             )
+
+    assert {:error, :missing_idempotency_key} =
+             PlatformProcesses.start_register_tenant(form(),
+               actor_id: Ecto.UUID.generate(),
+               auth_context: %{user_id: Ecto.UUID.generate(), roles: []}
+             )
+  end
 end

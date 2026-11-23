@@ -92,16 +92,23 @@ defmodule Letflow.PlatformProcesses do
   The answer is the engine's own: `{:ok, result}` with the instance id, or
   the engine's error tuple. The definition is looked up in the platform tenant
   only: a caller of another tenant never reaches a platform definition.
+
+  A missing `:actor_id` or `:idempotency_key` is a TYPED error
+  (`{:error, :missing_actor_id}`, `{:error, :missing_idempotency_key}`), never a
+  raise (INV-8): this seam is called by a route, and a route that forgets an
+  option must not answer a 500.
   """
   @spec start_register_tenant(map(), keyword()) ::
           {:ok, Engine.create_result()} | {:error, term()}
   def start_register_tenant(form, opts) when is_map(form) and is_list(opts) do
-    with {:ok, platform_prefix} <- PlatformTenant.platform_prefix() do
+    with {:ok, actor_id} <- fetch_opt(opts, :actor_id),
+         {:ok, idempotency_key} <- fetch_opt(opts, :idempotency_key),
+         {:ok, platform_prefix} <- PlatformTenant.platform_prefix() do
       attrs = %{
         definition_name: register_tenant_definition_name(),
         initial_variables: register_tenant_variables(form),
-        actor_id: Keyword.fetch!(opts, :actor_id),
-        idempotency_key: Keyword.fetch!(opts, :idempotency_key)
+        actor_id: actor_id,
+        idempotency_key: idempotency_key
       }
 
       Engine.create(attrs,
@@ -109,7 +116,17 @@ defmodule Letflow.PlatformProcesses do
         auth_context: Keyword.get(opts, :auth_context)
       )
     else
+      {:error, reason} -> {:error, reason}
       :error -> {:error, :platform_tenant_not_configured}
+    end
+  end
+
+  # A required option, read without raising: a missing or empty value is a
+  # typed error the caller can answer (INV-8).
+  defp fetch_opt(opts, key) do
+    case Keyword.get(opts, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _missing -> {:error, :"missing_#{key}"}
     end
   end
 end
