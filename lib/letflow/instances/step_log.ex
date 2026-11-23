@@ -249,12 +249,12 @@ defmodule Letflow.Instances.StepLog do
   # provisioned before the newest dispatch migration has no
   # `platform_step_dispatches` table; reading it would raise (INV-8).
   defp existing_dispatch_tables(prefix) do
-    query = """
-    SELECT table_name FROM information_schema.tables
-    WHERE table_schema = $1 AND table_name = ANY($2)
-    """
+    %Postgrex.Result{rows: rows} =
+      Repo.query!(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = ANY($2)",
+        [prefix, @dispatch_tables]
+      )
 
-    %Postgrex.Result{rows: rows} = Repo.query!(query, [prefix, @dispatch_tables])
     MapSet.new(Enum.map(rows, &hd/1))
   end
 
