@@ -9,6 +9,7 @@
  */
 import type { DefinitionGraph, GraphEdge, GraphNode, NodeType } from '@/types/api'
 import { layoutDefinition } from './readLayout'
+import { notifyAttribute, type NotifyStep } from './notifyStep'
 import type { PlatformCall } from './platformCall'
 
 /** Mirrors `@max_nodes` / `@max_edges` in lib/letflow/definitions/graph.ex (a test pins the numbers to that source). */
@@ -161,6 +162,7 @@ export function setScriptBinding(g: DefinitionGraph, id: string, binding: { key:
       delete attrs.script_version
     } else {
       delete attrs.platform_call
+      delete attrs.notify
       attrs.script_key = binding.key
       attrs.script_version = binding.version ?? (typeof attrs.script_version === 'number' ? attrs.script_version : 1)
     }
@@ -176,6 +178,7 @@ export function replaceServiceWithScript(g: DefinitionGraph, id: string, key: st
     delete attrs.service_id
     delete attrs.endpoint
     delete attrs.platform_call
+    delete attrs.notify
     attrs.script_key = key
     attrs.script_version = 1
     return withAttrs(n, attrs)
@@ -193,6 +196,7 @@ export function setPlatformCall(g: DefinitionGraph, id: string, call: PlatformCa
     delete attrs.script_version
     delete attrs.service_id
     delete attrs.endpoint
+    delete attrs.notify
     attrs.platform_call = call
     return withAttrs(n, attrs)
   })
@@ -205,6 +209,35 @@ export function removePlatformCall(g: DefinitionGraph, id: string): EditResult {
     if (!attributesEditable(n)) return n
     const attrs = readAttrs(n)
     delete attrs.platform_call
+    return withAttrs(n, attrs)
+  })
+}
+
+/** "Send a notification": the node's `notify` attribute, with the script binding, the service binding and the
+ *  platform call REMOVED. The route kinds of a step are exclusive (the server refuses a node that carries a
+ *  notification beside an endpoint, a service id, a script key or a platform call), so switching to one drops
+ *  the others. */
+export function setNotifyStep(g: DefinitionGraph, id: string, notify: NotifyStep): EditResult {
+  return mapNode(g, id, (n) => {
+    if (!attributesEditable(n)) return n
+    const attrs = readAttrs(n)
+    delete attrs.script_key
+    delete attrs.script_version
+    delete attrs.service_id
+    delete attrs.endpoint
+    delete attrs.platform_call
+    attrs.notify = notifyAttribute(notify)
+    return withAttrs(n, attrs)
+  })
+}
+
+/** "Use a script instead" from a notification step: the notification is dropped and the node carries no route
+ *  until the user names a script. */
+export function removeNotifyStep(g: DefinitionGraph, id: string): EditResult {
+  return mapNode(g, id, (n) => {
+    if (!attributesEditable(n)) return n
+    const attrs = readAttrs(n)
+    delete attrs.notify
     return withAttrs(n, attrs)
   })
 }

@@ -6,6 +6,7 @@ defmodule Letflow.Routers.NotificationTemplates do
   | Route | Policy key -> permission | Scope class |
   |---|---|---|
   | `GET /` | `:NotificationTemplatesManage` | `:tenant_wide` |
+  | `GET /catalogue` (the COMPILED catalogue of registered keys) | `:DefinitionsRead` | `:tenant_wide` |
   | `PUT /:template_key` (body `locale`, `subject`, `body`) | `:NotificationTemplatesManage` | `:tenant_wide` |
   | `DELETE /:template_key` (`?locale=`) | `:NotificationTemplatesManage` | `:tenant_wide` |
   | `POST /:template_key/preview` (body `locale`, optional `subject`, `body`, `values`) | `:NotificationTemplatesManage` | `:tenant_wide` |
@@ -16,12 +17,25 @@ defmodule Letflow.Routers.NotificationTemplates do
   the same 403 whether or not a template exists (INV-5). For an admin, validity is checked
   before existence: a refused input is 422, an unregistered key or an absent template is the one
   fixed 404. Refusals write no audit event, and no response echoes submitted text in an error.
+
+  ## The compiled catalogue (T-2600, pilot gap G5b)
+
+  `GET /catalogue` publishes the REGISTERED template keys and their placeholder allow-lists
+  (`Letflow.NotificationTemplates.Registry`) so the designer's template picker can offer them
+  without code. It is COMPILED platform data -- a key and the names of the placeholders a
+  template accepts -- and it carries NO tenant data: the tenant's own text (its override of a
+  key) stays behind `GET /`, which keeps the narrower `:NotificationTemplatesManage`.
+
+  The permission is `:DefinitionsRead`: the reader of a definition is the person who may name a
+  template in one, and the catalogue says nothing the definition's own text does not. It is the
+  same read the validation route uses.
   """
 
   use Letflow.Api.AuthorizedRouter
 
   alias Letflow.Api.Response
   alias Letflow.NotificationTemplates
+  alias Letflow.NotificationTemplates.Registry
 
   authz_get "/", :NotificationTemplatesManage, scope: :tenant_wide do
     templates =
@@ -39,6 +53,17 @@ defmodule Letflow.Routers.NotificationTemplates do
       end)
 
     Response.ok(conn, %{"templates" => templates})
+  end
+
+  # T-2600 (pilot gap G5b): the COMPILED catalogue the designer's template picker reads. It answers
+  # the registered keys and their placeholder allow-lists; the tenant's own text is the route above.
+  authz_get "/catalogue", :DefinitionsRead, scope: :tenant_wide do
+    items =
+      Enum.map(Registry.keys(), fn key ->
+        %{"template_key" => key, "placeholders" => Registry.placeholders(key)}
+      end)
+
+    Response.ok(conn, %{"items" => items})
   end
 
   authz_put "/:template_key", :NotificationTemplatesManage, scope: :tenant_wide do

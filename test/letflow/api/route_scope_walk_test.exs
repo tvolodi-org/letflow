@@ -352,6 +352,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"POST", "/", :tenant_wide},
                  # REQ-563: the NotificationTemplates router: list, put, delete and preview, all declared
                  {"GET", "/", :tenant_wide},
+                 # T-2600: the compiled catalogue of registered template keys (the designer's picker), declared
+                 {"GET", "/catalogue", :tenant_wide},
                  {"PUT", "/:template_key", :tenant_wide},
                  {"DELETE", "/:template_key", :tenant_wide},
                  {"POST", "/:template_key/preview", :tenant_wide},
