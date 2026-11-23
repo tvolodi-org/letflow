@@ -54,6 +54,17 @@ suite, including exam and slow tests. Required check names stay
   Static checks, boundary checks
   and the production permission golden check still run in `backend_static`. A fixed
   pin that cannot fit fails selection rather than disappearing from the gate.
+- The whole-tree source scans (the "real tree" scans: a test that reads the whole `lib/`
+  tree and pins it with an allowlist, a ledger or a count) are reserved for every diff
+  that touches the backend source (`lib/`, `priv/`, `config/`, `scripts/`). The stamp
+  opener scan is reserved as well whenever the diff adds or changes a `Repo.query` /
+  `SQL.query` / `Ecto.Adapters.SQL.query` call, or touches a file of that scan's
+  `@dynamic_sql_files` list (the list is read from the scan itself, never from a hand
+  list). A scan that is only a candidate is deferred to the nightly run when the budget is
+  exceeded, and a deferred scan is a scan that does not run: main went red on `0d2bbf8b5`
+  because the stamp opener scan ran only in the extended run, so ~21 non-literal SQL sites
+  merged unseen (T-2691). The class is derived from the tree, so a whole-tree scan that
+  lands later is covered on the day it lands.
 - Route/router, plug, authorization, permission and scope source changes also reserve
   the tenant-admin/platform inventories, scope route walks and their route-class
   siblings. Route snapshot changes and module permission/policy declarations use the

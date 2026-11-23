@@ -792,4 +792,224 @@ defmodule Letflow.CiSelectTestsTest do
            ),
            "permission_matrix_test not in plan"
   end
+
+  # T-2691: the whole-tree source scans (the "real tree" scans: a test that reads the whole
+  # `lib/` tree and pins it) are MANDATORY for a diff that touches the backend source. As a
+  # mere candidate a scan is deferred to the nightly run when the budget is exceeded, and a
+  # deferred scan is a scan that does not run: main went red on 0d2bbf8b5 because the stamp
+  # opener scan ran only in the extended run, so ~21 non-literal SQL sites merged unseen
+  # (T-2689 fixes the sites; this task fixes the selection).
+  @stamp_scan "test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
+  @lua_scan "test/letflow/engine/lua_host_no_handler_access_test.exs"
+  @scope_scan "test/letflow/entities/scope_all_scan_test.exs"
+
+  describe "whole-tree source scans (T-2691)" do
+    @tag :tmp_dir
+    test "T1: a seeded diff that adds a query call site selects the stamp opener scan", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "dynamic_sql", %{
+          # The scan under test: it carries its own pinned list and does NOT read the whole
+          # tree, so only the dynamic-SQL trigger can select it here.
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" => """
+          defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
+            @moduledoc false
+            use ExUnit.Case, async: true
+
+            @dynamic_sql_files [
+              "lib/letflow/demo/pinned.ex"
+            ]
+          end
+          """,
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          # The seeded diff: a NEW file with a query call site, the shape that merged unseen.
+          "lib/letflow/demo/querier.ex" => """
+          defmodule Letflow.Demo.Querier do
+            def run(sql), do: Repo.query!(sql, [])
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/querier.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T2: a seeded diff that touches a pinned file selects the stamp opener scan", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "pinned", %{
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" => """
+          defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
+            @moduledoc false
+            use ExUnit.Case, async: true
+
+            @dynamic_sql_files [
+              "lib/letflow/demo/pinned.ex"
+            ]
+          end
+          """,
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          "lib/letflow/demo/pinned.ex" => """
+          defmodule Letflow.Demo.Pinned do
+            def value, do: 1
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/pinned.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T3: a seeded backend-source diff selects every whole-tree source scan", %{tmp_dir: dir} do
+      seed =
+        seed_tree(dir, "whole_tree", %{
+          # The scan under test reads the whole tree: it is a member of the class, so a
+          # backend-source diff reserves it even when the diff touches no query call site.
+          # The source lives in a fixture, so that THIS file does not read the whole tree
+          # (a test file that does is a member of the class itself).
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" =>
+            File.read!(
+              Path.join([@root, "test", "fixtures", "ci_select_tests", "whole_tree_scan.exs"])
+            ),
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          "lib/letflow/demo/plain.ex" => """
+          defmodule Letflow.Demo.Plain do
+            def value, do: 1
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/plain.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag timeout: 120_000
+    test "T4: the class is mandatory, not deferred, for a backend-source diff of the real tree" do
+      {kv, plan} = select(["lib/letflow/instances/step_log.ex"])
+      assert kv["mode"] == "selective", inspect(kv)
+
+      for test <- [@stamp_scan, @lua_scan, @scope_scan] do
+        assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "missing #{test}"
+      end
+    end
+
+    test "T5: a web-only diff reserves no whole-tree source scan" do
+      {_, plan} = select(["web/src/x.tsx"])
+
+      for test <- [@stamp_scan, @lua_scan, @scope_scan] do
+        refute Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "unexpected #{test}"
+      end
+    end
+
+    test "T6: the dynamic-SQL trigger reads the scan's own pinned list" do
+      code = """
+      import importlib.util
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      pinned = s.dynamic_sql_files('.')
+      assert 'lib/letflow/entities/managed_types/stamp.ex' in pinned, sorted(pinned)
+      assert 'lib/letflow/tenant_purge.ex' in pinned, sorted(pinned)
+      assert s.dynamic_sql_trigger(['lib/letflow/tenant_purge.ex'], '.'), 'a pinned file triggers'
+      assert s.dynamic_sql_trigger(['lib/letflow/instances/step_log.ex'], '.'), 'a query call triggers'
+      assert not s.dynamic_sql_trigger(['lib/letflow/routers/me.ex'], '.'), 'a plain file does not'
+      print('dynamic SQL trigger PASS')
+      """
+
+      assert {"dynamic SQL trigger PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+
+    test "T7: the class is derived from the tree, so a whole-tree scan is a member of it" do
+      code = """
+      import importlib.util, os, tempfile
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      files = [p for p in s.tracked('.') if p.startswith('test/') and p.endswith('_test.exs')]
+      scans = s.whole_tree_scan_tests(files, '.')
+      for expected in ['test/letflow/entities/managed_types/stamp_opener_scan_test.exs',
+                       'test/letflow/engine/lua_host_no_handler_access_test.exs',
+                       'test/letflow/entities/scope_all_scan_test.exs',
+                       'test/letflow/entities/records_scope_all_scan_test.exs']:
+          assert expected in scans, (expected, sorted(scans))
+      # a test that reads the whole tree but touches the database is not a source scan
+      assert 'test/letflow/record_triggers_test.exs' not in scans, sorted(scans)
+      # a scan that lands later is a member of the class on the day it lands. The source is
+      # the fixture: THIS file must not carry the whole-tree read itself, or it would be a
+      # member of the class and its runtime would land in every bounded run.
+      with tempfile.TemporaryDirectory() as tmp:
+          source = open('test/fixtures/ci_select_tests/whole_tree_scan.exs').read()
+          open(os.path.join(tmp, 'new_scan_test.exs'), 'w').write(source)
+          assert s.whole_tree_scan_tests(['new_scan_test.exs'], tmp) == {'new_scan_test.exs'}
+      print('whole-tree class PASS')
+      """
+
+      assert {"whole-tree class PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+  end
+
+  # A seeded tree: the selector's own inputs (the script, the path rules) and the files of
+  # the seeded diff, tracked by git so the selector sees them as changed files.
+  defp seed_tree(dir, name, files) do
+    seed = Path.join(dir, name)
+
+    for {path, body} <- files do
+      full = Path.join(seed, path)
+      File.mkdir_p!(Path.dirname(full))
+      File.write!(full, body)
+    end
+
+    for script <- ["ci_select_tests.py", "ci_changed_paths.sh"] do
+      full = Path.join([seed, "scripts", script])
+      File.mkdir_p!(Path.dirname(full))
+      File.cp!(Path.join([@root, "scripts", script]), full)
+    end
+
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: seed)
+    {_, 0} = System.cmd("git", ["add", "-A"], cd: seed)
+    seed
+  end
+
+  # The selector, run against a seeded tree with a seeded diff.
+  defp select_in(seed, changed) do
+    plan = Path.join(seed, "plan.txt")
+
+    {out, 0} =
+      System.cmd(
+        "bash",
+        [
+          "-c",
+          "printf '%s' \"$IN\" | python3 -I -B scripts/ci_select_tests.py \"$@\"",
+          "_",
+          "--event",
+          "merge_group",
+          "--plan-out",
+          plan
+        ],
+        cd: seed,
+        stderr_to_stdout: true,
+        env: [{"IN", Enum.join(changed, "\n") <> "\n"}]
+      )
+
+    assert out =~ "mode=selective", out
+    if File.exists?(plan), do: File.read!(plan) |> String.split("\n", trim: true), else: []
+  end
 end

@@ -15,6 +15,14 @@ missing manifest, kill switch, red-main repair) now use bounded safety coverage.
 An unrecoverable selector error exits nonzero; CI must never run without a plan.
 --nightly-log-dir compares real failure headings with a successful standard push
 plan at the same SHA and emits selector miss lines with the test name.
+
+T-2691: the whole-tree source scans (the "real tree" scans: a test that reads the whole
+`lib/` tree and pins it) are MANDATORY for a diff that touches the backend source, and
+the stamp opener scan is mandatory whenever the diff adds or changes a query call site or
+touches a file of its @dynamic_sql_files list. A scan that is only a candidate is
+deferred to the nightly run when the budget is exceeded, and a deferred scan is a scan
+that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran only in
+the extended run.
 """
 import argparse
 import glob
@@ -117,6 +125,26 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
+# T-2691: the whole-tree source scans (the "real tree" scans): a test that reads the whole
+# `lib/` tree and pins it (an allowlist, a ledger or a count) and touches no database, so it
+# is a pure function of the tree. A diff that touches the tree can break such a pin, so the
+# scan is a MANDATORY check of a backend-source diff: as a mere CANDIDATE it is deferred to
+# the nightly run when the budget is exceeded, and that is how ~21 non-literal SQL sites
+# merged unseen (T-2689; main went red on 0d2bbf8b5 because the stamp opener scan ran only
+# in the extended run). The class is DERIVED from the tree, never a hand list, so a scan
+# that lands later is covered on the day it lands.
+WHOLE_TREE_READ_RE = re.compile(r"[\"']lib/\*\*")
+DATABASE_TEMPLATE_RE = re.compile(r"use\s+Letflow\.(?:DataCase|ConnCase|WebConnCase)")
+# The roots the whole-tree scans read: lib/ (the sources), priv/ (migrations and seeds),
+# config/ and scripts/.
+BACKEND_SOURCE_RE = re.compile(r"^(?:lib/|priv/|config/|scripts/)")
+# A query call site: Repo.query / Repo.query! / SQL.query / Ecto.Adapters.SQL.query, piped
+# or not. The scan counts a receiver variable (`repo.query!`) as well, so the lower case
+# name is here too.
+SQL_CALL_RE = re.compile(r"\b(?:Repo|repo|SQL|sql|Ecto\.Adapters\.SQL)\s*\.\s*query!?\s*\(")
+# The stamp opener scan: the mined instance of the class (T-2689). Its oracle is its own
+# @dynamic_sql_files list, read from the scan itself.
+DYNAMIC_SQL_SCAN_TEST = "test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
 # G-09: the test files a tenant-migration change must run. The list is the reviewed expectation
 # of the migration impact runner (test/support/migration_impact.ex): the manifest-position pins,
 # the tenant table oracle comparisons and the manifest replay / existing-row cases. The probe
@@ -499,6 +527,94 @@ def safety_tests(all_tests):
     ) & set(all_tests)
 
 
+def attribute_block(text, name):
+    """The body of a module attribute list (`@name [ ... ]`), or None when there is none."""
+    m = re.search(r"@" + re.escape(name) + r"\s*\[", text)
+    if not m:
+        return None
+    depth = 0
+    for i in range(m.end() - 1, len(text)):
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                return text[m.end():i]
+    return None
+
+
+def whole_tree_scan_tests(all_tests, root):
+    """The whole-tree source scans: a test that reads the whole `lib/` tree and pins it.
+
+    A source scan (no database template) is a pure function of the tree, so a diff that
+    touches the tree can break its pin. Derived from the tree, so a scan that lands later is
+    covered on the day it lands.
+    """
+    scans = set()
+    for path in all_tests:
+        text = read(os.path.join(root, path)) or ""
+        if WHOLE_TREE_READ_RE.search(text) and not DATABASE_TEMPLATE_RE.search(text):
+            scans.add(path)
+    return scans
+
+
+def dynamic_sql_files(root, scan_test=DYNAMIC_SQL_SCAN_TEST):
+    """The files the stamp opener scan pins as dynamic-SQL sites.
+
+    Read from the scan itself (the authority), never from a hand list: the scan's
+    `@dynamic_sql_files` block with its module attributes resolved.
+    """
+    text = read(os.path.join(root, scan_test)) or ""
+    block = attribute_block(text, "dynamic_sql_files")
+    if block is None:
+        return set()
+    body = "\n".join(line.split("#", 1)[0] for line in block.splitlines())
+    attrs = dict(re.findall(r'@(\w+)\s+"([^"]+)"', text))
+    files = set()
+    for name, literal in re.findall(r'@(\w+)|"([^"]+)"', body):
+        if name:
+            if name in attrs:
+                files.add(attrs[name])
+        elif literal:
+            files.add(literal)
+    return files
+
+
+def sql_call_sites(text):
+    """The query call sites of a source file (`Repo.query`, `SQL.query`, ...)."""
+    return [m.group(0) for m in SQL_CALL_RE.finditer(text)]
+
+
+def dynamic_sql_trigger(changed, root, scan_test=DYNAMIC_SQL_SCAN_TEST):
+    """True when the diff can change the stamp opener scan's oracle.
+
+    A diff that adds or changes a `Repo.query` / `SQL.query` / `Ecto.Adapters.SQL.query`
+    call, or that touches a file of the scan's `@dynamic_sql_files` list, can add or remove a
+    dynamic-SQL site: the scan must then run in the bounded plan and may not be deferred to
+    the nightly run (T-2689: ~21 non-literal SQL sites merged unseen).
+    """
+    pinned = dynamic_sql_files(root, scan_test)
+    for path in changed:
+        if path in pinned:
+            return True
+        if not BACKEND_SOURCE_RE.match(path) or not path.endswith((".ex", ".exs")):
+            continue
+        text = read(os.path.join(root, path))
+        if text and sql_call_sites(text):
+            return True
+    return False
+
+
+def whole_tree_scan_required(changed, all_tests, root):
+    """The whole-tree source scans the diff can break: MANDATORY, never deferred."""
+    if not any(BACKEND_SOURCE_RE.match(p) for p in changed):
+        return set()
+    scans = whole_tree_scan_tests(all_tests, root)
+    if dynamic_sql_trigger(changed, root):
+        scans.add(DYNAMIC_SQL_SCAN_TEST)
+    return scans & set(all_tests)
+
+
 def inventory_tests(changed, all_tests, root):
     """Explicit input/file map, including removed files and nested module routers."""
     required = set()
@@ -528,6 +644,10 @@ def inventory_tests(changed, all_tests, root):
         # whole suite). It is a mandatory check, not a candidate: it may not be deferred to the nightly run.
         if path.startswith("scripts/uat/"):
             required.add("test/scripts/uat_tooling_test.exs")
+    # T-2691: the whole-tree source scans pin the tree they read, so a backend-source diff
+    # may break them. They are mandatory checks, not candidates: a deferred scan is a scan
+    # that does not run until the nightly job.
+    required.update(whole_tree_scan_required(changed, all_tests, root))
     return required & set(all_tests)
 
 
