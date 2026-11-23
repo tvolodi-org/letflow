@@ -56,6 +56,28 @@ of a realm bind, `created_via: "provisioning"` in the chain of a pending grant. 
 switched a version on is recorded where it belongs, in the definition version's signed
 `activated_by` document.
 
+## The no-bypass rule: who may create a tenant (gap G17)
+
+The pilot's rule is that a business function is a PROCESS and not a code path: every path that
+creates a tenant must START the definition, so there is exactly one way to register a tenant and
+the process is what the audit shows. The functions that write a tenant row
+(`Letflow.Identity.create_tenant/1`, `Letflow.Identity.create_provisioned_tenant/1`) and the
+function that writes a tenant schema (`Letflow.TenantOnboarding.provision_and_migrate/1`) have
+therefore a CLOSED set of callers: the catalogue body of the step
+(`tenant.create`, `tenant.provision`), the module they delegate to
+(`Letflow.TenantProvisioner`) and the seed task (`mix letflow.seed`, which creates the platform
+tenant before any definition can exist).
+
+`test/letflow/platform_functions/tenant_create_callers_test.exs` is the scan that pins it: a
+pure AST scan over `lib/**/*.ex`, in the shape of the sibling caller scans
+(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). It also pins, EXACTLY, the
+callers of the catalogue body's public wrappers (`TenantCreate.create_tenant/1`,
+`TenantProvision.provision_and_migrate/1`) and of the provisioner chain
+(`Letflow.TenantProvisioner.create/1`): the four ROUTES that create a tenant today
+(`POST /tenants`, `POST /onboarding`, `POST /admin/v1/tenants` and the self-service signup).
+That list is the REMAINING BYPASS, and it may only shrink: when the routes start the definition
+instead of calling the code, the scan names the file that changed.
+
 ## What the chain does to a tenant that already exists
 
 The operator's notes of the chain, in the operator's words. `tenant.create` is keyed on the
