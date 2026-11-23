@@ -124,6 +124,7 @@ import { myProblemReportsScreens } from './fixtures/myProblemReports'
 import { assetCardPhotosScreens } from './fixtures/assetCardPhotos'
 import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 import { quickCountFormatScreens } from './fixtures/quickCountFormats'
+import { canvasPropertyPanelScreens } from './fixtures/canvasPropertyPanel'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -445,5 +446,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...platformCallPickerScreens,
     ...notifyStepPickerScreens,
     ...registerTenantDesignerScreens,
+    ...canvasPropertyPanelScreens,
   ].map(s => [s.name, s]),
 )
