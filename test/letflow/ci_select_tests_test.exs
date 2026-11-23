@@ -372,180 +372,28 @@ defmodule Letflow.CiSelectTestsTest do
     {kv, plan_lines, deferred_lines}
   end
 
-  # The whole-tree readers of the real tree, derived here and NOT taken from the selector:
-  # a test file that reads a whole tree of the backend source and pins it. The class of
-  # T-2691 is exactly this set, so the test does not take the selector's word for it.
+  # The whole-tree readers of the real tree, derived by the ORACLE of the class
+  # (`test/fixtures/ci_select_tests/whole_tree_class.py`), NOT by the selector: the test
+  # does not take the selector's word for the class it reserves.
   #
-  # The rules (the selector implements the same rule, in its own code):
-  #   * a DIRECT read: a glob literal `<root>/**` whose root is a directory of the backend
-  #     source (lib/, priv/, config/, scripts/, test/support/);
-  #   * an INDIRECT read: the test calls a module of lib/ (or of test/support/) that walks
-  #     a tree (`Path.wildcard` over a `**` pattern), and the roots that helper scans lie in
-  #     the backend source: the roots the helper declares and the ones the call passes.
-  # A scan of a tree OUTSIDE the backend source (the handoff tree, the test tree) is not a
-  # member: a backend-source diff cannot break its pin.
-  @backend_source_root ~r/^(?:lib\/|priv\/|config\/|scripts\/|test\/support\/)/
-  @tree_glob ~r/"([A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)\/\*\*/
-  @alias_declaration ~r/^\s*alias\s+([A-Z][A-Za-z0-9_.]*)(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?/m
-  @module_call ~r/\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\.([a-z_][A-Za-z0-9_?!]*)\(([^()]*)\)/
-  @list_attribute ~r/@(\w+)\s*\[/
-  @string_literal ~r/"([^"]*)"/
+  # The oracle derives the class from the tree on its own: a test that reads a whole tree
+  # of the backend source, directly (a glob over a backend-source root) or through a
+  # helper module of lib/ that walks a tree (the scan of the role-scope-grants writers
+  # calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in the called
+  # scanner and not in the test source). A scan of a tree outside the backend source
+  # (the handoff tree, the test tree) is not a member: a backend-source diff cannot
+  # break its pin.
+  @whole_tree_class_oracle "test/fixtures/ci_select_tests/whole_tree_class.py"
 
   defp whole_tree_readers do
-    helpers = tree_walking_modules()
+    {out, 0} =
+      System.cmd("python3", ["-I", "-B", @whole_tree_class_oracle, "."],
+        cd: @root,
+        stderr_to_stdout: true
+      )
 
-    "test/**/*_test.exs"
-    |> Path.wildcard()
-    |> Enum.concat(Path.wildcard("test/*_test.exs"))
-    |> Enum.uniq()
-    |> Enum.filter(fn path ->
-      text = File.read!(path)
-
-      whole_tree_glob_roots(text) != [] or indirect_tree_roots(text, helpers) != []
-    end)
-    |> Enum.sort()
+    out |> String.split("\n", trim: true)
   end
-
-  # The modules of lib/ and test/support/ that walk a tree, by name, with their source.
-  defp tree_walking_modules do
-    (Path.wildcard("lib/**/*.ex") ++ Path.wildcard("test/support/**/*.ex"))
-    |> Enum.reduce(%{}, fn path, acc ->
-      text = File.read!(path)
-
-      if String.contains?(text, "Path.wildcard") and String.contains?(text, "\"**") do
-        Regex.scan(~r/^\s*defmodule\s+([A-Z][A-Za-z0-9_.]*)/m, text)
-        |> Enum.map(fn [_full, module] -> module end)
-        |> Enum.reduce(acc, fn module, inner -> Map.put_new(inner, module, text) end)
-      else
-        acc
-      end
-    end)
-  end
-
-  defp whole_tree_glob_roots(text) do
-    @tree_glob
-    |> Regex.scan(text)
-    |> Enum.map(fn [_full, root] -> root end)
-    |> Enum.filter(&backend_source_root?/1)
-    |> Enum.uniq()
-  end
-
-  defp backend_source_root?(literal) do
-    Regex.match?(~r/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/, literal) and
-      not String.contains?(Path.basename(literal), ".") and
-      Regex.match?(@backend_source_root, literal <> "/")
-  end
-
-  defp indirect_tree_roots(text, helpers) do
-    aliases =
-      @alias_declaration
-      |> Regex.scan(text)
-      |> Enum.map(fn match ->
-        [_full, full, short] = pad(match, 3)
-
-        {if(short == "", do: last_segment(full), else: short), full}
-      end)
-      |> Map.new()
-
-    @module_call
-    |> Regex.scan(text)
-    |> Enum.flat_map(fn match ->
-      [_full, module, _function, arguments] = pad(match, 4)
-
-      case helper_source(module, aliases, helpers) do
-        nil -> []
-        helper -> helper_tree_roots(text, arguments, helper)
-      end
-    end)
-    |> Enum.uniq()
-  end
-
-  defp helper_source(module, aliases, helpers) do
-    target =
-      case Map.get(aliases, module) do
-        nil -> if String.contains?(module, "."), do: module, else: nil
-        aliased -> aliased
-      end
-
-    target =
-      target ||
-        Enum.find_value(aliases, fn {short, full} ->
-          if String.ends_with?(short, "." <> module), do: full
-        end)
-
-    target && Map.get(helpers, target)
-  end
-
-  defp helper_tree_roots(text, arguments, helper) do
-    declared =
-      @list_attribute
-      |> Regex.scan(helper)
-      |> Enum.map(fn [_full, name] -> name end)
-      |> Enum.flat_map(fn name ->
-        case attribute_block(helper, name) do
-          nil -> []
-          block -> string_literals(block)
-        end
-      end)
-
-    (declared ++ call_argument_literals(text, arguments))
-    |> Enum.filter(&backend_source_root?/1)
-    |> Enum.uniq()
-  end
-
-  defp call_argument_literals(text, arguments) do
-    arguments = String.trim(arguments)
-
-    cond do
-      String.starts_with?(arguments, "[") ->
-        string_literals(arguments)
-
-      String.starts_with?(arguments, "@") ->
-        case attribute_block(text, String.trim_leading(arguments, "@")) do
-          nil -> []
-          block -> string_literals(block)
-        end
-
-      true ->
-        []
-    end
-  end
-
-  defp string_literals(text) do
-    @string_literal
-    |> Regex.scan(text)
-    |> Enum.map(fn [_full, literal] -> literal end)
-  end
-
-  # The body of a list-valued module attribute (`@name [ ... ]`), or nil.
-  defp attribute_block(text, name) do
-    case Regex.run(~r/@#{Regex.escape(name)}\s*\[/, text) do
-      nil ->
-        nil
-
-      [match] ->
-        offset = :binary.match(text, match) |> elem(0)
-        block = read_attribute_block(text, offset + byte_size(match), 0, [])
-
-        if is_binary(block) and String.valid?(block), do: block, else: nil
-    end
-  end
-
-  defp read_attribute_block(text, index, depth, acc) do
-    case :binary.at(text, index) do
-      nil -> nil
-      91 -> read_attribute_block(text, index + 1, depth + 1, acc)
-      93 when depth == 0 -> acc |> Enum.reverse() |> :erlang.list_to_binary()
-      93 -> read_attribute_block(text, index + 1, depth - 1, acc)
-      byte -> read_attribute_block(text, index + 1, depth, [byte | acc])
-    end
-  end
-
-  defp last_segment(name), do: name |> String.split(".") |> List.last()
-
-  # A regex match list holds only the groups that took part in the match, so an optional
-  # group is missing from the tail: pad it before destructuring.
-  defp pad(list, count), do: list ++ List.duplicate("", count - length(list))
 
   # The test path of a plan line ("<partition> <path>").
   defp plan_path(line), do: line |> String.split(" ", parts: 2) |> List.last()
@@ -1332,10 +1180,15 @@ defmodule Letflow.CiSelectTestsTest do
       # class and its pin unverified.
       assert 'test/mix/tasks/letflow.check_role_scope_grants_writers_test.exs' in scans, sorted(scans)
       assert 'test/mix/tasks/letflow.check_scope_node_paths_writers_test.exs' in scans, sorted(scans)
+      # the writer/start inventory of G-02 reads every source under lib/ and priv/ through
+      # its own helper (`for dir <- ["lib", "priv"]`), so it is a helper-backed reader too.
+      assert 'test/letflow/security_probe/g02_writer_start_inventory_test.exs' in scans, sorted(scans)
       # a scan of a tree outside the backend source is not a member: a backend-source diff
-      # cannot break the pin of the handoff tree or of the test tree.
+      # cannot break the pin of the handoff tree (the handoff linter scans handoffs/).
       assert 'test/mix/tasks/letflow.lint_handoffs_test.exs' not in scans, sorted(scans)
-      assert 'test/mix/tasks/letflow_check_async_sandbox_reachability_test.exs' not in scans, sorted(scans)
+      # the async-sandbox reachability scan reads the whole TEST tree, and that tree holds
+      # test/support/ (the trigger domain), so a change there can break its pin: a member.
+      assert 'test/mix/tasks/letflow_check_async_sandbox_reachability_test.exs' in scans, sorted(scans)
       # a scan that lands later is a member of the class on the day it lands. The source is
       # the fixture: THIS file must not carry the whole-tree read itself, or it would be a
       # member of the class and its runtime would land in every bounded run.

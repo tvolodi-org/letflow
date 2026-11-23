@@ -42,6 +42,8 @@ import sys
 # The helper-module index of a tree, cached per root: the class derivation reads it for
 # every test file, and the tree does not change while the selector runs.
 _HELPER_INDEX = {}
+# The backend-source roots a helper names, cached per helper module.
+_HELPER_ROOTS = {}
 
 SENSITIVE_RE = re.compile(
     # T-2137: priv/modules/<m>/ is excluded here; handled by single-module detection below.
@@ -163,7 +165,11 @@ STANDARD_SECURITY_PROBE_TESTS = [
 #     reader exactly like a direct one, so it belongs to the class (T-2691 rework 2).
 # A scan of a tree OUTSIDE the backend source (the handoff tree, the test tree) is not a
 # member: a backend-source diff cannot break its pin.
-WHOLE_TREE_GLOB_RE = re.compile(r"[\"']([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)/\*\*")
+# The `/**` marker of a whole-tree glob, and the path characters that may precede it.
+# The root is the path before the marker, so the pattern stays linear: a nested-quantifier
+# pattern over every source file is quadratic and the class derivation reads the tree.
+WHOLE_TREE_GLOB_MARKER_RE = re.compile(r"/\*\*")
+PATH_TAIL_RE = re.compile(r"[A-Za-z0-9_./-]*$")
 # A module alias in a test file: `alias Full.Name` or `alias Full.Name, as: Short`.
 ALIAS_RE = re.compile(
     r"^\s*alias\s+([A-Z][A-Za-z0-9_.]*)(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?", re.M
@@ -172,14 +178,19 @@ ALIAS_RE = re.compile(
 MODULE_CALL_RE = re.compile(
     r"\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\.([a-z_][A-Za-z0-9_?!]*)\(([^()]*)\)"
 )
-# A list-valued module attribute: `@name [ ... ]`.
-LIST_ATTRIBUTE_RE = re.compile(r"@(\w+)\s*\[")
+# A list literal in a source file: `[ "lib", "priv" ]` (the roots a helper scans).
+HELPER_LIST_RE = re.compile(r"\[([^\[\]]*)\]")
+# A single-valued module attribute: `@default_dir "test"` (another way a helper names a root).
+HELPER_ATTRIBUTE_RE = re.compile(r"@\w+\s+\"([^\"]*)\"")
 # A directory literal: a relative path whose last segment has no file extension.
 DIRECTORY_LITERAL_RE = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 # The roots the whole-tree scans read: lib/ (the sources), priv/ (migrations and seeds),
 # config/, scripts/ and test/support/ (four of the scans read the support tree as well,
 # so a change there can break their pin).
-BACKEND_SOURCE_RE = re.compile(r"^(?:lib/|priv/|config/|scripts/|test/support/)")
+BACKEND_SOURCE_PREFIXES = ("lib/", "priv/", "config/", "scripts/", "test/support/")
+BACKEND_SOURCE_RE = re.compile(
+    "^(?:%s)" % "|".join(re.escape(prefix) for prefix in BACKEND_SOURCE_PREFIXES)
+)
 # A query call site: Repo.query / Repo.query! / SQL.query / Ecto.Adapters.SQL.query, piped
 # or not. The scan counts a receiver variable (`repo.query!`) as well, so the lower case
 # name is here too.
@@ -613,8 +624,10 @@ def source_root(literal):
     """The backend-source root a directory literal names, or None.
 
     A literal that names a file (its last segment has an extension) is not a root, and a
-    root outside the backend source (the handoff tree, the test tree) is not a root of this
-    class: a backend-source diff cannot break the pin of a scan of another tree.
+    root outside the backend source (the handoff tree, the web tree) is not a root of this
+    class: a backend-source diff cannot break the pin of a scan of another tree. A root
+    that CONTAINS a domain root ("test" contains "test/support/") is one: the tree it
+    reads overlaps the backend source.
     """
     if not DIRECTORY_LITERAL_RE.match(literal):
         return None
@@ -622,14 +635,23 @@ def source_root(literal):
         return None
     if BACKEND_SOURCE_RE.match(literal + "/"):
         return literal
+    if any(prefix.startswith(literal + "/") for prefix in BACKEND_SOURCE_PREFIXES):
+        return literal
     return None
 
 
 def whole_tree_glob_roots(text):
     """The backend-source roots a source file reads as a whole tree (`lib/**` -> "lib")."""
     roots = set()
-    for m in WHOLE_TREE_GLOB_RE.finditer(text):
-        root = source_root(m.group(1))
+    for m in WHOLE_TREE_GLOB_MARKER_RE.finditer(text):
+        tail = PATH_TAIL_RE.search(text, 0, m.start())
+        if not tail or not tail.group(0):
+            continue
+        # The path is a glob root only when a quote opens it: a mention of a tree in a
+        # message ("expected no lib/letflow_web/** files touched") is not a read.
+        if tail.start() == 0 or text[tail.start() - 1] not in "\"'":
+            continue
+        root = source_root(tail.group(0))
         if root:
             roots.add(root)
     return roots
@@ -666,8 +688,8 @@ def indirect_tree_roots(text, root):
     """The backend-source roots a test reads as a whole tree through a helper module.
 
     The helper must be a module of lib/ (or of test/support/) that walks a tree; the roots
-    it scans are the ones it declares (`@default_roots` and its other list attributes) and
-    the ones the test passes to the call.
+    it scans are the ones its source names (in a list: `@default_roots`, the `for dir <-`
+    of a comprehension, ...) and the ones the test passes to the call.
     """
     aliases = {}
     for full, short in ALIAS_RE.findall(text):
@@ -686,22 +708,43 @@ def indirect_tree_roots(text, root):
         helper = read(index[target]) or ""
         if not walks_a_tree(helper):
             continue
-        candidates = set()
+        roots.update(helper_source_roots(target, helper))
         argument = arguments.strip()
         if argument.startswith("["):
-            candidates.update(re.findall(r'"([^"]*)"', argument))
+            candidates = re.findall(r'"([^"]*)"', argument)
         elif argument.startswith("@"):
             block = attribute_block(text, argument[1:])
-            if block:
-                candidates.update(re.findall(r'"([^"]*)"', block))
-        for name in LIST_ATTRIBUTE_RE.findall(helper):
-            block = attribute_block(helper, name)
-            if block:
-                candidates.update(re.findall(r'"([^"]*)"', block))
+            candidates = re.findall(r'"([^"]*)"', block) if block else []
+        else:
+            candidates = []
         for candidate in candidates:
             scanned = source_root(candidate)
             if scanned:
                 roots.add(scanned)
+    return roots
+
+
+def helper_source_roots(module, helper):
+    """The backend-source roots a helper names in its source (cached per module).
+
+    The cache is keyed by the module name: the source is read again on every call, and
+    the identity of a temporary string is not stable (the allocator reuses it), so a key
+    built from it can return another module's roots.
+    """
+    key = module
+    cached = _HELPER_ROOTS.get(key)
+    if cached is not None:
+        return cached
+    roots = set()
+    candidates = []
+    for match in HELPER_LIST_RE.finditer(helper):
+        candidates.extend(re.findall(r'"([^"]*)"', match.group(1)))
+    candidates.extend(HELPER_ATTRIBUTE_RE.findall(helper))
+    for candidate in candidates:
+        scanned = source_root(candidate)
+        if scanned:
+            roots.add(scanned)
+    _HELPER_ROOTS[key] = roots
     return roots
 
 
