@@ -353,7 +353,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
       IO.puts(Jason.encode!(%{status: to_string(verdict.status), verdict: json_safe(verdict)}))
     else
       IO.puts(
-        "advisory gate: #{to_string(verdict.status).upcase()} (threshold #{verdict.threshold})"
+        "advisory gate: #{String.upcase(to_string(verdict.status))} (threshold #{verdict.threshold})"
       )
 
       for {advisory, why} <- verdict.blocking do
@@ -387,7 +387,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     if json? do
       IO.puts(Jason.encode!(%{status: to_string(verdict.status), sast: json_safe(verdict)}))
     else
-      IO.puts("sast scan: #{to_string(verdict.status).upcase()}")
+      IO.puts("sast scan: #{String.upcase(to_string(verdict.status))}")
 
       for {finding, why} <- verdict.blocking do
         IO.puts("  BLOCKING #{finding.rule} #{finding.file}:#{finding.line} (#{why})")
@@ -747,7 +747,9 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
           cond do
             String.starts_with?(line, "  ") and not String.starts_with?(line, "   ") and
                 String.ends_with?(line, ":") ->
-              {acc, String.trim_trailing(line, ":"), nil}
+              # The name is the indented key of the lock file: the indentation is stripped, or
+              # the inventory key would be "  http" and no advisory could ever match it.
+              {acc, line |> String.trim() |> String.trim_trailing(":"), nil}
 
             String.starts_with?(line, "    dependency:") ->
               {acc, name, String.contains?(line, "dev")}

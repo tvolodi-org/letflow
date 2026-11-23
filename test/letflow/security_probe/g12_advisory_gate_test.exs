@@ -27,6 +27,8 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
 
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   @moduletag :security_probe
   @moduletag probe_cost_s: 30
 
@@ -77,6 +79,40 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
     assert [{:out_of_production, _advisory}] = verdict.informational
   end
 
+  test "G12: an npm advisory on a production dependency blocks the gate", ctx do
+    advisories = Gate.read_feed!(Path.join(@seeded_tree, "advisories_npm_pub.json"))
+    npm = Enum.filter(advisories, &(&1.id == "GHSA-0000-seeded-npm"))
+    verdict = Gate.evaluate(npm, [], ctx.packages)
+
+    assert verdict.status == :fail
+    assert [{blocking, :not_accepted}] = verdict.blocking
+    assert blocking.id == "GHSA-0000-seeded-npm"
+    assert blocking.ecosystem == :npm
+    assert blocking.package == "left-pad"
+  end
+
+  test "G12: a Dart advisory on a production dependency blocks the gate", ctx do
+    advisories = Gate.read_feed!(Path.join(@seeded_tree, "advisories_npm_pub.json"))
+    pub = Enum.filter(advisories, &(&1.id == "GHSA-0000-seeded-pub"))
+    verdict = Gate.evaluate(pub, [], ctx.packages)
+
+    assert verdict.status == :fail
+    assert [{blocking, :not_accepted}] = verdict.blocking
+    assert blocking.id == "GHSA-0000-seeded-pub"
+    assert blocking.ecosystem == :pub
+    assert blocking.package == "http"
+  end
+
+  test "G12: an advisory on a dev-only npm dependency is out of scope", ctx do
+    advisories = Gate.read_feed!(Path.join(@seeded_tree, "advisories_npm_pub.json"))
+    dev = Enum.filter(advisories, &(&1.id == "GHSA-0000-seeded-npm-dev"))
+    verdict = Gate.evaluate(dev, [], ctx.packages)
+
+    assert verdict.status == :pass
+    assert verdict.blocking == []
+    assert [{:out_of_production, _advisory}] = verdict.informational
+  end
+
   test "G12: a live allow-list entry accepts the advisory", ctx do
     accepted = entry(ctx.allow, "EEF-CVE-2026-120287")
     verdict = Gate.evaluate(ctx.advisories, accepted, ctx.packages)
@@ -114,6 +150,14 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
     # The inventory is a production one: a test-only dependency is not in it.
     refute Map.has_key?(packages.hex, "stream_data")
     refute Map.has_key?(packages.hex, "yaml_elixir")
+
+    # Every key is the bare package name. A key that keeps the indentation of the lock file
+    # ("  http") never matches an advisory, and that source would then silently never block a
+    # pull request -- the Dart half of the gate looked exactly like that.
+    for ecosystem <- [:hex, :npm, :pub], {name, _version} <- packages[ecosystem] do
+      assert name == String.trim(name),
+             "#{ecosystem}: #{inspect(name)} is not a bare package name"
+    end
   end
 
   test "G12: the shipped allow-list file carries the required fields" do
@@ -198,5 +242,58 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
     # when something is inserted above it, and the gate does not block unrelated pull
     # requests that touch the file.
     assert plain_ids == padded_ids
+  end
+
+  @tag :tmp_dir
+  test "G12: the advisory report prints its verdict instead of crashing", %{tmp_dir: tmp} do
+    allow_path = Path.join(tmp, "advisory-allow.json")
+
+    File.write!(
+      allow_path,
+      Jason.encode!(%{
+        "version" => 1,
+        "entries" => [
+          %{
+            "id" => "EEF-CVE-2026-120287",
+            "package" => "plug",
+            "reason" => "Seeded case: a live exception with a date in the future.",
+            "owner" => "team",
+            "expires" => "2099-01-01"
+          }
+        ]
+      })
+    )
+
+    output =
+      capture_io(fn ->
+        Gate.run([
+          "--feed",
+          Path.join(@seeded_tree, "advisories.json"),
+          "--root",
+          @seeded_tree,
+          "--allow-list",
+          allow_path
+        ])
+      end)
+
+    assert output =~ "advisory gate: PASS"
+    assert output =~ "accepted hex/plug EEF-CVE-2026-120287"
+  end
+
+  @tag :tmp_dir
+  test "G12: the SAST report prints its verdict instead of crashing", %{tmp_dir: tmp} do
+    File.mkdir_p!(Path.join(tmp, "lib"))
+    File.write!(Path.join(tmp, "lib/clean.ex"), "defmodule Clean do\n  def run, do: :ok\nend\n")
+
+    File.mkdir_p!(Path.join(tmp, "priv/security"))
+
+    File.write!(
+      Path.join(tmp, "priv/security/sast-allow.json"),
+      ~s({"version": 1, "entries": []})
+    )
+
+    output = capture_io(fn -> Gate.run(["--sast-only", "--root", tmp]) end)
+
+    assert output =~ "sast scan: PASS"
   end
 end

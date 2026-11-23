@@ -1,0 +1,28 @@
+{
+  "advisories": [
+    {
+      "id": "GHSA-0000-seeded-npm",
+      "ecosystem": "npm",
+      "package": "left-pad",
+      "version": "1.3.0",
+      "severity": "high",
+      "title": "Seeded case: a high advisory on a production npm dependency."
+    },
+    {
+      "id": "GHSA-0000-seeded-pub",
+      "ecosystem": "pub",
+      "package": "http",
+      "version": "1.2.0",
+      "severity": "high",
+      "title": "Seeded case: a high advisory on a production Dart dependency."
+    },
+    {
+      "id": "GHSA-0000-seeded-npm-dev",
+      "ecosystem": "npm",
+      "package": "only-dev",
+      "version": "2.0.0",
+      "severity": "high",
+      "title": "Seeded case: a high advisory on a dev-only npm dependency is out of scope."
+    }
+  ]
+}
