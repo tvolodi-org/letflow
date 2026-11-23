@@ -97,9 +97,9 @@
       {
         "n": 1,
         "item": "Definition: the process is an ordinary editable, versioned definition in the platform tenant",
-        "today": "PARTIAL: the engine runs and versions definitions in the platform tenant (draft, active, deprecated); no registration definition exists, the process is route code",
+        "today": "SHIPPED (G9): the definition platform.register_tenant v1 is seeded into the platform tenant as an ordinary, unstamped, editable definition (mix letflow.seed.platform_definitions; the document is lib/letflow/platform_processes/definition.ex, the seed lib/letflow/platform_processes/seed.ex). The seed never replaces a newer version an administrator made. The process is still ROUTE CODE: the engine does not run the definition's platform steps yet and the routes still call the functions directly",
         "target": "definition platform.register_tenant exists in the platform tenant, not module-stamped, v1 active after the seed, every edit a new draft",
-        "proof": "runner step: GET definitions on the platform tenant shows the key with its versions (step blocked until G9/G10); source: lib/letflow/routers/definitions.ex:322",
+        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step: GET definitions on the platform tenant shows the key with its versions (step blocked until G10); source: lib/letflow/routers/definitions.ex:322",
         "gap": "G9",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
