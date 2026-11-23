@@ -625,7 +625,20 @@ defmodule Letflow.Routers.Instances do
     # which checks the definition's start permission (the catalogue permission of a
     # `platform_call` step). A caller without it gets the answer for an unknown
     # definition (INV-5).
-    opts = Keyword.put(conn.assigns.scoped_opts, :auth_context, conn.assigns.auth_context)
+    #
+    # T-2591: the context carries the tenant's GRANT OVERLAY as well, so the start
+    # permission is decided with the SAME facts the route's own authorization read
+    # (`conn.assigns.role_overlay`, resolved by `Letflow.Plugs.Authorize`): a caller
+    # who holds the declared permission through a grant is not refused a start the
+    # route allowed.
+    auth_context =
+      Map.put(
+        conn.assigns.auth_context,
+        :role_overlay,
+        Map.get(conn.assigns, :role_overlay, %{})
+      )
+
+    opts = Keyword.put(conn.assigns.scoped_opts, :auth_context, auth_context)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
