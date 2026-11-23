@@ -4,8 +4,8 @@ defmodule Letflow.Notifications.OutboundCapTest do
 
   The cap used to be counted over the delivery log, so a delivery row that
   could not be written was a send that was never counted -- and the send had
-  already left the platform. The reservation is taken BEFORE the send, in its
-  own transaction, and it is the counter of the cap.
+  already left the platform. The reservation is taken BEFORE the send (committed on its own when the
+  caller holds no transaction; see outbound_cap.ex), and it is the counter of the cap.
 
   Test ids C1..C5.
 

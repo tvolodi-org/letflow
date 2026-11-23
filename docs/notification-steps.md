@@ -102,7 +102,7 @@ written.
 
 **The cap is RESERVED before the send.** The tenant's counter row
 (`notification_outbound_counters`, one row per tenant, channel and window) is
-incremented in its own transaction BEFORE the adapter is called
+incremented BEFORE the adapter is called
 (`Letflow.Notifications.OutboundCap`): the increment is guarded by the cap
 inside the statement itself (`send_count = send_count + 1 WHERE send_count <
 cap`), so two sends of the same tenant at the same moment cannot both take the
@@ -162,7 +162,7 @@ not declare" binds the notification step too
   pass the instance's variable labels, the instance's `:prefix` and the
   instance's `:trigger_ref`, or the step refuses itself, and it must call the
   runner OUTSIDE the engine's transaction (the reservation of the cap is
-  committed on its own);
+  committed on its own only when the caller holds no transaction);
 * the per-tenant channel and address allow-list (gap G14, the `OutboundDestinationsManage`
   atom) and the file channel (gap G12);
 * the designer fields (gap G5).
@@ -175,7 +175,7 @@ no per-tenant destination allow-list yet. Gap G14 builds that list (with the
 `OutboundDestinationsManage` atom, for TENANT_ADMIN and PLATFORM_ADMIN only),
 and the decided rule says it is checked at ACTIVATION **and at DISPATCH** -- so
 G14 must add the check inside the runner, not only inside the activation
-fence. Until then, a definition of the platform tenant can send a message to
+fence. Until then, a definition of ANY tenant (the notify fence has no tenant condition) can send a message to
 any address a tenant's instance variables hold.
 
 ## Extension point (owner decision D-180, not built here)

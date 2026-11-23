@@ -36,7 +36,8 @@ defmodule Letflow.Notifications do
 
   The cap is RESERVED before the send, not counted after it
   (`Letflow.Notifications.OutboundCap`): the slot is taken out of the tenant's
-  counter in its own transaction, so a send is accounted for whether or not the
+  counter (committed on its own when the caller holds no transaction, see
+  `OutboundCap`), so a send is accounted for whether or not the
   outcome row of this log can be written afterwards. Counting the log instead
   made an unwritable log row an uncounted send -- a send that had already left
   the platform and never tripped the ceiling.
@@ -273,8 +274,8 @@ defmodule Letflow.Notifications do
   ## The cap
 
   The cap is RESERVED before the send (`Letflow.Notifications.OutboundCap`), not
-  counted after it: the tenant's own counter row is incremented in its own
-  transaction, so a send is accounted for whether or not this log's outcome row
+  counted after it: the tenant's own counter row is incremented (committed on
+  its own when the caller holds no transaction), so a send is accounted for whether or not this log's outcome row
   can be written afterwards. Counting the log instead made an unwritable log row
   an UNCOUNTED send -- a send that had already left the platform and never
   tripped the ceiling (the flooding the cap exists to stop).
