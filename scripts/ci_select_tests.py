@@ -110,7 +110,8 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
-    "test/letflow/security_probe/g11_real_tree_probe_test.exs",
+    "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
+    "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
