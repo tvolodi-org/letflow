@@ -41,6 +41,12 @@ suite, including exam and slow tests. Required check names stay
   partition (32 partitions, four per shard). Unknown files cost 15 seconds. Overflow
   is listed in `ci_deferred.txt`, never silently changed to a full suite. These are
   estimates; runtime deadlines remain authoritative.
+- A tenant-migration change (a file under `priv/repo/migrations/` or
+  `lib/letflow/tenant_provisioning.ex`) also reserves the whole migration impact list:
+  the manifest-position pins, the tenant table oracle comparisons and the manifest
+  replay cases (`test/fixtures/security_probes/g09_migration_impact_tests.txt`, the
+  list the G-09 probe re-derives from the tree). A file of that list that does not fit
+  the budget fails selection rather than disappearing from the gate.
 - Every standard run, including web/mobile/docs-only changes, reserves the permission
   golden, route inventories, install boundaries, previous-pack compatibility, ledger
   registrations and two identity writer inventories (`binding_writers_scan_test` and

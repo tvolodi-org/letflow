@@ -91,10 +91,14 @@ STANDARD_BP_DOC_TEST = [
 # properties hold over arbitrary legal ids, separators, legacy prefixes and
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-09: a migration change shifts the manifest positions the tenant tests pin.
 # G-03: the generated source-provenance matrix of the platform-call authority
 # rule: the catalogue validator refuses a write-like entry with a person input,
 # the activation refuses the foreign sources and the dual-route nodes, and the
 # variables a catalogue call reads are refused to a completer.
+# G-13: the generated malformed-input / no-5xx matrix over every mutating route
+# (body shapes, content types, caps), the SUB_PROCESS child and start refusals
+# and the cursor codec fallback.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
@@ -108,8 +112,16 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g09_migration_impact_test.exs",
     "test/letflow/security_probe/g03_source_provenance_test.exs",
+    "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
+    "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
+# G-09: the test files a tenant-migration change must run. The list is the reviewed expectation
+# of the migration impact runner (test/support/migration_impact.ex): the manifest-position pins,
+# the tenant table oracle comparisons and the manifest replay / existing-row cases. The probe
+# re-derives the same set from the tree and fails when this list and the tree disagree.
+MIGRATION_IMPACT_FIXTURE = "test/fixtures/security_probes/g09_migration_impact_tests.txt"
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
 # Keep the family spelling used by risk_tests: the authority scan forbids the
@@ -490,6 +502,15 @@ def safety_tests(all_tests):
 def inventory_tests(changed, all_tests, root):
     """Explicit input/file map, including removed files and nested module routers."""
     required = set()
+    # G-09: a tenant-migration change shifts the manifest positions the tenant tests pin and
+    # can change the tenant table set. The manifest-position, table-oracle and replay cases are
+    # mandatory for it: they may not be deferred to the nightly run. The list is the reviewed
+    # one of the migration impact runner; the probe re-derives it from the tree.
+    if any(
+        path.startswith("priv/repo/migrations/") or path == "lib/letflow/tenant_provisioning.ex"
+        for path in changed
+    ):
+        required.update(migration_impact_tests(root))
     for path in changed:
         if ROUTE_SOURCE_RE.search(path) or (
             path.startswith("lib/") and path.endswith(".ex")
@@ -508,6 +529,22 @@ def inventory_tests(changed, all_tests, root):
         if path.startswith("scripts/uat/"):
             required.add("test/scripts/uat_tooling_test.exs")
     return required & set(all_tests)
+
+
+def migration_impact_tests(root):
+    """The test files a tenant-migration change must run (G-09)."""
+    path = os.path.join(root, MIGRATION_IMPACT_FIXTURE)
+    text = read(path)
+    if text is None:
+        raise Full("migration impact list %s unreadable" % MIGRATION_IMPACT_FIXTURE)
+    files = [
+        line.strip()
+        for line in text.replace("\r", "").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not files:
+        raise Full("migration impact list %s is empty" % MIGRATION_IMPACT_FIXTURE)
+    return files
 
 
 def risk_tests(changed, all_tests, root):

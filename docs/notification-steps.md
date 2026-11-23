@@ -260,6 +260,24 @@ the same declaration in its own copy, and the delivery row references neither th
 the address. Nothing in this change assumes that a definition is editable by whoever sees it, or
 that a tenant has exactly one definition per key.
 
+## The retry of a failed step (gap G7)
+
+A notification step is NOT idempotent by nature: it SENDS. So its retry asks the delivery log
+first whether the step already did its work -- a mail that was SENT, or a file that was written,
+for this template and this trigger reference (`Letflow.Notifications.already_delivered?/4`). Such
+a step is NOT sent again: the retry answers `already_done` and nothing leaves the platform. A
+step whose send FAILED (or that never got a row) is sent again.
+
+`Letflow.NotificationSteps.Dispatcher.retry/3` is that retry. It takes the step's own
+declaration and the instance variables and the SAME context `run/3` takes (`:prefix`,
+`:trigger_ref`, `:labels`), so the retry cannot read the step differently than the run did --
+including the refusal of a variable the engine marked as sensitive, which needs the labels.
+
+`Letflow.Instances.StepRetry` finds the failed step of an instance and calls it; the DLQ wiring
+is the same as for a platform step (see `docs/platform-steps.md`, "The DLQ retry is wired to
+it"): an entry of type `notify_step` names the instance and the node, and its retry sends the
+template again -- unless it already did its work.
+
 ## The designer (T-2600, pilot gap G5b)
 
 The step is edited in the process designer, without code: the step panel of the definition editor
@@ -324,4 +342,21 @@ The tests: `web/src/utils/canvas/__tests__/notifyStep.test.ts` (the pure rules),
 * `test/letflow/notifications/files_test.exs` -- the AREA: the generated name
   holds no path whatever the declared name was, the row lives in the tenant's
   own schema, the byte cap, the list that never carries the bytes, the
-  retention (FA1..FA5).
+  retention (FA1..FA5);
+* `test/letflow/instances/step_retry_test.exs` -- the RETRY of a failed step
+  (gap G7): the failed step is found, the retry runs it again, a step that
+  already did its work is NOT run again (the idempotency), the DLQ retry is
+  wired to it (the entry is `resolved` when the step ran), an entry of another
+  tenant is invisible, and a notification step that already sent is not sent
+  again;
+* `test/letflow/routers/notification_templates_catalogue_test.exs` -- the
+  CATALOGUE the designer picks from (gap G5b): the compiled keys and their
+  placeholder allow-lists, the permission it needs, and the refusals;
+* `web/src/utils/canvas/__tests__/notifyStep.test.ts` -- the RULES of the form:
+  the parse, the channel switch, the variable-name rule, the file-name rule and
+  the problems it refuses;
+* `web/src/components/diagram/__tests__/NotifyStepEditor.test.tsx` -- the FORM:
+  the channel, the template picker, the recipient and the values, and the load
+  states;
+* `web/src/components/diagram/__tests__/NodeEditPanel.notify.test.tsx` -- the
+  PANEL: the step is edited without code, and the route kinds stay exclusive.

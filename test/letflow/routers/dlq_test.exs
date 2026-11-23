@@ -27,6 +27,8 @@ defmodule Letflow.Routers.DlqTest do
   import Plug.Conn
 
   alias Letflow.Dlq
+  alias Letflow.Instances.StepRetry
+  alias Letflow.Support.PlatformTenantFixture, as: PlatformFx
   alias Letflow.TenantFixture
 
   @opts Letflow.Routers.Dlq.init([])
@@ -372,6 +374,78 @@ defmodule Letflow.Routers.DlqTest do
       assert moduledoc =~ "not inspected"
       assert moduledoc =~ "web/src/api/dlq.ts"
       assert moduledoc =~ "web/src/types/api.ts"
+    end
+  end
+
+  # ══════════════════════════════════════════════════════════════════════
+  # The retry of a STEP failure (pilot gap G7): a platform act, so the
+  # platform admin only. The route's own `:DlqOperate` permission is wider
+  # (a `:PROCESS_OPERATOR` holds it), so the step entries carry an extra
+  # check.
+  # ══════════════════════════════════════════════════════════════════════
+
+  describe "the retry of a step failure is a platform act" do
+    test "a caller who is not the platform admin is refused with 403" do
+      tenant = provisioned_tenant("req178-step-403")
+      PlatformFx.pin!(tenant.tenant_id)
+
+      entry =
+        enqueue!(tenant, %{
+          entry_type: StepRetry.platform_step_entry_type(),
+          instance_id: Ecto.UUID.generate(),
+          reference_id: "call"
+        })
+
+      conn =
+        build_conn(:post, "/#{entry.id}/retry", tenant, roles: ["PROCESS_OPERATOR"])
+        |> dispatch()
+
+      assert conn.status == 403
+
+      # No state change on 403.
+      reloaded = Repo.get!(Letflow.Dlq.Entry, entry.id, prefix: tenant.schema_name)
+      assert reloaded.status == :pending
+    end
+
+    test "a caller in another tenant is refused with 403 for a step entry" do
+      tenant = provisioned_tenant("req178-step-other-tenant")
+      other = TenantFixture.provisioned_tenant!(slug_prefix: "req178-step-other")
+
+      entry =
+        enqueue!(tenant, %{
+          entry_type: StepRetry.platform_step_entry_type(),
+          instance_id: Ecto.UUID.generate(),
+          reference_id: "call"
+        })
+
+      # The platform tenant is pinned to `tenant`, so a caller of `other` is
+      # not in the platform scope even with the platform role.
+      conn =
+        build_conn(:post, "/#{entry.id}/retry", other, roles: ["PLATFORM_ADMIN"])
+        |> dispatch()
+
+      assert conn.status == 403
+    end
+
+    test "the platform admin may retry a step entry" do
+      tenant = provisioned_tenant("req178-step-admin")
+      PlatformFx.pin!(tenant.tenant_id)
+
+      entry =
+        enqueue!(tenant, %{
+          entry_type: StepRetry.platform_step_entry_type(),
+          instance_id: Ecto.UUID.generate(),
+          reference_id: "call"
+        })
+
+      conn =
+        build_conn(:post, "/#{entry.id}/retry", tenant, roles: ["PLATFORM_ADMIN"])
+        |> dispatch()
+
+      assert conn.status == 200
+
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "retrying"
     end
   end
 end
