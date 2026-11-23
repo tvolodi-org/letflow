@@ -3551,6 +3551,12 @@ defmodule Letflow.Definitions do
   defp interpret_activate_result({:error, {:platform_calls_invalid, _violations}} = error),
     do: error
 
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the notification
+  # fence's refusal, a pure pass-through. Without it a refused notify step would
+  # answer 500 instead of a typed 422 with its code.
+  defp interpret_activate_result({:error, {:notify_calls_invalid, _violations}} = error),
+    do: error
+
   # T-2591 (pilot gap G3): the declared start permission refusal, a pure pass-through.
   defp interpret_activate_result({:error, {:start_permission_invalid, _violation}} = error),
     do: error

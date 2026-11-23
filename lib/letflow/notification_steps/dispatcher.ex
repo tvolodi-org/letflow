@@ -82,6 +82,12 @@ defmodule Letflow.NotificationSteps.Dispatcher do
       the labels it carries). REQUIRED: a step that cannot see the labels
       cannot refuse a sensitive value, so a missing map is a refusal.
 
+  The CHANNEL of the declaration says where the notification goes: the mail
+  channel sends to the address of the recipient variable, the file channel
+  (T-2596, pilot gap G12) renders the same template into the tenant's own
+  file area -- there is no address to send a file to, so the file channel
+  carries no recipient.
+
   Never raises.
   """
   @spec run(term(), map(), keyword()) ::
@@ -93,21 +99,43 @@ defmodule Letflow.NotificationSteps.Dispatcher do
          :ok <- refuse_restricted(declaration, labels),
          {:ok, address} <- recipient(declaration, variables),
          {:ok, values} <- values(declaration, variables) do
-      case Notifications.deliver_to_address(
-             declaration.template_key,
-             address,
-             trigger_ref,
-             values,
-             prefix(opts)
-           ) do
-        {:error, :invalid_schema_name} -> {:error, :notify_invalid_schema}
-        {status, reason} -> {:ok, status, reason}
-      end
+      deliver(declaration, address, values, trigger_ref, opts)
     end
   rescue
     _exception -> {:error, :notify_step_failed}
   catch
     _kind, _reason -> {:error, :notify_step_failed}
+  end
+
+  # The two channels. The mail channel leaves the platform; the file channel
+  # writes into the tenant's own file area (`Letflow.Notifications.Files`).
+  # Both reserve the tenant's send cap BEFORE they do anything, and both
+  # answer with the same vocabulary, so the engine records one kind of step
+  # result.
+  defp deliver(%{channel: "email"} = declaration, address, values, trigger_ref, opts) do
+    case Notifications.deliver_to_address(
+           declaration.template_key,
+           address,
+           trigger_ref,
+           values,
+           prefix(opts)
+         ) do
+      {:error, :invalid_schema_name} -> {:error, :notify_invalid_schema}
+      {status, reason} -> {:ok, status, reason}
+    end
+  end
+
+  defp deliver(%{channel: "file"} = declaration, _address, values, trigger_ref, opts) do
+    case Notifications.deliver_to_file(
+           declaration.template_key,
+           values,
+           trigger_ref,
+           prefix(opts),
+           declared_name: declaration.file_name
+         ) do
+      {:error, :invalid_schema_name} -> {:error, :notify_invalid_schema}
+      {status, reason} -> {:ok, status, reason}
+    end
   end
 
   # A variable that carries a label is a sensitive value: the engine marked it
@@ -126,6 +154,11 @@ defmodule Letflow.NotificationSteps.Dispatcher do
       :ok
     end
   end
+
+  # The address of the MAIL channel. The file channel has no recipient (the
+  # declaration refuses one), so there is no address to check: it answers with
+  # the same `{:ok, nil}` the file path ignores.
+  defp recipient(%{channel: "file"}, _variables), do: {:ok, nil}
 
   defp recipient(declaration, variables) do
     case Map.get(variables, declaration.recipient_var) do

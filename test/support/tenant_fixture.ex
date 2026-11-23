@@ -198,6 +198,7 @@ defmodule Letflow.TenantFixture do
     "number_sequence_definitions",
     "number_sequence_numbers",
     "notification_deliveries",
+    "notification_files",
     "notification_outbound_counters",
     "notification_templates",
     "official_form_templates",
