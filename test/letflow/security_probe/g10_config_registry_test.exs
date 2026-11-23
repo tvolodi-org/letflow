@@ -3,13 +3,15 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
   G-10: the config/env/flag registry (team coverage map, `docs/security-coverage.md`, gap G-10).
 
   The registry `test/support/security_probe/g10_config_registry.txt` says which environment
-  variable, application environment key, flag, secret and URL the product has, who owns it, why
+  variable, application environment key, flag, secret and URL the backend has, who owns it, why
   it exists, how it is read and whether its absence must fail closed. This probe derives the
-  other half from the tree -- every environment variable and every application environment key
-  the sources read, with the form of each read -- and fails until the two agree. A new setting
+  other half from the backend tree (`lib/**.ex`, `config/*.exs`, `priv/repo/migrations/*.exs` and
+  `mix.exs`) -- every environment variable and every application environment key those sources
+  read, with the form of each read -- and fails until the two agree. A new backend setting
   therefore cannot be added without a registered reason, a feature flag cannot be switched on by
   default, a fail-closed setting cannot be read with a default that takes effect, and a secret
-  cannot come with a literal.
+  cannot come with a literal. The two client tiers (the web SPA and the Flutter app) read their
+  own build-time values, which are outside the derivation; the class table names them.
 
   The derivation is `Letflow.Support.ConfigRegistryScan` (test/support): it parses the sources
   with `Code.string_to_quoted!/2` and starts nothing. The seeded failing variants live in
