@@ -3,7 +3,10 @@ defmodule Letflow.Api.NotificationTemplatesRouteClassesTest do
   REQ-563 / GH #3199 (design IDs A1, A3): `:NotificationTemplatesManage` is a tenant-scope core
   permission held by TENANT_ADMIN (and PLATFORM_ADMIN on the platform tenant) only; the four
   routes are declared `:tenant_wide`, none default-sourced, and the default snapshot is unchanged.
-  No database: `async: true`.
+  T-2600 (pilot gap G5b) adds the fifth route of the mount: `GET /catalogue`, the COMPILED
+  catalogue of registered template keys, declared with `:DefinitionsRead` (the read of a
+  definition) and also `:tenant_wide`; it carries platform data (keys and placeholder names),
+  no tenant text. No database: `async: true`.
   """
 
   use ExUnit.Case, async: true
@@ -41,10 +44,11 @@ defmodule Letflow.Api.NotificationTemplatesRouteClassesTest do
        rows: Enum.filter(routes, &(&1.router == Letflow.Routers.NotificationTemplates))}
     end
 
-    test "four routes with the expected keys and classes", %{rows: rows} do
+    test "five routes with the expected keys and classes", %{rows: rows} do
       assert rows |> Enum.map(&{&1.method, &1.path, &1.key}) |> Enum.sort() == [
                {"DELETE", "/notification-templates/:template_key", @perm},
                {"GET", "/notification-templates", @perm},
+               {"GET", "/notification-templates/catalogue", :DefinitionsRead},
                {"POST", "/notification-templates/:template_key/preview", @perm},
                {"PUT", "/notification-templates/:template_key", @perm}
              ]

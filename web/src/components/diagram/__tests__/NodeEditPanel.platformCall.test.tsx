@@ -21,6 +21,12 @@ vi.mock('@/hooks/usePlatformFunctions', () => ({
   usePlatformFunctions: () => ({ data: { items: CATALOGUE_ENTRIES }, isPending: false, error: null, refetch: vi.fn() }),
 }))
 
+// T-2600: the same panel also reads the compiled notification template catalogue; this test is about the
+// platform call, so that read is mocked away too.
+vi.mock('@/hooks/useNotificationTemplateCatalogue', () => ({
+  useNotificationTemplateCatalogue: () => ({ data: { items: [] }, isPending: false, error: null, refetch: vi.fn() }),
+}))
+
 afterEach(cleanup)
 
 const ENTRY: PlatformFunctionEntry = {
