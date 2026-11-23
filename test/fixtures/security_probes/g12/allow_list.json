@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "EEF-CVE-2026-120287",
+      "package": "plug",
+      "reason": "Seeded case: a live exception with a date in the future.",
+      "owner": "team",
+      "expires": "2099-01-01"
+    },
+    {
+      "id": "GHSA-0000-seeded-expired",
+      "package": "plug",
+      "reason": "Seeded case: an exception nobody re-reviewed.",
+      "owner": "team",
+      "expires": "2020-01-01"
+    },
+    {
+      "id": "GHSA-0000-seeded-stale",
+      "package": "plug",
+      "reason": "Seeded case: an exception for an advisory that no longer exists.",
+      "owner": "team",
+      "expires": "2099-01-01"
+    }
+  ]
+}

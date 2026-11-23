@@ -1,0 +1,28 @@
+{
+  "advisories": [
+    {
+      "id": "EEF-CVE-2026-120287",
+      "ecosystem": "hex",
+      "package": "plug",
+      "version": "1.20.3",
+      "severity": "high",
+      "title": "Seeded failing case: a high advisory on a production dependency."
+    },
+    {
+      "id": "GHSA-0000-seeded-low",
+      "ecosystem": "hex",
+      "package": "plug",
+      "version": "1.20.3",
+      "severity": "low",
+      "title": "Seeded case: a low advisory never blocks."
+    },
+    {
+      "id": "GHSA-0000-seeded-dev",
+      "ecosystem": "hex",
+      "package": "stream_data",
+      "version": "0.6.0",
+      "severity": "high",
+      "title": "Seeded case: a high advisory on a test-only dependency is out of scope."
+    }
+  ]
+}
