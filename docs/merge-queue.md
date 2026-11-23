@@ -37,8 +37,9 @@ suite, including exam and slow tests. Required check names stay
   configured modules plus identity, engine and ledger coverage.
 - Admission priority is fixed global pins, directly changed tests and conventional
   pairs, high-risk tests, the changed module's tests, then at most three related test
-  families. The plan holds at most 160 files and 120 seconds of manifest weight per
-  partition (32 partitions, four per shard). Unknown files cost 15 seconds. Overflow
+  families. The plan holds at most 160 optional files and 120 seconds of manifest weight
+  per partition (32 partitions, four per shard), plus the reserved checks, which are
+  never omitted (see below). Unknown files cost 15 seconds. Overflow
   is listed in `ci_deferred.txt`, never silently changed to a full suite. These are
   estimates; runtime deadlines remain authoritative.
 - A tenant-migration change (a file under `priv/repo/migrations/` or
@@ -56,15 +57,24 @@ suite, including exam and slow tests. Required check names stay
   pin that cannot fit fails selection rather than disappearing from the gate.
 - The whole-tree source scans (the "real tree" scans: a test that reads the whole `lib/`
   tree and pins it with an allowlist, a ledger or a count) are reserved for every diff
-  that touches the backend source (`lib/`, `priv/`, `config/`, `scripts/`). The stamp
-  opener scan is reserved as well whenever the diff adds or changes a `Repo.query` /
-  `SQL.query` / `Ecto.Adapters.SQL.query` call, or touches a file of that scan's
-  `@dynamic_sql_files` list (the list is read from the scan itself, never from a hand
-  list). A scan that is only a candidate is deferred to the nightly run when the budget is
-  exceeded, and a deferred scan is a scan that does not run: main went red on `0d2bbf8b5`
-  because the stamp opener scan ran only in the extended run, so ~21 non-literal SQL sites
-  merged unseen (T-2691). The class is derived from the tree, so a whole-tree scan that
-  lands later is covered on the day it lands.
+  that touches the backend source (`lib/`, `priv/`, `config/`, `scripts/`). Every such
+  reader is a member of the class, including a file that also holds database-backed
+  cases: the scan itself is a pure function of the tree, and leaving such a file out
+  left a real whole-tree scan (`write_handler_registration_surface_test.exs`) deferrable,
+  so a forbidden handler caller could merge unseen. The stamp opener scan is reserved as
+  well whenever the diff adds or changes a `Repo.query` / `SQL.query` /
+  `Ecto.Adapters.SQL.query` call, or touches a file of that scan's `@dynamic_sql_files`
+  list (the list is read from the scan itself, never from a hand list). A scan that is
+  only a candidate is deferred to the nightly run when the budget is exceeded, and a
+  deferred scan is a scan that does not run: main went red on `0d2bbf8b5` because the
+  stamp opener scan ran only in the extended run, so ~21 non-literal SQL sites merged
+  unseen (T-2691). The class is derived from the tree, so a whole-tree scan that lands
+  later is covered on the day it lands.
+- A reserved check is never omitted. The 120 seconds per partition budget the optional
+  candidates; a reserved check that does not fit its partition's budget is admitted
+  anyway, and only the whole run's budget (32 partitions) is a hard bound. A reserved
+  set that does not fit the whole run fails selection rather than disappearing from the
+  gate.
 - Route/router, plug, authorization, permission and scope source changes also reserve
   the tenant-admin/platform inventories, scope route walks and their route-class
   siblings. Route snapshot changes and module permission/policy declarations use the

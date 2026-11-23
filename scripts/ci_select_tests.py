@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Bounded standard backend CI (T-2155); full suites only on schedule/dispatch.
 
-stdin: changed paths. stdout: mode, reason, skip_shards, selected_count, deferred_count.
+stdin: changed paths. stdout: mode, reason, skip_shards, selected_count, deferred_count,
+reserved_count.
 --plan-out writes explicit partition/test lines; --deferred-out lists budget overflow.
 Standard runs keep the textual two-hop module map, source scans, conventional pairs,
 config-selected module tests and explicit sensitive-path families. Global pins are
@@ -22,7 +23,10 @@ the stamp opener scan is mandatory whenever the diff adds or changes a query cal
 touches a file of its @dynamic_sql_files list. A scan that is only a candidate is
 deferred to the nightly run when the budget is exceeded, and a deferred scan is a scan
 that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran only in
-the extended run.
+the extended run. Every whole-tree reader is a member of that class, including a file
+that also holds database-backed cases: the scan itself is a pure function of the tree.
+A mandatory check is never omitted, so the file cap and the per-partition target budget
+the optional candidates only; the whole run's budget is the hard bound.
 """
 import argparse
 import glob
@@ -126,18 +130,23 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
 # T-2691: the whole-tree source scans (the "real tree" scans): a test that reads the whole
-# `lib/` tree and pins it (an allowlist, a ledger or a count) and touches no database, so it
-# is a pure function of the tree. A diff that touches the tree can break such a pin, so the
-# scan is a MANDATORY check of a backend-source diff: as a mere CANDIDATE it is deferred to
-# the nightly run when the budget is exceeded, and that is how ~21 non-literal SQL sites
-# merged unseen (T-2689; main went red on 0d2bbf8b5 because the stamp opener scan ran only
-# in the extended run). The class is DERIVED from the tree, never a hand list, so a scan
-# that lands later is covered on the day it lands.
+# `lib/` tree and pins it (an allowlist, a ledger or a count). A diff that touches the tree
+# can break such a pin, so the scan is a MANDATORY check of a backend-source diff: as a mere
+# CANDIDATE it is deferred to the nightly run when the budget is exceeded, and that is how
+# ~21 non-literal SQL sites merged unseen (T-2689; main went red on 0d2bbf8b5 because the
+# stamp opener scan ran only in the extended run). The class is DERIVED from the tree, never
+# a hand list, so a scan that lands later is covered on the day it lands.
+#
+# The class does NOT exclude a scan whose file also holds database-backed cases: the scan
+# itself is a pure function of the tree, and the file that carries it is still a whole-tree
+# reader (T-2691 rework: `write_handler_registration_surface_test.exs` reads every
+# `lib/**/*.ex` and pins the allowed write-handler callers; it was excluded only because the
+# file also uses `Letflow.DataCase`, so a forbidden caller could merge unseen).
 WHOLE_TREE_READ_RE = re.compile(r"[\"']lib/\*\*")
-DATABASE_TEMPLATE_RE = re.compile(r"use\s+Letflow\.(?:DataCase|ConnCase|WebConnCase)")
 # The roots the whole-tree scans read: lib/ (the sources), priv/ (migrations and seeds),
-# config/ and scripts/.
-BACKEND_SOURCE_RE = re.compile(r"^(?:lib/|priv/|config/|scripts/)")
+# config/, scripts/ and test/support/ (four of the scans read the support tree as well,
+# so a change there can break their pin).
+BACKEND_SOURCE_RE = re.compile(r"^(?:lib/|priv/|config/|scripts/|test/support/)")
 # A query call site: Repo.query / Repo.query! / SQL.query / Ecto.Adapters.SQL.query, piped
 # or not. The scan counts a receiver variable (`repo.query!`) as well, so the lower case
 # name is here too.
@@ -546,14 +555,15 @@ def attribute_block(text, name):
 def whole_tree_scan_tests(all_tests, root):
     """The whole-tree source scans: a test that reads the whole `lib/` tree and pins it.
 
-    A source scan (no database template) is a pure function of the tree, so a diff that
-    touches the tree can break its pin. Derived from the tree, so a scan that lands later is
-    covered on the day it lands.
+    Such a scan is a pure function of the tree, so a diff that touches the tree can break
+    its pin. Derived from the tree, so a scan that lands later is covered on the day it
+    lands. A file that also holds database-backed cases is still a member: the exclusion of
+    such files left real whole-tree scans deferrable (T-2691 rework).
     """
     scans = set()
     for path in all_tests:
         text = read(os.path.join(root, path)) or ""
-        if WHOLE_TREE_READ_RE.search(text) and not DATABASE_TEMPLATE_RE.search(text):
+        if WHOLE_TREE_READ_RE.search(text):
             scans.add(path)
     return scans
 
@@ -705,6 +715,13 @@ def bounded_plan(selected, changed, weights, args, all_tests):
     and the changed module next, then at most three related families. Unknown timings
     cost 15 seconds rather than the old optimistic median. A mandatory pin that cannot
     fit fails selection; CI must not silently omit its fixed checks.
+
+    T-2691: the file cap and the per-partition target budget the OPTIONAL candidates. A
+    reserved check is never omitted, so it is admitted even when it does not fit the
+    target of its bin (the whole-tree scans are reserved and the heaviest of them is
+    slower than the target) and even when the optional file cap is reached. The hard
+    bound is the whole run's budget: a reserved set that does not fit it fails the
+    selection, which is loud, instead of being omitted.
     """
     required = safety_tests(all_tests) | inventory_tests(changed, all_tests, args.root)
     if any(FLOOR_LIB_RE.search(p) for p in changed):
@@ -730,22 +747,36 @@ def bounded_plan(selected, changed, weights, args, all_tests):
         return 4
 
     bins = [[0.0, []] for _ in range(args.shards * args.per_shard)]
-    deferred, families, admitted = [], set(), 0
-    # Never admit the whole corpus, even in a small synthetic repository.
-    limit = min(args.standard_max_tests, max(0, len(all_tests) - 1))
+    deferred, families, optional_admitted = [], set(), 0
+    # The optional file cap: never admit the whole corpus, even in a small synthetic
+    # repository. The reserved set is admitted on top of it (T-2691), so it is never
+    # omitted to keep the plan under the cap.
+    optional_limit = min(args.standard_max_tests, max(0, len(all_tests) - 1))
+    # The whole run's budget: the sum of the per-partition targets. A reserved check may
+    # overrun its own partition's target, never the whole run's budget.
+    capacity = len(bins) * args.target_ms
+    reserved_weight = 0.0
     for t in sorted(selected, key=lambda t: (priority(t), -(weights.get(t) or 15000), t)):
         weight = max(1000.0, weights.get(t) or 15000.0)
         b = min(bins, key=lambda b: (b[0], len(b[1])))
         family = module_of(t) or t.split("/")[2]
         extra_family = priority(t) == 4 and family not in families and len(families) >= 3
-        if admitted >= limit or b[0] + weight > args.target_ms or extra_family:
-            if t in required:
+        if t in required:
+            # A reserved check is never omitted: it is admitted even when it does not fit
+            # its partition's target and even when the optional file cap is reached. The
+            # whole run's budget is the hard bound.
+            if reserved_weight + weight > capacity:
                 raise ValueError("mandatory global check does not fit standard budget: " + t)
+            b[0] += weight
+            b[1].append(t)
+            reserved_weight += weight
+            continue
+        if optional_admitted >= optional_limit or b[0] + weight > args.target_ms or extra_family:
             deferred.append(t)
             continue
         b[0] += weight
         b[1].append(t)
-        admitted += 1
+        optional_admitted += 1
         if priority(t) == 4:
             families.add(family)
     # Compact the active bins so idle shards remain the tail.
@@ -753,7 +784,7 @@ def bounded_plan(selected, changed, weights, args, all_tests):
     lines = ["%d %s" % (i, t) for i, (_, fs) in enumerate(bins, 1) for t in sorted(fs)]
     active = math.ceil(len(bins) / args.per_shard)
     skip = [str(k) for k in range(active + 1, args.shards + 1)]
-    return lines, skip, sorted(deferred)
+    return lines, skip, sorted(deferred), len(required)
 
 
 def main():
@@ -802,7 +833,7 @@ def main():
         except Exception as e:
             selected = safety_tests(all_tests) | risk_tests(changed, all_tests, args.root)
             reason = "bounded safety set after selection error: %s: %s" % (type(e).__name__, e)
-        lines, skip, deferred = bounded_plan(selected, changed, weights, args, all_tests)
+        lines, skip, deferred, reserved = bounded_plan(selected, changed, weights, args, all_tests)
         if selected and not lines:
             raise ValueError("no tests fit standard budget")
         for path, output in ((args.plan_out, lines), (args.deferred_out, deferred)):
@@ -815,6 +846,9 @@ def main():
         print("skip_shards=" + " ".join(skip))
         print("selected_count=%d" % len(lines))
         print("deferred_count=%d" % len(deferred))
+        # T-2691: the reserved checks (the fixed pins and the whole-tree scans) are never
+        # deferred and are admitted on top of the optional file cap.
+        print("reserved_count=%d" % reserved)
     except Full as e:
         print("mode=full")
         print("reason=" + str(e))
