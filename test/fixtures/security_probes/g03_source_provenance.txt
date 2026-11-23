@@ -107,6 +107,11 @@ dual_route | script_key:write_tenant_registry | activation=:conflicting_platform
 # earlier platform step's output is refused in a completion body: the T-2430
 # rule carried over by source class. A human task that declares the variable
 # as its own input keeps it (the reviewed exception).
+#
+# The block is sorted by entry name and then by input name.
+write_target | platform.validate_registration:display_name | write_target=refused write_target_exception=allowed
+write_target | platform.validate_registration:email | write_target=refused write_target_exception=allowed
+write_target | platform.validate_registration:slug | write_target=refused write_target_exception=allowed
 write_target | tenant.bind_realm:realm_id | write_target=refused write_target_exception=allowed
 write_target | tenant.bind_realm:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.create:name | write_target=refused write_target_exception=allowed

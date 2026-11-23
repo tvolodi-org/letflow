@@ -71,17 +71,44 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
 
   ## Non-vacuity
 
-  The seeded failing case is the deliberately broken variant of the SUBJECT: a
-  catalogue validator with the write-like rule removed. It is built FROM the
-  shipped validator -- every other shipped check still runs -- so the probe's
-  catalogue rule has to catch it. The positive control (a benign entry that
-  must be ACCEPTED) keeps "refuse everything" from passing.
+  Every family of the matrix has an in-tree MUTANT: a variant of the subject
+  that is ONE RULE APART -- it is built FROM the shipped rule (every other
+  shipped refusal still runs) and it is driven through the SAME aggregate
+  entry point (`matrix/2` -> `cells/1` -> `violations/2`), so what catches it
+  is the reviewed expectation file and nothing else.
+
+    * `catalogue` -- the shipped catalogue validator with the write-like
+      (`person` input) rule removed;
+    * `malformed` -- the shipped catalogue validator with the duplicate-name
+      rule removed;
+    * `arg_shape` -- the shipped activation with the argument-shape refusal
+      removed;
+    * `foreign_source` -- the shipped activation with the foreign-source
+      refusal removed, and its dispatch twin blind;
+    * `dual_route` -- the shipped activation with the conflicting-route
+      refusal removed, and its dispatch twin blind;
+    * `write_target` -- the shipped completion refusal with the catalogue
+      call's contribution to the read set dropped.
+
+  A family that does not catch its own mutant fails the probe: every mutant
+  test asserts that the probe goes red AND that only that family's cells
+  move, so one family cannot mask another. The positive control (a benign
+  entry that must be ACCEPTED) keeps "refuse everything" from passing.
 
   ## Cost
 
   `@moduletag probe_cost_s: 5` -- pure: no database, no network, no clock, no
   model, no randomness. The only VM-global it touches is the platform-tenant pin
   (application configuration), restored in `on_exit`.
+
+  ## What the probe does not cover
+
+  The probe measures the PLATFORM-TENANT branch of the platform-call rule: it
+  pins the platform tenant in its setup, so `PlatformCalls.violations/4` always
+  takes the platform branch. The company-tenant branch -- the ONE fixed code
+  `:platform_call_not_allowed`, whatever the function is and whether or not it
+  exists (INV-5) -- is not measured here; it is covered by T-2588's own test
+  `test/letflow/definitions/platform_call_company_tenant_refused_test.exs`.
   """
 
   use ExUnit.Case, async: false
@@ -216,6 +243,20 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # The compiled catalogue: the entries the matrix is built from.
   defp shipped_entries, do: Catalog.list(platform_tenant?: true)
 
+  # The SUBJECT under test: the shipped rules the matrix measures. A MUTANT
+  # replaces one of them with a one-rule-apart variant, so the probe can prove
+  # that a rule which stopped firing would be caught (see the mutants below).
+  defp subject do
+    %{
+      entry_validator: &Entry.validate!/1,
+      catalogue_validator: &Entry.validate_catalogue!/1,
+      violations: &PlatformCalls.violations/4,
+      foreign_source_graph?: &PlatformCalls.foreign_source_graph?/1,
+      conflicting_route_graph?: &PlatformCalls.conflicting_route_graph?/1,
+      refused_keys: &WriteTargets.refused_keys/3
+    }
+  end
+
   # The shipped entry that declares a side effect of the given class -- the
   # representative of that class in the matrix.
   defp representative_entry(side_effect_class) do
@@ -244,10 +285,9 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   end
 
   # The catalogue family: one synthetic entry per source class and side-effect
-  # class. `validator` is the subject under test -- the shipped
-  # `Entry.validate!/1` for the real matrix, the seeded failing variant for the
-  # non-vacuity case.
-  defp catalogue_observations(validator) do
+  # class. The subject's entry validator is the shipped `Entry.validate!/1` for
+  # the real matrix and the seeded failing variant for the non-vacuity case.
+  defp catalogue_observations(subject) do
     for source_class <- source_classes(),
         side_effect_class <- side_effect_classes() do
       entry = synthetic_entry(source_class, side_effect_class)
@@ -256,13 +296,13 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
         family: "catalogue",
         key: "#{source_class}:#{side_effect_class}",
         path: "catalogue",
-        value: catalogue_outcome(entry, validator)
+        value: catalogue_outcome(entry, subject.entry_validator)
       }
     end
   end
 
   # The malformed family: the entries the shipped validator must refuse.
-  defp malformed_observations do
+  defp malformed_observations(subject) do
     base = synthetic_entry(:start, :read)
     [input | _] = base.inputs
 
@@ -278,7 +318,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
         family: "malformed",
         key: key,
         path: "catalogue",
-        value: catalogue_outcome(entry, &Entry.validate!/1)
+        value: catalogue_outcome(entry, subject.entry_validator)
       }
     end ++
       [
@@ -286,7 +326,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
           family: "malformed",
           key: "duplicate_name",
           path: "catalogue",
-          value: catalogue_outcome([base, base], &Entry.validate_catalogue!/1)
+          value: catalogue_outcome([base, base], subject.catalogue_validator)
         }
       ]
   end
@@ -302,7 +342,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
 
   # The arg-shape family: every shipped entry and every declared input, with
   # the argument's source shaped as the cell names.
-  defp arg_shape_observations(ctx) do
+  defp arg_shape_observations(ctx, subject) do
     for {shape, source} <- @arg_shapes,
         entry <- shipped_entries(),
         input <- entry.inputs do
@@ -313,14 +353,14 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
         family: "arg_shape",
         key: shape,
         path: "activation",
-        value: activation_codes(node, [node], ctx)
+        value: activation_codes(node, [node], ctx, subject)
       }
     end
   end
 
   # The foreign-source family: every shipped side-effect class beside every
   # foreign source the shipped rule knows, at activation and at dispatch.
-  defp foreign_source_observations(ctx) do
+  defp foreign_source_observations(ctx, subject) do
     for foreign <- foreign_nodes(),
         side_effect_class <- side_effect_classes(),
         reduce: [] do
@@ -335,13 +375,13 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
               family: "foreign_source",
               key: "#{foreign.key}:#{side_effect_class}",
               path: "activation",
-              value: activation_codes(node, nodes, ctx)
+              value: activation_codes(node, nodes, ctx, subject)
             },
             %{
               family: "foreign_source",
               key: "#{foreign.key}:#{side_effect_class}",
               path: "dispatch",
-              value: bool_string(PlatformCalls.foreign_source_graph?(nodes))
+              value: bool_string(subject.foreign_source_graph?.(nodes))
             }
           ]
     end
@@ -351,7 +391,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # activation and at dispatch. The activation must answer with the conflicting
   # route code even for a write-like entry, whose graph also carries a foreign
   # source (the T-2588 finding).
-  defp dual_route_observations(ctx) do
+  defp dual_route_observations(ctx, subject) do
     for attribute <- conflicting_route_attributes(),
         side_effect_class <- side_effect_classes(),
         reduce: [] do
@@ -366,13 +406,13 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
               family: "dual_route",
               key: "#{attribute}:#{side_effect_class}",
               path: "activation",
-              value: activation_codes(node, nodes, ctx)
+              value: activation_codes(node, nodes, ctx, subject)
             },
             %{
               family: "dual_route",
               key: "#{attribute}:#{side_effect_class}",
               path: "dispatch",
-              value: bool_string(PlatformCalls.conflicting_route_graph?(nodes))
+              value: bool_string(subject.conflicting_route_graph?.(nodes))
             }
           ]
     end
@@ -380,7 +420,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
 
   # The write-target family: the variable a catalogue call reads is refused in
   # a completion body, unless the human task declares it as its own input.
-  defp write_target_observations do
+  defp write_target_observations(subject) do
     for entry <- shipped_entries(),
         input <- entry.inputs,
         input.source_class != :person,
@@ -390,8 +430,8 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
         args = const_args(entry) |> Map.put(input.name, %{"var" => key})
         call = call_node(entry, args)
 
-        refused = WriteTargets.refused_keys(graph_with_human(call, []), "human", %{key => 1})
-        allowed = WriteTargets.refused_keys(graph_with_human(call, [key]), "human", %{key => 1})
+        refused = subject.refused_keys.(graph_with_human(call, []), "human", %{key => 1})
+        allowed = subject.refused_keys.(graph_with_human(call, [key]), "human", %{key => 1})
 
         acc ++
           [
@@ -478,9 +518,8 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # The violation codes the activation reports for a node, as a stable string.
   # A code is written the way Elixir writes the atom it is, so the reviewed
   # expectation file names the very atom the shipped rule returns.
-  defp activation_codes(node, nodes, ctx) do
-    node
-    |> PlatformCalls.violations(nodes, ctx.prefix, ctx.activator)
+  defp activation_codes(node, nodes, ctx, subject) do
+    subject.violations.(node, nodes, ctx.prefix, ctx.activator)
     |> Enum.map(& &1.code)
     |> Enum.uniq()
     |> Enum.sort()
@@ -590,14 +629,14 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   end
 
   # The whole matrix of the shipped tree.
-  defp matrix(ctx) do
+  defp matrix(ctx, subject) do
     cells(
-      catalogue_observations(&Entry.validate!/1) ++
-        malformed_observations() ++
-        arg_shape_observations(ctx) ++
-        foreign_source_observations(ctx) ++
-        dual_route_observations(ctx) ++
-        write_target_observations()
+      catalogue_observations(subject) ++
+        malformed_observations(subject) ++
+        arg_shape_observations(ctx, subject) ++
+        foreign_source_observations(ctx, subject) ++
+        dual_route_observations(ctx, subject) ++
+        write_target_observations(subject)
     )
   end
 
@@ -643,7 +682,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
     test "the matrix is not empty and every side-effect class has a shipped entry" do
       ctx = %{prefix: platform_prefix(), activator: activator()}
 
-      assert length(matrix(ctx)) > 0
+      assert length(matrix(ctx, subject())) > 0
 
       for side_effect_class <- side_effect_classes() do
         assert representative_entry(side_effect_class) != nil,
@@ -654,7 +693,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
 
   describe "the matrix against the reviewed expectations" do
     test "the shipped code does what the reviewed file says", ctx do
-      cells = matrix(ctx)
+      cells = matrix(ctx, subject())
       expectations = expectations()
 
       assert violations(cells, expectations) == []
@@ -663,16 +702,13 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   end
 
   describe "non-vacuity" do
-    test "the seeded failing variant (a validator without the write-like rule) is caught" do
-      cells = cells(catalogue_observations(&mutant_validate!/1))
-      expectations = expectations()
-
-      violations = violations(cells, expectations)
+    test "the seeded failing variant (a validator without the write-like rule) is caught", ctx do
+      found = violations(matrix(ctx, mutant_subject(:catalogue, subject())), expectations())
 
       # the cells the mutant breaks are the ones the shipped validator refuses
-      assert violations != []
+      assert found != []
 
-      assert Enum.all?(violations, fn violation ->
+      assert Enum.all?(found, fn violation ->
                violation =~ "catalogue" and violation =~ "is \"accepted\""
              end)
     end
@@ -697,7 +733,119 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
       assert catalogue_outcome(%{synthetic_entry(:start, :read) | name: ""}, &mutant_validate!/1) ==
                "refused"
     end
+
+    # One mutant per family, each ONE RULE APART from the subject and each
+    # driven through the SAME aggregate entry point. A family that does not
+    # catch its own mutant is not ratcheted, and a mutant that moves another
+    # family's cells would mask it.
+
+    test "the malformed mutant (a catalogue validator without the duplicate-name rule) is caught",
+         ctx do
+      assert_family_mutant_caught(:malformed, ctx)
+    end
+
+    test "the arg_shape mutant (an activation without the argument-shape refusal) is caught",
+         ctx do
+      assert_family_mutant_caught(:arg_shape, ctx)
+    end
+
+    test "the foreign_source mutant (an activation without the foreign-source refusal) is caught",
+         ctx do
+      assert_family_mutant_caught(:foreign_source, ctx)
+    end
+
+    test "the dual_route mutant (an activation without the conflicting-route refusal) is caught",
+         ctx do
+      assert_family_mutant_caught(:dual_route, ctx)
+    end
+
+    test "the write_target mutant (a completion refusal without the catalogue call's read keys) is caught",
+         ctx do
+      assert_family_mutant_caught(:write_target, ctx)
+    end
   end
+
+  # A family's mutant is caught by the reviewed expectations, and it moves
+  # ONLY that family's cells.
+  defp assert_family_mutant_caught(family, ctx) do
+    found = violations(matrix(ctx, mutant_subject(family, subject())), expectations())
+
+    assert found != [], "the #{family} mutant is not caught by the probe"
+
+    assert Enum.all?(found, &String.starts_with?(&1, "#{family} ")),
+           "the #{family} mutant moved another family's cells: #{inspect(found)}"
+  end
+
+  # ── the mutants ───────────────────────────────────────────────────────────────────────
+  #
+  # Every mutant is ONE RULE APART from the subject: it is built FROM the
+  # shipped rule (every other shipped refusal still runs) and it is driven
+  # through the same aggregate entry point, so what catches it is the
+  # reviewed expectation file and nothing else.
+
+  # The catalogue family: the shipped catalogue validator with the write-like
+  # (`person` input) rule removed.
+  defp mutant_subject(:catalogue, subject) do
+    %{subject | entry_validator: &mutant_validate!/1}
+  end
+
+  # The malformed family: the shipped catalogue validator with the
+  # duplicate-name rule removed (every entry's own checks still run).
+  defp mutant_subject(:malformed, subject) do
+    %{subject | catalogue_validator: &mutant_validate_catalogue!/1}
+  end
+
+  # The arg-shape family: the shipped activation with the argument-shape
+  # refusal removed -- the source of an argument is no longer checked.
+  defp mutant_subject(:arg_shape, subject) do
+    %{subject | violations: without_code(:platform_call_arg_source_invalid, subject.violations)}
+  end
+
+  # The foreign-source family: the shipped activation with the foreign-source
+  # refusal removed, and its dispatch twin blind. The rule is one rule, at
+  # its two enforcement points.
+  defp mutant_subject(:foreign_source, subject) do
+    %{
+      subject
+      | violations: without_code(:platform_call_foreign_source_refused, subject.violations),
+        foreign_source_graph?: fn _nodes -> false end
+    }
+  end
+
+  # The dual-route family: the shipped activation with the conflicting-route
+  # refusal removed, and its dispatch twin blind.
+  defp mutant_subject(:dual_route, subject) do
+    %{
+      subject
+      | violations: without_code(:conflicting_platform_call_routes, subject.violations),
+        conflicting_route_graph?: fn _nodes -> false end
+    }
+  end
+
+  # The write-target family: the shipped completion refusal with the
+  # catalogue call's contribution to the read set dropped -- the variable a
+  # catalogue call reads is no longer refused in a completion body.
+  defp mutant_subject(:write_target, subject) do
+    %{subject | refused_keys: &mutant_refused_keys/3}
+  end
+
+  # The shipped activation with ONE of its refusals dropped.
+  defp without_code(code, violations) do
+    fn node, nodes, prefix, activator ->
+      violations.(node, nodes, prefix, activator)
+      |> Enum.reject(&(&1.code == code))
+    end
+  end
+
+  # The shipped completion refusal without the catalogue call's read keys: the
+  # refusal the shipped code gives, minus what the catalogue call reads.
+  defp mutant_refused_keys(%Graph{nodes: nodes} = graph, node_id, output_variables) do
+    graph
+    |> WriteTargets.refused_keys(node_id, output_variables)
+    |> Kernel.--(PlatformCalls.read_keys(nodes))
+  end
+
+  defp mutant_refused_keys(_graph, _node_id, _output_variables), do: []
 
   # The seeded failing variant of the SUBJECT: the shipped validator with the
   # write-like/`person` rule removed. It is built FROM the shipped validator --
@@ -705,5 +853,12 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # to catch it.
   defp mutant_validate!(%Entry{} = entry) do
     Entry.validate!(%{entry | inputs: Enum.reject(entry.inputs, &(&1.source_class == :person))})
+  end
+
+  # The shipped catalogue validator with the duplicate-name rule removed: every
+  # entry's own checks still run.
+  defp mutant_validate_catalogue!(entries) when is_list(entries) do
+    Enum.each(entries, &Entry.validate!/1)
+    :ok
   end
 end
