@@ -42,6 +42,7 @@ import { docLayoutScreens } from './fixtures/docLayouts'
 import { companySettingsScreens } from './fixtures/companySettings'
 import { platformCallPickerScreens } from './fixtures/platformCallPicker'
 import { notifyStepPickerScreens } from './fixtures/notifyStepPicker'
+import { registerTenantDesignerScreens } from './fixtures/registerTenantDesigner'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
@@ -443,5 +444,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...companySettingsScreens,
     ...platformCallPickerScreens,
     ...notifyStepPickerScreens,
+    ...registerTenantDesignerScreens,
   ].map(s => [s.name, s]),
 )
