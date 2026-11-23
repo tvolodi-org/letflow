@@ -34,6 +34,7 @@ defmodule Letflow.Definitions.Activator do
 
   alias Letflow.Api.Authorization
   alias Letflow.Engine.EntityPort
+  alias Letflow.PlatformFunctions.Catalog
 
   # The permissions this module evaluates at activation and records.
   @recorded_permissions [:DefinitionsActivate, :EntitiesRecordsWrite]
@@ -46,6 +47,12 @@ defmodule Letflow.Definitions.Activator do
   tenant) as sorted role names; `entities_records_write?` is whether those roles hold
   `:EntitiesRecordsWrite`; `permissions` lists which of `:DefinitionsActivate` and
   `:EntitiesRecordsWrite` they hold.
+
+  `catalogue_permissions` lists which of the compiled platform function catalogue's
+  permission atoms (`:TenantsManage` for the tenant family) those roles hold. It is
+  NOT part of the `activated_by` document by itself: the document carries the entry's
+  permission only for a graph that actually calls the function (T-2588, gap G2), so
+  every other document stays byte-identical.
   """
   @spec from_auth_context(auth_context :: term(), platform_tenant? :: boolean()) ::
           EntityPort.activator() | nil
@@ -65,11 +72,18 @@ defmodule Letflow.Definitions.Activator do
       |> Enum.map(&Atom.to_string/1)
       |> Enum.sort()
 
+    catalogue_permissions =
+      Catalog.permission_atoms()
+      |> Enum.filter(&(Authorization.evaluate_access(ctx, &1).kind == :Allow))
+      |> Enum.map(&Atom.to_string/1)
+      |> Enum.sort()
+
     %{
       user_id: user_id,
       roles: roles |> Enum.map(&Atom.to_string/1) |> Enum.sort(),
       entities_records_write?: "EntitiesRecordsWrite" in permissions,
       permissions: permissions,
+      catalogue_permissions: catalogue_permissions,
       credential: credential_kind(Map.get(auth_context, :credential))
     }
   end
@@ -85,14 +99,27 @@ defmodule Letflow.Definitions.Activator do
   @doc """
   The `activated_by` document for `activator`, authorising exactly `pairs` (`{entity_type,
   "create"}`; sorted and de-duplicated here). `now` is the activation instant.
+
+  `extra_permissions` are added to the recorded permission list. T-2588 (gap G2) uses it
+  for the catalogue permission of a `platform_call` step: the signed document then proves
+  the activator held the entry's permission when the version was switched on. The list
+  stays byte-identical for every document that does not need it.
   """
-  @spec build_record(EntityPort.activator(), [{String.t(), String.t()}], DateTime.t()) :: map()
-  def build_record(%{user_id: user_id} = activator, pairs, %DateTime{} = now)
-      when is_list(pairs) do
+  @spec build_record(EntityPort.activator(), [{String.t(), String.t()}], DateTime.t(), [
+          String.t()
+        ]) ::
+          map()
+  def build_record(
+        %{user_id: user_id} = activator,
+        pairs,
+        %DateTime{} = now,
+        extra_permissions \\ []
+      )
+      when is_list(pairs) and is_list(extra_permissions) do
     %{
       "user_id" => user_id,
       "roles" => Enum.sort(Map.get(activator, :roles, [])),
-      "permissions" => Enum.sort(activator.permissions),
+      "permissions" => Enum.sort(activator.permissions ++ extra_permissions),
       "authorized" =>
         pairs
         |> Enum.uniq()

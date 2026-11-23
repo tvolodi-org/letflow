@@ -4,8 +4,8 @@ import { resolve } from 'node:path'
 import type { DefinitionGraph, GraphNode } from '@/types/api'
 import {
   MAX_EDGES, MAX_NODES, SCRIPT_KEY_RE, addNode, connect, connectionRefusal, deleteEdges, deleteNodes, hasServiceBinding,
-  moveNode, nextDraftVersion, positionOf, readAttrs, replaceServiceWithScript, scriptBindingHint, setEdge, setNodeAttr,
-  setNodeLabel, setScriptBinding,
+  moveNode, nextDraftVersion, positionOf, readAttrs, removePlatformCall, replaceServiceWithScript, scriptBindingHint,
+  setEdge, setNodeAttr, setNodeLabel, setPlatformCall, setScriptBinding,
 } from '../graphEdit'
 
 const root = resolve(__dirname, '../../../../..')
@@ -132,5 +132,47 @@ describe('script binding (P5)', () => {
     const g = must(setScriptBinding(svc({}), 's', { key: 'calc', version: 1 })).graph
     const fx = fixture('edited_graph_script.json') as DefinitionGraph
     expect(readAttrs(node(g))).toEqual(readAttrs(fx.nodes.find((n) => n.node_type === 'SERVICE_TASK') as GraphNode))
+  })
+})
+
+// T-2599 (pilot gap G5a): the route kinds of a step are EXCLUSIVE — a platform call, a script and a service
+// binding never live on one node (the server refuses a node that carries a platform call beside an endpoint, a
+// service id or a script key: `Letflow.Definitions.PlatformCalls`).
+describe('graphEdit — the platform call', () => {
+  const svc = (a: object): DefinitionGraph => ({
+    nodes: [{ id: 's', node_type: 'SERVICE_TASK', label: null, attributes: attrs(a) }],
+    edges: [],
+  })
+  const node = (g: DefinitionGraph) => g.nodes[0] as GraphNode
+  const CALL = {
+    function: 'platform.validate_registration',
+    args: { slug: { var: 'tenant_slug' } },
+    reads: { tenant_slug: 'string' },
+    writes: {},
+  }
+
+  it('a platform call replaces the script and the service binding in one step', () => {
+    const g0 = svc({ script_key: 'calc', script_version: 1, service_id: 'x', endpoint: 'http://e', timeout_ms: 5 })
+    const a = readAttrs(node(must(setPlatformCall(g0, 's', CALL)).graph))
+    expect(a.platform_call).toEqual(CALL)
+    expect(a.script_key).toBeUndefined()
+    expect(a.script_version).toBeUndefined()
+    expect(a.service_id).toBeUndefined()
+    expect(a.endpoint).toBeUndefined()
+    expect(a.timeout_ms).toBe(5)
+  })
+
+  it('a script binding replaces a platform call in one step', () => {
+    const g0 = svc({ platform_call: CALL })
+    const a = readAttrs(node(must(setScriptBinding(g0, 's', { key: 'calc' })).graph))
+    expect(a.platform_call).toBeUndefined()
+    expect(a.script_key).toBe('calc')
+  })
+
+  it('a platform call can be dropped, and the other attributes stay', () => {
+    const g0 = svc({ platform_call: CALL, label: 'x' })
+    const a = readAttrs(node(must(removePlatformCall(g0, 's')).graph))
+    expect(a.platform_call).toBeUndefined()
+    expect(a.label).toBe('x')
   })
 })

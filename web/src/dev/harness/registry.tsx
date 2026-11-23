@@ -40,6 +40,7 @@ import { codesLabelScreens } from './fixtures/codesLabels'
 import { codesPagedScreens } from './fixtures/codesPaged'
 import { docLayoutScreens } from './fixtures/docLayouts'
 import { companySettingsScreens } from './fixtures/companySettings'
+import { platformCallPickerScreens } from './fixtures/platformCallPicker'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
@@ -439,5 +440,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...taskRefusalScreens,
     ...quickCountFormatScreens,
     ...companySettingsScreens,
+    ...platformCallPickerScreens,
   ].map(s => [s.name, s]),
 )

@@ -134,16 +134,22 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.JsonSchemaShape
   alias Letflow.Definitions.ModuleWrites
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.PackUpdateOverrides
+  alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionArtifact
   alias Letflow.Definitions.PromotionAssertionRun
   alias Letflow.Definitions.PromotionReview
   alias Letflow.Definitions.PromotionReviewStore
   alias Letflow.Definitions.SemanticValidation
+  alias Letflow.Definitions.StartPermission
+  alias Letflow.Definitions.StepMapping
   alias Letflow.Definitions.ValidationWarnings
+  alias Letflow.PlatformTenant
   alias Letflow.Engine.EntityPort
+  alias Letflow.Engine.SubProcess
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
@@ -197,7 +203,7 @@ defmodule Letflow.Definitions do
   # REQ-030 types -- lib/letflow/design/req030-definition-store-crud.md §4.0
   # ---------------------------------------------------------------------------------
 
-  @type opts :: [prefix: String.t()]
+  @type opts :: [prefix: String.t(), actor_id: Ecto.UUID.t() | nil]
 
   @type status :: ProcessDefinition.status()
 
@@ -219,6 +225,35 @@ defmodule Letflow.Definitions do
   @type entity_writes_violation :: %{
           node_id: String.t(),
           index: non_neg_integer(),
+          code: atom()
+        }
+
+  @typedoc """
+  One violation of a `platform_call` step (T-2588, pilot gap G2): the node it belongs to, the
+  index inside the node (0 for a node-level refusal) and a stable code.
+  """
+  @type platform_call_violation :: %{
+          node_id: String.t(),
+          index: non_neg_integer(),
+          code: atom()
+        }
+
+  @type notify_call_violation :: %{
+          node_id: String.t(),
+          index: non_neg_integer(),
+          code: atom()
+        }
+
+  @typedoc """
+  One violation of the TYPED STEP MAPPING (T-2594, pilot gap G13): the node it
+  belongs to, the side of the declaration (`:reads` or `:writes`), the variable
+  name it is about (`nil` when the violation is about the declaration as a
+  whole) and a stable code.
+  """
+  @type step_mapping_violation :: %{
+          node_id: String.t(),
+          side: :reads | :writes,
+          name: String.t() | nil,
           code: atom()
         }
 
@@ -249,6 +284,8 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call` step.
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
           # GH #2590 R2: `create_owned/3` was given neither `:tenant` nor an `Owner`.
           | {:error, :invalid_owner}
           | {:error, Ecto.Changeset.t()}
@@ -285,6 +322,9 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call` step
+          # (the UPDATE path runs the same rule the create path does).
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
           # GH #2590 / REQ-501 R2: the row is a module-shipped, stamped version (409).
           | {:error, :module_owned_definition}
           | {:error, variable_schema_error()}
@@ -495,8 +535,16 @@ defmodule Letflow.Definitions do
          :ok <- check_graph_result(Graph.validate_graph(graph)),
          :ok <- check_graph_result(Graph.validate_node_attributes(graph)),
          :ok <- check_graph_result(Graph.validate_edge_conditions(graph)),
-         :ok <- check_graph_result(Graph.validate_flow(graph)) do
-      insert_definition(attrs, prefix, tenant_id, stamp_for(stamp_source, graph_map))
+         :ok <- check_graph_result(Graph.validate_flow(graph)),
+         :ok <- check_platform_call_tenant(graph, prefix),
+         :ok <- check_start_permission_name(attrs) do
+      insert_definition(
+        attrs,
+        prefix,
+        tenant_id,
+        stamp_for(stamp_source, graph_map),
+        Keyword.get(opts, :actor_id)
+      )
     end
   end
 
@@ -694,6 +742,7 @@ defmodule Letflow.Definitions do
              {:expression_references_reserved_variable,
               [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
           | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
           | common_error()
   def activate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -724,6 +773,7 @@ defmodule Letflow.Definitions do
           | {:error, :not_needs_reactivation}
           | {:error, :graph_structure_invalid}
           | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
           | common_error()
   def reactivate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -751,8 +801,13 @@ defmodule Letflow.Definitions do
         Repo.rollback(:not_found)
 
       %ProcessDefinition{status: :active, needs_reactivation_at: %DateTime{}} ->
-        case check_entity_writes(definition, prefix, activator) do
-          :ok -> reactivate_row(definition, prefix, tenant_id, activator)
+        with :ok <- check_entity_writes(definition, prefix, activator),
+             :ok <- check_platform_calls(definition, prefix, activator),
+             :ok <- check_start_permission(definition, prefix),
+             :ok <- check_step_mappings(definition, prefix),
+             :ok <- check_notify_calls(definition, prefix) do
+          reactivate_row(definition, prefix, tenant_id, activator)
+        else
           {:error, reason} -> Repo.rollback(reason)
         end
 
@@ -788,7 +843,14 @@ defmodule Letflow.Definitions do
         prefix: prefix
       )
 
-    case record_definition_audit("definition.reactivate", id, before, updated, prefix) do
+    case record_definition_audit(
+           "definition.reactivate",
+           id,
+           before,
+           updated,
+           prefix,
+           activator_actor_id(activator)
+         ) do
       {:ok, _entry} -> updated
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -799,8 +861,27 @@ defmodule Letflow.Definitions do
   def assign_sequence(tenant_id, prefix), do: assign_definition_sequence(tenant_id, prefix)
 
   @doc false
-  def record_audit(action, definition_id, before, after_, prefix),
-    do: record_definition_audit(action, definition_id, before, after_, prefix)
+  def record_audit(action, definition_id, before, after_, prefix, actor_id \\ nil),
+    do: record_definition_audit(action, definition_id, before, after_, prefix, actor_id)
+
+  # The actor of a definition lifecycle audit row (T-2588, pilot gap G2, decision (d)):
+  # the user id of the caller on an HTTP path, nil for a caller that is not a person
+  # (module code, a seed task). A value that is not a UUID is read as nil rather than
+  # raising (INV-8): an audit row must not be able to fail a lifecycle write.
+  defp audit_actor_id(nil), do: nil
+
+  defp audit_actor_id(actor_id) when is_binary(actor_id) do
+    case Ecto.UUID.cast(actor_id) do
+      {:ok, _uuid} -> actor_id
+      :error -> nil
+    end
+  end
+
+  defp audit_actor_id(_other), do: nil
+
+  # The actor of an activation row: the person who switched the version on.
+  defp activator_actor_id(%{user_id: user_id}) when is_binary(user_id), do: user_id
+  defp activator_actor_id(_activator), do: nil
 
   @doc """
   Transitions an ACTIVE process definition to DEPRECATED (PD-04). Every other current
@@ -1357,6 +1438,73 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # T-2588 (pilot gap G2): the designer's validate route refuses a company
+  # tenant's `platform_call` with the one fixed code, the same answer the write
+  # path and the activation fence give.
+  defp platform_call_violations(graph, prefix) do
+    for violation <- PlatformCalls.tenant_violations(graph.nodes, prefix) do
+      %Graph.Violation{
+        code: :platform_call_not_allowed,
+        message:
+          "Node '#{violation.node_id}' carries a 'platform_call'; a platform call may run " <>
+            "only in the platform tenant"
+      }
+    end
+  end
+
+  # T-2594 (pilot gap G13): the designer's validate route reports the TYPED STEP
+  # MAPPING findings -- the same rules the activation fence runs, so a designer
+  # sees an undeclared variable or a write to a protected variable BEFORE the
+  # version is switched on.
+  defp graph_step_mapping_violations(graph, declared_fields, prefix) do
+    graph.nodes
+    |> step_mapping_violations(declared_fields, prefix)
+    |> Enum.map(&%Graph.Violation{code: &1.code, message: step_mapping_message(&1)})
+  end
+
+  defp step_mapping_message(violation) do
+    name_text =
+      case violation.name do
+        nil -> ""
+        name -> " '#{name}'"
+      end
+
+    "Node '#{violation.node_id}' #{violation.side} mapping#{name_text}: " <>
+      "#{step_mapping_reason(violation.code)}"
+  end
+
+  defp step_mapping_reason(:step_mapping_declaration_missing),
+    do:
+      "the step declares no typed mapping; a step that maps variables must declare its reads and its writes"
+
+  defp step_mapping_reason(:step_mapping_declaration_malformed),
+    do:
+      "the typed mapping is malformed; the reads and the writes are maps of a variable name to a type name"
+
+  defp step_mapping_reason(:step_mapping_reserved_refused),
+    do: "the reserved engine namespace is never read and never written"
+
+  defp step_mapping_reason(:step_mapping_variable_undeclared),
+    do: "the variable is not among the definition's declared variable schemas"
+
+  defp step_mapping_reason(:step_mapping_type_mismatch),
+    do: "the declared type does not match the type of the definition's variable schema"
+
+  defp step_mapping_reason(:step_mapping_entry_type_mismatch),
+    do: "the declared type does not match the type the function's contract declares"
+
+  defp step_mapping_reason(:step_mapping_write_refused),
+    do: "a person may not decide what the step writes"
+
+  defp step_mapping_reason(:step_mapping_write_not_declared),
+    do: "the function does not produce this output"
+
+  defp step_mapping_reason(:step_mapping_read_undeclared),
+    do: "the step reads a variable it does not declare"
+
+  defp step_mapping_reason(_other),
+    do: "the typed mapping of the step is refused"
+
   defp run_validators(definition, graph, prefix) do
     with {:ok, declared_fields} <-
            VariableSchema.fetch_schemas(Repo, definition.id, prefix: prefix) do
@@ -1365,7 +1513,9 @@ defmodule Letflow.Definitions do
           Graph.validate_node_attributes(graph).violations ++
           Graph.validate_edge_conditions(graph).violations ++
           Graph.validate_flow(graph).violations ++
-          SemanticValidation.validate(graph, declared_fields).violations
+          SemanticValidation.validate(graph, declared_fields).violations ++
+          platform_call_violations(graph, prefix) ++
+          graph_step_mapping_violations(graph, declared_fields, prefix)
 
       warnings =
         ValidationWarnings.for_definitions([{definition.name, graph}], prefix: prefix)
@@ -1762,7 +1912,7 @@ defmodule Letflow.Definitions do
          {:ok, uuid} <- cast_update_id(id),
          :ok <- validate_update_name(attrs),
          :ok <- validate_update_version(attrs),
-         :ok <- validate_update_graph(attrs) do
+         :ok <- validate_update_graph(attrs, prefix) do
       run_update(uuid, prefix, build_update_set(attrs), Map.get(attrs, :variable_schemas))
     end
   end
@@ -1784,19 +1934,108 @@ defmodule Letflow.Definitions do
       else: :ok
   end
 
-  defp validate_update_graph(attrs) do
+  # T-2588 (pilot gap G2): the UPDATE path (PUT and PATCH) writes a graph like
+  # create/2 does, so it runs the SAME company-tenant rule: a company tenant may
+  # not carry a `platform_call` step, and the answer is the one fixed code
+  # `:platform_call_not_allowed`. Without this check a company TENANT_ADMIN
+  # could PUT a `platform_call` graph into a DRAFT and store it.
+  defp validate_update_graph(attrs, prefix) do
     if Map.has_key?(attrs, :graph) do
       with {:ok, graph_map} <- fetch_graph_map(attrs),
            {:ok, graph} <- convert_graph(graph_map),
            :ok <- check_graph_result(Graph.validate_graph(graph)),
            :ok <- check_graph_result(Graph.validate_node_attributes(graph)),
            :ok <- check_graph_result(Graph.validate_edge_conditions(graph)),
-           :ok <- check_graph_result(Graph.validate_flow(graph)) do
+           :ok <- check_graph_result(Graph.validate_flow(graph)),
+           :ok <- check_platform_call_tenant(graph, prefix) do
         :ok
       end
     else
       :ok
     end
+  end
+
+  # T-2591 (pilot gap G3; decision record
+  # docs/migration/decisions/0094-platform-call-authority.md, decision (e)): the DECLARED start
+  # permission of a definition is a permission ATOM NAME. A name the platform does not know is
+  # refused at the WRITE path that can set the column -- `create/2` and
+  # `create_with_variable_schemas/3` -- so a definition never carries a permission that no
+  # caller can hold: an unknown name would make the start impossible for everybody, which is a
+  # safe failure but a useless definition.
+  #
+  # The UPDATE path (PUT, PATCH) does not carry the field (`build_update_set/1` sets name,
+  # version, description, graph and stage), and the import does not either: a version that is
+  # created from another one carries the declaration only if the creator sends it. The column
+  # is therefore settable where a version is CREATED, never where a version is edited.
+  #
+  # The name is read out of the permission table, never turned into an atom by the caller's
+  # string (no atom is born of untrusted input).
+  @doc false
+  @spec check_start_permission_name(map()) :: :ok | {:error, {:start_permission_invalid, map()}}
+  def check_start_permission_name(attrs) when is_map(attrs) do
+    case Map.get(attrs, :start_permission) do
+      nil ->
+        :ok
+
+      name when is_binary(name) ->
+        case StartPermission.declared(%{start_permission: name}) do
+          {:ok, _atom} ->
+            :ok
+
+          {:error, :unknown} ->
+            {:error,
+             {:start_permission_invalid,
+              start_permission_violation(:start_permission_unknown, nil, nil)}}
+        end
+
+      _other ->
+        {:error,
+         {:start_permission_invalid,
+          start_permission_violation(:start_permission_unknown, nil, nil)}}
+    end
+  end
+
+  def check_start_permission_name(_attrs), do: :ok
+
+  # T-2591 (pilot gap G3): the ACTIVATION fence of the DECLARED start permission. A version
+  # whose `start_permission` is weaker than a permission its own `platform_call` steps require
+  # is refused: the declaration would look like a guard while granting less than the step
+  # needs. The check runs on the four activation paths (activate, reactivate, version
+  # rollback, promotion apply) and in the designer's read-only precheck, so a version that
+  # activation would refuse is refused in the designer too.
+  #
+  # The required permissions are those of the definition AND of the SUB_PROCESS children it
+  # starts (the same set the start check demands, T-2591 security gate): the fence may not be
+  # narrower than the check it guards. The children are resolved in the tenant's own schema,
+  # exactly as the start resolves them.
+  @doc false
+  @spec check_start_permission(ProcessDefinition.t() | map(), String.t()) ::
+          :ok | {:error, {:start_permission_invalid, map()}}
+  def check_start_permission(definition, prefix) when is_map(definition) do
+    children = SubProcess.child_definitions(Map.get(definition, :graph), prefix)
+
+    case StartPermission.activation_violation(definition, children) do
+      nil ->
+        :ok
+
+      {:start_permission_unknown, _name} ->
+        {:error,
+         {:start_permission_invalid,
+          start_permission_violation(:start_permission_unknown, nil, nil)}}
+
+      {:start_permission_too_weak, declared, required} ->
+        {:error,
+         {:start_permission_invalid,
+          start_permission_violation(:start_permission_too_weak, declared, required)}}
+    end
+  end
+
+  defp start_permission_violation(code, declared, required) do
+    %{
+      code: code,
+      declared: declared && Atom.to_string(declared),
+      required: required && Atom.to_string(required)
+    }
   end
 
   defp build_update_set(attrs) do
@@ -1951,6 +2190,24 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # T-2588 (pilot gap G2): a COMPANY tenant may not carry a `platform_call` step at
+  # all -- not in a draft, not in an imported document, not in an activated version.
+  # The rule is checked here, at the only write path into a definition row, so the
+  # import path inherits it (the import delegates every validation to create/2).
+  # In the platform tenant a draft may carry the step: drawing it is a
+  # `DefinitionsWrite` matter, and the ACTIVATION fence decides who may switch it on.
+  defp check_platform_call_tenant(graph, prefix) do
+    case PlatformCalls.tenant_violations(graph.nodes, prefix) do
+      [] ->
+        :ok
+
+      violations ->
+        {:error,
+         {:platform_calls_invalid,
+          Enum.map(violations, &%{node_id: &1.node_id, index: &1.index, code: &1.code})}}
+    end
+  end
+
   defp check_graph_result(%{valid: true}), do: :ok
 
   defp check_graph_result(%{valid: false, violations: violations}) do
@@ -1985,7 +2242,7 @@ defmodule Letflow.Definitions do
   # transaction back) -- an accepted, small counter gap, the same class
   # activate_draft/3's 0-row deprecate update can also produce. The design's
   # own guarantee is monotonic ordering, never gap-free numbering.
-  defp insert_definition(attrs, prefix, tenant_id, stamp) do
+  defp insert_definition(attrs, prefix, tenant_id, stamp, actor_id) do
     try do
       Repo.transaction(fn ->
         case assign_definition_sequence(tenant_id, prefix) do
@@ -2012,7 +2269,8 @@ defmodule Letflow.Definitions do
                            found.id,
                            nil,
                            found,
-                           prefix
+                           prefix,
+                           actor_id
                          ) do
                       {:ok, _entry} -> found
                       {:error, reason} -> Repo.rollback(reason)
@@ -2052,21 +2310,23 @@ defmodule Letflow.Definitions do
     |> Ecto.Changeset.put_change(:owner_body_hash, stamp.body_hash)
   end
 
-  # REQ-195 -- actor_id is nil for every Definitions lifecycle audit row
-  # (create/activate/deprecate/archive): none of these four functions'
-  # `opts()`/`activate_opts()` carries an actor_id field today, and the one
-  # channel that could supply a real one (conn.assigns.auth_context.user_id)
-  # is read only inside lib/letflow/routers/definitions.ex, which this
-  # requirement's own AC11 forbids touching -- see
-  # lib/letflow/design/req195-audit-entry-storage.md §3.1a. Called from
-  # inside each function's own Repo.transaction/1 anonymous function, so a
+  # The actor of the row (T-2588, pilot gap G2, decision (d)): the user id of
+  # the HTTP caller, passed in through `opts[:actor_id]` (or the activator's
+  # user id on the activation paths). A caller that is not a person -- module
+  # code, a seed task -- passes no actor and the row carries `actor_id: nil`,
+  # which is what REQ-195's `actor_id: nil` disposition described; the
+  # REASON that disposition gave (REQ-195's AC11 forbade touching
+  # lib/letflow/routers/definitions.ex) has lapsed, and the router now supplies
+  # the actor.
+  #
+  # Called from inside each function's own Repo.transaction/1 anonymous function, so a
   # failed insert (`{:error, reason}`) rolls back via `Repo.rollback/1` at
   # each call site, same-transaction guarantee (AC3).
-  defp record_definition_audit(action, definition_id, before, after_, prefix) do
+  defp record_definition_audit(action, definition_id, before, after_, prefix, actor_id) do
     Audit.insert_entry(
       Repo,
       %{
-        actor_id: nil,
+        actor_id: audit_actor_id(actor_id),
         action: action,
         resource_type: "definition",
         resource_id: definition_id,
@@ -2500,7 +2760,11 @@ defmodule Letflow.Definitions do
   def precheck_activation(%ProcessDefinition{} = definition, prefix, activator) do
     with :ok <- run_semantic_validation(definition, prefix),
          :ok <- check_reserved_references(definition),
-         :ok <- check_entity_writes(definition, prefix, activator) do
+         :ok <- check_entity_writes(definition, prefix, activator),
+         :ok <- check_platform_calls(definition, prefix, activator),
+         :ok <- check_start_permission(definition, prefix),
+         :ok <- check_step_mappings(definition, prefix),
+         :ok <- check_notify_calls(definition, prefix) do
       check_script_bindings(definition, prefix)
     end
   end
@@ -2600,6 +2864,150 @@ defmodule Letflow.Definitions do
         else
           check_declared_writes(definition, prefix, activator, declared, module_declared, nodes)
         end
+    end
+  end
+
+  # T-2588 (pilot gap G2; decision record
+  # docs/migration/decisions/0094-platform-call-authority.md): the ACTIVATION fence for a
+  # `platform_call` step -- a SERVICE_TASK bound to a platform function of the compiled
+  # catalogue. The step LIBRARY (gap G1) owns the dispatcher; this function owns the rule
+  # that decides who may switch such a step on (the entry's permission, held by the signed
+  # activator, in the platform tenant) and where it may run (the platform tenant only).
+  #
+  # Shared by the four activation paths (activate/2, version rollback, promotion apply,
+  # reactivate/2), each of which already runs `check_entity_writes/3`: the platform-call
+  # fence runs right after it, so a refused graph takes no script-row lock.
+  @doc false
+  @spec check_platform_calls(
+          ProcessDefinition.t() | map(),
+          String.t(),
+          EntityPort.activator() | nil
+        ) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+  def check_platform_calls(%{graph: graph_map}, prefix, activator) when is_binary(prefix) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        violations =
+          for node <- nodes,
+              violation <- PlatformCalls.violations(node, nodes, prefix, activator),
+              do: %{node_id: node.id, index: violation.index, code: violation.code}
+
+        if violations == [] do
+          :ok
+        else
+          {:error, {:platform_calls_invalid, violations}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
+  # T-2592 (pilot gap G4): the ACTIVATION fence for a NOTIFICATION step -- a
+  # SERVICE_TASK bound to a registered template and an address read from a
+  # variable of the running instance. The rules live in
+  # `Letflow.Definitions.NotifyCalls` (ONE parse, shared with the dispatcher, so
+  # the step cannot be read differently when it runs).
+  #
+  # A notification step carries no permission of its own: the step kind is
+  # `DefinitionsWrite` like any other definition change, the address it may
+  # reach is bounded by the tenant's own send cap, and the address itself is
+  # never stored (INV-4). The per-tenant channel allow-list of the authority
+  # rule (gap G14) is NOT built here: a notification step may only reach the
+  # address its own instance variables hold.
+  @doc false
+  @spec check_notify_calls(ProcessDefinition.t() | map(), String.t()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:notify_calls_invalid, [notify_call_violation()]}}
+  def check_notify_calls(%{graph: graph_map}, _prefix) when is_map(graph_map) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        violations =
+          for node <- nodes,
+              violation <- NotifyCalls.violations(node, nodes),
+              do: %{node_id: node.id, index: violation.index, code: violation.code}
+
+        if violations == [] do
+          :ok
+        else
+          {:error, {:notify_calls_invalid, violations}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
+  # T-2594 (pilot gap G13): the TYPED STEP MAPPING fence -- every step that maps
+  # variables declares what it reads and what it writes, and the declaration is
+  # checked against this definition's OWN `variable_schemas`.
+  #
+  # Shared by the four activation paths (activate/2, reactivate/2, version
+  # rollback, promotion apply) and by the designer's validate route, so a
+  # mapping that activation would refuse is refused in the designer too (the
+  # designer sees the findings BEFORE the version is switched on).
+  #
+  # The schemas are read FRESH from the tenant's own `variable_schemas` table,
+  # keyed by this definition row: a declaration is always checked against the
+  # schemas of the version that carries it, never against a neighbour's.
+  @doc false
+  @spec check_step_mappings(ProcessDefinition.t() | map(), String.t()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:step_mappings_invalid, [step_mapping_violation()]}}
+  def check_step_mappings(%{graph: graph_map} = definition, prefix) when is_binary(prefix) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        with {:ok, declared_fields} <-
+               VariableSchema.fetch_schemas(Repo, definition.id, prefix: prefix) do
+          case step_mapping_violations(nodes, declared_fields, prefix) do
+            [] -> :ok
+            violations -> {:error, {:step_mappings_invalid, violations}}
+          end
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
+  # The violations of the typed mapping, over every step of the graph that maps
+  # variables. Pure: the schemas and the graph are read by the caller.
+  @spec step_mapping_violations([Graph.Node.t()], map(), String.t()) ::
+          [step_mapping_violation()]
+  def step_mapping_violations(nodes, declared_fields, prefix)
+      when is_list(nodes) and is_map(declared_fields) and is_binary(prefix) do
+    completer_writable = StepMapping.completer_writable_keys(nodes)
+    mapped = mapping_nodes(nodes, prefix)
+
+    mappings =
+      PlatformCalls.mappings(mapped) ++ NotifyCalls.mappings(mapped, declared_fields)
+
+    StepMapping.violations(mappings, declared_fields, completer_writable)
+  end
+
+  # The nodes whose typed mapping is checked.
+  #
+  # A `platform_call` step is mapped in the PLATFORM TENANT only. A company
+  # tenant is refused the step itself with ONE fixed code
+  # (`:platform_call_not_allowed`, INV-5), so the mapping of a step it may not
+  # carry is never reported: the type of a catalogue entry would tell a
+  # stranger that the entry exists. A step kind a company tenant MAY carry (a
+  # notification step, when the pilot builds it) is mapped in every tenant.
+  defp mapping_nodes(nodes, prefix) do
+    if PlatformTenant.platform_prefix?(prefix) do
+      nodes
+    else
+      platform_call_ids =
+        nodes
+        |> PlatformCalls.declared_nodes()
+        |> Enum.map(fn {node, _call} -> node.id end)
+        |> MapSet.new()
+
+      Enum.reject(nodes, &MapSet.member?(platform_call_ids, &1.id))
     end
   end
 
@@ -2729,8 +3137,9 @@ defmodule Letflow.Definitions do
     case {entity_write_nodes(graph_map), activator} do
       {{:ok, declared, nodes}, %{user_id: _} = activator} ->
         module_declared = ModuleWrites.declared_nodes(nodes)
+        platform_declared = PlatformCalls.declared_nodes(nodes)
 
-        if declared == [] and module_declared == [] do
+        if declared == [] and module_declared == [] and platform_declared == [] do
           nil
         else
           pairs =
@@ -2740,13 +3149,30 @@ defmodule Letflow.Definitions do
                 is_binary(entity_type),
                 do: {entity_type, "create"}
 
-          record = Activator.build_record(activator, pairs, now)
+          # T-2588 (gap G2): a graph with a `platform_call` step records the catalogue
+          # permission of the entries it calls, so the signed document proves the
+          # activator held it when the version was switched on. The recorded list of
+          # every other document stays byte-identical.
+          record =
+            Activator.build_record(
+              activator,
+              pairs,
+              now,
+              platform_extra_permissions(nodes, activator)
+            )
 
           # Additive (GH #2590 R3, design 5.2): `recorded_activator/2` ignores unknown keys.
           record =
             case ModuleWrites.handler_names(module_declared) do
               [] -> record
               handlers -> Map.put(record, "module_handlers", handlers)
+            end
+
+          # T-2588 (gap G2): the platform functions the graph calls, for the same reason.
+          record =
+            case PlatformCalls.function_names(platform_declared) do
+              [] -> record
+              functions -> Map.put(record, "platform_functions", functions)
             end
 
           # REQ-688: consent nodes and the activating credential, only for a graph with a consented
@@ -2766,6 +3192,18 @@ defmodule Letflow.Definitions do
       _no_lines_or_activator ->
         nil
     end
+  end
+
+  # The catalogue permissions the graph's `platform_call` steps require AND the
+  # activator holds, as the strings the `activated_by` document records.
+  defp platform_extra_permissions(nodes, activator) do
+    held = Map.get(activator, :catalogue_permissions, [])
+
+    nodes
+    |> PlatformCalls.required_permissions()
+    |> Enum.map(&Atom.to_string/1)
+    |> Enum.filter(&(&1 in held))
+    |> Enum.sort()
   end
 
   # True when any node declares a non-empty `entity_writes` or `module_writes`.
@@ -3006,7 +3444,7 @@ defmodule Letflow.Definitions do
           prefix: prefix
         )
 
-        activate_draft_row(draft, prefix, tenant_id, now, activated_by)
+        activate_draft_row(draft, prefix, tenant_id, now, activated_by, activator)
 
       {:error, reason} ->
         Repo.rollback(reason)
@@ -3016,13 +3454,14 @@ defmodule Letflow.Definitions do
   # REQ-195 -- `draft` (the pre-activation row, already fetched/locked by
   # run_activate_transaction/4) is this audit row's before_state; `updated`
   # (the now-ACTIVE row) is its after_state. actor_id: nil, see
-  # record_definition_audit/5's own comment.
+  # record_definition_audit/6's own comment.
   defp activate_draft_row(
          %ProcessDefinition{id: id} = draft,
          prefix,
          tenant_id,
          now,
-         activated_by
+         activated_by,
+         activator
        ) do
     case assign_definition_sequence(tenant_id, prefix) do
       {:ok, activate_seq} ->
@@ -3042,7 +3481,14 @@ defmodule Letflow.Definitions do
             prefix: prefix
           )
 
-        case record_definition_audit("definition.activate", id, draft, updated, prefix) do
+        case record_definition_audit(
+               "definition.activate",
+               id,
+               draft,
+               updated,
+               prefix,
+               activator_actor_id(activator)
+             ) do
           {:ok, _entry} -> {:activated, updated}
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -3101,6 +3547,24 @@ defmodule Letflow.Definitions do
   defp interpret_activate_result({:error, {:entity_writes_invalid, _violations}} = error),
     do: error
 
+  # T-2588 (pilot gap G2): the platform-call authority refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:platform_calls_invalid, _violations}} = error),
+    do: error
+
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the notification
+  # fence's refusal, a pure pass-through. Without it a refused notify step would
+  # answer 500 instead of a typed 422 with its code.
+  defp interpret_activate_result({:error, {:notify_calls_invalid, _violations}} = error),
+    do: error
+
+  # T-2591 (pilot gap G3): the declared start permission refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:start_permission_invalid, _violation}} = error),
+    do: error
+
+  # T-2594 (pilot gap G13): the typed step mapping refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:step_mappings_invalid, _violations}} = error),
+    do: error
+
   # -----------------------------------------------------------------------------------
   # deprecate/2 & archive/2 helpers (design §6.3) -- identical shape, different
   # from-status/to-status pair; archive/2 additionally stamps archived_at.
@@ -3108,10 +3572,11 @@ defmodule Letflow.Definitions do
 
   defp transition(id, opts, from_status, to_status) do
     prefix = Keyword.get(opts, :prefix)
+    actor_id = Keyword.get(opts, :actor_id)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       try do
-        run_transition(id, prefix, tenant_id, from_status, to_status)
+        run_transition(id, prefix, tenant_id, from_status, to_status, actor_id)
       rescue
         exception -> {:error, {:transaction_failed, exception}}
       end
@@ -3126,7 +3591,7 @@ defmodule Letflow.Definitions do
   # :invalid_status_transition), which discards the just-assigned sequence
   # number along with everything else. So this path never burns a number on a
   # rejected transition.
-  defp run_transition(id, prefix, tenant_id, from_status, to_status) do
+  defp run_transition(id, prefix, tenant_id, from_status, to_status, actor_id) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     action = transition_action(to_status)
 
@@ -3144,7 +3609,14 @@ defmodule Letflow.Definitions do
           |> Repo.update_all([set: set], prefix: prefix)
           |> case do
             {1, [updated]} ->
-              case record_definition_audit(action, id, before, updated, prefix) do
+              case record_definition_audit(
+                     action,
+                     id,
+                     before,
+                     updated,
+                     prefix,
+                     actor_id
+                   ) do
                 {:ok, _entry} -> updated
                 {:error, reason} -> Repo.rollback(reason)
               end
@@ -3281,6 +3753,10 @@ defmodule Letflow.Definitions do
             # reserved-namespace references first.
             with :ok <- check_reserved_references(target_row),
                  :ok <- check_entity_writes(target_row, prefix, activator),
+                 :ok <- check_platform_calls(target_row, prefix, activator),
+                 :ok <- check_start_permission(target_row, prefix),
+                 :ok <- check_step_mappings(target_row, prefix),
+                 :ok <- check_notify_calls(target_row, prefix),
                  :ok <- check_script_bindings(target_row, prefix) do
               swap_active_pointer(current_active, target_row, prefix, activator)
             else

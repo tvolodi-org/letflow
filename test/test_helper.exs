@@ -80,7 +80,13 @@ ExUnit.start(
     :new_reads_perf,
     :voice_live,
     :voice_audio
-  ]
+  ],
+  # T-2652: the marker formatter publishes the currently running test file so
+  # scripts/test_parallel.sh can enforce a per-test-file timeout and name the
+  # file that stalled. It is installed ONLY when
+  # TEST_PARALLEL_FILE_MARKER_DIR is set (i.e. under that runner); a plain
+  # `mix test` keeps exactly the default formatter list.
+  formatters: Letflow.Test.FileTimeoutMarker.formatters()
 )
 
 # ISS-0515: structural pre-build of the "tenant_template" schema, synchronous,
