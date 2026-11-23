@@ -103,6 +103,35 @@ defmodule Letflow.Definitions.NotifyCallsTest do
     end
   end
 
+  describe "the byte bounds (SF-01), one byte over each cap" do
+    test "D23 a template key one byte over 64 is refused; 64 bytes pass the bound" do
+      assert {:error, :notify_template_unknown} =
+               NotifyCalls.parse(declaration(%{"template_key" => String.duplicate("a", 65)}))
+    end
+
+    test "D24 a variable name one byte over 255 is refused" do
+      over = String.duplicate("a", 256)
+
+      assert {:error, :notify_recipient_invalid} =
+               NotifyCalls.parse(declaration(%{"recipient" => %{"var" => over}}))
+
+      assert {:error, :notify_value_source_invalid} =
+               NotifyCalls.parse(declaration(%{"values" => %{"tenant_name" => %{"var" => over}}}))
+
+      at_cap = String.duplicate("a", 255)
+      assert {:ok, _} = NotifyCalls.parse(declaration(%{"recipient" => %{"var" => at_cap}}))
+    end
+
+    test "D25 a constant one byte over 4096 is refused; 4096 bytes pass" do
+      const = fn n ->
+        %{"values" => %{"tenant_slug" => %{"const" => String.duplicate("a", n)}}}
+      end
+
+      assert {:error, :notify_value_source_invalid} = NotifyCalls.parse(declaration(const.(4097)))
+      assert {:ok, _} = NotifyCalls.parse(declaration(const.(4096)))
+    end
+  end
+
   describe "the node rules" do
     test "D10 a node that carries another route beside the notification is refused" do
       assert [:notify_conflicting_route] =
@@ -156,7 +185,7 @@ defmodule Letflow.Definitions.NotifyCallsTest do
   end
 
   describe "the typed mapping (T-2594's rule, carried to the notification step)" do
-    test "D15 the mapping is derived from the declaration: the reads, and no writes" do
+    test "D19 the mapping is derived from the declaration: the reads, and no writes" do
       node = notify_node(declaration())
 
       assert [mapping] = NotifyCalls.mappings([node], %{})
@@ -171,7 +200,7 @@ defmodule Letflow.Definitions.NotifyCallsTest do
       assert mapping.write_names == []
     end
 
-    test "D16 the type of a read is the type the DEFINITION declares for it" do
+    test "D20 the type of a read is the type the DEFINITION declares for it" do
       node = notify_node(declaration())
 
       fields = %{
@@ -183,7 +212,7 @@ defmodule Letflow.Definitions.NotifyCallsTest do
       assert mapping.reads == %{"admin_email" => "string", "tenant_name" => "integer"}
     end
 
-    test "D17 a read the definition does not declare is refused by the typed rule" do
+    test "D21 a read the definition does not declare is refused by the typed rule" do
       node = notify_node(declaration())
 
       violations =
@@ -195,7 +224,7 @@ defmodule Letflow.Definitions.NotifyCallsTest do
              ] = violations
     end
 
-    test "D18 the activation fence binds the notification step's reads to variable_schemas" do
+    test "D22 the activation fence binds the notification step's reads to variable_schemas" do
       node = notify_node(declaration())
 
       # The definition declares nothing: the notify step's reads are not among

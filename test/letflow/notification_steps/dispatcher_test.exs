@@ -34,11 +34,14 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
   alias Letflow.Notifications.OutboundCounter
   alias Letflow.Repo
   alias Letflow.Support.PlatformCallFixture, as: PCF
+  alias Letflow.Test.SandboxAutoMode
   alias Letflow.Test.SmtpHelpers, as: S
 
   @notifier Letflow.LoginDiscovery.Notifier
 
   setup do
+    # registered first, so it runs LAST (after the tenant fixture's own cleanup)
+    on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Repo) end)
     fx = PCF.tenant!("t2592-notify")
     S.put_app_env!(@notifier, adapter: Double, timeout_ms: 100, max_concurrent: 5)
     Double.set_owner(self())
@@ -362,9 +365,9 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
       # The first send: the delivery row CANNOT be written (the trigger
       # reference is not a UUID, so the changeset raises), so the log stays
       # empty -- but the slot of the cap was RESERVED before the send left, so
-      # the send is counted. (The outcome is the log write's failure, not the
-      # adapter's: the mail HAS gone out.)
-      assert {"failed", "adapter_error"} =
+      # the send is counted. The mail HAS gone out, so the caller is told it
+      # was sent: an unwritable row is not a failed send.
+      assert {"sent", nil} =
                Notifications.deliver_to_address(
                  "tenant_registered",
                  "admin@example.com",
@@ -405,6 +408,59 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
 
       refute_receive {:deliver_message, _message}, 200
       assert [] = rows(fx)
+    end
+
+    test "N18 a text value one byte over 2048 is refused, 2048 bytes pass", %{fx: fx} do
+      assert {:error, :notify_value_invalid} =
+               run(fx, declaration(), variables(%{"tenant_name" => String.duplicate("a", 2049)}))
+
+      refute_receive {:deliver_message, _message}, 200
+
+      # at the cap the value passes the bound (the step then runs)
+      assert {:ok, _status, _reason} =
+               run(fx, declaration(), variables(%{"tenant_name" => String.duplicate("a", 2048)}))
+    end
+
+    test "N19 a cap that cannot be read is a failed row, not a rate limit", %{fx: fx} do
+      Repo.query!("DROP TABLE \"#{fx.schema_name}\".notification_outbound_counters")
+
+      assert {"failed", "adapter_error"} =
+               Notifications.deliver_to_address(
+                 "tenant_registered",
+                 "admin@example.com",
+                 Ecto.UUID.generate(),
+                 %{"tenant_name" => "Acme", "tenant_slug" => "acme", "registered_by" => "V"},
+                 fx.schema_name
+               )
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [%{status: "failed", reason: "adapter_error"}] = rows(fx)
+    end
+
+    test "N20 over the cap inside a caller's transaction: row written, transaction usable",
+         %{fx: fx} do
+      # PRODUCTION semantics: real transactions, no sandbox savepoints (the
+      # sandbox hides the nested-rollback defect this test pins).
+      SandboxAutoMode.enter_auto_mode!(Repo)
+      :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
+      values = %{"tenant_name" => "Acme", "tenant_slug" => "acme", "registered_by" => "V"}
+
+      send = fn ->
+        Notifications.deliver_to_address(
+          "tenant_registered",
+          "admin@example.com",
+          Ecto.UUID.generate(),
+          values,
+          fx.schema_name
+        )
+      end
+
+      assert {"sent", nil} = send.()
+
+      assert {:ok, {"skipped", "rate_limited"}} = Repo.transaction(send)
+
+      assert [{"sent", nil}, {"skipped", "rate_limited"}] =
+               rows(fx) |> Enum.sort_by(& &1.inserted_at) |> Enum.map(&{&1.status, &1.reason})
     end
   end
 end

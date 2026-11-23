@@ -353,7 +353,7 @@ defmodule Letflow.Notifications do
 
   defp address_outcome(template_key, address, values, ctx) do
     if Address.valid?(address) do
-      case OutboundCap.reserve(ctx.prefix, ctx.tenant_id, ctx.hour_cap, ctx.day_cap) do
+      case OutboundCap.reserve(ctx.prefix, ctx.hour_cap, ctx.day_cap) do
         :reserved ->
           with {:ok, %{subject: subject, body: body}} <-
                  NotificationTemplates.preview(
@@ -369,11 +369,16 @@ defmodule Letflow.Notifications do
             _error -> {"failed", "adapter_error"}
           end
 
-        {:error, _code} ->
-          # Over the cap, or the cap could not be reserved: the row says so and
-          # NOTHING leaves the platform. The reservation is taken BEFORE the
-          # send, so a send that cannot be accounted for never happens.
+        {:error, :rate_limited} ->
+          # Over the cap: the row says so and NOTHING leaves the platform. The
+          # reservation is taken BEFORE the send, so a send that cannot be
+          # accounted for never happens.
           {"skipped", "rate_limited"}
+
+        {:error, _cap_unavailable} ->
+          # The cap could not be read: nothing is sent, and the row must not
+          # call that a rate limit. A failed (retryable) step it is.
+          {"failed", "adapter_error"}
       end
     else
       # No address, or one a mail server would refuse: nothing is sent, and no
@@ -567,11 +572,18 @@ defmodule Letflow.Notifications do
     |> Repo.all(prefix: prefix)
   end
 
+  # Total: the outcome row is a record of what happened, so a row that cannot
+  # be written must not change what the caller is told (a mail that went out is
+  # not a failed send).
   defp log(attrs, prefix) do
     case Repo.insert(Delivery.changeset(attrs), prefix: prefix) do
       {:ok, _row} -> :ok
       {:error, _changeset} -> warn_write_failed()
     end
+  rescue
+    _exception -> warn_write_failed()
+  catch
+    _kind, _reason -> warn_write_failed()
   end
 
   defp warn_write_failed do

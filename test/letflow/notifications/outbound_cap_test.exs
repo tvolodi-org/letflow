@@ -29,7 +29,7 @@ defmodule Letflow.Notifications.OutboundCapTest do
   test "C1 a reservation takes a slot of the hour and of the day", %{fx: fx} do
     tenant_id = Ecto.UUID.cast!(fx.tenant_id)
 
-    assert :reserved = OutboundCap.reserve(fx.schema_name, tenant_id, 60, 500)
+    assert :reserved = OutboundCap.reserve(fx.schema_name, 60, 500)
 
     assert length(counters(fx)) == 2
     assert Enum.all?(counters(fx), &(&1.send_count == 1))
@@ -38,39 +38,35 @@ defmodule Letflow.Notifications.OutboundCapTest do
   end
 
   test "C2 the reservation over the cap is refused, and the counter does not move", %{fx: fx} do
-    tenant_id = Ecto.UUID.cast!(fx.tenant_id)
-
-    assert :reserved = OutboundCap.reserve(fx.schema_name, tenant_id, 1, 500)
-    assert {:error, :rate_limited} = OutboundCap.reserve(fx.schema_name, tenant_id, 1, 500)
+    assert :reserved = OutboundCap.reserve(fx.schema_name, 1, 500)
+    assert {:error, :rate_limited} = OutboundCap.reserve(fx.schema_name, 1, 500)
 
     # the refused reservation took no slot
     assert Enum.all?(counters(fx), &(&1.send_count == 1))
   end
 
   test "C3 the day cap and the hour cap are counted separately", %{fx: fx} do
-    tenant_id = Ecto.UUID.cast!(fx.tenant_id)
-
-    assert :reserved = OutboundCap.reserve(fx.schema_name, tenant_id, 60, 1)
-    assert {:error, :rate_limited} = OutboundCap.reserve(fx.schema_name, tenant_id, 60, 1)
+    assert :reserved = OutboundCap.reserve(fx.schema_name, 60, 1)
+    assert {:error, :rate_limited} = OutboundCap.reserve(fx.schema_name, 60, 1)
   end
 
   test "C4 a cap that cannot be reserved at all refuses: nothing is sent", %{fx: _fx} do
     # A schema that holds no counter table: the reservation cannot be read, so
     # the cap is treated as a cap that is OVER (fail closed).
     assert {:error, :cap_unavailable} =
-             OutboundCap.reserve("no_such_tenant_schema", Ecto.UUID.generate(), 60, 500)
+             OutboundCap.reserve("tenant_" <> String.duplicate("0", 32), 60, 500)
   end
 
   test "C5 the counter of one tenant does not count for another", %{fx: fx} do
     other = PCF.tenant!("t2592-outbound-cap-other")
 
-    assert :reserved = OutboundCap.reserve(fx.schema_name, Ecto.UUID.cast!(fx.tenant_id), 1, 500)
+    assert :reserved = OutboundCap.reserve(fx.schema_name, 1, 500)
 
     assert {:error, :rate_limited} =
-             OutboundCap.reserve(fx.schema_name, Ecto.UUID.cast!(fx.tenant_id), 1, 500)
+             OutboundCap.reserve(fx.schema_name, 1, 500)
 
     # the other tenant has its own counter
     assert :reserved =
-             OutboundCap.reserve(other.schema_name, Ecto.UUID.cast!(other.tenant_id), 1, 500)
+             OutboundCap.reserve(other.schema_name, 1, 500)
   end
 end

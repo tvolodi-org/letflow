@@ -129,10 +129,15 @@ sent. A cap that cannot be reserved at all (the database is unreachable) is
 treated as a cap that is over: nothing is sent. The row holds no address, no
 subject and no body (INV-4).
 
-**The transaction boundary.** The reservation is committed before the send, so
-the caller must call the runner OUTSIDE the engine's own transaction -- exactly
-as the sibling platform-step dispatcher is called from its poller. A rollback
-of the caller's transaction must not take the reservation with it.
+**The transaction boundary.** The reservation opens no transaction and never
+rolls one back: an over-cap refusal is a typed result (the guarded `UPDATE`
+matched no row), so a caller's transaction stays usable and the `rate_limited`
+row is written. A reservation made inside a caller's transaction is part of it
+and is lost if it rolls back, so the caller must call the runner OUTSIDE the
+engine's own transaction -- exactly as the sibling platform-step dispatcher is
+called from its poller. A cap that cannot be read is a `failed` row, not a
+`rate_limited` one; a delivery row that cannot be written does not change what
+the caller is told about the send.
 
 ## The typed mapping of the step (T-2594's rule)
 
@@ -194,7 +199,7 @@ that a tenant has exactly one definition per key.
   of the step's read keys;
 * `test/letflow/engine/write_targets_test.exs` -- the refusal set (WTU-5);
 * `test/letflow/definitions/notify_calls_test.exs` -- the one parse, the node
-  rules, the graph validation and the derived typed mapping (D15..D18);
+  rules, the graph validation and the derived typed mapping (D15..D22);
 * `test/letflow/notifications/address_test.exs` -- the byte bound and the one
   parse the gate shares with the adapter (A9);
 * `test/letflow/definitions/platform_call_write_paths_scan_test.exs` -- the

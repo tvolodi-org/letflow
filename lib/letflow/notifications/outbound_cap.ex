@@ -5,9 +5,8 @@ defmodule Letflow.Notifications.OutboundCap do
 
   ## What it does
 
-  `reserve/4` takes one slot out of the tenant's cap for the current clock hour
-  and for the current UTC day, in ONE transaction: the counter rows of the two
-  windows are created if they do not exist yet, and each is incremented with a
+  `reserve/3` takes one slot out of the tenant's cap for the current clock hour
+  and for the current UTC day: the counter rows of the two windows are created if they do not exist yet, and each is incremented with a
   single guarded statement (`send_count = send_count + 1 WHERE send_count <
   cap`). The increment is atomic, so two sends of the same tenant at the same
   moment cannot both take the last slot -- the ceiling holds, not "the ceiling
@@ -31,11 +30,18 @@ defmodule Letflow.Notifications.OutboundCap do
 
   ## The transaction boundary
 
-  The reservation runs in its own transaction, so it is committed before the
-  send leaves -- a rollback of the caller's transaction cannot take the
-  reservation with it. The caller must therefore call the dispatcher OUTSIDE
-  the engine's own transaction, exactly as the sibling platform-step dispatcher
-  is called from its poller (`Letflow.PlatformFunctions.Dispatcher`).
+  The reservation opens NO transaction of its own and never rolls one back. An
+  over-cap refusal is a typed result: the guarded `UPDATE` matched no row, so
+  there is nothing to undo, and the caller's transaction stays usable (a
+  `Repo.rollback/1` inside a nested `Repo.transaction/1` is a full ROLLBACK in
+  production, where the nested begin is a no-op; the sandbox hides it with a
+  SAVEPOINT). When the hour slot was taken and the day window is over, the hour
+  slot is given back by a compensating decrement.
+
+  A reservation made INSIDE a caller's transaction is part of that transaction
+  and is lost if it rolls back. The caller must therefore call the dispatcher
+  OUTSIDE the engine's own transaction, exactly as the sibling platform-step
+  dispatcher is called from its poller (`Letflow.PlatformFunctions.Dispatcher`).
 
   ## Pure and total
 
@@ -47,6 +53,7 @@ defmodule Letflow.Notifications.OutboundCap do
 
   alias Letflow.Notifications.OutboundCounter
   alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
   # The outbound channel of the counter rows. The Telegram adapter is the next
   # channel: it gets its own rows and its own count (the cap is per tenant and
@@ -56,6 +63,10 @@ defmodule Letflow.Notifications.OutboundCap do
   @doc """
   Reserves one send for the tenant of `prefix`.
 
+  The tenant id of the counter rows is DERIVED from the prefix the rows are
+  written into (INV-1 (c)); it is never taken from the caller. A prefix that
+  names no tenant is `{:error, :cap_unavailable}`.
+
   `hour_cap` and `day_cap` are the caps of the tenant (a tenant may lower the
   platform ceiling, never raise it).
 
@@ -63,31 +74,49 @@ defmodule Letflow.Notifications.OutboundCap do
   the tenant is over its cap, and `{:error, :cap_unavailable}` when the cap
   could not be read or reserved at all -- both refusals mean NOTHING is sent.
   """
-  @spec reserve(String.t(), Ecto.UUID.t(), pos_integer(), pos_integer()) ::
+  @spec reserve(String.t(), pos_integer(), pos_integer()) ::
           :reserved | {:error, :rate_limited | :cap_unavailable}
-  def reserve(prefix, tenant_id, hour_cap, day_cap)
-      when is_binary(prefix) and is_binary(tenant_id) and is_integer(hour_cap) and
-             is_integer(day_cap) do
+  def reserve(prefix, hour_cap, day_cap)
+      when is_binary(prefix) and is_integer(hour_cap) and is_integer(day_cap) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    hour_start = window(now, :hour)
 
-    case Repo.transaction(fn ->
-           with :ok <- reserve_window(prefix, tenant_id, "hour", hour_cap, window(now, :hour)),
-                :ok <- reserve_window(prefix, tenant_id, "day", day_cap, window(now, :day)) do
-             :reserved
-           else
-             # The rollback carries the CODE, so the caller can tell a cap that
-             # is over from a cap that could not be read at all.
-             {:error, code} -> Repo.rollback(code)
-           end
-         end) do
-      {:ok, :reserved} -> :reserved
-      {:error, {:over_cap, _period}} -> {:error, :rate_limited}
-      {:error, _other} -> {:error, :cap_unavailable}
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         :ok <- reserve_window(prefix, tenant_id, "hour", hour_cap, hour_start) do
+      case reserve_window(prefix, tenant_id, "day", day_cap, window(now, :day)) do
+        :ok ->
+          :reserved
+
+        {:error, code} ->
+          # Give the hour slot back: nothing is sent, so nothing is spent.
+          release_window(prefix, tenant_id, "hour", hour_start)
+          to_result(code)
+      end
+    else
+      {:error, code} -> to_result(code)
     end
   rescue
     _exception -> {:error, :cap_unavailable}
   catch
     _kind, _reason -> {:error, :cap_unavailable}
+  end
+
+  defp to_result({:over_cap, _period}), do: {:error, :rate_limited}
+  defp to_result(_other), do: {:error, :cap_unavailable}
+
+  defp release_window(prefix, tenant_id, period, window_start) do
+    Repo.update_all(
+      from(c in OutboundCounter,
+        where:
+          c.tenant_id == ^tenant_id and c.channel == ^@channel and c.period == ^period and
+            c.window_started_at == ^window_start and c.send_count > 0,
+        update: [set: [send_count: fragment("? - 1", c.send_count)]]
+      ),
+      [],
+      prefix: prefix
+    )
+
+    :ok
   end
 
   # The window a reservation belongs to: the clock hour and the UTC day. A
