@@ -1078,7 +1078,13 @@ defmodule Letflow.TenantProvisioning do
     # accounted for whether or not the outcome row can be written afterwards. The
     # table starts empty: no existing row is altered.
     {20_261_123_100_003, Letflow.Repo.Migrations.CreateNotificationOutboundCounters,
-     "20261123100003_create_notification_outbound_counters.exs"}
+     "20261123100003_create_notification_outbound_counters.exs"},
+    # T-2596 (pilot gap G12): the tenant-scoped NOTIFICATION FILE AREA -- the
+    # place the "file" channel of a notification step writes into. The bytes
+    # live in the tenant's own schema, so there is no file-system path at all.
+    # The table starts empty: no existing row is altered.
+    {20_261_123_100_004, Letflow.Repo.Migrations.CreateNotificationFiles,
+     "20261123100004_create_notification_files.exs"}
   ]
 
   @doc """
@@ -1459,16 +1465,20 @@ defmodule Letflow.TenantProvisioning do
     },
     %{
       name: "SUB_PROCESS_COMPLETED",
-      schema_version: 2,
+      schema_version: 3,
       description:
         "Emitted by Letflow.Engine.SubProcess (M-series) on the parent instance's stream when " <>
           "a called sub-process instance completes and its output is merged back. " <>
           "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the optional " <>
-          "\"output_labels\" and the merged entries' \"old_labels\"/\"new_labels\" are declared.",
+          "\"output_labels\" and the merged entries' \"old_labels\"/\"new_labels\" are declared. " <>
+          "Bumped from 2 to 3 (pilot gap G6): the optional \"node_id\" -- the node of the " <>
+          "PARENT that ran the sub-process -- is declared, so a reader of the parent's history " <>
+          "(the instance step log) can close the parent's visit with this event.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
           "child_instance_id" => %{"type" => "string"},
+          "node_id" => %{"type" => "string"},
           "output_variables" => %{"type" => "object"},
           "output_labels" => %{"type" => "object"},
           "merged_variable_events" => %{

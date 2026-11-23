@@ -510,6 +510,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
                "lib/letflow/engine/node_entries.ex",
                "lib/letflow/engine/reconstruction.ex",
                "lib/letflow/instances.ex",
+               # T-2602: a READER (opens a step-log visit from the event), not a writer
+               "lib/letflow/instances/step_log.ex",
                "lib/letflow/release.ex",
                "lib/letflow/tenant_provisioning.ex",
                "lib/mix/tasks/letflow.backfill_event_type_versions.ex"

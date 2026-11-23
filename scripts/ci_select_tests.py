@@ -92,6 +92,10 @@ STANDARD_BP_DOC_TEST = [
 # properties hold over arbitrary legal ids, separators, legacy prefixes and
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-03: the generated source-provenance matrix of the platform-call authority
+# rule: the catalogue validator refuses a write-like entry with a person input,
+# the activation refuses the foreign sources and the dual-route nodes, and the
+# variables a catalogue call reads are refused to a completer.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
@@ -106,6 +110,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
