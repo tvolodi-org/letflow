@@ -91,6 +91,10 @@ STANDARD_BP_DOC_TEST = [
 # properties hold over arbitrary legal ids, separators, legacy prefixes and
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-03: the generated source-provenance matrix of the platform-call authority
+# rule: the catalogue validator refuses a write-like entry with a person input,
+# the activation refuses the foreign sources and the dual-route nodes, and the
+# variables a catalogue call reads are refused to a completer.
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
@@ -107,6 +111,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
