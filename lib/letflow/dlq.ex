@@ -22,6 +22,22 @@ defmodule Letflow.Dlq do
   `retry/2` on such an entry only moves the entry's own state; it re-dispatches nothing (the requeue
   of the outbox row is a separate, later route).
 
+  `event` (written by `Letflow.Engine.ExecutionError` and by
+  `Letflow.Engine.ServiceTaskExhaustion`) names the failed resource in
+  `reference_id`: for an exhaustion row it is the NODE id of the failed step
+  (`engine/service_task_exhaustion.ex`), for an execution-error row it is the
+  instance id. The column therefore carries a DIFFERENT id per entry type --
+  read it together with `entry_type`, never on its own. The DLQ read route
+  renders it verbatim (`routers/dlq.ex`).
+
+  `source_payload` of an exhaustion row holds the METHOD and the ORIGIN of the
+  destination only (`sanitised_attempt/1`): the body, the headers, the path
+  and the query are never stored, because a rendered request can carry a
+  realm credential, a bearer token or a mail body (INV-4). The other
+  landing path -- the generic `EXECUTION_ERROR` row -- stores the engine's
+  own error `reason` (a closed phrase, built by the engine, never a
+  caller-supplied body) and its `details` map.
+
   ## Tenant scoping (INV-1)
 
   Every function below takes `opts :: [prefix: String.t()]`, `prefix` always
