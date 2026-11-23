@@ -17,9 +17,9 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   * the **advisory half** reads the three real advisory sources (Hex via `mix hex.audit`, npm via
     `npm audit --omit=dev`, Dart via the OSV `Pub` ecosystem), keeps the advisories that hit a
     **production** dependency at **medium** severity or above, and fails unless every one of them
-    is covered by an entry of `.security/advisory-allow.json` that has not expired;
+    is covered by an entry of `priv/security/advisory-allow.json` that has not expired;
   * the **SAST half** scans `lib/` with the rules of `sast_findings/1` and fails on a finding that
-    `.security/sast-allow.json` does not accept.
+    `priv/security/sast-allow.json` does not accept.
 
   The two lists are the same shape on purpose: `id`, `package`, `reason`, `owner`, `expires`. An
   expired entry fails the gate (an exception must be re-reviewed, not inherited); an entry for an
@@ -38,6 +38,12 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   source. `docs/security-probes/G-12.md` carries the parity table: which Sobelow check each rule
   replaces, and which Sobelow checks do not apply to this codebase (Erlang, WASM and Lua runtime
   internals, Phoenix-specific rules, GitHub Actions rules).
+
+  The id of a SAST finding is the rule, the file and a **hash of the offending call**, never the
+  line number: an id that carries the line moves whenever anything is inserted above the site,
+  and an accepted site that changed its line would become a new finding and block every pull
+  request that touches the file for an unrelated reason. A change OF the call is a new site (it
+  has to be read again); a change AROUND it is not.
 
   ## What is NOT here
 
@@ -61,8 +67,8 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
 
   @shortdoc "Fails on a medium+ advisory in a production dependency"
 
-  @default_allow_list ".security/advisory-allow.json"
-  @default_sast_allow_list ".security/sast-allow.json"
+  @default_allow_list "priv/security/advisory-allow.json"
+  @default_sast_allow_list "priv/security/sast-allow.json"
   @default_severity "medium"
 
   # The severity order the policy compares on. npm spells the middle band "moderate", OSV and
@@ -270,14 +276,38 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   The SAST rules over the Elixir tree. The rules are the Sobelow checks that apply to this
   codebase (the parity table is in `docs/security-probes/G-12.md`).
 
+  The file of a finding is relative to the scanned ROOT, never to the working directory: a
+  scan of the same tree must produce the same findings from any working directory.
+
   Returns a list of findings: `%{id:, rule:, file:, line:, detail:}`.
   """
   def sast_findings(root) do
-    root
-    |> Path.join("lib/**/*.ex")
-    |> Path.wildcard()
-    |> Enum.flat_map(&scan_file/1)
-    |> Enum.sort_by(&{&1.file, &1.line, &1.rule})
+    root = Path.expand(root)
+
+    findings =
+      root
+      |> Path.join("lib/**/*.ex")
+      |> Path.wildcard()
+      |> Enum.flat_map(&scan_file(&1, root))
+      |> Enum.sort_by(&{&1.file, &1.line, &1.rule})
+
+    number_identical(findings)
+  end
+
+  # Two sites with the SAME call text in one file would share one id, and a third site with
+  # that text would then be accepted by the entry of the first two without being read. The
+  # ordinal of the identical call inside the file tells them apart: the first carries the bare
+  # id, the second ":2", the third ":3".
+  defp number_identical(findings) do
+    {_, numbered} =
+      Enum.reduce(findings, {%{}, []}, fn finding, {counts, acc} ->
+        count = Map.get(counts, finding.id, 0) + 1
+        id = if count == 1, do: finding.id, else: "#{finding.id}:#{count}"
+
+        {Map.put(counts, finding.id, count), [%{finding | id: id} | acc]}
+      end)
+
+    Enum.reverse(numbered)
   end
 
   @doc """
@@ -746,8 +776,8 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
 
   # ── the SAST rules ─────────────────────────────────────────────────────────────
 
-  defp scan_file(path) do
-    relative = Path.relative_to(path, File.cwd!())
+  defp scan_file(path, root) do
+    relative = Path.relative_to(path, root)
 
     case File.read(path) do
       {:ok, text} ->
@@ -769,6 +799,9 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   # Every call of the form `Module.function(args)` in the tree. The module of a call is an
   # alias node (`{:__aliases__, _, [:String]}`), not an atom, so it is resolved to its dotted
   # name here: a rule that only knew atoms would never see `String.to_atom/1`.
+  #
+  # The call node itself travels with the call: the id of a finding is derived from it, and a
+  # rule that only knew the module and the arguments could not tell two sites apart.
   defp collect_calls(ast) do
     {_, calls} =
       Macro.prewalk(ast, [], fn node, acc ->
@@ -776,7 +809,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
           {{:., _, [module, function]}, meta, args} when is_atom(function) and is_list(args) ->
             case module_name(module) do
               nil -> {node, acc}
-              name -> {node, [{name, function, args, meta[:line] || 0} | acc]}
+              name -> {node, [{name, function, args, meta[:line] || 0, node} | acc]}
             end
 
           _ ->
@@ -800,44 +833,69 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
 
   # The module of a call is matched on its LAST name part, because a file that writes
   # `alias Letflow.Repo` calls `Repo.query!/2` and the alias node is `Letflow.Repo`.
-  defp rule_finding(file, {module, function, args, line}) do
+  defp rule_finding(file, {module, function, args, line, node}) do
     short = module |> String.split(".") |> List.last()
 
     cond do
       short in ["String", "List"] and function == :to_atom ->
-        atom_finding(file, line, args)
+        atom_finding(file, line, args, node)
 
       short == "erlang" and function == :binary_to_atom ->
-        atom_finding(file, line, args)
+        atom_finding(file, line, args, node)
 
       short == "erlang" and function == :binary_to_term ->
-        deserialization_finding(file, line, args)
+        deserialization_finding(file, line, args, node)
 
       short == "System" and function == :shell ->
-        command_finding(file, line, args)
+        command_finding(file, line, args, node)
 
       short == "System" and function == :cmd ->
-        system_cmd_finding(file, line, args)
+        system_cmd_finding(file, line, args, node)
 
       short == "Repo" and function in [:query, :query!] ->
-        sql_finding(file, line, args)
+        sql_finding(file, line, args, node)
 
       module == "Ecto.Adapters.SQL" and function in [:query, :query!] ->
-        sql_finding(file, line, args)
+        sql_finding(file, line, args, node)
 
       short == "crypto" and function == :hash ->
-        weak_hash_finding(file, line, args)
+        weak_hash_finding(file, line, args, node)
 
       true ->
         []
     end
   end
 
-  defp atom_finding(file, line, args) do
+  # The id of a finding: the rule, the file and the HASH of the offending call.
+  #
+  # The id must not carry the line number: a line moves whenever anything is inserted above
+  # the site, and an accepted site that changes its line would become a NEW finding and block
+  # every pull request that touches the file for an unrelated reason. The hash is over the
+  # canonical text of the call, so a change OF the call is a new site (it has to be read
+  # again) and a change AROUND it is not.
+  defp finding_id(rule, file, node) do
+    "#{rule}:#{file}:#{site_hash(node)}"
+  end
+
+  defp site_hash(node) do
+    text =
+      try do
+        Macro.to_string(node)
+      rescue
+        _error -> inspect(node, limit: :infinity, printable_limit: :infinity)
+      end
+
+    :sha256
+    |> :crypto.hash(text)
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 8)
+  end
+
+  defp atom_finding(file, line, args, node) do
     if args != [] and not Enum.all?(args, &literal?/1) do
       [
         %{
-          id: "unsafe_atom:#{file}:#{line}",
+          id: finding_id("unsafe_atom", file, node),
           rule: "unsafe_atom",
           file: file,
           package: file,
@@ -850,13 +908,13 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     end
   end
 
-  defp deserialization_finding(file, line, args) do
+  defp deserialization_finding(file, line, args, node) do
     safe? = Enum.any?(args, &safe_term_option?/1)
 
     if not safe? do
       [
         %{
-          id: "unsafe_deserialization:#{file}:#{line}",
+          id: finding_id("unsafe_deserialization", file, node),
           rule: "unsafe_deserialization",
           file: file,
           package: file,
@@ -873,11 +931,11 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     match?({:safe, _}, arg)
   end
 
-  defp command_finding(file, line, args) do
+  defp command_finding(file, line, args, node) do
     if args != [] and not Enum.all?(args, &literal?/1) do
       [
         %{
-          id: "command_injection:#{file}:#{line}",
+          id: finding_id("command_injection", file, node),
           rule: "command_injection",
           file: file,
           package: file,
@@ -890,7 +948,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     end
   end
 
-  defp system_cmd_finding(file, line, args) do
+  defp system_cmd_finding(file, line, args, node) do
     case args do
       [command | rest] ->
         shell? = is_binary(command) and command in @shells
@@ -899,7 +957,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
         if shell? and dynamic? do
           [
             %{
-              id: "command_injection:#{file}:#{line}",
+              id: finding_id("command_injection", file, node),
               rule: "command_injection",
               file: file,
               package: file,
@@ -916,13 +974,13 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     end
   end
 
-  defp sql_finding(file, line, args) do
+  defp sql_finding(file, line, args, node) do
     case args do
       [sql | _rest] ->
         if interpolated?(sql) do
           [
             %{
-              id: "sql_interpolation:#{file}:#{line}",
+              id: finding_id("sql_interpolation", file, node),
               rule: "sql_interpolation",
               file: file,
               package: file,
@@ -939,13 +997,13 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     end
   end
 
-  defp weak_hash_finding(file, line, args) do
+  defp weak_hash_finding(file, line, args, node) do
     case args do
       [algorithm | _rest] when is_atom(algorithm) ->
         if algorithm in [:md5, :sha] do
           [
             %{
-              id: "weak_hash:#{file}:#{line}",
+              id: finding_id("weak_hash", file, node),
               rule: "weak_hash",
               file: file,
               package: file,

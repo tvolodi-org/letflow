@@ -15,9 +15,9 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
   (`lib/mix/tasks/letflow.advisory_gate.ex`): it reads the three real advisory sources (Hex via
   `mix hex.audit`, npm via `npm audit --omit=dev`, Dart via the OSV `Pub` ecosystem), keeps the
   advisories that hit a **production** dependency at **medium** severity or above, and fails
-  unless every one of them is covered by an entry of `.security/advisory-allow.json` that has
+  unless every one of them is covered by an entry of `priv/security/advisory-allow.json` that has
   not expired. The SAST half scans `lib/` with the rules of the same module and fails on a
-  finding `.security/sast-allow.json` does not accept.
+  finding `priv/security/sast-allow.json` does not accept.
 
   The probe is mechanical: no model, no network, no clock, no database. The network half runs in
   the CI step that calls the gate; the decision half (severity, production scope, allow-list,
@@ -117,7 +117,7 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
   end
 
   test "G12: the shipped allow-list file carries the required fields" do
-    path = Path.join(@root, ".security/advisory-allow.json")
+    path = Path.join(@root, "priv/security/advisory-allow.json")
     entries = Gate.read_allow_list!(path)
 
     for entry <- entries do
@@ -167,10 +167,36 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
 
   test "G12: the real tree has no SAST finding outside the accepted list" do
     findings = Gate.sast_findings(@root)
-    allow = Gate.read_allow_list!(Path.join(@root, ".security/sast-allow.json"))
+    allow = Gate.read_allow_list!(Path.join(@root, "priv/security/sast-allow.json"))
     verdict = Gate.evaluate_sast(findings, allow)
 
     assert verdict.status == :pass,
            "unaccepted SAST findings: #{inspect(Enum.map(verdict.blocking, fn {f, _} -> f.id end))}"
+  end
+
+  @tag :tmp_dir
+  test "G12: the id of a finding does not move when the file grows above the site", %{
+    tmp_dir: tmp
+  } do
+    source = File.read!(Path.join(@seeded_tree, "lib/rogue_sast.ex"))
+    padding = String.duplicate("# a line above the site\n", 40)
+
+    ids =
+      for {name, text} <- [{"plain", source}, {"padded", padding <> source}] do
+        root = Path.join(tmp, name)
+        File.mkdir_p!(Path.join(root, "lib"))
+        File.write!(Path.join(root, "lib/rogue_sast.ex"), text)
+
+        Gate.sast_findings(root) |> Enum.map(& &1.id) |> Enum.sort()
+      end
+
+    [plain_ids, padded_ids] = ids
+
+    assert plain_ids != [], "the seeded file produced no finding at all"
+    # The same sites, forty lines further down: the id of a finding is the rule, the file and
+    # a hash of the call -- not the line -- so an accepted site does not become a NEW finding
+    # when something is inserted above it, and the gate does not block unrelated pull
+    # requests that touch the file.
+    assert plain_ids == padded_ids
   end
 end

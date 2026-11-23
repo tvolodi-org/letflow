@@ -833,7 +833,7 @@ jobs:
       # gate. It reads the three real advisory sources -- `mix hex.audit` (hex.pm), `npm audit
       # --omit=dev` (the npm registry) and the OSV `Pub` ecosystem (osv.dev, the real advisory
       # source for Dart: pub has no audit tool of its own) -- and fails on a medium+ advisory in
-      # a PRODUCTION dependency that .security/advisory-allow.json does not accept with an
+      # a PRODUCTION dependency that priv/security/advisory-allow.json does not accept with an
       # expiry date in the future. The step is NOT continue-on-error: it blocks the pull
       # request, which is the whole point of the gap. The SAST half of the same task is a probe
       # of the backend suite (test/letflow/security_probe/g12_advisory_gate_test.exs).
