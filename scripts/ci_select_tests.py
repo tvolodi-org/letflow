@@ -92,6 +92,10 @@ STANDARD_BP_DOC_TEST = [
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-09: a migration change shifts the manifest positions the tenant tests pin.
+# G-03: the generated source-provenance matrix of the platform-call authority
+# rule: the catalogue validator refuses a write-like entry with a person input,
+# the activation refuses the foreign sources and the dual-route nodes, and the
+# variables a catalogue call reads are refused to a completer.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
@@ -106,6 +110,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g09_migration_impact_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
 ]
 # G-09: the test files a tenant-migration change must run. The list is the reviewed expectation
 # of the migration impact runner (test/support/migration_impact.ex): the manifest-position pins,
