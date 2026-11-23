@@ -839,6 +839,11 @@ defmodule Letflow.Routers.Tenants do
   defp render_promote(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
 
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the promoted
+  # graph's NOTIFICATION step was refused in the target tenant.
+  defp render_promote(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
   # T-2594 (pilot gap G13): the promoted graph's TYPED STEP MAPPING was refused in the
   # target tenant (a declared read or write the target definition does not declare).
   defp render_promote(conn, {:error, {:step_mappings_invalid, violations}}),
