@@ -143,6 +143,16 @@ defmodule Letflow.Definitions.StepMapping do
   end
 
   @doc """
+  The closed set of type names a declaration may use.
+
+  The list is published so a step that DERIVES its mapping (the notification
+  step, whose declaration is the `notify` attribute) reads the same names
+  instead of keeping a second list of its own.
+  """
+  @spec type_names() :: [String.t()]
+  def type_names, do: @type_names
+
+  @doc """
   The variables a human task of `nodes` may write: the `completer_inputs` of
   every HUMAN_TASK node and the properties of its `form_schema`. The rule is
   `Letflow.Engine.WriteTargets`' own, reused here so the two cannot disagree.

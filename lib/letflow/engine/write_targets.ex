@@ -12,7 +12,10 @@ defmodule Letflow.Engine.WriteTargets do
   ## Rule
 
   `refused_keys/3`: of the keys of a task completion's output, every key that ANY node of the
-  instance's PINNED graph reads as a `module_writes` `var` argument is refused, except a key the
+  instance's PINNED graph reads as a `module_writes` `var` argument is refused, and so is every
+  key a `platform_call` step (T-2588) or a NOTIFICATION step (T-2592) reads: the recipient's
+  variable and the variables of a notification's values are decided by the person who started
+  the process, never by the person who completes a task in it. The exception is a key the
   node being completed declares as a person's input: a name in its `completer_inputs` attribute (a
   list of strings) or a property of its own `form_schema` (the form the person fills at that node;
   the maintenance `work_done` text). A pack states that explicitly per node; the scan test
@@ -37,6 +40,7 @@ defmodule Letflow.Engine.WriteTargets do
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.Graph.Node
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.PlatformCalls
 
   @doc """
@@ -45,12 +49,18 @@ defmodule Letflow.Engine.WriteTargets do
   its arguments from the start variables or from an earlier platform step's output, never
   from a person, so its keys are refused in a completion body exactly like a module
   handler's write targets.
+
+  The keys a NOTIFICATION step reads (T-2592, pilot gap G4) are refused there too: the
+  recipient's variable and the variables of the values are decided by the person who
+  started the process, never by the person who completes a task in it (the address of a
+  message and its text are the definition's business, not the completer's).
   """
   @spec write_read_keys(Graph.t() | term()) :: MapSet.t(String.t())
   def write_read_keys(%Graph{nodes: nodes}) when is_list(nodes) do
     nodes
     |> Enum.flat_map(&node_read_keys/1)
     |> Kernel.++(PlatformCalls.read_keys(nodes))
+    |> Kernel.++(NotifyCalls.read_keys(nodes))
     |> MapSet.new()
   end
 

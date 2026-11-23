@@ -95,31 +95,31 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     # REQ-577 CreateEntityTypeWriteAccessTables, REQ-635 CreateEntityScopeDeclarations, REQ-623, REQ-624, REQ-603, T-1389, T-2040 attachments, T-2133 upload_events, T-2588 AddActorKindToAuditEntries,
     # T-2589 CreatePlatformStepDispatches after)
     manifest = TenantProvisioning.tenant_scoped_migrations()
-    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -33)
+    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -35)
 
     assert {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys} =
-             Enum.at(manifest, -32)
+             Enum.at(manifest, -34)
 
     assert {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables} =
-             Enum.at(manifest, -31)
+             Enum.at(manifest, -33)
 
     assert {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions} =
-             Enum.at(manifest, -30)
+             Enum.at(manifest, -32)
 
     assert {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} =
-             Enum.at(manifest, -26)
+             Enum.at(manifest, -28)
 
     assert {20_261_105_400_001, Letflow.Repo.Migrations.AddPrintOverridePinToDocumentVersions} =
-             Enum.at(manifest, -25)
+             Enum.at(manifest, -27)
 
     assert {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
-             Enum.at(manifest, -24)
+             Enum.at(manifest, -26)
 
     assert {20_261_106_100_001, Letflow.Repo.Migrations.AddAcceptedManifestHashesToTenantModules} =
-             Enum.at(manifest, -22)
+             Enum.at(manifest, -24)
 
     assert {20_261_106_200_001, Letflow.Repo.Migrations.RaisePostingLegCap} =
-             Enum.at(manifest, -21)
+             Enum.at(manifest, -23)
 
     assert column_names(schema) != []
 

@@ -74,6 +74,14 @@ defmodule Letflow.Identity.Tenant do
   alias Letflow.Identity.TenantTimezone
 
   @primary_key {:id, :binary_id, autogenerate: true}
+
+  # T-2592 (pilot gap G4): the platform CEILING of the tenant's outbound send
+  # cap -- the most sends a tenant may make on one channel in an hour and in a
+  # day. A tenant may lower its own cap with the two settings; it may never
+  # raise it above this ceiling.
+  @outbound_cap_per_hour 60
+  @outbound_cap_per_day 500
+
   schema "tenants" do
     field(:slug, :string)
     field(:display_name, :string)
@@ -366,6 +374,7 @@ defmodule Letflow.Identity.Tenant do
     |> validate_document_layout_default(settings)
     |> validate_email_copy(settings)
     |> validate_module_upgrade_window(settings)
+    |> validate_outbound_caps(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
@@ -405,6 +414,69 @@ defmodule Letflow.Identity.Tenant do
     do: [{:settings, "notifications.email_copy must be true or false"} | errors]
 
   defp validate_email_copy(errors, _settings), do: errors
+
+  # T-2592 (pilot gap G4): the tenant's own OUTBOUND SEND CAP. A tenant may
+  # LOWER the platform ceiling by writing the setting; it may never raise it
+  # above the ceiling (the cap is a cost guard of the platform, not a tenant
+  # preference), so a value above the ceiling is refused at write time rather
+  # than silently ignored at read time.
+  defp validate_outbound_caps(errors, settings) do
+    errors
+    |> validate_outbound_cap(settings, "notifications.outbound_cap_per_hour", :per_hour)
+    |> validate_outbound_cap(settings, "notifications.outbound_cap_per_day", :per_day)
+  end
+
+  defp validate_outbound_cap(errors, settings, key, ceiling_key) do
+    ceiling = outbound_cap_ceiling()[ceiling_key]
+
+    case Map.get(settings, key) do
+      nil ->
+        errors
+
+      value ->
+        if is_integer(value) and value > 0 and value <= ceiling do
+          errors
+        else
+          [
+            {:settings, "#{key} must be a whole number of sends between 1 and #{ceiling}"}
+            | errors
+          ]
+        end
+    end
+  end
+
+  @doc """
+  The platform CEILING of the tenant's outbound send cap (T-2592, pilot gap G4):
+  the most sends a tenant may make on one channel in an hour and in a day. A
+  tenant may lower its own cap with the `notifications.outbound_cap_per_hour` and
+  `notifications.outbound_cap_per_day` settings; it may never raise it above this
+  ceiling.
+
+  The ceiling lives with the settings that may not pass it, so the write side and
+  the read side (`outbound_caps/1`) share one number.
+  """
+  @spec outbound_cap_ceiling() :: %{per_hour: pos_integer(), per_day: pos_integer()}
+  def outbound_cap_ceiling,
+    do: %{per_hour: @outbound_cap_per_hour, per_day: @outbound_cap_per_day}
+
+  @doc """
+  The caps a tenant's settings ask for, each clamped to the platform ceiling.
+
+  An absent, malformed or too-large value falls back to the ceiling: a tenant
+  cannot raise the platform's cost guard by writing a setting.
+  """
+  @spec outbound_caps(map() | nil) :: {pos_integer(), pos_integer()}
+  def outbound_caps(settings) when is_map(settings) do
+    {clamp_cap(Map.get(settings, "notifications.outbound_cap_per_hour"), @outbound_cap_per_hour),
+     clamp_cap(Map.get(settings, "notifications.outbound_cap_per_day"), @outbound_cap_per_day)}
+  end
+
+  def outbound_caps(_settings), do: {@outbound_cap_per_hour, @outbound_cap_per_day}
+
+  defp clamp_cap(value, ceiling) when is_integer(value) and value > 0 and value <= ceiling,
+    do: value
+
+  defp clamp_cap(_value, ceiling), do: ceiling
 
   # T-1640: the optional fleet-rollout window; nil or absent = any time. No value is echoed.
   defp validate_module_upgrade_window(errors, %{"module_upgrade.window" => nil}), do: errors
