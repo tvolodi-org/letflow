@@ -17,8 +17,8 @@ defmodule Letflow.PlatformFunctions.Registry do
       is the only list of names a definition may call, and
       `Letflow.PlatformFunctions.Guard` refuses an unknown one before the
       dispatcher ever looks here;
-    * a name that IS declared but has no body yet (the tenant family of the
-      pilot: `tenant.create`, `tenant.provision`, ...) is refused with
+    * a name that IS declared but has no body yet (`tenant.validate`, the
+      read-only check of the pilot's tenant family) is refused with
       `:platform_function_not_implemented`. The catalogue may declare a
       function before the pilot registers its body; the dispatcher never
       pretends such a call succeeded.
@@ -39,9 +39,22 @@ defmodule Letflow.PlatformFunctions.Registry do
   alias Letflow.PlatformFunctions.Catalog
 
   # The implementations, in code. `{name, {module, function, arity}}`.
+  #
+  # T-2590 (pilot gap G1b) adds the side-effecting functions of the tenant
+  # registration chain: the code that today sits in the routes and in the
+  # provisioner now lives in the modules below, so the route and the platform
+  # step call ONE implementation. Each body is idempotent: a second run
+  # changes nothing.
   @implementations [
     {"platform.validate_registration",
-     {Letflow.PlatformFunctions.Impl.ValidateRegistration, :run, 1}}
+     {Letflow.PlatformFunctions.Impl.ValidateRegistration, :run, 1}},
+    {"tenant.create", {Letflow.PlatformFunctions.Impl.TenantCreate, :run, 1}},
+    {"tenant.provision", {Letflow.PlatformFunctions.Impl.TenantProvision, :run, 1}},
+    {"tenant.bind_realm", {Letflow.PlatformFunctions.Impl.TenantBindRealm, :run, 1}},
+    {"tenant.grant_first_admins",
+     {Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins, :run, 1}},
+    {"tenant.install_default_modules",
+     {Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules, :run, 1}}
   ]
 
   # The compile-time check: every body is declared in the compiled catalogue.
