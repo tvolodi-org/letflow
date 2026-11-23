@@ -275,14 +275,25 @@ defmodule Letflow.Routers.EntitiesImportXlsxTest do
       ctx = tenant_ctx("gh3603-r4f")
       seed_type!(ctx, "item")
 
-      reason =
-        too_large_reason(fn ->
-          conn(:post, "/api/v1/entities/records/item", book([["title"], ["A"]]))
-          |> put_req_header("content-type", @xlsx)
-          |> authed(ctx)
-        end)
+      request =
+        conn(:post, "/api/v1/entities/records/item", book([["title"], ["A"]]))
+        |> put_req_header("content-type", @xlsx)
 
-      assert reason == Plug.Parsers.UnsupportedMediaTypeError
+      # T-2658: the pipeline answers the typed 415 itself and then re-raises the parser's
+      # exception (Plug.ErrorHandler's contract), so the answer is read from the adapter.
+      assert_raise Plug.Conn.WrapperError, fn -> authed(request, ctx) end
+
+      {status, headers, body} = Plug.Test.sent_resp(request)
+      assert status == 415
+
+      content_type = for({name, value} <- headers, name == "content-type", do: value)
+      assert ["application/problem+json" <> _] = content_type
+
+      problem = Jason.decode!(body)
+      assert problem["status"] == 415
+      assert problem["title"] == "Unsupported Media Type"
+      assert problem["type"] =~ "unsupported-media-type"
+      assert problem["detail"] == "the request content type is not supported by this endpoint"
     end
   end
 

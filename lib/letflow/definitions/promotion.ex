@@ -425,6 +425,11 @@ defmodule Letflow.Definitions.Promotion do
                      activator
                    ),
                  :ok <- Letflow.Definitions.check_entity_writes(new_row, target_prefix, activator),
+                 :ok <-
+                   Letflow.Definitions.check_platform_calls(new_row, target_prefix, activator),
+                 :ok <- Letflow.Definitions.check_step_mappings(new_row, target_prefix),
+                 :ok <- Letflow.Definitions.check_start_permission(new_row, target_prefix),
+                 :ok <- Letflow.Definitions.check_notify_calls(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
               :ok
             else
@@ -466,7 +471,7 @@ defmodule Letflow.Definitions.Promotion do
   # event_attrs shape field-for-field as `after_state`, not a second,
   # independently-drifting schema. `before_state: nil` and `trace_id: nil`
   # are both deliberate (design §1.4), matching definitions.ex's own
-  # "no meaningful before-state" precedent (record_definition_audit/5's
+  # "no meaningful before-state" precedent (record_definition_audit/6's
   # `"definition.create"` call).
   @spec promotion_audit_attrs(
           Ecto.UUID.t(),

@@ -645,7 +645,9 @@ defmodule Letflow.Routers.Definitions do
   ]
 
   defp handle_create(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2, decision (d)): the caller's user id is the actor of the
+    # definition lifecycle audit row.
+    opts = Keyword.put(conn.assigns.scoped_opts, :actor_id, conn.assigns.auth_context.user_id)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
@@ -839,6 +841,25 @@ defmodule Letflow.Routers.Definitions do
   defp render_write(conn, {:error, {:unknown_schema_version, _actual}}, :created),
     do: Response.unprocessable(conn, "unknown bpm_export_schema_version")
 
+  # T-2588 (pilot gap G2): a company tenant's `platform_call` step is refused
+  # with the ONE fixed code on every write path (create, PUT, PATCH, import) --
+  # the same 422 the activation and the promotion answer, never a 500.
+  defp render_write(conn, {:error, {:platform_calls_invalid, violations}}, _success_status),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the notification
+  # fence's refusal at the draft/write path. The write path answers the graph rule's own
+  # violation today (the node attribute is checked before the row is written -- see
+  # `test/letflow/definitions/notify_calls_refused_activation_test.exs`), so this clause is
+  # the same typed 422 for a write path that runs the fence itself: the sibling answer of
+  # every path, never a 500.
+  defp render_write(conn, {:error, {:notify_calls_invalid, violations}}, _success_status),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2591 (pilot gap G3): the declared start permission of a definition is unknown.
+  defp render_write(conn, {:error, {:start_permission_invalid, violation}}, _success_status),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_write(conn, {:error, :not_found}, _success_status), do: Response.not_found(conn)
 
   defp render_write(conn, {:error, :not_draft}, _success_status),
@@ -957,8 +978,14 @@ defmodule Letflow.Routers.Definitions do
   # (reads `current.status` then dispatches) that is an existing race in
   # the underlying status model, not one this router introduces.
 
+  # T-2588 (pilot gap G2, decision (d)): the scoped opts plus the caller as the actor of
+  # the lifecycle audit row.
+  defp actor_opts(conn) do
+    Keyword.put(conn.assigns.scoped_opts, :actor_id, conn.assigns.auth_context.user_id)
+  end
+
   defp handle_delete(conn, raw_id) do
-    opts = conn.assigns.scoped_opts
+    opts = actor_opts(conn)
 
     case Definitions.get_by_id(raw_id, opts) do
       {:ok, %ProcessDefinition{status: :draft}} ->
@@ -1057,6 +1084,18 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  defp render_reactivate(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_reactivate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   defp render_activate(conn, {:ok, %{definition: definition}}),
@@ -1136,6 +1175,18 @@ defmodule Letflow.Routers.Definitions do
   defp render_activate(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  defp render_activate(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   # ── POST /definitions/:id/deprecate (REQ-082) ───────────────────────────
@@ -1143,7 +1194,7 @@ defmodule Letflow.Routers.Definitions do
   defp handle_deprecate(conn, raw_id) do
     render_transition(
       conn,
-      Definitions.deprecate(raw_id, conn.assigns.scoped_opts),
+      Definitions.deprecate(raw_id, actor_opts(conn)),
       "only an ACTIVE definition can be deprecated"
     )
   end
@@ -1153,7 +1204,7 @@ defmodule Letflow.Routers.Definitions do
   defp handle_archive(conn, raw_id) do
     render_transition(
       conn,
-      Definitions.archive(raw_id, conn.assigns.scoped_opts),
+      Definitions.archive(raw_id, actor_opts(conn)),
       "only a DEPRECATED definition can be archived"
     )
   end
@@ -1180,7 +1231,13 @@ defmodule Letflow.Routers.Definitions do
   # with that contract), plus REQ-082's own `variable_schemas` addition.
 
   defp handle_import(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2, decision (d)): the caller's user id is the actor of the
+    # definition lifecycle audit row the import writes. `actor_opts/1` is the same
+    # scoped-opts-plus-actor the create path uses -- the import's `imported_by`
+    # argument reaches only the definition's `created_by` column, so the opts must
+    # carry the caller too, or the `definition.create` row names nobody and claims
+    # the system did it.
+    opts = actor_opts(conn)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
@@ -1396,6 +1453,18 @@ defmodule Letflow.Routers.Definitions do
   # GH #2587 PR B1: the re-activated graph's entity_writes were refused.
   defp render_rollback(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)

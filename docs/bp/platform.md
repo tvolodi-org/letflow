@@ -11,7 +11,7 @@ The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 
 
 | id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
 |---|---|---|---|---|---|---|---|---|
-| BP-PLATFORM-01 | Register a tenant (company) directly and look it up | The platform operator creates a tenant record with its schema, lists all tenants, opens one, and edits its settings. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
+| BP-PLATFORM-01 | Register a tenant (company) directly and look it up | The platform operator creates a tenant record with its schema, lists all tenants, opens one, and edits its settings. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
 | BP-PLATFORM-02 | Suspend, reactivate and purge a tenant | The operator deactivates a tenant (its users get 403 tenant_inactive, its runtime is released), may reactivate it, and later purges its d... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
 | BP-PLATFORM-03 | Give a company its own host name (set and remove) | The operator sets or removes the company host of an existing tenant. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
 | BP-PLATFORM-04 | Set a tenant's script policy (kill switch, solo-audited) | The operator reads a tenant's script policy and flips the platform kill switch or the platform flag that allows the solo_audited mode. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
@@ -66,12 +66,12 @@ The platform operator creates a tenant record with its schema, lists all tenants
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-01-register-tenant.json` (runner id `BP-PLATFORM-01-register-tenant`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: the runner has no platform-tenant actor on one base url; refusals are automated in BP-PLATFORM-16
+- UAT: skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16
 - security: no
 
 ## BP-PLATFORM-02 -- Suspend, reactivate and purge a tenant
@@ -931,5 +931,5 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 20 process(es) have no runner scenario: BP-PLATFORM-01, BP-PLATFORM-02, BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
+- 19 process(es) have no runner scenario: BP-PLATFORM-02, BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
 - 4 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23

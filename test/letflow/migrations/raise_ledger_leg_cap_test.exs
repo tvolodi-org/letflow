@@ -149,9 +149,9 @@ defmodule Letflow.RaisePostingLegCapTest do
     assert defs(schema, "ledger_leg", "ledger_leg_leg_no_check") == before
   end
 
-  test "MG-2 registered second to last; down refuses without the flag" do
+  test "MG-2 registered in the manifest; down refuses without the flag" do
     assert {@version, RaisePostingLegCap} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -18)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -24)
 
     Application.put_env(:letflow, :allow_ledger_migration_down, false)
 

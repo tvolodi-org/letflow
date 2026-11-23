@@ -509,6 +509,84 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- a `platform_call` step was refused by the authority rule (T-2588, pilot
+  gap G2: the platform tenant, the catalogue entry, the activator's permission, the
+  input source classes). The same body shape as `entity_writes_invalid/2`: the node, the
+  index and a stable code. No value, no hash and no function name ever appear.
+  """
+  @spec platform_calls_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def platform_calls_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "platform_calls_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
+  HTTP 422 -- a `notify` step was refused by the notification fence (T-2592, pilot
+  gap G4; the file channel of T-2596, pilot gap G12: a path-like file name is
+  refused here with the fixed code `notify_file_name_invalid`).
+
+  The same body shape as `platform_calls_invalid/2`: the node, the index and a
+  stable code. No value, no hash and no function name ever appear.
+  """
+  @spec notify_calls_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def notify_calls_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "notify_calls_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
+  HTTP 422 -- the TYPED STEP MAPPING of a step was refused (T-2594, pilot gap G13: the
+  declared reads and writes against the definition's own `variable_schemas`, the reserved
+  engine namespace, and the variables a person may write).
+
+  The body names the node, the side of the declaration, the variable name and a stable
+  code. No value, no hash and no function name ever appear.
+  """
+  @spec step_mappings_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def step_mappings_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "step_mappings_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, side: side, name: name, code: code} ->
+            %{
+              "node_id" => node_id,
+              "side" => Atom.to_string(side),
+              "name" => name,
+              "code" => Atom.to_string(code)
+            }
+          end)
+      })
+
+  @doc """
+  HTTP 422 -- the DECLARED start permission of a definition was refused (T-2591, pilot gap G3;
+  decision record `docs/migration/decisions/0094-platform-call-authority.md`, decision (e)).
+
+  The body carries a stable code and the permission names involved. Permission ATOM NAMES are
+  not secrets: they are the vocabulary of the role table, and the caller is the definition's
+  own author. No value, hash or definition name ever appears.
+  """
+  @spec start_permission_invalid(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def start_permission_invalid(conn, %{code: code} = violation),
+    do:
+      send_json(conn, 422, %{
+        "error" => "start_permission_invalid",
+        "code" => Atom.to_string(code),
+        "declared" => Map.get(violation, :declared),
+        "required" => Map.get(violation, :required)
+      })
+
+  @doc """
   HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
   namespace (GH #2623). The body echoes neither the URL nor the matched name.
   """
