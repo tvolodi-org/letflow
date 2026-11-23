@@ -315,5 +315,39 @@ assign_if_free "$BC_CEMENT" catalog_item "$I_CEMENT" "barcode $BC_CEMENT to Ceme
 assign_if_free "$BC_MILK" catalog_lot "$LOT_M1" "barcode $BC_MILK to Milk lot ${TAG}-M-A"
 assign_if_free "$QR_R1" location_node "$L_R1" "QR $QR_R1 to Rack 01"
 
+# ---------------------------------------------------------------------------------------------
+# 8. four eyes ON for the stock opening approval (T-2701). A NEW tenant starts with four-eyes OFF (D-165,
+# approval_rule_defaults marker), so the issuer would complete their own Approve task and the spec's
+# separation-of-duties check (G3b) would never see the refusal. LOUD: the whole answer is logged, and the
+# seed stops when no row of the opening approval was switched ON.
+# ---------------------------------------------------------------------------------------------
+log "== 8. four eyes ON for the stock opening approval"
+api GET /approval-rules
+[ "$STATUS" = 200 ] || die "GET /approval-rules: HTTP $STATUS $(reason)"
+log "approval rules seen: $(jq -r '.items | length' "$RESP")"
+jq -r '.items[] | "  rule \(.definition_name)/\(.node_id) four_eyes=\(.four_eyes) in_active_definition=\(.in_active_definition)"' "$RESP" >&2
+# The opening process is process_key stock_opening, node "approve"; the match is on the definition name.
+# in_active_definition is NOT used to select: only the step itself matters.
+OPEN_ROWS=$(jq -c '[.items[] | select((.definition_name | test("opening"; "i")) and .node_id == "approve")]' "$RESP")
+n_seen=$(printf '%s' "$OPEN_ROWS" | jq 'length')
+n_set=0
+log "opening approval rows seen: $n_seen"
+while IFS=$'\t' read -r def_name node_id four_eyes; do
+  [ -n "$def_name" ] || continue
+  if [ "$four_eyes" = "true" ]; then
+    log "ok   four eyes already ON for $def_name/$node_id"
+    n_set=$((n_set + 1))
+    continue
+  fi
+  enc=$(jq -rn --arg v "$def_name" '$v | @uri')
+  api PUT "/approval-rules/$enc/$node_id" '{"four_eyes":true,"reason":"GATE B e2e: separation of duties on the opening approval"}'
+  [ "$STATUS" = 200 ] || die "four eyes ON $def_name/$node_id: HTTP $STATUS $(reason)"
+  [ "$(jq -r '.four_eyes' "$RESP")" = "true" ] || die "four eyes ON $def_name/$node_id: the answer says four_eyes is not true"
+  log "ok   four eyes ON for $def_name/$node_id"
+  n_set=$((n_set + 1))
+done < <(printf '%s' "$OPEN_ROWS" | jq -r '.[] | [.definition_name, .node_id, (.four_eyes | tostring)] | @tsv')
+log "opening approval rows seen $n_seen, switched or already ON $n_set"
+[ "$n_set" -ge 1 ] || die "four eyes: no stock opening approval row was switched ON (seen $n_seen); the separation-of-duties e2e would fail"
+
 log "== done (masters and codes). Data set '$RUN_TAG': codes start with $TAG-, external ref system $EXT."
 log "   Barcodes: $BC_LAPTOP, $BC_CEMENT, $BC_MILK. Location QR: $QR_R1 (Rack 01)."
