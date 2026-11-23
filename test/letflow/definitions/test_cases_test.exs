@@ -259,4 +259,62 @@ defmodule Letflow.Definitions.TestCasesTest do
                TestCases.run(%{"nodes" => "not a list", "edges" => []}, [parsed])
     end
   end
+
+  describe "parse/1 -- the byte and count bounds (SF-01)" do
+    defp case_with(extra), do: Map.merge(%{"name" => "a case", "expect" => %{}}, extra)
+
+    test "a 200-byte name is accepted and a 201-byte name is refused" do
+      assert {:ok, [_]} = TestCases.parse([case_with(%{"name" => String.duplicate("a", 200)})])
+
+      assert {:error, {:invalid_test_cases, :invalid_name}} =
+               TestCases.parse([case_with(%{"name" => String.duplicate("a", 201)})])
+    end
+
+    test "20 cases are accepted and a 21st is refused" do
+      assert {:ok, parsed} = TestCases.parse(List.duplicate(case_with(%{}), 20))
+      assert length(parsed) == 20
+
+      assert {:error, {:invalid_test_cases, :too_many_cases}} =
+               TestCases.parse(List.duplicate(case_with(%{}), 21))
+    end
+
+    test "50 start variables are accepted and a 51st is refused" do
+      vars = fn n -> Map.new(1..n, &{"k#{&1}", &1}) end
+
+      assert {:ok, [_]} = TestCases.parse([case_with(%{"start_variables" => vars.(50)})])
+
+      assert {:error, {:invalid_test_cases, :too_many_start_variables}} =
+               TestCases.parse([case_with(%{"start_variables" => vars.(51)})])
+    end
+
+    test "50 expected variables are accepted and a 51st is refused" do
+      vars = fn n -> %{"variables" => Map.new(1..n, &{"k#{&1}", &1})} end
+
+      assert {:ok, [_]} = TestCases.parse([case_with(%{"expect" => vars.(50)})])
+
+      assert {:error, {:invalid_test_cases, :too_many_expected_variables}} =
+               TestCases.parse([case_with(%{"expect" => vars.(51)})])
+    end
+
+    test "a declaration that is not a list is refused" do
+      assert {:error, {:invalid_test_cases, :not_a_list}} = TestCases.parse(%{"a" => 1})
+    end
+  end
+
+  describe "run/2 -- a failure carries no variable value (SF-08)" do
+    test "the failure map has exactly name, reason and key; the canary never appears" do
+      parsed =
+        parse!(%{
+          "name" => "secret case",
+          "step_outputs" => %{"call" => %{"token" => "CANARY-s3cr3t"}},
+          "expect" => %{"variables" => %{"token" => "CANARY-other"}}
+        })
+
+      assert {:error, {:definition_test_cases_failed, [failure]}} =
+               TestCases.run(service_task_graph(), [parsed])
+
+      assert failure |> Map.keys() |> Enum.sort() == [:key, :name, :reason]
+      refute inspect(failure) =~ "CANARY"
+    end
+  end
 end

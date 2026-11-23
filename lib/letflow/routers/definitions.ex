@@ -1514,6 +1514,12 @@ defmodule Letflow.Routers.Definitions do
   defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
 
+  defp render_rollback(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_rollback(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
+
   defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
     do: Response.start_permission_invalid(conn, violation)
 

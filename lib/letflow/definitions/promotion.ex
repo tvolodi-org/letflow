@@ -403,7 +403,10 @@ defmodule Letflow.Definitions.Promotion do
       description: source_row.description,
       stage: source_row.stage,
       graph: source_row.graph,
-      created_by: actor_id
+      created_by: actor_id,
+      # T-2604 (pilot gap G16): the declared test cases travel with the graph, so the
+      # fence below runs them in the target tenant (nil stays nil).
+      test_cases: source_row.test_cases
     }
 
     try do

@@ -81,7 +81,8 @@ A version whose declared case fails is NOT activated. The refusal is typed and
 carries no value: the case's name, a closed reason code
 (`status_mismatch`, `variable_mismatch`, `variable_missing`,
 `node_not_visited`, `no_matching_edge`, `hop_limit_exceeded`,
-`sub_process_not_supported`) and, when the reason is about a variable or a
+`sub_process_not_supported`, `node_type_not_supported`, `transition_failed`,
+`reserved_variable_key`, `unknown_node_id`) and, when the reason is about a variable or a
 node, its NAME. Never a variable's value, never a stack trace, never a secret
 the case carried (INV-4).
 
@@ -90,6 +91,13 @@ the case carried (INV-4).
      "failures": [{"name": "the applicant is approved",
                    "reason": "variable_mismatch",
                    "key": "approved"}]}
+
+A promoted definition CARRIES its declared cases: the promotion copies them with
+the graph, and the fence runs them in the target tenant before the copy is
+activated (a failure answers the same typed 422 on the promotion route, on
+version rollback and on solution-pack override activation). The export document
+(`bpm/definition/v1`) does not carry them; a re-imported definition declares its
+own cases.
 
 A malformed declaration is refused earlier, by the write that carries it, with
 the stable code `definition_test_cases_invalid`.
