@@ -34,9 +34,11 @@ defmodule Letflow.Dlq do
   destination only (`sanitised_attempt/1`): the body, the headers, the path
   and the query are never stored, because a rendered request can carry a
   realm credential, a bearer token or a mail body (INV-4). The other
-  landing path -- the generic `EXECUTION_ERROR` row -- stores the engine's
-  own error `reason` (a closed phrase, built by the engine, never a
-  caller-supplied body) and its `details` map.
+  landing path -- the generic `EXECUTION_ERROR` row -- stores the engine's own
+  error `reason` and its `details` map. Those are built by the engine, but on
+  the form-expression path they embed the evaluated operand value and the
+  form's own validation message, so that row is NOT value-free; it has not
+  yet been given the origin-only reduction (a follow-up slice).
 
   ## Tenant scoping (INV-1)
 
