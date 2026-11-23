@@ -260,6 +260,43 @@ the same declaration in its own copy, and the delivery row references neither th
 the address. Nothing in this change assumes that a definition is editable by whoever sees it, or
 that a tenant has exactly one definition per key.
 
+## The designer (T-2600, pilot gap G5b)
+
+The step is edited in the process designer, without code: the step panel of the definition editor
+(`web/src/components/diagram/NodeEditPanel.tsx`) offers the form
+(`web/src/components/diagram/NotifyStepEditor.tsx`) for a SERVICE step that carries a `notify`
+attribute.
+
+* The **template picker** is fed by the COMPILED catalogue of registered keys:
+  `GET /api/v1/notification-templates/catalogue` publishes the keys and the placeholder allow-list
+  of each (`Letflow.NotificationTemplates.Registry`). The read is platform data -- a key and the
+  NAMES of the placeholders -- and no tenant text: the tenant's own override of a key stays behind
+  `GET /api/v1/notification-templates` (`:NotificationTemplatesManage`). The catalogue's permission
+  is `:DefinitionsRead`: the reader of a definition is the person who may name a template in one.
+* The **channel** is the server's closed set (`email`, `file`). The form is exclusive the way the
+  server is: the mail channel asks for the recipient, the file channel for the file name, and
+  switching drops what the other one carried.
+* The **recipient is a VARIABLE of the process**, never a fixed address: a constant address would
+  sit in the stored definition of the tenant, and the address of a person is personal data the
+  platform does not store (INV-4). The server refuses a constant recipient with
+  `notify_recipient_invalid`, so the form does not offer one. (The per-tenant allow-list of
+  recipient domains of the guardrail G14 is not built; when it is, the form checks it.)
+* Every **value** names a placeholder of the template's allow-list and is filled with a variable of
+  the process or with a fixed value.
+* The form applies the server's own rules before the graph is written: a variable name that is empty,
+  dotted or in the reserved namespace, and a file name that carries a separator, a `..`, a drive
+  letter or a home directory, are refused in the field and never reach the graph.
+
+The rules the form enforces live in one pure module (`web/src/utils/canvas/notifyStep.ts`), the
+graph edits in `web/src/utils/canvas/graphEdit.ts` (`setNotifyStep/2`, `removeNotifyStep/2`), and
+the route kinds of a step stay exclusive: a node carries a notification OR a script OR a platform
+call, never two (the server refuses a node that carries two).
+
+The tests: `web/src/utils/canvas/__tests__/notifyStep.test.ts` (the pure rules),
+`web/src/components/diagram/__tests__/NotifyStepEditor.test.tsx` (the form),
+`web/src/components/diagram/__tests__/NodeEditPanel.notify.test.tsx` (the panel), and
+`test/letflow/routers/notification_templates_catalogue_test.exs` (the catalogue route).
+
 ## The tests
 
 * `test/letflow/notification_steps/dispatcher_test.exs` -- the send, the cap

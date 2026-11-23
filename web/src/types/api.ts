@@ -819,6 +819,23 @@ export interface EntityAggregateResponse {
   results: { group?: Record<string, unknown>; values: Record<string, unknown> }[]
 }
 
+// ── Notification template catalogue (T-2600, pilot gap G5b) ─────────────────
+//
+// The COMPILED catalogue of registered notification templates, as
+// `GET /api/v1/notification-templates/catalogue` publishes it. Platform data only: a key and the NAMES of the
+// placeholders it accepts. The tenant's own text is a different route.
+
+/** One registered template: its key and the placeholders a step may fill. */
+export interface NotificationTemplateEntry {
+  template_key: string
+  placeholders: string[]
+}
+
+/** The catalogue of the registered templates. */
+export interface NotificationTemplateCatalogue {
+  items: NotificationTemplateEntry[]
+}
+
 // ── Platform function catalogue (T-2599, pilot gap G5a) ─────────────────────
 //
 // The COMPILED catalogue of platform functions, as `GET /api/v1/platform-functions` publishes it
