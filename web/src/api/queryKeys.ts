@@ -332,6 +332,14 @@ export const queryKeys = {
     list: (tenantId: string) => [...queryKeys.platformFunctions.all(tenantId), 'list'] as const,
   },
 
+  /** T-2600 (pilot gap G5b) — the compiled notification template catalogue the designer's template picker
+   *  reads. Tenant-scoped: the read is a route of the tenant, so the answer is dropped when the tenant
+   *  changes. */
+  notificationTemplates: {
+    all: (tenantId: string) => ['tenant', tenantId, 'notification-templates'] as const,
+    catalogue: (tenantId: string) => [...queryKeys.notificationTemplates.all(tenantId), 'catalogue'] as const,
+  },
+
   /** T-1983 — official-form templates admin screen. */
   officialFormTemplates: {
     all: (tenantId: string) => ['tenant', tenantId, 'official-form-templates'] as const,
