@@ -1074,6 +1074,9 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
 
+  defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
   defp render_reactivate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   defp render_activate(conn, {:ok, %{definition: definition}}),
@@ -1155,6 +1158,9 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_activate(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
 
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
@@ -1425,6 +1431,9 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_rollback(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)
