@@ -6,7 +6,12 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   ## The declaration
 
-      attributes["platform_call"] :: %{"function" => name, "args" => %{arg_name => src}}
+      attributes["platform_call"] :: %{
+        "function" => name,
+        "args" => %{arg_name => src},
+        "reads" => %{var_name => type_name},
+        "writes" => %{var_name => type_name}
+      }
       src :: %{"var" => String.t()} | %{"const" => json}
 
   A `platform_call` step is a SERVICE_TASK bound to a platform function of the
@@ -14,6 +19,20 @@ defmodule Letflow.Definitions.PlatformCalls do
   endpoint or a Lua script. The step library (gap G1) owns the dispatcher that
   runs it; this module owns the RULE that decides who may switch such a step
   on, and where it may run.
+
+  ## The typed mapping of the step (gap G13)
+
+  `reads` and `writes` are the step's TYPED MAPPING: the variables it reads
+  and the variables it writes, each with its type. They are checked against
+  the definition's own `variable_schemas` by
+  `Letflow.Definitions.StepMapping`, at activation and in the designer. The
+  dispatcher writes only the outputs the step declares.
+
+  The two keys are REQUIRED: a step that declares none of them maps nothing
+  and is refused. This module owns the SHAPE of the declaration (the closed
+  key set above); the rules the declaration must satisfy live in
+  `Letflow.Definitions.StepMapping`, so a notification step (gap G4) will use
+  the same rules.
 
   ## What activation proves
 
@@ -64,7 +83,7 @@ defmodule Letflow.Definitions.PlatformCalls do
   alias Letflow.PlatformTenant
 
   @attribute "platform_call"
-  @call_keys ["function", "args"]
+  @call_keys ["function", "args", "reads", "writes"]
   @conflicting_route_attributes ["endpoint", "service_id", "script_key"]
 
   # The node types that may declare a `platform_call`: a SERVICE_TASK bound to
@@ -123,6 +142,54 @@ defmodule Letflow.Definitions.PlatformCalls do
           do: %{node_id: node.id, index: 0, code: :platform_call_not_allowed}
     end
   end
+
+  @doc """
+  The platform call a node of `nodes` declares, as
+  `{:ok, %{"function" => name, "args" => args, "reads" => ..., "writes" => ...}}`
+  (the typed mapping of the step is part of the call, gap G13), or an error:
+
+    * `:platform_call_node_missing` -- the graph carries no node of that id;
+    * `:platform_call_node_not_declared` -- the node carries no well-formed
+      `platform_call` attribute.
+
+  This is the READ side of the binding between a dispatch row and the
+  definition's graph: the step library's dispatcher (gap G1) re-derives the
+  node's call from the STORED graph before it runs anything, so a row that
+  names a function or arguments the definition does not declare is refused
+  before the body runs.
+  """
+  @spec node_call_binding(Graph.t() | [Graph.Node.t()] | term(), term()) ::
+          {:ok, map()} | {:error, atom()}
+  def node_call_binding(nodes, node_id) when is_binary(node_id) do
+    case Enum.find(node_list(nodes), &(&1.id == node_id)) do
+      nil -> {:error, :platform_call_node_missing}
+      node -> node_call(node)
+    end
+  end
+
+  def node_call_binding(_nodes, _node_id), do: {:error, :platform_call_node_missing}
+
+  defp node_list(%Graph{nodes: nodes}) when is_list(nodes), do: nodes
+  defp node_list(nodes) when is_list(nodes), do: nodes
+  defp node_list(_other), do: []
+
+  # The node's call, in FULL: the function, the arguments and the typed
+  # mapping (`reads` / `writes`). The binding the dispatcher reads is the
+  # two-key projection below, so the shape it sees does not change with the
+  # mapping; the mapping itself is read out of the same map by the
+  # dispatcher's own `declared_writes/1`.
+  defp node_call(%Graph.Node{attributes: attributes}) when is_map(attributes) do
+    case Map.get(attributes, @attribute) do
+      %{"function" => function, "args" => args} = call
+      when is_binary(function) and function != "" and is_map(args) ->
+        {:ok, call}
+
+      _no_call ->
+        {:error, :platform_call_node_not_declared}
+    end
+  end
+
+  defp node_call(_node), do: {:error, :platform_call_node_not_declared}
 
   @doc """
   The sorted, de-duplicated names of the catalogue functions the declared steps
@@ -463,14 +530,114 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   # ── the catalogue ───────────────────────────────────────────────────────────────────────
 
-  defp entry(call) when is_map(call) do
+  @doc """
+  The catalogue entry a call names, or `{:error, :not_found}`.
+
+  The one lookup of the compiled catalogue for a call: the activation fence
+  reads the entry's permission and its typed inputs and outputs from it, and
+  the typed step mapping (gap G13) reads the entry's contract types from it.
+  """
+  @spec entry(map() | term()) :: {:ok, Entry.t()} | {:error, :not_found}
+  def entry(call) when is_map(call) do
     case function_name(call) do
       nil -> {:error, :not_found}
       name -> Catalog.fetch(name)
     end
   end
 
-  defp entry(_call), do: {:error, :not_found}
+  def entry(_call), do: {:error, :not_found}
+
+  @doc """
+  The TYPED MAPPING FACTS of every `platform_call` step of `nodes`, as
+  `Letflow.Definitions.StepMapping` wants them: the declared reads and writes
+  (or `:missing` when the step declares none), the variables the step really
+  reads, the variables the entry lets it write, and the types the entry
+  declares for them.
+
+  A step whose function is not in the compiled catalogue still gets a mapping:
+  its reads and writes are declared, but it has no contract, so nothing is
+  written and the catalogue itself refuses the call with
+  `:platform_call_function_unknown`.
+  """
+  @spec mappings([Graph.Node.t()]) :: [map()]
+  def mappings(nodes) when is_list(nodes) do
+    nodes
+    |> declared_nodes()
+    |> Enum.map(fn {node, call} -> mapping(node, call) end)
+  end
+
+  defp mapping(node, call) do
+    {read_types, write_types, write_names} = contract(call)
+
+    %{
+      node_id: node.id,
+      reads: declared_side(call, "reads"),
+      writes: declared_side(call, "writes"),
+      read_names: read_var_names(call),
+      write_names: write_names,
+      read_types: read_types,
+      write_types: write_types
+    }
+  end
+
+  # The contract of the call: the entry's typed inputs (the reads it may
+  # name) and its typed outputs (the writes it may make).
+  defp contract(call) do
+    case entry(call) do
+      {:ok, entry} ->
+        read_types = Map.new(entry.inputs, &{&1.name, &1.type})
+        write_types = Map.new(entry.outputs, &{&1.name, &1.type})
+
+        {read_types, write_types, Map.keys(write_types)}
+
+      {:error, :not_found} ->
+        {%{}, %{}, []}
+    end
+  end
+
+  defp declared_side(call, key) when is_map(call) do
+    case Map.fetch(call, key) do
+      {:ok, declared} -> declared
+      :error -> :missing
+    end
+  end
+
+  defp declared_side(_call, _key), do: :missing
+
+  @doc """
+  The variables a call READS: the names its `var` arguments name. Every one
+  of them is read out of the instance variables when the call runs, so every
+  one of them must be among the step's declared reads.
+  """
+  @spec read_var_names(map() | term()) :: [String.t()]
+  def read_var_names(call) when is_map(call) do
+    call
+    |> Map.get("args", %{})
+    |> Map.values()
+    |> Enum.flat_map(fn
+      %{"var" => var} when is_binary(var) -> [var]
+      _other -> []
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  def read_var_names(_call), do: []
+
+  @doc """
+  The variable names a call DECLARES it writes, sorted. An empty list when the
+  call declares no `writes` mapping: a step that declares no write writes
+  nothing.
+  """
+  @spec declared_write_names(map() | term()) :: [String.t()]
+  def declared_write_names(call) when is_map(call) do
+    case Map.get(call, "writes") do
+      declared when is_map(declared) -> declared |> Map.keys() |> Enum.sort()
+      _absent_or_malformed -> []
+    end
+  end
+
+  def declared_write_names(_call), do: []
 
   defp function_name(%{"function" => name}) when is_binary(name) do
     if String.trim(name) == "", do: nil, else: name

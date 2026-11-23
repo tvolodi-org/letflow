@@ -1054,7 +1054,18 @@ defmodule Letflow.TenantProvisioning do
     # docs/migration/decisions/0094-platform-call-authority.md): audit_entries.actor_kind --
     # "user" against "system". NULL for the rows written before this column existed.
     {20_261_122_100_001, Letflow.Repo.Migrations.AddActorKindToAuditEntries,
-     "20261122100001_add_actor_kind_to_audit_entries.exs"}
+     "20261122100001_add_actor_kind_to_audit_entries.exs"},
+    # T-2589 (pilot gap G1a): the durable queue and per-step result row of a platform
+    # function call (the dispatcher that runs a platform step OUTSIDE the engine's
+    # transaction). Empty table for every existing tenant; no row altered.
+    {20_261_122_200_001, Letflow.Repo.Migrations.CreatePlatformStepDispatches,
+     "20261122200001_create_platform_step_dispatches.exs"},
+    # T-2591 (pilot gap G3, decision (e) of
+    # docs/migration/decisions/0094-platform-call-authority.md): process_definitions.start_permission
+    # -- the permission a caller must hold to START an instance of this version. NULL for every
+    # existing row (a definition that declares none starts as it always did).
+    {20_261_123_100_001, Letflow.Repo.Migrations.AddStartPermissionToProcessDefinitions,
+     "20261123100001_add_start_permission_to_process_definitions.exs"}
   ]
 
   @doc """

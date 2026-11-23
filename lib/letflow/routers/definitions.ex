@@ -847,6 +847,10 @@ defmodule Letflow.Routers.Definitions do
   defp render_write(conn, {:error, {:platform_calls_invalid, violations}}, _success_status),
     do: Response.platform_calls_invalid(conn, violations)
 
+  # T-2591 (pilot gap G3): the declared start permission of a definition is unknown.
+  defp render_write(conn, {:error, {:start_permission_invalid, violation}}, _success_status),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_write(conn, {:error, :not_found}, _success_status), do: Response.not_found(conn)
 
   defp render_write(conn, {:error, :not_draft}, _success_status),
@@ -1074,6 +1078,12 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
 
+  defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_reactivate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   defp render_activate(conn, {:ok, %{definition: definition}}),
@@ -1155,6 +1165,12 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_activate(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
 
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
@@ -1425,6 +1441,12 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_rollback(conn, {:error, {:platform_calls_invalid, violations}}),
     do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)
