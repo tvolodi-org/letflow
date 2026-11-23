@@ -191,7 +191,8 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
             "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
             "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
-            "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs"
+            "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
+            "test/letflow/security_probe/g03_source_provenance_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end

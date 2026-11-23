@@ -1,0 +1,124 @@
+# G-03: the source-provenance matrix of the platform-call authority rule, as the
+# probe's expectations read them.
+#
+# One line per generated cell: family | key | expected.
+# The expected value is a list of `path=value` pairs:
+#
+#   catalogue             -- the shipped catalogue validator
+#                            (`Letflow.PlatformFunctions.Entry.validate!/1`)
+#   activation            -- the violation codes the activation reports
+#                            (`Letflow.Definitions.PlatformCalls.violations/4`);
+#                            `none` when it reports nothing
+#   dispatch              -- the dispatch-time twin of the activation rule
+#                            (`foreign_source_graph?/1`, `conflicting_route_graph?/1`)
+#   write_target          -- the variable a catalogue call reads, refused in a
+#                            completion body (`Letflow.Engine.WriteTargets`)
+#   write_target_exception -- the same variable when the human task declares it
+#                            as its own input (the reviewed exception)
+#
+# The cells are GENERATED from the shipped tree: the source classes and the
+# side-effect classes from the catalogue entry module, the route attributes and
+# the foreign node types from the rule module, the entries from the compiled
+# catalogue. A new class, a new route attribute or a new catalogue entry grows
+# the matrix, and this file has no line for it: the probe fails until a human
+# reviewed the new cell.
+
+# ── the catalogue validator: every source class against every side-effect class ──
+# A write-like entry (a side effect that is more than a read) may not declare a
+# `person` input: a human task's completer may not choose what the platform
+# function writes. Every other combination is a valid declaration.
+catalogue | person:ddl | catalogue=refused
+catalogue | person:outbound | catalogue=refused
+catalogue | person:read | catalogue=accepted
+catalogue | person:write_tenant_registry | catalogue=refused
+catalogue | start:ddl | catalogue=accepted
+catalogue | start:outbound | catalogue=accepted
+catalogue | start:read | catalogue=accepted
+catalogue | start:write_tenant_registry | catalogue=accepted
+catalogue | step:ddl | catalogue=accepted
+catalogue | step:outbound | catalogue=accepted
+catalogue | step:read | catalogue=accepted
+catalogue | step:write_tenant_registry | catalogue=accepted
+
+# ── the catalogue validator: the malformed entries it must refuse ──
+malformed | no_name | catalogue=refused
+malformed | no_permission | catalogue=refused
+malformed | no_platform_flag | catalogue=refused
+malformed | unknown_source_class | catalogue=refused
+malformed | duplicate_name | catalogue=refused
+
+# ── the shape of an argument's source ──
+# A plain variable and a designer-fixed constant are legal; a blank, a dotted
+# or a reserved variable and every malformed or unknown shape are refused.
+# A constant is signed with the graph, so it is not a fourth runtime source.
+arg_shape | var | activation=none
+arg_shape | const | activation=none
+arg_shape | var_blank | activation=:platform_call_arg_source_invalid
+arg_shape | var_spaces | activation=:platform_call_arg_source_invalid
+arg_shape | var_dotted | activation=:platform_call_arg_source_invalid
+arg_shape | var_reserved | activation=:platform_call_arg_sys_reference
+arg_shape | malformed_empty | activation=:platform_call_arg_source_invalid
+arg_shape | malformed_ambiguous | activation=:platform_call_arg_source_invalid
+arg_shape | malformed_not_a_map | activation=:platform_call_arg_source_invalid
+arg_shape | unknown_key | activation=:platform_call_arg_source_invalid
+
+# ── the foreign sources beside a catalogue call ──
+# An inline HTTP service task, a catalogue service task, a script-bound service
+# task and a sub-process all merge their own output into the instance
+# variables, so they may overwrite the value a write-like call reads. A
+# read-like call reads nothing the platform writes and is not affected.
+foreign_source | endpoint:ddl | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | endpoint:outbound | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | endpoint:read | activation=none dispatch=false
+foreign_source | endpoint:write_tenant_registry | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | service_id:ddl | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | service_id:outbound | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | service_id:read | activation=none dispatch=false
+foreign_source | service_id:write_tenant_registry | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | script_key:ddl | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | script_key:outbound | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | script_key:read | activation=none dispatch=false
+foreign_source | script_key:write_tenant_registry | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | sub_process:ddl | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | sub_process:outbound | activation=:platform_call_foreign_source_refused dispatch=true
+foreign_source | sub_process:read | activation=none dispatch=false
+foreign_source | sub_process:write_tenant_registry | activation=:platform_call_foreign_source_refused dispatch=true
+
+# ── the route attributes a platform-call node may not carry beside its call ──
+# The step kinds are exclusive: a node that declares a closed catalogue call
+# and also an HTTP, a catalogue-service or a script route would dispatch the
+# other route. The conflicting-route code answers even for a write-like entry,
+# whose graph also carries a foreign source.
+dual_route | endpoint:ddl | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | endpoint:outbound | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | endpoint:read | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | endpoint:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | service_id:ddl | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | service_id:outbound | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | service_id:read | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | service_id:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | script_key:ddl | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | script_key:outbound | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | script_key:read | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | script_key:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
+
+# ── the write targets of a catalogue call ──
+# The variable a catalogue call reads from the start variables or from an
+# earlier platform step's output is refused in a completion body: the T-2430
+# rule carried over by source class. A human task that declares the variable
+# as its own input keeps it (the reviewed exception).
+#
+# The block is sorted by entry name and then by input name.
+write_target | platform.validate_registration:display_name | write_target=refused write_target_exception=allowed
+write_target | platform.validate_registration:email | write_target=refused write_target_exception=allowed
+write_target | platform.validate_registration:slug | write_target=refused write_target_exception=allowed
+write_target | tenant.bind_realm:realm_id | write_target=refused write_target_exception=allowed
+write_target | tenant.bind_realm:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.create:name | write_target=refused write_target_exception=allowed
+write_target | tenant.create:slug | write_target=refused write_target_exception=allowed
+write_target | tenant.grant_first_admins:admin_email | write_target=refused write_target_exception=allowed
+write_target | tenant.grant_first_admins:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.install_default_modules:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.provision:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.validate:name | write_target=refused write_target_exception=allowed
+write_target | tenant.validate:slug | write_target=refused write_target_exception=allowed
