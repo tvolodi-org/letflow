@@ -20,7 +20,9 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   removing a real Repo.update, adding an unclassified writer/start, hiding the start option behind
   Keyword.put or a computed value, hiding it behind a file-scope alias or an import, hiding a Multi
   write behind an `Elixir.`-prefixed alias, hiding the start option behind `apply/3`, hiding a
-  definition writer behind `Repo.upsert`, and dropping a start gate all produce drift.
+  definition writer behind `Repo.upsert`, and dropping a start gate all produce drift. A write
+  behind an anonymous function held in a module attribute, a delegated write and a root start
+  through another arity are inventoried as well, so none of the three can hide.
   """
 
   use ExUnit.Case, async: true
@@ -28,7 +30,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   alias Letflow.TestSupport.SecurityProbe.G02
 
   @moduletag :security_probe
-  @moduletag probe_cost_s: 15
+  @moduletag probe_cost_s: 20
 
   @inventory "test/fixtures/security_probes/g02_repo_inventory.txt"
 
@@ -873,6 +875,111 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     entries = G02.definition_entries(G02.scan_source("synthetic/definitions.ex", definition))
 
     assert {"Letflow.Definitions.RogueAttribute", :save, 1} in entries
+  end
+
+  test "N16 non-vacuity: a write inside an anonymous function held in a module attribute is inventoried" do
+    source = """
+    defmodule Fake do
+      @writer fn changeset -> Repo.insert(changeset) end
+
+      def go(changeset), do: @writer.(changeset)
+    end
+    """
+
+    synthetic = G02.scan_source("lib/letflow/fake.ex", source)
+    rows = G02.repo_inventory(synthetic)
+
+    assert Enum.any?(rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.caller == {:"@writer", 1}
+           end),
+           "the write inside the function held in the module attribute was not inventoried: #{inspect(rows)}"
+
+    # The write behind the attribute is a definition write: the call graph reaches it.
+    definition = """
+    defmodule Letflow.Definitions.RogueAttributeFunction do
+      alias Letflow.Repo
+
+      @writer fn changeset -> Repo.insert(changeset) end
+
+      def save(changeset), do: @writer.(changeset)
+    end
+    """
+
+    entries = G02.definition_entries(G02.scan_source("synthetic/definitions.ex", definition))
+
+    assert {"Letflow.Definitions.RogueAttributeFunction", :save, 1} in entries
+  end
+
+  test "N17 non-vacuity: a delegated write cannot hide behind a defdelegate" do
+    source = """
+    defmodule Fake do
+      defdelegate insert(changeset), to: Letflow.Repo
+    end
+    """
+
+    synthetic = G02.scan_source("lib/letflow/fake.ex", source)
+    rows = G02.repo_inventory(synthetic)
+
+    assert Enum.any?(rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :delegate and
+               row.caller == {:insert, 1}
+           end),
+           "the delegated write was not inventoried: #{inspect(rows)}"
+
+    # A delegate with `as:` delegates to the renamed function.
+    renamed = """
+    defmodule Fake do
+      defdelegate insert(changeset), to: Letflow.Repo, as: :insert!
+    end
+    """
+
+    renamed_rows = G02.scan_source("lib/letflow/fake.ex", renamed) |> G02.repo_inventory()
+
+    assert Enum.any?(renamed_rows, fn row ->
+             row.class == :repo and row.fun == :insert! and row.form == :delegate
+           end),
+           "the delegated write under a renamed function was not inventoried: #{inspect(renamed_rows)}"
+
+    # The write behind the delegation is a definition write: the call graph follows it.
+    definition = """
+    defmodule Letflow.Definitions.RogueDelegate do
+      defdelegate insert(changeset), to: Letflow.Repo
+    end
+    """
+
+    entries = G02.definition_entries(G02.scan_source("synthetic/definitions.ex", definition))
+
+    assert {"Letflow.Definitions.RogueDelegate", :insert, 1} in entries
+  end
+
+  test "N18 non-vacuity: a root start through another arity is in the start inventory" do
+    source = """
+    defmodule Fake do
+      def go(attrs, opts), do: Letflow.Engine.create(attrs, opts, :extra)
+    end
+    """
+
+    synthetic = G02.scan_source("lib/letflow/fake.ex", source)
+
+    assert Enum.any?(G02.start_keys(synthetic), fn {path, target, fun, _form} ->
+             path == "lib/letflow/fake.ex" and target == "Letflow.Engine" and fun == :create
+           end),
+           "the root start through another arity was not inventoried: #{inspect(G02.start_keys(synthetic))}"
+
+    # The capture of a start function names it once: the dot node inside the capture is not a call
+    # of its own, so no zero-arity call of the start function appears.
+    captured = """
+    defmodule Fake do
+      def go(opts), do: Keyword.get(opts, :start_fun, &Letflow.Engine.create/2)
+    end
+    """
+
+    captured_calls = G02.scan_source("lib/letflow/fake.ex", captured).calls
+
+    assert Enum.all?(captured_calls, fn call ->
+             not (call.target == "Letflow.Engine" and call.fun == :create and call.arity == 0)
+           end),
+           "the capture of the start function was inventoried as a zero-arity call: #{inspect(captured_calls)}"
   end
 
   test "T1: the class table lists every probe case with its test file and name" do

@@ -2198,12 +2198,17 @@ lib/letflow/notification_templates.ex upsert_entry/4 repo Letflow.Repo.insert!/2
 lib/letflow/notification_templates.ex upsert_entry/4 repo Letflow.Repo.one/2 call
 lib/letflow/notifications.ex deliver/6 repo Letflow.Repo.get/2 call
 lib/letflow/notifications.ex deliver/7 repo Letflow.Repo.get/2 call
+lib/letflow/notifications.ex deliver_to_address/5 repo Letflow.Repo.get/2 call
+lib/letflow/notifications.ex deliver_to_address/6 repo Letflow.Repo.get/2 call
 lib/letflow/notifications.ex email_copy_enabled?/1 repo Letflow.Repo.get/2 call
 lib/letflow/notifications.ex log/2 repo Letflow.Repo.insert/2 call
 lib/letflow/notifications.ex process_name/2 repo Letflow.Repo.one/2 call
 lib/letflow/notifications.ex query_deliveries/2 repo Letflow.Repo.all/2 call
 lib/letflow/notifications.ex rate_limited?/2 repo Letflow.Repo.aggregate/3 call
 lib/letflow/notifications.ex recipient/2 repo Letflow.Repo.get/3 call
+lib/letflow/notifications/outbound_cap.ex ensure_row/4 repo Letflow.Repo.insert/2 call
+lib/letflow/notifications/outbound_cap.ex release_window/4 repo Letflow.Repo.update_all/3 call
+lib/letflow/notifications/outbound_cap.ex reserve_window/5 repo Letflow.Repo.update_all/3 call
 lib/letflow/number_sequences.ex allocate/5 repo $repo.insert/2 call
 lib/letflow/number_sequences.ex allocate/5 repo $repo.update_all/3 call
 lib/letflow/number_sequences.ex allocate/6 repo $repo.insert/2 call

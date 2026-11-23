@@ -13,6 +13,13 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   the capture is inventoried where it is defined, and a call through the attribute resolves to what
   the attribute holds, so neither a write nor a start can hide behind the attribute.
 
+  A module attribute that holds a FUNCTION is a pointer as well: the function body is inventoried
+  under the attribute name, and a call through the attribute follows the function it holds, so a
+  write behind an anonymous function cannot hide. A `defdelegate` is a call of the module it
+  delegates to: the delegated call is inventoried under the delegating function, and the local
+  call graph follows it. The root start is inventoried by the NAME of the function, so a start
+  through another arity of `Letflow.Engine.create` is seen as well.
+
   Deliberate limits: macros defined elsewhere and a non-literal dynamic module/function cannot be
   resolved without executing untrusted code. A literal function applied with `apply/3` keeps its name;
   a computed function is inventoried as `:dynamic`. A computed start option is retained as `:computed`,
@@ -72,9 +79,18 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
       (module_asts(ast) ++ file_impl_asts(ast))
       |> Enum.map(fn {module, body} ->
         body = unpipe(body)
-        functions = functions_of(body)
         aliases = Map.merge(file_aliases, aliases_of(body))
         imports = Map.merge(file_imports, imports_of(body))
+        delegates = delegates_of(body, aliases)
+        functions = body |> functions_of() |> Map.merge(attribute_functions_of(body))
+
+        functions =
+          Map.merge(
+            functions,
+            Map.new(delegates, fn {{name, arity}, _delegate} -> {{name, arity}, []} end)
+          )
+
+        public = body |> public_functions() |> MapSet.union(MapSet.new(Map.keys(delegates)))
         local_names = local_names(functions)
 
         {module,
@@ -84,7 +100,8 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
            imports: imports,
            local_names: local_names,
            functions: functions,
-           public: public_functions(body),
+           public: public,
+           delegates: delegates,
            attribute_captures: attribute_captures_of(body, aliases),
            attribute_modules: attribute_modules_of(body, aliases),
            options: option_writes(body, path, aliases, imports, local_names)
@@ -192,7 +209,7 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   def start_calls(scan) do
     Enum.filter(scan.calls, fn call ->
       (call.target == "Letflow.Engine" and
-         ((call.fun == :create and call.arity == 2) or call.fun == :dynamic)) or
+         (call.fun == :create or call.fun == :dynamic)) or
         (call.target == "Letflow.Engine.SubProcess" and
            ((call.fun == :append_start_multi and call.arity == 7) or
               (call.fun == :prepare_child_activation and call.arity == 4) or
@@ -677,6 +694,77 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     functions
   end
 
+  # A module attribute that holds a FUNCTION is a pointer the module keeps. The function body is
+  # inventoried under the attribute name, so a write inside it cannot hide behind the attribute.
+  defp attribute_functions_of(body) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        attribute_function_clauses(values)
+        |> Enum.reduce(acc, fn {arity, clause_bodies}, acc ->
+          Map.update(acc, {:"@#{name}", arity}, clause_bodies, &(&1 ++ clause_bodies))
+        end)
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # The clauses of an anonymous function held by a module attribute, with the arity of each clause.
+  defp attribute_function_clauses(values) do
+    Enum.find_value(values, fn
+      {:fn, _, clauses} when is_list(clauses) ->
+        clauses
+        |> Enum.flat_map(fn
+          {:->, _, [args, body]} when is_list(args) -> [{clause_arity(args), body}]
+          _other -> []
+        end)
+        |> Enum.group_by(fn {arity, _body} -> arity end)
+        |> Enum.map(fn {arity, entries} -> {arity, Enum.map(entries, &elem(&1, 1))} end)
+
+      _other ->
+        []
+    end) || []
+  end
+
+  defp clause_arity(args) do
+    Enum.count(args, fn
+      {:\\, _, _} -> false
+      _other -> true
+    end)
+  end
+
+  # A `defdelegate` is a call of the module it delegates to. The delegated call is inventoried
+  # under the delegating function, so a delegated write cannot hide behind the delegation.
+  defp delegates_of(body, aliases) do
+    {_ast, delegates} =
+      Macro.prewalk(body, %{}, fn
+        {:defdelegate, _, [head, opts]} = node, acc when is_list(opts) ->
+          case delegate_target(head, opts, aliases) do
+            nil -> {node, acc}
+            {name, arity, target, fun} -> {node, Map.put(acc, {name, arity}, {target, fun})}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    delegates
+  end
+
+  defp delegate_target(head, opts, aliases) do
+    with {name, [arity]} <- head_of(head),
+         {:__aliases__, _, parts} <- Keyword.get(opts, :to),
+         true <- Enum.all?(parts, &is_atom/1) do
+      target = parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+      fun = Keyword.get(opts, :as, name)
+      {name, arity, target, fun}
+    else
+      _other -> nil
+    end
+  end
+
   defp public_functions(ast) do
     {_ast, public} =
       Macro.prewalk(ast, MapSet.new(), fn
@@ -737,7 +825,15 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
 
   defp alias_target(parts), do: parts |> normalise_alias_parts() |> Enum.join(".")
 
-  defp calls_of(body, aliases, imports, local_names, attribute_captures, attribute_modules) do
+  defp calls_of(
+         body,
+         aliases,
+         imports,
+         local_names,
+         attribute_captures,
+         attribute_modules,
+         functions
+       ) do
     {_ast, calls} =
       Macro.prewalk(body, [], fn
         # A call through a module attribute: `@f.(x)` calls what the attribute holds, and
@@ -745,12 +841,26 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
         {{:., _, [{:@, _, [{name, _, _}]}]}, _, args} = node, acc
         when is_atom(name) and is_list(args) ->
           {node,
-           attribute_call(attribute_captures, attribute_modules, name, nil, length(args)) ++ acc}
+           attribute_call(
+             attribute_captures,
+             attribute_modules,
+             functions,
+             name,
+             nil,
+             length(args)
+           ) ++ acc}
 
         {{:., _, [{:@, _, [{name, _, _}]}, fun]}, _, args} = node, acc
         when is_atom(name) and is_atom(fun) and is_list(args) ->
           {node,
-           attribute_call(attribute_captures, attribute_modules, name, fun, length(args)) ++ acc}
+           attribute_call(
+             attribute_captures,
+             attribute_modules,
+             functions,
+             name,
+             fun,
+             length(args)
+           ) ++ acc}
 
         {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _,
          [{:__aliases__, _, parts}, fun, args]} = node,
@@ -772,9 +882,11 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
         when not is_atom(fun) and is_list(args) ->
           {node, remote_call(parts, aliases, :dynamic, length(args), :dynamic_apply) ++ acc}
 
+        # A capture names the function it captures; the dot node inside it is not a call of its
+        # own, so the traversal does not descend into it.
         {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, _}, arity]}]} = node, acc
         when is_atom(fun) and is_integer(arity) ->
-          {node, remote_call(parts, aliases, fun, arity, :capture) ++ acc}
+          {capture_node(node), remote_call(parts, aliases, fun, arity, :capture) ++ acc}
 
         {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc
         when is_atom(fun) and is_list(args) ->
@@ -803,8 +915,9 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   end
 
   # A call through a module attribute resolves to what the attribute holds: a captured function
-  # for `@f.(x)`, the module itself for `@repo.insert(x)`.
-  defp attribute_call(captures, modules, name, fun, arity) do
+  # for `@f.(x)`, the module itself for `@repo.insert(x)`, and a function the attribute holds for
+  # `@f.(x)` where the attribute holds an anonymous function.
+  defp attribute_call(captures, modules, functions, name, fun, arity) do
     cond do
       is_nil(fun) ->
         case Map.fetch(captures, name) do
@@ -812,7 +925,11 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
             [{:remote, target, captured_fun, arity, :attribute_call}]
 
           :error ->
-            []
+            if Map.has_key?(functions, {:"@#{name}", arity}) do
+              [{:local, :"@#{name}", arity, :attribute_call}]
+            else
+              []
+            end
         end
 
       true ->
@@ -837,6 +954,10 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     end
   end
 
+  # A node the traversal does not descend into: the capture has been read already, and the dot
+  # node inside it names the captured function rather than calling it.
+  defp capture_node({_form, meta, _args}), do: {{:g02_capture, :node}, meta, []}
+
   defp call_records(module, data) do
     aliases = data.aliases
     imports = data.imports
@@ -856,17 +977,37 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
           record != nil,
           do: record
 
+    delegate_records =
+      for {{name, arity}, {target, fun}} <- Map.get(data, :delegates, %{}),
+          record =
+            call_record(
+              {:remote, target, fun, arity, :delegate},
+              data.path,
+              {name, arity},
+              module
+            ),
+          record != nil,
+          do: record
+
     records =
       for {caller, bodies} <- data.functions,
           body <- bodies,
           call <-
-            calls_of(body, aliases, imports, local_names, attribute_captures, attribute_modules) ++
+            calls_of(
+              body,
+              aliases,
+              imports,
+              local_names,
+              attribute_captures,
+              attribute_modules,
+              data.functions
+            ) ++
               variable_repo_calls(body, aliases),
           record = call_record(call, data.path, caller, module),
           record != nil,
           do: record
 
-    attribute_records ++ records
+    attribute_records ++ delegate_records ++ records
   end
 
   defp call_record({:remote, target, fun, arity, form}, path, caller, module) do
@@ -1079,17 +1220,28 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
               data.imports,
               data.local_names,
               Map.get(data, :attribute_captures, %{}),
-              Map.get(data, :attribute_modules, %{})
+              Map.get(data, :attribute_modules, %{}),
+              Map.get(data, :functions, %{})
             ) ++
               variable_repo_calls(body, data.aliases)
           end)
 
+        calls = calls ++ delegate_calls(data, {name, arity})
         calls = Enum.map(calls, &qualify_local_call(&1, module))
         atoms = Enum.flat_map(bodies, &atoms_of/1)
         {MapSet.new(calls), MapSet.new(atoms)}
 
       :error ->
         {MapSet.new(), MapSet.new()}
+    end
+  end
+
+  # A delegated function is a call of the module it delegates to, so the local call graph of the
+  # delegating module follows the delegation.
+  defp delegate_calls(data, {name, arity}) do
+    case Map.get(Map.get(data, :delegates, %{}), {name, arity}) do
+      nil -> []
+      {target, fun} -> [{:remote, target, fun, arity, :delegate}]
     end
   end
 
