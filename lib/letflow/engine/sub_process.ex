@@ -1423,6 +1423,7 @@ defmodule Letflow.Engine.SubProcess do
          cascade_lookup_key,
          child_instance_id,
          parent_instance_id,
+         parent_token.node_id,
          final_instance_state,
          merge_variables,
          merge_labels,
@@ -1443,6 +1444,7 @@ defmodule Letflow.Engine.SubProcess do
          cascade_lookup_key,
          child_instance_id,
          parent_instance_id,
+         parent_node_id,
          final_instance_state,
          merge_variables,
          merge_labels,
@@ -1457,6 +1459,7 @@ defmodule Letflow.Engine.SubProcess do
     |> Multi.run(event_key, fn _repo, _changes ->
       append_sub_process_completed_event(
         parent_instance_id,
+        parent_node_id,
         child_instance_id,
         merge_variables,
         merge_labels,
@@ -1699,6 +1702,7 @@ defmodule Letflow.Engine.SubProcess do
 
   defp append_sub_process_completed_event(
          parent_instance_id,
+         parent_node_id,
          child_instance_id,
          merge_variables,
          merge_labels,
@@ -1711,6 +1715,14 @@ defmodule Letflow.Engine.SubProcess do
     payload =
       %{
         child_instance_id: child_instance_id,
+        # The node of the PARENT that ran the sub-process (the parent's own
+        # SUB_PROCESS node). The event is written on the parent's stream, so
+        # the node it is about is the parent's -- named here the same way
+        # every other completion event names its node (`node_id`), so a
+        # reader of the parent's history (the step log of the instance,
+        # `Letflow.Instances.StepLog`) can close the parent's visit with
+        # this event.
+        node_id: parent_node_id,
         output_variables: merge_variables,
         merged_variable_events: VariableLabels.encode_merge_events(merge_events),
         activated_nodes: Enum.map(final_instance_state.tokens, & &1.node_id)

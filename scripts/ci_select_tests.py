@@ -93,12 +93,17 @@ STANDARD_BP_DOC_TEST = [
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-10: every environment variable, application key, flag, secret and URL the product reads
 # must be in the config/env/flag registry, with its owner, its reason and its default.
+# G-03: the generated source-provenance matrix of the platform-call authority
+# rule: the catalogue validator refuses a write-like entry with a person input,
+# the activation refuses the foreign sources and the dual-route nodes, and the
+# variables a catalogue call reads are refused to a completer.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
     "test/letflow/security_probe/g01_route_role_matrix_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",

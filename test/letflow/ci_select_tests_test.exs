@@ -185,6 +185,7 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
             "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
             "test/letflow/security_probe/g01_route_role_matrix_test.exs",
+            "test/letflow/security_probe/g03_source_provenance_test.exs",
             "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
             "test/letflow/security_probe/g05_audit_row_schema_test.exs",
             "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
