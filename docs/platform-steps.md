@@ -211,6 +211,12 @@ two more keys beside the function and its arguments:
 `integer`, `boolean`, `object`, `array`). The names are flat: the instance variables are one flat
 namespace.
 
+The catalogue publishes its OWN type names -- a uuid is published as "uuid" -- and a declaration always
+carries the JSON-Schema name: a uuid is declared as a string. The table is the server's own
+(`Letflow.Definitions.StepMapping`'s `contract_family/1`, the same one the canonical platform-call
+fixture uses), so the catalogue's name is never copied into a declaration. The designer writes that
+name: nobody types a type by hand.
+
 The declaration is checked against the definition's own `variable_schemas`
 (`Letflow.Definitions.StepMapping`), at ACTIVATION and in the DESIGNER
 (`POST /api/v1/definitions/:id/validate`):

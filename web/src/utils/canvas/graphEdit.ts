@@ -9,6 +9,7 @@
  */
 import type { DefinitionGraph, GraphEdge, GraphNode, NodeType } from '@/types/api'
 import { layoutDefinition } from './readLayout'
+import type { PlatformCall } from './platformCall'
 
 /** Mirrors `@max_nodes` / `@max_edges` in lib/letflow/definitions/graph.ex (a test pins the numbers to that source). */
 export const MAX_NODES = 500
@@ -148,7 +149,9 @@ export function setNodeAttr(g: DefinitionGraph, id: string, key: string, value: 
   })
 }
 
-/** script_key + script_version as ONE unit (Graph.check_service_task_script_reference needs both). A new key starts at version 1; an empty key removes both. */
+/** script_key + script_version as ONE unit (Graph.check_service_task_script_reference needs both). A new key starts at version 1; an empty key removes both.
+ *  A script binding and a platform call are EXCLUSIVE route kinds (the server refuses a node that carries both,
+ *  `Letflow.Definitions.PlatformCalls`), so binding a script drops the platform call. */
 export function setScriptBinding(g: DefinitionGraph, id: string, binding: { key: string; version?: number }): EditResult {
   return mapNode(g, id, (n) => {
     if (!attributesEditable(n)) return n
@@ -157,6 +160,7 @@ export function setScriptBinding(g: DefinitionGraph, id: string, binding: { key:
       delete attrs.script_key
       delete attrs.script_version
     } else {
+      delete attrs.platform_call
       attrs.script_key = binding.key
       attrs.script_version = binding.version ?? (typeof attrs.script_version === 'number' ? attrs.script_version : 1)
     }
@@ -171,8 +175,36 @@ export function replaceServiceWithScript(g: DefinitionGraph, id: string, key: st
     const attrs = readAttrs(n)
     delete attrs.service_id
     delete attrs.endpoint
+    delete attrs.platform_call
     attrs.script_key = key
     attrs.script_version = 1
+    return withAttrs(n, attrs)
+  })
+}
+
+/** "Use a platform function instead": the node's `platform_call` attribute, with the script binding and the
+ *  service binding REMOVED. The route kinds of a step are exclusive (the server refuses a node that carries a
+ *  platform call beside an endpoint, a service id or a script key), so switching to one drops the others. */
+export function setPlatformCall(g: DefinitionGraph, id: string, call: PlatformCall): EditResult {
+  return mapNode(g, id, (n) => {
+    if (!attributesEditable(n)) return n
+    const attrs = readAttrs(n)
+    delete attrs.script_key
+    delete attrs.script_version
+    delete attrs.service_id
+    delete attrs.endpoint
+    attrs.platform_call = call
+    return withAttrs(n, attrs)
+  })
+}
+
+/** "Use a script instead" from a platform call: the platform call is dropped and the node carries no route until
+ *  the user names a script. */
+export function removePlatformCall(g: DefinitionGraph, id: string): EditResult {
+  return mapNode(g, id, (n) => {
+    if (!attributesEditable(n)) return n
+    const attrs = readAttrs(n)
+    delete attrs.platform_call
     return withAttrs(n, attrs)
   })
 }
