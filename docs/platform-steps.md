@@ -263,6 +263,63 @@ expired lease, so the next claim takes it over. The number of such take-overs is
 DEAD-LETTERED -- the row leaves the queue for good and keeps the failure kind
 `platform_step_max_attempts`. The step log that shows it to a person is gap G6's job.
 
+## The retry of a failed step (gap G7)
+
+A failed step is visible (gap G6's step log) AND retryable (gap G7).
+`Letflow.PlatformFunctions.Dispatcher.retry_failed_step/2` is the MANUAL retry of one call: an
+operator asks for one more try, and the call runs once more.
+
+It differs from the automatic claim in exactly two ways:
+
+* the ATTEMPT CAP does not stop it. The cap bounds how often the lease of a CRASHED run may be
+  taken over; an operator's deliberate retry gets exactly ONE attempt, and the attempt count
+  keeps growing -- the step log shows the whole history of the step;
+* the LEASE still stops it. A row that is `running` with a lease that has NOT expired is a body
+  in flight: the retry is refused with `platform_step_in_flight` and the body does not run a
+  second time.
+
+The IDEMPOTENCY of the call is untouched: a row that already ran (its status is `advanced`) is
+NOT run again -- the stored outputs come back and the answer is `already_final`. A retry of a
+step that already did its work changes NOTHING. The AUTHORITY fence still runs before the body,
+so a manual retry buys no extra authority.
+
+`Letflow.Instances.StepRetry` is the module that finds the failed step of an instance and runs
+it again:
+
+| Part | What it does |
+|---|---|
+| `failed_step/2` | the failed step of an instance: the platform step whose row carries the failure (`given_up`), or the node of the instance's last `EXECUTION_ERROR` when that node is a notification step |
+| `retry_step/2` | runs that step again, once |
+| `retry_entry/2` | the DLQ wiring: an entry of type `platform_step` names the instance and the node, and its retry re-dispatches that step |
+
+### The DLQ retry is wired to it
+
+`Letflow.Dlq.retry/2` still owns the row's own state transition (design §3.4). For an entry of
+type `platform_step` or `notify_step` it ALSO re-dispatches the step, after the row's
+transaction has committed (a platform body may run DDL, so it must not run inside a transaction
+the DLQ holds). The answer of the row then says what happened:
+
+* the step ran again and succeeded -- the row is `resolved` and the last attempt of its history
+  carries the outcome `resolved`;
+* the step could not be run again -- the row stays `retrying` and the last attempt carries the
+  outcome `failed` with the CODE of the refusal (a code of a closed vocabulary, never a text --
+  INV-4).
+
+An entry of any other type keeps the old behaviour: the row's own state transition and nothing
+else. The route adds one check on top: the retry of a STEP entry is a platform act, so the
+caller must be in the platform tenant AND hold `PLATFORM_ADMIN` there. The route's own
+`:DlqOperate` permission is wider (it is held by `:PROCESS_OPERATOR` too), so that check is
+what keeps a process operator from running a platform function.
+
+### What is not built yet
+
+The engine slice that RUNS a platform step (the one that arms the row, polls it and puts the
+instance in ERROR when the step fails) is not built yet: it is the remaining part of gap G1.
+That slice is also the one that LANDS the DLQ entry of a failed step -- this page delivers the
+RETRY side of the entry, and the entry types it listens to are exported
+(`Letflow.Instances.StepRetry.platform_step_entry_type/0` and `notify_step_entry_type/0`) so
+that the landing and the retry cannot drift apart.
+
 ## Why the body runs outside the engine's transaction
 
 A platform function may run DDL -- `tenant.provision` creates a tenant schema and replays its
@@ -363,6 +420,10 @@ output, a decoded HTTP body, a variable map) is never loaded into the process.
   node is closed by the next node visit; an `EXECUTION_ERROR` closes the step it names; a
   cancelled instance closes every open step; a platform step names the function it ran and takes
   its attempts and its failure kind from its own dispatch row.
+* `test/letflow/platform_functions/dispatcher_retry_test.exs` -- the MANUAL retry of a call
+  (gap G7): the attempt cap does not stop it, the lease still does (a body in flight is not run
+  a second time), a call that already ran is not run again, and a row of another tenant is
+  invisible.
 * `test/letflow/instances/step_log_secret_test.exs` -- the NO-SECRET proof (owner items 4 and 7):
   a step whose dispatch row holds a realm credential, a token and a mail body puts none of them
   into the step log or into the timeline answer, and the DLQ payload of an exhausted step keeps

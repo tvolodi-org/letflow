@@ -12,7 +12,9 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
     * the scan is not COMPLETE (PARTIAL or INCOMPLETE coverage is a failure), or it has not read
       the tracked tree;
     * the scan reports a secret-class finding the reviewed triage list does not carry, or a listed
-      finding that occurs more often than it did when it was reviewed.
+      finding that occurs more often than it did when it was reviewed;
+    * the scanner holds a secret rule that the probe does not gate: the gated set is derived from
+      the scanner's own rule table, so a rule added there cannot pass unnoticed.
 
   The non-vacuity cases are seeded: a tracked file holding a credential-shaped value must be
   caught, and a finding the triage list does not carry must be a failure. The fake value is built
@@ -41,6 +43,7 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
 
   @root Path.expand("../../..", __DIR__)
   @secret_scan Path.join(@root, "scripts/oss_audit/oss_audit.sh")
+  @rules_path Path.join(@root, "scripts/oss_audit/rules.py")
   @triage Path.join([@root, "test", "fixtures", "security_probes", "g11_secret_scan_triage.txt"])
 
   # The credential-shaped rules of the scanner (scripts/oss_audit/rules.py): a private key, a
@@ -52,6 +55,13 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
   # everywhere except the two directories that hold such values by design.
   @assignment_rule "S13"
   @assignment_free_prefixes ["test/", "handoffs/"]
+
+  # A secret rule of the scanner that the probe deliberately does NOT gate, with the reason.
+  # It is empty today: every secret rule the scanner can emit without --include-noise is gated.
+  # The rule set below is derived from the scanner's own table (SECRET_RULE_IDS in
+  # scripts/oss_audit/rules.py), so a rule added there and not gated here fails the probe
+  # instead of passing unnoticed.
+  @ungated_rules %{}
 
   # ------------------------------------------------------------------ the tool on the real tree
 
@@ -97,6 +107,26 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
 
   # ------------------------------------------------------------------------- the seeded failures
 
+  test "G11: every secret rule of the scanner is gated by the probe" do
+    ids = scanner_secret_rule_ids()
+
+    assert ids != [], "the scanner's rule table holds no secret rule: the derivation is broken"
+
+    for id <- ids do
+      gated = id in @credential_rules or id == @assignment_rule
+      documented = Map.has_key?(@ungated_rules, id)
+
+      assert gated or documented,
+             "#{id} is a secret rule of scripts/oss_audit/rules.py that the probe neither " <>
+               "gates nor documents as deliberately ungated"
+    end
+
+    for {id, reason} <- @ungated_rules do
+      assert id in ids, "#{id} is documented as ungated but is not a secret rule of the scanner"
+      assert reason != "", "#{id} is documented as ungated without a reason"
+    end
+  end
+
   test "G11: a tracked file with a credential-shaped value fails the secret scan", %{tmp_dir: dir} do
     repo = Path.join(dir, "repo")
     File.mkdir_p!(Path.join(repo, "conf"))
@@ -108,7 +138,10 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
 
     {out, code} = run_secret_scan(repo)
 
-    assert code == 0, "the scan of the seeded tree did not finish: " <> out
+    # The scanner's own output carries masked hints (partial secrets, scripts/oss_audit/README.md),
+    # so it never goes into an assertion message: the exit code and the coverage status are
+    # enough to diagnose the run.
+    assert code == 0, "the scan of the seeded tree did not finish (exit #{code})"
     assert scan_coverage(out).status == "COMPLETE"
 
     failures = secret_failures(gated_findings(out), triage_entries())
@@ -132,6 +165,33 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
       stderr_to_stdout: false,
       cd: @root
     )
+  end
+
+  # The scanner's canonical set of secret rules, read from its own rule table
+  # (scripts/oss_audit/rules.py, SECRET_RULE_IDS: the secret-class rules that are not
+  # noise-only). The module is loaded by path, so the probe does not depend on the scanner's
+  # directory being on the interpreter's path.
+  defp scanner_secret_rule_ids do
+    program = """
+    import importlib.util, sys
+    spec = importlib.util.spec_from_file_location("oss_audit_rules", sys.argv[1])
+    rules = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rules)
+    print(",".join(sorted(rules.SECRET_RULE_IDS)))
+    """
+
+    {out, code} =
+      System.cmd("python3", ["-I", "-B", "-c", program, @rules_path],
+        cd: @root,
+        stderr_to_stdout: false
+      )
+
+    assert code == 0, "the scanner's rule table could not be read (exit #{code})"
+
+    out
+    |> String.trim()
+    |> String.split(",")
+    |> Enum.reject(&(&1 == ""))
   end
 
   defp git!(dir, args) do

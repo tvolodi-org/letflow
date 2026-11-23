@@ -389,6 +389,20 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     end
 
     @doc """
+    The changeset of the MANUAL RETRY (pilot gap G7): the row goes back to
+    `pending`, its attempt count is KEPT (the step log shows the whole
+    history of the step), its lease starts now and the failure kind of the
+    previous attempt is cleared -- the kind describes the CURRENT attempt.
+    """
+    @spec retry_changeset(t(), map()) :: Ecto.Changeset.t()
+    def retry_changeset(dispatch, attrs) do
+      dispatch
+      |> cast(attrs, [:status, :attempt_index, :next_attempt_at])
+      |> put_change(:last_failure_kind, nil)
+      |> validate_required([:status, :attempt_index, :next_attempt_at])
+    end
+
+    @doc """
     The changeset of the terminal write: the outputs of a succeeded call, or
     the failure kind of a refused one.
     """
@@ -584,12 +598,137 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   end
 
   defp dispatch(dispatch_id, prefix) do
-    case claim(dispatch_id, prefix) do
+    case claim(dispatch_id, prefix, :automatic) do
       {:ok, {:already_final, row}} ->
         {:ok, {:already_final, row.outputs}}
 
       {:ok, {:claimed, row}} ->
         run(row, prefix)
+
+      {:ok, {:given_up, _row}} ->
+        {:error, :platform_step_max_attempts}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ── the MANUAL retry of a failed call (pilot gap G7) ────────────────────────────────
+
+  @doc """
+  Retries ONE call that already failed: the MANUAL retry of a platform step
+  (pilot gap G7, "Register a tenant" -- owner item 7, "step failures visible
+  and retryable").
+
+  A manual retry is an OPERATOR's deliberate act, so it differs from the
+  automatic claim in exactly two ways:
+
+    * the ATTEMPT CAP does not stop it. The cap (`max_attempts/0`) bounds how
+      often the lease of a CRASHED run may be taken over; an operator who asks
+      for one more try gets exactly ONE attempt, and the attempt count keeps
+      growing, so the step log shows the whole history of the step;
+    * the LEASE still stops it. A row that is `running` with a lease that has
+      NOT expired is a body in flight: the retry is refused with
+      `platform_step_in_flight` and the body does not run a second time.
+
+  The IDEMPOTENCY of the call is untouched: a row that already ran (its status
+  is `advanced`) is NOT run again -- the stored outputs are returned and the
+  answer is `{:ok, %{status: :already_final, outputs: outputs}}`. A retry of a
+  step that already did its work therefore changes NOTHING.
+
+  The AUTHORITY fence still runs before the body (`run/2`): the call must be in
+  the platform tenant, the function must be in the compiled catalogue, the
+  stored graph must carry the node, the `activated_by` document must still
+  verify and the activator must still hold the entry's permission. A manual
+  retry buys no extra authority.
+
+  `dispatch_id` is the row's own id and `prefix` the tenant schema the row
+  lives in (INV-1): the row is read from that schema only, so a row of another
+  tenant is invisible here (`platform_step_not_found`).
+
+  Never raises (INV-8): every failure is an error tuple.
+  """
+  @spec retry_failed_step(Ecto.UUID.t(), String.t()) ::
+          {:ok, %{status: :advanced | :already_final, outputs: map() | nil}}
+          | {:error, term()}
+  def retry_failed_step(dispatch_id, prefix) when is_binary(prefix) do
+    with :ok <- check_tenant_schema(prefix),
+         {:ok, id} <- cast_dispatch_id(dispatch_id),
+         {:ok, row} <- fetch_dispatch_row(id, prefix),
+         {:ok, armed} <- rearm_for_retry(row, prefix) do
+      manual_dispatch(armed, prefix)
+    end
+  rescue
+    # A failure of the database itself is a typed refusal and never an
+    # exception out of the dispatcher (INV-8).
+    _exception -> {:error, :platform_step_raised}
+  end
+
+  # The row of the call, read from THIS tenant's schema only (INV-1).
+  defp fetch_dispatch_row(id, prefix) do
+    case Repo.get(StepDispatch, id, prefix: prefix) do
+      nil -> {:error, :platform_step_not_found}
+      %StepDispatch{} = row -> {:ok, row}
+    end
+  end
+
+  defp cast_dispatch_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :platform_step_not_found}
+    end
+  end
+
+  # The re-arm of a manual retry. A row that already ran is NOT re-armed (the
+  # idempotency: the step did its work, the retry changes nothing). A row that
+  # is IN FLIGHT (its lease has not expired) is refused: the body may be
+  # running right now, and a second run of the same body for the same call is
+  # exactly what the lease exists to prevent (S8).
+  defp rearm_for_retry(%StepDispatch{status: :advanced} = row, _prefix),
+    do: {:ok, {:already_final, row}}
+
+  defp rearm_for_retry(%StepDispatch{status: :running, next_attempt_at: lease} = row, prefix) do
+    if DateTime.compare(lease, DateTime.utc_now()) == :gt do
+      {:error, :platform_step_in_flight}
+    else
+      # The lease has expired: the run that held the row is gone, so the row
+      # may be re-armed.
+      rearm_for_retry(%StepDispatch{row | status: :pending}, prefix)
+    end
+  end
+
+  defp rearm_for_retry(%StepDispatch{status: status} = row, prefix)
+       when status in [:pending, :given_up] do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    row
+    |> StepDispatch.retry_changeset(%{
+      status: :pending,
+      attempt_index: row.attempt_index,
+      next_attempt_at: now
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> {:ok, {:armed, updated}}
+      {:error, _changeset} -> {:error, :platform_step_arm_failed}
+    end
+  end
+
+  # The manual attempt: the claim in the MANUAL mode (the attempt cap does
+  # not stop an operator's deliberate retry) and then the run.
+  defp manual_dispatch({:already_final, row}, _prefix),
+    do: {:ok, %{status: :already_final, outputs: row.outputs}}
+
+  defp manual_dispatch({:armed, row}, prefix) do
+    case claim(row.id, prefix, :manual) do
+      {:ok, {:already_final, row}} ->
+        {:ok, %{status: :already_final, outputs: row.outputs}}
+
+      {:ok, {:claimed, row}} ->
+        case run(row, prefix) do
+          {:ok, {:advanced, outputs}} -> {:ok, %{status: :advanced, outputs: outputs}}
+          {:error, reason} -> {:error, reason}
+        end
 
       {:ok, {:given_up, _row}} ->
         {:error, :platform_step_max_attempts}
@@ -931,7 +1070,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   @spec failure_codes() :: [String.t()]
   def failure_codes, do: @failure_codes |> MapSet.to_list() |> Enum.sort()
 
-  defp claim(dispatch_id, prefix) do
+  defp claim(dispatch_id, prefix, mode) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     Repo.transaction(fn ->
@@ -957,16 +1096,25 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
           else
             # The lease has expired: the run that held it is gone (the node
             # died), so this claim takes the row over.
-            claim_or_give_up(existing, now, prefix)
+            claim_or_give_up(existing, now, prefix, mode)
           end
 
         %StepDispatch{} = existing ->
-          claim_or_give_up(existing, now, prefix)
+          claim_or_give_up(existing, now, prefix, mode)
       end
     end)
   end
 
-  defp claim_or_give_up(%StepDispatch{attempt_index: attempts} = existing, _now, prefix)
+  # The ATTEMPT CAP. It bounds how often the lease of a CRASHED run may be
+  # taken over. A MANUAL retry (pilot gap G7) is an operator's deliberate act
+  # and is NOT stopped by the cap: it gets exactly one attempt, and the
+  # attempt count keeps growing.
+  defp claim_or_give_up(
+         %StepDispatch{attempt_index: attempts} = existing,
+         _now,
+         prefix,
+         :automatic
+       )
        when attempts >= @max_attempts do
     # The cap is reached: the call is DEAD-LETTERED. The row leaves the
     # queue (its status is no longer `pending`/`running`, so the due
@@ -974,7 +1122,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     {:given_up, dead_letter(existing, prefix)}
   end
 
-  defp claim_or_give_up(existing, now, prefix) do
+  defp claim_or_give_up(existing, now, prefix, _mode) do
     existing
     |> StepDispatch.claim_changeset(%{
       status: :running,
