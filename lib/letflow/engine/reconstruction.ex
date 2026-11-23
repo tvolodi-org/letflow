@@ -41,12 +41,14 @@ defmodule Letflow.Engine.Reconstruction do
     Lua `platform.emit_event` refuses each of them.
   * `SUB_PROCESS_COMPLETED`'s own persisted payload
     (`Letflow.Engine.SubProcess.append_sub_process_completed_event/8`) writes
-    `child_instance_id`, `output_variables` (already
+    `child_instance_id`, `node_id` (the node of the PARENT that ran the
+    sub-process — added by pilot gap G6 so a reader of the parent's history
+    can close the parent's visit with this event), `output_variables` (already
     interface-filtered/merge-ready — the same value
     `SubProcess.build_parent_merge_variables/2` produced on the live path,
     not the child's raw full variable map), `merged_variable_events`, and
-    `activated_nodes`. It carries no `node_id` field at all (unlike
-    `TASK_COMPLETED`) — replay below matches the completing token by its
+    `activated_nodes`. Replay below does NOT read that `node_id`: it matches
+    the completing token by its
     in-memory `waiting_child_instance_id` against the payload's
     `child_instance_id` instead, since that is the one field the payload
     actually carries that identifies which parked token this event closes.
@@ -733,10 +735,13 @@ defmodule Letflow.Engine.Reconstruction do
   # completion path makes (SubProcess.build_completion_multi_from_merge/10),
   # then dispatch through the same {:sub_process_completed, token_id}
   # Transition.transition/3 event the live path dispatches
-  # (SubProcess.append_completion_multi/5). No node_id is persisted on this
-  # event type, so the completing token is found by matching the payload's
-  # child_instance_id against each in-memory token's own
-  # waiting_child_instance_id instead (find_sub_process_completion_token/2).
+  # (SubProcess.append_completion_multi/5). The completing token is found by
+  # matching the payload's child_instance_id against each in-memory token's
+  # own waiting_child_instance_id instead (find_sub_process_completion_token/2);
+  # the payload's own `node_id` (the parent's node, added by pilot gap G6) is
+  # not read here -- the replay resolves the parent node from the child's own
+  # start event (fetch_child_parent_node_id/2), which is the authoritative
+  # parent link even for an event written before that field existed.
   defp apply_event(
          graph,
          %InstanceState{} = state,
