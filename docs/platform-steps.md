@@ -279,6 +279,42 @@ references the definition row by `definition_id`, and a forked copy is a differe
 Nothing in this change assumes that a definition is editable by whoever sees it, or that a tenant
 has exactly one definition per key.
 
+## The step log: what a step did, in one row (gap G6)
+
+`GET /api/v1/instances/:id/timeline` carries the STEP LOG next to its event page: one row per node
+visit -- who ran it, when it started, when it ended, how it ended, how long it took, how many
+attempts it took and the failure kind of the last attempt. `Letflow.Instances.StepLog` derives it
+from what the engine already writes: the instance's own events (the `NODE_ENTERED` event that
+opened the visit and the event that closed it) and the dispatch rows of the three automatic step
+kinds (`service_task_dispatches`, `script_task_dispatches`, `platform_step_dispatches`). There is
+NO step-log table and NO second write path.
+
+A step row names the node, the function (or the script) the node ran and the OUTCOME. It never
+carries a value: no input, no output, no request body, no response body, no URL, no header. The
+dispatch row above DOES hold the resolved arguments (the realm, the first administrator's
+address); the log reads that row for the attempt count and the failure kind and copies nothing
+else. An HTTP service task's row carries no name at all, because its URL and its
+`config_snapshot` can carry a secret.
+
+The DLQ row of an exhausted step follows the same rule: it keeps the METHOD and the ORIGIN of
+the destination and drops the body, the headers, the path and the query, so a bearer credential,
+a mail body or a token in a query string cannot reach the dead-letter table (INV-4).
+
+A visit is closed by the first event that closes it, and every one of those rules reads the node
+the way the WRITER of the event writes it: a completion event (`TASK_COMPLETED`,
+`SERVICE_TASK_COMPLETED`, `SCRIPT_TASK_COMPLETED`, `SUB_PROCESS_COMPLETED`, `TIMER_FIRED`) names
+the node in its own `node_id`, and an `EXECUTION_ERROR` names the affected resource under
+`affected` (`{"kind": "node", "node_id": ...}`) -- so an error closes the visit of the node it
+happened on, even when another visit is open at the same time, and only an error that names NO
+node (a field error) falls back to the oldest open visit. The `SUB_PROCESS_COMPLETED` event
+writes the parent's own node since pilot gap G6, so a sub-process visit ends with a result and a
+duration instead of running for the rest of the instance's life.
+
+The log is a screen, not an export: the event read is capped at the most recent 5 000 events, the
+answer holds at most the most recent 200 visits, and the event query projects the few payload
+fields the log needs (`node_id`, `node_type`, `affected`) in the database -- a payload body (an
+output, a decoded HTTP body, a variable map) is never loaded into the process.
+
 ## The tests
 
 * `test/letflow/platform_functions/dispatcher_test.exs` -- the dispatcher, the authority fence,
@@ -322,3 +358,12 @@ has exactly one definition per key.
   enumerate is reduced to the generic code through `Dispatcher.record_outcome/3`, and every
   body of the tree is a registered one. Tagged `:security_probe`, so it runs in the checks
   step for every backend change.
+* `test/letflow/instances/step_log_test.exs` -- the derivation of the step log: a human task visit
+  is one step with its actor, its times, its result, its duration and its attempts; a pass-through
+  node is closed by the next node visit; an `EXECUTION_ERROR` closes the step it names; a
+  cancelled instance closes every open step; a platform step names the function it ran and takes
+  its attempts and its failure kind from its own dispatch row.
+* `test/letflow/instances/step_log_secret_test.exs` -- the NO-SECRET proof (owner items 4 and 7):
+  a step whose dispatch row holds a realm credential, a token and a mail body puts none of them
+  into the step log or into the timeline answer, and the DLQ payload of an exhausted step keeps
+  the method and the origin and drops the body, the headers and the query.
