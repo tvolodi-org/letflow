@@ -13,8 +13,9 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
       the tracked tree;
     * the scan reports a secret-class finding the reviewed triage list does not carry, or a listed
       finding that occurs more often than it did when it was reviewed;
-    * the scanner holds a secret rule that the probe does not gate: the gated set is derived from
-      the scanner's own rule table, so a rule added there cannot pass unnoticed.
+    * the scanner holds a secret rule that the probe does not gate, or the probe gates a rule the
+      scanner no longer holds: the gated set is written by hand and CHECKED against the scanner's
+      own rule table in both directions, so neither a new nor a dropped rule passes unnoticed.
 
   The non-vacuity cases are seeded: a tracked file holding a credential-shaped value must be
   caught, and a finding the triage list does not carry must be a failure. The fake value is built
@@ -49,6 +50,11 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
   # The credential-shaped rules of the scanner (scripts/oss_audit/rules.py): a private key, a
   # cloud-provider key, a provider token, a JWT, a connection string with a password. They are
   # gated over the whole tracked tree.
+  #
+  # The gated set is written HERE by hand (the probe is the only place that knows what it
+  # gates), and the case R6 checks it against the scanner's own table in BOTH directions: a rule
+  # the scanner holds and the probe does not gate fails, and a rule the probe gates and the
+  # scanner no longer holds fails too, so the hand list cannot rot.
   @credential_rules ~w(S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12)
 
   # The password-assignment rule fires on fixture values all over the test tree, so it is gated
@@ -58,7 +64,7 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
 
   # A secret rule of the scanner that the probe deliberately does NOT gate, with the reason.
   # It is empty today: every secret rule the scanner can emit without --include-noise is gated.
-  # The rule set below is derived from the scanner's own table (SECRET_RULE_IDS in
+  # The rule set above is checked against the scanner's own table (SECRET_RULE_IDS in
   # scripts/oss_audit/rules.py), so a rule added there and not gated here fails the probe
   # instead of passing unnoticed.
   @ungated_rules %{}
@@ -124,6 +130,14 @@ defmodule Letflow.SecurityProbe.G11SecretScanProbeTest do
     for {id, reason} <- @ungated_rules do
       assert id in ids, "#{id} is documented as ungated but is not a secret rule of the scanner"
       assert reason != "", "#{id} is documented as ungated without a reason"
+    end
+
+    # The other direction: the gated set is written by hand, so a rule the scanner DROPS would
+    # stay in the list unnoticed and the probe would keep waiting for a rule that cannot fire.
+    for id <- @credential_rules ++ [@assignment_rule] do
+      assert id in ids,
+             "#{id} is gated by the probe but is not a secret rule of scripts/oss_audit/rules.py " <>
+               "any more: the gated set must follow the scanner's rule table"
     end
   end
 

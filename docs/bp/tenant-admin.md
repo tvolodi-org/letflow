@@ -1718,7 +1718,9 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 
 ## Orphans (docs/bp/orphans-tenant-admin.md)
 
-The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-tenant-admin.md`).
+| function | file:line | what it does | history | why it exists | proposed action |
+|---|---|---|---|---|---|
+| GET /api/v1/notification-templates/catalogue | lib/letflow/routers/notification_templates.ex:60 | reads the compiled catalogue of the registered notification template keys and the placeholder allow-list of each | T-2600 (pilot gap G5b), commit c0b6d37ae, 2026-11-23 | the designer's notification-step editor reads it to offer the templates a service step may use; the tenant's own text stays behind the route of BP-TENANT-ADMIN-26, and no designer-area process of that editor exists yet | give a process |
 
 ## Gaps of the area
 
