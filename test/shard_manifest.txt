@@ -432,6 +432,7 @@
 9 test/letflow/routers/req516_record_history_routes_test.exs 21168.20
 9 test/letflow/routers/solution_packs_update_overrides_test.exs 58013.77
 9 test/letflow/routers/tenant_modules_upgrade_plan_test.exs 78791.40
+9 test/letflow/security_probe/g02_writer_start_inventory_test.exs 6400.00
 9 test/letflow/tenant_provisioning/backfill_test.exs 9425.57
 9 test/mix/tasks/letflow_check_uat_scenario_schema_test.exs 7707.60
 9 test/support/tenant_schema_reaper_test.exs 307.10
