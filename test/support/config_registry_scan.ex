@@ -2,11 +2,11 @@ defmodule Letflow.Support.ConfigRegistryScan do
   @moduledoc """
   G-10: the derivation behind the config/env/flag registry probe.
 
-  The registry (`priv/config_registry.txt`) is the reviewed answer to "which configuration does
-  this product have, who owns it, why does it exist, how is it read and must its absence fail
-  closed". This module derives the other half **from the tree**: every environment variable and
-  every application environment key the sources name, with the form of each read (a default or
-  not, compile-time or runtime, a config directive or a read).
+  The registry (`test/support/security_probe/g10_config_registry.txt`) is the reviewed answer to
+  "which configuration does this product have, who owns it, why does it exist, how is it read and
+  must its absence fail closed". This module derives the other half **from the tree**: every
+  environment variable and every application environment key the sources name, with the form of
+  each read (a default or not, compile-time or runtime, a config directive or a read).
 
   It reads files and parses them with `Code.string_to_quoted!/2`. It starts nothing, opens no
   socket, reads no clock and touches no database, so it is deterministic and costs a couple of
@@ -40,7 +40,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
   read like any other: `def f(x \\ System.get_env("X"))` names `X`.
   """
 
-  @registry_path "priv/config_registry.txt"
+  @registry_path "test/support/security_probe/g10_config_registry.txt"
 
   @kinds ~w(plain flag guard secret url)
   @reads ~w(compile_time runtime)
@@ -142,7 +142,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
   The registry of `root`, as a list of entries, or `{:error, reason}` when it cannot be read.
 
   The registry is a text file: a header of `#` lines and one line per setting, ten
-  pipe-separated columns (see `priv/config_registry.txt`).
+  pipe-separated columns (see `test/support/security_probe/g10_config_registry.txt`).
   """
   @spec registry(Path.t()) :: {:ok, [map()]} | {:error, String.t()}
   def registry(root) when is_binary(root) do
@@ -210,8 +210,17 @@ defmodule Letflow.Support.ConfigRegistryScan do
   """
   @spec findings(Path.t()) :: [map()]
   def findings(root) when is_binary(root) do
-    inv = inventory(root)
+    findings(inventory(root), root)
+  end
 
+  @doc """
+  The findings of an inventory that was derived already, without reading the tree again.
+
+  The tree is the expensive half of the probe: a caller that derives the inventory once can ask
+  for the findings of that inventory without a second derivation.
+  """
+  @spec findings(map(), Path.t()) :: [map()]
+  def findings(inv, root) when is_map(inv) and is_binary(root) do
     case registry(root) do
       {:ok, entries} -> findings(inv, entries, root)
       {:error, reason} -> [%{code: :registry_unreadable, name: @registry_path, detail: reason}]
@@ -1107,27 +1116,45 @@ defmodule Letflow.Support.ConfigRegistryScan do
       |> Enum.filter(&(&1.form not in [:compile_env, :compile_env_default, :directive]))
       |> MapSet.new(& &1.name)
 
-    findings
-    |> add(
-      :read_mode_mismatch,
-      Enum.any?(compile_time, fn name ->
+    read_as_runtime =
+      compile_time
+      |> Enum.filter(fn name ->
         entry = Map.get(by_name, "app_env:#{name}")
 
         entry != nil and entry["read"] != "compile_time"
-      end),
-      "the registry",
-      "a key read with Application.compile_env/2 is not registered as compile_time"
-    )
-    |> add(
-      :read_mode_mismatch,
-      Enum.any?(runtime, fn name ->
+      end)
+      |> Enum.sort()
+
+    read_as_compile_time =
+      runtime
+      |> Enum.filter(fn name ->
         entry = Map.get(by_name, "app_env:#{name}")
 
         entry != nil and entry["read"] == "compile_time"
-      end),
-      "the registry",
-      "a key registered as compile_time is not read with Application.compile_env/2"
-    )
+      end)
+      |> Enum.sort()
+
+    acc =
+      Enum.reduce(read_as_runtime, findings, fn name, acc ->
+        add(
+          acc,
+          :read_mode_mismatch,
+          true,
+          "app_env:#{name}",
+          "the key #{name} is read with Application.compile_env/2 but registered as a runtime read"
+        )
+      end)
+
+    Enum.reduce(read_as_compile_time, acc, fn name, acc ->
+      add(
+        acc,
+        :read_mode_mismatch,
+        true,
+        "app_env:#{name}",
+        "the key #{name} is registered as a compile_time read but not read with " <>
+          "Application.compile_env/2"
+      )
+    end)
   end
 
   defp check_flags(findings, inv, by_name, root) do
@@ -1323,8 +1350,9 @@ defmodule Letflow.Support.ConfigRegistryScan do
     end)
   end
 
-  # The validator of a URL is a module of the tree or `none` for an address the server never
-  # fetches. A sentinel that names no module is not a validation: it is an unbacked claim.
+  # The validator of a URL is a module of the tree, or `none` for an address no tenant can
+  # point elsewhere: the operator sets it, so no tenant-controlled outbound fetch happens.
+  # A sentinel that names no module is not a validation: it is an unbacked claim.
   defp check_url_validator(findings, root, entry, _inv) do
     validator = entry["validator"]
     name = "#{entry["source"]}:#{entry["name"]}"
@@ -1340,7 +1368,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
           true,
           name,
           "the validator startup names no validation: name the module that validates the " <>
-            "address, or none for an address the server never fetches"
+            "address, or none for an address no tenant can point elsewhere"
         )
 
       true ->

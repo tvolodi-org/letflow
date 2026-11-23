@@ -2,14 +2,14 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
   @moduledoc """
   G-10: the config/env/flag registry (team coverage map, `docs/security-coverage.md`, gap G-10).
 
-  The registry `priv/config_registry.txt` says which environment variable, application
-  environment key, flag, secret and URL the product has, who owns it, why it exists, how it is
-  read and whether its absence must fail closed. This probe derives the other half from the
-  tree -- every environment variable and every application environment key the sources read,
-  with the form of each read -- and fails until the two agree. A new setting therefore cannot
-  be added without a registered reason, a feature flag cannot be switched on by default, a
-  fail-closed setting cannot be read with a default that takes effect, and a secret cannot
-  come with a literal.
+  The registry `test/support/security_probe/g10_config_registry.txt` says which environment
+  variable, application environment key, flag, secret and URL the product has, who owns it, why
+  it exists, how it is read and whether its absence must fail closed. This probe derives the
+  other half from the tree -- every environment variable and every application environment key
+  the sources read, with the form of each read -- and fails until the two agree. A new setting
+  therefore cannot be added without a registered reason, a feature flag cannot be switched on by
+  default, a fail-closed setting cannot be read with a default that takes effect, and a secret
+  cannot come with a literal.
 
   The derivation is `Letflow.Support.ConfigRegistryScan` (test/support): it parses the sources
   with `Code.string_to_quoted!/2` and starts nothing. The seeded failing variants live in
@@ -23,7 +23,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
 
   @moduletag :unit
   @moduletag :security_probe
-  @moduletag probe_cost_s: 13
+  @moduletag probe_cost_s: 4
   @moduletag timeout: 300_000
 
   alias Letflow.Secrets.LogFilter
@@ -34,12 +34,19 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
   @broken_tree Path.join([@root, "test", "fixtures", "security_probes", "g10", "broken_tree"])
 
   setup_all do
-    {:ok, inventory: Scan.inventory(@root), findings: Scan.findings(@root)}
+    inventory = Scan.inventory(@root)
+    broken_inventory = Scan.inventory(@broken_tree)
+
+    {:ok,
+     inventory: inventory,
+     findings: Scan.findings(inventory, @root),
+     broken_inventory: broken_inventory,
+     broken_findings: Scan.findings(broken_inventory, @broken_tree)}
   end
 
-  test "G10: every setting the product reads is in the config/env/flag registry" do
-    findings = Scan.findings(@root)
-
+  test "G10: every setting the product reads is in the config/env/flag registry", %{
+    findings: findings
+  } do
     assert findings == [],
            "the config/env/flag registry does not match the tree:\n" <> Scan.summarize(findings)
   end
@@ -72,9 +79,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
   end
 
   describe "N1 the seeded failing variants are caught" do
-    test "every deliberate defect of the fixture tree is reported" do
-      findings = Scan.findings(@broken_tree)
-
+    test "every deliberate defect of the fixture tree is reported", %{broken_findings: findings} do
       reported = Enum.map(findings, &{&1.code, &1.name})
 
       assert {:unregistered_env, "env:G10_UNREGISTERED_SETTING"} in reported
@@ -89,7 +94,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert {:flag_not_off, "app_env::letflow:g10_keyword_flag"} in reported
       assert {:secret_literal_default, "app_env::letflow:g10_secret"} in reported
       assert {:fail_closed_permissive, "app_env::letflow:g10_secret"} in reported
-      assert {:read_mode_mismatch, "the registry"} in reported
+      assert {:read_mode_mismatch, "app_env::letflow:g10_runtime_key"} in reported
       assert {:stale_entry, "app_env::letflow:g10_stale"} in reported
       assert {:url_without_validator, "app_env::letflow:g10_url"} in reported
       assert {:url_without_validator, "app_env::letflow:g10_startup_url"} in reported
@@ -97,9 +102,9 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert Enum.any?(reported, &match?({:malformed_entry, _name}, &1))
     end
 
-    test "each form a variable can be named in is found by that form" do
-      inventory = Scan.inventory(@broken_tree)
-
+    test "each form a variable can be named in is found by that form", %{
+      broken_inventory: inventory
+    } do
       forms =
         inventory.env
         |> Enum.map(fn site -> {site.name, site.form, site.file} end)
@@ -117,9 +122,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
              ]
     end
 
-    test "a list of something else is not a list of variables" do
-      inventory = Scan.inventory(@broken_tree)
-
+    test "a list of something else is not a list of variables", %{broken_inventory: inventory} do
       names = Enum.map(inventory.env, & &1.name)
 
       refute "G10_STATUS_PENDING" in names,
@@ -129,9 +132,12 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
              "a list of statuses whose consumer does not read the environment was taken for variables"
     end
 
-    test "the fixture tree is broken on purpose and the real tree is not" do
-      assert Scan.findings(@broken_tree) != []
-      assert Scan.findings(@root) == []
+    test "the fixture tree is broken on purpose and the real tree is not", %{
+      findings: findings,
+      broken_findings: broken_findings
+    } do
+      assert broken_findings != []
+      assert findings == []
     end
   end
 

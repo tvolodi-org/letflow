@@ -19,8 +19,9 @@
 # default     none (the setting has no default), false, true, a number, or module (the owning
 #             module's own constant)
 # fail_closed yes when the absence of the setting must not take effect
-# validator   none (the address is not a server side outbound destination, or nothing
-#             validates it) or the module of the tree that validates it
+# validator   none (no tenant-controlled outbound fetch of the address: the operator
+#             sets it and no tenant can point it elsewhere) or the module of the tree
+#             that validates it
 # reason      one plain sentence: why the setting exists
 #
 # A reason must not end in a question mark and must not be a placeholder. A refresh is not a
@@ -119,8 +120,8 @@ env|LOG_LEVEL|operations|platform|runtime|plain|info|no|none|Level the logger wr
 env|MIX_TEST_PARTITION|testing|test|runtime|plain|none|no|none|Number of the database partition a test run owns.
 env|MOBILE_OIDC_CLIENT_ID|web|platform|runtime|plain|none|no|none|OIDC client identifier the mobile application authenticates with.
 env|OIDC_CLIENT_ID|identity|platform|runtime|plain|none|no|none|OIDC client identifier the web application authenticates with.
-env|OIDC_ISSUER|identity|platform|runtime|url|none|no|none|Issuer the tokens are accepted from, the legacy name of the identity provider address.
-env|OIDC_KEYCLOAK_BASE_URL|identity|platform|runtime|url|none|no|none|Address of the identity provider the tokens are verified against.
+env|OIDC_ISSUER|identity|platform|runtime|url|none|no|none|Issuer the tokens are accepted from, the legacy name of the identity provider address; the realm probe fetches the realm metadata from it and the operator sets it, so no tenant can point it elsewhere.
+env|OIDC_KEYCLOAK_BASE_URL|identity|platform|runtime|url|none|no|none|Address of the identity provider the tokens are verified against; the realm probe fetches the realm metadata from it and the operator sets it, so no tenant can point it elsewhere.
 env|POOL_SIZE|operations|platform|runtime|plain|30|no|none|Number of connections the database pool may hold.
 env|PORT|operations|platform|runtime|plain|4000|no|none|Port the HTTP listener binds.
 env|RELEASE_NAME|operations|platform|runtime|plain|none|no|none|Name of the release the running build belongs to.
