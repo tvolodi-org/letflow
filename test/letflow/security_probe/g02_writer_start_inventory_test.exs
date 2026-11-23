@@ -32,7 +32,66 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   @moduletag :security_probe
   @moduletag probe_cost_s: 20
 
-  @inventory "test/fixtures/security_probes/g02_repo_inventory.txt"
+  # The exception list of W1: every file outside the Letflow.Definitions namespace that calls a
+  # derived definition writer. The scan is regenerated from the tree on every run, so nothing here
+  # is a snapshot of main: an UNLISTED new caller fails, and an unrelated Repo call never does. Each
+  # row is a reviewed entry path (HTTP router, module seed or activation, identity reconciliation,
+  # engine snapshot) named in the class table's W1 section.
+  @definition_callers [
+    {"lib/letflow/engine.ex", "Letflow.Definitions.SnapshotStore", :create},
+    {"lib/letflow/engine/sub_process.ex", "Letflow.Definitions.SnapshotStore", :create},
+    {"lib/letflow/identity.ex", "Letflow.Definitions.Reactivation", :reconcile_user},
+    {"lib/letflow/identity/role_registry.ex", "Letflow.Definitions.Reactivation",
+     :reconcile_group},
+    {"lib/letflow/modules/assets/documents/posting.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/modules/ensure_seeds.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/modules/ensure_seeds.ex", "Letflow.Definitions.SolutionPack",
+     :install_entity_definitions},
+    {"lib/letflow/modules/ensure_seeds.ex", "Letflow.Definitions.SolutionPack",
+     :install_process_drafts},
+    {"lib/letflow/modules/installs.ex", "Letflow.Definitions.SolutionPack", :install},
+    {"lib/letflow/modules/installs.ex", "Letflow.Definitions.SolutionPack",
+     :install_entity_definitions},
+    {"lib/letflow/modules/maintenance/orders.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/modules/stock/documents/posting.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/platform_functions/guard.ex", "Letflow.Definitions.Reactivation",
+     :mark_definition},
+    {"lib/letflow/platform_processes/seed.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/platform_processes/seed.ex", "Letflow.Definitions",
+     :create_with_variable_schemas},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :activate},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :archive},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :create_with_variable_schemas},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :deprecate},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :hard_delete},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :reactivate},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :rollback_definition_version},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :update},
+    {"lib/letflow/routers/definitions.ex", "Letflow.Definitions.ExportImport",
+     :import_with_variable_schemas},
+    {"lib/letflow/routers/promotions.ex", "Letflow.Definitions",
+     :apply_promotion_assertion_rerun},
+    {"lib/letflow/routers/promotions.ex", "Letflow.Definitions.Promotion", :apply_review},
+    {"lib/letflow/routers/promotions.ex", "Letflow.Definitions.PromotionReviewStore",
+     :approve_review},
+    {"lib/letflow/routers/promotions.ex", "Letflow.Definitions.PromotionReviewStore",
+     :insert_review},
+    {"lib/letflow/routers/promotions.ex", "Letflow.Definitions.PromotionReviewStore",
+     :reject_review},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions.SolutionPack",
+     :apply_pack_update},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions.SolutionPack", :install},
+    {"lib/letflow/routers/solution_packs.ex",
+     "Letflow.Definitions.SolutionPackOverrideActivation", :activate},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions.SolutionPackOverrides",
+     :create},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions.SolutionPackOverrides",
+     :new_version},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions.SolutionPackOverrides",
+     :retire},
+    {"lib/letflow/routers/tenants.ex", "Letflow.Definitions.Promotion",
+     :promote_active_definition}
+  ]
 
   @definition_classes %{
     {"Letflow.Definitions", :create, 2} => :graph_write,
@@ -115,9 +174,10 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {:ok, scan: G02.scan()}
   end
 
-  test "W1: the checked-in inventory equals every real Repo and Ecto.Multi call", %{scan: scan} do
-    expected = File.read!(@inventory)
-    assert G02.inventory_drift(scan, expected) == []
+  test "W1: every caller of a definition writer outside its namespace is a listed entry path", %{
+    scan: scan
+  } do
+    assert G02.definition_caller_drift(scan, @definition_callers) == []
   end
 
   test "W2: the real inventory is complete and non-empty across read, write and Multi verbs", %{
@@ -218,18 +278,32 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
            )
   end
 
-  test "N1 non-vacuity: deleting one real Repo.update makes the inventory probe fail", %{
-    scan: scan
-  } do
-    update = Enum.find(G02.repo_inventory(scan), &(&1.class == :repo and &1.fun == :update))
-    assert update
+  test "N1 non-vacuity: an unlisted caller of a definition writer makes the inventory probe fail",
+       %{scan: scan} do
+    source = """
+    defmodule Letflow.Rogue.Activator do
+      alias Letflow.Definitions
 
-    broken = List.delete(G02.repo_inventory(scan), update)
-    expected = File.read!(@inventory)
+      def switch_on(tenant, id), do: Definitions.activate(tenant, id)
+    end
+    """
 
-    assert [{:missing, line}] = G02.inventory_drift(broken, expected)
-    assert line =~ " repo "
-    assert line =~ ".update/"
+    rogue = G02.scan_source("lib/letflow/rogue/activator.ex", source)
+    merged = %{scan | modules: Map.merge(scan.modules, rogue.modules)}
+
+    assert [
+             {:unlisted_caller,
+              {"lib/letflow/rogue/activator.ex", "Letflow.Definitions", :activate}}
+           ] =
+             G02.definition_caller_drift(merged, @definition_callers)
+
+    # control: the real tree is clean, and a listed caller that vanishes is reported too
+    assert G02.definition_caller_drift(scan, @definition_callers) == []
+
+    assert [{:no_longer_a_caller, _}] =
+             G02.definition_caller_drift(scan, [
+               {"lib/letflow/gone.ex", "Letflow.Definitions", :activate} | @definition_callers
+             ])
   end
 
   test "N2 non-vacuity: direct, Multi, callback and dynamic writers cannot join definition paths silently" do

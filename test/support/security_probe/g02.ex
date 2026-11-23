@@ -130,43 +130,6 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     Enum.filter(scan.calls, &(&1.class in [:repo, :multi]))
   end
 
-  @doc "Stable, line-independent rendering: moving a call does not hide an added/removed call."
-  def render_repo_inventory(scan_or_calls) do
-    calls =
-      if is_map(scan_or_calls) and Map.has_key?(scan_or_calls, :calls),
-        do: repo_inventory(scan_or_calls),
-        else: scan_or_calls
-
-    calls
-    |> Enum.map(fn call ->
-      {name, arity} = call.caller
-
-      [
-        call.path,
-        "#{name}/#{arity}",
-        to_string(call.class),
-        "#{call.target}.#{call.fun}/#{call.arity}",
-        to_string(call.form)
-      ]
-      |> Enum.join(" ")
-    end)
-    |> Enum.sort()
-    |> Enum.join("\n")
-    |> Kernel.<>("\n")
-  end
-
-  @doc "Returns added and missing inventory lines, bounded for a useful assertion failure."
-  def inventory_drift(scan_or_calls, expected_text) do
-    actual = scan_or_calls |> render_repo_inventory() |> String.split("\n", trim: true)
-    expected = String.split(expected_text, "\n", trim: true)
-
-    added = actual -- expected
-    missing = expected -- actual
-
-    Enum.map(Enum.take(added, 30), &{:added, &1}) ++
-      Enum.map(Enum.take(missing, 30), &{:missing, &1})
-  end
-
   @doc "Public functions in the definition namespace whose transitive local call graph writes."
   def definition_entries(scan) do
     for {module, data} <- scan.modules,
@@ -176,6 +139,34 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
         closure = closure(scan, module, name, arity),
         writes_definition_row?(closure),
         do: {module, name, arity}
+  end
+
+  @doc """
+  Callers outside the definition namespace: `{path, module, function}` for every call, by a module
+  that is not in the `Letflow.Definitions` namespace, of a function the scan derived as a
+  definition writer. It is derived from the tree on every run, so it holds no snapshot of the tree.
+  """
+  def definition_callers(scan) do
+    writers =
+      scan |> definition_entries() |> MapSet.new(fn {module, name, _arity} -> {module, name} end)
+
+    for {module, data} <- scan.modules,
+        not definition_module?(module),
+        {{name, arity}, _bodies} <- data.functions,
+        {calls, _atoms} = node_calls(scan, {module, name, arity}),
+        {:remote, target, fun, _arity, _form} <- calls,
+        MapSet.member?(writers, {target, fun}),
+        uniq: true,
+        do: {data.path, target, fun}
+  end
+
+  @doc "Unlisted and vanished callers of a definition writer, both a failure."
+  def definition_caller_drift(scan, expected) do
+    actual = scan |> definition_callers() |> Enum.sort()
+    expected = Enum.sort(expected)
+
+    Enum.map(actual -- expected, &{:unlisted_caller, &1}) ++
+      Enum.map(expected -- actual, &{:no_longer_a_caller, &1})
   end
 
   @doc "A closed-set mismatch is a failing probe: both new and missing entry points are reported."
