@@ -4,12 +4,17 @@ defmodule Letflow.Notifications.AddressTest do
   notification step puts between a variable of the running instance and the mail
   adapter.
 
-  Test ids A1..A8.
+  The gate is the ADAPTER's own allow-list (`Letflow.LoginDiscovery.Notifier.Smtp.Message`),
+  so A9 proves that the two can never disagree: a guard and the consumer it
+  protects must share one parse, not hold two opinions about the same value.
+
+  Test ids A1..A9.
   """
 
   use ExUnit.Case, async: true
   @moduletag :unit
 
+  alias Letflow.LoginDiscovery.Notifier.Smtp.Message
   alias Letflow.Notifications.Address
 
   test "A1 a plain address is valid" do
@@ -67,5 +72,33 @@ defmodule Letflow.Notifications.AddressTest do
 
   test "A8 an address that is not valid UTF-8 is refused" do
     refute Address.valid?(<<97, 255, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109>>)
+  end
+
+  test "A9 the gate and the adapter's allow-list agree on every case (one parse, shared)" do
+    # The shapes the two parsers used to disagree on: the old second copy of the
+    # rules accepted an IP literal, an underscore and a non-ASCII domain, and
+    # refused every punycode label. The gate is now the adapter's own
+    # allow-list, so the two cannot disagree at all.
+    cases = [
+      {"admin@example.com", true},
+      {"first.last+tag@sub.example.co.uk", true},
+      {"admin@xn--bcher-kva.example", true},
+      {"admin@example", false},
+      {"admin@192.0.2.1", false},
+      {"admin@ex_ample.com", false},
+      {"admin@bücher.example", false},
+      {"admin@@example.com", false},
+      {"admin@example.com\nBcc: someone@example.com", false},
+      {"admin @example.com", false},
+      {"", false}
+    ]
+
+    for {address, expected} <- cases do
+      assert Address.valid?(address) == expected,
+             "the gate disagrees on #{inspect(address)}"
+
+      assert Message.valid_address?(address) == expected,
+             "the adapter disagrees on #{inspect(address)}"
+    end
   end
 end

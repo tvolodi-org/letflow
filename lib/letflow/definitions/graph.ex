@@ -503,7 +503,7 @@ defmodule Letflow.Definitions.Graph do
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
         &check_service_task_platform_call_route/1,
-        &check_service_task_notify/1,
+        &check_notify/1,
         &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
@@ -1177,17 +1177,19 @@ defmodule Letflow.Definitions.Graph do
   # `Letflow.Definitions.NotifyCalls` -- ONE parse, shared with the dispatcher,
   # so a step that passed this check cannot be read differently at dispatch time.
   # Messages name the node id only, never a template key, an address or a value.
-  @spec check_service_task_notify(t()) :: [Violation.t()]
-  defp check_service_task_notify(%__MODULE__{nodes: nodes}) do
+  #
+  # The check runs over EVERY node that carries the attribute, not only over the
+  # SERVICE_TASK ones: the node type is one of the rules the declaration states
+  # (a notification step is a SERVICE_TASK), so a HUMAN_TASK carrying a `notify`
+  # attribute is refused in the DRAFT, not only when the version is switched on.
+  @spec check_notify(t()) :: [Violation.t()]
+  defp check_notify(%__MODULE__{nodes: nodes}) do
     for node <- nodes,
-        node.node_type == :SERVICE_TASK,
         attribute_value(node.attributes, "notify") != nil,
         violation <- NotifyCalls.violations(node, nodes) do
       %Violation{
         code: violation.code,
-        message:
-          "Node '#{node.id}' (SERVICE_TASK) carries an invalid 'notify' attribute " <>
-            "(#{violation.code})"
+        message: "Node '#{node.id}' carries an invalid 'notify' attribute (#{violation.code})"
       }
     end
   end

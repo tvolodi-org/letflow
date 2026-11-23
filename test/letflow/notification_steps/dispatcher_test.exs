@@ -74,7 +74,6 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
       declaration,
       variables,
       prefix: fx.schema_name,
-      tenant_id: fx.tenant_id,
       trigger_ref: Ecto.UUID.generate(),
       labels: Keyword.get(opts, :labels, %{})
     )
@@ -112,8 +111,8 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
                  declaration(),
                  variables(),
                  prefix: fx.schema_name,
-                 tenant_id: fx.tenant_id,
-                 trigger_ref: trigger_ref
+                 trigger_ref: trigger_ref,
+                 labels: %{}
                )
 
       assert [%{tenant_id: tenant_id, locale: "en", trigger_ref: ^trigger_ref}] = rows(fx)
@@ -150,12 +149,38 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
                  declaration(),
                  variables(),
                  prefix: other.schema_name,
-                 tenant_id: other.tenant_id,
-                 trigger_ref: Ecto.UUID.generate()
+                 trigger_ref: Ecto.UUID.generate(),
+                 labels: %{}
                )
 
       # The other tenant's send does not count against this tenant's cap.
       assert {:ok, "sent", nil} = run(fx, declaration(), variables())
+    end
+
+    test "N2c the cap is per tenant and CHANNEL: the template key does not multiply it",
+         %{fx: fx} do
+      :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
+
+      # One address send of ANOTHER template: the cap counts the tenant's
+      # outbound channel, not the template key (the decided rule is a cap per
+      # tenant and channel; a definition that rotates keys must not reach 8x
+      # the ceiling).
+      {:ok, _row} =
+        Repo.insert(
+          Delivery.changeset(%{
+            tenant_id: Ecto.UUID.cast!(fx.tenant_id),
+            template_key: "task_assigned",
+            locale: "en",
+            recipient_user_id: nil,
+            status: "sent",
+            reason: nil,
+            trigger_ref: Ecto.UUID.generate()
+          }),
+          prefix: fx.schema_name
+        )
+
+      assert {:ok, "skipped", "rate_limited"} = run(fx, declaration(), variables())
+      refute_receive {:deliver_message, _message}, 200
     end
   end
 
@@ -235,6 +260,47 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
     test "N10 a missing value variable is refused", %{fx: fx} do
       assert {:error, :notify_value_missing} =
                run(fx, declaration(), Map.delete(variables(), "tenant_name"))
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [] = rows(fx)
+    end
+
+    test "N11 the labels are required: a step that cannot see them refuses", %{fx: fx} do
+      # A labelled variable never leaves the process (decision 0062 R12), so a
+      # step that is not told which variables are labelled cannot run at all.
+      assert {:error, :notify_labels_missing} =
+               Dispatcher.run(
+                 declaration(),
+                 variables(),
+                 prefix: fx.schema_name,
+                 trigger_ref: Ecto.UUID.generate()
+               )
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [] = rows(fx)
+    end
+
+    test "N12 the row's tenant is the tenant of the PREFIX, never a field of the caller",
+         %{fx: fx} do
+      # A row physically sits in ONE tenant's schema, so the tenant it claims to
+      # belong to is derived from that schema (decision 0003's addendum). The
+      # dispatcher takes no tenant at all: there is nothing for a caller to
+      # disagree with.
+      assert {:ok, "sent", nil} = run(fx, declaration(), variables())
+
+      assert [%{tenant_id: tenant_id}] = rows(fx)
+      assert tenant_id == fx.tenant_id
+    end
+
+    test "N13 a prefix that names no tenant is refused: nothing is sent, no row", %{fx: fx} do
+      assert {:error, :notify_invalid_schema} =
+               Dispatcher.run(
+                 declaration(),
+                 variables(),
+                 prefix: "not_a_tenant_schema",
+                 trigger_ref: Ecto.UUID.generate(),
+                 labels: %{}
+               )
 
       refute_receive {:deliver_message, _message}, 200
       assert [] = rows(fx)

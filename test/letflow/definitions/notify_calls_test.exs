@@ -140,17 +140,31 @@ defmodule Letflow.Definitions.NotifyCallsTest do
       assert [%{code: :notify_template_unknown}] =
                Graph.validate_node_attributes(graph).violations
     end
+
+    test "D16 a node that is not a SERVICE_TASK is refused in the DRAFT, not only at activation" do
+      # The node type is one of the rules the declaration states, so the draft
+      # path refuses it too: a HUMAN_TASK carrying a `notify` attribute is not
+      # stored and then switched on.
+      graph =
+        graph_with(declaration(), node_type: "HUMAN_TASK", extra_attributes: %{"role" => "A"})
+
+      assert [%{code: :notify_node_type_not_supported}] =
+               Graph.validate_node_attributes(graph).violations
+    end
   end
 
-  defp graph_with(declaration) do
+  defp graph_with(declaration, opts \\ []) do
+    node_type = Keyword.get(opts, :node_type, "SERVICE_TASK")
+    extra = Keyword.get(opts, :extra_attributes, %{})
+
     {:ok, graph} =
       Graph.from_map(%{
         "nodes" => [
           %{"id" => "start", "node_type" => "START"},
           %{
             "id" => "notify",
-            "node_type" => "SERVICE_TASK",
-            "attributes" => %{"notify" => declaration}
+            "node_type" => node_type,
+            "attributes" => Map.merge(%{"notify" => declaration}, extra)
           },
           %{"id" => "end", "node_type" => "END"}
         ],

@@ -12,14 +12,17 @@ defmodule Letflow.NotificationSteps.Dispatcher do
        cannot be read differently here;
     2. refuses a variable that carries a LABEL (a sensitive value the engine
        marked): a labelled variable never leaves the process (the rule of
-       decision 0062 R12, the one the HTTP service task obeys);
+       decision 0062 R12, the one the HTTP service task obeys). The labels are
+       REQUIRED: a step that cannot see them cannot refuse a sensitive value,
+       so a missing map is a refusal;
     3. resolves the RECIPIENT from the instance variables and checks it
        (`Letflow.Notifications.Address`);
     4. resolves the declared values from the instance variables (or from the
        step's own constants);
-    5. hands the send to `Letflow.Notifications.deliver_to_address/7`, which
+    5. hands the send to `Letflow.Notifications.deliver_to_address/6`, which
        holds the tenant's send cap, calls the Notifier adapter and writes the
-       one delivery row.
+       one delivery row. The row's tenant is DERIVED from the `:prefix` the
+       step runs in, never taken from the caller (INV-1 (c)).
 
   ## What it never does
 
@@ -54,12 +57,15 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   `raw` is the node's `notify` attribute, `variables` the instance variables
   (a plain map) and `opts` the context:
 
-    * `:prefix` -- the tenant schema the step runs in (required);
-    * `:tenant_id` -- the tenant the step belongs to (required);
+    * `:prefix` -- the tenant schema the step runs in (required). The tenant of
+      the delivery row is DERIVED from it, never passed in: a row physically
+      sits in ONE tenant's schema, so the tenant it claims to belong to comes
+      from that schema (decision 0003's addendum, INV-1 (c));
     * `:trigger_ref` -- the reference the delivery row carries (the instance
       id); required;
     * `:labels` -- the instance's variable labels (a map of variable name to
-      the labels it carries); the default is an empty map.
+      the labels it carries). REQUIRED: a step that cannot see the labels
+      cannot refuse a sensitive value, so a missing map is a refusal.
 
   Never raises.
   """
@@ -67,20 +73,20 @@ defmodule Letflow.NotificationSteps.Dispatcher do
           {:ok, String.t(), String.t() | nil} | {:error, atom()}
   def run(raw, variables, opts) when is_list(opts) and is_map(variables) do
     with {:ok, declaration} <- NotifyCalls.parse(raw),
-         :ok <- refuse_restricted(declaration, labels(opts)),
+         {:ok, labels} <- labels(opts),
+         :ok <- refuse_restricted(declaration, labels),
          {:ok, address} <- recipient(declaration, variables),
          {:ok, values} <- values(declaration, variables) do
-      {status, reason} =
-        Notifications.deliver_to_address(
-          declaration.template_key,
-          address,
-          trigger_ref(opts),
-          values,
-          prefix(opts),
-          tenant_id(opts)
-        )
-
-      {:ok, status, reason}
+      case Notifications.deliver_to_address(
+             declaration.template_key,
+             address,
+             trigger_ref(opts),
+             values,
+             prefix(opts)
+           ) do
+        {:error, :invalid_schema_name} -> {:error, :notify_invalid_schema}
+        {status, reason} -> {:ok, status, reason}
+      end
     end
   rescue
     _exception -> {:error, :notify_step_failed}
@@ -153,8 +159,17 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   defp source_var({:var, var}), do: var
   defp source_var({:const, _const}), do: nil
 
-  defp labels(opts), do: Keyword.get(opts, :labels) || %{}
+  # The labels are REQUIRED. A step that cannot see them cannot refuse a
+  # sensitive value, so an absent map is a refusal (decision 0062 R12): the
+  # engine wiring must pass the instance's variable labels, and a caller that
+  # forgets them gets no send at all.
+  defp labels(opts) do
+    case Keyword.get(opts, :labels) do
+      labels when is_map(labels) -> {:ok, labels}
+      _other -> {:error, :notify_labels_missing}
+    end
+  end
+
   defp prefix(opts), do: Keyword.get(opts, :prefix)
-  defp tenant_id(opts), do: Keyword.get(opts, :tenant_id)
   defp trigger_ref(opts), do: Keyword.get(opts, :trigger_ref)
 end
