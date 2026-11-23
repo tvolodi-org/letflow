@@ -26,6 +26,7 @@ defmodule Letflow.Support.PlatformCallFixture do
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
+  alias Letflow.PlatformFunctions.Catalog
   alias Letflow.Repo
   alias Letflow.TenantFixture
 
@@ -91,10 +92,60 @@ defmodule Letflow.Support.PlatformCallFixture do
   end
 
   @doc """
-  The `platform_call` attribute of a step: `%{"function" => name, "args" => args}`.
+  The `platform_call` attribute of a step: `%{"function" => name, "args" => args}`
+  plus the step's TYPED MAPPING (T-2594, pilot gap G13): the `reads` and the
+  `writes` of the step, each a map of a variable name to its type.
+
+  The mapping is derived from the compiled catalogue: the reads are the
+  arguments the step takes from a VARIABLE, the writes are the outputs the
+  function produces. A function that is not in the catalogue has neither -- the
+  catalogue refuses the call itself with `:platform_call_function_unknown`.
   """
   @spec call(String.t(), map()) :: map()
-  def call(function, args), do: %{"function" => function, "args" => args}
+  def call(function, args) do
+    %{
+      "function" => function,
+      "args" => args,
+      "reads" => reads_for(function, args),
+      "writes" => writes_for(function)
+    }
+  end
+
+  # The variables the step reads: the catalogue inputs the arguments take from
+  # a VARIABLE. A constant argument reads nothing.
+  defp reads_for(function, args) do
+    case Catalog.fetch(function) do
+      {:ok, entry} ->
+        entry.inputs
+        |> Enum.filter(fn input -> match?(%{"var" => _}, Map.get(args, input.name)) end)
+        |> Map.new(fn input -> {input.name, type_name(input.type)} end)
+
+      {:error, :not_found} ->
+        %{}
+    end
+  end
+
+  # The variables the step writes: the outputs the function produces.
+  defp writes_for(function) do
+    case Catalog.fetch(function) do
+      {:ok, entry} ->
+        Map.new(entry.outputs, fn output -> {output.name, type_name(output.type)} end)
+
+      {:error, :not_found} ->
+        %{}
+    end
+  end
+
+  # The JSON-Schema type name of a catalogue type. A uuid is a string in the
+  # instance variables, so it is declared as one.
+  defp type_name(:string), do: "string"
+  defp type_name(:uuid), do: "string"
+  defp type_name(:number), do: "number"
+  defp type_name(:integer), do: "integer"
+  defp type_name(:boolean), do: "boolean"
+  defp type_name(:object), do: "object"
+  defp type_name(:array), do: "array"
+  defp type_name(_other), do: "string"
 
   @doc """
   START -> a SERVICE_TASK carrying the `platform_call` `call` -> END. `extra`
@@ -121,20 +172,82 @@ defmodule Letflow.Support.PlatformCallFixture do
 
   @doc """
   A DRAFT definition carrying `graph`. `name` must be unique in the tenant.
+
+  The definition also carries the VARIABLE SCHEMAS of the step's typed
+  mapping (T-2594, pilot gap G13): one schema per declared read and per
+  declared write, of the type the step declared. The activation fence checks
+  the mapping against these schemas, so a definition that declares a variable
+  it does not declare is refused -- and a fixture that does not declare the
+  schemas would be refused for the wrong reason.
   """
   @spec definition!(String.t(), map(), String.t()) :: Definitions.ProcessDefinition.t()
-  def definition!(schema_name, graph, name) do
+  def definition!(schema_name, graph, name), do: version!(schema_name, graph, name, "1")
+
+  @doc """
+  A DRAFT definition carrying `graph` at `version` -- the second version of a
+  key, with the same variable schemas as the first.
+  """
+  @spec version!(String.t(), map(), String.t(), String.t()) :: Definitions.ProcessDefinition.t()
+  def version!(schema_name, graph, name, version) do
     {:ok, definition} =
-      Definitions.create(
+      Definitions.create_with_variable_schemas(
+        %{
+          name: name,
+          version: version,
+          graph: graph,
+          created_by: Ecto.UUID.generate()
+        },
+        variable_schemas(graph),
+        prefix: schema_name
+      )
+
+    definition
+  end
+
+  @doc """
+  A DRAFT definition carrying `graph` and EXACTLY the given variable schemas.
+
+  The schemas are a list of `%{variable_key: key, json_schema: schema}` maps,
+  the shape `Letflow.Definitions.register_variable_schemas/3` takes. A test
+  that needs a variable the step declares but the definition does NOT needs
+  this helper: `definition!/3` derives the schemas from the step's own
+  declaration.
+  """
+  @spec definition_with_schemas!(String.t(), map(), String.t(), [map()]) ::
+          Definitions.ProcessDefinition.t()
+  def definition_with_schemas!(schema_name, graph, name, schemas) do
+    {:ok, definition} =
+      Definitions.create_with_variable_schemas(
         %{
           name: name,
           version: "1",
           graph: graph,
           created_by: Ecto.UUID.generate()
         },
+        schemas,
         prefix: schema_name
       )
 
     definition
+  end
+
+  # The variable schemas of the graph's platform-call steps: one per declared
+  # read and per declared write, of the type the step declared.
+  defp variable_schemas(graph) do
+    graph
+    |> Map.get("nodes", [])
+    |> Enum.flat_map(fn node ->
+      case get_in(node, ["attributes", "platform_call"]) do
+        call when is_map(call) ->
+          Map.merge(Map.get(call, "reads", %{}), Map.get(call, "writes", %{}))
+          |> Enum.map(fn {key, type} ->
+            %{variable_key: key, json_schema: %{"type" => type}}
+          end)
+
+        _not_a_call ->
+          []
+      end
+    end)
+    |> Enum.uniq_by(& &1.variable_key)
   end
 end

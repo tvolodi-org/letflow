@@ -18,19 +18,80 @@ and the dispatcher are gap G1a (T-2589).
 | The registry | `Letflow.PlatformFunctions.Registry` | WHICH CODE runs a name. Closed twice over: a name the catalogue does not know has no body (`:platform_function_unknown`), and a name the catalogue declares but that has no body yet is refused (`:platform_function_not_implemented`). A body whose name is not in the catalogue is a COMPILE error. |
 | The dispatcher | `Letflow.PlatformFunctions.Dispatcher` | RUNS a step: arm the durable row, claim it, check the authority, run the body, write the result. |
 
-## The one registered function
+## The registered functions
 
-`platform.validate_registration` (family `:platform`, permission `:TenantsManage`, platform tenant
-only): it checks the slug, the display name and the e-mail of a registration and returns
-`normalized_slug` and `email_domain`. It has NO side effect -- it reads nothing, writes nothing
-and sends nothing out. It exists to prove the whole path of a platform step (catalogue entry,
-closed registry, durable dispatcher, authority fence, per-step result row) before a function
-with real side effects is registered.
+| Name | Body | What it does |
+|---|---|---|
+| `platform.validate_registration` | `Impl.ValidateRegistration` | Checks the slug, the display name and the e-mail of a registration and returns `normalized_slug` and `email_domain`. NO side effect: it reads nothing, writes nothing and sends nothing out. It proves the whole path of a platform step (catalogue entry, closed registry, durable dispatcher, authority fence, per-step result row). |
+| `tenant.create` | `Impl.TenantCreate` | Writes the tenant row of the global registry. A repeat of the same call returns the first result (it adopts the tenant that carries the slug); a slug that belongs to ANOTHER tenant is refused, and so is a tenant that was purged. |
+| `tenant.provision` | `Impl.TenantProvision` | Creates the tenant's schema, replays its migrations, seeds its roles and its HMAC key, and activates the tenant. A repeat changes nothing. A tenant that was purged is refused before the first write. |
+| `tenant.bind_realm` | `Impl.TenantBindRealm` | Binds the identity provider's realm to the tenant. A repeat binds nothing a second time; a different realm for a bound tenant is refused. |
+| `tenant.grant_first_admins` | `Impl.TenantGrantFirstAdmins` | Stores the pending grant of the tenant's first administrator in the tenant's own schema. A repeat stores nothing a second time. |
+| `tenant.install_default_modules` | `Impl.TenantInstallDefaultModules` | Installs the tenant's default modules. A repeat installs nothing a second time (the installer answers `:already_installed`). |
 
-The tenant family of the pilot (`tenant.validate`, `tenant.create`, `tenant.provision`,
-`tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules`) is DECLARED
-in the catalogue -- the authority rule of gap G2 needs the names -- but has no body yet, so the
+`tenant.validate` (the read-only check of the pilot's tenant family) is DECLARED in the
+catalogue -- the authority rule of gap G2 needs the name -- and has no body yet, so the
 dispatcher refuses it with `:platform_function_not_implemented` instead of pretending it ran.
+
+## The code of the routes now sits behind the bodies
+
+The code that creates a tenant, provisions it, binds its realm, grants its first administrator
+and installs its default modules used to sit in the routes (`POST /tenants`,
+`POST /onboarding`, `POST /onboarding/:id/bind-realm`) and in the provisioner
+(`POST /admin/v1/tenants`). Since T-2590 (gap G1b) that code lives in the modules above, and
+the routes call THOSE modules: the route and the platform step run ONE implementation, and the
+route's answers (a 409 for a duplicate slug, a 409 for a realm that is already bound, a 404 for
+an unknown tenant) do not change. The pilot's later steps (gap G17) will make the routes START
+the definition instead of calling the code directly; until then the routes work as they always
+did.
+
+A step runs outside any person's request, so it has no operator to name: the bodies that write
+an audited row use the SYSTEM path of the product (`bind_provisioned_realm`,
+`create_provisioned`). Those rows carry NO actor (`actor_id` is nil) and the marker that says
+"a system wrote this" is in the entry itself: `actor_class: "provisioner"` in the tenant chain
+of a realm bind, `created_via: "provisioning"` in the chain of a pending grant. The person who
+switched a version on is recorded where it belongs, in the definition version's signed
+`activated_by` document.
+
+## What the chain does to a tenant that already exists
+
+The operator's notes of the chain, in the operator's words. `tenant.create` is keyed on the
+SLUG, and a repeat of the same call changes NOTHING:
+
+* the tenant with that slug exists and carries the same name -- the step **ADOPTS** it: it
+  answers that tenant's id and writes no row. The tenant may be one the step created, or one
+  that already existed. An existing tenant that is not `:active` is then **activated** by the
+  chain's `tenant.provision` step: the same activation `POST /tenants/:slug/reactivate`
+  performs, and the operator's own authority (`:TenantsManage` in the platform tenant) covers
+  it. The ROUTE refuses the same slug with a 409 -- on purpose: a route answers the conflict,
+  a step must be able to repeat itself;
+* the slug belongs to a DIFFERENT tenant (a different name) -- refused
+  (`platform_call_duplicate_slug`). The step never takes over a tenant it was not asked about;
+* the tenant with that slug was **PURGED** -- refused (`platform_call_tenant_purged`). A purge
+  is final: the purge dropped the schema and the registration row, and marked the lifecycle
+  row with `purged_at` (never cleared). The step refuses a purged tenant BEFORE it writes
+  anything -- the very first act of a provisioning is `CREATE SCHEMA IF NOT EXISTS`, so a check
+  placed later would leave a resurrected schema behind. The route path refuses the same tenant
+  (`Identity.reactivate_tenant/1` answers `:tenant_purged`), and the check sits in the shared
+  sequence (`Letflow.TenantOnboarding.provision_and_migrate/1`), so the route, the provisioner,
+  the recovery path and the step all carry it.
+
+## The personal datum in the dispatch row
+
+The dispatch row stores the RESOLVED ARGUMENTS of the call it runs (`inputs`). For the tenant
+family that is the slug, the name, the tenant id, the realm and the first administrator's
+address. The row lives in the platform tenant's schema, so the administrator's address is a
+personal datum in the platform's own database -- never in an audit entry, never in a log, never
+in a screen (INV-4), but in that column. Gap G6 (the step log) reads that row, so the pilot's
+threat model names the column.
+
+## The closed vocabulary of the failure kind
+
+`last_failure_kind` carries a code of the dispatcher's own CLOSED vocabulary
+(`Dispatcher.failure_codes/0`). The vocabulary is not a hand list that may drift: the registered
+bodies' own declared vocabularies (each body's `@type refusal`) are checked against it, so a
+body cannot answer a code the row would refuse to carry, and a code nobody can enumerate is
+reduced to the generic code `platform_step_failed`.
 
 ## The authority fence
 
@@ -129,6 +190,50 @@ bound, not a tighter rule) and the e-mail at most 254 (the RFC's limit is in oct
 `arm/1` also refuses an option it does not read (`platform_call_arg_unknown`) instead of dropping
 it in silence: a caller must not believe that, say, `:tenant_id` is honoured.
 
+## The typed step mapping: what the step reads and what it writes
+
+A step that maps variables DECLARES it (gap G13, T-2594). The `platform_call` attribute carries
+two more keys beside the function and its arguments:
+
+```json
+"platform_call": {
+  "function": "platform.validate_registration",
+  "args": {"slug": {"var": "slug"}, "display_name": {"const": "Acme Ltd"}},
+  "reads": {"slug": "string"},
+  "writes": {"normalized_slug": "string", "email_domain": "string"}
+}
+```
+
+`reads` and `writes` are maps of a variable name to its JSON-Schema type name (`string`, `number`,
+`integer`, `boolean`, `object`, `array`). The names are flat: the instance variables are one flat
+namespace.
+
+The declaration is checked against the definition's own `variable_schemas`
+(`Letflow.Definitions.StepMapping`), at ACTIVATION and in the DESIGNER
+(`POST /api/v1/definitions/:id/validate`):
+
+| Rule | Code |
+|---|---|
+| the declaration is there | `step_mapping_declaration_missing` |
+| it is a map of a name to a known type name | `step_mapping_declaration_malformed` |
+| the name is not in the reserved engine namespace (`_sys`) | `step_mapping_reserved_refused` |
+| the name is among the definition's variable schemas | `step_mapping_variable_undeclared` |
+| the declared type agrees with the schema's type | `step_mapping_type_mismatch` |
+| the declared type agrees with the catalogue entry's type | `step_mapping_entry_type_mismatch` |
+| the write is not a variable a human task may write | `step_mapping_write_refused` |
+| the write is an output the function produces | `step_mapping_write_not_declared` |
+| every variable the step reads is declared | `step_mapping_read_undeclared` |
+
+The fence runs on every path that switches a version on: activate, reactivate, version rollback and
+promotion apply. A company tenant never sees these findings: it may not carry a platform call at
+all, and the ONE fixed code (`:platform_call_not_allowed`) is the whole answer -- a catalogue's
+type must not tell a stranger that the catalogue holds that entry.
+
+At RUN time the declaration is a rule too: the dispatcher writes ONLY the outputs the step
+declares. An output the function returned but the step did not declare is not written, and a step
+that declares no writes at all is refused before the body runs
+(`platform_call_mapping_not_declared`).
+
 ## The failure kind is a code, never a text
 
 `last_failure_kind` carries a STABLE CODE: the row is read by the step log (gap G6) and must not
@@ -190,3 +295,21 @@ has exactly one definition per key.
 * `test/letflow/platform_functions/registry_test.exs` and
   `test/letflow/platform_functions/impl/validate_registration_test.exs` -- the closed registry and
   the harmless body.
+* `test/letflow/platform_functions/impl/tenant_create_test.exs`,
+  `tenant_provision_test.exs`, `tenant_bind_realm_test.exs`,
+  `tenant_grant_first_admins_test.exs`, `tenant_install_default_modules_test.exs` and
+  `system_caller_test.exs` -- the bodies of the tenant family (gap G1b): each one is
+  registered, each one is IDEMPOTENT (a second run changes nothing and answers the same), and
+  each one refuses a value over its byte cap, an unknown tenant and a value that is not a UUID.
+  The create test also pins the ADOPTION (the step answers the id of the tenant that carries
+  the slug and writes nothing) and the refusal of a PURGED tenant; the provision test proves
+  that a purged tenant is refused before anything is written (the product's own purge empties
+  it); the bind and the grant tests read the audit rows back (no actor, the explicit marker,
+  no address in the entry). The registry test also scans the routes and the provisioner: the
+  direct calls are gone, the implementation modules carry them.
+* `test/letflow/platform_functions/failure_vocabulary_test.exs` -- the CLOSED vocabulary of
+  the row's failure kind: the set is derived from the tree (every module under
+  `lib/letflow/platform_functions/impl/` and its own `@type refusal`), a code nobody can
+  enumerate is reduced to the generic code through `Dispatcher.record_outcome/3`, and every
+  body of the tree is a registered one. Tagged `:security_probe`, so it runs in the checks
+  step for every backend change.

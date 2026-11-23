@@ -526,6 +526,30 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- the TYPED STEP MAPPING of a step was refused (T-2594, pilot gap G13: the
+  declared reads and writes against the definition's own `variable_schemas`, the reserved
+  engine namespace, and the variables a person may write).
+
+  The body names the node, the side of the declaration, the variable name and a stable
+  code. No value, no hash and no function name ever appear.
+  """
+  @spec step_mappings_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def step_mappings_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "step_mappings_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, side: side, name: name, code: code} ->
+            %{
+              "node_id" => node_id,
+              "side" => Atom.to_string(side),
+              "name" => name,
+              "code" => Atom.to_string(code)
+            }
+          end)
+      })
+
+  @doc """
   HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
   namespace (GH #2623). The body echoes neither the URL nor the matched name.
   """
