@@ -61,7 +61,7 @@ defmodule Letflow.Notifications.OutboundCap do
   @channel "email"
 
   @doc """
-  Reserves one send for the tenant of `prefix`.
+  Reserves one send for the tenant of `prefix` on the MAIL channel.
 
   The tenant id of the counter rows is DERIVED from the prefix the rows are
   written into (INV-1 (c)); it is never taken from the caller. A prefix that
@@ -78,18 +78,38 @@ defmodule Letflow.Notifications.OutboundCap do
           :reserved | {:error, :rate_limited | :cap_unavailable}
   def reserve(prefix, hour_cap, day_cap)
       when is_binary(prefix) and is_integer(hour_cap) and is_integer(day_cap) do
+    reserve(prefix, @channel, hour_cap, day_cap)
+  end
+
+  @doc """
+  Reserves one send for the tenant of `prefix` on the CHANNEL `channel`.
+
+  The cap is counted PER CHANNEL (the G2 authority record, option A (c) item 7:
+  "a cap per tenant and channel, per hour and per day"), so the file channel
+  of the notification step (T-2596, pilot gap G12) has its own rows and its
+  own count: a tenant that sends a lot of mail may still write its files, and
+  a definition that writes files in a loop cannot fill the tenant's disk.
+
+  The channel name is a closed set of strings, chosen by the caller that owns
+  the channel -- never by a tenant's data.
+  """
+  @spec reserve(String.t(), String.t(), pos_integer(), pos_integer()) ::
+          :reserved | {:error, :rate_limited | :cap_unavailable}
+  def reserve(prefix, channel, hour_cap, day_cap)
+      when is_binary(prefix) and is_binary(channel) and is_integer(hour_cap) and
+             is_integer(day_cap) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     hour_start = window(now, :hour)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
-         :ok <- reserve_window(prefix, tenant_id, "hour", hour_cap, hour_start) do
-      case reserve_window(prefix, tenant_id, "day", day_cap, window(now, :day)) do
+         :ok <- reserve_window(prefix, tenant_id, channel, "hour", hour_cap, hour_start) do
+      case reserve_window(prefix, tenant_id, channel, "day", day_cap, window(now, :day)) do
         :ok ->
           :reserved
 
         {:error, code} ->
           # Give the hour slot back: nothing is sent, so nothing is spent.
-          release_window(prefix, tenant_id, "hour", hour_start)
+          release_window(prefix, tenant_id, channel, "hour", hour_start)
           to_result(code)
       end
     else
@@ -104,11 +124,11 @@ defmodule Letflow.Notifications.OutboundCap do
   defp to_result({:over_cap, _period}), do: {:error, :rate_limited}
   defp to_result(_other), do: {:error, :cap_unavailable}
 
-  defp release_window(prefix, tenant_id, period, window_start) do
+  defp release_window(prefix, tenant_id, channel, period, window_start) do
     Repo.update_all(
       from(c in OutboundCounter,
         where:
-          c.tenant_id == ^tenant_id and c.channel == ^@channel and c.period == ^period and
+          c.tenant_id == ^tenant_id and c.channel == ^channel and c.period == ^period and
             c.window_started_at == ^window_start and c.send_count > 0,
         update: [set: [send_count: fragment("? - 1", c.send_count)]]
       ),
@@ -130,13 +150,13 @@ defmodule Letflow.Notifications.OutboundCap do
   # then the count is incremented with a single guarded statement. The guard is
   # in the statement itself (`send_count < cap`), so two concurrent
   # reservations of the same tenant cannot both take the last slot.
-  defp reserve_window(prefix, tenant_id, period, cap, window_start) do
-    with :ok <- ensure_row(prefix, tenant_id, period, window_start) do
+  defp reserve_window(prefix, tenant_id, channel, period, cap, window_start) do
+    with :ok <- ensure_row(prefix, tenant_id, channel, period, window_start) do
       {updated, _returned} =
         Repo.update_all(
           from(c in OutboundCounter,
             where:
-              c.tenant_id == ^tenant_id and c.channel == ^@channel and c.period == ^period and
+              c.tenant_id == ^tenant_id and c.channel == ^channel and c.period == ^period and
                 c.window_started_at == ^window_start and c.send_count < ^cap,
             update: [set: [send_count: fragment("? + 1", c.send_count)]]
           ),
@@ -152,11 +172,11 @@ defmodule Letflow.Notifications.OutboundCap do
     end
   end
 
-  defp ensure_row(prefix, tenant_id, period, window_start) do
+  defp ensure_row(prefix, tenant_id, channel, period, window_start) do
     %OutboundCounter{}
     |> OutboundCounter.changeset(%{
       tenant_id: tenant_id,
-      channel: @channel,
+      channel: channel,
       period: period,
       window_started_at: window_start,
       send_count: 0

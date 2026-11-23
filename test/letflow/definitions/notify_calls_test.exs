@@ -27,6 +27,24 @@ defmodule Letflow.Definitions.NotifyCallsTest do
     )
   end
 
+  # The file channel's declaration (T-2596, pilot gap G12): the template, the
+  # NAME of the file (a constant, never a variable) and the declared values.
+  # There is no recipient: a file has no address.
+  defp file_declaration(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "channel" => "file",
+        "template_key" => "tenant_registered",
+        "file_name" => "registration-notice",
+        "values" => %{
+          "tenant_name" => %{"var" => "tenant_name"},
+          "tenant_slug" => %{"const" => "acme"}
+        }
+      },
+      overrides
+    )
+  end
+
   defp notify_node(declaration, node_type \\ :SERVICE_TASK, extra \\ %{}) do
     %Graph.Node{
       id: "notify",
@@ -68,7 +86,7 @@ defmodule Letflow.Definitions.NotifyCallsTest do
 
     test "D4 an unknown key is refused" do
       assert {:error, :notify_unknown_key} =
-               NotifyCalls.parse(declaration(%{"channel" => "email"}))
+               NotifyCalls.parse(declaration(%{"nope" => "email"}))
     end
 
     test "D5 a missing key is refused" do
@@ -100,6 +118,144 @@ defmodule Letflow.Definitions.NotifyCallsTest do
     test "D9 a dotted variable name is refused" do
       assert {:error, :notify_recipient_invalid} =
                NotifyCalls.parse(declaration(%{"recipient" => %{"var" => "admin.email"}}))
+    end
+  end
+
+  describe "the channels (T-2596, pilot gap G12)" do
+    test "D26 the channel is optional: a declaration without one is the mail channel" do
+      assert {:ok, parsed} = NotifyCalls.parse(declaration())
+      assert parsed.channel == "email"
+      assert parsed.file_name == nil
+    end
+
+    test "D27 an unknown channel is refused" do
+      assert {:error, :notify_channel_unknown} =
+               NotifyCalls.parse(declaration(%{"channel" => "telegram"}))
+
+      assert {:error, :notify_channel_unknown} =
+               NotifyCalls.parse(declaration(%{"channel" => 7}))
+    end
+
+    test "D28 the file channel parses: a template, a file name and no recipient" do
+      assert {:ok, parsed} = NotifyCalls.parse(file_declaration())
+      assert parsed.channel == "file"
+      assert parsed.template_key == "tenant_registered"
+      assert parsed.file_name == "registration-notice"
+      assert parsed.recipient_var == nil
+    end
+
+    test "D29 the file channel carries no recipient: there is no address to send to" do
+      assert {:error, :notify_recipient_not_allowed} =
+               NotifyCalls.parse(file_declaration(%{"recipient" => %{"var" => "admin_email"}}))
+    end
+
+    test "D30 the mail channel carries no file name" do
+      assert {:error, :notify_file_name_not_allowed} =
+               NotifyCalls.parse(declaration(%{"file_name" => "notice"}))
+    end
+
+    test "D31 a path-like file name is refused with the fixed code" do
+      for name <- [
+            "../etc/passwd",
+            "/etc/passwd",
+            "..\\windows",
+            "a/b",
+            "sub/dir/name.txt",
+            "~/secret",
+            "C:\\Windows",
+            "name:stream",
+            "..",
+            "",
+            "with\nnewline"
+          ] do
+        assert {:error, :notify_file_name_invalid} =
+                 NotifyCalls.parse(file_declaration(%{"file_name" => name})),
+               "the name #{inspect(name)} was not refused"
+      end
+    end
+
+    test "D32 the file name is a plain name, never a variable" do
+      assert {:error, :notify_file_name_invalid} =
+               NotifyCalls.parse(file_declaration(%{"file_name" => %{"var" => "file_name"}}))
+
+      assert {:error, :notify_file_name_invalid} =
+               NotifyCalls.parse(file_declaration(%{"file_name" => %{"const" => "notice"}}))
+    end
+
+    test "D32b a file name one byte over the cap is refused; the cap itself passes" do
+      over = String.duplicate("a", 256)
+
+      assert {:error, :notify_file_name_invalid} =
+               NotifyCalls.parse(file_declaration(%{"file_name" => over}))
+
+      at_cap = String.duplicate("a", 255)
+      assert {:ok, _parsed} = NotifyCalls.parse(file_declaration(%{"file_name" => at_cap}))
+    end
+
+    test "D32c a file name that is not valid UTF-8 is refused" do
+      assert {:error, :notify_file_name_invalid} =
+               NotifyCalls.parse(file_declaration(%{"file_name" => <<255, 254>>}))
+    end
+
+    test "D33 the file channel without a file name is refused" do
+      raw = file_declaration()
+      raw = Map.delete(raw, "file_name")
+
+      assert {:error, :notify_malformed} = NotifyCalls.parse(raw)
+    end
+
+    test "D34 the fence refuses a path-like file name on the node" do
+      node = notify_node(file_declaration(%{"file_name" => "../etc/passwd"}))
+
+      assert [%{code: :notify_file_name_invalid}] =
+               NotifyCalls.violations(node, [node])
+    end
+
+    test "D35 the file channel reads the values' variables and no recipient" do
+      node = notify_node(file_declaration())
+
+      assert NotifyCalls.read_keys([node]) == ["tenant_name"]
+    end
+
+    test "D36 the ACTIVATION fence refuses a path-like file name with the fixed code" do
+      graph_map = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "notify",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{"notify" => file_declaration(%{"file_name" => "../etc/passwd"})}
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "notify"},
+          %{"id" => "e2", "source" => "notify", "target" => "end"}
+        ]
+      }
+
+      assert {:error, {:notify_calls_invalid, [%{code: :notify_file_name_invalid}]}} =
+               Definitions.check_notify_calls(%{graph: graph_map}, "tenant_x")
+    end
+
+    test "D37 a well-formed file channel passes the activation fence" do
+      graph_map = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "notify",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{"notify" => file_declaration()}
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "notify"},
+          %{"id" => "e2", "source" => "notify", "target" => "end"}
+        ]
+      }
+
+      assert :ok = Definitions.check_notify_calls(%{graph: graph_map}, "tenant_x")
     end
   end
 

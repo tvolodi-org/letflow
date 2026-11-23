@@ -1078,7 +1078,13 @@ defmodule Letflow.TenantProvisioning do
     # accounted for whether or not the outcome row can be written afterwards. The
     # table starts empty: no existing row is altered.
     {20_261_123_100_003, Letflow.Repo.Migrations.CreateNotificationOutboundCounters,
-     "20261123100003_create_notification_outbound_counters.exs"}
+     "20261123100003_create_notification_outbound_counters.exs"},
+    # T-2596 (pilot gap G12): the tenant-scoped NOTIFICATION FILE AREA -- the
+    # place the "file" channel of a notification step writes into. The bytes
+    # live in the tenant's own schema, so there is no file-system path at all.
+    # The table starts empty: no existing row is altered.
+    {20_261_123_100_004, Letflow.Repo.Migrations.CreateNotificationFiles,
+     "20261123100004_create_notification_files.exs"}
   ]
 
   @doc """
