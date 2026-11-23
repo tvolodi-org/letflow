@@ -1054,7 +1054,12 @@ defmodule Letflow.TenantProvisioning do
     # docs/migration/decisions/0094-platform-call-authority.md): audit_entries.actor_kind --
     # "user" against "system". NULL for the rows written before this column existed.
     {20_261_122_100_001, Letflow.Repo.Migrations.AddActorKindToAuditEntries,
-     "20261122100001_add_actor_kind_to_audit_entries.exs"}
+     "20261122100001_add_actor_kind_to_audit_entries.exs"},
+    # T-2589 (pilot gap G1a): the durable queue and per-step result row of a platform
+    # function call (the dispatcher that runs a platform step OUTSIDE the engine's
+    # transaction). Empty table for every existing tenant; no row altered.
+    {20_261_122_200_001, Letflow.Repo.Migrations.CreatePlatformStepDispatches,
+     "20261122200001_create_platform_step_dispatches.exs"}
   ]
 
   @doc """

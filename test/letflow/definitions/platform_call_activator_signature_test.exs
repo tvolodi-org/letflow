@@ -23,6 +23,8 @@ defmodule Letflow.Definitions.PlatformCallActivatorSignatureTest do
   alias Letflow.Definitions
   alias Letflow.Definitions.Activator
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.PlatformFunctions.Dispatcher
+  alias Letflow.PlatformFunctions.Dispatcher.StepDispatch
   alias Letflow.PlatformFunctions.Guard
   alias Letflow.Repo
   alias Letflow.Support.PlatformCallFixture, as: Fx
@@ -132,5 +134,89 @@ defmodule Letflow.Definitions.PlatformCallActivatorSignatureTest do
                tenant_id: ctx.tenant.tenant_id,
                function: "tenant.not_in_the_catalogue"
              )
+  end
+
+  # ── the same two refusals THROUGH THE DISPATCHER (T-2589, gap G1a) ─────────────────────
+
+  defp validation_call do
+    Fx.call("platform.validate_registration", %{
+      "slug" => %{"var" => "slug"},
+      "display_name" => %{"const" => "Acme Ltd"},
+      "email" => %{"const" => "admin@acme.test"}
+    })
+  end
+
+  defp activated_validation(ctx, name) do
+    draft = Fx.definition!(ctx.tenant.schema_name, Fx.graph(validation_call()), name)
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, %{already_active: false}} =
+             Definitions.activate(draft.id,
+               prefix: ctx.tenant.schema_name,
+               activator: activator
+             )
+
+    Repo.get!(ProcessDefinition, draft.id, prefix: ctx.tenant.schema_name)
+  end
+
+  defp arm_validation(ctx, definition) do
+    Dispatcher.arm(
+      prefix: ctx.tenant.schema_name,
+      instance_id: Ecto.UUID.generate(),
+      definition_id: definition.id,
+      node_id: "call",
+      function: "platform.validate_registration",
+      inputs: %{
+        "slug" => "acme",
+        "display_name" => "Acme Ltd",
+        "email" => "admin@acme.test"
+      }
+    )
+  end
+
+  test "S9f: the DISPATCHER refuses a tampered mac and the function never runs", ctx do
+    row = activated_validation(ctx, "pcf-s9f")
+
+    tampered = put_in(row.activated_by, ["signature", "mac"], String.duplicate("a", 64))
+
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^row.id),
+        [set: [activated_by: tampered]],
+        prefix: ctx.tenant.schema_name
+      )
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm_validation(ctx, row)
+
+    assert {:error, :platform_call_signature_invalid} =
+             Dispatcher.attempt_dispatch(dispatch.id, ctx.tenant.schema_name)
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :given_up
+    assert stored.last_failure_kind == "platform_call_signature_invalid"
+    assert stored.outputs == nil
+  end
+
+  test "S9g: the DISPATCHER refuses a revoked role and flags the definition needs_reactivation",
+       ctx do
+    row = activated_validation(ctx, "pcf-s9g")
+
+    Fx.revoke_platform_roles!(ctx.tenant.schema_name, ctx.admin)
+
+    assert {:ok, %{status: :armed, dispatch: dispatch}} = arm_validation(ctx, row)
+
+    assert {:error, :platform_call_needs_reactivation} =
+             Dispatcher.attempt_dispatch(dispatch.id, ctx.tenant.schema_name)
+
+    stored_definition = Repo.get!(ProcessDefinition, row.id, prefix: ctx.tenant.schema_name)
+    assert stored_definition.needs_reactivation_at != nil
+    assert stored_definition.needs_reactivation_reason == "activator_lost_catalogue_permission"
+
+    stored = Repo.get!(StepDispatch, dispatch.id, prefix: ctx.tenant.schema_name)
+    assert stored.status == :given_up
+    assert stored.last_failure_kind == "platform_call_needs_reactivation"
+    assert stored.outputs == nil
   end
 end

@@ -90,7 +90,12 @@ config :letflow, :modules, [
 # Application.compile_env/3 by Letflow.PlatformFunctions.Catalog. An entry exists only if it is
 # compiled into the build: there is no write route and no run-time registration, so who may add
 # an entry is whoever may merge code (review, tests, CI). The core declares the platform family.
-config :letflow, :platform_functions, [Letflow.PlatformFunctions.TenantFamily]
+# T-2589 (pilot gap G1a) adds the registration family: the harmless `platform.validate_registration`
+# entry that proves the path of a platform step end to end.
+config :letflow, :platform_functions, [
+  Letflow.PlatformFunctions.TenantFamily,
+  Letflow.PlatformFunctions.RegistrationFamily
+]
 
 config :letflow,
        :demo_modules,

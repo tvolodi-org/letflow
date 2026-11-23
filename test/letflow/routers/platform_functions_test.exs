@@ -21,6 +21,7 @@ defmodule Letflow.Routers.PlatformFunctionsTest do
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.PlatformFunctions.Catalog
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
 
   @path "/api/v1/platform-functions"
@@ -47,7 +48,15 @@ defmodule Letflow.Routers.PlatformFunctionsTest do
       assert conn.status == 200, conn.resp_body
       items = Jason.decode!(conn.resp_body)["items"]
 
-      assert length(items) == 6
+      # The count is DERIVED from the compiled catalogue (seven entries today:
+      # the pilot's tenant family of six plus the registration family's
+      # `platform.validate_registration`), not pinned as a literal: the
+      # catalogue grows with every family, and the invariant this route
+      # carries is "the platform administrator reads EXACTLY the compiled
+      # catalogue -- nothing more, nothing less". The catalogue's own set is
+      # pinned in `test/letflow/platform_functions/catalog_test.exs`.
+      assert length(items) == length(Catalog.names())
+      assert Enum.map(items, & &1["name"]) == Catalog.names()
       assert Enum.map(items, & &1["name"]) == Enum.sort(Enum.map(items, & &1["name"]))
 
       for item <- items do
