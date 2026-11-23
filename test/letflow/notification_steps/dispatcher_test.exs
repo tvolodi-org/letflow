@@ -16,7 +16,11 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
     * N4..N10 -- the refusals (an address that is not an address, a missing
       address, an unknown template, a CONSTANT recipient -- the address must
       never sit in the stored definition -- a labelled variable, an unknown
-      placeholder, a missing value).
+      placeholder, a missing value);
+    * N14..N17 -- the refusals of the rework (a missing or malformed trigger
+      reference, a number too large to convert) and the cap that holds when
+      the delivery row cannot be written (N16: the reservation is taken
+      BEFORE the send, so an unwritable log row is not an uncounted send).
 
   `async: false`: committed tenant writes, application env and the delivery task.
   """
@@ -25,7 +29,9 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
 
   alias Letflow.LoginDiscoveryNotifierDouble, as: Double
   alias Letflow.NotificationSteps.Dispatcher
+  alias Letflow.Notifications
   alias Letflow.Notifications.Delivery
+  alias Letflow.Notifications.OutboundCounter
   alias Letflow.Repo
   alias Letflow.Support.PlatformCallFixture, as: PCF
   alias Letflow.Test.SmtpHelpers, as: S
@@ -161,26 +167,39 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
          %{fx: fx} do
       :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
 
-      # One address send of ANOTHER template: the cap counts the tenant's
-      # outbound channel, not the template key (the decided rule is a cap per
-      # tenant and channel; a definition that rotates keys must not reach 8x
-      # the ceiling).
-      {:ok, _row} =
-        Repo.insert(
-          Delivery.changeset(%{
-            tenant_id: Ecto.UUID.cast!(fx.tenant_id),
-            template_key: "task_assigned",
-            locale: "en",
-            recipient_user_id: nil,
-            status: "sent",
-            reason: nil,
-            trigger_ref: Ecto.UUID.generate()
-          }),
-          prefix: fx.schema_name
-        )
+      # The first send takes the tenant's only slot of the hour.
+      assert {:ok, "sent", nil} = run(fx, declaration(), variables())
+      assert_receive {:deliver_message, _message}, 2000
 
-      assert {:ok, "skipped", "rate_limited"} = run(fx, declaration(), variables())
-      refute_receive {:deliver_message, _message}, 200
+      # A send of ANOTHER template is over the same cap: the cap counts the
+      # tenant's outbound CHANNEL, not the template key (the decided rule is a
+      # cap per tenant and channel; a definition that rotates keys must not
+      # reach 8x the ceiling).
+      other = %{
+        "template_key" => "task_assigned",
+        "recipient" => %{"var" => "admin_email"},
+        "values" => %{}
+      }
+
+      assert {:ok, "skipped", "rate_limited"} = run(fx, other, variables())
+      refute_receive {:deliver_message, _message2}, 200
+    end
+
+    test "N2d the reservation is taken BEFORE the send and recorded in the tenant's counter",
+         %{fx: fx} do
+      :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
+
+      assert {:ok, "sent", nil} = run(fx, declaration(), variables())
+      assert_receive {:deliver_message, _message}, 2000
+
+      # The counter of the tenant's own schema holds the reservation: one row
+      # per window (the clock hour and the UTC day), each with one send.
+      counters = Repo.all(OutboundCounter, prefix: fx.schema_name)
+
+      assert length(counters) == 2
+      assert Enum.all?(counters, &(&1.send_count == 1))
+      assert Enum.all?(counters, &(&1.tenant_id == Ecto.UUID.cast!(fx.tenant_id)))
+      assert Enum.map(counters, & &1.period) |> Enum.sort() == ["day", "hour"]
     end
   end
 
@@ -301,6 +320,88 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
                  trigger_ref: Ecto.UUID.generate(),
                  labels: %{}
                )
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [] = rows(fx)
+    end
+
+    test "N14 a missing trigger reference is refused: nothing is sent, no row", %{fx: fx} do
+      # The delivery row carries the trigger reference, and a step that cannot
+      # write its row cannot account for its send: the reference is required
+      # exactly like the labels.
+      assert {:error, :notify_trigger_ref_missing} =
+               Dispatcher.run(
+                 declaration(),
+                 variables(),
+                 prefix: fx.schema_name,
+                 labels: %{}
+               )
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [] = rows(fx)
+    end
+
+    test "N15 a trigger reference that is not a UUID is refused: nothing is sent, no row",
+         %{fx: fx} do
+      assert {:error, :notify_trigger_ref_missing} =
+               Dispatcher.run(
+                 declaration(),
+                 variables(),
+                 prefix: fx.schema_name,
+                 trigger_ref: "not-a-uuid",
+                 labels: %{}
+               )
+
+      refute_receive {:deliver_message, _message}, 200
+      assert [] = rows(fx)
+    end
+
+    test "N16 the cap holds when the delivery row cannot be written", %{fx: fx} do
+      :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
+
+      # The first send: the delivery row CANNOT be written (the trigger
+      # reference is not a UUID, so the changeset raises), so the log stays
+      # empty -- but the slot of the cap was RESERVED before the send left, so
+      # the send is counted. (The outcome is the log write's failure, not the
+      # adapter's: the mail HAS gone out.)
+      assert {"failed", "adapter_error"} =
+               Notifications.deliver_to_address(
+                 "tenant_registered",
+                 "admin@example.com",
+                 "not-a-uuid",
+                 %{
+                   "tenant_name" => "Acme",
+                   "tenant_slug" => "acme",
+                   "registered_by" => "Vladimir"
+                 },
+                 fx.schema_name
+               )
+
+      assert_receive {:deliver_message, _message}, 2000
+      assert [] = rows(fx)
+
+      # The second send is over the cap: the reservation counted the first one.
+      assert {"skipped", "rate_limited"} =
+               Notifications.deliver_to_address(
+                 "tenant_registered",
+                 "admin@example.com",
+                 Ecto.UUID.generate(),
+                 %{
+                   "tenant_name" => "Acme",
+                   "tenant_slug" => "acme",
+                   "registered_by" => "Vladimir"
+                 },
+                 fx.schema_name
+               )
+
+      refute_receive {:deliver_message, _message2}, 200
+    end
+
+    test "N17 a number too large to convert is refused before the conversion", %{fx: fx} do
+      # The bound comes before the conversion: the number is bounded by its
+      # magnitude, not by the length of the text it becomes (SF-01).
+      assert {:error, :notify_value_invalid} =
+               run(fx, declaration(), variables(%{"tenant_name" => 10 ** 40}))
 
       refute_receive {:deliver_message, _message}, 200
       assert [] = rows(fx)

@@ -1064,7 +1064,15 @@ defmodule Letflow.TenantProvisioning do
     # -- the notification step's send cap refuses a send over the cap and records the
     # refusal in the log. No row is rewritten; the constraint on `reason` only widens.
     {20_261_123_100_001, Letflow.Repo.Migrations.AddRateLimitedNotificationReason,
-     "20261123100001_add_rate_limited_notification_reason.exs"}
+     "20261123100001_add_rate_limited_notification_reason.exs"},
+    # T-2592 (pilot gap G4): the RESERVATION counter of the tenant's outbound send
+    # cap. The cap used to be counted over the delivery log, so a log row that could
+    # not be written was a send that was never counted -- and the send had already
+    # left the platform. The counter is written BEFORE the send, so a send is
+    # accounted for whether or not the outcome row can be written afterwards. The
+    # table starts empty: no existing row is altered.
+    {20_261_123_100_002, Letflow.Repo.Migrations.CreateNotificationOutboundCounters,
+     "20261123100002_create_notification_outbound_counters.exs"}
   ]
 
   @doc """

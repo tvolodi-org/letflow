@@ -89,7 +89,9 @@ The runner resolves the address, checks it (`Letflow.Notifications.Address`: a
 byte bound first, then the ADAPTER's own allow-list -- one parse, shared with
 the consumer, so the gate and the mail adapter can never disagree), refuses a
 labelled variable (decision 0062 R12; the labels are REQUIRED, a step that
-cannot see them refuses), and hands the send to
+cannot see them refuses), refuses a missing or malformed trigger reference (the
+delivery row carries it, and a step that cannot write its row cannot account
+for its send), and hands the send to
 `Letflow.Notifications.deliver_to_address/6`.
 
 **The tenant of the row is derived.** The caller passes the `:prefix` the step
@@ -98,19 +100,53 @@ schema, never from a field of the caller (decision 0003's addendum, INV-1 (c)).
 A prefix that names no tenant is a refusal: nothing is sent and no row is
 written.
 
-**The cap.** The tenant's own delivery log is the counter -- the log holds no
-address, so the cap is counted per tenant and per CHANNEL, never per address and
-never per template key: a definition that rotates template keys must not reach
-eight times the ceiling. Only the attempts that reached the adapter count
-(`sent` and `failed`): a send the cap refused costs nothing and must not keep
-the tenant blocked. The caps are SETTINGS, not rules:
+**The cap is RESERVED before the send.** The tenant's counter row
+(`notification_outbound_counters`, one row per tenant, channel and window) is
+incremented in its own transaction BEFORE the adapter is called
+(`Letflow.Notifications.OutboundCap`): the increment is guarded by the cap
+inside the statement itself (`send_count = send_count + 1 WHERE send_count <
+cap`), so two sends of the same tenant at the same moment cannot both take the
+last slot.
+
+The counter is NOT the delivery log. Counting the log made an unwritable log
+row an UNCOUNTED send: the mail had already left the platform, the log row
+could not be written, and the tenant's ceiling never tripped -- the flooding
+the cap exists to stop. The reservation is taken first, so a send is counted
+whether or not the outcome row can be written afterwards.
+
+The counter holds no address, so the cap is counted per tenant and per CHANNEL,
+never per address and never per template key: a definition that rotates
+template keys must not reach eight times the ceiling. A send the cap refused
+costs nothing and must not keep the tenant blocked (the slot is taken only
+after the address has been accepted). The caps are SETTINGS, not rules:
 `notifications.outbound_cap_per_hour` (platform ceiling 60) and
 `notifications.outbound_cap_per_day` (platform ceiling 500). A tenant may lower
 its own cap (`PATCH /api/v1/tenant/settings`); it may not raise it above the
 platform ceiling, and the write is refused if it tries.
 
 Over the cap the delivery row records `skipped` / `rate_limited` and NOTHING is
-sent. The row holds no address, no subject and no body (INV-4).
+sent. A cap that cannot be reserved at all (the database is unreachable) is
+treated as a cap that is over: nothing is sent. The row holds no address, no
+subject and no body (INV-4).
+
+**The transaction boundary.** The reservation is committed before the send, so
+the caller must call the runner OUTSIDE the engine's own transaction -- exactly
+as the sibling platform-step dispatcher is called from its poller. A rollback
+of the caller's transaction must not take the reservation with it.
+
+## The typed mapping of the step (T-2594's rule)
+
+The notification step declares no map of its own: its `notify` attribute says
+which template to send, where to send it and what to put in it, so the typed
+mapping is DERIVED from that declaration (the way
+`Letflow.Definitions.PlatformCalls.mappings/1` derives the platform call's).
+The reads are the recipient's variable and the variables of the values; the step
+writes nothing. The type of a read is the type the DEFINITION declares for that
+variable, so the G13 rule "a step may not touch a variable the definition does
+not declare" binds the notification step too
+(`Letflow.Definitions.NotifyCalls.mappings/2`).
+
+## What is not built yet
 
 ## What is not built yet
 
@@ -118,8 +154,10 @@ sent. The row holds no address, no subject and no body (INV-4).
   node of a definition, but the node dispatch that RUNS it is not part of this
   change -- exactly as the platform-call step's engine wiring is not part of
   gap G1a. The runner is the piece a later step calls. That later step must
-  pass the instance's variable labels and the instance's `:prefix`, or the step
-  refuses itself;
+  pass the instance's variable labels, the instance's `:prefix` and the
+  instance's `:trigger_ref`, or the step refuses itself, and it must call the
+  runner OUTSIDE the engine's transaction (the reservation of the cap is
+  committed on its own);
 * the per-tenant channel and address allow-list (gap G14, the `OutboundDestinationsManage`
   atom) and the file channel (gap G12);
 * the designer fields (gap G5).
@@ -148,12 +186,15 @@ that a tenant has exactly one definition per key.
 
 * `test/letflow/notification_steps/dispatcher_test.exs` -- the send, the cap
   (`outbound_rate_cap_test`: the send over the cap is a `rate_limited` row and
-  nothing is sent), what the log does NOT hold, and the refusals;
+  nothing is sent), the reservation taken before the send (N2d), the cap that
+  holds when the delivery row cannot be written (N16), what the log does NOT
+  hold, and the refusals (a missing or malformed trigger reference, a number
+  too large to convert);
 * `test/letflow/engine/notify_write_targets_test.exs` -- the completion refusal
   of the step's read keys;
 * `test/letflow/engine/write_targets_test.exs` -- the refusal set (WTU-5);
 * `test/letflow/definitions/notify_calls_test.exs` -- the one parse, the node
-  rules and the graph validation;
+  rules, the graph validation and the derived typed mapping (D15..D18);
 * `test/letflow/notifications/address_test.exs` -- the byte bound and the one
   parse the gate shares with the adapter (A9);
 * `test/letflow/definitions/platform_call_write_paths_scan_test.exs` -- the

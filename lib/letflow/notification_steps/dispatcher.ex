@@ -15,13 +15,19 @@ defmodule Letflow.NotificationSteps.Dispatcher do
        decision 0062 R12, the one the HTTP service task obeys). The labels are
        REQUIRED: a step that cannot see them cannot refuse a sensitive value,
        so a missing map is a refusal;
-    3. resolves the RECIPIENT from the instance variables and checks it
+    3. refuses a missing or malformed TRIGGER REFERENCE: the delivery row
+       carries it, and a step that cannot write its row cannot account for
+       its send, so the reference is checked before anything is sent. A
+       missing and a malformed reference answer with the same code;
+    4. resolves the RECIPIENT from the instance variables and checks it
        (`Letflow.Notifications.Address`);
-    4. resolves the declared values from the instance variables (or from the
+    5. resolves the declared values from the instance variables (or from the
        step's own constants);
-    5. hands the send to `Letflow.Notifications.deliver_to_address/6`, which
-       holds the tenant's send cap, calls the Notifier adapter and writes the
-       one delivery row. The row's tenant is DERIVED from the `:prefix` the
+    6. hands the send to `Letflow.Notifications.deliver_to_address/6`, which
+       RESERVES the tenant's send cap, calls the Notifier adapter and writes
+       the one delivery row. The reservation is taken before the adapter is
+       called, so a send is counted whether or not the row can be written
+       afterwards. The row's tenant is DERIVED from the `:prefix` the
        step runs in, never taken from the caller (INV-1 (c)).
 
   ## What it never does
@@ -51,6 +57,13 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   # template's own 500-codepoint rule -- a safety bound, not a tighter rule.
   @max_value_bytes 2048
 
+  # The bound on the DIGITS of a number the step turns into text. The
+  # conversion materialises the whole number, so the bound is on the NUMBER
+  # itself and not on the text it becomes (SF-01: the bound comes first). A
+  # jsonb column holds a numeric of up to ~131072 digits, so an unbounded
+  # conversion is a bounded-by-nothing allocation on the send path.
+  @max_numeric_magnitude 1_000_000_000_000_000_000_000_000_000_000
+
   @doc """
   Runs one notification step.
 
@@ -62,7 +75,9 @@ defmodule Letflow.NotificationSteps.Dispatcher do
       sits in ONE tenant's schema, so the tenant it claims to belong to comes
       from that schema (decision 0003's addendum, INV-1 (c));
     * `:trigger_ref` -- the reference the delivery row carries (the instance
-      id); required;
+      id). REQUIRED, and it must be a UUID: a row that cannot be written is a
+      send that cannot be accounted for, so the reference is checked before
+      anything is sent;
     * `:labels` -- the instance's variable labels (a map of variable name to
       the labels it carries). REQUIRED: a step that cannot see the labels
       cannot refuse a sensitive value, so a missing map is a refusal.
@@ -74,13 +89,14 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   def run(raw, variables, opts) when is_list(opts) and is_map(variables) do
     with {:ok, declaration} <- NotifyCalls.parse(raw),
          {:ok, labels} <- labels(opts),
+         {:ok, trigger_ref} <- trigger_ref(opts),
          :ok <- refuse_restricted(declaration, labels),
          {:ok, address} <- recipient(declaration, variables),
          {:ok, values} <- values(declaration, variables) do
       case Notifications.deliver_to_address(
              declaration.template_key,
              address,
-             trigger_ref(opts),
+             trigger_ref,
              values,
              prefix(opts)
            ) do
@@ -143,7 +159,19 @@ defmodule Letflow.NotificationSteps.Dispatcher do
           {:error, :notify_value_invalid}
         end
 
-      {:ok, value} when is_integer(value) or is_float(value) ->
+      {:ok, value} when is_integer(value) ->
+        # The bound comes BEFORE the conversion: `to_string/1` materialises the
+        # whole number, so a bignum is bounded by its magnitude, not by the
+        # length of the text it becomes (SF-01).
+        if abs(value) <= @max_numeric_magnitude do
+          {:ok, to_string(value)}
+        else
+          {:error, :notify_value_invalid}
+        end
+
+      {:ok, value} when is_float(value) ->
+        # A float is bounded by its IEEE representation (at most a couple of
+        # dozen characters), so the conversion cannot run away.
         {:ok, to_string(value)}
 
       {:ok, _other} ->
@@ -171,5 +199,25 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   end
 
   defp prefix(opts), do: Keyword.get(opts, :prefix)
-  defp trigger_ref(opts), do: Keyword.get(opts, :trigger_ref)
+
+  # The trigger reference is REQUIRED, exactly like the labels, and it must be
+  # a UUID: it is the `trigger_ref` column of the delivery row, and a row that
+  # cannot be written is a send that cannot be accounted for. The delivery log
+  # is not the cap's counter any more (the counter is reserved before the
+  # send), but a row that does not fit still loses the record of the send, so
+  # the reference is checked before anything leaves the platform. A missing and
+  # a malformed reference answer with the SAME code: the caller learns that the
+  # step cannot run, not which mistake it made.
+  defp trigger_ref(opts) do
+    case Keyword.get(opts, :trigger_ref) do
+      ref when is_binary(ref) ->
+        case Ecto.UUID.cast(ref) do
+          {:ok, _uuid} -> {:ok, ref}
+          :error -> {:error, :notify_trigger_ref_missing}
+        end
+
+      _other ->
+        {:error, :notify_trigger_ref_missing}
+    end
+  end
 end

@@ -2893,11 +2893,12 @@ defmodule Letflow.Definitions do
   def step_mapping_violations(nodes, declared_fields, prefix)
       when is_list(nodes) and is_map(declared_fields) and is_binary(prefix) do
     completer_writable = StepMapping.completer_writable_keys(nodes)
+    mapped = mapping_nodes(nodes, prefix)
 
-    nodes
-    |> mapping_nodes(prefix)
-    |> PlatformCalls.mappings()
-    |> StepMapping.violations(declared_fields, completer_writable)
+    mappings =
+      PlatformCalls.mappings(mapped) ++ NotifyCalls.mappings(mapped, declared_fields)
+
+    StepMapping.violations(mappings, declared_fields, completer_writable)
   end
 
   # The nodes whose typed mapping is checked.

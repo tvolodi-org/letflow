@@ -31,8 +31,15 @@ defmodule Letflow.Notifications do
   of the tenant. The tenant of the row it writes is DERIVED from the schema the
   row is written into (decision 0003's addendum), and the send is bound by the
   tenant's OUTBOUND SEND CAP -- per tenant and per channel, per hour and per
-  day, counted from the tenant's own log. The row it writes holds no address,
-  no subject and no body, exactly like every other row of this log (INV-4).
+  day. The row it writes holds no address, no subject and no body, exactly like
+  every other row of this log (INV-4).
+
+  The cap is RESERVED before the send, not counted after it
+  (`Letflow.Notifications.OutboundCap`): the slot is taken out of the tenant's
+  counter in its own transaction, so a send is accounted for whether or not the
+  outcome row of this log can be written afterwards. Counting the log instead
+  made an unwritable log row an uncounted send -- a send that had already left
+  the platform and never tripped the ceiling.
 
   ## E-mail copy of the bell (T-1571)
   The assignment mail is the e-mail copy of the bell entry and is gated: the tenant setting
@@ -58,6 +65,7 @@ defmodule Letflow.Notifications do
   alias Letflow.NotificationTemplates
   alias Letflow.Notifications.Address
   alias Letflow.Notifications.Delivery
+  alias Letflow.Notifications.OutboundCap
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -264,21 +272,29 @@ defmodule Letflow.Notifications do
 
   ## The cap
 
-  The tenant's own delivery log is the counter -- the log holds no address
-  (INV-4), so the cap is counted per tenant and per CHANNEL, never per address
-  and never per template. The channel of a row is the kind of recipient it
-  names: an ADDRESS send (`recipient_user_id` empty) is the outbound channel of
-  the notification step; the tenant's own bell copy (a user id) has its own
-  per-recipient limit and is not part of this cap. The TEMPLATE KEY does not
-  multiply the cap -- every address send of the tenant counts, whatever template
-  it carried (the decided rule of the G2 authority record, option A (c) item 7:
-  a cap per tenant and channel, per hour and per day). Only the attempts that
-  reached the adapter count (`sent` and `failed`): a send the cap refused costs
-  nothing and must not keep the tenant blocked. The caps are SETTINGS
+  The cap is RESERVED before the send (`Letflow.Notifications.OutboundCap`), not
+  counted after it: the tenant's own counter row is incremented in its own
+  transaction, so a send is accounted for whether or not this log's outcome row
+  can be written afterwards. Counting the log instead made an unwritable log row
+  an UNCOUNTED send -- a send that had already left the platform and never
+  tripped the ceiling (the flooding the cap exists to stop).
+
+  The counter holds no address (INV-4), so the cap is counted per tenant and per
+  CHANNEL, never per address and never per template. An ADDRESS send is the
+  outbound channel of the notification step; the tenant's own bell copy (a user
+  id) has its own per-recipient limit and is not part of this cap. The TEMPLATE
+  KEY does not multiply the cap -- every address send of the tenant counts,
+  whatever template it carried (the decided rule of the G2 authority record,
+  option A (c) item 7: a cap per tenant and channel, per hour and per day). A
+  send the cap refused costs nothing and must not keep the tenant blocked: the
+  reservation is taken only once the address has been accepted, so a refused
+  address takes no slot. The caps are SETTINGS
   (`notifications.outbound_cap_per_hour`, `notifications.outbound_cap_per_day`),
   not rules: an absent or malformed setting falls back to the platform default.
 
   Over the cap the row records `skipped` / `rate_limited` and NOTHING is sent.
+  A cap that cannot be reserved at all (the database is unreachable) is treated
+  as a cap that is over: nothing is sent.
 
   The row it writes holds no address, no subject and no body (INV-4): the
   recipient of an address send is not a user, so `recipient_user_id` is empty.
@@ -296,9 +312,17 @@ defmodule Letflow.Notifications do
       retries = Keyword.get(opts, :retries, 0)
       tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
       locale = locale_of(tenant)
+      {hour_cap, day_cap} = outbound_caps(tenant)
 
       {status, reason} =
-        address_outcome(template_key, address, values, prefix, tenant, locale, retries)
+        address_outcome(template_key, address, values, %{
+          prefix: prefix,
+          tenant_id: tenant_id,
+          locale: locale,
+          retries: retries,
+          hour_cap: hour_cap,
+          day_cap: day_cap
+        })
 
       log(
         %{
@@ -327,60 +351,35 @@ defmodule Letflow.Notifications do
       {"failed", "adapter_error"}
   end
 
-  defp address_outcome(template_key, address, values, prefix, tenant, locale, retries) do
-    cond do
-      not Address.valid?(address) ->
-        # No address, or one a mail server would refuse: nothing is sent.
-        {"skipped", "no_email"}
+  defp address_outcome(template_key, address, values, ctx) do
+    if Address.valid?(address) do
+      case OutboundCap.reserve(ctx.prefix, ctx.tenant_id, ctx.hour_cap, ctx.day_cap) do
+        :reserved ->
+          with {:ok, %{subject: subject, body: body}} <-
+                 NotificationTemplates.preview(
+                   ctx.prefix,
+                   template_key,
+                   ctx.locale,
+                   nil,
+                   nil,
+                   values
+                 ) do
+            send_message(%{to: address, subject: subject, body: body}, ctx.retries)
+          else
+            _error -> {"failed", "adapter_error"}
+          end
 
-      send_capped?(prefix, tenant) ->
-        # Over the cap: the row says so, nothing leaves the platform.
-        {"skipped", "rate_limited"}
-
-      true ->
-        with {:ok, %{subject: subject, body: body}} <-
-               NotificationTemplates.preview(prefix, template_key, locale, nil, nil, values) do
-          send_message(%{to: address, subject: subject, body: body}, retries)
-        else
-          _error -> {"failed", "adapter_error"}
-        end
+        {:error, _code} ->
+          # Over the cap, or the cap could not be reserved: the row says so and
+          # NOTHING leaves the platform. The reservation is taken BEFORE the
+          # send, so a send that cannot be accounted for never happens.
+          {"skipped", "rate_limited"}
+      end
+    else
+      # No address, or one a mail server would refuse: nothing is sent, and no
+      # slot of the cap is taken (the attempt never reached the adapter).
+      {"skipped", "no_email"}
     end
-  end
-
-  # The tenant's send cap. Fail closed: a count that cannot be read counts as
-  # over the cap (a flood is cheaper than a missed cap).
-  defp send_capped?(prefix, tenant) do
-    {hour_cap, day_cap} = outbound_caps(tenant)
-
-    count_outbound(prefix, 3600) >= hour_cap or count_outbound(prefix, 86_400) >= day_cap
-  end
-
-  # The counter of the OUTBOUND channel: every address send of the tenant,
-  # whatever template it carried. The template key does not multiply the cap
-  # (the decided rule is a cap per tenant and channel, per hour and per day).
-  #
-  # The delivery log has no channel column: the channel of a row is the kind of
-  # recipient it names, so the address channel is the rows with no user id. The
-  # tenant's own bell copy (a user id) has its own per-recipient limit. When a
-  # second CHANNEL arrives (the Telegram adapter is the next one), the row needs
-  # a channel column and this counter filters on it -- named here as the
-  # extension point, not built.
-  defp count_outbound(prefix, seconds) do
-    since = DateTime.add(DateTime.utc_now(), -seconds, :second)
-
-    Repo.aggregate(
-      from(d in Delivery,
-        where:
-          is_nil(d.recipient_user_id) and d.status in ["sent", "failed"] and
-            d.inserted_at > ^since
-      ),
-      :count,
-      prefix: prefix
-    )
-  rescue
-    _exception -> Tenant.outbound_cap_ceiling().per_day * 1000
-  catch
-    _kind, _reason -> Tenant.outbound_cap_ceiling().per_day * 1000
   end
 
   # The caps are SETTINGS, not rules: an absent or malformed setting falls back

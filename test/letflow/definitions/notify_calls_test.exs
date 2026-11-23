@@ -8,8 +8,10 @@ defmodule Letflow.Definitions.NotifyCallsTest do
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.Definitions
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.NotifyCalls
+  alias Letflow.Definitions.StepMapping
 
   defp declaration(overrides \\ %{}) do
     Map.merge(
@@ -150,6 +152,60 @@ defmodule Letflow.Definitions.NotifyCallsTest do
 
       assert [%{code: :notify_node_type_not_supported}] =
                Graph.validate_node_attributes(graph).violations
+    end
+  end
+
+  describe "the typed mapping (T-2594's rule, carried to the notification step)" do
+    test "D15 the mapping is derived from the declaration: the reads, and no writes" do
+      node = notify_node(declaration())
+
+      assert [mapping] = NotifyCalls.mappings([node], %{})
+
+      assert mapping.node_id == "notify"
+      # the recipient's variable and the variables of the values; a constant
+      # value is not a variable, so it is not a read
+      assert mapping.read_names == ["admin_email", "tenant_name"]
+      assert mapping.reads == %{"admin_email" => "string", "tenant_name" => "string"}
+      # a notification leaves the process: it writes no variable
+      assert mapping.writes == %{}
+      assert mapping.write_names == []
+    end
+
+    test "D16 the type of a read is the type the DEFINITION declares for it" do
+      node = notify_node(declaration())
+
+      fields = %{
+        "admin_email" => %{"type" => "string"},
+        "tenant_name" => %{"type" => "integer"}
+      }
+
+      assert [mapping] = NotifyCalls.mappings([node], fields)
+      assert mapping.reads == %{"admin_email" => "string", "tenant_name" => "integer"}
+    end
+
+    test "D17 a read the definition does not declare is refused by the typed rule" do
+      node = notify_node(declaration())
+
+      violations =
+        StepMapping.violations(NotifyCalls.mappings([node], %{}), %{}, MapSet.new())
+
+      assert [
+               %{code: :step_mapping_variable_undeclared, side: :reads, name: "admin_email"},
+               %{code: :step_mapping_variable_undeclared, side: :reads, name: "tenant_name"}
+             ] = violations
+    end
+
+    test "D18 the activation fence binds the notification step's reads to variable_schemas" do
+      node = notify_node(declaration())
+
+      # The definition declares nothing: the notify step's reads are not among
+      # the declared variable schemas, so the typed fence refuses them.
+      violations = Definitions.step_mapping_violations([node], %{}, "a_tenant_schema")
+
+      assert [
+               %{code: :step_mapping_variable_undeclared, side: :reads, name: "admin_email"},
+               %{code: :step_mapping_variable_undeclared, side: :reads, name: "tenant_name"}
+             ] = violations
     end
   end
 

@@ -88,6 +88,21 @@ defmodule Letflow.Engine.NotifyWriteTargetsTest do
                prefix: schema_name
              )
 
+    # The notification step reads the address and the name out of the instance,
+    # so the definition DECLARES those variables: the typed mapping of the
+    # step (T-2594's rule, carried to the notification step) binds a read to a
+    # declared variable schema, and activation refuses a read the definition
+    # does not declare.
+    assert {:ok, _count} =
+             Definitions.register_variable_schemas(
+               definition.id,
+               [
+                 %{variable_key: "admin_email", json_schema: %{"type" => "string"}},
+                 %{variable_key: "tenant_name", json_schema: %{"type" => "string"}}
+               ],
+               prefix: schema_name
+             )
+
     assert {:ok, %{definition: activated}} =
              Definitions.activate(definition.id, prefix: schema_name)
 

@@ -68,6 +68,7 @@ defmodule Letflow.Definitions.NotifyCalls do
   """
 
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.StepMapping
   alias Letflow.Engine.VariableMerge
   alias Letflow.NotificationTemplates.Registry
 
@@ -194,17 +195,106 @@ defmodule Letflow.Definitions.NotifyCalls do
     |> declared_nodes()
     |> Enum.flat_map(fn {_node, raw} ->
       case parse(raw) do
-        {:ok, declaration} ->
-          [declaration.recipient_var] ++
-            Enum.map(declaration.values, fn {_name, source} -> source_var(source) end)
-
-        {:error, _code} ->
-          []
+        {:ok, declaration} -> read_names(declaration)
+        {:error, _code} -> []
       end
     end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
+  The TYPED MAPPING of the declared steps (T-2594's rule, carried to the
+  notification step): what the step READS and what it WRITES.
+
+  A notification step declares no map of its own: its `notify` attribute says
+  WHICH template to send, WHERE to send it (a variable) and WHAT to put in it
+  (the values), so the mapping is DERIVED from that declaration -- the way
+  `Letflow.Definitions.PlatformCalls.mappings/1` derives the platform call's.
+
+  The READS are the recipient's variable and the variables of the values; the
+  step WRITES nothing (a notification leaves the process, it changes no variable
+  of the instance). The type of a read is the type the DEFINITION declares for
+  that variable (`variable_schemas`), so the G13 rule "a step may not touch a
+  variable the definition does not declare" binds the notification step too.
+
+  A declaration that does not parse maps nothing: the notify fence refuses it
+  with its own code, and this mapping adds no second report of the same defect.
+  """
+  @spec mappings([Graph.Node.t()], map()) :: [map()]
+  def mappings(nodes, declared_fields) when is_list(nodes) and is_map(declared_fields) do
+    nodes
+    |> declared_nodes()
+    |> Enum.map(fn {node, raw} -> mapping(node, raw, declared_fields) end)
+  end
+
+  @doc """
+  The variables a notification step READS: the recipient's variable and the
+  variables of the values. The same list `read_keys/1` refuses in a task
+  completion body, so the two cannot disagree about what the step reads.
+  """
+  @spec read_names(map()) :: [String.t()]
+  def read_names(declaration) when is_map(declaration) do
+    ([declaration.recipient_var] ++
+       Enum.map(declaration.values, fn {_name, source} -> source_var(source) end))
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  defp mapping(node, raw, declared_fields) do
+    case parse(raw) do
+      {:ok, declaration} ->
+        names = read_names(declaration)
+        reads = Map.new(names, fn name -> {name, declared_type(declared_fields, name)} end)
+
+        %{
+          node_id: node.id,
+          reads: reads,
+          writes: %{},
+          read_names: names,
+          write_names: [],
+          read_types: reads,
+          write_types: %{}
+        }
+
+      {:error, _code} ->
+        # The declaration does not parse: the notify fence refuses the node
+        # with its own code, and this mapping reads and writes nothing, so the
+        # typed rule adds no second report of the same defect.
+        %{
+          node_id: node.id,
+          reads: %{},
+          writes: %{},
+          read_names: [],
+          write_names: [],
+          read_types: %{},
+          write_types: %{}
+        }
+    end
+  end
+
+  # The type of a read: the type the DEFINITION declares for that variable. A
+  # variable the definition does not declare has no type here -- the typed rule
+  # reports it as undeclared, which is the finding the mapping exists for.
+  defp declared_type(declared_fields, name) do
+    case Map.get(declared_fields, name) do
+      schema when is_map(schema) -> schema_type(schema)
+      _other -> "string"
+    end
+  end
+
+  defp schema_type(schema) do
+    case Map.get(schema, "type") do
+      type when is_binary(type) ->
+        if type in StepMapping.type_names(), do: type, else: "string"
+
+      types when is_list(types) ->
+        Enum.find(types, &(is_binary(&1) and &1 in StepMapping.type_names())) || "string"
+
+      _other ->
+        "string"
+    end
   end
 
   # ── the shape of the attribute ───────────────────────────────────────────────────────────
