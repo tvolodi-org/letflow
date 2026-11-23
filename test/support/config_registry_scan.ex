@@ -31,6 +31,14 @@ defmodule Letflow.Support.ConfigRegistryScan do
          to raw values (`env`) and reads it with `Map.get/2`, so every upper-case literal of
          that module names a variable of the operating system.
 
+    The **call** that reads a setting is seen in every form the language allows, because a name
+    that hides in one of them is a name nobody registered: fully qualified
+    (`System.get_env("X")`), `Elixir.`-prefixed (`Elixir.System.get_env("X")`), imported
+    (`import System` and then `get_env("X")`) and aliased (`alias System, as: Sys` and then
+    `Sys.get_env("X")`). The application environment has the same four forms. An alias and an
+    import belong to the scope that writes them (a file, or the body of a module inside it), so
+    a definition of one module does not reach the import of another.
+
     * `app_env` -- an application environment key: `Application.get_env/2,3`,
       `Application.fetch_env/2`, `Application.compile_env/2,3` and the `config :app, :key, value`
       and `config :app, key: value` directives of `config/*.exs`.
@@ -57,6 +65,14 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   # The map functions that read a map by a key.
   @map_functions [:get, :fetch, :get!, :fetch!]
+
+  # The functions an import of `System` or of `Application` brings into a scope, with the
+  # arities each of them answers. A local call is one of them only when the scope imports the
+  # module and the arity of the call is one the module answers.
+  @imported_functions %{
+    "System" => %{get_env: [0, 1, 2], fetch_env: [0, 1, 2], fetch_env!: [0, 1, 2]},
+    "Application" => %{get_env: [2, 3], fetch_env: [2], compile_env: [2, 3]}
+  }
 
   @type read_form ::
           :get_env
@@ -361,15 +377,22 @@ defmodule Letflow.Support.ConfigRegistryScan do
   end
 
   # What a file binds to names: the module attributes that hold a string, the module attributes
-  # that hold a list of environment variables, the local variables that are assigned a string and
-  # whether the file parses the operating system environment.
+  # that hold a list of environment variables, the local variables that are assigned a string,
+  # whether the file parses the operating system environment, the aliases and the imports the
+  # file scope holds and the functions it defines itself.
   defp context(ast) do
-    %{
+    scope = scope_of(ast)
+
+    ctx = %{
       attrs: module_attributes(ast),
-      env_lists: env_list_attributes(ast),
       locals: local_bindings(ast),
-      env_map?: env_map_file?(ast)
+      env_map?: env_map_file?(ast),
+      aliases: scope.aliases,
+      imports: scope.imports,
+      defined: scope.defined
     }
+
+    Map.put(ctx, :env_lists, env_list_attributes(ast, ctx))
   end
 
   defp module_attributes(ast) do
@@ -410,13 +433,13 @@ defmodule Letflow.Support.ConfigRegistryScan do
   # A list of names a module attribute holds is a list of environment variables when the code
   # that consumes the attribute reads the environment. A list of anything else (the roles, the
   # statuses, the formats) names something else, and a list of prefixes is not a list of names.
-  defp env_list_attributes(ast) do
+  defp env_list_attributes(ast, ctx) do
     lists = list_attributes(ast)
 
     if lists == %{} do
       %{}
     else
-      funs = functions(ast)
+      funs = functions(ast, ctx)
 
       for {name, words} <- lists,
           Enum.any?(funs, fn fun -> fun.reads_env? and MapSet.member?(fun.references, name) end),
@@ -428,11 +451,11 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   # The functions of a file: the module attributes their body names and whether the function
   # reads the operating system environment (in its body or in a default argument of its head).
-  defp functions(ast) do
+  defp functions(ast, ctx) do
     {_ast, funs} =
       Macro.prewalk(ast, [], fn
         {kind, _, _args} = node, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
-          {node, [function(node) | acc]}
+          {node, [function(node, ctx) | acc]}
 
         node, acc ->
           {node, acc}
@@ -441,8 +464,8 @@ defmodule Letflow.Support.ConfigRegistryScan do
     funs
   end
 
-  defp function(node) do
-    %{references: attribute_references(node), reads_env?: env_read?(node)}
+  defp function(node, ctx) do
+    %{references: attribute_references(node), reads_env?: env_read?(node, ctx)}
   end
 
   # The module attributes a piece of code names.
@@ -568,14 +591,17 @@ defmodule Letflow.Support.ConfigRegistryScan do
       {:def, _, [head | body]} ->
         walk_all(head_args(head), rel, ctx, test?) ++ walk_all(body, rel, ctx, test?)
 
+      {:defmodule, _meta, [_name, body]} ->
+        walk_all(children(body), rel, module_ctx(body, ctx), test?)
+
       {:|>, _, [left, right]} ->
-        env_list_sites(left, right, rel, test?) ++
+        env_list_sites(left, right, rel, ctx, test?) ++
           walk(left, rel, ctx, test?) ++
           piped(right, left, rel, ctx, test?)
 
       {{:., _, [mod, fun]}, meta, args} when is_list(args) ->
-        call_sites(alias_name(mod), fun, args, meta, rel, ctx, test?) ++
-          list_arguments(args, meta, rel, test?) ++
+        call_sites(resolve_module(alias_name(mod), ctx.aliases), fun, args, meta, rel, ctx, test?) ++
+          list_arguments(args, meta, rel, ctx, test?) ++
           walk_all(args, rel, ctx, test?)
 
       {:config, meta, args} when is_list(args) and args != [] ->
@@ -597,6 +623,9 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
         inner ++ fallbacks ++ walk(right, rel, ctx, test?)
 
+      {fun, meta, args} when is_atom(fun) and is_list(args) ->
+        imported_call(fun, args, meta, rel, ctx, test?)
+
       _ ->
         walk_all(children(node), rel, ctx, test?)
     end
@@ -610,11 +639,35 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   # A piped call: the source of the pipe is the first argument of the call.
   defp piped({{:., _, [mod, fun]}, meta, args}, left, rel, ctx, test?) when is_list(args) do
-    call_sites(alias_name(mod), fun, [left | args], meta, rel, ctx, test?) ++
+    call_sites(
+      resolve_module(alias_name(mod), ctx.aliases),
+      fun,
+      [left | args],
+      meta,
+      rel,
+      ctx,
+      test?
+    ) ++
       walk_all(args, rel, ctx, test?)
   end
 
   defp piped(right, _left, rel, ctx, test?), do: walk(right, rel, ctx, test?)
+
+  # A call whose module the scope imports: `import System` and then `get_env("X")` is a read of
+  # the operating system environment. A call the scope does not import is not one, and a call
+  # two modules import is ambiguous, so the reader of it cannot be resolved statically.
+  defp imported_call(fun, args, meta, rel, ctx, test?) do
+    case imported_module(fun, length(args), ctx) do
+      {:ok, module} ->
+        call_sites(module, fun, args, meta, rel, ctx, test?) ++ walk_all(args, rel, ctx, test?)
+
+      :ambiguous ->
+        [dynamic_site(rel, line(meta), :get_env, test?)] ++ walk_all(args, rel, ctx, test?)
+
+      :none ->
+        walk_all(args, rel, ctx, test?)
+    end
+  end
 
   defp call_sites("System", fun, args, meta, rel, ctx, test?)
        when fun in [:get_env, :fetch_env, :fetch_env!] do
@@ -718,22 +771,28 @@ defmodule Letflow.Support.ConfigRegistryScan do
   # environment: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST) |> Map.new(fn name -> {name,
   # System.get_env(name)} end)`. A list of words that names something else (the roles, the
   # statuses, the formats) is not a list of environment variables.
-  defp env_list_sites({:sigil_w, meta, [{:<<>>, _, [words]}, _modifiers]}, consumer, rel, test?)
+  defp env_list_sites(
+         {:sigil_w, meta, [{:<<>>, _, [words]}, _modifiers]},
+         consumer,
+         rel,
+         ctx,
+         test?
+       )
        when is_binary(words) do
-    if env_read?(consumer) do
+    if env_read?(consumer, ctx) do
       list_sites(words, meta, rel, test?)
     else
       []
     end
   end
 
-  defp env_list_sites(_node, _consumer, _rel, _test?), do: []
+  defp env_list_sites(_node, _consumer, _rel, _ctx, _test?), do: []
 
   # A list that is an argument of a call that reads the environment.
-  defp list_arguments(args, meta, rel, test?) do
+  defp list_arguments(args, meta, rel, ctx, test?) do
     Enum.flat_map(args, fn
       {:sigil_w, _, [{:<<>>, _, [words]}, _modifiers]} = list when is_binary(words) ->
-        if env_read?(list) or env_read?(args) do
+        if env_read?(list, ctx) or env_read?(args, ctx) do
           list_sites(words, meta, rel, test?)
         else
           []
@@ -744,20 +803,32 @@ defmodule Letflow.Support.ConfigRegistryScan do
     end)
   end
 
-  # Does this piece of code read the operating system environment?
-  defp env_read?(node) do
+  # Does this piece of code read the operating system environment? The scope's own definitions
+  # do not hide the answer here: the question is what the code does, not what it calls.
+  defp env_read?(node, ctx) do
+    ctx = %{ctx | defined: MapSet.new()}
+
     {_node, found} =
       Macro.prewalk(node, false, fn
         {{:., _, [mod, fun]}, _, args} = node, acc when is_list(args) ->
           {node,
            acc or
-             (alias_name(mod) == "System" and fun in [:get_env, :fetch_env, :fetch_env!])}
+             (resolve_module(alias_name(mod), ctx.aliases) == "System" and
+                fun in [:get_env, :fetch_env, :fetch_env!])}
+
+        {fun, _meta, args} = node, acc when is_atom(fun) and is_list(args) ->
+          {node, acc or imported_read?(fun, length(args), ctx)}
 
         node, acc ->
           {node, acc}
       end)
 
     found
+  end
+
+  # Does this call read the operating system environment through an import?
+  defp imported_read?(fun, arity, ctx) do
+    match?({:ok, "System"}, imported_module(fun, arity, ctx))
   end
 
   # A list of names: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST)`.
@@ -949,15 +1020,227 @@ defmodule Letflow.Support.ConfigRegistryScan do
   defp atom_name(app) when is_binary(app), do: app
   defp atom_name(_app), do: nil
 
+  # `Elixir.System` and `System` name the same module, so the prefix carries no information.
   defp alias_name({:__aliases__, _, parts}) when is_list(parts) do
     if Enum.all?(parts, &is_atom/1) do
-      Enum.map_join(parts, ".", &Atom.to_string/1)
+      parts
+      |> Enum.map(&Atom.to_string/1)
+      |> case do
+        ["Elixir" | rest] -> Enum.join(rest, ".")
+        names -> Enum.join(names, ".")
+      end
     else
       nil
     end
   end
 
   defp alias_name(_other), do: nil
+
+  # -- scopes ----------------------------------------------------------------
+
+  # The aliases, the imports and the local definitions of a scope: a file, or the body of a
+  # module inside it. A module body is a scope of its own, so the walk does not descend into
+  # one: a definition of one module does not reach the import of another.
+  defp scope_of(node) do
+    {aliases, imports, defined} = scope_walk(node, {%{}, %{}, MapSet.new()})
+    %{aliases: aliases, imports: imports, defined: defined}
+  end
+
+  defp scope_walk({:defmodule, _meta, _args}, acc), do: acc
+
+  defp scope_walk({form, _meta, args}, acc) when is_list(args) do
+    case form do
+      :alias -> add_alias(args, acc)
+      :import -> add_import(args, acc)
+      kind when kind in [:def, :defp, :defmacro, :defmacrop] -> add_definition(args, acc)
+      _ -> Enum.reduce(args, acc, &scope_walk/2)
+    end
+  end
+
+  defp scope_walk({left, right}, acc), do: scope_walk(right, scope_walk(left, acc))
+  defp scope_walk(list, acc) when is_list(list), do: Enum.reduce(list, acc, &scope_walk/2)
+  defp scope_walk(_other, acc), do: acc
+
+  # An alias names a module under a shorter name: `alias System, as: Sys` makes `Sys` name
+  # `System`. Only the two modules the probe reads are kept, so an alias of anything else
+  # cannot change what the derivation sees.
+  defp add_alias(args, acc) do
+    {aliases, imports, defined} = acc
+
+    pairs =
+      args
+      |> alias_pairs()
+      |> Enum.filter(fn {_local, full} -> full in ["System", "Application"] end)
+
+    {
+      Enum.reduce(pairs, aliases, fn {local, full}, map -> Map.put(map, local, full) end),
+      imports,
+      defined
+    }
+  end
+
+  # `alias System`, `alias System, as: Sys` and `alias Foo.{Bar, Baz}`.
+  defp alias_pairs([{{:., _, [base, :{}]}, _meta, parts}]) do
+    base_name = alias_name(base)
+
+    Enum.map(parts, fn part ->
+      {alias_name(part), "#{base_name}.#{alias_name(part)}"}
+    end)
+  end
+
+  defp alias_pairs([target]) do
+    [{local_alias_name(target), alias_name(target)}]
+  end
+
+  defp alias_pairs([target, opts]) when is_list(opts) do
+    local =
+      case Keyword.get(opts, :as) do
+        nil -> local_alias_name(target)
+        as -> alias_name(as)
+      end
+
+    [{local, alias_name(target)}]
+  end
+
+  defp alias_pairs(_args), do: []
+
+  # The name an alias is known by inside its scope: the last segment of the module it names.
+  defp local_alias_name({:__aliases__, _, parts}) when is_list(parts) and parts != [] do
+    parts |> List.last() |> Atom.to_string()
+  end
+
+  defp local_alias_name(_other), do: nil
+
+  # An import brings the functions of a module into a scope: `import System` and then
+  # `get_env("X")` is a call of `System.get_env/1`.
+  defp add_import(args, acc) do
+    {aliases, imports, defined} = acc
+
+    case import_spec(args, aliases) do
+      nil -> acc
+      {module, spec} -> {aliases, Map.put(imports, module, spec), defined}
+    end
+  end
+
+  # `import System`, `import System, only: [...]` and `import System, except: [...]`.
+  defp import_spec([target], aliases) do
+    imported_module_spec(alias_name(target), aliases, %{only: nil, except: MapSet.new()})
+  end
+
+  defp import_spec([target, opts], aliases) when is_list(opts) do
+    imported_module_spec(alias_name(target), aliases, import_options(opts))
+  end
+
+  defp import_spec(_args, _aliases), do: nil
+
+  defp imported_module_spec(name, aliases, options) do
+    case resolve_module(name, aliases) do
+      module when module in ["System", "Application"] -> {module, options}
+      _other -> nil
+    end
+  end
+
+  defp import_options(opts) do
+    %{
+      only: import_pairs(Keyword.get(opts, :only)),
+      except: import_pairs(Keyword.get(opts, :except)) || MapSet.new()
+    }
+  end
+
+  defp import_pairs(nil), do: nil
+  defp import_pairs(list), do: MapSet.new(list, fn {name, arity} -> {name, arity} end)
+
+  # The functions a scope defines itself: a definition of the scope shadows an import of the
+  # same name, so the derivation has to know it.
+  defp add_definition([head | body], acc) do
+    {aliases, imports, defined} = acc
+    name = definition_name(head)
+
+    defined =
+      if is_nil(name) do
+        defined
+      else
+        Enum.reduce(head_arities(head), defined, fn arity, set ->
+          MapSet.put(set, {name, arity})
+        end)
+      end
+
+    # A directive in the body of a function belongs to that function.
+    Enum.reduce(body, {aliases, imports, defined}, &scope_walk/2)
+  end
+
+  defp add_definition(_args, acc), do: acc
+
+  defp definition_name({:when, _, [call | _guard]}), do: definition_name(call)
+  defp definition_name({name, _, _args}) when is_atom(name), do: name
+  defp definition_name(_other), do: nil
+
+  # The arities a function head answers: a default argument counts for the arity without it
+  # and for the arity with it.
+  defp head_arities({:when, _, [call | _guard]}), do: head_arities(call)
+
+  defp head_arities({_name, _, args}) when is_list(args) do
+    required = Enum.count(args, &match?({:"\\", _, _}, &1))
+    total = length(args)
+    Enum.uniq([total - required, total])
+  end
+
+  defp head_arities(_other), do: []
+
+  # The scope of a module body: the scope of the file it is in, with the aliases and the
+  # imports of the module itself over it. An import of the module replaces the import of the
+  # file for that module: the language narrows an import the same way (`import System` in the
+  # file and `import System, only: [get_env: 1]` in the module leaves the module with
+  # `get_env/1` alone).
+  defp module_ctx(body, ctx) do
+    scope = scope_of(body)
+
+    %{
+      ctx
+      | aliases: Map.merge(ctx.aliases, scope.aliases),
+        imports: Map.merge(ctx.imports, scope.imports),
+        defined: scope.defined
+    }
+  end
+
+  # The module a name stands for, with the aliases of the scope applied.
+  defp resolve_module(nil, _aliases), do: nil
+
+  defp resolve_module(name, aliases) do
+    case Map.fetch(aliases, name) do
+      {:ok, target} -> target
+      :error -> name
+    end
+  end
+
+  # The module a local call names, when the scope imports it: `import System` and then
+  # `get_env("X")` is a call of `System.get_env/1`. A definition of the scope shadows the
+  # import, and a call two modules import is ambiguous, so its reader cannot be resolved.
+  defp imported_module(fun, arity, ctx) do
+    if MapSet.member?(ctx.defined, {fun, arity}) do
+      :none
+    else
+      candidates =
+        ctx.imports
+        |> Enum.filter(fn {module, spec} -> import_allows?(spec, module, fun, arity) end)
+        |> Enum.map(fn {module, _spec} -> module end)
+        |> Enum.uniq()
+
+      case candidates do
+        [module] -> {:ok, module}
+        [] -> :none
+        _many -> :ambiguous
+      end
+    end
+  end
+
+  defp import_allows?(spec, module, fun, arity) do
+    arities = Map.get(Map.get(@imported_functions, module, %{}), fun, [])
+
+    arity in arities and
+      (is_nil(spec.only) or MapSet.member?(spec.only, {fun, arity})) and
+      not MapSet.member?(spec.except, {fun, arity})
+  end
 
   defp split(reads) do
     {env, app_env, dynamic} =

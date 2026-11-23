@@ -10,8 +10,11 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
   read, with the form of each read -- and fails until the two agree. A new backend setting
   therefore cannot be added without a registered reason, a feature flag cannot be switched on by
   default, a fail-closed setting cannot be read with a default that takes effect, and a secret
-  cannot come with a literal. The two client tiers (the web SPA and the Flutter app) read their
-  own build-time values, which are outside the derivation; the class table names them.
+  cannot come with a literal. The read is seen in every call form the language allows --
+  qualified, `Elixir.`-prefixed, imported and aliased -- so a name that hides in one of them
+  arrives with no registered reason and the gate stays green only when it should. The two client
+  tiers (the web SPA and the Flutter app) read their own build-time values, which are outside
+  the derivation; the class table names them.
 
   The derivation is `Letflow.Support.ConfigRegistryScan` (test/support): it parses the sources
   with `Code.string_to_quoted!/2` and starts nothing. The seeded failing variants live in
@@ -91,6 +94,15 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert {:unregistered_env, "env:G10_ATTRIBUTE_LIST_SETTING"} in reported
       assert {:unregistered_env, "env:G10_HEAD_DEFAULT_SETTING"} in reported
       assert {:unregistered_env, "env:G10_ENV_MAP_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_IMPORTED_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_IMPORTED_FETCH_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ELIXIR_PREFIXED_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ALIASED_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_IMPORT_BESIDE_LOCAL_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_FILE_SCOPE_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_FILE_SCOPE_NARROWED_SETTING"} in reported
+      assert {:unregistered_app_env, "app_env::letflow:g10_aliased_app_key"} in reported
+      assert {:unregistered_app_env, "app_env::letflow:g10_imported_app_key"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_flag_enabled"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_release_flag"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_keyword_flag"} in reported
@@ -114,14 +126,44 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
         |> Enum.sort()
 
       assert forms == [
+               {"G10_ALIASED_SETTING", :get_env, "lib/g10_call_forms.ex"},
                {"G10_ATTRIBUTE_LIST_SETTING", :literal, "lib/g10_broken.ex"},
                {"G10_ATTRIBUTE_SETTING", :get_env, "lib/g10_broken.ex"},
+               {"G10_ELIXIR_PREFIXED_SETTING", :get_env, "lib/g10_call_forms.ex"},
                {"G10_ENV_MAP_SETTING", :literal, "lib/g10_env_map.ex"},
+               {"G10_FILE_SCOPE_NARROWED_SETTING", :get_env, "lib/g10_file_scope.ex"},
+               {"G10_FILE_SCOPE_SETTING", :get_env, "lib/g10_file_scope.ex"},
                {"G10_HEAD_DEFAULT_SETTING", :get_env, "lib/g10_broken.ex"},
+               {"G10_IMPORTED_FETCH_SETTING", :fetch_env, "lib/g10_call_forms.ex"},
+               {"G10_IMPORTED_SETTING", :get_env, "lib/g10_call_forms.ex"},
+               {"G10_IMPORT_BESIDE_LOCAL_SETTING", :get_env, "lib/g10_call_forms.ex"},
                {"G10_LIST_SETTING", :literal, "lib/g10_broken.ex"},
                {"G10_LOCAL_SETTING", :get_env, "lib/g10_broken.ex"},
                {"G10_UNREGISTERED_SETTING", :get_env, "lib/g10_broken.ex"}
              ]
+    end
+
+    test "a call the scope imports is a read, whichever module of the file defines the name", %{
+      broken_inventory: inventory
+    } do
+      names = Enum.map(inventory.env, & &1.name)
+
+      assert "G10_IMPORT_BESIDE_LOCAL_SETTING" in names,
+             "a definition of another module of the file shadowed the import"
+
+      refute "G10_DEFINES_GET_ENV_ITSELF" in names
+    end
+
+    test "the application environment is read through an import and through an alias", %{
+      broken_inventory: inventory
+    } do
+      names = Enum.map(inventory.app_env, & &1.name)
+
+      assert ":letflow:g10_imported_app_key" in names,
+             "the imported application read was not found"
+
+      assert ":letflow:g10_aliased_app_key" in names,
+             "the aliased application read was not found"
     end
 
     test "a list of something else is not a list of variables", %{broken_inventory: inventory} do

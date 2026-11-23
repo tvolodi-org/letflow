@@ -19,6 +19,14 @@
 # variable (a literal, a piped list, a module attribute, a local variable, a list a module
 # attribute holds, a default argument of a function head and an environment map), and each of
 # them has to be reported.
+#
+# The names the fixture reads in a call form are absent here for the same reason:
+# `G10_IMPORTED_SETTING`, `G10_IMPORTED_FETCH_SETTING`, `G10_ELIXIR_PREFIXED_SETTING`,
+# `G10_ALIASED_SETTING`, `G10_FILE_SCOPE_SETTING`, `G10_FILE_SCOPE_NARROWED_SETTING` and
+# `G10_IMPORT_BESIDE_LOCAL_SETTING` (the imported, the `Elixir.`-prefixed, the aliased and the
+# file-scoped calls), and the application keys `:letflow:g10_imported_app_key` and
+# `:letflow:g10_aliased_app_key` (the imported and the aliased application calls). A name that
+# hides in one of those forms is a name nobody registered, so the probe has to report it.
 app_env|:letflow:g10_flag_enabled|platform|platform|runtime|flag|false|no|none|A fixture flag that is read with a default that turns it on.
 app_env|:letflow:g10_release_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on.
 app_env|:letflow:g10_keyword_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on with the keyword form of the directive.
