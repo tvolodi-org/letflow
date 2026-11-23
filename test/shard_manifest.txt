@@ -576,6 +576,7 @@
 12 test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs 200.00
 12 test/letflow/security_probe/g06_outbound_http_inventory_test.exs 7100.00
 12 test/letflow/security_probe/g08_uat_safety_equivalence_test.exs 4000.00
+12 test/letflow/security_probe/g09_migration_impact_test.exs 12000.00
 12 test/letflow/service_catalog_delete_pinned_instances_test.exs 16886.16
 12 test/letflow/support/tenant_template_ledger_test.exs 4860.05
 12 test/support/bpm_default_realm_displacement_gate_test.exs 2384.69
