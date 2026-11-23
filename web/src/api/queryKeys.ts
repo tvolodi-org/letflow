@@ -325,6 +325,13 @@ export const queryKeys = {
     list: (tenantId: string) => [...queryKeys.ledgerSettings.all(tenantId), 'list'] as const,
   },
 
+  /** T-2599 (pilot gap G5a) — the compiled platform function catalogue the designer's picker reads. Tenant-scoped:
+   *  the platform family is visible only in the platform tenant (INV-10), so the answer differs per tenant. */
+  platformFunctions: {
+    all: (tenantId: string) => ['tenant', tenantId, 'platform-functions'] as const,
+    list: (tenantId: string) => [...queryKeys.platformFunctions.all(tenantId), 'list'] as const,
+  },
+
   /** T-1983 — official-form templates admin screen. */
   officialFormTemplates: {
     all: (tenantId: string) => ['tenant', tenantId, 'official-form-templates'] as const,
