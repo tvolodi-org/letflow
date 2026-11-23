@@ -108,6 +108,10 @@ defmodule Letflow.Notifications.FilesTest do
                  bytes: "x",
                  declared_name: "x"
                })
+
+      # "Nothing is written" -- not into the refused prefix, and not into the
+      # tenant's own schema either: the refusal happens before any write.
+      assert Repo.all(File, prefix: fx.schema_name) == []
     end
 
     test "FA3 a file over the cap is refused, not truncated", %{fx: fx} do
