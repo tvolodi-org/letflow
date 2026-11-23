@@ -116,6 +116,17 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   refuses a row whose function or arguments the node does not declare. The
   authority fence proves WHO may run the call; this proves WHAT the call is.
 
+  ## The typed step mapping of the step (gap G13)
+
+  A step declares what it reads and what it writes, and this module honours
+  the WRITE half: only the outputs the step declares are written. An output
+  the function returned but the step did not declare is not written, so a
+  function can never write a variable the definition did not ask for -- and
+  the reserved engine namespace is never among the declared writes. A step
+  that declares no writes at all is refused before the body runs
+  (`platform_call_mapping_not_declared`): the dispatcher does not guess what a
+  step writes.
+
   ## The failure kind of a row
 
   `last_failure_kind` is a STABLE CODE, never a customer text: the row is
@@ -209,6 +220,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_invalid_display_name
     platform_call_invalid_email
     platform_call_invalid_slug
+    platform_call_mapping_not_declared
     platform_call_needs_reactivation
     platform_call_node_missing
     platform_call_node_not_declared
@@ -997,9 +1009,10 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   defp run(row, prefix) do
     with {:ok, definition} <- load_definition(row, prefix),
          :ok <- authorize(definition, row, prefix),
-         :ok <- check_binding(definition, row),
+         {:ok, writes} <- check_binding(definition, row),
          {:ok, mfa} <- fetch_implementation(row.function_name),
          {:ok, outputs} <- invoke(mfa, row),
+         {:ok, outputs} <- declared_outputs(outputs, writes),
          :ok <- record_outcome(row, prefix, {:ok, outputs}) do
       {:ok, {:advanced, outputs}}
     else
@@ -1020,9 +1033,32 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     with {:ok, nodes} <- graph_nodes(definition),
          {:ok, call} <- PlatformCalls.node_call_binding(nodes, row.node_id),
          :ok <- check_bound_function(call, row),
-         :ok <- check_bound_args(call, row) do
-      :ok
+         :ok <- check_bound_args(call, row),
+         {:ok, writes} <- declared_writes(call) do
+      {:ok, writes}
     end
+  end
+
+  # The step's DECLARED writes (the typed step mapping of gap G13). A step that
+  # declares none writes nothing, and the dispatcher will not guess: the
+  # declaration is required, and the activation fence refuses a version that
+  # does not carry it. The dispatcher refuses the call too, so a definition
+  # that somehow got past the fence cannot write an undeclared variable.
+  defp declared_writes(call) do
+    case Map.fetch(call, "writes") do
+      {:ok, declared} when is_map(declared) ->
+        {:ok, PlatformCalls.declared_write_names(call)}
+
+      _absent_or_malformed ->
+        {:error, :platform_call_mapping_not_declared}
+    end
+  end
+
+  # A step writes ONLY what it declares. An output the function returned that
+  # the step did not declare is not written: the definition did not ask for
+  # it, and the reserved engine namespace is never among the declared writes.
+  defp declared_outputs(outputs, writes) when is_map(outputs) and is_list(writes) do
+    {:ok, Map.take(outputs, writes)}
   end
 
   defp graph_nodes(definition) do

@@ -190,6 +190,50 @@ bound, not a tighter rule) and the e-mail at most 254 (the RFC's limit is in oct
 `arm/1` also refuses an option it does not read (`platform_call_arg_unknown`) instead of dropping
 it in silence: a caller must not believe that, say, `:tenant_id` is honoured.
 
+## The typed step mapping: what the step reads and what it writes
+
+A step that maps variables DECLARES it (gap G13, T-2594). The `platform_call` attribute carries
+two more keys beside the function and its arguments:
+
+```json
+"platform_call": {
+  "function": "platform.validate_registration",
+  "args": {"slug": {"var": "slug"}, "display_name": {"const": "Acme Ltd"}},
+  "reads": {"slug": "string"},
+  "writes": {"normalized_slug": "string", "email_domain": "string"}
+}
+```
+
+`reads` and `writes` are maps of a variable name to its JSON-Schema type name (`string`, `number`,
+`integer`, `boolean`, `object`, `array`). The names are flat: the instance variables are one flat
+namespace.
+
+The declaration is checked against the definition's own `variable_schemas`
+(`Letflow.Definitions.StepMapping`), at ACTIVATION and in the DESIGNER
+(`POST /api/v1/definitions/:id/validate`):
+
+| Rule | Code |
+|---|---|
+| the declaration is there | `step_mapping_declaration_missing` |
+| it is a map of a name to a known type name | `step_mapping_declaration_malformed` |
+| the name is not in the reserved engine namespace (`_sys`) | `step_mapping_reserved_refused` |
+| the name is among the definition's variable schemas | `step_mapping_variable_undeclared` |
+| the declared type agrees with the schema's type | `step_mapping_type_mismatch` |
+| the declared type agrees with the catalogue entry's type | `step_mapping_entry_type_mismatch` |
+| the write is not a variable a human task may write | `step_mapping_write_refused` |
+| the write is an output the function produces | `step_mapping_write_not_declared` |
+| every variable the step reads is declared | `step_mapping_read_undeclared` |
+
+The fence runs on every path that switches a version on: activate, reactivate, version rollback and
+promotion apply. A company tenant never sees these findings: it may not carry a platform call at
+all, and the ONE fixed code (`:platform_call_not_allowed`) is the whole answer -- a catalogue's
+type must not tell a stranger that the catalogue holds that entry.
+
+At RUN time the declaration is a rule too: the dispatcher writes ONLY the outputs the step
+declares. An output the function returned but the step did not declare is not written, and a step
+that declares no writes at all is refused before the body runs
+(`platform_call_mapping_not_declared`).
+
 ## The failure kind is a code, never a text
 
 `last_failure_kind` carries a STABLE CODE: the row is read by the step log (gap G6) and must not
