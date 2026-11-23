@@ -55,6 +55,26 @@ defmodule Letflow.Definitions.PlatformCalls do
        `service_id` or `script_key` beside it. The step kinds are exclusive, so
        a closed catalogue call cannot dispatch as an outbound or script step.
 
+  ## The foreign source, and the notification step beside it
+
+  Rule 5 has a second half, one step further: a write-like entry also reads no
+  variable a node OUTSIDE the graph's own trusted inputs may write. An inline
+  HTTP service task, a script-bound one and a sub-process all merge their own
+  output into the same instance variables, so they could overwrite the value
+  the catalogue call reads -- a source the human-task comparison cannot see.
+  A graph that carries a write-like catalogue call therefore carries no
+  foreign source at all (code `:platform_call_foreign_source_refused`).
+
+  A NOTIFICATION step (gap G4) is NOT a foreign source (T-2595, gap G9): it
+  reads variables of the instance and writes NONE of them -- the notification
+  leaves the process, it changes no variable. A node that merges nothing
+  cannot overwrite anything, so the rule does not touch it. The exemption
+  holds only for a node that routes itself by the `notify` attribute ALONE: a
+  node that carries `notify` beside `endpoint`, `service_id` or `script_key` is
+  refused by the notify fence (`:notify_conflicting_route`) and keeps the
+  foreign-source rule, so the rule cannot be dodged by hanging a `notify`
+  attribute on a node that really does call something.
+
   The signed `activated_by` document replaces the owner stamp for catalogue
   calls: instead of "unchanged since the module shipped it", the rule is
   "switched on by someone who holds the entry's permission, in the right
@@ -76,6 +96,7 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   alias Letflow.Api.Authorization
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.WriteTargets
   alias Letflow.PlatformFunctions.Catalog
@@ -83,6 +104,7 @@ defmodule Letflow.Definitions.PlatformCalls do
   alias Letflow.PlatformTenant
 
   @attribute "platform_call"
+  @notify_attribute "notify"
   @call_keys ["function", "args", "reads", "writes"]
   @conflicting_route_attributes ["endpoint", "service_id", "script_key"]
 
@@ -436,12 +458,46 @@ defmodule Letflow.Definitions.PlatformCalls do
   # variables from outside its own trusted inputs. A PURE `platform_call` step
   # is exempt; a node that also carries an HTTP, catalogue-service or script
   # route is not, because that other route can merge its own output.
+  #
+  # A NOTIFICATION step is exempt too (T-2595, gap G9): it READS variables of
+  # the instance and WRITES none of them -- the notification leaves the
+  # process, it changes no variable (`Letflow.Definitions.NotifyCalls.mappings/1`
+  # derives an empty write set for it, and the dispatcher never merges
+  # anything). A node that merges nothing cannot overwrite the value a
+  # catalogue call reads, so it is not the source the rule is about.
+  #
+  # The exemption holds only for a node that routes itself by the `notify`
+  # attribute ALONE: a node that carries `notify` and another route
+  # (`endpoint`, `service_id`, `script_key`) is refused by the notify fence
+  # itself (`Letflow.Definitions.NotifyCalls`, code `:notify_conflicting_route`)
+  # and keeps the foreign-source rule, so the rule cannot be dodged by hanging
+  # a `notify` attribute on a node that really does call something.
   defp foreign_source?(nodes) do
     Enum.any?(nodes, fn node ->
       node.node_type in @foreign_source_types and
-        (not declares_platform_call?(node) or conflicting_route?(node))
+        (not declares_platform_call?(node) or conflicting_route?(node)) and
+        not declares_notify?(node)
     end)
   end
+
+  # The node declares a WELL-FORMED `notify` attribute and NOTHING else that
+  # routes it. The declaration is parsed through the ONE parse the notify
+  # fence uses (`Letflow.Definitions.NotifyCalls.parse/1`), so only a
+  # declaration the notify fence itself accepts is exempt: a malformed one
+  # keeps the foreign-source rule, and so does a node that routes itself by
+  # something else as well.
+  defp declares_notify?(%Graph.Node{attributes: attributes}) when is_map(attributes) do
+    case Map.get(attributes, @notify_attribute) do
+      raw when is_map(raw) and not is_struct(raw) ->
+        match?({:ok, _declaration}, NotifyCalls.parse(raw)) and
+          not conflicting_route_attributes?(attributes)
+
+      _other ->
+        false
+    end
+  end
+
+  defp declares_notify?(_other), do: false
 
   defp conflicting_route?(%Graph.Node{attributes: attributes} = node) do
     declares_platform_call?(node) and conflicting_route_attributes?(attributes)
