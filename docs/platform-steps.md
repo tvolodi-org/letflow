@@ -71,16 +71,18 @@ tenant before any definition can exist).
 
 `test/letflow/platform_functions/tenant_create_callers_test.exs` is the scan that pins it: a
 pure AST scan over `lib/**/*.ex`, in the shape of the sibling caller scans
-(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). The scan resolves every alias
-form the parser produces -- the plain alias, the RENAMED alias (`as: I`), the MULTI alias
-(`alias Letflow.{Audit, Identity}`) and the multi alias over a nested base -- as well as the
-fully qualified call, `apply/3`, the capture `&Module.fun/1` and the `import` (an import puts
-the function in scope unqualified, so a local `create_tenant(attrs)` is that module's call). A
-caller therefore cannot hide behind the form it is written in: a new caller of any of the four
-functions anywhere in `lib/` fails the scan. The forms the scan does NOT see are listed in the
-scan's own moduledoc ("Accepted limits"): a computed module name, `apply/3` with a computed
-module, `Code.eval_*`, a macro that expands into the call, and an `alias` or `import` written
-through a macro.
+(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). The scan resolves a literal reference to a guarded module in these
+forms: the plain, renamed (`as: I`), multi and `Elixir.`-prefixed alias; the fully qualified call
+(with or without `Elixir.`); `apply/3`, `Kernel.apply/3` and `:erlang.apply/3` with a literal
+function name; the capture `&Module.fun/1`; `import` (also `only:`/`except:`) with a local call;
+a module attribute that holds the module; `defdelegate ..., to: Module`; and an atom that spells
+the module. It FAILS CLOSED: a reference to a guarded module that none of those forms places (a
+variable bound to the module, the module passed as an argument, `apply/3` with a computed function
+name, `use`, a struct) is reported as unresolved, and the real-tree test pins the unresolved
+references exactly (today: config keys and one catalogue tuple, each with its reason). The forms the
+scan does NOT see are its "Accepted limits", each with a test that shows it is silent: a module name
+built at run time (`Module.concat/1`, `String.to_atom/1`), `Code.eval_*`, a macro defined elsewhere
+that expands into the call, and an `alias`/`import`/`use` written through a macro.
 
 The scan also pins, EXACTLY, the
 callers of the catalogue body's public wrappers (`TenantCreate.create_tenant/1`,
@@ -95,7 +97,7 @@ instead of calling the code, the scan names the file that changed.
 What this change delivers:
 
 * the CLOSED caller set of the four tenant-writing functions: a new caller of any of them
-  anywhere in `lib/` fails the scan, in every alias form the source can be written in;
+  anywhere in `lib/` fails the scan when it names the module literally (forms and limits above);
 * the EXACT pin of the four remaining bypass routes: the pinned set may only SHRINK, so the
   rewiring removes an entry and the scan names the file that changed.
 
