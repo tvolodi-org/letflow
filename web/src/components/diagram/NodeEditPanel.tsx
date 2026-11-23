@@ -16,23 +16,28 @@ import {
   deleteNodes,
   hasServiceBinding,
   readAttrs,
+  removeNotifyStep,
   removePlatformCall,
   replaceServiceWithScript,
   scriptBindingHint,
   setEdge,
   setNodeAttr,
   setNodeLabel,
+  setNotifyStep,
   setPlatformCall,
   setScriptBinding,
   type EditResult,
 } from '@/utils/canvas/graphEdit'
 import { emptyPlatformCall, parsePlatformCall, withDerivedMapping } from '@/utils/canvas/platformCall'
+import { emptyNotifyStep, parseNotifyStep } from '@/utils/canvas/notifyStep'
 import { usePlatformFunctions } from '@/hooks/usePlatformFunctions'
+import { useNotificationTemplateCatalogue } from '@/hooks/useNotificationTemplateCatalogue'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { PlatformCallEditor, type PlatformCatalogueState } from './PlatformCallEditor'
+import { NotifyStepEditor, type NotifyCatalogueState } from './NotifyStepEditor'
 import { useDiagramText } from './useDiagramText'
 
 export type ApplyEdit = (result: EditResult, announce?: string, coalesceKey?: string) => void
@@ -84,6 +89,15 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
     error: catalogueQuery.error ?? null,
     onRetry: () => void catalogueQuery.refetch(),
   }
+  // T-2600: the COMPILED notification template catalogue the template picker reads. The read is lazy, like the
+  // platform one: it happens when a SERVICE step's panel is open, not when the page opens.
+  const templateQuery = useNotificationTemplateCatalogue(tenantId, node?.node_type === 'SERVICE_TASK')
+  const templates: NotifyCatalogueState = {
+    entries: templateQuery.data?.items ?? [],
+    loading: templateQuery.isPending,
+    error: templateQuery.error ?? null,
+    onRetry: () => void templateQuery.refetch(),
+  }
   if (!node) return null
   const attrs = readAttrs(node)
   const editable = attributesEditable(node)
@@ -105,6 +119,8 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
   const rawCall = parsePlatformCall(attrs.platform_call)
   const platformEntry = rawCall ? catalogue.entries.find((x) => x.name === rawCall.function) ?? null : null
   const platformCall = rawCall && platformEntry ? withDerivedMapping(rawCall, platformEntry) : rawCall
+  // T-2600: the step's notification (the channel, the template, the recipient and the values).
+  const notifyStep = parseNotifyStep(attrs.notify)
 
   const edgeRow = (edge: GraphEdge, arrow: string) => (
     <li key={edge.id} className="lf-pd-edit__conn" data-testid="edit-connection-row">
@@ -165,6 +181,26 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
       )}
       {editable && node.node_type === 'SERVICE_TASK' && (
         <>
+          {notifyStep ? (
+            // T-2600: the step sends a notification — the channel, the template, the recipient and the values.
+            <div data-testid="edit-notify-step">
+              <NotifyStepEditor
+                key={node.id}
+                step={notifyStep}
+                catalogue={templates}
+                onChange={(next) => onApply(setNotifyStep(graph, node.id, next), undefined, `notify:${node.id}`)}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onApply(removeNotifyStep(graph, node.id), e('announce.notifyStepRemoved'))}
+                data-testid="edit-use-script-from-notify"
+              >
+                {e('notify.useScript')}
+              </Button>
+            </div>
+          ) : (
+            <>
           {platformCall ? (
             // T-2599: the step calls a platform function — the picker and the typed argument mapping.
             <div data-testid="edit-platform-call">
@@ -245,6 +281,25 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
                   {e('platform.useFunction')}
                 </Button>
               )}
+              {templates.entries.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const first = templates.entries[0]
+                    onApply(
+                      setNotifyStep(graph, node.id, { ...emptyNotifyStep(), templateKey: first.template_key }),
+                      e('announce.notifySelected', { name: first.template_key }),
+                      `notify:${node.id}`,
+                    )
+                  }}
+                  data-testid="edit-use-notification"
+                >
+                  {e('notify.useNotification')}
+                </Button>
+              )}
+            </>
+          )}
             </>
           )}
         </>

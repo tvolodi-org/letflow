@@ -101,6 +101,7 @@ STANDARD_BP_DOC_TEST = [
 # Their module is also tagged security_probe for the operator's tagged checks hook.
 # G-01: the generated real-HTTP route x role x tenant x request-shape matrix (golden as the
 # oracle, foreign/missing byte identity, no write on denial or into another tenant).
+# G-02: the pure AST writer/start inventory is mandatory on every bounded run.
 # G-05: the generated audit-writer by caller matrix and the database-row schema assertions
 # for actor id/kind, required fields and payload redaction.
 # G-06: every outbound HTTP call site is inventoried and classified, and the
@@ -124,6 +125,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
     "test/letflow/security_probe/g01_route_role_matrix_test.exs",
+    "test/letflow/security_probe/g02_writer_start_inventory_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
