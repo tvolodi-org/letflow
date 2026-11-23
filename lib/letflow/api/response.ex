@@ -550,6 +550,24 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- the DECLARED start permission of a definition was refused (T-2591, pilot gap G3;
+  decision record `docs/migration/decisions/0094-platform-call-authority.md`, decision (e)).
+
+  The body carries a stable code and the permission names involved. Permission ATOM NAMES are
+  not secrets: they are the vocabulary of the role table, and the caller is the definition's
+  own author. No value, hash or definition name ever appears.
+  """
+  @spec start_permission_invalid(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def start_permission_invalid(conn, %{code: code} = violation),
+    do:
+      send_json(conn, 422, %{
+        "error" => "start_permission_invalid",
+        "code" => Atom.to_string(code),
+        "declared" => Map.get(violation, :declared),
+        "required" => Map.get(violation, :required)
+      })
+
+  @doc """
   HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
   namespace (GH #2623). The body echoes neither the URL nor the matched name.
   """

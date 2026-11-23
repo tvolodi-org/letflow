@@ -153,8 +153,6 @@ not declare" binds the notification step too
 
 ## What is not built yet
 
-## What is not built yet
-
 * the ENGINE wiring: a SERVICE_TASK that carries a `notify` attribute is a valid
   node of a definition, but the node dispatch that RUNS it is not part of this
   change -- exactly as the platform-call step's engine wiring is not part of

@@ -15,7 +15,8 @@ defmodule Letflow.Notifications do
 
   Outcome rows: `sent` (no reason); `skipped` / `no_email` (no user row or an empty address, no
   adapter call); `skipped` / `adapter_noop` (the Noop adapter is configured, not called);
-  `failed` / `adapter_error` (an adapter error, raise, exit or timeout, or a template that does
+  `skipped` / `rate_limited` (the tenant's outbound send cap refused the send; nothing left the
+  platform); `failed` / `adapter_error` (an adapter error, raise, exit or timeout, or a template that does
   not render, e.g. an invalid `default_locale`, with no adapter call). A subject over 200
   codepoints after rendering is refused by the Smtp adapter (`:invalid_message`) and so logs
   `failed` / `adapter_error`; it is not truncated.

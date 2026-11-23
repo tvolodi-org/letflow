@@ -31,7 +31,7 @@ defmodule Letflow.AddOwnerReviewItemsTest do
     schema = fx.schema_name
 
     assert {@version, AddOwnerReviewItems} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -16)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -17)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, AddOwnerReviewItems, prefix: schema, log: false)
