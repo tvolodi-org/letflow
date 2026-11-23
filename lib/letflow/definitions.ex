@@ -146,6 +146,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.SemanticValidation
   alias Letflow.Definitions.StartPermission
   alias Letflow.Definitions.StepMapping
+  alias Letflow.Definitions.TestCases
   alias Letflow.Definitions.ValidationWarnings
   alias Letflow.PlatformTenant
   alias Letflow.Engine.EntityPort
@@ -286,6 +287,8 @@ defmodule Letflow.Definitions do
           | {:error, :duplicate_name_version}
           # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call` step.
           | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+          # T-2604 (pilot gap G16): the declared test cases of the version are malformed.
+          | {:error, {:invalid_test_cases, atom()}}
           # GH #2590 R2: `create_owned/3` was given neither `:tenant` nor an `Owner`.
           | {:error, :invalid_owner}
           | {:error, Ecto.Changeset.t()}
@@ -325,6 +328,8 @@ defmodule Letflow.Definitions do
           # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call` step
           # (the UPDATE path runs the same rule the create path does).
           | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+          # T-2604 (pilot gap G16): the declared test cases of the version are malformed.
+          | {:error, {:invalid_test_cases, atom()}}
           # GH #2590 / REQ-501 R2: the row is a module-shipped, stamped version (409).
           | {:error, :module_owned_definition}
           | {:error, variable_schema_error()}
@@ -537,7 +542,8 @@ defmodule Letflow.Definitions do
          :ok <- check_graph_result(Graph.validate_edge_conditions(graph)),
          :ok <- check_graph_result(Graph.validate_flow(graph)),
          :ok <- check_platform_call_tenant(graph, prefix),
-         :ok <- check_start_permission_name(attrs) do
+         :ok <- check_start_permission_name(attrs),
+         :ok <- check_test_cases_declaration(attrs) do
       insert_definition(
         attrs,
         prefix,
@@ -743,6 +749,10 @@ defmodule Letflow.Definitions do
               [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
           | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
           | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+          # T-2604 (pilot gap G16): a declared test case of the version failed, or the
+          # declaration is malformed.
+          | {:error, {:definition_test_cases_failed, [map()]}}
+          | {:error, {:definition_test_cases_invalid, atom()}}
           | common_error()
   def activate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -774,6 +784,10 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
           | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+          # T-2604 (pilot gap G16): a declared test case of the version failed, or the
+          # declaration is malformed.
+          | {:error, {:definition_test_cases_failed, [map()]}}
+          | {:error, {:definition_test_cases_invalid, atom()}}
           | common_error()
   def reactivate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -805,7 +819,8 @@ defmodule Letflow.Definitions do
              :ok <- check_platform_calls(definition, prefix, activator),
              :ok <- check_start_permission(definition, prefix),
              :ok <- check_step_mappings(definition, prefix),
-             :ok <- check_notify_calls(definition, prefix) do
+             :ok <- check_notify_calls(definition, prefix),
+             :ok <- check_test_cases(definition) do
           reactivate_row(definition, prefix, tenant_id, activator)
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -1912,7 +1927,8 @@ defmodule Letflow.Definitions do
          {:ok, uuid} <- cast_update_id(id),
          :ok <- validate_update_name(attrs),
          :ok <- validate_update_version(attrs),
-         :ok <- validate_update_graph(attrs, prefix) do
+         :ok <- validate_update_graph(attrs, prefix),
+         :ok <- check_test_cases_declaration(attrs) do
       run_update(uuid, prefix, build_update_set(attrs), Map.get(attrs, :variable_schemas))
     end
   end
@@ -2047,6 +2063,7 @@ defmodule Letflow.Definitions do
     |> maybe_set(:description, attrs)
     |> maybe_set(:graph, attrs)
     |> maybe_set(:stage, attrs)
+    |> maybe_set(:test_cases, attrs)
     |> Keyword.put(:updated_at, now)
   end
 
@@ -2764,7 +2781,8 @@ defmodule Letflow.Definitions do
          :ok <- check_platform_calls(definition, prefix, activator),
          :ok <- check_start_permission(definition, prefix),
          :ok <- check_step_mappings(definition, prefix),
-         :ok <- check_notify_calls(definition, prefix) do
+         :ok <- check_notify_calls(definition, prefix),
+         :ok <- check_test_cases(definition) do
       check_script_bindings(definition, prefix)
     end
   end
@@ -2938,6 +2956,54 @@ defmodule Letflow.Definitions do
 
       :error ->
         {:error, :graph_structure_invalid}
+    end
+  end
+
+  # T-2604 (pilot gap G16): the DECLARED TEST CASES of a version RUN before the
+  # version may be activated -- the guardrail that makes a definition's own test
+  # cases a gate instead of a document (owner decision D-176's "automatic test
+  # run before activation", listed in D-179 (c)).
+  #
+  # The runner is a dry run of the graph on the engine's own transition kernel:
+  # no instance, no row, no queue, no clock, no side effect (see
+  # `Letflow.Definitions.TestCases`). It writes nothing, so it is safe to run
+  # inside the activation transaction.
+  #
+  # A version that declares NO case is activated exactly as it was before this
+  # guardrail existed. A version whose case FAILS is refused with the case's
+  # name and a closed reason code -- never a variable value, never a secret
+  # (INV-4).
+  @doc false
+  @spec check_test_cases(ProcessDefinition.t() | map()) ::
+          :ok
+          | {:error, {:definition_test_cases_invalid, atom()}}
+          | {:error, {:definition_test_cases_failed, [map()]}}
+  def check_test_cases(%{test_cases: test_cases, graph: graph_map}) do
+    case TestCases.parse(test_cases) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, cases} ->
+        TestCases.run(graph_map, cases)
+
+      {:error, reason} ->
+        {:error, {:definition_test_cases_invalid, reason}}
+    end
+  end
+
+  # T-2604 (pilot gap G16): the declaration is validated where it is WRITTEN,
+  # so a malformed case is refused by the write and never reaches the
+  # activation fence as a run that cannot start.
+  defp check_test_cases_declaration(attrs) do
+    case Map.get(attrs, :test_cases) do
+      nil ->
+        :ok
+
+      declared ->
+        case TestCases.parse(declared) do
+          {:ok, _cases} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -3565,6 +3631,15 @@ defmodule Letflow.Definitions do
   defp interpret_activate_result({:error, {:step_mappings_invalid, _violations}} = error),
     do: error
 
+  # T-2604 (pilot gap G16): the declared test cases' refusal, a pure pass-through.
+  # Without it a failed case would answer 500 instead of a typed 422 with the
+  # case's name and its closed reason code.
+  defp interpret_activate_result({:error, {:definition_test_cases_failed, _failures}} = error),
+    do: error
+
+  defp interpret_activate_result({:error, {:definition_test_cases_invalid, _reason}} = error),
+    do: error
+
   # -----------------------------------------------------------------------------------
   # deprecate/2 & archive/2 helpers (design §6.3) -- identical shape, different
   # from-status/to-status pair; archive/2 additionally stamps archived_at.
@@ -3757,6 +3832,7 @@ defmodule Letflow.Definitions do
                  :ok <- check_start_permission(target_row, prefix),
                  :ok <- check_step_mappings(target_row, prefix),
                  :ok <- check_notify_calls(target_row, prefix),
+                 :ok <- check_test_cases(target_row),
                  :ok <- check_script_bindings(target_row, prefix) do
               swap_active_pointer(current_active, target_row, prefix, activator)
             else

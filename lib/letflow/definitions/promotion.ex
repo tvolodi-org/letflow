@@ -430,6 +430,7 @@ defmodule Letflow.Definitions.Promotion do
                  :ok <- Letflow.Definitions.check_step_mappings(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_start_permission(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_notify_calls(new_row, target_prefix),
+                 :ok <- Letflow.Definitions.check_test_cases(new_row),
                  :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
               :ok
             else
