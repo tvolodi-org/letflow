@@ -36,6 +36,14 @@ defmodule Letflow.Support.MigrationImpact do
 
   @type family :: :position_pins | :table_oracle | :manifest_replay
 
+  @type read :: %{
+          file: String.t(),
+          line: pos_integer(),
+          index: integer() | nil,
+          resolved: boolean(),
+          judged: boolean()
+        }
+
   # ---------------------------------------------------------------- the manifest
 
   @doc """
@@ -75,7 +83,7 @@ defmodule Letflow.Support.MigrationImpact do
   """
   @spec position_pins(String.t()) :: [pin()]
   def position_pins(dir \\ @test_root) do
-    dir |> test_files() |> position_pins_in()
+    scan(dir).pins
   end
 
   @doc """
@@ -89,6 +97,35 @@ defmodule Letflow.Support.MigrationImpact do
     files
     |> Enum.flat_map(&file_pins(&1, manifest))
     |> Enum.sort_by(&{&1.file, &1.line})
+  end
+
+  @doc """
+  Every positional read of the tenant manifest the runner saw, with the pin it was judged as.
+
+  A read that no pin judges is a read the class did not cover: the manifest is read by position
+  (so the migration it names moves when a migration is appended) but the runner cannot say which
+  migration it names. Such a read is reported, never skipped -- the same rule the unresolved
+  version follows.
+  """
+  @spec manifest_reads(String.t()) :: [read()]
+  def manifest_reads(dir \\ @test_root) do
+    scan(dir).reads
+  end
+
+  @doc "The positional manifest reads of the given files."
+  @spec reads_in([String.t()]) :: [read()]
+  def reads_in(files) do
+    files
+    |> Enum.flat_map(&file_reads(&1))
+    |> Enum.sort_by(&{&1.file, &1.line, &1.index})
+  end
+
+  @doc "The positional manifest reads that no pin judges."
+  @spec unjudged_reads(String.t()) :: [read()]
+  def unjudged_reads(dir \\ @test_root) do
+    dir
+    |> manifest_reads()
+    |> Enum.reject(& &1.judged)
   end
 
   @doc "The position pins that no longer name the migration the manifest holds at their index."
@@ -183,6 +220,43 @@ defmodule Letflow.Support.MigrationImpact do
 
   # ------------------------------------------------------------- the tree scanning
 
+  # One scan of the corpus: the manifest-position pins and the positional manifest reads, with
+  # each read marked as judged or not. The tree is read once and the result is cached for the
+  # life of the VM, so the probe's several questions about the same corpus cost one walk.
+  defp scan(dir) do
+    case :persistent_term.get({__MODULE__, :scan, dir}, nil) do
+      nil ->
+        result = build_scan(dir)
+        :persistent_term.put({__MODULE__, :scan, dir}, result)
+        result
+
+      result ->
+        result
+    end
+  end
+
+  defp build_scan(dir) do
+    manifest = manifest()
+    files = test_files(dir)
+
+    pins =
+      files
+      |> Enum.flat_map(&file_pins(&1, manifest))
+      |> Enum.sort_by(&{&1.file, &1.line})
+
+    judged = MapSet.new(pins, &{&1.file, &1.line, &1.index})
+
+    reads =
+      files
+      |> Enum.flat_map(&file_reads(&1))
+      |> Enum.sort_by(&{&1.file, &1.line, &1.index})
+      |> Enum.map(fn read ->
+        Map.put(read, :judged, MapSet.member?(judged, {read.file, read.line, read.index}))
+      end)
+
+    %{pins: pins, reads: reads}
+  end
+
   @doc "The test files of `dir` (the fixtures are not tests)."
   @spec test_files(String.t()) :: [String.t()]
   def test_files(dir) do
@@ -223,9 +297,31 @@ defmodule Letflow.Support.MigrationImpact do
       ast = parse!(source)
       vars = manifest_vars(ast)
       attributes = module_attributes(ast)
+      manifest_attrs = manifest_attributes(ast)
 
       ast
-      |> collect_pins(file, vars, attributes, manifest, [])
+      |> collect_pins(file, vars, attributes, manifest_attrs, manifest, [])
+      |> Enum.reverse()
+    else
+      []
+    end
+  end
+
+  # Every positional read of the manifest in a file. A read the runner cannot judge (a shape it
+  # does not read, or a target it cannot resolve to the manifest) is reported with `judged: false`
+  # rather than dropped: the count of reads is what proves the class is covered, so a read that
+  # vanishes would hide it.
+  defp file_reads(file) do
+    source = File.read!(file)
+
+    if String.contains?(source, "tenant_scoped_migrations") do
+      ast = parse!(source)
+      vars = manifest_vars(ast)
+      manifest_attrs = manifest_attributes(ast)
+      params = parameter_vars(ast)
+
+      ast
+      |> collect_reads(file, vars, manifest_attrs, params, [])
       |> Enum.reverse()
     else
       []
@@ -254,10 +350,55 @@ defmodule Letflow.Support.MigrationImpact do
     vars
   end
 
+  # The module attributes a file binds the tenant manifest to (`@manifest TenantProvisioning.
+  # tenant_scoped_migrations()`).
+  defp manifest_attributes(ast) do
+    {_, attrs} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:@, _, [{name, _, [value]}]} = node, attrs ->
+          if manifest_call?(value), do: {node, MapSet.put(attrs, name)}, else: {node, attrs}
+
+        node, attrs ->
+          {node, attrs}
+      end)
+
+    attrs
+  end
+
   defp manifest_call?({{:., _, [{_alias, _, _}, name]}, _, []}),
     do: name == :tenant_scoped_migrations
 
   defp manifest_call?(_), do: false
+
+  # The names a file binds as the parameters of its functions. A read whose target is one of
+  # them may be a read of the manifest: the manifest arrives through the parameter.
+  defp parameter_vars(ast) do
+    {_, vars} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:def, _, [head | _]} = node, vars ->
+          {node, MapSet.union(vars, head_parameters(head))}
+
+        {:defp, _, [head | _]} = node, vars ->
+          {node, MapSet.union(vars, head_parameters(head))}
+
+        node, vars ->
+          {node, vars}
+      end)
+
+    vars
+  end
+
+  # The parameter names of a function head: `defp read_at(manifest)` and its `when` form.
+  defp head_parameters({:when, _, [call | _]}), do: head_parameters(call)
+
+  defp head_parameters({_name, _, args}) when is_list(args) do
+    args
+    |> Enum.filter(&match?({name, _, context} when is_atom(name) and is_atom(context), &1))
+    |> Enum.map(fn {name, _, _} -> name end)
+    |> MapSet.new()
+  end
+
+  defp head_parameters(_), do: MapSet.new()
 
   # The module attributes a file defines (`@version 20_261_121_100_001`). A name that is defined
   # twice with different values is left out: the pin that uses it cannot be read.
@@ -278,11 +419,11 @@ defmodule Letflow.Support.MigrationImpact do
     attributes
   end
 
-  defp collect_pins(ast, file, vars, attributes, manifest, acc) do
+  defp collect_pins(ast, file, vars, attributes, manifest_attrs, manifest, acc) do
     {_, acc} =
       Macro.prewalk(ast, acc, fn
-        {:assert, meta, [{:=, _, [left, right]}]} = node, acc ->
-          case pin_of(left, right, meta, file, vars, attributes, manifest) do
+        {:assert, _meta, [{:=, _, [left, right]}]} = node, acc ->
+          case pin_of(left, right, file, vars, attributes, manifest_attrs, manifest) do
             nil -> {node, acc}
             pin -> {node, [pin | acc]}
           end
@@ -294,19 +435,90 @@ defmodule Letflow.Support.MigrationImpact do
     acc
   end
 
-  defp pin_of(left, right, meta, file, vars, attributes, manifest) do
+  # Every positional read of the manifest, whatever shape it is written in: `Enum.at(manifest, -N)`,
+  # `List.last(manifest)`, `manifest |> Enum.at(-N)`, `manifest |> List.last()`, and the same calls
+  # on a local variable or a module attribute bound to the manifest.
+  #
+  # A read the runner cannot judge -- the target does not resolve to the manifest (the manifest
+  # arrives through a function parameter), or the position is not a literal (the position arrives
+  # through a parameter) -- is reported as a read with `resolved: false` rather than skipped: the
+  # count of reads is what proves the coverage, so a read that vanished would hide the class.
+  defp collect_reads(ast, file, vars, manifest_attrs, params, reads) do
+    {_, reads} =
+      Macro.prewalk(ast, reads, fn
+        node, reads ->
+          case read_of(node, file, vars, manifest_attrs, params) do
+            nil -> {node, reads}
+            read -> {node, [read | reads]}
+          end
+      end)
+
+    reads
+  end
+
+  defp read_of(node, file, vars, manifest_attrs, params) do
+    with {:ok, access} <- positional_access(node) do
+      resolved = manifest_expression?(access.target, vars, manifest_attrs)
+
+      cond do
+        # The target is the manifest and the position is a literal: a positional read the runner
+        # can judge.
+        resolved and is_integer(access.index) ->
+          %{file: file, line: access.line, index: access.index, resolved: true, judged: false}
+
+        # The target is the manifest but the position is not a literal: the runner cannot say
+        # which migration the read names.
+        resolved ->
+          %{file: file, line: access.line, index: access.index, resolved: false, judged: false}
+
+        # The manifest may reach the read (the target is a parameter of the function the read
+        # sits in, a module attribute, or a call the manifest is passed to) and the read names a
+        # position by counting from the end of the manifest -- a negative index -- or names a
+        # position the runner cannot read at all.
+        ((is_integer(access.index) and access.index < 0) or access.index == nil) and
+            manifest_reaches?(access.target, vars, manifest_attrs, params) ->
+          %{file: file, line: access.line, index: access.index, resolved: false, judged: false}
+
+        true ->
+          nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  # Whether the manifest can reach a read through its target: a parameter of the function the
+  # read sits in (a helper receives the manifest as a parameter), a module attribute, or a call
+  # the manifest is passed to.
+  defp manifest_reaches?({name, _, nil}, _vars, _manifest_attrs, params) when is_atom(name),
+    do: MapSet.member?(params, name)
+
+  defp manifest_reaches?({:@, _, [{name, _, nil}]}, _vars, _manifest_attrs, _params)
+       when is_atom(name),
+       do: true
+
+  defp manifest_reaches?({_, _, args}, vars, manifest_attrs, _params) when is_list(args) do
+    Enum.any?(args, &manifest_expression?(&1, vars, manifest_attrs))
+  end
+
+  defp manifest_reaches?(_target, _vars, _manifest_attrs, _params), do: false
+
+  defp pin_of(left, right, file, vars, attributes, manifest_attrs, manifest) do
     with {version_expr, module_expr} <- tuple_pattern(left),
-         {:ok, index, expr} <- position_call(right),
-         true <- manifest_expression?(expr, vars) do
+         {:ok, access} <- positional_access(right),
+         # A pin names the migration at a position the runner can read: a position it cannot
+         # read is a read the runner reports (M8), never a pin it judges.
+         true <- is_integer(access.index),
+         true <- manifest_expression?(access.target, vars, manifest_attrs) do
       version = literal_version(version_expr, attributes)
 
       %{
         file: file,
-        line: Keyword.get(meta, :line, 0),
-        index: index,
+        line: access.line,
+        index: access.index,
         expected_version: version,
         module: alias_name(module_expr),
-        status: status(version, index, manifest)
+        status: status(version, access.index, manifest)
       }
     else
       _ -> nil
@@ -318,29 +530,54 @@ defmodule Letflow.Support.MigrationImpact do
   defp tuple_pattern({:{}, _, [first, second]}), do: {first, second}
   defp tuple_pattern(_), do: nil
 
-  # `Enum.at(manifest, -12)` and `List.last(manifest)`.
-  defp position_call({{:., _, [{:__aliases__, _, [:Enum]}, :at]}, _, [expr, index]}) do
-    case integer_value(index) do
-      nil -> :error
-      value -> {:ok, value, expr}
+  # A positional read of the manifest, in every shape the corpus writes it:
+  # `Enum.at(manifest, -12)`, `List.last(manifest)`, `manifest |> Enum.at(-12)` and
+  # `manifest |> List.last()`. The access carries the index it reads, the expression it reads
+  # (the thing that must resolve to the manifest) and the line of the read. A position that is
+  # not a literal is carried as `nil`: the read is a positional read, but the runner cannot say
+  # which one it is.
+  defp positional_access({{:., _, [{:__aliases__, _, [:Enum]}, :at]}, meta, [target, index]}) do
+    {:ok, %{index: integer_value(index), target: target, line: Keyword.get(meta, :line, 0)}}
+  end
+
+  defp positional_access({{:., _, [{:__aliases__, _, [:List]}, :last]}, meta, [target]}) do
+    {:ok, %{index: -1, target: target, line: Keyword.get(meta, :line, 0)}}
+  end
+
+  defp positional_access({:|, meta, [left, right]}) do
+    # `manifest |> Enum.at(-12)` and `manifest |> List.last()`: the piped call carries only the
+    # index, the manifest is the left side of the pipe.
+    case piped_index(right) do
+      {:ok, index} -> {:ok, %{index: index, target: left, line: Keyword.get(meta, :line, 0)}}
+      :error -> :error
     end
   end
 
-  defp position_call({{:., _, [{:__aliases__, _, [:List]}, :last]}, _, [expr]}) do
-    {:ok, -1, expr}
+  defp positional_access(_), do: :error
+
+  # The index a piped positional call reads: `Enum.at(-12)` or `List.last()`. A piped
+  # `Enum.at(index)` whose index is not a literal reads a position the runner cannot say.
+  defp piped_index({{:., _, [{:__aliases__, _, [:Enum]}, :at]}, _, [index]}) do
+    {:ok, integer_value(index)}
   end
 
-  defp position_call(_), do: :error
+  defp piped_index({{:., _, [{:__aliases__, _, [:List]}, :last]}, _, []}), do: {:ok, -1}
+  defp piped_index(_), do: :error
 
-  defp manifest_expression?({{:., _, _}, _, []} = call, _vars) do
+  defp manifest_expression?({{:., _, _}, _, []} = call, _vars, _attributes) do
     manifest_call?(call)
   end
 
-  defp manifest_expression?({name, _, nil}, vars) when is_atom(name) do
+  defp manifest_expression?({name, _, nil}, vars, _attributes) when is_atom(name) do
     MapSet.member?(vars, name)
   end
 
-  defp manifest_expression?(_, _), do: false
+  # `@manifest TenantProvisioning.tenant_scoped_migrations()`: the attribute holds the manifest.
+  defp manifest_expression?({:@, _, [{name, _, nil}]}, _vars, attributes) when is_atom(name) do
+    MapSet.member?(attributes, name)
+  end
+
+  defp manifest_expression?(_, _vars, _attributes), do: false
 
   # The version a pin expects: a literal, or the value of a module attribute.
   defp literal_version(value, _attributes) when is_integer(value), do: value
@@ -431,36 +668,32 @@ defmodule Letflow.Support.MigrationImpact do
     count
   end
 
-  # The manifest replay: the files that replay the tenant manifest into a tenant.
+  # The manifest replay: the files that replay the tenant manifest into a tenant. The family is
+  # derived from the tree -- every file that CALLS `TenantProvisioning.replay_migrations/2` -- so a
+  # new replay test outside any directory is in the family the moment it is written. A hand-written
+  # directory list would silently exclude it, and the required set would not know about a family
+  # the class covers.
   defp manifest_replay_files do
     @test_root
     |> test_files()
     |> Enum.filter(fn file ->
-      tenant_manifest_family?(file) and
-        String.contains?(File.read!(file), "replay_migrations") and
-        replay_call?(parse!(File.read!(file)))
+      source = File.read!(file)
+
+      String.contains?(source, "replay_migrations") and
+        replay_call?(parse!(source))
     end)
-  end
-
-  @replay_families [
-    "test/letflow/migrations/",
-    "test/letflow/tenant_provisioning"
-  ]
-
-  @replay_files [
-    "test/letflow/tenant_provisioning_test.exs",
-    "test/letflow/support/tenant_fixture_test.exs",
-    "test/support/tenant_template_test.exs"
-  ]
-
-  defp tenant_manifest_family?(file) do
-    Enum.any?(@replay_families, &String.starts_with?(file, &1)) or file in @replay_files
   end
 
   defp replay_call?(ast) do
     {_, found} =
       Macro.prewalk(ast, false, fn
         {{:., _, [{:__aliases__, _, [:TenantProvisioning]}, :replay_migrations]}, _, _args} = node,
+        _found ->
+          {node, true}
+
+        {{:., _, [{:__aliases__, _, [:Letflow, :TenantProvisioning]}, :replay_migrations]}, _,
+         _args} =
+            node,
         _found ->
           {node, true}
 
