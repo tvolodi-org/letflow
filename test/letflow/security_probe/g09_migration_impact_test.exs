@@ -38,6 +38,7 @@ defmodule Letflow.SecurityProbe.G09MigrationImpactTest do
   @unresolved_read "test/fixtures/security_probes/g09/unresolved_position_read.exs"
   @class_table "docs/security-probes/G-09.md"
   @selector "scripts/ci_select_tests.py"
+  @probe_file "test/letflow/security_probe/g09_migration_impact_test.exs"
 
   setup_all do
     {:ok, manifest: MigrationImpact.manifest()}
@@ -269,15 +270,21 @@ defmodule Letflow.SecurityProbe.G09MigrationImpactTest do
 
       assert length(cases) > 0, "the probe has no case: the table check would pass on nothing"
 
-      assert length(rows) >= length(cases),
-             "the class table has #{length(rows)} rows for #{length(cases)} cases of the probe"
-
+      # The per-case check first: it names the case that has no row.
       for {name, test_file} <- cases do
         assert Enum.any?(rows, fn {_case, file, test} ->
                  file == test_file and String.contains?(test, name)
                end),
                "the class table has no row for the case #{inspect(name)} of #{test_file}"
       end
+
+      # The rows of THIS file only: the table also carries the rows of the other files,
+      # and counting those would let a missing row of the probe hide behind them.
+      probe_rows = Enum.filter(rows, fn {_case, file, _test} -> file == @probe_file end)
+
+      assert length(probe_rows) >= length(cases),
+             "the class table has #{length(probe_rows)} rows for #{length(cases)} cases of " <>
+               "the probe"
     end
 
     test "every row of the class table names a test that exists" do
@@ -356,15 +363,20 @@ defmodule Letflow.SecurityProbe.G09MigrationImpactTest do
     names = collect_cases(ast, nil)
 
     for name <- Enum.reverse(names),
-        do: {name, "test/letflow/security_probe/g09_migration_impact_test.exs"}
+        do: {name, @probe_file}
   end
 
   # A `describe` block holds its tests in its body; a test outside one is named by itself.
-  defp collect_cases({:describe, _, [describe, [do: body]]}, _outside) when is_binary(describe) do
-    collect_cases(body, describe)
+  # A describe may take a context of its own, so the body is the last of its arguments.
+  defp collect_cases({:describe, _, [describe | rest]}, _outside) when is_binary(describe) do
+    collect_cases(List.last(rest), describe)
   end
 
-  defp collect_cases({:test, _, [name, _block]}, outside) when is_binary(name) do
+  # A test carries its name, its block and -- when it takes one -- a context between
+  # them. Both shapes name the same case, so both are collected: a test that takes a
+  # context is `{:test, _, [name, context, [do: body]]}`, and a collector that matches
+  # only the two-argument form never sees it.
+  defp collect_cases({:test, _, [name | _rest]}, outside) when is_binary(name) do
     case outside do
       nil -> [name]
       describe -> ["#{describe}: #{name}"]
