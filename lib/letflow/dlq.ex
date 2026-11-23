@@ -10,9 +10,16 @@ defmodule Letflow.Dlq do
   the schema/migration and these five functions. No route, no controller, no
   Plug module — that is REQ-178. No wiring from REQ-056/REQ-061's existing
   hooks — that is REQ-177. No webhook-origin entries — REQ-180. `retry/2`
-  manages only the `dlq_entries` row's own state: it has no knowledge of,
-  and never calls, whatever would actually re-dispatch a `SERVICE_TASK` or
-  resume an ERRORed instance (design §4).
+  manages the `dlq_entries` row's own state: it has no knowledge of, and
+  never calls, whatever would actually re-dispatch a `SERVICE_TASK` or resume
+  an ERRORed instance (design §4).
+
+  **The one exception (pilot gap G7):** an entry that names a STEP failure of
+  the pilot's step library (a platform step or a notification step) is wired
+  to the retry of that step — `retry/2` calls
+  `Letflow.Instances.StepRetry.retry_entry/2` after the row's own transition
+  has committed. Every other entry type keeps the old behaviour (the row's
+  own state and nothing else). See `retry/2`'s own doc.
 
   ## Entry types
 
@@ -65,6 +72,7 @@ defmodule Letflow.Dlq do
   alias Ecto.Multi
   alias Letflow.Api.Pagination
   alias Letflow.Dlq.Entry
+  alias Letflow.Instances.StepRetry
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -252,6 +260,26 @@ defmodule Letflow.Dlq do
   `Ecto.Multi`/`Repo.transaction/1` — the same lock-then-check idiom
   `Letflow.Tasks.claim_task/3`/`assign_task/4`/`reassign_task/4` already
   establish. Lock scope: this row only, filtered by its own `id`.
+
+  ## The retry of a step failure (pilot gap G7)
+
+  An entry that names a STEP failure (`"platform_step"` or `"notify_step"`,
+  `Letflow.Instances.StepRetry.retryable_entry_types/0`) is wired to the
+  retry of that step: after the row's own state transition has COMMITTED, the
+  step is run again (`Letflow.Instances.StepRetry.retry_entry/2`).
+
+  The re-dispatch runs OUTSIDE the row's transaction on purpose: a platform
+  body may run DDL, and it must not run inside a transaction this module
+  holds. The answer of the row then says what happened:
+
+    * the step ran again and succeeded → the row is `:resolved` and the last
+      attempt of its history carries the outcome `resolved`;
+    * the step could not be run again → the row stays `:retrying` and the last
+      attempt carries the outcome `failed` with the CODE of the refusal (a
+      code of a closed vocabulary, never a text -- INV-4).
+
+  An entry of any other type keeps the old behaviour: the row's own state
+  transition and nothing else.
   """
   @spec retry(id :: String.t(), opts()) ::
           {:ok, Entry.t()}
@@ -267,8 +295,74 @@ defmodule Letflow.Dlq do
       |> Multi.run(:apply, fn _repo, %{entry: entry} -> apply_retry(entry, prefix) end)
       |> Repo.transaction()
       |> unwrap_write_result()
+      |> re_dispatch_step(prefix)
     end
   end
+
+  # The re-dispatch of a step failure (pilot gap G7). It runs AFTER the row's
+  # transaction committed: a platform body may run DDL, and it must not run
+  # inside a transaction this module holds.
+  defp re_dispatch_step({:ok, entry}, prefix) do
+    if StepRetry.retryable_entry_type?(entry.entry_type) do
+      settle_step_retry(entry, StepRetry.retry_entry(entry, prefix: prefix), prefix)
+    else
+      {:ok, entry}
+    end
+  end
+
+  defp re_dispatch_step({:error, reason}, _prefix), do: {:error, reason}
+
+  # The step ran again: the row is RESOLVED and its history says so.
+  defp settle_step_retry(entry, {:ok, _result}, prefix) do
+    entry
+    |> Entry.retry_changeset(%{
+      status: :resolved,
+      retry_history: last_attempt_outcome(entry, "resolved", nil)
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:ok, entry}
+    end
+  end
+
+  # The step could not be run again: the row stays `:retrying` and its
+  # history carries the CODE of the refusal (never a text -- INV-4).
+  defp settle_step_retry(entry, {:error, reason}, prefix) do
+    entry
+    |> Entry.retry_changeset(%{
+      status: :retrying,
+      retry_history: last_attempt_outcome(entry, "failed", refusal_code(reason))
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:ok, entry}
+    end
+  end
+
+  # The LAST attempt of the history gets the outcome of the re-dispatch. The
+  # history is append-only in every other path; here the attempt the
+  # transition just appended is completed with what the re-dispatch answered.
+  defp last_attempt_outcome(%Entry{retry_history: history}, outcome, error_message) do
+    case List.last(history) do
+      nil ->
+        history
+
+      last ->
+        updated = Map.merge(last, %{outcome: outcome, error_message: error_message})
+        List.replace_at(history, length(history) - 1, updated)
+    end
+  end
+
+  # The refusal is a CODE of a closed vocabulary (the dispatcher's own
+  # vocabulary, or one of this module's). A reason that is not an atom is
+  # reduced to the generic code: a text could carry anything a tenant typed
+  # (INV-4).
+  defp refusal_code(reason) when is_atom(reason) and reason not in [nil, true, false],
+    do: Atom.to_string(reason)
+
+  defp refusal_code(_reason), do: "step_retry_failed"
 
   defp apply_retry(%Entry{status: status} = entry, prefix) when status in [:pending, :retrying] do
     attempt_no = entry.retry_count + 1

@@ -101,6 +101,7 @@
 2 test/letflow/tenant_provisioning_event_seed_test.exs 33761.31
 2 test/letflow/test_support/logger_collector_test.exs 59.10
 2 test/scripts/demo_showroom_seed_test.exs 225717.97
+2 test/letflow/security_probe/g13_route_no_5xx_test.exs 5800.00
 3 test/letflow/api/gh2659_import_implies_write_test.exs 19.17
 3 test/letflow/backup_status_test.exs 112.58
 3 test/letflow/definitions/activated_by_signature_test.exs 21943.03
@@ -386,6 +387,7 @@
 8 test/mix/tasks/letflow.login_directory_tasks_test.exs 45482.16
 8 test/mix/tasks/letflow_check_deferral_staleness_test.exs 5420.33
 8 test/scripts/demo_upgrade_check_test.exs 197014.02
+8 test/letflow/security_probe/g13_malformed_input_matrix_test.exs 700.00
 9 test/letflow/api/tasks_reassign_routed_test.exs 7433.53
 9 test/letflow/ci_heavy_paths_test.exs 1453.55
 9 test/letflow/definitions/extension_site_activation_test.exs 4906.71
@@ -574,6 +576,7 @@
 12 test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs 200.00
 12 test/letflow/security_probe/g06_outbound_http_inventory_test.exs 7100.00
 12 test/letflow/security_probe/g08_uat_safety_equivalence_test.exs 4000.00
+12 test/letflow/security_probe/g09_migration_impact_test.exs 12000.00
 12 test/letflow/security_probe/g10_config_registry_test.exs 4000.00
 12 test/letflow/service_catalog_delete_pinned_instances_test.exs 16886.16
 12 test/letflow/support/tenant_template_ledger_test.exs 4860.05

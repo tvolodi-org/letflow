@@ -22,8 +22,8 @@ defmodule Letflow.RiskTier do
       (`A`) is short: an `M` of an existing test file may remove an assertion or add a skip
       tag, which section 13 treats as FULL, and the helper does not parse content.
     * `docs/**/*.md`, except the section 13 exclusions (`docs/agents/`, `docs/migration/`,
-      `docs/runbooks/`, `docs/guides/`, `docs/roles.md`, `docs/merge-queue.md`,
-      `docs/anti-patterns.md`, `docs/frontend/x-ui-widget-vocabulary.md`,
+      `docs/runbooks/`, `docs/guides/`, `docs/security-probes/`, `docs/roles.md`,
+      `docs/merge-queue.md`, `docs/anti-patterns.md`, `docs/frontend/x-ui-widget-vocabulary.md`,
       `docs/assets/stock-workflow-documents.md`, `docs/assets/asset-register.md`,
       `docs/assets/asset-xlsx.md`, `docs/assets/kz-forms-mapping.md`,
       `docs/security-advisories.md`, `docs/open-source/audit-report.md`). Every `.yaml`
@@ -57,7 +57,8 @@ defmodule Letflow.RiskTier do
   @diff_flags ~w(diff --raw -z --no-renames --no-ext-diff --no-textconv --no-color
                  --ignore-submodules=none --no-relative --abbrev=40 -O/dev/null)
 
-  @docs_excluded_prefixes ~w(docs/agents/ docs/migration/ docs/runbooks/ docs/guides/)
+  @docs_excluded_prefixes ~w(docs/agents/ docs/migration/ docs/runbooks/ docs/guides/
+                             docs/security-probes/)
   @docs_excluded_files ~w(docs/roles.md docs/merge-queue.md docs/anti-patterns.md
                           docs/frontend/x-ui-widget-vocabulary.md
                           docs/assets/stock-workflow-documents.md docs/assets/asset-register.md
