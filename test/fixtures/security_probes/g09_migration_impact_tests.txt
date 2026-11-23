@@ -1,0 +1,63 @@
+# G-09: the test files a tenant-migration change must run.
+#
+# One repo-relative test path per line, sorted. The list is the reviewed expectation of the
+# migration impact runner (test/support/migration_impact.ex): the manifest-position pins, the
+# tenant table oracle comparisons and the manifest replay / existing-row cases.
+#
+# scripts/ci_select_tests.py reads this list and makes every file MANDATORY when a migration
+# path changes (a file that does not fit the CI budget fails the run closed instead of being
+# deferred to the nightly). The probe (test/letflow/security_probe/g09_migration_impact_test.exs)
+# re-derives the same set from the tree and fails when this list and the tree disagree.
+test/letflow/api/context_test.exs
+test/letflow/approval_rules_default_test.exs
+test/letflow/definitions/activated_by_migration_test.exs
+test/letflow/definitions/owner_stamp_migration_test.exs
+test/letflow/definitions/solution_pack_overrides_test.exs
+test/letflow/engine/variable_labels_event_schema_test.exs
+test/letflow/engine/variable_labels_tenant_scope_test.exs
+test/letflow/entities/record/external_ref_storage_test.exs
+test/letflow/entities/views/graph_views_test.exs
+test/letflow/entities/views/pivot_views_test.exs
+test/letflow/entities/views/report_views_test.exs
+test/letflow/entities/write_class_migration_test.exs
+test/letflow/event_store/registry_entity_writes_test.exs
+test/letflow/event_store/task_entity_writes_applied_v2_test.exs
+test/letflow/identity/tenant_admin_seeding_test.exs
+test/letflow/identity/tenant_auditor_seeding_test.exs
+test/letflow/integration/keycloak_auth_pipeline_test.exs
+test/letflow/migrations/add_owner_review_items_test.exs
+test/letflow/migrations/allow_zero_count_set_legs_test.exs
+test/letflow/migrations/backfill_exam_tenant_modules_test.exs
+test/letflow/migrations/create_attachments_test.exs
+test/letflow/migrations/create_entity_scope_declarations_test.exs
+test/letflow/migrations/create_entity_type_extensions_test.exs
+test/letflow/migrations/create_negative_balance_settings_test.exs
+test/letflow/migrations/create_notification_files_test.exs
+test/letflow/migrations/create_pending_tenant_admin_grants_test.exs
+test/letflow/migrations/create_problem_report_images_test.exs
+test/letflow/migrations/create_shared_stock_access_test.exs
+test/letflow/migrations/create_stock_create_idempotency_test.exs
+test/letflow/migrations/create_upload_events_test.exs
+test/letflow/migrations/create_user_notifications_test.exs
+test/letflow/migrations/create_user_preferences_test.exs
+test/letflow/migrations/drop_pending_tenant_admin_grants_open_idx_test.exs
+test/letflow/migrations/entity_type_write_access_migration_test.exs
+test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs
+test/letflow/migrations/ledger_partitioned_tables_migration_test.exs
+test/letflow/migrations/ledger_per_ledger_id_keys_migration_test.exs
+test/letflow/migrations/ledger_replay_test.exs
+test/letflow/migrations/ledger_tables_migration_test.exs
+test/letflow/migrations/ledger_triggers_migration_test.exs
+test/letflow/migrations/purge_requests_migration_test.exs
+test/letflow/migrations/raise_ledger_leg_cap_test.exs
+test/letflow/migrations/tasks_scope_node_id_migration_test.exs
+test/letflow/migrations/tenant_module_upgrades_migration_test.exs
+test/letflow/routers/req077_promotion_pipeline_test.exs
+test/letflow/scripts/policy_test.exs
+test/letflow/support/tenant_fixture_test.exs
+test/letflow/tenant_onboarding_test.exs
+test/letflow/tenant_provisioning/backfill_test.exs
+test/letflow/tenant_provisioning/entity_event_type_seeding_test.exs
+test/letflow/tenant_provisioning_event_seed_test.exs
+test/letflow/tenant_provisioning_script_events_test.exs
+test/letflow/tenant_provisioning_test.exs

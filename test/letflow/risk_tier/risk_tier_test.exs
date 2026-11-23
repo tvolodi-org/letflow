@@ -194,6 +194,7 @@ defmodule Letflow.RiskTierTest do
                "docs/roles.md",
                "docs/runbooks/",
                "docs/security-advisories.md",
+               "docs/security-probes/",
                "docs/status/requirement_status[^/]*.yaml",
                "docs/status/work_board_cutover.yaml"
              ],
@@ -217,6 +218,7 @@ defmodule Letflow.RiskTierTest do
             "docs/roles.md",
             "docs/runbooks/x.md",
             "docs/security-advisories.md",
+            "docs/security-probes/G-09.md",
             "docs/status/requirement_status.yaml",
             "docs/status/work_board_cutover.yaml"
           ] do
