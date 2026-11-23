@@ -219,6 +219,7 @@ defmodule Letflow.RiskTierTest do
             "docs/runbooks/x.md",
             "docs/security-advisories.md",
             "docs/security-probes/G-02.md",
+            "docs/security-probes/G-09.md",
             "docs/status/requirement_status.yaml",
             "docs/status/work_board_cutover.yaml"
           ] do

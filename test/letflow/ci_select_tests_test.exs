@@ -189,11 +189,14 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
             "test/letflow/security_probe/g05_audit_row_schema_test.exs",
             "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+            "test/letflow/security_probe/g09_migration_impact_test.exs",
             "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
             "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
             "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
             "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
-            "test/letflow/security_probe/g03_source_provenance_test.exs"
+            "test/letflow/security_probe/g03_source_provenance_test.exs",
+            "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
+            "test/letflow/security_probe/g13_route_no_5xx_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end
@@ -203,6 +206,32 @@ defmodule Letflow.CiSelectTestsTest do
       @ci_yml |> YamlElixir.read_from_file!() |> get_in(["jobs", "changes", "outputs", "backend"])
 
     assert backend == "true"
+  end
+
+  # G-09: a tenant-migration change shifts the manifest positions the tenant tests pin. The
+  # manifest-position, table-oracle and replay cases are mandatory for it: they may not be
+  # deferred to the nightly run.
+  test "B5m: a migration change runs every manifest-position, table-oracle and replay test" do
+    for changed <- [
+          "priv/repo/migrations/20261121100001_allow_zero_count_set_legs.exs",
+          "lib/letflow/tenant_provisioning.ex"
+        ] do
+      {kv, plan} = select([changed])
+      assert kv["mode"] == "selective", "#{changed}: #{inspect(kv)}"
+
+      listed =
+        "test/fixtures/security_probes/g09_migration_impact_tests.txt"
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+
+      assert listed != [], "the migration impact list is empty"
+
+      for test <- listed do
+        assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
+      end
+    end
   end
 
   @tag :tmp_dir
