@@ -80,22 +80,33 @@ STANDARD_BP_DOC_TEST = [
 # D-184/D-186: the security probes are mandatory on every bounded run: they are the mechanical
 # half of the security gates (the coverage map in the team repository names the open gaps).
 # Their module is also tagged security_probe for the operator's tagged checks hook.
-# G-08: the UAT runner and its cleanup replay must judge the same safety checks.
+# G-01: the generated real-HTTP route x role x tenant x request-shape matrix (golden as the
+# oracle, foreign/missing byte identity, no write on denial or into another tenant).
+# G-05: the generated audit-writer by caller matrix and the database-row schema assertions
+# for actor id/kind, required fields and payload redaction.
 # G-06: every outbound HTTP call site is inventoried and classified, and the
 # dispatch-time probes refuse a private-range URL, do not follow a redirect and
 # keep the URL out of the failure value.
 # G-07: every keyset cursor builder is inventoried, and the cursor/codec
 # properties hold over arbitrary legal ids, separators, legacy prefixes and
 # expiry; a cursor-paged listing shows every row exactly once.
+# G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
 STANDARD_SECURITY_PROBE_TESTS = [
-    "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
+    "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
+    "test/letflow/security_probe/g01_route_role_matrix_test.exs",
+    "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
+    "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
     "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
     "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
+    "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]

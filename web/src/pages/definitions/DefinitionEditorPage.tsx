@@ -1144,6 +1144,7 @@ export default function DefinitionEditorPage() {
               onDirtyChange={setDiagramDirty}
               onSaved={handleDiagramSaved}
               onReload={() => void refetch()}
+              tenantId={tenantId}
             />
           </ProcessDiagramIntlProvider>
         </div>

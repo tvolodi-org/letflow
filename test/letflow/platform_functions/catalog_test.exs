@@ -27,7 +27,11 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
   alias Letflow.PlatformFunctions.Catalog
   alias Letflow.PlatformFunctions.Entry
 
-  @chain [
+  # T-2589 (gap G1a) adds the registration family's entry: the catalogue is the
+  # closed list of names a definition may call, and the registration family's
+  # `platform.validate_registration` joins the tenant family's chain.
+  @entries [
+    "platform.validate_registration",
     "tenant.validate",
     "tenant.create",
     "tenant.provision",
@@ -49,14 +53,14 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
   ]
 
   describe "the compiled catalogue" do
-    test "it holds exactly the tenant family's chain" do
-      assert Catalog.names() == Enum.sort(@chain)
+    test "it holds exactly the tenant family's chain and the registration family's entry" do
+      assert Catalog.names() == Enum.sort(@entries)
     end
 
     test "every entry needs the platform atom and runs only in the platform tenant" do
       assert Catalog.permission_atoms() == [:TenantsManage]
 
-      for name <- @chain do
+      for name <- @entries do
         {:ok, entry} = Catalog.fetch(name)
 
         assert entry.permission == :TenantsManage
@@ -71,7 +75,7 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
 
     test "a caller outside the platform tenant sees no platform entry at all" do
       assert Catalog.list(platform_tenant?: false) == []
-      assert length(Catalog.list(platform_tenant?: true)) == length(@chain)
+      assert length(Catalog.list(platform_tenant?: true)) == length(@entries)
     end
   end
 

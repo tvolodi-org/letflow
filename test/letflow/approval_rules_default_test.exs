@@ -252,8 +252,9 @@ defmodule Letflow.ApprovalRulesDefaultTest do
 
     assert marker_count(sandbox) == 0
 
-    # the manifest knows it, third to last (T-2415 AllowZeroCountSetLegs and T-2588's audit column follow)
+    # the manifest knows it, seventh to last (T-2415 AllowZeroCountSetLegs, T-2588's audit column,
+    # T-2589's platform step table, T-2591's start-permission column and T-2592's rate-limited reason and outbound counters follow)
     assert {@version, CreateApprovalRuleDefaults} =
-             Enum.at(Letflow.TenantProvisioning.tenant_scoped_migrations(), -3)
+             Enum.at(Letflow.TenantProvisioning.tenant_scoped_migrations(), -8)
   end
 end
