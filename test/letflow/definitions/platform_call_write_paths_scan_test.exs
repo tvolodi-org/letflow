@@ -15,10 +15,15 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
   point, and every entry point is classified here.
 
     * `:graph_write` -- the path stores a graph. It must reach
-      `check_platform_call_tenant/2` (the company-tenant rule: one fixed code).
+      `check_platform_call_tenant/2` (the company-tenant rule: one fixed code)
+      and the node-attribute validation, which carries the NOTIFICATION rule
+      (T-2592: a `notify` attribute on a node that is not a SERVICE_TASK, a
+      second route beside it, an unknown template key or a variable a person may
+      write is refused in the DRAFT).
     * `:switch_on` -- the path switches a version ON. It must reach
       `check_platform_calls/3` (the activation fence: the entry's permission in
-      the signed activator).
+      the signed activator) and `check_notify_calls/2` (the activation fence of
+      the notification step).
     * `:status_only` -- the path changes the status of a row and can never
       change its graph. The scan proves that mechanically: the atom `:graph`
       does not appear anywhere in the path.
@@ -26,6 +31,11 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
   A NEW entry point -- a public function that writes a definition row and is
   not in the table below -- fails this test, so a forgotten path cannot be
   added quietly.
+
+  The notification rule (T-2592, pilot gap G4) is scanned here for the same
+  reason the platform-call rule is: its own gate showed a fence that only
+  covered some of the paths. One scan, two rules: the table below is the
+  single place that says which path must reach which fence.
   """
 
   use ExUnit.Case, async: true
@@ -36,7 +46,8 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
     "Letflow.Definitions" => "lib/letflow/definitions.ex",
     "Letflow.Definitions.ExportImport" => "lib/letflow/definitions/export_import.ex",
     "Letflow.Definitions.Promotion" => "lib/letflow/definitions/promotion.ex",
-    "Letflow.Definitions.Reactivation" => "lib/letflow/definitions/reactivation.ex"
+    "Letflow.Definitions.Reactivation" => "lib/letflow/definitions/reactivation.ex",
+    "Letflow.Definitions.Graph" => "lib/letflow/definitions/graph.ex"
   }
 
   # The entry points of the definition write paths, and what each of them must
@@ -66,6 +77,13 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
 
   @tenant_check :check_platform_call_tenant
   @activation_check :check_platform_calls
+  # T-2592 (pilot gap G4): the fence of the NOTIFICATION step. The activation
+  # half is `check_notify_calls/2` (the same shape as the platform-call fence);
+  # the draft half is the node-attribute validation of the graph module, which
+  # carries the rule `check_notify/1`.
+  @notify_fence :check_notify_calls
+  @notify_graph_rule :check_notify
+  @graph_validation {:remote, "Letflow.Definitions.Graph", :validate_node_attributes, 1}
 
   # ── the AST helpers ──────────────────────────────────────────────────────────
 
@@ -316,6 +334,62 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
       refute MapSet.member?(reached.atoms, :graph),
              "#{inspect(module)}.#{name} can reach the :graph column -- it is not status-only"
     end
+  end
+
+  # T-2592 (pilot gap G4): the notification step has BOTH halves of its rule --
+  # the draft half (the node-attribute validation) and the activation half (the
+  # fence). The gate showed the activation half only, so both are scanned here.
+  test "every switching-on entry point reaches the notification fence" do
+    modules = modules()
+
+    for {{module, name}, class} <- @entry_points, class == :switch_on do
+      reached = closure({module, name, arity_of(modules, module, name)}, modules)
+
+      assert MapSet.member?(reached.calls, {:local, @notify_fence, 2}) or
+               MapSet.member?(
+                 reached.calls,
+                 {:remote, "Letflow.Definitions", @notify_fence, 2}
+               ),
+             "#{inspect(module)}.#{name} does not reach #{@notify_fence}/2"
+    end
+  end
+
+  test "every graph-writing entry point reaches the validation that carries the notification rule" do
+    modules = modules()
+
+    for {{module, name}, class} <- @entry_points, class == :graph_write do
+      reached = closure({module, name, arity_of(modules, module, name)}, modules)
+
+      assert MapSet.member?(reached.calls, @graph_validation),
+             "#{inspect(module)}.#{name} does not reach the node-attribute validation"
+    end
+  end
+
+  test "the node-attribute validation carries the notification rule itself" do
+    {functions, _public, _aliases} = Map.fetch!(modules(), "Letflow.Definitions.Graph")
+
+    body = Map.fetch!(functions, {:validate_node_attributes, 1})
+
+    assert mentions_capture?(body, @notify_graph_rule),
+           "the graph's node-attribute validation does not run #{@notify_graph_rule}/1"
+  end
+
+  # The rule is in the LIST of checks the validation runs, so it appears as a
+  # CAPTURE (`&check_notify/1`). Macro.traverse does not descend into a
+  # three-tuple's arguments, so the call scan above cannot see a capture of a
+  # LOCAL function -- this walk looks for it directly.
+  defp mentions_capture?(body, name) do
+    {_ast, found} =
+      Macro.prewalk(body, false, fn
+        {:&, _, [{:/, _, [{^name, _, args}, _arity]}]} = node, _acc
+        when args == [] or args == nil ->
+          {node, true}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found
   end
 
   # The arity of the classified function: the table names the function, the

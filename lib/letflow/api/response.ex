@@ -526,6 +526,25 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- a `notify` step was refused by the notification fence (T-2592, pilot
+  gap G4; the file channel of T-2596, pilot gap G12: a path-like file name is
+  refused here with the fixed code `notify_file_name_invalid`).
+
+  The same body shape as `platform_calls_invalid/2`: the node, the index and a
+  stable code. No value, no hash and no function name ever appear.
+  """
+  @spec notify_calls_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def notify_calls_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "notify_calls_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
   HTTP 422 -- the TYPED STEP MAPPING of a step was refused (T-2594, pilot gap G13: the
   declared reads and writes against the definition's own `variable_schemas`, the reserved
   engine namespace, and the variables a person may write).

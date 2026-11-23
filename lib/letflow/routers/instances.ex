@@ -1194,7 +1194,8 @@ defmodule Letflow.Routers.Instances do
 
       # T-1693: same participation rule as history and get (GH #2932, INV-2/INV-5).
       with_participation(conn, id, opts, fn ->
-        Instances.timeline(id, params, opts) |> render_page_result(conn, &timeline_item_map/1)
+        Instances.timeline(id, params, opts)
+        |> render_timeline_result(conn, &timeline_item_map/1)
       end)
     else
       {:error, :invalid_instance_id} ->
@@ -1222,6 +1223,46 @@ defmodule Letflow.Routers.Instances do
       "description" => item.description
     }
   end
+
+  # ── the STEP LOG of the instance (pilot gap G6) ───────────────────────────
+
+  # One row per node visit: who ran it, when it started and ended, how it
+  # ended, how long it took, how many attempts and the failure kind of the
+  # last attempt. The row names the node and the function and NOTHING ELSE:
+  # no input, no output, no body, no URL (INV-4).
+  defp step_item_map(step) do
+    %{
+      "node_id" => step.node_id,
+      "node_type" => step.node_type,
+      "step" => step.step,
+      "actor_id" => step.actor_id,
+      "actor_display_name" => step.actor_display_name,
+      "started_at" => DateTime.to_iso8601(step.started_at),
+      "ended_at" => step.ended_at && DateTime.to_iso8601(step.ended_at),
+      "duration_ms" => step.duration_ms,
+      "result" => step.result,
+      "attempts" => step.attempts,
+      "last_failure_kind" => step.last_failure_kind
+    }
+  end
+
+  # The timeline answer carries the step log next to the event page. Every
+  # error answer is the shared one (a missing instance, a bad cursor, ...).
+  defp render_timeline_result(
+         {:ok, %{items: items, next_cursor: next_cursor, steps: steps}},
+         conn,
+         item_fn
+       ) do
+    Response.ok(conn, %{
+      "items" => Enum.map(items, item_fn),
+      "steps" => Enum.map(steps, &step_item_map/1),
+      "next_cursor" => next_cursor,
+      "count" => length(items)
+    })
+  end
+
+  defp render_timeline_result({:error, _reason} = error, conn, item_fn),
+    do: render_page_result(error, conn, item_fn)
 
   # ── Shared page-result rendering (list/history/timeline) ────────────────
 

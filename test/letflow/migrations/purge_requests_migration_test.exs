@@ -23,7 +23,7 @@ defmodule Letflow.Migrations.PurgeRequestsMigrationTest do
 
   test "P-M1 the migration is in the manifest (T-1389 and later ones follow) and the table is in the expected list" do
     assert {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -24)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -27)
 
     assert "purge_requests" in TenantFixture.expected_tenant_tables()
   end

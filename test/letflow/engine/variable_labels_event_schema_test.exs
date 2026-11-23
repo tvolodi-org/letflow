@@ -19,7 +19,7 @@ defmodule Letflow.Engine.VariableLabelsEventSchemaTest do
   @bumped %{
     "INSTANCE_STARTED" => 2,
     "TASK_COMPLETED" => 4,
-    "SUB_PROCESS_COMPLETED" => 2,
+    "SUB_PROCESS_COMPLETED" => 3,
     "EXECUTION_ERROR" => 2,
     "SCRIPT_TASK_COMPLETED" => 2
   }

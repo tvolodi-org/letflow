@@ -12,7 +12,7 @@ defmodule Letflow.CreateProblemReportImagesTest do
     schema = fx.schema_name
 
     assert {@version, CreateProblemReportImages} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -12)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -15)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, CreateProblemReportImages,
