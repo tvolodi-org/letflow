@@ -104,6 +104,26 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   `"default values for the optional arguments"` (see
   `lib/letflow/design/iss0069-unused-default-warnings-fix.md`).
 
+  ## T-2692: the isolated tails are watched for silence
+
+  Every subprocess this task spawns -- the `:wasm_hang` discovery run, each
+  isolated `:wasm_hang` per-test run, and the isolated `:lua_wallclock_race`
+  run -- is watched: a subprocess that produces no output for
+  `TEST_TAIL_OUTPUT_TIMEOUT_S` seconds (default 480 = 8 minutes, 0 disables)
+  is killed, and this task fails with a report that names the run, the ExUnit
+  seed it used and the runner's load at that moment.
+
+  Why: these subprocesses had NO bound of their own. Push CI run 45184714218
+  (2026-11-23) lost the isolated-tails job to the 30-minute job timeout, and
+  the log said nothing about which test was running. A bounded, named failure
+  is strictly better than a job timeout: it names the test, it finishes in
+  minutes instead of half an hour, and the ExUnit seed in the report
+  reproduces the very run that hung.
+
+  The bound is on SILENCE, not on the run's total duration: a healthy tail
+  says something as it goes (ExUnit writes a dot per finished test, and the
+  runs print their own progress), while a hung one says nothing at all.
+
   ## Exit-code contract
 
     * Exits `0` only if the parallel runner's own aggregated result is a real pass
@@ -148,6 +168,16 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # log. A passing run never prints partition logs, so the passing path echoes these lines.
   @budget_measurement_marker "GH2534 budget measurement"
   @log_dir_line_regex ~r/^test_parallel: partition logs in (.+)$/m
+
+  # T-2692: the isolated tails' own silence limit. A tail subprocess that
+  # says nothing for this many seconds is hung: it is killed, and the run
+  # fails with a report that names the test, the ExUnit seed and the runner's
+  # load. Default 480 s (8 minutes) -- the same order as the parallel runner's
+  # per-partition output limit (TEST_PARALLEL_OUTPUT_TIMEOUT_S), so a hang is
+  # named long before the CI job's own 30-minute timeout would end the job
+  # with nothing said. 0 disables the watch.
+  @tail_output_timeout_env "TEST_TAIL_OUTPUT_TIMEOUT_S"
+  @tail_output_timeout_default_s 480
 
   # ISS-0697 (design doc iss0697-check-test-executable-resolver-fix.md): the injectable
   # override seam for this module's subprocess-executable resolution. Reads
@@ -233,9 +263,12 @@ defmodule Mix.Tasks.Letflow.Check.Test do
     # trap does not delete its partition-log tmp_dir out from under this caller --
     # this task now owns removing that directory itself (see §3a.3 below).
     {output, exit_code} =
-      stream_and_capture(bash, ["scripts/test_parallel.sh"], [
-        {"TEST_PARALLEL_KEEP_LOGS", "1"} | extra_env
-      ])
+      stream_and_capture(
+        bash,
+        ["scripts/test_parallel.sh"],
+        [{"TEST_PARALLEL_KEEP_LOGS", "1"} | extra_env],
+        :none
+      )
 
     # ORDERING RULE (design doc section 1.2 step 1): if the runner exited nonzero,
     # report that first -- even if the log-dir line also happens to be missing. The
@@ -594,7 +627,9 @@ defmodule Mix.Tasks.Letflow.Check.Test do
 
   @spec run_discovery_dry_run() :: String.t()
   defp run_discovery_dry_run do
-    {output, _exit_code} = stream_and_capture("mix", ["test", "--only", "wasm_hang", "--dry-run"])
+    {output, _exit_code} =
+      stream_and_capture_tail("mix", ["test", "--only", "wasm_hang", "--dry-run"])
+
     output
   end
 
@@ -789,7 +824,7 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # no --only/--include is needed at all for the addressed test to actually run.
   @spec run_single_wasm_hang_test(wasm_hang_location()) :: wasm_hang_test_result()
   defp run_single_wasm_hang_test({file, line} = location) do
-    {output, exit_code} = stream_and_capture("mix", ["test", "#{file}:#{line}"])
+    {output, exit_code} = stream_and_capture_tail("mix", ["test", "#{file}:#{line}"])
     %{location: location, output: output, exit_code: exit_code}
   end
 
@@ -827,7 +862,7 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # siblings for wall-clock-sensitive timing. Unchanged by ISS-0428: stays serial.
   defp run_lua_wallclock_race_tests do
     {race_output, race_exit_code} =
-      stream_and_capture("mix", ["test", "--only", "lua_wallclock_race"])
+      stream_and_capture_tail("mix", ["test", "--only", "lua_wallclock_race"])
 
     if race_exit_code != 0 do
       Mix.raise(
@@ -886,7 +921,19 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # only adds/overrides the named vars on top of this BEAM process's already-
   # inherited environment -- it does not replace the environment wholesale, so the
   # `[]` default changes nothing for the three call sites that don't pass it.
-  defp stream_and_capture(cmd, args, env \\ []) do
+  #
+  # T-2692: `watch` decides whether this subprocess is watched for SILENCE.
+  # `:tails` arms the watchdog (a subprocess that says nothing for
+  # TEST_TAIL_OUTPUT_TIMEOUT_S seconds is killed and reported by name); `:none`
+  # leaves the subprocess unwatched.
+  #
+  # The MAIN SUITE call is deliberately NOT watched: `scripts/test_parallel.sh`
+  # prints its own progress at the start and then stays SILENT for the whole
+  # partition run (the partitions write to their own logs), so a silence bound
+  # there would kill a healthy backend gate. The isolated tails are the ones
+  # that had no bound of their own -- push CI run 45184714218 (2026-11-23) lost
+  # the isolated-tails job to the 30-minute job timeout with nothing named.
+  defp stream_and_capture(cmd, args, env, watch) do
     executable = resolve_executable(cmd) || raise "executable not found: #{cmd}"
 
     port_opts = [
@@ -909,18 +956,175 @@ defmodule Mix.Tasks.Letflow.Check.Test do
 
     port = Port.open({:spawn_executable, executable}, port_opts)
 
-    collect(port, [])
+    label = Enum.join([cmd | args], " ")
+
+    watchdog =
+      case watch do
+        :tails -> tail_watchdog(label)
+        :none -> %{label: label, limit_s: 0, last_data_at: System.monotonic_time(:second)}
+      end
+
+    collect(port, [], watchdog)
   end
 
-  defp collect(port, acc) do
+  # T-2692: the isolated tails' own subprocesses, watched for silence.
+  defp stream_and_capture_tail(cmd, args) do
+    stream_and_capture(cmd, args, [], :tails)
+  end
+
+  # T-2692: the silence watchdog's parameters for one subprocess. The limit
+  # comes from TEST_TAIL_OUTPUT_TIMEOUT_S (default 480 s = 8 minutes); 0
+  # disables the watch (the subprocess then runs as before, unbounded, exactly
+  # as it did before this change).
+  defp tail_watchdog(label) do
+    %{
+      label: label,
+      limit_s: tail_output_timeout_s(),
+      last_data_at: System.monotonic_time(:second)
+    }
+  end
+
+  @doc false
+  # T-2692: the silence limit for the isolated tails, in seconds.
+  def tail_output_timeout_s do
+    case System.get_env(@tail_output_timeout_env, "") do
+      "" ->
+        @tail_output_timeout_default_s
+
+      value ->
+        case Integer.parse(value) do
+          {seconds, ""} when seconds >= 0 ->
+            seconds
+
+          _ ->
+            Mix.raise(
+              "mix letflow.check.test: #{@tail_output_timeout_env}=#{inspect(value)} is not a " <>
+                "non-negative integer number of seconds"
+            )
+        end
+    end
+  end
+
+  # T-2692: the report a silent subprocess produces. It names WHAT was
+  # running (the command, and the test file:line the isolated run addressed),
+  # the ExUnit seed that run used (so the hang can be reproduced), and the
+  # runner's load at that moment -- the three facts a reader of a hung CI job
+  # needs and does not get from a job timeout.
+  defp silent_subprocess_report(watchdog, output) do
+    seed =
+      case Regex.run(~r/seed:?\s+(\d+)/, output) do
+        [_, seed] -> seed
+        _ -> "unknown"
+      end
+
+    load =
+      case File.read("/proc/loadavg") do
+        {:ok, line} -> line |> String.split(" ") |> Enum.take(3) |> Enum.join(" ")
+        _ -> "unknown"
+      end
+
+    tail =
+      output
+      |> String.split("\n")
+      |> Enum.take(-20)
+      |> Enum.join("\n")
+
+    """
+    mix letflow.check.test: FAILED -- `#{watchdog.label}` produced no output for more than \
+    #{watchdog.limit_s}s and was killed (TEST_TAIL_OUTPUT_TIMEOUT_S=#{watchdog.limit_s}s).
+
+    ExUnit seed: #{seed}
+    runner load: #{load}
+    last output:
+    #{tail}
+    """
+  end
+
+  defp collect(port, acc, watchdog) do
     receive do
       {^port, {:data, chunk}} ->
         echo_chunk(chunk)
-        collect(port, [acc, chunk])
+        collect(port, [acc, chunk], %{watchdog | last_data_at: System.monotonic_time(:second)})
 
       {^port, {:exit_status, status}} ->
         {IO.iodata_to_binary(acc), status}
+    after
+      1_000 ->
+        # T-2692: nothing said for a whole second -- is the subprocess silent
+        # for longer than the limit? Then it is hung, and the report below
+        # names it before the job timeout does it for us.
+        if watchdog.limit_s > 0 and
+             System.monotonic_time(:second) - watchdog.last_data_at > watchdog.limit_s do
+          kill_silent_subprocess!(port, acc, watchdog)
+        else
+          collect(port, acc, watchdog)
+        end
     end
+  end
+
+  # T-2692: kill a silent subprocess and fail the task with a report that
+  # names it.
+  #
+  # Closing the port is NOT enough: measured live, `Port.close/1` closes the
+  # pipes and leaves the spawned OS process running (a `sleep 30` was still
+  # alive afterwards), so the process is killed explicitly -- the direct
+  # child first, then its descendants, because the `mix` on a dev host is a
+  # shim that spawns the real `mix` as a child (killing only the shim would
+  # leave a BEAM behind).
+  defp kill_silent_subprocess!(port, acc, watchdog) do
+    report = silent_subprocess_report(watchdog, IO.iodata_to_binary(acc))
+
+    kill_subprocess_tree(port)
+
+    Mix.raise(report)
+  end
+
+  defp kill_subprocess_tree(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> kill_process_tree(os_pid)
+      _ -> :ok
+    end
+
+    try do
+      Port.close(port)
+    rescue
+      _ -> :ok
+    end
+  end
+
+  defp kill_process_tree(pid) do
+    Enum.each(child_pids(pid), &kill_process_tree/1)
+    kill_pid(pid)
+  end
+
+  # Linux exposes a process's direct children here; on any other platform the
+  # list is empty and only the direct child is killed.
+  defp child_pids(pid) do
+    case File.read("/proc/#{pid}/task/#{pid}/children") do
+      {:ok, list} ->
+        list
+        |> String.split(" ", trim: true)
+        |> Enum.map(&String.to_integer/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp kill_pid(pid) do
+    {command, args} =
+      case :os.type() do
+        {:win32, _} -> {"taskkill", ["/F", "/PID", to_string(pid)]}
+        _ -> {"kill", ["-KILL", to_string(pid)]}
+      end
+
+    if System.find_executable(command) do
+      System.cmd(command, args, stderr_to_stdout: true)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # T-1843: the echo is cosmetic; the captured bytes (not the echo) feed every gate.
