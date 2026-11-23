@@ -132,11 +132,19 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   `last_failure_kind` is a STABLE CODE, never a customer text: the row is
   read by the step log (gap G6) and must not carry anything a tenant typed
   (INV-4). A reason that is an ATOM names a code of this module's own
-  vocabulary; a reason that is a BINARY is caller-supplied text and is
-  reduced to a code of the closed vocabulary, and to the generic code
-  `platform_step_failed` when it is none of them. Nothing is ever inspected:
-  an inspected reason would carry the customer's text into the row, and it
-  can be longer than the column that holds it.
+  vocabulary -- and an atom that is NOT one of those codes is reduced to the
+  generic code, exactly like a binary reason: the vocabulary is CLOSED, so
+  the row only ever carries a code a reader can act on. A reason that is a
+  BINARY is caller-supplied text and is reduced to a code of the closed
+  vocabulary, and to the generic code `platform_step_failed` when it is none
+  of them. Nothing is ever inspected: an inspected reason would carry the
+  customer's text into the row, and it can be longer than the column that
+  holds it.
+
+  The vocabulary is not a hand list that may drift: `failure_codes/0` hands
+  it out, and the registered bodies' own declared vocabularies are checked
+  against it (`test/letflow/platform_functions/failure_vocabulary_test.exs`),
+  so a body cannot answer a code the row would refuse to carry.
 
   ## The attempt cap
 
@@ -201,10 +209,14 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_arg_mismatch
     platform_call_arg_missing
     platform_call_arg_unknown
+    platform_call_default_modules_failed
     platform_call_definition_missing
+    platform_call_duplicate_realm
+    platform_call_duplicate_slug
     platform_call_foreign_source_refused
     platform_call_function_mismatch
     platform_call_function_unknown
+    platform_call_grant_failed
     platform_call_invalid_display_name
     platform_call_invalid_email
     platform_call_invalid_slug
@@ -213,8 +225,15 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_node_missing
     platform_call_node_not_declared
     platform_call_permission_required
+    platform_call_provision_failed
+    platform_call_realm_already_bound
+    platform_call_realm_bind_failed
     platform_call_signature_invalid
+    platform_call_tenant_create_failed
+    platform_call_tenant_not_active
     platform_call_tenant_not_allowed
+    platform_call_tenant_not_found
+    platform_call_tenant_purged
     platform_function_not_implemented
     platform_function_unknown
     platform_step_arm_failed
@@ -898,6 +917,20 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   @spec lease_ms() :: pos_integer()
   def lease_ms, do: @lease_ms
 
+  @doc """
+  The CLOSED vocabulary of the codes a dispatch row may carry in
+  `last_failure_kind`, as a sorted list of strings.
+
+  The vocabulary is closed on purpose: the row is read by the step log (gap
+  G6), and a code nobody can enumerate is a code nobody can act on. Every
+  refusal a registered body can answer is one of these codes -- the
+  vocabulary is CHECKED against the bodies' own declared vocabularies
+  (`test/letflow/platform_functions/failure_vocabulary_test.exs`), so a new
+  body cannot answer a code the row would not accept.
+  """
+  @spec failure_codes() :: [String.t()]
+  def failure_codes, do: @failure_codes |> MapSet.to_list() |> Enum.sort()
+
   defp claim(dispatch_id, prefix) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
@@ -1209,15 +1242,18 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # The failure kind is a STABLE code, never a customer text: the row is read
   # by the step log (gap G6) and must not carry anything a tenant typed
   # (INV-4). A reason that is an ATOM names a code of this module's own
-  # vocabulary. A reason that is a BINARY is caller-supplied text: it is
-  # reduced to a code of the closed vocabulary, and to the generic code when
-  # it is none of them. A reason that is neither is the generic code too.
-  # Nothing is ever INSPECTED: an inspected reason would carry the
-  # customer's text into the row, and it can be longer than the column.
+  # vocabulary -- and a code that is NOT one of them is reduced to the
+  # generic code, exactly like a binary reason: the vocabulary is closed, so
+  # the row only ever carries a code a reader can act on. A reason that is a
+  # BINARY is caller-supplied text: it is reduced to a code of the closed
+  # vocabulary, and to the generic code when it is none of them. A reason that
+  # is neither is the generic code too. Nothing is ever INSPECTED: an
+  # inspected reason would carry the customer's text into the row, and it can
+  # be longer than the column.
   defp failure_kind(reason) when is_atom(reason) do
     code = Atom.to_string(reason)
 
-    if byte_size(code) <= @max_failure_kind_bytes do
+    if byte_size(code) <= @max_failure_kind_bytes and MapSet.member?(@failure_codes, code) do
       code
     else
       @generic_failure_kind

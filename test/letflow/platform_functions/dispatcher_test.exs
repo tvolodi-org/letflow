@@ -200,15 +200,16 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
                inputs: %{}
              )
 
-    # `tenant.create` IS in the compiled catalogue (the pilot's tenant family)
-    # but has no body yet: the dispatcher says so instead of pretending.
+    # `tenant.validate` IS in the compiled catalogue (the pilot's tenant family)
+    # but has no body yet (T-2590 gave the family's SIDE-EFFECTING functions
+    # one): the dispatcher says so instead of pretending.
     assert {:error, :platform_function_not_implemented} =
              Dispatcher.arm(
                prefix: ctx.tenant.schema_name,
                instance_id: Ecto.UUID.generate(),
                definition_id: definition.id,
                node_id: "call",
-               function: "tenant.create",
+               function: "tenant.validate",
                inputs: %{"slug" => "acme", "name" => "Acme"}
              )
   end
