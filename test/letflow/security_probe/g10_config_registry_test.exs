@@ -23,7 +23,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
 
   @moduletag :unit
   @moduletag :security_probe
-  @moduletag probe_cost_s: 10
+  @moduletag probe_cost_s: 11
   @moduletag timeout: 300_000
 
   alias Letflow.Secrets.LogFilter
@@ -78,13 +78,39 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       reported = Enum.map(findings, &{&1.code, &1.name})
 
       assert {:unregistered_env, "env:G10_UNREGISTERED_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_LIST_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ATTRIBUTE_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_LOCAL_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ENV_MAP_SETTING"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_flag_enabled"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_release_flag"} in reported
+      assert {:flag_not_off, "app_env::letflow:g10_keyword_flag"} in reported
       assert {:secret_literal_default, "app_env::letflow:g10_secret"} in reported
       assert {:fail_closed_permissive, "app_env::letflow:g10_secret"} in reported
       assert {:read_mode_mismatch, "the registry"} in reported
       assert {:stale_entry, "app_env::letflow:g10_stale"} in reported
       assert {:url_without_validator, "app_env::letflow:g10_url"} in reported
+      assert {:url_without_validator, "app_env::letflow:g10_startup_url"} in reported
+      assert {:guard_not_on, "app_env::letflow:g10_guard"} in reported
+      assert Enum.any?(reported, &match?({:malformed_entry, _name}, &1))
+    end
+
+    test "each form a variable can be named in is found by that form" do
+      inventory = Scan.inventory(@broken_tree)
+
+      forms =
+        inventory.env
+        |> Enum.map(fn site -> {site.name, site.form, site.file} end)
+        |> Enum.filter(fn {name, _form, _file} -> String.starts_with?(name, "G10_") end)
+        |> Enum.sort()
+
+      assert forms == [
+               {"G10_ATTRIBUTE_SETTING", :get_env, "lib/g10_broken.ex"},
+               {"G10_ENV_MAP_SETTING", :literal, "lib/g10_env_map.ex"},
+               {"G10_LIST_SETTING", :literal, "lib/g10_broken.ex"},
+               {"G10_LOCAL_SETTING", :get_env, "lib/g10_broken.ex"},
+               {"G10_UNREGISTERED_SETTING", :get_env, "lib/g10_broken.ex"}
+             ]
     end
 
     test "the fixture tree is broken on purpose and the real tree is not" do

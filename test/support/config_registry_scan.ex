@@ -2,7 +2,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
   @moduledoc """
   G-10: the derivation behind the config/env/flag registry probe.
 
-  The registry (`priv/config_registry.json`) is the reviewed answer to "which configuration does
+  The registry (`priv/config_registry.txt`) is the reviewed answer to "which configuration does
   this product have, who owns it, why does it exist, how is it read and must its absence fail
   closed". This module derives the other half **from the tree**: every environment variable and
   every application environment key the sources read, with the form of each read (a default or
@@ -14,12 +14,23 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   The two shapes it derives:
 
-    * `env` -- `System.get_env/1,2`, `System.fetch_env/1`, `System.fetch_env!/1` and a module
-      attribute whose name ends in `env` that holds the name of a variable read elsewhere
-      (`@token_env "LETFLOW_SIGNUP_PROVISIONER_TOKEN"`).
-    * `app_env` -- `Application.get_env/2,3`, `Application.fetch_env/2`,
-      `Application.compile_env/2,3` and the `config :app, :key, value` directives of
-      `config/*.exs`.
+    * `env` -- an operating system variable. The tree names one in five ways and the derivation
+      sees all of them:
+
+      1. a literal: `System.get_env("LETFLOW_SIGNUP_ENABLED")`;
+      2. a name a module attribute holds: `@token_env "LETFLOW_SIGNUP_PROVISIONER_TOKEN"` read
+         with `System.get_env(@token_env)`;
+      3. a name a local variable holds: `name = "LETFLOW_SMTP_HOST"` read with
+         `System.get_env(name)`;
+      4. a list of names the boot reads: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST)` piped
+         into `Map.new(fn name -> {name, System.get_env(name)} end)`;
+      5. a module that parses the operating system environment: it takes a map of variable names
+         to raw values (`env`) and reads it with `Map.get/2`, so every upper-case literal of
+         that module names a variable of the operating system.
+
+    * `app_env` -- an application environment key: `Application.get_env/2,3`,
+      `Application.fetch_env/2`, `Application.compile_env/2,3` and the `config :app, :key, value`
+      and `config :app, key: value` directives of `config/*.exs`.
 
   A read whose key is computed at run time cannot be resolved statically; it is reported as
   `dynamic` and needs no registry entry.
@@ -31,6 +42,18 @@ defmodule Letflow.Support.ConfigRegistryScan do
   @reads ~w(compile_time runtime)
   @scopes ~w(platform tenant module test)
 
+  # A documentation attribute is text, never configuration.
+  @doc_attributes [:moduledoc, :doc, :typedoc]
+
+  # An attribute that holds the name of an environment variable says so in its own name.
+  @env_attribute_suffixes ~w(env var)
+
+  # The parameter of a function that takes the operating system environment as a map.
+  @env_param_names [:env, :envs, :env_map, :os_env, :environ, :environment]
+
+  # The map functions that read a map by a key.
+  @map_functions [:get, :fetch, :get!, :fetch!]
+
   @type read_form ::
           :get_env
           | :get_env_default
@@ -39,13 +62,19 @@ defmodule Letflow.Support.ConfigRegistryScan do
           | :compile_env
           | :compile_env_default
           | :directive
+          | :attribute
+          | :literal
+          | :fallback
 
   @type site :: %{
+          source: :env | :app_env | :dynamic,
+          name: String.t() | nil,
           file: String.t(),
           line: pos_integer(),
           form: read_form(),
-          default: :none | nil | false | true | :literal | :expression,
-          value: term()
+          default: :none | nil | false | true | :literal | :expression | :absent,
+          value: term(),
+          test?: boolean()
         }
 
   @doc """
@@ -201,6 +230,9 @@ defmodule Letflow.Support.ConfigRegistryScan do
     derived_env = MapSet.new(inv.env, &{"env", &1.name})
     derived_app = MapSet.new(inv.app_env, &{"app_env", &1.name})
 
+    env_places = places(inv.env)
+    app_places = places(inv.app_env)
+
     []
     |> add(
       :inventory_is_empty,
@@ -218,19 +250,27 @@ defmodule Letflow.Support.ConfigRegistryScan do
     |> add_many(
       :unregistered_env,
       MapSet.difference(derived_env, registered_env),
-      "environment variable"
+      "environment variable",
+      env_places
     )
     |> add_many(
       :unregistered_app_env,
       MapSet.difference(derived_app, registered_app),
-      "application key"
+      "application key",
+      app_places
     )
     |> add_many(
       :stale_entry,
       MapSet.difference(registered_env, derived_env),
-      "environment variable"
+      "environment variable",
+      %{}
     )
-    |> add_many(:stale_entry, MapSet.difference(registered_app, derived_app), "application key")
+    |> add_many(
+      :stale_entry,
+      MapSet.difference(registered_app, derived_app),
+      "application key",
+      %{}
+    )
     |> check_shape(entries, by_name)
     |> check_read_mode(inv, by_name)
     |> check_flags(inv, by_name, root)
@@ -295,144 +335,419 @@ defmodule Letflow.Support.ConfigRegistryScan do
     end
   end
 
-  defp reads_in(ast, rel) do
-    test? = test_file?(rel)
-
-    {_ast, acc} =
-      Macro.prewalk(ast, [], fn node, acc ->
-        {node, acc ++ Enum.map(reads_of(node, rel), &Map.put(&1, :test?, test?))}
-      end)
-
-    acc
-  end
-
   # A test configuration may carry a literal where a release configuration must not.
   defp test_file?(rel) do
     Path.basename(rel) == "test.exs" or String.starts_with?(rel, "test/")
   end
 
-  defp reads_of({:@, meta, [{name, _, [value]}]}, rel) when is_atom(name) do
-    if String.ends_with?(Atom.to_string(name), "env") and is_binary(value) do
-      [
-        %{
-          source: :env,
-          name: value,
-          file: rel,
-          line: line(meta),
-          form: :attribute,
-          default: :none,
-          value: nil
-        }
-      ]
+  defp reads_in(ast, rel) do
+    test? = test_file?(rel)
+    ctx = context(ast)
+
+    walk(ast, rel, ctx, test?) ++ env_map_sites(ast, rel, ctx, test?)
+  end
+
+  # What a file binds to names: the module attributes that hold a string, the local variables
+  # that are assigned a string and whether the file parses the operating system environment.
+  defp context(ast) do
+    %{
+      attrs: module_attributes(ast),
+      locals: local_bindings(ast),
+      env_map?: env_map_file?(ast)
+    }
+  end
+
+  defp module_attributes(ast) do
+    {_ast, attrs} =
+      Macro.prewalk(ast, %{}, fn
+        {:@, _, [{name, _, [value]}]} = node, acc when is_atom(name) and is_binary(value) ->
+          {node, Map.put(acc, name, value)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    attrs
+  end
+
+  defp local_bindings(ast) do
+    {_ast, locals} =
+      Macro.prewalk(ast, [], fn
+        {:=, meta, [{name, _, nil}, value]} = node, acc when is_atom(name) and is_binary(value) ->
+          {node, [{name, line(meta), value} | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    locals
+  end
+
+  # A file that parses the operating system environment: a function takes a map of variable
+  # names to raw values (`env`) and reads it with `Map.get/2` or `env |> Map.get(key)`.
+  defp env_map_file?(ast) do
+    params = function_params(ast)
+    maps = env_map_reads(ast)
+
+    Enum.any?(params, fn param -> param in @env_param_names and MapSet.member?(maps, param) end)
+  end
+
+  defp function_params(ast) do
+    {_ast, params} =
+      Macro.prewalk(ast, [], fn
+        {:def, _, [head | _body]} = node, acc ->
+          {node, head_params(head) ++ acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.uniq(params)
+  end
+
+  defp head_params({:when, _, [args | _]}), do: head_params(args)
+  defp head_params({_name, _, args}) when is_list(args), do: Enum.flat_map(args, &param_names/1)
+  defp head_params(args) when is_list(args), do: Enum.flat_map(args, &param_names/1)
+  defp head_params(_other), do: []
+
+  defp param_names({:\\, _, [left | _]}), do: param_names(left)
+  defp param_names({name, _, nil}) when is_atom(name), do: [name]
+  defp param_names(_other), do: []
+
+  # The variables that are read as a map: the map of a `Map.get/2` call and the source of a
+  # `Map.get/1` pipe.
+  defp env_map_reads(ast) do
+    {_ast, vars} =
+      Macro.prewalk(ast, MapSet.new(), fn node, acc ->
+        case env_map_read(node) do
+          {:ok, var} -> {node, MapSet.put(acc, var)}
+          :error -> {node, acc}
+        end
+      end)
+
+    vars
+  end
+
+  defp env_map_read({{:., _, [mod, fun]}, _, [var, _key]}) do
+    map_variable(mod, fun, var)
+  end
+
+  defp env_map_read({:|>, _, [left, {{:., _, [mod, fun]}, _, [_key]}]}) do
+    map_variable(mod, fun, left)
+  end
+
+  defp env_map_read(_node), do: :error
+
+  defp map_variable(mod, fun, node) do
+    if alias_name(mod) == "Map" and fun in @map_functions do
+      case variable_name(node) do
+        nil -> :error
+        name -> {:ok, name}
+      end
+    else
+      :error
+    end
+  end
+
+  defp variable_name({name, _, nil}) when is_atom(name), do: name
+  defp variable_name(_node), do: nil
+
+  # The reads of a tree. The walker keeps a piped call together with its source, so
+  # `x |> Application.get_env(:key, default)` is read as the call it is.
+  defp walk(node, rel, ctx, test?) do
+    case node do
+      {:@, _, [{name, _, [_value]}]} when name in @doc_attributes ->
+        []
+
+      {:@, meta, [{name, _, [value]}]} when is_atom(name) and is_binary(value) ->
+        if env_attribute?(name, value) do
+          [env_site(value, rel, line(meta), :attribute, :none, nil, test?)]
+        else
+          []
+        end
+
+      {:def, _, [_head | body]} ->
+        walk_all(body, rel, ctx, test?)
+
+      {:|>, _, [left, right]} ->
+        env_list_sites(left, right, rel, test?) ++
+          walk(left, rel, ctx, test?) ++
+          piped(right, left, rel, ctx, test?)
+
+      {{:., _, [mod, fun]}, meta, args} when is_list(args) ->
+        call_sites(alias_name(mod), fun, args, meta, rel, ctx, test?) ++
+          list_arguments(args, meta, rel, test?) ++
+          walk_all(args, rel, ctx, test?)
+
+      {:config, meta, args} when is_list(args) and args != [] ->
+        config_sites(args, meta, rel, test?) ++ walk_all(args, rel, ctx, test?)
+
+      {:||, meta, [left, right]} ->
+        inner = walk(left, rel, ctx, test?)
+
+        fallbacks =
+          for site <- inner, site.form in [:get_env, :fetch_env], site.default == :none do
+            %{
+              site
+              | line: line(meta),
+                form: :fallback,
+                default: default_kind_of(right),
+                value: right
+            }
+          end
+
+        inner ++ fallbacks ++ walk(right, rel, ctx, test?)
+
+      _ ->
+        walk_all(children(node), rel, ctx, test?)
+    end
+  end
+
+  defp walk_all(nodes, rel, ctx, test?) when is_list(nodes) do
+    Enum.flat_map(nodes, &walk(&1, rel, ctx, test?))
+  end
+
+  defp walk_all(_nodes, _rel, _ctx, _test?), do: []
+
+  # A piped call: the source of the pipe is the first argument of the call.
+  defp piped({{:., _, [mod, fun]}, meta, args}, left, rel, ctx, test?) when is_list(args) do
+    call_sites(alias_name(mod), fun, [left | args], meta, rel, ctx, test?) ++
+      walk_all(args, rel, ctx, test?)
+  end
+
+  defp piped(right, _left, rel, ctx, test?), do: walk(right, rel, ctx, test?)
+
+  defp call_sites("System", fun, args, meta, rel, ctx, test?)
+       when fun in [:get_env, :fetch_env, :fetch_env!] do
+    case args do
+      [name | rest] ->
+        case resolve_name(name, ctx, line(meta)) do
+          {:ok, resolved} ->
+            [
+              env_site(
+                resolved,
+                rel,
+                line(meta),
+                env_form(fun, rest),
+                default_kind(rest),
+                default_value(rest),
+                test?
+              )
+            ]
+
+          :error ->
+            [dynamic_site(rel, line(meta), :get_env, test?)]
+        end
+
+      [] ->
+        [dynamic_site(rel, line(meta), :get_env, test?)]
+    end
+  end
+
+  defp call_sites("Application", fun, args, meta, rel, _ctx, test?)
+       when fun in [:get_env, :fetch_env, :compile_env] and length(args) >= 2 do
+    [app, key | rest] = args
+
+    case app_env_name(app, key) do
+      nil ->
+        [dynamic_site(rel, line(meta), app_form(fun, rest), test?)]
+
+      name ->
+        [
+          app_env_site(
+            name,
+            rel,
+            line(meta),
+            app_form(fun, rest),
+            default_kind(rest),
+            default_value(rest),
+            test?
+          )
+        ]
+    end
+  end
+
+  defp call_sites(_module, _fun, _args, _meta, _rel, _ctx, _test?), do: []
+
+  # A configuration directive names its key in two forms: `config :app, :key, value` and
+  # `config :app, key: value`. The keyword form names every key of the list.
+  defp config_sites([_app], _meta, _rel, _test?), do: []
+
+  defp config_sites([app, key], meta, rel, test?) when is_list(key) do
+    if keyword?(key) do
+      Enum.map(key, fn {name, value} ->
+        app_env_site(
+          "#{atom_name(app)}:#{name}",
+          rel,
+          line(meta),
+          :directive,
+          default_kind_of(value),
+          value,
+          test?
+        )
+      end)
     else
       []
     end
   end
 
-  defp reads_of({{:., _, [mod, fun]}, meta, args}, rel) when is_list(args) do
-    module = alias_name(mod)
-
-    cond do
-      module == "System" and fun in [:get_env, :fetch_env, :fetch_env!] and args != [] ->
-        case args do
-          [name | rest] when is_binary(name) ->
-            [
-              %{
-                source: :env,
-                name: name,
-                file: rel,
-                line: line(meta),
-                form: env_form(fun, rest),
-                default: default_kind(rest),
-                value: default_value(rest)
-              }
-            ]
-
-          _ ->
-            [
-              %{
-                source: :dynamic,
-                name: nil,
-                file: rel,
-                line: line(meta),
-                form: :get_env,
-                default: :none,
-                value: nil
-              }
-            ]
-        end
-
-      module == "Application" and fun in [:get_env, :fetch_env, :compile_env] and
-          length(args) >= 2 ->
-        app_env_read(mod, fun, args, rel, meta)
-
-      true ->
+  defp config_sites([app, key | rest], meta, rel, test?) do
+    case app_env_name(app, key) do
+      nil ->
         []
+
+      name ->
+        [
+          app_env_site(
+            name,
+            rel,
+            line(meta),
+            :directive,
+            default_kind(rest),
+            default_value(rest),
+            test?
+          )
+        ]
     end
   end
 
-  defp reads_of({:config, meta, args}, rel) when is_list(args) and args != [] do
-    case args do
-      [app, key | rest] ->
-        case app_env_name(app, key) do
-          nil ->
-            []
+  defp keyword?([{name, _value} | rest]) when is_atom(name), do: keyword?(rest)
+  defp keyword?([]), do: true
+  defp keyword?(_other), do: false
 
-          name ->
-            [
-              %{
-                source: :app_env,
-                name: name,
-                file: rel,
-                line: line(meta),
-                form: :directive,
-                default: default_kind(rest),
-                value: default_value(rest)
-              }
-            ]
-        end
-
-      _ ->
-        []
+  # A list of names is a list of environment variables when the code that consumes it reads the
+  # environment: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST) |> Map.new(fn name -> {name,
+  # System.get_env(name)} end)`. A list of words that names something else (the roles, the
+  # statuses, the formats) is not a list of environment variables.
+  defp env_list_sites({:sigil_w, meta, [{:<<>>, _, [words]}, _modifiers]}, consumer, rel, test?)
+       when is_binary(words) do
+    if env_read?(consumer) do
+      list_sites(words, meta, rel, test?)
+    else
+      []
     end
   end
 
-  defp reads_of({:sigil_w, meta, [{:<<>>, _, [words]}]}, rel) when is_binary(words) do
-    words
-    |> String.split(~r/\s+/, trim: true)
-    |> Enum.filter(&env_name?/1)
-    |> Enum.map(fn name ->
-      %{
-        source: :env,
-        name: name,
-        file: rel,
-        line: line(meta),
-        form: :literal,
-        default: :none,
-        value: nil
-      }
+  defp env_list_sites(_node, _consumer, _rel, _test?), do: []
+
+  # A list that is an argument of a call that reads the environment.
+  defp list_arguments(args, meta, rel, test?) do
+    Enum.flat_map(args, fn
+      {:sigil_w, _, [{:<<>>, _, [words]}, _modifiers]} = list when is_binary(words) ->
+        if env_read?(list) or env_read?(args) do
+          list_sites(words, meta, rel, test?)
+        else
+          []
+        end
+
+      _other ->
+        []
     end)
   end
 
-  defp reads_of({:||, meta, [left, right]}, rel) do
-    case reads_of(left, rel) do
-      [%{form: form, default: :none} = site] when form in [:get_env, :fetch_env] ->
-        [
-          %{
-            site
-            | line: line(meta),
-              form: :fallback,
-              default: default_kind_of(right),
-              value: right
-          }
-        ]
+  # Does this piece of code read the operating system environment?
+  defp env_read?(node) do
+    {_node, found} =
+      Macro.prewalk(node, false, fn
+        {{:., _, [mod, fun]}, _, args} = node, acc when is_list(args) ->
+          {node,
+           acc or
+             (alias_name(mod) == "System" and fun in [:get_env, :fetch_env, :fetch_env!])}
 
-      _ ->
+        node, acc ->
+          {node, acc}
+      end)
+
+    found
+  end
+
+  # A list of names: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST)`.
+  defp list_sites(words, meta, rel, test?) do
+    words
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.filter(&env_name?/1)
+    |> Enum.map(fn name -> env_site(name, rel, line(meta), :literal, :none, nil, test?) end)
+  end
+
+  # A module that parses the operating system environment names its variables in upper case:
+  # every such literal of that file names a variable of the operating system.
+  defp env_map_sites(ast, rel, _ctx, test?) do
+    if env_map_file?(ast) do
+      ast
+      |> literals(0)
+      |> Enum.filter(fn {value, _line} -> env_name?(value) end)
+      |> Enum.map(fn {value, line} -> env_site(value, rel, line, :literal, :none, nil, test?) end)
+    else
+      []
+    end
+  end
+
+  # The string literals of a tree, with the line they are on. A documentation attribute is
+  # text, never configuration, so it is left out.
+  defp literals(node, line) do
+    case node do
+      {:@, _, [{name, _, [_value]}]} when name in @doc_attributes ->
+        []
+
+      {_form, meta, args} when is_list(args) ->
+        args
+        |> Enum.flat_map(&literals(&1, line(meta)))
+
+      {left, right} ->
+        literals(left, line) ++ literals(right, line)
+
+      list when is_list(list) ->
+        Enum.flat_map(list, &literals(&1, line))
+
+      value when is_binary(value) ->
+        [{value, line}]
+
+      _other ->
         []
     end
   end
 
-  defp reads_of(_node, _rel), do: []
+  defp children({_form, _meta, args}) when is_list(args), do: args
+  defp children({left, right}), do: [left, right]
+  defp children(list) when is_list(list), do: list
+  defp children(_other), do: []
+
+  # The name a read names: a literal, a module attribute that holds it or a local variable that
+  # holds it.
+  defp resolve_name(value, _ctx, _line) when is_binary(value), do: {:ok, value}
+
+  defp resolve_name({:@, _, [{name, _, nil}]}, ctx, _line) do
+    case Map.fetch(ctx.attrs, name) do
+      {:ok, value} -> {:ok, value}
+      :error -> :error
+    end
+  end
+
+  defp resolve_name({name, _, nil}, ctx, use_line) when is_atom(name) do
+    resolve_local(name, ctx.locals, use_line)
+  end
+
+  defp resolve_name(_expr, _ctx, _line), do: :error
+
+  # The local variable that holds the name: the assignment nearest above the use.
+  defp resolve_local(name, locals, use_line) do
+    locals
+    |> Enum.filter(fn {var, line, _value} -> var == name and line <= use_line end)
+    |> Enum.max_by(fn {_var, line, _value} -> line end, &>=/2, fn -> nil end)
+    |> case do
+      nil -> :error
+      {_var, _line, value} -> {:ok, value}
+    end
+  end
+
+  # An attribute that holds the name of an environment variable says so in its own name.
+  defp env_attribute?(name, value) do
+    text = Atom.to_string(name)
+
+    Enum.any?(@env_attribute_suffixes, fn suffix ->
+      (String.ends_with?(text, "_" <> suffix) or text == suffix) and env_name?(value)
+    end)
+  end
 
   @doc false
   # The shape of an environment variable name: an upper-case word with an underscore in it.
@@ -442,36 +757,43 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   def env_name?(_name), do: false
 
-  defp app_env_read(_mod, fun, args, rel, meta) do
-    [app, key | rest] = args
+  defp env_site(name, file, line, form, default, value, test?) do
+    %{
+      source: :env,
+      name: name,
+      file: file,
+      line: line,
+      form: form,
+      default: default,
+      value: value,
+      test?: test?
+    }
+  end
 
-    case app_env_name(app, key) do
-      nil ->
-        [
-          %{
-            source: :dynamic,
-            name: nil,
-            file: rel,
-            line: line(meta),
-            form: app_form(fun, rest),
-            default: :none,
-            value: nil
-          }
-        ]
+  defp app_env_site(name, file, line, form, default, value, test?) do
+    %{
+      source: :app_env,
+      name: name,
+      file: file,
+      line: line,
+      form: form,
+      default: default,
+      value: value,
+      test?: test?
+    }
+  end
 
-      name ->
-        [
-          %{
-            source: :app_env,
-            name: name,
-            file: rel,
-            line: line(meta),
-            form: app_form(fun, rest),
-            default: default_kind(rest),
-            value: default_value(rest)
-          }
-        ]
-    end
+  defp dynamic_site(file, line, form, test?) do
+    %{
+      source: :dynamic,
+      name: nil,
+      file: file,
+      line: line,
+      form: form,
+      default: :none,
+      value: nil,
+      test?: test?
+    }
   end
 
   defp env_form(:get_env, []), do: :get_env
@@ -582,14 +904,27 @@ defmodule Letflow.Support.ConfigRegistryScan do
     end)
   end
 
+  # Where the tree reads a setting: the places of every read of that name.
+  defp places(sites) do
+    Enum.group_by(sites, & &1.name)
+  end
+
+  defp place_text(sites), do: Enum.map_join(sites, ", ", &"#{&1.file}:#{&1.line}")
+
   defp add(findings, code, true, name, detail),
     do: findings ++ [%{code: code, name: name, detail: detail}]
 
   defp add(findings, _code, false, _name, _detail), do: findings
 
-  defp add_many(findings, code, names, label) do
+  defp add_many(findings, code, names, label, places) do
     Enum.reduce(Enum.sort(names), findings, fn {source, name}, acc ->
-      add(acc, code, true, "#{source}:#{name}", label)
+      detail =
+        case Map.get(places, name, []) do
+          [] -> label
+          sites -> label <> ", read at " <> place_text(sites)
+        end
+
+      add(acc, code, true, "#{source}:#{name}", detail)
     end)
   end
 
@@ -743,15 +1078,19 @@ defmodule Letflow.Support.ConfigRegistryScan do
   defp takes_effect?(false), do: false
   defp takes_effect?(_value), do: true
 
+  # A release configuration is one of the three files the application boots with. The whole
+  # file is walked, not its root expression: a release configuration is a block of directives.
   defp enabled_in_release_config?(root, name) do
     release_config =
       Path.wildcard(Path.join([root, "config", "*.exs"]))
       |> Enum.filter(&(Path.basename(&1) in ["config.exs", "prod.exs", "runtime.exs"]))
 
     Enum.any?(release_config, fn file ->
+      rel = Path.relative_to(file, root)
+
       case parse(file) do
         {:ok, ast} ->
-          Enum.any?(reads_of(ast, Path.basename(file)), fn read ->
+          Enum.any?(reads_in(ast, rel), fn read ->
             read.source == :app_env and read.name == name and read.form == :directive and
               read.value == true
           end)
@@ -881,24 +1220,52 @@ defmodule Letflow.Support.ConfigRegistryScan do
     end)
   end
 
-  defp check_url_validator(findings, _root, entry, _inv) do
+  # The validator of a URL is a module of the tree or `none` for an address the server never
+  # fetches. A sentinel that names no module is not a validation: it is an unbacked claim.
+  defp check_url_validator(findings, root, entry, _inv) do
     validator = entry["validator"]
+    name = "#{entry["source"]}:#{entry["name"]}"
 
     cond do
-      is_nil(validator) or validator == "none" or validator == "startup" ->
+      is_nil(validator) or validator == "none" ->
         findings
 
+      validator == "startup" ->
+        add(
+          findings,
+          :url_without_validator,
+          true,
+          name,
+          "the validator startup names no validation: name the module that validates the " <>
+            "address, or none for an address the server never fetches"
+        )
+
       true ->
-        path = Path.join("lib", String.replace(validator, ".", "/") <> ".ex")
+        path = Path.join([root, "lib", module_path(validator) <> ".ex"])
 
         add(
           findings,
           :url_without_validator,
           not File.exists?(path),
-          "#{entry["source"]}:#{entry["name"]}",
+          name,
           "the validator #{validator} is not a module of the tree"
         )
     end
+  end
+
+  # The file of a module: `Letflow.Webhooks.UrlValidator` lives in
+  # `lib/letflow/webhooks/url_validator.ex`.
+  defp module_path(validator) do
+    validator
+    |> String.split(".")
+    |> Enum.map_join("/", &underscore/1)
+  end
+
+  defp underscore(name) do
+    name
+    |> String.replace(~r"([A-Z]+)([A-Z][a-z])", "\\1_\\2")
+    |> String.replace(~r"([a-z\d])([A-Z])", "\\1_\\2")
+    |> String.downcase()
   end
 
   defp reads_of_name(inv, source, name) do
