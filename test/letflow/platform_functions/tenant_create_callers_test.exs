@@ -38,8 +38,9 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
   `TenantProvision.provision_and_migrate/1`) or through the provisioner chain
   (`TenantProvisioner.create/1`). Those three entries are listed in
   `@bypass_rules` and are asserted EXACTLY: the set of files that may call
-  them is pinned, so the set can only SHRINK, and the next slice (the route
-  rewiring of gap G17) removes an entry and the test names what changed.
+  them is pinned, so the set can only SHRINK. The rewiring task of gap G17
+  removes the four route entries from that pinned set and THEN adds the
+  "every route starts an instance" test; the scan names the file that changed.
 
   The reason the entries are still there: the ENGINE does not run a platform
   step yet (nothing in `lib/letflow/engine.ex` arms a
@@ -82,7 +83,8 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
 
   # The catalogue body's public wrappers and the provisioner chain: the routes
   # reach the write through these. The set is pinned exactly, so it can only
-  # shrink (the rewiring of gap G17 removes an entry).
+  # shrink: the rewiring task of gap G17 removes the four route entries from
+  # it and THEN adds the "every route starts an instance" test.
   @bypass_rules [
     {[:Letflow, :PlatformFunctions, :Impl, :TenantCreate], :create_tenant,
      [@tenants_router, @onboarding_router]},

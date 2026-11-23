@@ -78,6 +78,32 @@ callers of the catalogue body's public wrappers (`TenantCreate.create_tenant/1`,
 That list is the REMAINING BYPASS, and it may only shrink: when the routes start the definition
 instead of calling the code, the scan names the file that changed.
 
+### Gap G17 is PARTIAL
+
+What this change delivers:
+
+* the CLOSED caller set of the three tenant-writing functions: a new caller of any of them
+  anywhere in `lib/` fails the scan;
+* the EXACT pin of the four remaining bypass routes: the pinned set may only SHRINK, so the
+  rewiring removes an entry and the scan names the file that changed.
+
+What is NOT delivered (the remainder of gap G17):
+
+* the routes do NOT start the definition yet -- they still call the code, so the old direct
+  registration path is still a way around the process;
+* the "every route starts an instance" test does not exist yet.
+
+The remainder waits for the engine slice that RUNS a platform step (see "What is not built yet"
+below): nothing in `lib/letflow/engine.ex` arms a `platform_step_dispatches` row, so a definition
+with a `platform_call` node cannot be started at all. Rewiring the routes before that slice would
+answer `202` and create no tenant, and the product's ONLY tenant-registration path would be
+dead. The rewiring task removes the four route entries from the scan's pinned list and THEN adds
+the "every route starts an instance" test.
+
+The "Register tenant" path of the screen (gap G3, T-2591) is not one of the four: it starts an
+instance through `Letflow.PlatformProcesses.start_register_tenant/2` and that seam writes no
+tenant, so the scan finds no caller of the write in it.
+
 ## What the chain does to a tenant that already exists
 
 The operator's notes of the chain, in the operator's words. `tenant.create` is keyed on the
@@ -342,6 +368,10 @@ RETRY side of the entry, and the entry types it listens to are exported
 (`Letflow.Instances.StepRetry.platform_step_entry_type/0` and `notify_step_entry_type/0`) so
 that the landing and the retry cannot drift apart.
 
+It is also the slice that gap G17 waits for: until the engine arms and runs a platform step, the
+tenant-creating routes cannot start the definition, so they keep calling the code (see "Gap G17
+is PARTIAL" above).
+
 ## Why the body runs outside the engine's transaction
 
 A platform function may run DDL -- `tenant.provision` creates a tenant schema and replays its
@@ -431,6 +461,12 @@ output, a decoded HTTP body, a variable map) is never loaded into the process.
   it); the bind and the grant tests read the audit rows back (no actor, the explicit marker,
   no address in the entry). The registry test also scans the routes and the provisioner: the
   direct calls are gone, the implementation modules carry them.
+* `test/letflow/platform_functions/tenant_create_callers_test.exs` -- the NO BYPASS scan of gap
+  G17: the CLOSED set of callers of the three functions that write a tenant row or a tenant
+  schema (the catalogue body's public wrappers, the module they delegate to and the seed task),
+  the EXACT pin of the four routes that still reach the write (a set that may only shrink), and
+  the non-vacuity of the scan itself (a rogue caller is flagged in every call form, an alias to
+  a module of the same last name is not, a doc mention and a definition are not call sites).
 * `test/letflow/platform_functions/failure_vocabulary_test.exs` -- the CLOSED vocabulary of
   the row's failure kind: the set is derived from the tree (every module under
   `lib/letflow/platform_functions/impl/` and its own `@type refusal`), a code nobody can
