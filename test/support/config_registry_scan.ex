@@ -5,7 +5,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
   The registry (`priv/config_registry.txt`) is the reviewed answer to "which configuration does
   this product have, who owns it, why does it exist, how is it read and must its absence fail
   closed". This module derives the other half **from the tree**: every environment variable and
-  every application environment key the sources read, with the form of each read (a default or
+  every application environment key the sources name, with the form of each read (a default or
   not, compile-time or runtime, a config directive or a read).
 
   It reads files and parses them with `Code.string_to_quoted!/2`. It starts nothing, opens no
@@ -14,7 +14,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   The two shapes it derives:
 
-    * `env` -- an operating system variable. The tree names one in five ways and the derivation
+    * `env` -- an operating system variable. The tree names one in six ways and the derivation
       sees all of them:
 
       1. a literal: `System.get_env("LETFLOW_SIGNUP_ENABLED")`;
@@ -24,7 +24,10 @@ defmodule Letflow.Support.ConfigRegistryScan do
          `System.get_env(name)`;
       4. a list of names the boot reads: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST)` piped
          into `Map.new(fn name -> {name, System.get_env(name)} end)`;
-      5. a module that parses the operating system environment: it takes a map of variable names
+      5. a list of names a module attribute holds: `@env_unset_names ~w(GIT_EXTERNAL_DIFF)`
+         read by a function that reads the environment. A list of anything else (the roles, the
+         statuses, the formats) is not a list of variables;
+      6. a module that parses the operating system environment: it takes a map of variable names
          to raw values (`env`) and reads it with `Map.get/2`, so every upper-case literal of
          that module names a variable of the operating system.
 
@@ -33,7 +36,8 @@ defmodule Letflow.Support.ConfigRegistryScan do
       and `config :app, key: value` directives of `config/*.exs`.
 
   A read whose key is computed at run time cannot be resolved statically; it is reported as
-  `dynamic` and needs no registry entry.
+  `dynamic` and needs no registry entry. A read in the default argument of a function head is a
+  read like any other: `def f(x \\ System.get_env("X"))` names `X`.
   """
 
   @registry_path "priv/config_registry.txt"
@@ -347,11 +351,13 @@ defmodule Letflow.Support.ConfigRegistryScan do
     walk(ast, rel, ctx, test?) ++ env_map_sites(ast, rel, ctx, test?)
   end
 
-  # What a file binds to names: the module attributes that hold a string, the local variables
-  # that are assigned a string and whether the file parses the operating system environment.
+  # What a file binds to names: the module attributes that hold a string, the module attributes
+  # that hold a list of environment variables, the local variables that are assigned a string and
+  # whether the file parses the operating system environment.
   defp context(ast) do
     %{
       attrs: module_attributes(ast),
+      env_lists: env_list_attributes(ast),
       locals: local_bindings(ast),
       env_map?: env_map_file?(ast)
     }
@@ -368,6 +374,80 @@ defmodule Letflow.Support.ConfigRegistryScan do
       end)
 
     attrs
+  end
+
+  # The module attributes that hold a list of names: `@env_unset_names ~w(GIT_EXTERNAL_DIFF)`.
+  defp list_attributes(ast) do
+    {_ast, lists} =
+      Macro.prewalk(ast, %{}, fn
+        {:@, _, [{name, _, [value]}]} = node, acc when is_atom(name) ->
+          case sigil_words(value) do
+            nil -> {node, acc}
+            words -> {node, Map.put(acc, name, words)}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    lists
+  end
+
+  defp sigil_words({:sigil_w, _meta, [{:<<>>, _, [words]}, _modifiers]}) when is_binary(words),
+    do: words
+
+  defp sigil_words(_value), do: nil
+
+  # A list of names a module attribute holds is a list of environment variables when the code
+  # that consumes the attribute reads the environment. A list of anything else (the roles, the
+  # statuses, the formats) names something else, and a list of prefixes is not a list of names.
+  defp env_list_attributes(ast) do
+    lists = list_attributes(ast)
+
+    if lists == %{} do
+      %{}
+    else
+      funs = functions(ast)
+
+      for {name, words} <- lists,
+          Enum.any?(funs, fn fun -> fun.reads_env? and MapSet.member?(fun.references, name) end),
+          into: %{} do
+        {name, words}
+      end
+    end
+  end
+
+  # The functions of a file: the module attributes their body names and whether the function
+  # reads the operating system environment (in its body or in a default argument of its head).
+  defp functions(ast) do
+    {_ast, funs} =
+      Macro.prewalk(ast, [], fn
+        {kind, _, _args} = node, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
+          {node, [function(node) | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    funs
+  end
+
+  defp function(node) do
+    %{references: attribute_references(node), reads_env?: env_read?(node)}
+  end
+
+  # The module attributes a piece of code names.
+  defp attribute_references(node) do
+    {_node, names} =
+      Macro.prewalk(node, MapSet.new(), fn
+        {:@, _, [{name, _, _value}]} = node, acc when is_atom(name) ->
+          {node, MapSet.put(acc, name)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    names
   end
 
   defp local_bindings(ast) do
@@ -409,6 +489,12 @@ defmodule Letflow.Support.ConfigRegistryScan do
   defp head_params({_name, _, args}) when is_list(args), do: Enum.flat_map(args, &param_names/1)
   defp head_params(args) when is_list(args), do: Enum.flat_map(args, &param_names/1)
   defp head_params(_other), do: []
+
+  # The arguments of a function head, with the default arguments among them: a read in a
+  # default argument is a read like any other.
+  defp head_args({:when, _, [call | _guard]}), do: head_args(call)
+  defp head_args({_name, _, args}) when is_list(args), do: args
+  defp head_args(_other), do: []
 
   defp param_names({:\\, _, [left | _]}), do: param_names(left)
   defp param_names({name, _, nil}) when is_atom(name), do: [name]
@@ -466,8 +552,12 @@ defmodule Letflow.Support.ConfigRegistryScan do
           []
         end
 
-      {:def, _, [_head | body]} ->
-        walk_all(body, rel, ctx, test?)
+      {:@, meta, [{name, _, [value]}]} when is_atom(name) ->
+        attribute_list_sites(ctx, name, rel, line(meta), test?) ++
+          walk_all([value], rel, ctx, test?)
+
+      {:def, _, [head | body]} ->
+        walk_all(head_args(head), rel, ctx, test?) ++ walk_all(body, rel, ctx, test?)
 
       {:|>, _, [left, right]} ->
         env_list_sites(left, right, rel, test?) ++
@@ -663,10 +753,23 @@ defmodule Letflow.Support.ConfigRegistryScan do
 
   # A list of names: `~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST)`.
   defp list_sites(words, meta, rel, test?) do
+    list_sites_at(words, line(meta), rel, test?)
+  end
+
+  defp list_sites_at(words, line_no, rel, test?) do
     words
     |> String.split(~r/\s+/, trim: true)
     |> Enum.filter(&env_name?/1)
-    |> Enum.map(fn name -> env_site(name, rel, line(meta), :literal, :none, nil, test?) end)
+    |> Enum.map(fn name -> env_site(name, rel, line_no, :literal, :none, nil, test?) end)
+  end
+
+  # The names a module attribute holds, when the code that consumes the attribute reads the
+  # environment: they are variables of the operating system.
+  defp attribute_list_sites(ctx, name, rel, line_no, test?) do
+    case Map.get(ctx.env_lists, name) do
+      nil -> []
+      words -> list_sites_at(words, line_no, rel, test?)
+    end
   end
 
   # A module that parses the operating system environment names its variables in upper case:

@@ -23,7 +23,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
 
   @moduletag :unit
   @moduletag :security_probe
-  @moduletag probe_cost_s: 11
+  @moduletag probe_cost_s: 13
   @moduletag timeout: 300_000
 
   alias Letflow.Secrets.LogFilter
@@ -81,6 +81,8 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert {:unregistered_env, "env:G10_LIST_SETTING"} in reported
       assert {:unregistered_env, "env:G10_ATTRIBUTE_SETTING"} in reported
       assert {:unregistered_env, "env:G10_LOCAL_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ATTRIBUTE_LIST_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_HEAD_DEFAULT_SETTING"} in reported
       assert {:unregistered_env, "env:G10_ENV_MAP_SETTING"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_flag_enabled"} in reported
       assert {:flag_not_off, "app_env::letflow:g10_release_flag"} in reported
@@ -105,12 +107,26 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
         |> Enum.sort()
 
       assert forms == [
+               {"G10_ATTRIBUTE_LIST_SETTING", :literal, "lib/g10_broken.ex"},
                {"G10_ATTRIBUTE_SETTING", :get_env, "lib/g10_broken.ex"},
                {"G10_ENV_MAP_SETTING", :literal, "lib/g10_env_map.ex"},
+               {"G10_HEAD_DEFAULT_SETTING", :get_env, "lib/g10_broken.ex"},
                {"G10_LIST_SETTING", :literal, "lib/g10_broken.ex"},
                {"G10_LOCAL_SETTING", :get_env, "lib/g10_broken.ex"},
                {"G10_UNREGISTERED_SETTING", :get_env, "lib/g10_broken.ex"}
              ]
+    end
+
+    test "a list of something else is not a list of variables" do
+      inventory = Scan.inventory(@broken_tree)
+
+      names = Enum.map(inventory.env, & &1.name)
+
+      refute "G10_STATUS_PENDING" in names,
+             "a list of statuses whose consumer does not read the environment was taken for variables"
+
+      refute "G10_STATUS_DONE" in names,
+             "a list of statuses whose consumer does not read the environment was taken for variables"
     end
 
     test "the fixture tree is broken on purpose and the real tree is not" do

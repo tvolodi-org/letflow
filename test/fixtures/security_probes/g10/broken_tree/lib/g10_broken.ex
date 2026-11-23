@@ -12,6 +12,13 @@ defmodule Letflow.Fixtures.G10Broken do
     * `G10_LIST_SETTING` is named in a list the boot reads and is not in the registry;
     * `G10_ATTRIBUTE_SETTING` is named by a module attribute and is not in the registry;
     * `G10_LOCAL_SETTING` is named by a local variable and is not in the registry;
+    * `G10_ATTRIBUTE_LIST_SETTING` is named in a list a module attribute holds and is not in
+      the registry;
+    * `G10_HEAD_DEFAULT_SETTING` is read in the default argument of a function head and is not
+      in the registry;
+    * `G10_STATUS_PENDING` and `G10_STATUS_DONE` are named in a list a module attribute holds
+      whose consumer does not read the environment: they are not variables and must not be
+      reported;
     * `:g10_flag_enabled` is a feature flag read with a default that turns it on;
     * `:g10_secret` is a secret read with a literal default;
     * `:g10_runtime_key` is read while the code is compiled but registered as a runtime read.
@@ -21,6 +28,10 @@ defmodule Letflow.Fixtures.G10Broken do
   """
 
   @g10_credential "G10_ATTRIBUTE_SETTING"
+
+  @env_list_names ~w(G10_ATTRIBUTE_LIST_SETTING)
+
+  @g10_statuses ~w(G10_STATUS_PENDING G10_STATUS_DONE)
 
   def unregistered_env, do: System.get_env("G10_UNREGISTERED_SETTING")
 
@@ -36,6 +47,21 @@ defmodule Letflow.Fixtures.G10Broken do
 
     System.get_env(name)
   end
+
+  # The list the attribute holds is a list of variables, because the function that consumes it
+  # reads the environment.
+  def attribute_list_env do
+    for var_name <- @env_list_names, into: %{}, do: {var_name, System.get_env(var_name)}
+  end
+
+  # A list of something else is not a list of variables: the function that consumes this one
+  # does not read the environment, so its words are not names of the operating system.
+  def status_env do
+    for status <- @g10_statuses, do: {status, status}
+  end
+
+  # A read in the default argument of a head is a read like any other.
+  def head_default_env(_current \\ System.get_env("G10_HEAD_DEFAULT_SETTING")), do: :ok
 
   def flag_on_by_default, do: Application.get_env(:letflow, :g10_flag_enabled, true)
 

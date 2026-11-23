@@ -13,9 +13,12 @@
 #   * `:g10_url` names a validator that is not a module of the tree;
 #   * `:g10_startup_url` names a validator that is not a validation at all.
 #
-# `G10_UNREGISTERED_SETTING`, `G10_LIST_SETTING`, `G10_ATTRIBUTE_SETTING`, `G10_LOCAL_SETTING`
-# and `G10_ENV_MAP_SETTING` are read by the fixture and are deliberately absent here: they are
-# the five forms a variable can be named in, and each of them has to be reported.
+# `G10_UNREGISTERED_SETTING`, `G10_LIST_SETTING`, `G10_ATTRIBUTE_SETTING`, `G10_LOCAL_SETTING`,
+# `G10_ATTRIBUTE_LIST_SETTING`, `G10_HEAD_DEFAULT_SETTING` and `G10_ENV_MAP_SETTING` are read by
+# the fixture and are deliberately absent here: they are the seven ways the fixture names a
+# variable (a literal, a piped list, a module attribute, a local variable, a list a module
+# attribute holds, a default argument of a function head and an environment map), and each of
+# them has to be reported.
 app_env|:letflow:g10_flag_enabled|platform|platform|runtime|flag|false|no|none|A fixture flag that is read with a default that turns it on.
 app_env|:letflow:g10_release_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on.
 app_env|:letflow:g10_keyword_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on with the keyword form of the directive.
