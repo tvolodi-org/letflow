@@ -85,7 +85,9 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
 
   # run/3 has two default arguments, so its one capture is present in all three generated arities.
   # The two identical engine.ex rows are distinct initial-start and continuation call sites; the two
-  # prepare_child_activation rows are the distinct child-activation call sites.
+  # prepare_child_activation rows are the distinct child-activation call sites. The platform row is
+  # the one start of a platform definition: it carries the caller's auth_context, so the engine's
+  # own start-permission gate judges it.
   @expected_starts [
     {"lib/letflow/engine.ex", "Letflow.Engine.SubProcess", :append_start_multi, :call},
     {"lib/letflow/engine.ex", "Letflow.Engine.SubProcess", :append_start_multi, :call},
@@ -94,6 +96,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {"lib/letflow/modules/assets/documents/posting.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/modules/maintenance/orders.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/modules/stock/documents/posting.ex", "Letflow.Engine", :create, :call},
+    {"lib/letflow/platform_processes.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/routers/instances.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/scheduler/scheduled_job_sweep.ex", "Letflow.Engine", :create, :capture},
     {"lib/letflow/scheduler/scheduled_job_sweep.ex", "Letflow.Engine", :create, :capture},
@@ -776,6 +779,102 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     assert G02.unguarded_start_roots(scan) == []
   end
 
+  test "N14 non-vacuity: a write inside a file-scope protocol implementation is inventoried" do
+    file_scope = """
+    defmodule Fake do
+    end
+
+    defimpl String.Chars, for: Fake do
+      def to_string(_value) do
+        Repo.insert(%{})
+      end
+    end
+    """
+
+    synthetic = G02.scan_source("lib/letflow/fake.ex", file_scope)
+    rows = G02.repo_inventory(synthetic)
+
+    assert Enum.any?(rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :call
+           end),
+           "the write inside the file-scope protocol implementation was not inventoried: #{inspect(rows)}"
+
+    # The implementation is a module of its own, under the name Elixir gives it.
+    assert Map.has_key?(synthetic.modules, "String.Chars.Fake")
+
+    # The compliant control: the same write in an ordinary module is inventoried too.
+    nested = """
+    defmodule Fake do
+      defimpl String.Chars, for: Fake do
+        def to_string(_value) do
+          Repo.insert(%{})
+        end
+      end
+    end
+    """
+
+    nested_rows = G02.scan_source("lib/letflow/fake.ex", nested) |> G02.repo_inventory()
+
+    assert Enum.any?(nested_rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :call
+           end),
+           "the write inside the nested protocol implementation was not inventoried: #{inspect(nested_rows)}"
+  end
+
+  test "N15 non-vacuity: a write held in a module attribute cannot hide" do
+    captured = """
+    defmodule Fake do
+      @ins &Repo.insert/2
+
+      def go(changeset), do: @ins.(changeset)
+    end
+    """
+
+    synthetic = G02.scan_source("lib/letflow/fake.ex", captured)
+    rows = G02.repo_inventory(synthetic)
+
+    assert Enum.any?(rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :capture
+           end),
+           "the capture held in the module attribute was not inventoried: #{inspect(rows)}"
+
+    assert Enum.any?(rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :attribute_call
+           end),
+           "the call through the module attribute was not resolved: #{inspect(rows)}"
+
+    # A module attribute that holds a MODULE is a call of that module.
+    held_module = """
+    defmodule Fake do
+      @repo Letflow.Repo
+
+      def go(changeset), do: @repo.insert(changeset)
+    end
+    """
+
+    module_rows = G02.scan_source("lib/letflow/fake.ex", held_module) |> G02.repo_inventory()
+
+    assert Enum.any?(module_rows, fn row ->
+             row.class == :repo and row.fun == :insert and row.form == :attribute_call
+           end),
+           "the call through the module attribute was not resolved: #{inspect(module_rows)}"
+
+    # The write behind the attribute is a definition write: the call graph reaches it.
+    definition = """
+    defmodule Letflow.Definitions.RogueAttribute do
+      alias Letflow.Repo
+
+      @ins &Repo.insert/2
+
+      def save(changeset), do: @ins.(changeset)
+    end
+    """
+
+    entries = G02.definition_entries(G02.scan_source("synthetic/definitions.ex", definition))
+
+    assert {"Letflow.Definitions.RogueAttribute", :save, 1} in entries
+  end
+
   test "T1: the class table lists every probe case with its test file and name" do
     doc = File.read!("docs/security-probes/G-02.md")
     source = File.read!(__ENV__.file)
@@ -800,6 +899,71 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
       assert File.read!(file) =~ name, "the class table names a missing test #{name} in #{file}"
     end
   end
+
+  test "T2: the D1 class table lists the same writers and classes as the map" do
+    doc = File.read!("docs/security-probes/G-02.md")
+    table = d1_table_entries(doc)
+
+    expected =
+      Map.new(@definition_classes, fn {{module, name, arity}, class} ->
+        {{module, Atom.to_string(name), arity}, Atom.to_string(class)}
+      end)
+
+    assert table == expected
+  end
+
+  # The class table's D1 section writes a module's functions in a short form: an entry that names a
+  # module (`Definitions.create/2`, `Promotion.promote_definition/3`) starts a new module, and a
+  # bare entry (`create_owned/3`) continues the module named before it in the same row.
+  defp d1_table_entries(doc) do
+    section =
+      doc
+      |> String.split("\n## ")
+      |> Enum.find(&String.starts_with?(&1, "Definition entry-point classes pinned by D1"))
+
+    assert section, "the class table has no D1 section"
+
+    section
+    |> String.split("\n")
+    |> Enum.filter(&String.starts_with?(&1, "|"))
+    |> Enum.map(&String.split(&1, "|"))
+    |> Enum.filter(fn parts -> length(parts) >= 4 end)
+    |> Enum.reject(fn [_empty, class_cell | _rest] ->
+      trimmed = String.trim(class_cell)
+      trimmed == "Class" or String.starts_with?(trimmed, "-")
+    end)
+    |> Enum.reduce(%{}, fn [_empty, class_cell, entries_cell | _rest], acc ->
+      class = class_cell |> String.trim() |> String.replace(" ", "_")
+
+      entries_cell
+      |> d1_row_entries()
+      |> Enum.reduce(acc, fn entry, acc -> Map.put(acc, entry, class) end)
+    end)
+  end
+
+  defp d1_row_entries(entries_cell) do
+    ~r/`([^`]+)`/
+    |> Regex.scan(entries_cell)
+    |> Enum.map(fn [_full, token] -> token end)
+    |> Enum.reduce({[], nil}, fn token, {acc, current} ->
+      [name, arity] = String.split(token, "/")
+      arity = String.to_integer(arity)
+
+      case String.split(name, ".") do
+        [bare] ->
+          {acc ++ [{current, bare, arity}], current}
+
+        parts ->
+          prefix = parts |> Enum.drop(-1) |> Enum.join(".")
+          module = d1_module(prefix)
+          {acc ++ [{module, List.last(parts), arity}], module}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp d1_module("Definitions"), do: "Letflow.Definitions"
+  defp d1_module(prefix), do: "Letflow.Definitions." <> prefix
 
   # A copy of the real tree with one module replaced by a mutated source. The scan keeps every
   # other module of the real tree, so the call graph is the real one; the token is fresh, so the

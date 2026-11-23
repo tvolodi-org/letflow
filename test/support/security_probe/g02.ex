@@ -8,6 +8,11 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   repository variables. Documentation and type attributes are excluded, so prose and `Repo.t()` do
   not become inventory entries.
 
+  A protocol implementation at FILE scope is a module of its own, so its body is scanned like any
+  other module's. A module attribute that holds a capture or a module is a pointer the module keeps:
+  the capture is inventoried where it is defined, and a call through the attribute resolves to what
+  the attribute holds, so neither a write nor a start can hide behind the attribute.
+
   Deliberate limits: macros defined elsewhere and a non-literal dynamic module/function cannot be
   resolved without executing untrusted code. A literal function applied with `apply/3` keeps its name;
   a computed function is inventoried as `:dynamic`. A computed start option is retained as `:computed`,
@@ -64,8 +69,7 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     {file_aliases, file_imports} = file_scope(ast)
 
     modules =
-      ast
-      |> module_asts()
+      (module_asts(ast) ++ file_impl_asts(ast))
       |> Enum.map(fn {module, body} ->
         body = unpipe(body)
         functions = functions_of(body)
@@ -81,6 +85,8 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
            local_names: local_names,
            functions: functions,
            public: public_functions(body),
+           attribute_captures: attribute_captures_of(body, aliases),
+           attribute_modules: attribute_modules_of(body, aliases),
            options: option_writes(body, path, aliases, imports, local_names)
          }}
       end)
@@ -348,6 +354,83 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     Enum.reverse(modules)
   end
 
+  # A protocol implementation at file scope is a module of its own: its body holds functions that
+  # no enclosing module has, so it is scanned as one. An implementation nested inside a defmodule
+  # is already covered by that module's own functions, so it is not collected again.
+  defp file_impl_asts(ast) do
+    ast
+    |> collect_file_impls(0, [])
+    |> Enum.reverse()
+    |> Enum.map(&impl_module/1)
+  end
+
+  # The depth counts the modules a node is inside.
+  defp collect_file_impls(node, depth, acc) when is_list(node) do
+    Enum.reduce(node, acc, &collect_file_impls(&1, depth, &2))
+  end
+
+  defp collect_file_impls({:defmodule, _, _} = node, depth, acc) do
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({:defimpl, _, _} = node, depth, acc) do
+    acc = if depth == 0, do: [node | acc], else: acc
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({:defprotocol, _, _} = node, depth, acc) do
+    acc = if depth == 0, do: [node | acc], else: acc
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({_form, _meta, args} = node, depth, acc) when is_list(args) do
+    collect_children(node, depth, acc)
+  end
+
+  defp collect_file_impls({_form, _meta, _arg} = node, depth, acc) do
+    collect_children(node, depth, acc)
+  end
+
+  defp collect_file_impls({key, value}, depth, acc) when is_atom(key) do
+    collect_file_impls(value, depth, acc)
+  end
+
+  defp collect_file_impls(_other, _depth, acc), do: acc
+
+  defp collect_children({_form, _meta, args}, depth, acc) when is_list(args) do
+    Enum.reduce(args, acc, &collect_file_impls(&1, depth, &2))
+  end
+
+  defp collect_children({_form, _meta, arg}, depth, acc) do
+    collect_file_impls(arg, depth, acc)
+  end
+
+  # `defimpl Protocol, for: Type` defines the module `Protocol.Type`; `defimpl Protocol` alone
+  # defines `Protocol.Impl`.
+  defp impl_module({:defimpl, _, [protocol, opts, body]}) do
+    base = Enum.join(protocol_parts(protocol), ".")
+
+    name =
+      case Keyword.get(opts, :for) do
+        {:__aliases__, _, for_parts} -> base <> "." <> Enum.join(for_parts, ".")
+        nil -> base <> ".Impl"
+        _other -> base
+      end
+
+    {name, Keyword.get(body, :do)}
+  end
+
+  defp impl_module({:defimpl, _, [protocol, body]}) do
+    {Enum.join(protocol_parts(protocol), ".") <> ".Impl", Keyword.get(body, :do)}
+  end
+
+  defp impl_module({:defprotocol, _, [protocol, body]}) do
+    {Enum.join(protocol_parts(protocol), "."), Keyword.get(body, :do)}
+  end
+
+  defp protocol_parts({:__aliases__, _, parts}), do: parts
+  defp protocol_parts(_other), do: []
+
   defp executable_ast(ast) do
     Macro.prewalk(ast, fn
       {:@, meta, [{attr, _, _}]} when attr in @ignored_attributes -> {:@, meta, [nil]}
@@ -484,6 +567,92 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   # provide the same name.
   defp local_names(functions), do: MapSet.new(Map.keys(functions))
 
+  # A module attribute that holds a capture of a function is a pointer the module keeps. The
+  # capture is inventoried where it is defined, so the write cannot hide behind the attribute.
+  defp attribute_captures_of(body, aliases) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        case capture_target(values, aliases) do
+          nil -> acc
+          captured -> Map.put(acc, name, captured)
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # A module attribute that holds a module is a pointer to that module, so a call through it is a
+  # call of that module.
+  defp attribute_modules_of(body, aliases) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        case module_target(values, aliases) do
+          nil -> acc
+          target -> Map.put(acc, name, target)
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # The body of a module is the list of its own expressions; a body with one expression is that
+  # expression itself.
+  defp module_body_expressions({:__block__, _, expressions}) when is_list(expressions),
+    do: expressions
+
+  defp module_body_expressions(body) when is_list(body), do: body
+  defp module_body_expressions(_body), do: []
+
+  # The value of a module attribute is a list of expressions.
+  defp capture_target(values, aliases) when is_list(values) do
+    Enum.find_value(values, fn value -> capture_target_value(value, aliases) end)
+  end
+
+  # `&Module.fun/arity` and `&Module.fun(arg, ...)` are both captures of a remote function.
+  defp capture_target_value(
+         {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, _}, arity]}]},
+         aliases
+       )
+       when is_atom(fun) and is_integer(arity) do
+    capture_target_parts(parts, fun, arity, aliases)
+  end
+
+  defp capture_target_value(
+         {:&, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, args}]},
+         aliases
+       )
+       when is_atom(fun) and is_list(args) do
+    capture_target_parts(parts, fun, length(args), aliases)
+  end
+
+  defp capture_target_value(_value, _aliases), do: nil
+
+  defp capture_target_parts(parts, fun, arity, aliases) do
+    if Enum.all?(parts, &is_atom/1) do
+      {parts |> resolve_alias_parts(aliases) |> Enum.join("."), fun, arity}
+    else
+      nil
+    end
+  end
+
+  defp module_target(values, aliases) when is_list(values) do
+    Enum.find_value(values, fn
+      {:__aliases__, _, parts} ->
+        if Enum.all?(parts, &is_atom/1) do
+          parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
   defp functions_of(ast) do
     {_ast, functions} =
       Macro.prewalk(ast, %{}, fn
@@ -568,9 +737,21 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
 
   defp alias_target(parts), do: parts |> normalise_alias_parts() |> Enum.join(".")
 
-  defp calls_of(body, aliases, imports, local_names) do
+  defp calls_of(body, aliases, imports, local_names, attribute_captures, attribute_modules) do
     {_ast, calls} =
       Macro.prewalk(body, [], fn
+        # A call through a module attribute: `@f.(x)` calls what the attribute holds, and
+        # `@repo.insert(x)` calls the module the attribute holds.
+        {{:., _, [{:@, _, [{name, _, _}]}]}, _, args} = node, acc
+        when is_atom(name) and is_list(args) ->
+          {node,
+           attribute_call(attribute_captures, attribute_modules, name, nil, length(args)) ++ acc}
+
+        {{:., _, [{:@, _, [{name, _, _}]}, fun]}, _, args} = node, acc
+        when is_atom(name) and is_atom(fun) and is_list(args) ->
+          {node,
+           attribute_call(attribute_captures, attribute_modules, name, fun, length(args)) ++ acc}
+
         {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _,
          [{:__aliases__, _, parts}, fun, args]} = node,
         acc
@@ -621,6 +802,27 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     calls
   end
 
+  # A call through a module attribute resolves to what the attribute holds: a captured function
+  # for `@f.(x)`, the module itself for `@repo.insert(x)`.
+  defp attribute_call(captures, modules, name, fun, arity) do
+    cond do
+      is_nil(fun) ->
+        case Map.fetch(captures, name) do
+          {:ok, {target, captured_fun, _capture_arity}} ->
+            [{:remote, target, captured_fun, arity, :attribute_call}]
+
+          :error ->
+            []
+        end
+
+      true ->
+        case Map.fetch(modules, name) do
+          {:ok, target} -> [{:remote, target, fun, arity, :attribute_call}]
+          :error -> []
+        end
+    end
+  end
+
   # A call without a module prefix is either the module's own function or one the module imported.
   defp unqualified_call(fun, arity, imports, local_names) do
     local = {:local, fun, arity, :call}
@@ -639,14 +841,32 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
     aliases = data.aliases
     imports = data.imports
     local_names = data.local_names
+    attribute_captures = Map.get(data, :attribute_captures, %{})
+    attribute_modules = Map.get(data, :attribute_modules, %{})
 
-    for {caller, bodies} <- data.functions,
-        body <- bodies,
-        call <-
-          calls_of(body, aliases, imports, local_names) ++ variable_repo_calls(body, aliases),
-        record = call_record(call, data.path, caller, module),
-        record != nil,
-        do: record
+    attribute_records =
+      for {name, {target, fun, arity}} <- attribute_captures,
+          record =
+            call_record(
+              {:remote, target, fun, arity, :capture},
+              data.path,
+              {:"@#{name}", arity},
+              module
+            ),
+          record != nil,
+          do: record
+
+    records =
+      for {caller, bodies} <- data.functions,
+          body <- bodies,
+          call <-
+            calls_of(body, aliases, imports, local_names, attribute_captures, attribute_modules) ++
+              variable_repo_calls(body, aliases),
+          record = call_record(call, data.path, caller, module),
+          record != nil,
+          do: record
+
+    attribute_records ++ records
   end
 
   defp call_record({:remote, target, fun, arity, form}, path, caller, module) do
@@ -853,7 +1073,14 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
 
         calls =
           Enum.flat_map(bodies, fn body ->
-            calls_of(body, data.aliases, data.imports, data.local_names) ++
+            calls_of(
+              body,
+              data.aliases,
+              data.imports,
+              data.local_names,
+              Map.get(data, :attribute_captures, %{}),
+              Map.get(data, :attribute_modules, %{})
+            ) ++
               variable_repo_calls(body, data.aliases)
           end)
 
