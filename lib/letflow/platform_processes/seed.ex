@@ -26,6 +26,12 @@ defmodule Letflow.PlatformProcesses.Seed do
   not a plain number) counts as NEWER, so an unknown version is kept, never
   replaced.
 
+  The comparison with the version that already runs comes FIRST, in every
+  branch: a newer active version is kept and NOTHING is written -- not even
+  when the seed's own older version is still lying around as a DRAFT (an
+  interrupted seed run leaves one behind). Switching such a draft on would
+  DEPRECATE the newer version that runs, so the seed never does it.
+
   ## The authority of the switch-on
 
   A definition that calls a platform function may be switched on only by
@@ -186,25 +192,34 @@ defmodule Letflow.PlatformProcesses.Seed do
 
   # ── the write ────────────────────────────────────────────────────────────────────────
 
+  # The ONE place where the seed decides what to do. The comparison with the
+  # version that already runs comes FIRST and in EVERY branch: a newer active
+  # version is kept and NOTHING is written, whichever of the seed's own rows
+  # lies around. A seed may never switch an OLDER version on over a newer one
+  # that already runs -- the activation deprecates the newer one.
   defp write(prefix, activator) do
     case existing(prefix) do
-      {:ok, %{same_version: row}} when not is_nil(row) ->
-        # The version of this key exists. An ACTIVE one is the seed's own work,
-        # done. A DRAFT that carries the seed's OWN document is a seed whose
-        # switch-on did not finish: the seed finishes it. Any other row (an
-        # administrator's draft of the same version, a deprecated one) is left
-        # alone -- the seed never touches what it did not write.
-        if row.status == :draft and row.graph == Definition.graph() do
-          activate(row, prefix, activator)
-        else
-          {:ok, %{outcome: :already_present, definition: row, version: Definition.version()}}
-        end
+      {:ok, %{same_version: row, actives: actives}} ->
+        cond do
+          # A version NEWER than the seed's is already the one that runs.
+          Enum.any?(actives, &newer?(&1.version, Definition.version())) ->
+            kept = newest(actives)
 
-      {:ok, %{same_version: nil, active: active}} ->
-        if active && newer?(active.version, Definition.version()) do
-          {:ok, %{outcome: :newer_version_kept, definition: active, version: active.version}}
-        else
-          create_and_activate(prefix, activator)
+            {:ok, %{outcome: :newer_version_kept, definition: kept, version: kept.version}}
+
+          # The version of this key exists. An ACTIVE one is the seed's own work,
+          # done. A DRAFT that carries the seed's OWN document is a seed whose
+          # switch-on did not finish: the seed finishes it. Any other row (an
+          # administrator's draft of the same version, a deprecated one) is left
+          # alone -- the seed never touches what it did not write.
+          unfinished_switch_on?(row) ->
+            activate(row, prefix, activator)
+
+          row != nil ->
+            {:ok, %{outcome: :already_present, definition: row, version: Definition.version()}}
+
+          true ->
+            create_and_activate(prefix, activator)
         end
 
       {:error, reason} ->
@@ -212,21 +227,40 @@ defmodule Letflow.PlatformProcesses.Seed do
     end
   end
 
+  # A DRAFT of the seed's own version carrying the seed's own document: the
+  # switch-on did not finish, so the seed finishes it.
+  defp unfinished_switch_on?(nil), do: false
+
+  defp unfinished_switch_on?(row) do
+    row.status == :draft and row.graph == Definition.graph()
+  end
+
   # The rows of this key in the platform tenant: the row of the seed's own
-  # version and the ACTIVE row.
+  # version and the ACTIVE rows (the ones that run).
   defp existing(prefix) do
     case Definitions.list(%{name: Definition.name(), limit: 200}, prefix: prefix) do
       {:ok, rows} ->
         rows = Enum.filter(rows, &(&1.name == Definition.name()))
 
         same_version = Enum.find(rows, &(&1.version == Definition.version()))
-        active = Enum.find(rows, &(&1.status == :active))
+        actives = Enum.filter(rows, &(&1.status == :active))
 
-        {:ok, %{same_version: same_version, active: active}}
+        {:ok, %{same_version: same_version, actives: actives}}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # The NEWEST active version: the one that must keep running. A version that
+  # cannot be compared counts as the newest, because an unknown version is
+  # kept, never replaced.
+  defp newest([]), do: nil
+
+  defp newest([row | rest]) do
+    Enum.reduce(rest, row, fn candidate, best ->
+      if newer?(candidate.version, best.version), do: candidate, else: best
+    end)
   end
 
   defp create_and_activate(prefix, activator) do

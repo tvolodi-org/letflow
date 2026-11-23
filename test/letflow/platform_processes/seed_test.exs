@@ -153,6 +153,93 @@ defmodule Letflow.PlatformProcesses.SeedTest do
     assert rows == ["7"]
   end
 
+  test "the seed keeps a version it cannot compare with, and writes nothing", ctx do
+    # an active version whose number is not a plain number: the seed cannot
+    # compare it, so it counts as NEWER and is kept
+    assert {:ok, theirs} =
+             Definitions.create_with_variable_schemas(
+               %{
+                 name: "platform.register_tenant",
+                 version: "admin-2026-11",
+                 graph: simple_graph(),
+                 created_by: ctx.admin.id
+               },
+               [],
+               prefix: ctx.tenant.schema_name
+             )
+
+    assert {:ok, _activated} =
+             Definitions.activate(theirs.id, prefix: ctx.tenant.schema_name)
+
+    assert {:ok, %{outcome: :newer_version_kept, version: "admin-2026-11"}} =
+             Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
+
+    assert {:ok, active} =
+             Definitions.get_active_by_name("platform.register_tenant",
+               prefix: ctx.tenant.schema_name
+             )
+
+    assert active.version == "admin-2026-11"
+  end
+
+  test "the seed does not make its own older draft the running version", ctx do
+    # a DRAFT of the seed's own version, carrying the seed's own document: the
+    # seed's own switch-on did not finish, so the draft is still there
+    assert {:ok, draft} =
+             Definitions.create_with_variable_schemas(
+               %{
+                 name: "platform.register_tenant",
+                 version: "1",
+                 graph: Definition.graph(),
+                 created_by: ctx.admin.id
+               },
+               Definition.variable_schemas(),
+               prefix: ctx.tenant.schema_name
+             )
+
+    assert draft.status == :draft
+
+    # the administrator's newer version is switched on
+    assert {:ok, theirs} =
+             Definitions.create_with_variable_schemas(
+               %{
+                 name: "platform.register_tenant",
+                 version: "2",
+                 graph: simple_graph(),
+                 created_by: ctx.admin.id
+               },
+               [],
+               prefix: ctx.tenant.schema_name
+             )
+
+    assert {:ok, _activated} =
+             Definitions.activate(theirs.id, prefix: ctx.tenant.schema_name)
+
+    # the seed must not switch its own OLDER draft on over that version
+    assert {:ok, %{outcome: :newer_version_kept, version: "2"}} =
+             Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
+
+    # the administrator's newer version is still the one that runs
+    assert {:ok, active} =
+             Definitions.get_active_by_name("platform.register_tenant",
+               prefix: ctx.tenant.schema_name
+             )
+
+    assert active.version == "2"
+
+    # and the seed wrote nothing: its own draft is still a draft
+    rows =
+      Repo.all(
+        from(d in ProcessDefinition,
+          where: d.name == "platform.register_tenant",
+          select: {d.version, d.status}
+        ),
+        prefix: ctx.tenant.schema_name
+      )
+
+    assert Enum.sort(rows) == [{"1", :draft}, {"2", :active}]
+  end
+
   test "the seed keeps an existing version of the key and writes nothing", ctx do
     # a DRAFT of the seed's own version, made by somebody else: the seed does
     # not touch it
