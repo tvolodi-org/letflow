@@ -13,6 +13,10 @@ defmodule Letflow.Engine.ServiceTaskExhaustion do
   alias Letflow.Engine
   alias Letflow.Engine.ServiceTask
 
+  # The byte cap of a URL that is read for its origin (SF-01): a URL longer
+  # than this is not parsed at all, it is redacted.
+  @max_url_bytes 512
+
   @typedoc """
   Extends `ServiceTask.service_task_give_up_context()` with the two
   additional fields a DLQ row needs that context does not itself carry
@@ -99,9 +103,12 @@ defmodule Letflow.Engine.ServiceTaskExhaustion do
     dlq_attrs = %{
       entry_type: "event",
       instance_id: Map.fetch!(context, :instance_id),
+      # The NODE the exhausted step belongs to: the operator sees which step
+      # failed without reading the row's payload.
+      reference_id: Map.get(context, :node_id),
       full_reason:
         "service task failed (#{last_failure_kind}): retries exhausted after #{retry_limit} attempts",
-      source_payload: Map.fetch!(context, :attempted_request),
+      source_payload: sanitised_attempt(context),
       retry_limit: retry_limit,
       first_failed_at: now,
       last_failed_at: now
@@ -118,6 +125,55 @@ defmodule Letflow.Engine.ServiceTaskExhaustion do
         {:error, {:dlq_enqueue_failed, changeset}}
     end
   end
+
+  # The DLQ row records WHAT was attempted, never WHAT was sent (INV-4, the
+  # pilot's owner item 7: "no secrets in the log").
+  #
+  # The attempted request carries the method, the URL, the body and the
+  # headers -- and every one of those can carry a secret: a mail body or a
+  # token in the body, a bearer credential in a header, a token in the query
+  # string, a credential in the userinfo. So the row keeps the METHOD and the
+  # ORIGIN of the destination (scheme, host, port) and drops everything else:
+  # no path, no query, no userinfo, no body, no headers. The failure kind and
+  # the node id say which step failed and how; the origin says where it went.
+  @spec sanitised_attempt(map()) :: map()
+  defp sanitised_attempt(context) when is_map(context) do
+    case Map.get(context, :attempted_request) do
+      %{method: method, url: url} when is_binary(url) ->
+        %{"method" => to_string(method), "url" => origin_of(url)}
+
+      _other ->
+        %{}
+    end
+  end
+
+  # The origin of a URL: scheme, host and port, never the userinfo, never the
+  # path, never the query. A URL that does not parse is not stored at all --
+  # an unparsable URL is exactly the value an attacker would try to smuggle.
+  # The value is byte-bounded and checked for valid UTF-8 BEFORE it is parsed
+  # (SF-01): a URL that is not valid UTF-8 makes the URI parser raise.
+  @spec origin_of(String.t()) :: String.t()
+  defp origin_of(url) do
+    if byte_size(url) <= @max_url_bytes and String.valid?(url) do
+      case URI.new(url) do
+        {:ok, %URI{scheme: scheme, host: host, port: port}}
+        when is_binary(scheme) and is_binary(host) ->
+          authority = if default_port?(scheme, port), do: host, else: "#{host}:#{port}"
+          "#{scheme}://#{authority}"
+
+        _other ->
+          "redacted"
+      end
+    else
+      "redacted"
+    end
+  end
+
+  # The default port of a scheme is not part of the origin's name: it says
+  # nothing about where the request went.
+  defp default_port?("http", 80), do: true
+  defp default_port?("https", 443), do: true
+  defp default_port?(_scheme, _port), do: false
 
   # Same standalone_error_attrs() shape
   # ServiceTask.build_service_task_give_up_error_attrs/1 already builds from
