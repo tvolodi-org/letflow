@@ -32,7 +32,13 @@ defmodule Letflow.SecurityProbe.G13MalformedInputMatrixTest do
 
   @moduletag :security_probe
   @moduletag :unit
-  @moduletag probe_cost_s: 20
+  # 10 s: this file touches NO database (plain ExUnit.Case, no tenant fixture, no
+  # DataCase), so the cold-database headroom the route-level sibling needs does not
+  # apply. Measured 0.7 s warm on this host; 10 s is a 14x upper bound, and it keeps
+  # the file inside the runner's share of the probe budget (PROBE_BUDGET_S / the
+  # number of tagged probes), which is what puts the seeded failing case in the
+  # `checks` step of every backend change.
+  @moduletag probe_cost_s: 10
 
   alias Letflow.Plugs.ApiPipeline
   alias Letflow.Support.G13Matrix
