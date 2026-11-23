@@ -25,6 +25,10 @@ defmodule Letflow.TestSupport.SecurityProbe.G02 do
   entry that reaches the SUB_PROCESS child activation must reach
   `Letflow.Engine.SubProcess.refuse_module_only_child/4`. The two gates are judged separately, so
   neither can stand in for the other.
+
+  The definition-writer classification covers the `Letflow.Definitions` namespace only. A module
+  that writes tenant-scoped rows outside it is inventoried as a repository call and carries no
+  class, so the reviewer judges its rows by hand in the inventory diff.
   """
 
   @repo_mutations ~w(insert insert! insert_all update update! update_all upsert delete delete! delete_all)a
