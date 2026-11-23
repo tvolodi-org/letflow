@@ -54,6 +54,16 @@ defmodule Letflow.Routers.Instances do
   A tenant-made parent whose SUB_PROCESS node names one gets the same 404, and no parent or child
   instance is started (T-2515). See `Letflow.Engine.WriteTargets`.
 
+  ## `POST /instances` — a SUB_PROCESS child that cannot be started (G-13, T-2633)
+
+  A parent whose SUB_PROCESS node names a child definition that does not exist, or names none at
+  all, gets the same 404 a DIRECT start of that definition gets; a child definition that needs
+  reactivation gets the same 409. Before T-2633 only the module-only child of T-2515 was mapped
+  and every other cause answered the detail-free 500 — a caller's own mistake answered as a
+  server fault (INV-8). The security probe that keeps this honest is
+  `test/letflow/security_probe/g13_route_no_5xx_test.exs`; the class table is
+  `docs/security-probes/G-13.md`.
+
   ## `POST /instances` — `scope_node_id` (REQ-531, decision 0051 T13)
 
   The optional body field `scope_node_id` names the scope node the instance is started under (set once,
@@ -734,15 +744,29 @@ defmodule Letflow.Routers.Instances do
 
   defp render_create(conn, {:error, :definition_not_found}), do: Response.not_found(conn)
 
-  # T-2515: a tenant parent naming a module-only SUB_PROCESS child gets the same refusal as a direct
-  # start of that definition. Keep the match specific: other activation failures remain internal.
+  # T-2515 + G-13 (T-2633, security probe): a parent whose SUB_PROCESS node names a child
+  # definition that cannot be started gets the SAME refusal a DIRECT start of that definition
+  # gets -- the 404 of an unknown definition (the module-only child of T-2515, a name that
+  # resolves to nothing, a node that names no definition at all). Before T-2633 only the
+  # module-only case was mapped; every other cause fell through to the catch-all below and
+  # answered the detail-free 500 -- a caller's own mistake answered as a server fault (INV-8).
   defp render_create(
          conn,
          {:error,
           {:activation_failed,
-           {:subprocess_interface_violation, {:definition_not_found, :module_only_definition}}}}
+           {:subprocess_interface_violation, {:definition_not_found, _reason}}}}
        ),
        do: Response.not_found(conn)
+
+  # G-13 (T-2633, security probe): a child definition that needs reactivation gets the same 409 a
+  # direct start of that definition gets, for the same reason as the row above.
+  defp render_create(
+         conn,
+         {:error,
+          {:activation_failed,
+           {:subprocess_interface_violation, {:definition_needs_reactivation, _name}}}}
+       ),
+       do: Response.definition_needs_reactivation(conn)
 
   defp render_create(conn, {:error, :definition_not_active}),
     do: Response.conflict(conn, "only an ACTIVE definition can be started")

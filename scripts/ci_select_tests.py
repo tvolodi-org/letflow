@@ -95,6 +95,9 @@ STANDARD_BP_DOC_TEST = [
 # rule: the catalogue validator refuses a write-like entry with a person input,
 # the activation refuses the foreign sources and the dual-route nodes, and the
 # variables a catalogue call reads are refused to a completer.
+# G-13: the generated malformed-input / no-5xx matrix over every mutating route
+# (body shapes, content types, caps), the SUB_PROCESS child and start refusals
+# and the cursor codec fallback.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
@@ -110,6 +113,8 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g12_advisory_gate_test.exs",
     "test/letflow/security_probe/g03_source_provenance_test.exs",
+    "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
+    "test/letflow/security_probe/g13_route_no_5xx_test.exs",
 ]
 # T-2223: route/permission inventories are mandatory for changes to their inputs,
 # not ordinary related candidates that may be deferred by family or time budgets.
