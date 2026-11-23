@@ -31,7 +31,8 @@ defmodule Letflow.TenantProvisioner do
   ## Default modules (T-1580, decision 0072 D8)
 
   The last step of `complete/6` installs the configured default modules (`Config.default_modules/0`) with
-  `DefaultModules.ensure/3`. A failed install never fails the create: `tenant_lifecycles.default_modules_state`
+  `Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules.ensure_default_modules/1` (the home of that
+  install since T-2590, pilot gap G1b; the platform step `tenant.install_default_modules` calls it too). A failed install never fails the create: `tenant_lifecycles.default_modules_state`
   becomes `failed` with `"<module_id>:<code>"`, and a replay of the create call retries it. Rows made
   before the column existed are `not_applicable` and install nothing.
 
@@ -53,12 +54,12 @@ defmodule Letflow.TenantProvisioner do
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Oidc.RealmProbe
+  alias Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules
+  alias Letflow.PlatformFunctions.Impl.TenantProvision
   alias Letflow.PlatformTenant
   alias Letflow.Repo
   alias Letflow.TenantLifecycle
-  alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioner.Config
-  alias Letflow.TenantProvisioner.DefaultModules
   alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioner.Request
   alias Letflow.TenantProvisioning
@@ -392,14 +393,8 @@ defmodule Letflow.TenantProvisioner do
   # the column existed are `not_applicable` and are never touched.
   defp ensure_default_modules(tenant, %Lifecycle{default_modules_state: state} = lifecycle)
        when state in ["pending", "failed"] do
-    opts =
-      case Application.get_env(:letflow, Letflow.TenantProvisioner, [])[:default_modules_install] do
-        nil -> []
-        fun -> [install: fun]
-      end
-
     changes =
-      case DefaultModules.ensure(tenant.id, Config.default_modules(), opts) do
+      case TenantInstallDefaultModules.ensure_default_modules(tenant.id) do
         {:ok, :done} -> [default_modules_state: "done", default_modules_failure: nil]
         {:error, text} -> [default_modules_state: "failed", default_modules_failure: text]
       end
@@ -420,7 +415,7 @@ defmodule Letflow.TenantProvisioner do
   defp ensure_provisioned(%Tenant{status: :active} = tenant), do: {:ok, tenant}
 
   defp ensure_provisioned(%Tenant{id: id}) do
-    case TenantOnboarding.provision_and_migrate(id) do
+    case TenantProvision.provision_and_migrate(id) do
       {:ok, _registration} -> {:ok, Repo.get!(Tenant, id)}
       {:error, _reason} -> {:error, :internal}
     end

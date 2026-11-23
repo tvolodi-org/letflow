@@ -21,12 +21,12 @@ defmodule Letflow.AllowZeroCountSetLegsTest do
     List.flatten(rows)
   end
 
-  test "MG-1 registered last; down restores the check and up removes it from parent and partitions" do
+  test "MG-1 registered in the manifest; down restores the check and up removes it from parent and partitions" do
     fx = TenantFixture.provisioned_tenant!(slug_prefix: "t2415-mig")
     schema = fx.schema_name
 
     assert {@version, AllowZeroCountSetLegs} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -6)
 
     assert constraints(schema) == []
 

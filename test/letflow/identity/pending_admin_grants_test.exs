@@ -195,14 +195,26 @@ defmodule Letflow.Identity.PendingAdminGrantsTest do
             source =~ ~r/import\s+(Letflow\.Identity\.)?PendingAdminGrants\b/,
           do: path
 
-    # Definition site: the grants module builds the changeset it inserts; the router calls create/3.
+    # Definition site: the grants module builds the changeset it inserts. Since T-2590 (pilot
+    # G1b) the operator's grant lives in `TenantGrantFirstAdmins.create_grant/3`, which calls
+    # create/3 once, and the onboarding route is the only caller of that wrapper.
     assert Enum.sort(callers) == [
              "lib/letflow/identity/pending_admin_grants.ex",
-             "lib/letflow/routers/onboarding.ex"
+             "lib/letflow/platform_functions/impl/tenant_grant_first_admins.ex"
            ]
 
+    wrapper = File.read!("lib/letflow/platform_functions/impl/tenant_grant_first_admins.ex")
+    assert length(Regex.scan(~r/PendingAdminGrants\.create\(/, wrapper)) == 1
+
+    wrapper_callers =
+      for path <- lib_files,
+          File.read!(path) =~ ~r/TenantGrantFirstAdmins\.create_grant\(|&create_grant\//,
+          do: path
+
+    assert wrapper_callers == ["lib/letflow/routers/onboarding.ex"]
+
     onboarding = File.read!("lib/letflow/routers/onboarding.ex")
-    assert length(Regex.scan(~r/PendingAdminGrants\.create\(/, onboarding)) == 1
+    assert length(Regex.scan(~r/TenantGrantFirstAdmins\.create_grant\(/, onboarding)) == 1
 
     grants_source = File.read!("lib/letflow/identity/pending_admin_grants.ex")
     refute grants_source =~ ~r/PendingAdminGrants\.create\(/, "the context calls its own create/3"
@@ -224,10 +236,18 @@ defmodule Letflow.Identity.PendingAdminGrantsTest do
           File.read!(path) =~ ~r/PendingAdminGrants\.create_provisioned\(/,
           do: path
 
-    assert callers == ["lib/letflow/tenant_provisioner.ex"]
+    # Since T-2590 (pilot G1b) the platform step `tenant.grant_first_admins` is the second
+    # system caller: it stores the step's grant through the same provisioned path.
+    assert Enum.sort(callers) == [
+             "lib/letflow/platform_functions/impl/tenant_grant_first_admins.ex",
+             "lib/letflow/tenant_provisioner.ex"
+           ]
 
-    provisioner = File.read!("lib/letflow/tenant_provisioner.ex")
-    assert length(Regex.scan(~r/PendingAdminGrants\.create_provisioned\(/, provisioner)) == 1
+    for path <- callers do
+      assert length(Regex.scan(~r/PendingAdminGrants\.create_provisioned\(/, File.read!(path))) ==
+               1,
+             "#{path} calls create_provisioned more than once"
+    end
 
     for path <- Path.wildcard("lib/letflow/routers/**/*.ex") do
       refute File.read!(path) =~ "create_provisioned(", "#{path} calls the provisioned grant path"

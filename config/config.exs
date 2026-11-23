@@ -85,6 +85,18 @@ config :letflow, :modules, [
 # T-1641 (UAT decision B5#10): the QA-only demo module `runtime_demo`. A SEPARATE key from :modules, filled only
 # when the build runs with LETFLOW_INCLUDE_RUNTIME_DEMO=true (a Docker build argument that only
 # deploy/redeploy-qa.sh passes). Unset, as in CI, dev and production, it is [] and the catalogue is :modules alone.
+# T-2588 (pilot gap G2; decision record docs/migration/decisions/0094-platform-call-authority.md
+# decision (a)): the compiled list of platform function entries, read once via
+# Application.compile_env/3 by Letflow.PlatformFunctions.Catalog. An entry exists only if it is
+# compiled into the build: there is no write route and no run-time registration, so who may add
+# an entry is whoever may merge code (review, tests, CI). The core declares the platform family.
+# T-2589 (pilot gap G1a) adds the registration family: the harmless `platform.validate_registration`
+# entry that proves the path of a platform step end to end.
+config :letflow, :platform_functions, [
+  Letflow.PlatformFunctions.TenantFamily,
+  Letflow.PlatformFunctions.RegistrationFamily
+]
+
 config :letflow,
        :demo_modules,
        if(System.get_env("LETFLOW_INCLUDE_RUNTIME_DEMO") == "true",

@@ -925,6 +925,11 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", path) when path in ["/definitions", "/definitions/:id"],
     do: :DefinitionsRead
 
+  # T-2588 (pilot gap G2): the compiled platform function catalogue. Read only: the
+  # catalogue has no write route (an entry exists only if it is compiled into the build),
+  # and the permission is the platform atom the platform family itself requires.
+  def endpoint_policy_key("GET", "/platform-functions"), do: :TenantsManage
+
   # REQ-081 -- same permission, three more path templates, no new atom.
   # REQ-125 adds a fourth (/definitions/delta), same permission, still no
   # new atom.

@@ -180,8 +180,19 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/api/permission_matrix_test.exs",
             "test/letflow/identity/binding_writers_scan_test.exs",
             "test/letflow/identity/tenant_update_changeset_removed_test.exs",
+            "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
+            "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
+            "test/letflow/security_probe/g01_matrix_shard_2_test.exs",
+            "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
+            "test/letflow/security_probe/g01_route_role_matrix_test.exs",
+            "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
+            "test/letflow/security_probe/g05_audit_row_schema_test.exs",
             "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
-            "test/letflow/security_probe/g09_migration_impact_test.exs"
+            "test/letflow/security_probe/g09_migration_impact_test.exs",
+            "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
+            "test/letflow/security_probe/g06_outbound_dispatch_probes_test.exs",
+            "test/letflow/security_probe/g07_cursor_codec_probe_test.exs",
+            "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end

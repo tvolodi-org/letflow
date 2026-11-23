@@ -43,6 +43,8 @@ export interface DiagramEditorProps {
   toolbar: Pick<EditToolbarProps, 'onSave' | 'onDiscard' | 'saving' | 'saveBlockedReason' | 'saveLabel'>
   /** A step or connection selected on first render (its panel open); used by the screen harness. */
   initialSelected?: Sel
+  /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
+  tenantId?: string | null
 }
 
 export type Sel = { kind: 'node' | 'edge'; id: string } | null
@@ -57,7 +59,7 @@ export default function DiagramEditor(props: DiagramEditorProps) {
   )
 }
 
-function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected }: DiagramEditorProps) {
+function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected, tenantId }: DiagramEditorProps) {
   const intl = useIntl()
   const e = useEditText()
   const t = useDiagramText()
@@ -274,6 +276,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
         onClose={() => setSel(null)}
         onSelectEdge={(id) => setSel({ kind: 'edge', id })}
         problems={problemsFor('node', sel.id)}
+        tenantId={tenantId}
       />
     ) : sel?.kind === 'edge' ? (
       <EdgeEditPanel graph={graph} edgeId={sel.id} onApply={apply} onClose={() => setSel(null)} problems={problemsFor('edge', sel.id)} />

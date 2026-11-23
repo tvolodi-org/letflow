@@ -778,4 +778,23 @@ defmodule Letflow.Definitions.SemanticValidation do
   defp family_of_type_name("object"), do: :object
   defp family_of_type_name("array"), do: :array
   defp family_of_type_name(_other), do: :unknown
+
+  @doc """
+  The type family of a JSON-Schema TYPE NAME: `"string"` -> `:string`,
+  `"number"` and `"integer"` -> `:numeric`, `"boolean"` -> `:boolean`,
+  `"object"` -> `:object`, `"array"` -> `:array`, and anything else ->
+  `:unknown`.
+
+  The public face of this module's own type rule, so another module that has
+  to agree with it about a type -- the typed step mapping
+  (`Letflow.Definitions.StepMapping`, pilot gap G13) -- reuses THIS table
+  instead of writing a second one that could drift away from it.
+
+  `:unknown` means "this module says nothing about that type": a comparison
+  against an `:unknown` family is exempt (see `exempt?/1`), and so is a type
+  check against it.
+  """
+  @spec type_family(String.t()) :: type_family()
+  def type_family(type_name) when is_binary(type_name), do: family_of_type_name(type_name)
+  def type_family(_other), do: :unknown
 end

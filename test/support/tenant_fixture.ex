@@ -198,9 +198,12 @@ defmodule Letflow.TenantFixture do
     "number_sequence_definitions",
     "number_sequence_numbers",
     "notification_deliveries",
+    "notification_outbound_counters",
     "notification_templates",
     "official_form_templates",
     "pending_tenant_admin_grants",
+    # T-2589 (pilot gap G1a): the durable queue and per-step result row of a platform step.
+    "platform_step_dispatches",
     "problem_report_comment_images",
     "problem_report_comments",
     "problem_report_images",

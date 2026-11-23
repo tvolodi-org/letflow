@@ -1,0 +1,36 @@
+{
+  "definitions": [
+    {
+      "process_key": "platform_call_fixed",
+      "graph": {
+        "nodes": [
+          { "id": "start", "node_type": "START" },
+          {
+            "id": "ht",
+            "node_type": "HUMAN_TASK",
+            "attributes": { "role": "REVIEWER" }
+          },
+          {
+            "id": "call",
+            "node_type": "SERVICE_TASK",
+            "attributes": {
+              "platform_call": {
+                "function": "tenant.create",
+                "args": {
+                  "slug": { "var": "slug" },
+                  "name": { "const": "Acme" }
+                }
+              }
+            }
+          },
+          { "id": "end", "node_type": "END" }
+        ],
+        "edges": [
+          { "id": "e1", "source": "start", "target": "ht" },
+          { "id": "e2", "source": "ht", "target": "call" },
+          { "id": "e3", "source": "call", "target": "end" }
+        ]
+      }
+    }
+  ]
+}

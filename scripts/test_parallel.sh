@@ -104,6 +104,31 @@
 # tmp_dir is removed automatically; a run with any real failures always
 # preserves it regardless of this var.
 #
+# T-2652 (CI hang diagnosis): two more bounds, so a stalled step fails LOUDLY
+# and names itself instead of letting the shard run into the CI job limit:
+#   TEST_PARALLEL_FILE_TIMEOUT_S (default 120) -- per-TEST-FILE stall limit.
+#       A test file that starts no test and finishes no test for this many
+#       seconds is killed, and the file's name is printed. The limit is a
+#       STALL limit (time since the file's last test start), not a total file
+#       duration: in the measured corpus the slowest FILE takes ~288 s (nightly
+#       run 45000653967, shard 1/8, --slowest-modules) while the slowest single
+#       TEST takes ~26 s, so a total-duration limit would kill healthy files and
+#       a stall limit does not. 0 disables the limit.
+#   TEST_PARALLEL_CREATE_TIMEOUT_S (default 300) -- bound on the whole
+#       create+migrate phase (Step 1.7). A `mix ecto.create`/`ecto.migrate`
+#       that never returns used to hang the shard until the CI job limit (see
+#       run 45010058431, shard 3/8, 2026-11-22: the shard burned its whole
+#       2700 s in this phase, before any partition had launched).
+#       The bound covers the phase in full, INCLUDING the admission wait
+#       inside the launch loop: with more partitions than the create cap the
+#       loop waits for a create job to finish before the last partition is
+#       even launched, so the bound is armed before that loop starts.
+#       0 disables the limit.
+#   The file-level limit needs to know which file is running right now; the
+#   suite publishes that into $tmp_dir/markers/current-<partition>.txt (see
+#   test/support/file_timeout_marker.ex), and TEST_PARALLEL_FILE_MARKER_DIR is
+#   exported for the partitions so the marker formatter is installed.
+#
 # Overridable knob: TEST_PER_PARTITION_HEADROOM=<non-negative integer>
 # (default 0, a deliberate no-op -- N*0=0 leaves Step 1.5's formula
 # unchanged) -- ISS-0287 §4.1, adds an N-scaling connection-budget margin
@@ -637,6 +662,16 @@ cleanup_tmp_dir() {
     kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null
     kill "${watchdog_pids[$_idx]}" 2>/dev/null
   done
+  # T-2652: the create-phase deadline sentinel (Step 1.7) and the per-partition
+  # file-timeout watchdogs (Step 2) must not outlive this script either.
+  if [ -n "${create_deadline_pid:-}" ]; then
+    kill -- "-${create_deadline_pid}" 2>/dev/null
+    kill "${create_deadline_pid}" 2>/dev/null
+  fi
+  for _idx in "${!file_watchdog_pids[@]}"; do
+    kill -- "-${file_watchdog_pids[$_idx]}" 2>/dev/null
+    kill "${file_watchdog_pids[$_idx]}" 2>/dev/null
+  done
   # Signal delivery is asynchronous: the subshell's TERM trap (which kills its sleep) runs
   # only after we return. Give the watchdogs up to ~5 s to finish so the sleeps are gone
   # before this script exits (GH #2457); bounded, never waits on a watchdog that ignored it.
@@ -664,8 +699,35 @@ cleanup_tmp_dir() {
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/letflow_test_parallel.XXXXXX")
 _tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT exported
+# T-2652: declared BEFORE the trap below, so the trap's own reference to them is
+# never an unbound-variable lookup under `set -u` (the same reason ISS-1080 moved
+# the trap's own pid capture here).
+create_deadline_pid=""
+declare -A file_watchdog_pids=()
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
+
+# T-2652: the marker directory the suites publish their currently running test
+# file into. Exported so the partitions' ExUnit run installs the marker
+# formatter (test/support/file_timeout_marker.ex); the per-file watchdog below
+# reads the marker to decide WHICH file stalled.
+marker_dir="$tmp_dir/markers"
+mkdir -p "$marker_dir"
+export TEST_PARALLEL_FILE_MARKER_DIR="$marker_dir"
+
+# T-2652: per-test-file stall limit (seconds). 0 disables it.
+file_timeout_s="${TEST_PARALLEL_FILE_TIMEOUT_S:-120}"
+if ! printf '%s' "$file_timeout_s" | grep -Eq '^[0-9]+$'; then
+  echo "test_parallel: ERROR TEST_PARALLEL_FILE_TIMEOUT_S='$file_timeout_s' is not a non-negative integer" >&2
+  exit 1
+fi
+
+# T-2652: bound on the create+migrate phase (Step 1.7). 0 disables it.
+create_timeout_s="${TEST_PARALLEL_CREATE_TIMEOUT_S:-300}"
+if ! printf '%s' "$create_timeout_s" | grep -Eq '^[0-9]+$'; then
+  echo "test_parallel: ERROR TEST_PARALLEL_CREATE_TIMEOUT_S='$create_timeout_s' is not a non-negative integer" >&2
+  exit 1
+fi
 
 max_concurrent_creates="${TEST_PARALLEL_MAX_CONCURRENT_CREATES:-4}"
 if ! printf '%s' "$max_concurrent_creates" | grep -Eq '^[1-9][0-9]*$'; then
@@ -677,6 +739,78 @@ echo "test_parallel: seeding+migrating $N partition databases (capped at $max_co
 
 declare -A create_pid_to_partition
 in_flight=0
+
+# T-2652: the bound on the create+migrate phase.
+#
+# The bound has to be armed BEFORE the launch loop below, not after it: the
+# loop's admission step waits for a running create job whenever the number of
+# in-flight jobs has reached the create cap (`in_flight >=
+# max_concurrent_creates` -> reap_one_create). With more partitions than the
+# cap -- the CI default is 4 partitions against a cap of 4, so any N > cap
+# reaches this branch -- the loop blocks INSIDE the launch, before the last
+# partition's database is even created, and a bound installed after the loop
+# could therefore never fire in exactly the case it exists for.
+#
+# The sentinel is a plain background job that writes a flag file once the
+# bound is reached. `wait -n` inside reap_one_create returns as soon as ANY
+# background job finishes, so the sentinel's exit is what interrupts the
+# blocking wait; the flag file is what both wait paths test, and the sentinel
+# writes it BEFORE it exits, so it is visible to the main shell the moment
+# `wait -n` returns.
+create_deadline_flag="$tmp_dir/create-deadline.exceeded"
+create_start_epoch=$(date +%s)
+create_sentinel_rearms=0
+
+# 0 when the create+migrate phase is over its bound.
+create_deadline_reached() {
+  [ "$create_timeout_s" -gt 0 ] || return 1
+  [ -f "$create_deadline_flag" ] && return 0
+  [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ] && return 0
+  return 1
+}
+
+# Starts the deadline sentinel. Re-armable: a sentinel that dies before the
+# bound is reached (it must not, but a signal could do it) is replaced, so the
+# phase always keeps its bound.
+start_create_deadline_sentinel() {
+  create_deadline_pid=""
+  [ "$create_timeout_s" -gt 0 ] || return 0
+  (
+    _term=
+    trap '_term=1' TERM
+    while [ -z "$_term" ]; do
+      sleep 1
+      [ -n "$_term" ] && break
+      if [ $(( $(date +%s) - create_start_epoch )) -gt "$create_timeout_s" ]; then
+        : > "$create_deadline_flag"
+        break
+      fi
+    done
+  ) &
+  create_deadline_pid=$!
+}
+
+# The create+migrate phase is over its bound: say so, kill the in-flight
+# create jobs (so the shard leaves no half-created partition database behind)
+# and end the run. Called from the main shell only, so `exit` ends the script.
+create_deadline_fail() {
+  echo "test_parallel: ERROR the create+migrate phase exceeded TEST_PARALLEL_CREATE_TIMEOUT_S=${create_timeout_s}s -- killing the in-flight partition database job(s)" >&2
+  for _p in "${!create_pid_to_partition[@]}"; do
+    _part="${create_pid_to_partition[$_p]}"
+    echo "test_parallel: ---- last 20 lines of create-$_part.log ----" >&2
+    tail -n 20 "$tmp_dir/create-$_part.log" 2>/dev/null >&2
+    echo "test_parallel: ---- end create-$_part.log ----" >&2
+    kill -TERM -- "-$_p" 2>/dev/null
+  done
+  # A create job that ignores TERM must not keep the shard hanging: escalate
+  # to KILL on its process group after a short grace, the same shape as the
+  # partition watchdog's TERM-then-KILL escalation.
+  sleep 2
+  for _p in "${!create_pid_to_partition[@]}"; do
+    kill -KILL -- "-$_p" 2>/dev/null
+  done
+  exit 1
+}
 
 # ISS-1080 (RC-C): reaps exactly ONE finished create/migrate job (both wait
 # sites below call this, so there is a single copy of the logic). On CI
@@ -690,8 +824,16 @@ in_flight=0
 # the status of an already-collected job and returns it again). A pid reported
 # by wait -n that is not one of ours is ignored without touching in_flight.
 # A failed create/migrate is reported and ends the run (exit 1) exactly as before.
+#
+# T-2652: BOTH wait paths are bounded by the create+migrate deadline. The
+# blocking `wait -n` is interrupted by the deadline sentinel (the only
+# background job in this phase that is not a create job), and the polling
+# fallback tests the same flag -- so the phase cannot hang past its bound
+# even when the wait happens inside the launch loop's admission step, where
+# more partitions than the create cap keep the loop waiting for a create job
+# before the last partition is ever launched.
 reap_one_create() {
-  local finished_pid="" finished_exit finished_partition p
+  local finished_pid="" finished_exit finished_partition p _polls
   while :; do
     finished_pid=""
     wait -n -p finished_pid
@@ -700,9 +842,33 @@ reap_one_create() {
       if [ -n "${create_pid_to_partition[$finished_pid]:-}" ]; then
         break
       fi
+      # A job that is not one of ours finished. The only such job in this
+      # phase is the deadline sentinel: the phase is over its bound.
+      if create_deadline_reached; then
+        create_deadline_fail
+      fi
+      # The sentinel exited without the bound being reached (it must not
+      # happen): re-arm it, so the phase keeps its bound.
+      if [ "$finished_pid" = "${create_deadline_pid:-}" ] && [ "$create_sentinel_rearms" -lt 5 ]; then
+        create_sentinel_rearms=$((create_sentinel_rearms + 1))
+        start_create_deadline_sentinel
+      fi
       continue
     fi
+    # `wait -n -p` reported no pid: poll the tracked pids instead. The
+    # deadline flag is tested in the same loop, so this path is bounded too.
+    _polls=0
     while :; do
+      if [ -f "$create_deadline_flag" ]; then
+        create_deadline_fail
+      fi
+      # The sentinel writes the flag, but re-check the clock once a second as
+      # well, so a sentinel that died before the bound still ends the phase
+      # instead of blocking it.
+      _polls=$((_polls + 1))
+      if [ $((_polls % 20)) -eq 0 ] && create_deadline_reached; then
+        create_deadline_fail
+      fi
       for p in "${!create_pid_to_partition[@]}"; do
         if ! kill -0 "$p" 2>/dev/null; then
           wait "$p"
@@ -728,10 +894,20 @@ reap_one_create() {
   fi
 }
 
+# The bound must be armed BEFORE the launch loop: the loop's admission step
+# can block in reap_one_create (see the comment above).
+start_create_deadline_sentinel
+
 i="$FIRST"
 while [ "$i" -le "$LAST" ]; do
   if [ "$in_flight" -ge "$max_concurrent_creates" ]; then
     reap_one_create
+  fi
+
+  # The phase is over its bound: do not start one more create job (the bound
+  # has to end the phase, not be papered over by a fresh job).
+  if create_deadline_reached; then
+    create_deadline_fail
   fi
 
   (
@@ -748,6 +924,13 @@ done
 while [ "$in_flight" -gt 0 ]; do
   reap_one_create
 done
+
+if [ -n "${create_deadline_pid:-}" ]; then
+  kill -- "-${create_deadline_pid}" 2>/dev/null
+  kill "${create_deadline_pid}" 2>/dev/null
+  wait "${create_deadline_pid}" 2>/dev/null
+  create_deadline_pid=""
+fi
 
 echo "test_parallel: all $N partition databases created+migrated"
 
@@ -1011,6 +1194,15 @@ test_parallel_watchdog_diag() {
     tail -n 40 "$log" 2>/dev/null | cut -c1-300 | sed "s/^/${pfx}  /"
     k=$(test_parallel_diag_t grep -E '^[.F*]+$' "$log" 2>/dev/null | tr -d '\n' | wc -c | tr -d '[:space:]')
     echo "${pfx}approx tests finished: ${k:-0}"
+    # T-2652: which file was running, and which tests had started in it (the
+    # suite's own marker; see test/support/file_timeout_marker.ex). Without this
+    # the reader of a hung shard sees only a wall of dots.
+    if [ -f "$tmp_dir/markers/current-$idx.txt" ]; then
+      echo "${pfx}running test file marker:"
+      sed 's/^/'"${pfx}"'  /' "$tmp_dir/markers/current-$idx.txt" 2>/dev/null | cut -c1-300
+    else
+      echo "${pfx}running test file marker: none published"
+    fi
     now=$(date +%s)
     start="${part_start_epoch[$idx]:-$now}"
     echo "${pfx}running for $((now - start))s of TEST_PARALLEL_PARTITION_TIMEOUT_S=${partition_timeout_s}s"
@@ -1145,6 +1337,55 @@ while [ "$i" -le "$LAST" ]; do
     fi
   ) &
   watchdog_pids[$i]=$!
+
+  # T-2652: per-test-file stall watchdog. The suite publishes its currently
+  # running file into $marker_dir/current-<i>.txt (see
+  # test/support/file_timeout_marker.ex); when that file has neither started nor
+  # finished a test for TEST_PARALLEL_FILE_TIMEOUT_S seconds, the file is
+  # STUCK (a hung test, a deadlock, a blocked DB call) and the partition is
+  # killed with the file's name in the job log -- instead of the shard sitting
+  # there until the CI job limit kills the whole run.
+  #
+  # The limit is a STALL limit (time since the file's last test start), not the
+  # file's total duration: in the measured corpus the slowest FILE takes ~288 s
+  # (nightly run 45000653967, shard 1/8) while the slowest single TEST takes
+  # ~26 s, so a total-duration limit would kill healthy files and a stall limit
+  # does not.
+  if [ "$file_timeout_s" -gt 0 ]; then
+    (
+      _part_pid=${pids[$i]}
+      _marker="$marker_dir/current-$i.txt"
+      _plog="$tmp_dir/partition-$i.log"
+      _term=
+      trap '_term=1' TERM
+      while [ -z "$_term" ]; do
+        sleep 1
+        [ -n "$_term" ] && break
+        kill -0 "$_part_pid" 2>/dev/null || break
+        [ -f "$_marker" ] || continue
+        _progress=$(sed -n 's/^progress=//p' "$_marker" 2>/dev/null | head -n 1)
+        _file=$(sed -n 's/^file=//p' "$_marker" 2>/dev/null | head -n 1)
+        [ -n "$_progress" ] || continue
+        [ -n "$_file" ] || continue
+        _now=$(date +%s)
+        _stall=$((_now - _progress))
+        if [ "$_stall" -gt "$file_timeout_s" ]; then
+          # The partition may have finished between the marker write and this
+          # poll; a partition that already reported is never killed.
+          if grep -q '^Result: ' "$_plog" 2>/dev/null; then break; fi
+          echo "test_parallel: ERROR partition $i: test file $_file has not completed a test for ${_stall}s (TEST_PARALLEL_FILE_TIMEOUT_S=${file_timeout_s}s) -- killing the partition" >&2
+          sed 's/^/test_parallel: ERROR partition '"$i"': /' "$_marker" 2>/dev/null | cut -c1-300 >&2
+          kill -TERM -- "-$_part_pid" 2>/dev/null
+          sleep "$partition_kill_grace_s"
+          if kill -0 "$_part_pid" 2>/dev/null; then
+            kill -KILL -- "-$_part_pid" 2>/dev/null
+          fi
+          break
+        fi
+      done
+    ) &
+    file_watchdog_pids[$i]=$!
+  fi
 
   i=$((i + 1))
 done

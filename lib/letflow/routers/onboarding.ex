@@ -182,8 +182,11 @@ defmodule Letflow.Routers.Onboarding do
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Oidc.RealmProbe
+  alias Letflow.PlatformFunctions.Impl.TenantBindRealm
+  alias Letflow.PlatformFunctions.Impl.TenantCreate
+  alias Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins
+  alias Letflow.PlatformFunctions.Impl.TenantProvision
   alias Letflow.PlatformTenant
-  alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioning
 
   authz_post "/", :TenantsManage do
@@ -513,7 +516,7 @@ defmodule Letflow.Routers.Onboarding do
       |> Map.take(["slug", "display_name"])
       |> Map.put("status", "migrating")
 
-    case Identity.create_tenant(create_attrs) do
+    case TenantCreate.create_tenant(create_attrs) do
       {:error, :duplicate_slug} ->
         Response.conflict(conn, "slug already exists")
 
@@ -596,7 +599,7 @@ defmodule Letflow.Routers.Onboarding do
   # pool timeout) becomes a tagged error, so the answer is the fixed post-commit 500 and not the
   # framework's crash response (SECURITY-REVIEWER MAJOR, INV-8). Only the exception class is logged.
   defp provision_and_record(tenant, slug, hostname) do
-    with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
+    with {:ok, _registration} <- TenantProvision.provision_and_migrate(tenant.id),
          {:ok, record} <-
            Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
       {:ok, record}
@@ -630,12 +633,15 @@ defmodule Letflow.Routers.Onboarding do
   # ISS-1030 PR 2 (design 5.1): the ONLY caller of PendingAdminGrants.create/3. The creator is the
   # operator's user id; the schema is the new tenant's own; the platform prefix was verified before
   # any write (platform_write_opts/3). A failure is logged with fixed text and the tenant id only.
+  # The call itself lives in `Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins` since T-2590
+  # (pilot gap G1b): the operator's grant and the platform step's grant are two audited shapes of
+  # ONE operation, and they live in one place.
   defp create_pending_grant(_tenant, _record, nil, _bind_opts), do: :none
 
   defp create_pending_grant(tenant, record, email_key, bind_opts) do
     with {:ok, prefix} <- TenantProvisioning.schema_name_for_tenant(tenant.id),
          {:ok, grant} <-
-           PendingAdminGrants.create(
+           TenantGrantFirstAdmins.create_grant(
              email_key,
              %{user_id: Keyword.fetch!(bind_opts, :actor_id)},
              prefix: prefix,
@@ -656,7 +662,7 @@ defmodule Letflow.Routers.Onboarding do
   end
 
   defp created_with_realm(conn, tenant, record, extras, realm, bind_opts, outcome) do
-    case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
+    case TenantBindRealm.bind_tenant_realm(tenant.id, realm, bind_opts) do
       {:ok, bound} ->
         Response.created(
           conn,
@@ -899,7 +905,7 @@ defmodule Letflow.Routers.Onboarding do
       trace_id: conn.assigns[:trace_id]
     ]
 
-    case Identity.bind_tenant_realm(record.tenant_id, realm, opts) do
+    case TenantBindRealm.bind_tenant_realm(record.tenant_id, realm, opts) do
       # The response comes from the bind's own result: a read after the commit could fail
       # with the realm already bound (SECURITY-REVIEWER BLOCKER-1).
       {:ok, bound} ->

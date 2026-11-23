@@ -406,7 +406,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
        body_or_empty(rendered_body)}
 
     method_atom(config.method)
-    |> :httpc.request(request, [{:timeout, config.timeout_ms}], [])
+    # `autoredirect: false` is NOT the :httpc default: without it :httpc
+    # follows up to five redirects, so a validated target could answer 302
+    # and the follow-up request would reach a host the validator never saw
+    # (INV-9: "redirects not followed or revalidated per hop").
+    |> :httpc.request(request, [{:timeout, config.timeout_ms}, {:autoredirect, false}], [])
     |> case do
       {:ok, {{_http_version, status, _reason_phrase}, _resp_headers, resp_body}} ->
         {:http, status, to_string_or_nil(resp_body)}
