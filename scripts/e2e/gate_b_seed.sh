@@ -322,6 +322,11 @@ assign_if_free "$QR_R1" location_node "$L_R1" "QR $QR_R1 to Rack 01"
 # seed stops when no row of the opening approval was switched ON.
 # ---------------------------------------------------------------------------------------------
 log "== 8. four eyes ON for the stock opening approval"
+# A fresh install leaves the stock processes DRAFT and /approval-rules lists only ACTIVE steps, so the
+# definitions are activated first through the supported repair route (ensure-seeds), then the rule is read.
+api POST /tenant/modules/stock/ensure-seeds '{"rationale":"GATE B e2e: activate the stock definitions"}'
+[ "$STATUS" = 200 ] || die "ensure-seeds stock: HTTP $STATUS $(reason)"
+log "ok   stock definitions activated (ensure-seeds)"
 api GET /approval-rules
 [ "$STATUS" = 200 ] || die "GET /approval-rules: HTTP $STATUS $(reason)"
 log "approval rules seen: $(jq -r '.items | length' "$RESP")"

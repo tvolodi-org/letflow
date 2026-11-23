@@ -36,7 +36,8 @@ defmodule Letflow.Scripts.GateBSeedFourEyesTest do
     die() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
     reason() { echo "?"; }
     api() {
-      if [ "$1" = GET ]; then cp "$D/rules.json" "$RESP"; STATUS=200
+      if [ "$1" = POST ]; then echo "POST $2" >> "$D/calls.log"; printf '{}' > "$RESP"; STATUS=200
+      elif [ "$1" = GET ]; then echo "GET $2" >> "$D/calls.log"; cp "$D/rules.json" "$RESP"; STATUS=200
       else echo "PUT $2" >> "$D/puts.log"; printf '{"four_eyes":true}' > "$RESP"; STATUS=200; fi
     }
     . "$D/step8.sh"
@@ -49,6 +50,8 @@ defmodule Letflow.Scripts.GateBSeedFourEyesTest do
       )
 
     puts = Path.join(dir, "puts.log")
+    calls = Path.join(dir, "calls.log")
+    Process.put(:calls, if(File.exists?(calls), do: File.read!(calls), else: ""))
     {out, status, if(File.exists?(puts), do: File.read!(puts), else: "")}
   end
 
@@ -60,6 +63,10 @@ defmodule Letflow.Scripts.GateBSeedFourEyesTest do
       {out, status, puts} = run(~s({"items":[#{@opening},#{@other}]}))
       assert status == 0, out
       assert puts == "PUT /approval-rules/Stock%20opening/approve\n"
+
+      assert Process.get(:calls) ==
+               "POST /tenant/modules/stock/ensure-seeds\nGET /approval-rules\n"
+
       assert out =~ "approval rules seen: 2"
       assert out =~ "rule Stock opening/approve four_eyes=false in_active_definition=false"
       assert out =~ "opening approval rows seen 1, switched or already ON 1"
