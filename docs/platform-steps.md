@@ -62,15 +62,27 @@ The pilot's rule is that a business function is a PROCESS and not a code path: e
 creates a tenant must START the definition, so there is exactly one way to register a tenant and
 the process is what the audit shows. The functions that write a tenant row
 (`Letflow.Identity.create_tenant/1`, `Letflow.Identity.create_provisioned_tenant/1`) and the
-function that writes a tenant schema (`Letflow.TenantOnboarding.provision_and_migrate/1`) have
-therefore a CLOSED set of callers: the catalogue body of the step
+functions that write a tenant schema (`Letflow.TenantOnboarding.provision_and_migrate/1` and its
+AC9 recovery twin `Letflow.TenantOnboarding.recover_provisioning/1`, a second public name for the
+same write) have therefore a CLOSED set of callers: the catalogue body of the step
 (`tenant.create`, `tenant.provision`), the module they delegate to
 (`Letflow.TenantProvisioner`) and the seed task (`mix letflow.seed`, which creates the platform
 tenant before any definition can exist).
 
 `test/letflow/platform_functions/tenant_create_callers_test.exs` is the scan that pins it: a
 pure AST scan over `lib/**/*.ex`, in the shape of the sibling caller scans
-(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). It also pins, EXACTLY, the
+(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). The scan resolves every alias
+form the parser produces -- the plain alias, the RENAMED alias (`as: I`), the MULTI alias
+(`alias Letflow.{Audit, Identity}`) and the multi alias over a nested base -- as well as the
+fully qualified call, `apply/3`, the capture `&Module.fun/1` and the `import` (an import puts
+the function in scope unqualified, so a local `create_tenant(attrs)` is that module's call). A
+caller therefore cannot hide behind the form it is written in: a new caller of any of the four
+functions anywhere in `lib/` fails the scan. The forms the scan does NOT see are listed in the
+scan's own moduledoc ("Accepted limits"): a computed module name, `apply/3` with a computed
+module, `Code.eval_*`, a macro that expands into the call, and an `alias` or `import` written
+through a macro.
+
+The scan also pins, EXACTLY, the
 callers of the catalogue body's public wrappers (`TenantCreate.create_tenant/1`,
 `TenantProvision.provision_and_migrate/1`) and of the provisioner chain
 (`Letflow.TenantProvisioner.create/1`): the four ROUTES that create a tenant today
@@ -82,8 +94,8 @@ instead of calling the code, the scan names the file that changed.
 
 What this change delivers:
 
-* the CLOSED caller set of the three tenant-writing functions: a new caller of any of them
-  anywhere in `lib/` fails the scan;
+* the CLOSED caller set of the four tenant-writing functions: a new caller of any of them
+  anywhere in `lib/` fails the scan, in every alias form the source can be written in;
 * the EXACT pin of the four remaining bypass routes: the pinned set may only SHRINK, so the
   rewiring removes an entry and the scan names the file that changed.
 
@@ -462,11 +474,13 @@ output, a decoded HTTP body, a variable map) is never loaded into the process.
   no address in the entry). The registry test also scans the routes and the provisioner: the
   direct calls are gone, the implementation modules carry them.
 * `test/letflow/platform_functions/tenant_create_callers_test.exs` -- the NO BYPASS scan of gap
-  G17: the CLOSED set of callers of the three functions that write a tenant row or a tenant
+  G17: the CLOSED set of callers of the four functions that write a tenant row or a tenant
   schema (the catalogue body's public wrappers, the module they delegate to and the seed task),
   the EXACT pin of the four routes that still reach the write (a set that may only shrink), and
-  the non-vacuity of the scan itself (a rogue caller is flagged in every call form, an alias to
-  a module of the same last name is not, a doc mention and a definition are not call sites).
+  the non-vacuity of the scan itself (a rogue caller is flagged in every call form -- the plain
+  alias, the renamed alias `as: I`, the multi alias, the fully qualified call, `apply/3`, the
+  capture and the import; an alias to a module of the same last name is not, a doc mention and a
+  definition are not call sites).
 * `test/letflow/platform_functions/failure_vocabulary_test.exs` -- the CLOSED vocabulary of
   the row's failure kind: the set is derived from the tree (every module under
   `lib/letflow/platform_functions/impl/` and its own `@type refusal`), a code nobody can
