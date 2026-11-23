@@ -134,6 +134,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.JsonSchemaShape
   alias Letflow.Definitions.ModuleWrites
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.PackUpdateOverrides
   alias Letflow.Definitions.PlatformCalls
@@ -232,6 +233,12 @@ defmodule Letflow.Definitions do
   index inside the node (0 for a node-level refusal) and a stable code.
   """
   @type platform_call_violation :: %{
+          node_id: String.t(),
+          index: non_neg_integer(),
+          code: atom()
+        }
+
+  @type notify_call_violation :: %{
           node_id: String.t(),
           index: non_neg_integer(),
           code: atom()
@@ -797,7 +804,8 @@ defmodule Letflow.Definitions do
         with :ok <- check_entity_writes(definition, prefix, activator),
              :ok <- check_platform_calls(definition, prefix, activator),
              :ok <- check_start_permission(definition, prefix),
-             :ok <- check_step_mappings(definition, prefix) do
+             :ok <- check_step_mappings(definition, prefix),
+             :ok <- check_notify_calls(definition, prefix) do
           reactivate_row(definition, prefix, tenant_id, activator)
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -2755,7 +2763,8 @@ defmodule Letflow.Definitions do
          :ok <- check_entity_writes(definition, prefix, activator),
          :ok <- check_platform_calls(definition, prefix, activator),
          :ok <- check_start_permission(definition, prefix),
-         :ok <- check_step_mappings(definition, prefix) do
+         :ok <- check_step_mappings(definition, prefix),
+         :ok <- check_notify_calls(definition, prefix) do
       check_script_bindings(definition, prefix)
     end
   end
@@ -2896,6 +2905,42 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # T-2592 (pilot gap G4): the ACTIVATION fence for a NOTIFICATION step -- a
+  # SERVICE_TASK bound to a registered template and an address read from a
+  # variable of the running instance. The rules live in
+  # `Letflow.Definitions.NotifyCalls` (ONE parse, shared with the dispatcher, so
+  # the step cannot be read differently when it runs).
+  #
+  # A notification step carries no permission of its own: the step kind is
+  # `DefinitionsWrite` like any other definition change, the address it may
+  # reach is bounded by the tenant's own send cap, and the address itself is
+  # never stored (INV-4). The per-tenant channel allow-list of the authority
+  # rule (gap G14) is NOT built here: a notification step may only reach the
+  # address its own instance variables hold.
+  @doc false
+  @spec check_notify_calls(ProcessDefinition.t() | map(), String.t()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:notify_calls_invalid, [notify_call_violation()]}}
+  def check_notify_calls(%{graph: graph_map}, _prefix) when is_map(graph_map) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        violations =
+          for node <- nodes,
+              violation <- NotifyCalls.violations(node, nodes),
+              do: %{node_id: node.id, index: violation.index, code: violation.code}
+
+        if violations == [] do
+          :ok
+        else
+          {:error, {:notify_calls_invalid, violations}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
   # T-2594 (pilot gap G13): the TYPED STEP MAPPING fence -- every step that maps
   # variables declares what it reads and what it writes, and the declaration is
   # checked against this definition's OWN `variable_schemas`.
@@ -2936,11 +2981,12 @@ defmodule Letflow.Definitions do
   def step_mapping_violations(nodes, declared_fields, prefix)
       when is_list(nodes) and is_map(declared_fields) and is_binary(prefix) do
     completer_writable = StepMapping.completer_writable_keys(nodes)
+    mapped = mapping_nodes(nodes, prefix)
 
-    nodes
-    |> mapping_nodes(prefix)
-    |> PlatformCalls.mappings()
-    |> StepMapping.violations(declared_fields, completer_writable)
+    mappings =
+      PlatformCalls.mappings(mapped) ++ NotifyCalls.mappings(mapped, declared_fields)
+
+    StepMapping.violations(mappings, declared_fields, completer_writable)
   end
 
   # The nodes whose typed mapping is checked.
@@ -3704,6 +3750,7 @@ defmodule Letflow.Definitions do
                  :ok <- check_platform_calls(target_row, prefix, activator),
                  :ok <- check_start_permission(target_row, prefix),
                  :ok <- check_step_mappings(target_row, prefix),
+                 :ok <- check_notify_calls(target_row, prefix),
                  :ok <- check_script_bindings(target_row, prefix) do
               swap_active_pointer(current_active, target_row, prefix, activator)
             else

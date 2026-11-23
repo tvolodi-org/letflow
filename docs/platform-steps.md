@@ -4,6 +4,9 @@ A **platform step** is a step of a process definition that calls Letflow's own c
 instead of an HTTP endpoint or a Lua script. This page says what exists today (2026-11-22) and
 where each part lives.
 
+The sibling step -- the one that sends a registered template to an address -- is the
+[notification step](notification-steps.md).
+
 Authority: the decision record
 [`0094-platform-call-authority.md`](migration/decisions/0094-platform-call-authority.md) (the
 authority rule of a platform step: who may switch one on, where it may run, what it may read)
