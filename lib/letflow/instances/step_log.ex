@@ -159,6 +159,14 @@ defmodule Letflow.Instances.StepLog do
     TIMER_FIRED
   )
 
+  @doc """
+  The event types this log reads as the completion of a step (each is
+  written with a top-level `node_id`). A class test derives the list from the
+  writers in `lib/`, so a new completion type cannot leave a visit open.
+  """
+  @spec completion_event_types() :: [String.t()]
+  def completion_event_types, do: @completion_event_types
+
   # The dispatch tables, and whether they exist in the tenant's schema is
   # checked before they are read (a tenant provisioned before the newest
   # dispatch migration has no `platform_step_dispatches` table).

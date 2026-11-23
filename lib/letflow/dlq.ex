@@ -25,9 +25,9 @@ defmodule Letflow.Dlq do
   `event` (written by `Letflow.Engine.ExecutionError` and by
   `Letflow.Engine.ServiceTaskExhaustion`) names the failed resource in
   `reference_id`: for an exhaustion row it is the NODE id of the failed step
-  (`engine/service_task_exhaustion.ex`), for an execution-error row it is the
-  instance id. The column therefore carries a DIFFERENT id per entry type --
-  read it together with `entry_type`, never on its own. The DLQ read route
+  (`engine/service_task_exhaustion.ex`), an execution-error row carries NO
+  `reference_id` (NULL; its instance id is in `instance_id`). Read the column
+  together with `entry_type`, never on its own. The DLQ read route
   renders it verbatim (`routers/dlq.ex`).
 
   `source_payload` of an exhaustion row holds the METHOD and the ORIGIN of the
