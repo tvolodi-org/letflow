@@ -121,6 +121,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"scripts/uat/check_processes.py", true, true},
     {"scripts/uat/tests/test_platform_residue.py", true, true},
     {"docs/open-source/audit-report.md", true, true},
+    {"docs/platform-steps.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
     {"web/vite.config.ts", true, true},
