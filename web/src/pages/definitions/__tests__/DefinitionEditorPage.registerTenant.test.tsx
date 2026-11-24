@@ -142,28 +142,28 @@ afterEach(() => {
 })
 
 describe('T-2738 platform.register_tenant in the real designer page', () => {
-  it('R0 opening the page shows the default view without the error boundary', async () => {
+  it('R0 renders the shipped graph default view (does not cover the render loop)', async () => {
     await openPage()
     expect(await screen.findByTestId('definition-view-edit')).toBeInTheDocument()
     await new Promise((r) => setTimeout(r, 1500))
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 
-  it('R0b a DRAFT copy opens in the canvas Editor view without the error boundary', async () => {
+  it('R0b renders a DRAFT copy in the Editor view (does not cover the render loop)', async () => {
     await openPage('DRAFT')
     expect(await screen.findByTestId('definition-editor-view')).toBeInTheDocument()
     await new Promise((r) => setTimeout(r, 1500))
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 
-  it('R1 renders the steps without the error boundary', async () => {
+  it('R1 renders the shipped graph steps (does not cover the render loop)', async () => {
     await openEditView()
     expect(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 })).toBeInTheDocument()
     expect(screen.getByTestId('rf__node-validate')).toBeInTheDocument()
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 
-  it.each(['validate', 'create', 'provision', 'bind_realm', 'grant_first_admins'])('R2 the platform_call step %s opens its panel with the function picker', async (id) => {
+  it.each(['validate', 'create', 'provision', 'bind_realm', 'grant_first_admins'])('R2 renders the platform_call step %s panel (does not cover the render loop)', async (id) => {
     await openEditView()
     fireEvent.click(await screen.findByTestId(`rf__node-${id}`, {}, { timeout: 8000 }))
     expect(await screen.findByTestId('edit-platform-call')).toBeInTheDocument()
@@ -171,7 +171,7 @@ describe('T-2738 platform.register_tenant in the real designer page', () => {
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 
-  it('R3 the notify step opens its settings', async () => {
+  it('R3 renders the notify step settings (does not cover the render loop)', async () => {
     await openEditView()
     fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
     await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
