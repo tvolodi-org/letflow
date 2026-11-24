@@ -28,7 +28,7 @@ reviewer has to find them again:
 | L3 | T-2724 (24 Nov): `seed_outbound_open.sh` echoed `SERVICE_TASK_MOCK_BASE_URL=https://SECRET@httpbin.org/…` to stderr when curl failed | URL userinfo in an env var | shell seed script stderr | C-33 |
 | L4 | T-2704/T-2734: with `LOG_LEVEL=debug`, `admin_email` and the realm id of a tenant registration appear verbatim in the **Ecto SQL debug log** (query parameters). The existing canary test captured only `:info` | plain JSON start variable | application log, `:debug`, SQL | C-01 |
 
-Facts on main (3981d83be) that the design depends on. The build re-checks each
+Facts on main (checked on 1ec454da5, re-checked from 3981d83be) that the design depends on. The build re-checks each
 one before it relies on it (§9):
 
 - `config/runtime.exs` (REQ-193): the Logger level is `:debug` in test
@@ -194,6 +194,12 @@ that surface and that form:
 | S13 step log | a step row whose outcome text holds `c`, inserted the way `step_log_secret_test.exs` builds its dispatch row, read through `Letflow.Instances.StepLog.steps/2` |
 | S14 shell script output | a stub script that echoes `v` to stderr |
 
+The seeded leaks also prove the `part` rule of §3.1: a personal canary in
+`audit_entries.action`, in an audit `resource_id`, and in a 2xx body read by a
+caller the case declares unauthorised must each FAIL the verdict although E-01
+and E-03 exist (three seeded cases, run through `verdict/2` with the real
+exceptions file).
+
 The seeded leaks also prove the forms: one each for exact, core, partial (the
 first 12 chars of `c`), base64, hex and sha256. There is also one **near-miss**
 that must NOT hit: a 9-char window of `c`, and a masked form.
@@ -211,19 +217,40 @@ The list lives in `test/fixtures/security_probes/g04/exceptions.txt`, one row
 per line, `|`-separated, `#` for comments:
 
 ```
-id | type | canary_kind | surface | case | reason (one line) | decided by
+id | type | canary_kind | surface | case | part | reason (one line) | decided by
 ```
 
 - `type` is `legit` (the value may appear there) or `baseline` (a known leak
   awaiting its fix).
 - `case` is a case id or `*`.
 - `decided by` is the task that reviewed the row (T-number).
-- A row matches a hit when `canary_kind`, `surface` and `case` match. The
+- `part` says WHERE inside the surface the hit sits. It is a closed vocabulary
+  per surface, and every collector tags each hit with one `part` value:
+  S1 `body_2xx_authorised` | `body_2xx_other` | `body_error` | `headers`;
+  S5 `before_after_state` | `action` | `resource_id` | `trace_id` | `other_column`;
+  S10 `event_variables` | `event_other` | `read_answer`; every other surface
+  `any`. The case definition declares whether its caller is authorised to read
+  the record, and that decides `body_2xx_authorised` against `body_2xx_other`.
+  A hit whose `part` the collector cannot classify is `other_*`, never `any`.
+- A row matches a hit when `canary_kind`, `surface`, `case` AND `part` match.
+  `part` may be `any` only on a surface whose vocabulary above is `any`. The
   `locator` is NOT part of the key: a row decides a class, and a sibling merge
   that adds a column or a table does not invalidate it (SF-10, "exception list
   of decisions, not a snapshot").
 - `secret` and `token` canaries **cannot** have a `legit` row. The loader
   refuses such a row, and a test proves the refusal.
+- The loader also refuses (test per rule): a `legit` row for a personal kind
+  (`email`, `name`) on S1, S5 or S10 whose `part` is `any` or an `other_*`
+  value; a row whose `part` is outside the surface's vocabulary; and a row whose
+  reason text contains "never" / "only" / "authorised" (a constraint must be
+  carried by `part`, not by prose). So a canary in `audit_entries.action`, an
+  audit `resource_id`, or a 2xx body of an unauthorised caller is not excused by
+  any `*` row, and each of those has a seeded-leak case (§2.3).
+- The cross-tenant and unauthorised-read class (a foreign tenant's or another
+  scope node's datum in an answer) is owned by **G-01** (rules M4 and M6 of
+  `docs/security-probes/G-01.md`). G-04 plants and reads inside one tenant and
+  does not see a foreign datum; no G-04 row covers it, and E-01 must never be
+  widened to compensate.
 
 ### 3.2 Rules
 
@@ -242,18 +269,19 @@ id | type | canary_kind | surface | case | reason (one line) | decided by
 
 ### 3.3 The initial rows (reviewed here; T-2628 copies them)
 
-| id | type | canary_kind | surface | case | reason |
-|---|---|---|---|---|---|
-| E-01 | legit | email, name | S1 | * | the 2xx read of the record that owns the value, by a caller authorised to read it |
-| E-02 | legit | email, name | S10 | * | a start or completion variable is business data stored by design in the instance's events and returned by its own reads |
-| E-03 | legit | email, name | S5 | * | the audit `before_state`/`after_state` of the record whose field it is (the audit records what changed). Never `action`, `resource_id` or `trace_id` |
-| E-04 | legit | email, name | S7 | C-12 | a variable of an event the tenant subscribed to, in the payload sent to the tenant's own webhook endpoint |
-| E-05 | legit | email, name | S9 | C-14, C-15 | the recipient address in the adapter's `to`, and a template field rendered for that recipient |
-| E-06 | legit | email, name | S11 | C-20 | the tenant's own data export of its own records |
-| E-07 | legit | name | S8 | C-32 | the evidence line of the UAT step that created the named record. Never `email`: the T-2606 recipient rule stands |
-| E-08 | legit | header | S1, S5 | C-24 | the `User-Agent` stored in the problem report the user filed, and that report's audit row |
-| E-10 | legit | credential_url, header | S7 | C-10, C-11, C-13 | the outbound request to the host the credential or header was configured for (the 127.0.0.1 listener). Only that request, and only its `Authorization`/configured header, not its body |
-| B-01 | baseline | email | S4 | C-01 | L4: Ecto `:debug` logs the parameters of the registration insert. The fix (parameter redaction of logged statements, or `log: false` on those statements) is the T-2704/T-2734 finding. T-2628 records the row if that fix has not landed when it builds |
+| id | type | canary_kind | surface | case | part | reason |
+|---|---|---|---|---|---|---|
+| E-01 | legit | email, name | S1 | * | body_2xx_authorised | the 2xx read of the record that owns the value, by a caller the case declares authorised |
+| E-02 | legit | email, name | S10 | * | event_variables, read_answer | a start or completion variable is business data stored by design in the instance's events and returned by its own reads |
+| E-03 | legit | email, name | S5 | * | before_after_state | the audit `before_state`/`after_state` of the record whose field it is (the audit records what changed); `action`, `resource_id`, `trace_id` have no row |
+| E-04 | legit | email, name | S7 | C-12 | any | a variable of an event the tenant subscribed to, in the payload sent to the tenant's own webhook endpoint |
+| E-05 | legit | email, name | S9 | C-14, C-15 | any | the recipient address in the adapter's `to`, and a template field rendered for that recipient |
+| E-06 | legit | email, name | S11 | C-20 | any | the tenant's own data export of its own records |
+| E-07 | legit | name | S8 | C-32 | any | the evidence line of the UAT step that created the named record. Never `email`: the T-2606 recipient rule stands |
+| E-08 | legit | header | S1, S5 | C-24 | any | the `User-Agent` stored in the problem report the user filed, and that report's audit row |
+| E-09 | — | — | — | — | — | withdrawn before review (a duplicate of E-10); the id is not reused |
+| E-10 | legit | credential_url, header | S7 | C-10, C-11, C-13 | any | the outbound request to the host the credential or header was configured for (the 127.0.0.1 listener). Only that request, and only its `Authorization`/configured header, not its body |
+| B-01 | baseline | email | S4 | C-01 | any | L4: Ecto `:debug` logs the parameters of the registration insert. The fix (parameter redaction of logged statements, or `log: false` on those statements) is the T-2704/T-2734 finding. T-2628 records the row if that fix has not landed when it builds |
 
 T-2628 adds every further `baseline` row it finds on the first run on main,
 one per class, each reported in its findings (as G-05 recorded its baseline).
@@ -380,7 +408,7 @@ name is the build's.**
 | C-15 | I8, I1 | `Notifications.deliver_to_file/5` (notification file bytes) | name | E-05 |
 | C-16 | I2, I3 | outbound destination `POST /api/v1/outbound-destinations` with a percent- and double-encoded canary in the host/path, refused or stored | credential_url | none |
 | C-20 | I1, I11 | `POST /api/v1/data-export` after C-03 (xlsx via the zip step) | email, name | E-06 |
-| C-21 | I2, I12q | list routes with `?q=`/filter params holding the canary (instances, identity users) | email | none (a list answer may hold the C-03 record. Its hit is E-01) |
+| C-21 | I2, I12q | list routes with `?q=`/filter params holding the canary (instances, identity users) | email | none (a list answer may hold the C-03 record. Its hit is E-01 only when the case reads with an authorised caller; otherwise it fails) |
 | C-22 | I13, I2, I3 | `GET /api/v1/instances/<canary>` and `GET /api/v1/identity/users/<canary>` (malformed and well-formed-unknown ids) | name | none. 404/422 must not echo the id |
 | C-23 | I4 | a cursor that is the base64 of the canary; a bearer token whose payload segment is the base64 of the canary | token, name | none |
 | C-24 | I9 | every request of the file sends `User-Agent`, `X-Request-Id`, `traceparent`, `Idempotency-Key` canaries. A problem report is filed (`problem_reports`) | header | E-08 |
@@ -430,9 +458,11 @@ asserts only that the run directories exist.
 | `docs/security-probes/G-04.md` | the case table, the non-vacuity run, the mutation run, the measured costs, the baseline rows found, residual limits | — | — |
 
 The DB-backed files are `async: false` (one global log handler, a committed
-tenant). They carry the same tag set as
-`test/letflow/security_probe/g05_audit_row_schema_test.exs`. The build copies
-the tags from that file and does not invent new ones.
+tenant). The tag set is the one in the table above, per file: `@moduletag :security_probe`
+plus `@moduletag probe_cost_s: N` (and `:unit` where the table says so; `:unit`
+is an established tag on main). The donor for layout and for the committed-tenant
+setup is `test/letflow/security_probe/g05_audit_row_schema_test.exs`, but its tags
+(`probe_cost_s: 20`) are NOT copied: 20 exceeds the 12 s share.
 
 **Checks step.** `project/scripts/lf.sh` (team repository) runs
 `mix test --only security_probe` for every backend change, in its own
@@ -440,7 +470,17 @@ partition. Each probe file gets a share of the 300 s budget equal to
 `LF_PROBE_BUDGET_S / number of tagged files`. With 20 tagged files on main
 today and these 4 added, the share is 300/24 = 12 s. Every G-04 file is
 designed to stay at or under 10 s, so all four run in checks, adding about
-**30 s (half a minute)** to the probe set. If a file measures over its share
+**30 s (half a minute)** to the probe set.
+
+**Coverage move (stated, not a side effect).** Four more tagged files take the
+count from 20 to 24, so the share falls from 300/20 = 15 s to 300/24 = 12 s.
+`lf.sh` defers a probe whose declared cost is above the share to CI and the
+nightly job. Three probes declare exactly 15 s today:
+`g07_cursor_traversal_probe_test.exs`, `g08_uat_safety_equivalence_test.exs` and
+`g09_migration_impact_test.exs`. They would leave the local checks step. The
+build re-measures each (`Finished in`) and re-declares the measured cost; any
+that truly measures above 12 s stays deferred, and the build records that move
+as a finding in `G-04.md`. The build does not raise `PROBE_BUDGET_S`. If a file measures over its share
 on the build host, the build splits it by surface (for example S7 apart from
 S9). It does not raise `probe_cost_s` above the share, because lf.sh would
 then move the file to CI and nightly only. The build quotes the measured time
