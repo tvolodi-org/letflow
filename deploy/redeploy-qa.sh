@@ -43,6 +43,27 @@ git pull
 CURRENT_REF=$(git rev-parse --short HEAD)
 echo "Git ref: $CURRENT_REF"
 
+# 1b. Gate: the platform step runner must be switched on in BOTH host env files.
+#     The runner (T-2703) is the worker that runs a `platform_call` step; its only
+#     switch is LETFLOW_START_PLATFORM_STEP_RUNNER, read at boot by config/runtime.exs
+#     (exactly "true" turns it on). It has to be in $APP_DIR/qa.env (the file this
+#     script sources) AND in $APP_DIR/deploy/.env (the compose env_file: what the app
+#     container actually boots with) -- qa.env alone does not reach the container.
+#     The gate runs before the build and before the app container is recreated, so a
+#     deploy that would leave the runner off never reaches the running QA. With the
+#     runner off a pilot instance of a platform step STARTS and NEVER RUNS: it waits at
+#     the node with no error and no DLQ entry.
+#     See docs/runbooks/qa-platform-step-runner.md.
+GATE="$APP_DIR/deploy/lib/check_platform_step_runner.sh"
+if [[ ! -r "$GATE" ]]; then
+  echo "ERROR: $GATE is missing: the QA deploy stops before it rebuilds the app." >&2
+  exit 1
+fi
+if ! bash "$GATE" "$APP_DIR"; then
+  echo "ERROR: the QA deploy stops here: the platform step runner would be off on QA." >&2
+  exit 1
+fi
+
 # 2. Tag rollback image (best-effort -- ignore if it doesn't exist yet, e.g. first run)
 docker tag letflow-qa:latest "letflow-qa:rollback-${DATE}" 2>/dev/null || true
 
