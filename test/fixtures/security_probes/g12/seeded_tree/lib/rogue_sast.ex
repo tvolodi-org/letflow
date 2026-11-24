@@ -1,6 +1,6 @@
 defmodule SeededTree.RogueSast do
   @moduledoc """
-  The seeded failing case of the G-12 SAST half: one file with one violation of every rule the
+  The seeded failing case of the G-12 SAST half: one file with one violation of every rule, plus the aliased SQL form the
   scan applies. It is TEXT under test/fixtures/ -- never compiled, never run. The probe drives
   the scan over it and proves that every rule fires, so a scan that finds nothing cannot pass.
   """

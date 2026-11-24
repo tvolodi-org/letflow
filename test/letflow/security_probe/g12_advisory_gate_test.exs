@@ -218,6 +218,31 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
            "unaccepted SAST findings: #{inspect(Enum.map(verdict.blocking, fn {f, _} -> f.id end))}"
   end
 
+  test "G12: the SAST scan covers every file under both roots of the real tree" do
+    scanned = Gate.sast_scanned_files(@root)
+
+    # A second, independent walk of the disk (not the wildcard the gate uses).
+    on_disk = fn dir, ext ->
+      :filelib.fold_files(
+        String.to_charlist(Path.join(@root, dir)),
+        String.to_charlist(".*\\" <> ext <> "$"),
+        true,
+        fn f, acc -> [Path.relative_to(List.to_string(f), @root) | acc] end,
+        []
+      )
+    end
+
+    expected = Enum.sort(on_disk.("lib", ".ex") ++ on_disk.("priv/repo/migrations", ".exs"))
+
+    assert scanned != [], "the SAST scan reads no file at all"
+    assert Enum.any?(scanned, &String.starts_with?(&1, "lib/letflow/")), "lib/ is not scanned"
+
+    assert Enum.any?(scanned, &String.starts_with?(&1, "priv/repo/migrations/")),
+           "the tenant migrations are not scanned"
+
+    assert scanned == expected
+  end
+
   @tag :tmp_dir
   test "G12: the id of a finding does not move when the file grows above the site", %{
     tmp_dir: tmp

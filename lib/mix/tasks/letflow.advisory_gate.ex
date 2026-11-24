@@ -303,12 +303,26 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     root = Path.expand(root)
 
     findings =
-      [Path.join(root, "lib/**/*.ex"), Path.join(root, "priv/repo/migrations/**/*.exs")]
-      |> Enum.flat_map(&Path.wildcard/1)
-      |> Enum.flat_map(&scan_file(&1, root))
+      root
+      |> sast_scanned_files()
+      |> Enum.flat_map(&scan_file(Path.join(root, &1), root))
       |> Enum.sort_by(&{&1.file, &1.line, &1.rule})
 
     number_identical(findings)
+  end
+
+  @doc """
+  The files the SAST scan reads, relative to the ROOT and sorted: `lib/**/*.ex` and
+  `priv/repo/migrations/**/*.exs`. `sast_findings/1` scans exactly this list, so a probe that
+  compares it with the file set on disk catches a scan root that was narrowed.
+  """
+  def sast_scanned_files(root) do
+    root = Path.expand(root)
+
+    ["lib/**/*.ex", "priv/repo/migrations/**/*.exs"]
+    |> Enum.flat_map(&Path.wildcard(Path.join(root, &1)))
+    |> Enum.map(&Path.relative_to(&1, root))
+    |> Enum.sort()
   end
 
   # Two sites with the SAME call text in one file would share one id, and a third site with
