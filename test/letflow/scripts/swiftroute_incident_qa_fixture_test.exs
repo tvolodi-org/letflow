@@ -283,7 +283,9 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
             c
             |> String.split(~r/\r?\n/, trim: true)
             |> Enum.reject(&(&1 =~ "/outbound-destinations"))
-          _ -> []
+
+          _ ->
+            []
         end
 
       {calls, out}
