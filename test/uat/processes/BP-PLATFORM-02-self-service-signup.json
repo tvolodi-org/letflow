@@ -1,0 +1,85 @@
+{
+  "id": "BP-PLATFORM-02-self-service-signup",
+  "bp_entry": "BP-PLATFORM-02",
+  "title": "Self-service sign-up: a stranger asks for a workspace, with no manual or infra step",
+  "description": "The owner's acceptance scenario (T-2749, G10b, acceptance map item 11 'self-service demo tenant'). The runner calls the PUBLIC sign-up routes without a token (actor 'anonymous'), with a throwaway address in the mail trap (Mailpit) and a uat-tmp-* company name. Part 1 (this file, runs on today's build): S1 the sign-up is switched on and its config is public; S2 a request without accepted terms is refused 422 invalid_request naming terms_accepted; S3 a request with a malformed address is refused 422; S4 a good request is answered 202 check_your_mail; S5 the verification mail reaches the trap (wait_mail: the body and the token never reach the log). Part 2 (see later_steps) needs the sign-up fields slug, user name and password of T-2748 and the one-time provisioner wiring on QA: until they exist the scenario is RED with a named reason (sign-up not enabled, or provisioner not configured), which is the expected red and no defect. D-195: the scenario goes from the sign-up to a signed-in tenant admin with no step that waits for a human; a step that does is a defect and a red scenario, named in the verdict line. No qoimeks-qa or qoimeks-client1-qa tenant is touched. The verification link is opened by the SPA page, so the runner does not read the body of the mail.",
+  "later_steps": [
+    "L1: POST /api/signup with company name, user name, password and a desired slug (needs the fields of T-2748); 202 and the tenant URL",
+    "L2: the runner follows the verification and the provisioning with no human step; D-195: any wait for a human is RED",
+    "L3: sign in as the NEW tenant admin (token of the new realm, no secret in the log) and GET /api/v1/me answers 200 with the role TENANT_ADMIN",
+    "L4: refusals: slug taken 409/422, a reserved slug 422, the demo cap reached shown as a closed reason",
+    "L5: cleanup deactivates the tenant uat-tmp-<run_id> (purge only when T-2747 exists), then the tenant residue check; qoimeks-qa and qoimeks-client1-qa are never touched"
+  ],
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {},
+    "inputs": {}
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "S1",
+      "actor": "anonymous",
+      "says": "Anyone may read the public sign-up config: it is switched on and offers the three languages. If it answers 404 the sign-up is not enabled on this build: RED, reason 'sign-up not enabled'.",
+      "do": {"api": "GET", "path": "/api/signup/config"},
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.languages": {"contains": "en"}
+        }
+      }
+    },
+    {
+      "id": "S2",
+      "actor": "anonymous",
+      "says": "A request that does not accept the terms is refused 422 and names the field.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {"company_name": "uat-tmp-${run_id}", "email": "uat-tmp-${run_id}@example.test", "language": "en", "terms_accepted": false}
+      },
+      "expect_refused": {"status": 422, "code": "invalid_request"}
+    },
+    {
+      "id": "S3",
+      "actor": "anonymous",
+      "says": "A malformed address is refused 422.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {"company_name": "uat-tmp-${run_id}", "email": "not-an-address", "language": "en", "terms_accepted": true}
+      },
+      "expect_refused": {"status": 422, "code": "invalid_request"}
+    },
+    {
+      "id": "S4",
+      "actor": "anonymous",
+      "says": "A good request is answered 202 check_your_mail, whether or not the address is known.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {"company_name": "uat-tmp-${run_id}", "email": "uat-tmp-${run_id}@example.test", "language": "en", "terms_accepted": true}
+      },
+      "expect": {"status": 202, "json": {"$.status": "check_your_mail"}}
+    },
+    {
+      "id": "S5",
+      "actor": "anonymous",
+      "says": "The verification mail reaches the throwaway address in the mail trap, with no human step. Only recipient, subject and message id are read.",
+      "do": {
+        "wait_mail": {
+          "recipient": "uat-tmp-${run_id}@example.test",
+          "subject": "Confirm your e-mail address",
+          "within_s": 60,
+          "interval_s": 2
+        }
+      },
+      "expect": {"status": 200},
+      "requires": []
+    }
+  ],
+  "cleanup": []
+}

@@ -62,6 +62,8 @@ TOKEN_CMD_TIMEOUT_S = 60
 INBOX_PAGES_MAX = 10
 RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
+# A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
+ANONYMOUS_ACTOR = "anonymous"
 DO_KINDS = ("api", "wait_task", "wait_mail", "assert_only", "repeat", "parallel")
 # The mail trap (Mailpit) a wait_mail step reads: the address of the trap, how long a search may take and
 # how many messages of the search answer are looked at (G18).
@@ -804,6 +806,9 @@ class Runner:
                 raise RunnerError(f"http_as {http_as}: --old-base-url is not set")
             hdrs["Authorization"] = "Bearer " + value
             return http_call(method, self.old_base_url + path, hdrs, body)
+        if role == ANONYMOUS_ACTOR:
+            # The public routes (the sign-up): no token, no Authorization header, the address of the run.
+            return http_call(method, self.base_url + path, hdrs, body)
         base = self.actor_base(role)
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
         result = http_call(method, base + path, hdrs, body)
@@ -845,6 +850,7 @@ class Runner:
                 for call in calls:
                     if call.get("actor") and not call.get("http_as"):
                         roles.add(call["actor"])
+        roles.discard(ANONYMOUS_ACTOR)  # the anonymous caller has no user and no token
         return sorted(roles)
 
     # -- preflight ----------------------------------------------------------------------------

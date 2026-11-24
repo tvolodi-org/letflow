@@ -203,6 +203,11 @@ residue section at the end of this file.
 The same object may be given on the command line as one JSON map:
 `--actors '{"admin": "adm", "platform-admin": {"user": "admin-user", "tenant": "bpm-default"}}'`.
 
+### The anonymous caller (public routes)
+
+A step with `"actor": "anonymous"` sends no `Authorization` header and needs no user, no roster entry and no
+`dry_run.actors` row; it goes to the address of the run. It is for the public routes (`/api/signup`, T-2749).
+
 ### Do and do not
 
 * One file = one business process, from the first action to the check of the result. Name an input for every id the
