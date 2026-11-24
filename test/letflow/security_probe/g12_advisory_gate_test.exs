@@ -48,7 +48,7 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
 
   defp entry(allow, id), do: Enum.filter(allow, &(&1.id == id))
 
-  defp advisory(advisories, id), do: Enum.find(advisories, &(&1.id == id))
+  defp find_advisory(advisories, id), do: Enum.find(advisories, &(&1.id == id))
 
   test "G12: the seeded vulnerable dependency makes the gate fail", ctx do
     verdict = Gate.evaluate(ctx.advisories, [], ctx.packages)
@@ -62,7 +62,7 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
   end
 
   test "G12: a low severity advisory does not block the gate", ctx do
-    low = [advisory(ctx.advisories, "GHSA-0000-seeded-low")]
+    low = [find_advisory(ctx.advisories, "GHSA-0000-seeded-low")]
     verdict = Gate.evaluate(low, [], ctx.packages)
 
     assert verdict.status == :pass
@@ -71,7 +71,7 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
   end
 
   test "G12: an advisory on a test-only dependency is out of scope", ctx do
-    dev = [advisory(ctx.advisories, "GHSA-0000-seeded-dev")]
+    dev = [find_advisory(ctx.advisories, "GHSA-0000-seeded-dev")]
     verdict = Gate.evaluate(dev, [], ctx.packages)
 
     assert verdict.status == :pass
@@ -295,5 +295,216 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
     output = capture_io(fn -> Gate.run(["--sast-only", "--root", tmp]) end)
 
     assert output =~ "sast scan: PASS"
+  end
+
+  # ── the sources ───────────────────────────────────────────────────────────────────────────────
+  #
+  # The cases above drive the DECISION with a recorded feed. These drive the SOURCES: each
+  # collector is handed the answer its real tool produced, and the advisory it reads out of
+  # it is checked. A probe that never reaches a collector proves the decision function and
+  # nothing else -- which is how a collector that cannot read a single advisory of its
+  # source can pass.
+
+  defp fixture(name), do: File.read!(Path.join(@seeded_tree, name))
+
+  defp hex_audit(output, status),
+    do: fn _root -> {output, status} end
+
+  defp npm_audit(output, status),
+    do: fn _web -> {output, status} end
+
+  defp osv_http do
+    fn
+      {:post, ~c"https://api.osv.dev/v1/querybatch", _body} ->
+        {200, fixture("osv_querybatch.json")}
+
+      {:post, ~c"https://api.osv.dev/v1/query", _body} ->
+        {200, fixture("osv_query_answer.json")}
+    end
+  end
+
+  test "G12: the hex collector reads the advisory out of the recorded hex audit report" do
+    packages = Gate.production_packages(@seeded_tree)
+    output = fixture("hex_audit_sarif.json")
+
+    advisories = Gate.collect_hex(@seeded_tree, packages, hex_audit: hex_audit(output, 1))
+
+    assert [hex_adv] = advisories
+    assert hex_adv.id == "EEF-CVE-2026-120287"
+    assert hex_adv.ecosystem == :hex
+    assert hex_adv.package == "plug"
+    assert hex_adv.version == "1.20.3"
+
+    # The severity is the CVSS score of the SARIF rule, mapped onto the CVSS bands:
+    # 5.5 is a MEDIUM advisory.
+    assert hex_adv.severity == "medium"
+
+    # The aliases of the advisory may name it in the allow-list.
+    assert "CVE-2026-120287" in hex_adv.aliases
+    assert "GHSA-qj4r-jh2r-rw3f" in hex_adv.aliases
+  end
+
+  test "G12: the hex collector reports nothing on a clean hex audit report" do
+    packages = Gate.production_packages(@seeded_tree)
+
+    clean = ~s({"runs": [{"results": [], "tool": {"driver": {"rules": []}}}], "version": "2.1.0"})
+
+    assert Gate.collect_hex(@seeded_tree, packages, hex_audit: hex_audit(clean, 0)) == []
+  end
+
+  test "G12: the hex collector fails closed on an answer it cannot read" do
+    packages = Gate.production_packages(@seeded_tree)
+
+    assert_raise RuntimeError, ~r/the hex advisory source could not be read/, fn ->
+      Gate.collect_hex(@seeded_tree, packages, hex_audit: hex_audit("not a report", 1))
+    end
+  end
+
+  test "G12: the npm collector reads the advisory out of the recorded npm audit report" do
+    packages = Gate.production_packages(@seeded_tree)
+    output = fixture("npm_audit.json")
+
+    advisories = Gate.collect_npm(@seeded_tree, packages, npm_audit: npm_audit(output, 1))
+
+    assert advisories != []
+    assert Enum.all?(advisories, &(&1.ecosystem == :npm))
+    assert Enum.all?(advisories, &(&1.package == "lodash"))
+
+    # The id is the GHSA id of the advisory and NOT npm's numeric source row: an
+    # allow-list entry has to be writable by a human, and the report has to name the
+    # advisory the operator can look up.
+    ids = Enum.map(advisories, & &1.id)
+    assert "GHSA-35jh-r3h4-6jhm" in ids
+    refute Enum.any?(ids, &(&1 == "1106913"))
+
+    # The version is the INSTALLED version, not the vulnerable range npm prints.
+    assert Enum.all?(advisories, &(&1.version == "4.17.20"))
+  end
+
+  test "G12: the npm collector reports nothing on a clean npm audit report" do
+    packages = Gate.production_packages(@seeded_tree)
+
+    clean = ~s({"auditReportVersion": 2, "vulnerabilities": {}})
+
+    assert Gate.collect_npm(@seeded_tree, packages, npm_audit: npm_audit(clean, 0)) == []
+  end
+
+  test "G12: the pub collector survives the OSV answer of a package without an advisory" do
+    packages = Gate.production_packages(@seeded_tree)
+
+    # The recorded answer holds an advisory for `dio` and an EMPTY MAP for `http`: OSV
+    # answers {} for a package that has no advisory. A parser that expects "vulns" in
+    # every result crashes on the answer of a clean tree.
+    advisories = Gate.collect_pub(@seeded_tree, packages, http: osv_http())
+
+    assert [pub_adv] = advisories
+    assert pub_adv.package == "dio"
+    assert pub_adv.id == "GHSA-9324-jv53-9cc8"
+    assert pub_adv.ecosystem == :pub
+    assert pub_adv.version == "4.0.0"
+    assert pub_adv.severity == "high"
+    assert "CVE-2021-31402" in pub_adv.aliases
+  end
+
+  test "G12: the pub collector reports nothing when OSV answers no advisory at all" do
+    packages = Gate.production_packages(@seeded_tree)
+
+    empty = fn
+      {:post, ~c"https://api.osv.dev/v1/querybatch", _body} -> {200, ~s({"results": [{}, {}]})}
+      {:post, ~c"https://api.osv.dev/v1/query", _body} -> {200, ~s({"vulns": []})}
+    end
+
+    assert Gate.collect_pub(@seeded_tree, packages, http: empty) == []
+  end
+
+  test "G12: a dated allow-list entry accepts a live hex advisory" do
+    packages = Gate.production_packages(@seeded_tree)
+    output = fixture("hex_audit_sarif.json")
+
+    advisories = Gate.collect_hex(@seeded_tree, packages, hex_audit: hex_audit(output, 1))
+
+    allow = [
+      %{
+        id: "EEF-CVE-2026-120287",
+        package: "plug",
+        reason: "Seeded case: a live exception with a date in the future.",
+        owner: "team",
+        expires: "2099-01-01"
+      }
+    ]
+
+    verdict = Gate.evaluate(advisories, allow, packages, today: ~D[2026-01-01])
+
+    assert verdict.status == :pass
+    assert verdict.blocking == []
+    assert [{_advisory, entry}] = verdict.accepted
+    assert entry.owner == "team"
+  end
+
+  test "G12: a dated allow-list entry accepts a live npm advisory" do
+    packages = Gate.production_packages(@seeded_tree)
+    output = fixture("npm_audit.json")
+
+    advisories = Gate.collect_npm(@seeded_tree, packages, npm_audit: npm_audit(output, 1))
+
+    # The recorded report names four advisories of the same package; the entry accepts
+    # the one it names.
+    advisory = Enum.find(advisories, &(&1.id == "GHSA-35jh-r3h4-6jhm"))
+    assert advisory != nil, "the collector did not read the GHSA id out of the report"
+
+    allow = [
+      %{
+        id: "GHSA-35jh-r3h4-6jhm",
+        package: "lodash",
+        reason: "Seeded case: a live exception with a date in the future.",
+        owner: "team",
+        expires: "2099-01-01"
+      }
+    ]
+
+    verdict = Gate.evaluate([advisory], allow, packages, today: ~D[2026-01-01])
+
+    assert verdict.status == :pass
+    assert verdict.blocking == []
+    assert [{_advisory, entry}] = verdict.accepted
+  end
+
+  test "G12: a live npm advisory without an entry blocks the gate" do
+    packages = Gate.production_packages(@seeded_tree)
+    output = fixture("npm_audit.json")
+
+    advisories = Gate.collect_npm(@seeded_tree, packages, npm_audit: npm_audit(output, 1))
+
+    verdict = Gate.evaluate(advisories, [], packages, today: ~D[2026-01-01])
+
+    assert verdict.status == :fail
+    assert length(verdict.blocking) == 4
+    refute Enum.any?(verdict.blocking, fn {_adv, _why} -> false end)
+  end
+
+  test "G12: an expired allow-list entry fails the gate on the date the decision is given" do
+    allow = [
+      %{
+        id: "EEF-CVE-2026-120287",
+        package: "plug",
+        reason: "Seeded case: an exception nobody re-reviewed.",
+        owner: "team",
+        expires: "2026-06-30"
+      }
+    ]
+
+    packages = Gate.production_packages(@seeded_tree)
+
+    advisories =
+      Gate.collect_hex(@seeded_tree, packages,
+        hex_audit: hex_audit(fixture("hex_audit_sarif.json"), 1)
+      )
+
+    live = Gate.evaluate(advisories, allow, packages, today: ~D[2026-06-29])
+    lapsed = Gate.evaluate(advisories, allow, packages, today: ~D[2026-07-01])
+
+    assert live.status == :pass
+    assert lapsed.status == :fail
+    assert [{_entry, :expired}] = lapsed.expired
   end
 end

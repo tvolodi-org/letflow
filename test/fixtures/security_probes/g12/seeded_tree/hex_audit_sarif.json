@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "automationDetails": {
+        "description": {
+          "text": "Hex dependency audit (mix hex.audit)"
+        },
+        "id": "hex-audit/"
+      },
+      "originalUriBaseIds": {
+        "SRCROOT": {
+          "uri": "file:///seeded-tree/"
+        }
+      },
+      "results": [
+        {
+          "level": "warning",
+          "locations": [],
+          "message": {
+            "arguments": [
+              "plug",
+              "1.20.3",
+              "EEF-CVE-2026-120287 (aka CVE-2026-120287, GHSA-qj4r-jh2r-rw3f)",
+              "Multipart `:length` limit not charged for part and header framing in Plug.Parsers.MULTIPART",
+              "https://osv.dev/vulnerability/EEF-CVE-2026-120287"
+            ],
+            "id": "default",
+            "text": "Dependency 'plug' '1.20.3' is affected by security advisory 'EEF-CVE-2026-120287 (aka CVE-2026-120287, GHSA-qj4r-jh2r-rw3f)': 'Multipart `:length` limit not charged for part and header framing in Plug.Parsers.MULTIPART'. See 'https://osv.dev/vulnerability/EEF-CVE-2026-120287'."
+          },
+          "partialFingerprints": {
+            "hexAudit/v1": "advisory:hexpm/plug:EEF-CVE-2026-120287"
+          },
+          "ruleId": "EEF-CVE-2026-120287",
+          "ruleIndex": 0
+        }
+      ],
+      "tool": {
+        "driver": {
+          "fullName": "mix hex.audit (Hex 2.6.0)",
+          "informationUri": "https://hex.pm",
+          "name": "mix hex.audit",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Multipart `:length` limit not charged for part and header framing in Plug.Parsers.MULTIPART. See https://osv.dev/vulnerability/EEF-CVE-2026-120287 for more information."
+              },
+              "help": {
+                "markdown": "See [EEF-CVE-2026-120287](https://osv.dev/vulnerability/EEF-CVE-2026-120287) for details. Update the affected dependency to a version that is not affected by EEF-CVE-2026-120287. An advisory that does not affect the project can be acknowledged by adding its id to the `ignore_advisories` list in the :hex section of mix.exs.",
+                "text": "Update the affected dependency to a version that is not affected by EEF-CVE-2026-120287. An advisory that does not affect the project can be acknowledged by adding its id to the ignore_advisories list in the :hex section of mix.exs."
+              },
+              "helpUri": "https://osv.dev/vulnerability/EEF-CVE-2026-120287",
+              "id": "EEF-CVE-2026-120287",
+              "messageStrings": {
+                "default": {
+                  "text": "Dependency '{0}' '{1}' is affected by security advisory '{2}': '{3}'. See '{4}'."
+                }
+              },
+              "name": "EefCve2026120287",
+              "properties": {
+                "security-severity": "5.5",
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "Multipart `:length` limit not charged for part and header framing in Plug.Parsers.MULTIPART"
+              }
+            }
+          ],
+          "version": "2.6.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

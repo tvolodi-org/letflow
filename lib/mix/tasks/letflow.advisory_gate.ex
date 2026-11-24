@@ -14,12 +14,16 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
 
   This task is the gate. It has two halves that share one decision function:
 
-  * the **advisory half** reads the three real advisory sources (Hex via `mix hex.audit`, npm via
-    `npm audit --omit=dev`, Dart via the OSV `Pub` ecosystem), keeps the advisories that hit a
-    **production** dependency at **medium** severity or above, and fails unless every one of them
-    is covered by an entry of `priv/security/advisory-allow.json` that has not expired;
-  * the **SAST half** scans `lib/` with the rules of `sast_findings/1` and fails on a finding that
-    `priv/security/sast-allow.json` does not accept.
+  * the **advisory half** reads the three real advisory sources (Hex via `mix hex.audit --format
+    sarif`, npm via `npm audit --omit=dev`, Dart via the OSV `Pub` ecosystem), keeps the advisories
+    that hit a **production** dependency at **medium** severity or above, and fails unless every one
+    of them is covered by an entry of `priv/security/advisory-allow.json` that has not expired;
+  * the **SAST half** scans `lib/` and the migrations with the rules of `sast_findings/1` and fails
+    on a finding that `priv/security/sast-allow.json` does not accept.
+
+  Every source is read through a function that can be replaced by a recorded answer
+  (`collect_hex/3`, `collect_npm/3`, `collect_pub/3`), so the probe can drive the SOURCE with the
+  answer the real tool produced, and not only the decision that reads its result.
 
   The two lists are the same shape on purpose: `id`, `package`, `reason`, `owner`, `expires`. An
   expired entry fails the gate (an exception must be re-reviewed, not inherited); an entry for an
@@ -136,11 +140,16 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   # ── the decision function (pure) ───────────────────────────────────────────────
 
   @doc """
-  The advisory decision. Pure: no file, no network, no clock.
+  The advisory decision. Pure: no file, no network.
 
-  `advisories` is a list of maps with the keys `:id`, `:ecosystem` (`:hex`, `:npm` or `:pub`),
-  `:package`, `:version`, `:severity` and `:title`. `allow_entries` is the list the allow-list
-  file carries. `packages` is the production inventory from `production_packages/1`.
+  The clock enters through `opts[:today]` (a `Date`; the default is `Date.utc_today()`):
+  the expiry of an allow-list entry is what makes an un-re-reviewed exception visible, and
+  a decision that cannot be replayed cannot be tested.
+
+  `advisories` is a list of maps with the keys `:id`, `:aliases`, `:ecosystem` (`:hex`,
+  `:npm` or `:pub`), `:package`, `:version`, `:severity` and `:title`. `allow_entries` is the
+  list the allow-list file carries. `packages` is the production inventory from
+  `production_packages/1`.
 
   Returns a map with `:status` (`:pass` or `:fail`), the `:blocking` findings, the `:accepted`
   findings (covered by a live allow-list entry), the `:expired` entries, the `:stale` entries
@@ -150,6 +159,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   def evaluate(advisories, allow_entries, packages, opts \\ []) do
     threshold = opts[:threshold] || opts[:severity] || @default_severity
     threshold_rank = Map.get(@severity_rank, String.downcase(to_string(threshold)), 2)
+    today = opts[:today] || Date.utc_today()
 
     {blocking, accepted, informational} =
       Enum.reduce(advisories, {[], [], []}, fn advisory, {b, a, i} ->
@@ -161,7 +171,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
             {b, a, [{:below_threshold, advisory} | i]}
 
           true ->
-            case live_entry(allow_entries, advisory) do
+            case live_entry(allow_entries, advisory, today) do
               {:ok, entry} -> {b, [{advisory, entry} | a], i}
               :expired -> {[{advisory, :expired} | b], a, i}
               :none -> {[{advisory, :not_accepted} | b], a, i}
@@ -173,12 +183,12 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     # that nobody re-reviewed must not sit in the tree forever.
     expired =
       allow_entries
-      |> Enum.filter(&expired?/1)
+      |> Enum.filter(&expired?(&1, today))
       |> Enum.map(&{&1, :expired})
 
     stale =
       allow_entries
-      |> Enum.reject(&expired?/1)
+      |> Enum.reject(&expired?(&1, today))
       |> Enum.filter(fn entry -> not Enum.any?(advisories, &entry_covers?(entry, &1)) end)
       |> Enum.map(&{&1, :stale})
 
@@ -261,12 +271,15 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   Collects the advisories of the three real sources. Network: hex.pm, the npm registry and
   osv.dev. A source that cannot be read raises: the gate fails closed rather than passes a
   tree it could not audit.
+
+  `opts` may replace a source with a recorded answer (`:hex_audit`, `:npm_audit`,
+  `:http`); see the collectors.
   """
-  def collect_advisories(root, packages) do
+  def collect_advisories(root, packages, opts \\ []) do
     Enum.concat([
-      collect_hex(root, packages),
-      collect_npm(root, packages),
-      collect_pub(root, packages)
+      collect_hex(root, packages, opts),
+      collect_npm(root, packages, opts),
+      collect_pub(root, packages, opts)
     ])
   end
 
@@ -275,6 +288,11 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   @doc """
   The SAST rules over the Elixir tree. The rules are the Sobelow checks that apply to this
   codebase (the parity table is in `docs/security-probes/G-12.md`).
+
+  The scan covers the library (`lib/**/*.ex`) AND the migrations
+  (`priv/repo/migrations/**/*.exs`): INV-7 names "every migration and any hand-written
+  analytics query" next to the queries of the library, and a migration that interpolates
+  a value is the same finding as a library module that does.
 
   The file of a finding is relative to the scanned ROOT, never to the working directory: a
   scan of the same tree must produce the same findings from any working directory.
@@ -285,9 +303,8 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     root = Path.expand(root)
 
     findings =
-      root
-      |> Path.join("lib/**/*.ex")
-      |> Path.wildcard()
+      [Path.join(root, "lib/**/*.ex"), Path.join(root, "priv/repo/migrations/**/*.exs")]
+      |> Enum.flat_map(&Path.wildcard/1)
       |> Enum.flat_map(&scan_file(&1, root))
       |> Enum.sort_by(&{&1.file, &1.line, &1.rule})
 
@@ -314,10 +331,12 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   The SAST decision. Pure: findings, allow-list entries and the threshold-free "accepted" set.
   An expired entry fails the gate; an entry for a finding that no longer exists is reported.
   """
-  def evaluate_sast(findings, allow_entries) do
+  def evaluate_sast(findings, allow_entries, opts \\ []) do
+    today = opts[:today] || Date.utc_today()
+
     {blocking, accepted} =
       Enum.reduce(findings, {[], []}, fn finding, {b, a} ->
-        case live_entry(allow_entries, finding) do
+        case live_entry(allow_entries, finding, today) do
           {:ok, entry} -> {b, [{finding, entry} | a]}
           :expired -> {[{finding, :expired} | b], a}
           :none -> {[{finding, :not_accepted} | b], a}
@@ -326,12 +345,12 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
 
     expired =
       allow_entries
-      |> Enum.filter(&expired?/1)
+      |> Enum.filter(&expired?(&1, today))
       |> Enum.map(&{&1, :expired})
 
     stale =
       allow_entries
-      |> Enum.reject(&expired?/1)
+      |> Enum.reject(&expired?(&1, today))
       |> Enum.filter(fn entry -> not Enum.any?(findings, &entry_covers?(entry, &1)) end)
       |> Enum.map(&{&1, :stale})
 
@@ -425,170 +444,344 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   defp json_safe_value(value), do: value
 
   # ── the collectors ─────────────────────────────────────────────────────────────
+  #
+  # Every collector takes its SOURCE from an injected function, so that the probe can
+  # drive the source with a RECORDED answer and the source itself is tested, not only the
+  # decision that reads its result:
+  #
+  #   * `:hex_audit` -- fn root -> {output, exit_status}   (the default runs `mix hex.audit`)
+  #   * `:npm_audit` -- fn web_dir -> {output, exit_status} (the default runs `npm audit`)
+  #   * `:http`      -- fn {method, url, body} -> {status, body} (the default is `query_osv/1`)
+  #
+  # A collector that cannot read its source RAISES: the gate fails closed rather than
+  # passes a tree it could not audit.
 
-  defp collect_hex(root, packages) do
+  @doc """
+  The advisories of the HEX source (`mix hex.audit --format sarif`).
+
+  `opts[:hex_audit]` replaces the command with a recorded answer: `fn root -> {output,
+  exit_status} end`.
+  """
+  def collect_hex(root, packages, opts \\ []) do
     case packages.hex do
       empty when empty == %{} ->
         []
 
       _ ->
-        {out, 0} =
-          System.cmd("mix", ["hex.audit"], cd: root, stderr_to_stdout: true)
-
-        out
-        |> String.split("\n")
-        |> Enum.chunk_by(&block_line?/1)
-        |> Enum.filter(fn lines -> block_line?(hd(lines)) end)
-        |> Enum.flat_map(&parse_hex_block/1)
+        runner = opts[:hex_audit] || (&run_hex_audit/1)
+        {out, status} = runner.(root)
+        parse_hex_sarif(out, status)
     end
   end
 
-  defp block_line?(line), do: String.starts_with?(line, "==> ")
+  # `mix hex.audit` exits 0 on a clean tree and 1 when it found an advisory: the
+  # non-zero exit IS the finding, so the answer is read whatever the status is. The
+  # machine-readable SARIF report is asked for explicitly -- the human report is prose,
+  # and a parser of prose silently finds nothing when the prose changes.
+  defp run_hex_audit(root) do
+    # stderr is NOT folded into stdout: the SARIF report is JSON, and one line of hex's
+    # own summary in the middle of it would make the report unreadable.
+    System.cmd("mix", ["hex.audit", "--format", "sarif"], cd: root)
+  end
 
-  defp parse_hex_block(lines) do
-    header = hd(lines)
+  defp parse_hex_sarif(out, status) do
+    case Jason.decode(out) do
+      {:ok, %{"runs" => runs}} when is_list(runs) ->
+        rules = hex_rules(runs)
 
-    case Regex.run(~r/^==>\s+(\S+)\s+\(([^)]+)\)/, header) do
-      [_, package, version] ->
-        body = Enum.join(lines, "\n")
+        runs
+        |> Enum.flat_map(fn run -> hex_results(run, rules) end)
 
-        case advisory_id(body) do
-          nil ->
-            # A retired package is not an advisory: it is reported, never blocking.
-            []
+      {:ok, _other} ->
+        raise "the hex advisory source answered something that is not a SARIF report"
 
-          id ->
-            [
-              %{
-                id: id,
-                ecosystem: :hex,
-                package: package,
-                version: version,
-                severity: hex_severity(body),
-                title: String.trim(body)
-              }
-            ]
-        end
+      {:error, reason} ->
+        raise "the hex advisory source could not be read (mix hex.audit exited #{status}): #{inspect(reason)}"
+    end
+  end
+
+  defp hex_rules(runs) do
+    rules =
+      runs
+      |> Enum.flat_map(fn run -> get_in(run, ["tool", "driver", "rules"]) || [] end)
+      |> Enum.filter(&is_map/1)
+
+    Map.new(rules, fn rule -> {rule["id"], rule} end)
+  end
+
+  # Only a result whose fingerprint says "advisory" is a security finding. A retired
+  # package is a maintenance notice, not a vulnerability: it is never blocking.
+  defp hex_results(run, rules) do
+    run
+    |> Map.get("results", [])
+    |> Enum.filter(&is_map/1)
+    |> Enum.filter(fn result -> String.starts_with?(hex_fingerprint(result), "advisory:") end)
+    |> Enum.map(fn result -> hex_advisory(result, rules) end)
+  end
+
+  defp hex_fingerprint(result) do
+    get_in(result, ["partialFingerprints", "hexAudit/v1"]) || ""
+  end
+
+  # The SARIF result names the advisory in three places, and every one of them is used:
+  # the fingerprint ("advisory:hexpm/plug:EEF-CVE-2026-120287") names the package and the
+  # id, the message arguments name the version, the aliases and the title, and the rule
+  # table carries the severity.
+  defp hex_advisory(result, rules) do
+    fingerprint = hex_fingerprint(result)
+    arguments = get_in(result, ["message", "arguments"]) || []
+
+    {package, id} =
+      case Regex.run(~r{\Aadvisory:[^/]+/([^:]+):(.+)\z}, fingerprint) do
+        [_full, package, id] -> {package, id}
+        _ -> {Enum.at(arguments, 0) || "", result["ruleId"] || ""}
+      end
+
+    %{
+      id: id,
+      aliases: hex_aliases(Enum.at(arguments, 2), id),
+      ecosystem: :hex,
+      package: package,
+      version: Enum.at(arguments, 1) || "",
+      severity: hex_severity(result, rules),
+      title: Enum.at(arguments, 3) || ""
+    }
+  end
+
+  # The aliases of a Hex advisory: the report names them as "EEF-CVE-2026-120287 (aka
+  # CVE-2026-120287, GHSA-qj4r-jh2r-rw3f)". An allow-list entry may name the advisory by
+  # any of them.
+  defp hex_aliases(nil, _id), do: []
+
+  defp hex_aliases(text, id) when is_binary(text) do
+    case Regex.run(~r/\(aka\s+(.+)\)\s*\z/, text) do
+      [_full, list] ->
+        list
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "" or &1 == id))
 
       _ ->
         []
     end
   end
 
-  defp advisory_id(body) do
-    Regex.run(~r/Advisory:\s*(\S+)/, body) ||
-      Regex.run(~r/\b((?:CVE|EEF-CVE|GHSA|OSV)-[0-9A-Za-z\-]+)/, body) ||
-      Regex.run(~r/\(([A-Z]{2,4}-[A-Z]{2,4}-\d{4}-\d+)\)/, body)
-  end
+  # The severity of a Hex advisory is the CVSS score the SARIF rule carries
+  # (`properties.security-severity`), mapped onto the CVSS v3 qualitative bands. A score
+  # that is missing or unreadable is HIGH: the gate must not pass a finding it could not
+  # classify.
+  defp hex_severity(result, rules) do
+    score =
+      result["ruleId"]
+      |> then(&Map.get(rules, &1))
+      |> case do
+        rule when is_map(rule) -> get_in(rule, ["properties", "security-severity"])
+        _ -> nil
+      end
 
-  defp hex_severity(body) do
-    cond do
-      Regex.match?(~r/\bcritical\b/i, body) -> "critical"
-      Regex.match?(~r/\bhigh\b/i, body) -> "high"
-      Regex.match?(~r/\b(medium|moderate)\b/i, body) -> "medium"
-      Regex.match?(~r/\blow\b/i, body) -> "low"
-      # An advisory without a stated severity blocks: the gate must not pass a finding it
-      # could not classify.
-      true -> "high"
+    case score do
+      score when is_binary(score) -> cvss_band(score)
+      _ -> "high"
     end
   end
 
-  defp collect_npm(root, packages) do
+  defp cvss_band(score) do
+    case Float.parse(score) do
+      {value, _rest} when value >= 9.0 -> "critical"
+      {value, _rest} when value >= 7.0 -> "high"
+      {value, _rest} when value >= 4.0 -> "medium"
+      {_value, _rest} -> "low"
+      :error -> "high"
+    end
+  end
+
+  @doc """
+  The advisories of the NPM source (`npm audit --omit=dev --json`).
+
+  `opts[:npm_audit]` replaces the command with a recorded answer: `fn web_dir -> {output,
+  exit_status} end`.
+  """
+  def collect_npm(root, packages, opts \\ []) do
     web = Path.join(root, "web")
 
     if packages.npm == %{} or not File.dir?(web) do
       []
     else
-      {out, 0} =
-        System.cmd("npm", ["audit", "--omit=dev", "--json"], cd: web, stderr_to_stdout: true)
-
-      out
-      |> Jason.decode()
-      |> case do
-        {:ok, %{"vulnerabilities" => vulns}} when is_map(vulns) ->
-          vulns
-          |> Enum.flat_map(fn {package, vuln} ->
-            vias = vuln["via"] || []
-
-            vias
-            |> Enum.filter(&is_map/1)
-            |> Enum.map(fn via ->
-              %{
-                id: via["source"] || via["url"] || "#{package}:#{via["title"]}",
-                ecosystem: :npm,
-                package: package,
-                version: vuln["range"] || "",
-                severity: npm_severity(via["severity"] || vuln["severity"]),
-                title: via["title"] || ""
-              }
-            end)
-          end)
-
-        _ ->
-          []
-      end
+      runner = opts[:npm_audit] || (&run_npm_audit/1)
+      {out, status} = runner.(web)
+      parse_npm_audit(out, status, packages)
     end
   end
 
-  defp npm_severity(severity) when is_binary(severity) do
-    case String.downcase(severity) do
-      "critical" -> "critical"
-      "high" -> "high"
-      "moderate" -> "medium"
-      "low" -> "low"
-      other -> other
+  # `npm audit` exits 0 when the tree is clean and 1 when it found a vulnerability: the
+  # non-zero exit IS the finding, so the report is read whatever the status is.
+  defp run_npm_audit(web) do
+    System.cmd("npm", ["audit", "--omit=dev", "--json"], cd: web)
+  end
+
+  defp parse_npm_audit(out, status, packages) do
+    case Jason.decode(out) do
+      {:ok, %{"vulnerabilities" => vulns}} when is_map(vulns) ->
+        vulns
+        |> Enum.flat_map(fn {package, vuln} -> npm_advisories(package, vuln, packages) end)
+
+      {:ok, _other} ->
+        raise "the npm advisory source answered something that is not an audit report"
+
+      {:error, reason} ->
+        raise "the npm advisory source could not be read (npm audit exited #{status}): #{inspect(reason)}"
     end
   end
 
-  defp npm_severity(_), do: "high"
+  # A `via` entry that is a STRING names another package that depends on the vulnerable
+  # one; only the map entries are advisories of their own.
+  defp npm_advisories(package, vuln, packages) do
+    vias = if is_map(vuln), do: vuln["via"] || [], else: []
+    version = Map.get(Map.get(packages, :npm, %{}), package, "")
+
+    vias
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn via ->
+      %{
+        id: npm_advisory_id(via, package),
+        aliases: [],
+        ecosystem: :npm,
+        package: package,
+        version: version,
+        severity: normalise_band(via["severity"] || (is_map(vuln) && vuln["severity"])),
+        title: via["title"] || ""
+      }
+    end)
+  end
+
+  # The id of an npm advisory is the GHSA id its URL carries. npm also prints a numeric
+  # `source`, which is a database row number and NOT an id: an allow-list entry that names
+  # it can never be written by a human, and the report would print a number the operator
+  # cannot look up.
+  defp npm_advisory_id(via, package) do
+    url = via["url"] || ""
+
+    case Regex.run(~r{/(GHSA-[0-9a-zA-Z\-]+)}, url) do
+      [_full, id] -> id
+      _ -> to_string(via["source"] || "#{package}:#{via["title"]}")
+    end
+  end
 
   # Dart has no `pub audit`; the real advisory source for the Pub ecosystem is OSV
   # (osv.dev), which the Dart team and the GitHub Advisory Database both publish into.
-  defp collect_pub(_root, packages) do
+  @doc """
+  The advisories of the DART source (the OSV `Pub` ecosystem).
+
+  `opts[:http]` replaces the outbound request with a recorded answer: `fn {method, url,
+  body} -> {status, body} end`.
+  """
+  def collect_pub(_root, packages, opts \\ []) do
     case packages.pub do
       empty when empty == %{} ->
         []
 
       _ ->
+        http = opts[:http] || (&query_osv/1)
+
+        queries =
+          packages.pub
+          |> Enum.sort()
+          |> Enum.map(fn {package, version} ->
+            %{
+              package: %{"name" => package, "ecosystem" => "Pub"},
+              version: version
+            }
+          end)
+
+        {status, body} =
+          http.(
+            {:post, ~c"https://api.osv.dev/v1/querybatch", Jason.encode!(%{queries: queries})}
+          )
+
+        if status != 200 do
+          raise "the OSV advisory source answered #{status}"
+        end
+
         packages.pub
-        |> Enum.map(fn {package, version} ->
-          %{
-            package: package,
-            version: version
-          }
-        end)
-        |> query_osv()
-        |> Enum.flat_map(fn {package, version, vuln} ->
-          %{
-            id: vuln["id"],
-            ecosystem: :pub,
-            package: package,
-            version: version,
-            severity: osv_severity(vuln),
-            title: vuln["summary"] || ""
-          }
+        |> Enum.map(fn {package, version} -> {package, version} end)
+        |> Enum.zip(osv_results(body))
+        |> Enum.flat_map(fn {{package, version}, result} ->
+          pub_advisories(package, version, result, http)
         end)
     end
   end
 
-  defp query_osv(packages) do
-    queries =
-      Enum.map(packages, fn %{package: package, version: version} ->
-        %{
-          package: %{"name" => package, "ecosystem" => "Pub"},
-          version: version
-        }
-      end)
+  defp osv_results(body) do
+    case Jason.decode(body) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        results
 
-    body = Jason.encode!(%{queries: queries})
+      {:ok, _other} ->
+        raise "the OSV advisory source answered something that is not a batch answer"
 
-    # The outbound request of the platform goes through :httpc, like every other outbound
-    # request of this repository (the G-06 probe holds that rule): the URL is the fixed
-    # platform configuration of OSV, redirects are not followed, and the answer is read as a
-    # binary.
-    request =
-      {~c"https://api.osv.dev/v1/querybatch", [{~c"content-type", ~c"application/json"}],
-       ~c"application/json", body}
+      {:error, reason} ->
+        raise "the OSV advisory source could not be read: #{inspect(reason)}"
+    end
+  end
+
+  # OSV answers an EMPTY MAP for a package that has no advisory: the result is not
+  # missing, it is an answer. A parser that expects "vulns" in every result crashes on
+  # the answer of a clean tree -- which is most trees, most of the time.
+  defp pub_advisories(package, version, result, http) do
+    vulns =
+      case result do
+        %{"vulns" => vulns} when is_list(vulns) -> vulns
+        _ -> []
+      end
+
+    Enum.map(vulns, fn vuln ->
+      id = vuln["id"] || ""
+      detail = osv_detail(http, package, version, id)
+
+      %{
+        id: id,
+        aliases: detail["aliases"] || [],
+        ecosystem: :pub,
+        package: package,
+        version: version,
+        severity: osv_severity(detail),
+        title: detail["summary"] || ""
+      }
+    end)
+  end
+
+  # The batch answer carries the id of an advisory and nothing else: the severity and the
+  # summary live in the full record, which OSV answers for the package and the version.
+  # A detail answer that cannot be read leaves the severity at its fail-closed value: the
+  # advisory exists, so it blocks; the operator reads its id in the report.
+  defp osv_detail(http, package, version, id) do
+    body =
+      Jason.encode!(%{
+        package: %{"name" => package, "ecosystem" => "Pub"},
+        version: version
+      })
+
+    case http.({:post, ~c"https://api.osv.dev/v1/query", body}) do
+      {200, detail} ->
+        case Jason.decode(detail) do
+          {:ok, %{"vulns" => vulns}} when is_list(vulns) ->
+            Enum.find(vulns, %{}, fn vuln -> is_map(vuln) and vuln["id"] == id end)
+
+          _ ->
+            %{}
+        end
+
+      _other ->
+        %{}
+    end
+  end
+
+  # The ONE outbound request of the gate. The G-06 probe pins this file and this function
+  # name as the platform's eighth outbound call site: the URL is the fixed service of the
+  # platform operator (`:platform_config`), redirects are not followed, and the answer is
+  # read as a binary.
+  defp query_osv({method, url, body}) do
+    request = {url, [{~c"content-type", ~c"application/json"}], ~c"application/json", body}
 
     http_options = [
       {:timeout, 30_000},
@@ -596,46 +789,40 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
       {:autoredirect, false}
     ]
 
-    out =
-      case :httpc.request(:post, request, http_options, body_format: :binary) do
-        {:ok, {{_version, 200, _phrase}, _headers, resp_body}} when is_binary(resp_body) ->
-          resp_body
+    case :httpc.request(method, request, http_options, body_format: :binary) do
+      {:ok, {{_version, status, _phrase}, _headers, resp_body}} when is_binary(resp_body) ->
+        {status, resp_body}
 
-        {:ok, {{_version, status, _phrase}, _headers, _resp_body}} ->
-          raise "the OSV advisory source answered #{status}"
+      {:ok, {{_version, status, _phrase}, _headers, _resp_body}} ->
+        {status, ""}
 
-        {:error, reason} ->
-          raise "the OSV advisory source could not be read: #{inspect(reason)}"
-      end
-
-    case Jason.decode(out) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        packages
-        |> Enum.zip(results)
-        |> Enum.flat_map(fn {%{package: package, version: version}, %{"vulns" => vulns}} ->
-          Enum.map(vulns || [], &{package, version, &1})
-        end)
-
-      _ ->
-        []
+      {:error, reason} ->
+        raise "the OSV advisory source could not be read: #{inspect(reason)}"
     end
   end
 
   defp osv_severity(vuln) do
     case get_in(vuln, ["database_specific", "severity"]) do
-      severity when is_binary(severity) ->
-        case String.downcase(severity) do
-          "critical" -> "critical"
-          "high" -> "high"
-          "moderate" -> "medium"
-          "low" -> "low"
-          other -> other
-        end
-
-      _ ->
-        "high"
+      severity when is_binary(severity) -> normalise_band(severity)
+      _ -> "high"
     end
   end
+
+  # The severity bands of the three sources, in one place: npm spells the middle band
+  # "moderate", OSV and GitHub spell it "medium"; both map to the same rank.
+  defp normalise_band(severity) when is_binary(severity) do
+    case String.downcase(severity) do
+      "critical" -> "critical"
+      "high" -> "high"
+      "medium" -> "medium"
+      "moderate" -> "medium"
+      "low" -> "low"
+      "none" -> "low"
+      other -> other
+    end
+  end
+
+  defp normalise_band(_severity), do: "high"
 
   # ── the inventories ────────────────────────────────────────────────────────────
 
@@ -1056,7 +1243,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
     Map.get(@severity_rank, String.downcase(to_string(advisory.severity)), 3)
   end
 
-  defp live_entry(entries, subject) do
+  defp live_entry(entries, subject, today) do
     entries
     |> Enum.filter(&entry_covers?(&1, subject))
     |> Enum.sort_by(& &1.expires)
@@ -1065,22 +1252,35 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
         :none
 
       [entry | _] ->
-        if expired?(entry), do: :expired, else: {:ok, entry}
+        if expired?(entry, today), do: :expired, else: {:ok, entry}
     end
   end
 
   # An entry covers a subject when it names the same id; the package is checked too, so an
   # entry for one package cannot silence an advisory about another one.
+  #
+  # The ids are compared as STRINGS. An advisory id is a string everywhere it is
+  # produced, and an allow-list entry carries a string in its JSON: an id that was a list
+  # or a number could never be matched by an entry, so no exception could ever have been
+  # accepted for two of the three ecosystems. An entry may also name the advisory by one
+  # of its aliases (the CVE or the GHSA id of the same advisory).
   defp entry_covers?(entry, subject) do
-    id_match? = entry.id == subject.id
+    ids = [to_string(Map.get(subject, :id)) | subject_aliases(subject)]
+    id_match? = to_string(entry.id) in ids
     package_match? = entry.package in [nil, "", Map.get(subject, :package)]
 
     id_match? and package_match?
   end
 
-  defp expired?(entry) do
+  defp subject_aliases(subject) do
+    subject
+    |> Map.get(:aliases, [])
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp expired?(entry, today) do
     case Date.from_iso8601(entry.expires) do
-      {:ok, date} -> Date.compare(date, Date.utc_today()) == :lt
+      {:ok, date} -> Date.compare(date, today) == :lt
       {:error, _reason} -> true
     end
   end
@@ -1098,6 +1298,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
   defp normalise_advisory!(advisory) when is_map(advisory) do
     %{
       id: advisory["id"] || "",
+      aliases: advisory["aliases"] || [],
       ecosystem: String.to_existing_atom(advisory["ecosystem"] || "hex"),
       package: advisory["package"] || "",
       version: advisory["version"] || "",

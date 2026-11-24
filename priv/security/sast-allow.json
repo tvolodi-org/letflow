@@ -198,14 +198,14 @@
       "expires": "2027-06-30"
     },
     {
-      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:28ccd539",
+      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:214033d9",
       "package": "lib/letflow/sandbox_pool.ex",
       "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
       "owner": "team",
       "expires": "2027-06-30"
     },
     {
-      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:214033d9",
+      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:28ccd539",
       "package": "lib/letflow/sandbox_pool.ex",
       "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
       "owner": "team",
@@ -236,6 +236,41 @@
       "id": "sql_interpolation:lib/letflow/tenant_purge.ex:397ba8db",
       "package": "lib/letflow/tenant_purge.ex",
       "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs:b7af03ac",
+      "package": "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:35267584",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:9845d10f",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:6d328474",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs:8f68d41f",
+      "package": "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
       "owner": "team",
       "expires": "2027-06-30"
     },
