@@ -30,7 +30,7 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
   import ExUnit.CaptureIO
 
   @moduletag :security_probe
-  @moduletag probe_cost_s: 30
+  @moduletag probe_cost_s: 10
 
   alias Mix.Tasks.Letflow.AdvisoryGate, as: Gate
 
@@ -466,7 +466,10 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
 
     assert verdict.status == :pass
     assert verdict.blocking == []
-    assert [{_advisory, entry}] = verdict.accepted
+    assert [{accepted, entry}] = verdict.accepted
+    assert accepted.id == "GHSA-35jh-r3h4-6jhm"
+    assert entry.owner == "team"
+    assert entry.expires == "2099-01-01"
   end
 
   test "G12: a live npm advisory without an entry blocks the gate" do
