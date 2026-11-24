@@ -9,7 +9,23 @@ Decision record: `docs/migration/decisions/0084-public-signup-part-1.md`. Code: 
 `POST /api/signup/verify` (token) marks it `verified` and moves its step to `ready_for_provisioning`.
 `GET /api/signup/config` reports the languages and the terms version. After the credential mail the Letflow demo tenant is created in-process (T-1679, slice 1a); the welcome mail (T-1685, slice 1b) follows and the row becomes `completed`.
 With the provisioner settings below, a verified row continues: infra's tenant-provisioner creates the realm and the
-first admin, and the one-time credential is mailed (decision 0085). Without them a verified row only waits. The SPA sign-up screens are not built yet.
+first admin, and the one-time credential is mailed (decision 0085). Without them a verified row only waits.
+
+## Sign-up screens (T-2748, PILOT G22)
+
+The SPA has two public pages, outside the sign-in: `/signup` (company name, user name, e-mail, workspace address
+with a live availability check) and `/signup/verify?token=` (the page the mailed link opens: it posts the token once,
+then polls until the tenant exists and shows `https://<slug>.<hostname domain>/` with a sign-in link, or a named failure:
+demo cap reached, provisioner unavailable, rate limited, address taken). Server side: `GET /api/signup/slug?slug=`
+(`available|taken|reserved|invalid`), the optional `slug` and `user_name` fields of `POST /api/signup` (a taken slug is
+`422 slug_taken`), `POST /api/signup/status` (token is the credential; `pending|ready|failed`, a closed `reason`), and
+`password_required` / `slug_supported` / `hostname_domain` in `GET /api/signup/config`. The chosen slug becomes the host
+label of the tenant (the realm keeps its derived `t-<hex>` id); a request without a slug keeps the derived label.
+**Live password mode: the interim.** `password_required` is `false`: the form shows no password field and the first
+admin gets the mailed temporary password (T-1593). A visitor password in memory needs the provisioner contract change
+(`project/infra-requests/2026-11-25-provisioner-contract-change-DRAFT.md`, not sent); the form already renders and
+strength-checks the field when the config says so. Abuse protection is option A (e-mail verification before the tenant
+exists, plus the caps above).
 
 ## Switching it on (QA/demo)
 

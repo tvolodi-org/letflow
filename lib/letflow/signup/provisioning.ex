@@ -276,8 +276,12 @@ defmodule Letflow.Signup.Provisioning do
     end
   end
 
-  defp hostname(row, cfg),
-    do: RealmProvisioner.label(row.tenant_id) <> "." <> to_string(cfg.hostname_domain)
+  # T-2748: the visitor's chosen slug is the host label; a row without one keeps the derived `t-<hex>` label.
+  @doc "The tenant host of a sign-up row: `<slug or derived label>.<hostname domain>`."
+  @spec hostname(map(), map()) :: String.t()
+  def hostname(row, cfg),
+    do:
+      (row.slug || RealmProvisioner.label(row.tenant_id)) <> "." <> to_string(cfg.hostname_domain)
 
   # T-1685: the one welcome mail. Host from operator config and the server-made tenant id (INV-9).
   defp send_welcome(row, cfg) do
