@@ -23,6 +23,7 @@ defmodule Letflow.ModuleWritesFixture do
   alias Letflow.Modules.TenantModule
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Modules.Installs
+  alias Letflow.OutboundDestinations
   alias Letflow.Repo
   alias Letflow.TenantProvisioning.ColumnPromotion
 
@@ -78,6 +79,8 @@ defmodule Letflow.ModuleWritesFixture do
   @doc "Installs the `fixture_ledger` module in `schema`."
   @spec install_ledger!(String.t()) :: struct()
   def install_ledger!(schema) do
+    allow_module_host!(schema)
+
     {:ok, tenant_module} =
       Installs.install("fixture_ledger", Ecto.UUID.generate(),
         prefix: schema,
@@ -85,6 +88,21 @@ defmodule Letflow.ModuleWritesFixture do
       )
 
     tenant_module
+  end
+
+  # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST. The packs of
+  # these two fixture modules ship definitions with an inline HTTP step, and a
+  # definition that reaches outside is refused at the activation while the
+  # door is closed -- so the door is opened for the tenant that installs the
+  # module, before the install. The host is a fake one the tests never call;
+  # the list is the guardrail's own (the refusal is proved in
+  # `test/letflow/outbound_destination_allow_list_test.exs`).
+  @spec allow_module_host!(String.t()) :: :ok
+  def allow_module_host!(schema) do
+    {:ok, _channel} = OutboundDestinations.add(schema, nil, "http", nil)
+    {:ok, _destination} = OutboundDestinations.add(schema, nil, "http", "example.test")
+
+    :ok
   end
 
   @doc """
@@ -162,6 +180,8 @@ defmodule Letflow.ModuleWritesFixture do
   def rogue_case!(slug_prefix, handler) do
     base = tenant_with_cleanup!(slug_prefix)
 
+    allow_module_host!(base.schema)
+
     {:ok, _tenant_module} =
       Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),
         prefix: base.schema,
@@ -205,6 +225,8 @@ defmodule Letflow.ModuleWritesFixture do
   @spec rogue_service_case!(String.t(), String.t()) :: map()
   def rogue_service_case!(slug_prefix, handler) do
     base = tenant_with_cleanup!(slug_prefix)
+
+    allow_module_host!(base.schema)
 
     {:ok, _tenant_module} =
       Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),

@@ -1090,7 +1090,12 @@ defmodule Letflow.TenantProvisioning do
     # version may be activated. NULL for every existing row (a definition that
     # declares no case activates exactly as it did before).
     {20_261_124_100_001, Letflow.Repo.Migrations.AddTestCasesToProcessDefinitions,
-     "20261124100001_add_test_cases_to_process_definitions.exs"}
+     "20261124100001_add_test_cases_to_process_definitions.exs"},
+    # T-2597 (pilot gap G14): the per-tenant OUTBOUND ALLOW-LIST -- the channels a tenant may
+    # use to reach outside itself and the destinations it may reach. The list starts empty for
+    # every tenant (deny by default); no existing row is altered.
+    {20_261_124_100_002, Letflow.Repo.Migrations.CreateOutboundDestinations,
+     "20261124100002_create_outbound_destinations.exs"}
   ]
 
   @doc """

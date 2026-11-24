@@ -79,6 +79,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.LedgerSettings, "/ledger-settings", :put, "/:registration", :route},
     # T-2588 (pilot gap G2): the COMPILED platform function catalogue (platform scope).
     {Letflow.Routers.PlatformFunctions, "/platform-functions", :get, "/", :route},
+    # T-2597 (pilot gap G14): the per-tenant outbound allow-list (:OutboundDestinationsManage).
+    {Letflow.Routers.OutboundDestinations, "/outbound-destinations", :post, "/", :route},
     {Letflow.Routers.NotificationDeliveries, "/notification-deliveries", :get, "/", :route},
     {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
      :route},
@@ -757,7 +759,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       # T-1986: 49 with Letflow.Routers.ApprovalRules.
       # REQ-835: 50 with Letflow.Routers.LedgerSettings.
       # T-2588: 51 with Letflow.Routers.PlatformFunctions.
-      assert length(named) == 51
+      # T-2597: 52 with Letflow.Routers.OutboundDestinations.
+      assert length(named) == 52
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do

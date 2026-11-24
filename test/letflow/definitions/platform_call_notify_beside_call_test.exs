@@ -33,6 +33,7 @@ defmodule Letflow.Definitions.PlatformCallNotifyBesideCallTest do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.OutboundDestinations
   alias Letflow.PlatformFunctions.Guard
   alias Letflow.Repo
   alias Letflow.Support.PlatformCallFixture, as: Fx
@@ -44,6 +45,15 @@ defmodule Letflow.Definitions.PlatformCallNotifyBesideCallTest do
 
     admin = Fx.user!(tenant.schema_name, "admin")
     Fx.platform_admin!(tenant.schema_name, admin)
+
+    # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST -- the mail
+    # channel. The list is empty by default, and a definition that carries a
+    # notification step is refused at the activation while the channel is
+    # closed (the guardrail task's own test file covers the refusal). Only the
+    # CHANNEL is opened here: the recipient's domain is a runtime variable, so
+    # no destination is known at activation time.
+    {:ok, _entry} =
+      OutboundDestinations.add(tenant.schema_name, admin.id, "email", nil)
 
     %{tenant: tenant, admin: admin}
   end

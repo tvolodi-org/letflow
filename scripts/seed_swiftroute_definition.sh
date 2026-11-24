@@ -145,7 +145,7 @@ ACTIVATE_RESPONSE=$(curl -sf \
   -X POST \
   -H "${AUTH_HEADER}" \
   "${API}/definitions/${DEFINITION_ID}/activate") || {
-  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed." >&2
+  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed. If the definition reaches an outbound host or channel, the tenant allow-list must list it first (an administrator holding OutboundDestinationsManage adds it; see docs/outbound-destinations.md)." >&2
   echo "       If you see a 422, check OQ-3 (CEL single-quote syntax) and OQ-4 (QA code version includes REQ-396)." >&2
   exit 1
 }

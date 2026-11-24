@@ -55,10 +55,17 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
   # ---------------------------------------------------------------------------------
 
   defp provisioned_tenant(slug_prefix \\ "req215-svcwiring") do
-    TenantFixture.provisioned_tenant!(
-      slug_prefix: slug_prefix,
-      display_name: "REQ-215 SERVICE_TASK Wiring Test Tenant"
-    )
+    tenant =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: slug_prefix,
+        display_name: "REQ-215 SERVICE_TASK Wiring Test Tenant"
+      )
+
+    # T-2597 (pilot gap G14): the local listener this file's genuine-attempt
+    # tests reach -- the tenant's outbound allow-list is empty by default.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["127.0.0.1"])
+
+    tenant
   end
 
   defp unique_name(prefix),

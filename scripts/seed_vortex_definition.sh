@@ -152,7 +152,7 @@ seed_definition() {
     -X POST \
     -H "${AUTH_HEADER}" \
     "${API}/definitions/${definition_id}/activate") || {
-    echo "ERROR: POST /api/v1/definitions/${definition_id}/activate failed for '${display_name}'." >&2
+    echo "ERROR: POST /api/v1/definitions/${definition_id}/activate failed for '${display_name}'. If the definition reaches an outbound host or channel, the tenant allow-list must list it first (an administrator holding OutboundDestinationsManage adds it; see docs/outbound-destinations.md)." >&2
     exit 1
   }
 

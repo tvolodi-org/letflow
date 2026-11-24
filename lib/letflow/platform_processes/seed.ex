@@ -59,6 +59,36 @@ defmodule Letflow.PlatformProcesses.Seed do
   administrator may edit it in the designer: an edit makes a NEW draft, and
   only an activation switches it on.
 
+  ## The channels the seeded version uses
+
+  A tenant may reach outside itself only where its own allow-list says so
+  (T-2597, gap G14): the list is empty by default, and a version whose
+  notification step reaches outside is refused at the activation. The platform's
+  own standard version would therefore never be switched on.
+
+  So the seed opens the CHANNELS its own version uses -- the mail channel of
+  its notification step -- for the tenant it writes into, right before the
+  switch-on. Two things it does NOT do:
+
+    * it never opens a DESTINATION (a recipient domain): the address behind
+      the door stays a human decision (decision record G2 (c)), so a
+      notification still goes only to a domain a human listed;
+    * it never opens a channel outside its own switch-on: the channels are
+      opened on the path where the seed writes and switches on its own
+      version, and on the path where it finishes an interrupted switch-on of
+      that same version (a draft). A channel an administrator closed AFTER a
+      completed switch-on stays closed; on the interrupted-switch-on path the
+      seed re-opens the CHANNEL of its own version, which opens no address (a
+      destination is still needed for a send).
+
+  The seed may open a channel only with the authority of an administrator who
+  HOLDS the narrow atom `:OutboundDestinationsManage`: a seed cannot invent
+  that authority, exactly as it cannot invent `:TenantsManage`. Without it the
+  seed answers `{:error, :activator_not_permitted}` and writes nothing.
+
+  A channel alone opens nothing: a destination is still needed for a send, so
+  the list shows the transport, not the address.
+
   ## The extension point (owner decision D-180, not built here)
 
   A standard definition is locked for everyone inside its tenant, and a tenant
@@ -70,10 +100,12 @@ defmodule Letflow.PlatformProcesses.Seed do
   exactly one definition per key.
   """
 
+  alias Letflow.Api.Authorization
   alias Letflow.Definitions
   alias Letflow.Definitions.Activator
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Identity
+  alias Letflow.OutboundDestinations
   alias Letflow.PlatformProcesses.Definition
   alias Letflow.PlatformTenant
 
@@ -284,12 +316,50 @@ defmodule Letflow.PlatformProcesses.Seed do
   end
 
   defp activate(draft, prefix, activator) do
-    case Definitions.activate(draft.id, prefix: prefix, activator: activator) do
-      {:ok, %{definition: definition}} ->
-        {:ok, %{outcome: :created, definition: definition, version: definition.version}}
+    with :ok <- open_channels(draft, prefix, activator),
+         {:ok, %{definition: definition}} <-
+           Definitions.activate(draft.id, prefix: prefix, activator: activator) do
+      {:ok, %{outcome: :created, definition: definition, version: definition.version}}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-      {:error, reason} ->
-        {:error, reason}
+  # The CHANNELS the seeded version uses are opened for the tenant BEFORE the
+  # switch-on: a version that cannot send anything is never switched on
+  # (T-2597, gap G14 -- the deny-by-default allow-list). Only a channel is
+  # opened, never a destination: the recipient domain stays a human decision.
+  #
+  # A switch-on that then fails for another reason leaves the channel open: a
+  # channel alone opens nothing (a send still needs a listed destination), and
+  # a channel the seed opened for its own version is not a door it may close
+  # again -- the tenant's list belongs to the tenant.
+  defp open_channels(draft, prefix, activator) do
+    with :ok <- permitted_outbound(activator, prefix),
+         {:ok, _channels} <-
+           OutboundDestinations.open_channels(prefix, activator.user_id, draft.graph) do
+      :ok
+    end
+  end
+
+  # The seed may open a channel of the allow-list only with the authority of
+  # someone who holds the narrow atom (T-2597, gap G14): a seed cannot invent
+  # that authority, exactly as it cannot invent `:TenantsManage`.
+  #
+  # The scope is read from the PREFIX, not assumed: the seed writes to the
+  # platform tenant (`prefix/1` refuses any other), and there the atom is a
+  # tenant-scope one that the platform administrator holds.
+  defp permitted_outbound(activator, prefix) do
+    roles = Authorization.roles_from_strings(Map.get(activator, :roles, []))
+
+    if Authorization.has_permission_in_scope?(
+         roles,
+         :OutboundDestinationsManage,
+         PlatformTenant.platform_prefix?(prefix)
+       ) do
+      :ok
+    else
+      {:error, :activator_not_permitted}
     end
   end
 

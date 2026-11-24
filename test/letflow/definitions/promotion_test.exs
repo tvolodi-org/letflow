@@ -635,4 +635,132 @@ defmodule Letflow.Definitions.PromotionTest do
       assert active_count == 0
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # T-2597 (pilot gap G14): the OUTBOUND ALLOW-LIST fence on the PROMOTION path.
+  #
+  # A promoted graph is a graph of the TARGET tenant, so the TARGET tenant's
+  # own list decides what it may reach -- the same rule the other three
+  # activation paths apply. Without the fence a promotion activated a graph in
+  # a tenant whose list was never read (a tenant whose list is empty reaches
+  # nothing, so the copy would have reached everything).
+  # ---------------------------------------------------------------------------------
+
+  describe "T-2597: the OUTBOUND ALLOW-LIST fence on the promotion path" do
+    # START -> an inline HTTP step -> END. The step's endpoint names a host.
+    defp http_graph do
+      %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "http",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{
+              "endpoint" => "https://api.example.com/hook",
+              "method" => "POST",
+              "timeout_ms" => 30_000
+            }
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "http"},
+          %{"id" => "e2", "source" => "http", "target" => "end"}
+        ]
+      }
+    end
+
+    defp http_plan(source_tenant_id, target_tenant_id, process_key, source_definition_id) do
+      %{
+        source_tenant_id: source_tenant_id,
+        target_tenant_id: target_tenant_id,
+        process_key: process_key,
+        source_definition_id: source_definition_id,
+        target_definition_id: nil,
+        base_version: nil,
+        entries: []
+      }
+    end
+
+    test "a promotion whose graph reaches a host the TARGET tenant does not allow is refused" do
+      %{tenant_id: source_tenant_id, schema_name: source_schema} = provisioned_tenant()
+      %{tenant_id: target_tenant_id, schema_name: target_schema} = provisioned_tenant()
+
+      process_key = unique_process_key()
+
+      source_def =
+        insert_active_definition!(source_schema, %{
+          name: process_key,
+          version: "2.0.0",
+          description: "source description",
+          stage: "S2",
+          graph: http_graph()
+        })
+
+      review =
+        review_for(http_plan(source_tenant_id, target_tenant_id, process_key, source_def.id))
+
+      actor_id = Ecto.UUID.generate()
+
+      # The TARGET tenant's list is empty (deny by default): the promotion is
+      # refused with the same code the other three activation paths answer.
+      assert {:error, {:outbound_destinations_invalid, violations}} =
+               Promotion.promote_definition(actor_id, review,
+                 permission_checker: allow(),
+                 event_appender: fn _event_attrs, _prefix ->
+                   {:ok, %{event_id: Ecto.UUID.generate()}}
+                 end
+               )
+
+      assert :outbound_channel_not_allowed in Enum.map(violations, & &1.code)
+
+      # The refused promotion wrote NOTHING into the target tenant: no row at
+      # all, and no ACTIVE row.
+      rows =
+        ProcessDefinition
+        |> where([d], d.name == ^process_key)
+        |> Repo.all(prefix: target_schema)
+
+      assert rows == []
+    end
+
+    test "the same promotion succeeds once the TARGET tenant's own list allows the host" do
+      %{tenant_id: source_tenant_id, schema_name: source_schema} = provisioned_tenant()
+      %{tenant_id: target_tenant_id, schema_name: target_schema} = provisioned_tenant()
+
+      process_key = unique_process_key()
+
+      source_def =
+        insert_active_definition!(source_schema, %{
+          name: process_key,
+          version: "2.0.0",
+          description: "source description",
+          stage: "S2",
+          graph: http_graph()
+        })
+
+      actor_id = Ecto.UUID.generate()
+
+      {:ok, _channel} = Letflow.OutboundDestinations.add(target_schema, actor_id, "http", nil)
+
+      {:ok, _host} =
+        Letflow.OutboundDestinations.add(target_schema, actor_id, "http", "api.example.com")
+
+      review =
+        review_for(http_plan(source_tenant_id, target_tenant_id, process_key, source_def.id))
+
+      assert {:ok, result} =
+               Promotion.promote_definition(actor_id, review,
+                 permission_checker: allow(),
+                 event_appender: fn _event_attrs, _prefix ->
+                   {:ok, %{event_id: Ecto.UUID.generate()}}
+                 end
+               )
+
+      target_row =
+        Repo.get!(ProcessDefinition, result.target_definition_id, prefix: target_schema)
+
+      assert target_row.status == :active
+    end
+  end
 end

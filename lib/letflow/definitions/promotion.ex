@@ -433,6 +433,14 @@ defmodule Letflow.Definitions.Promotion do
                  :ok <- Letflow.Definitions.check_step_mappings(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_start_permission(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_notify_calls(new_row, target_prefix),
+                 # T-2597 (pilot gap G14): the OUTBOUND ALLOW-LIST fence. A
+                 # promoted graph is a graph of the TARGET tenant, so the
+                 # TARGET tenant's own list decides what it may reach -- the
+                 # same rule the other three activation paths apply. Without
+                 # this fence a promotion would activate a graph in a tenant
+                 # whose list was never read (a tenant whose list is empty
+                 # reaches nothing, so the copy would reach everything).
+                 :ok <- Letflow.Definitions.check_outbound_destinations(new_row, target_prefix),
                  :ok <- Letflow.Definitions.check_test_cases(new_row),
                  :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
               :ok

@@ -74,4 +74,28 @@ defmodule Letflow.Notifications.Address do
   """
   @spec max_bytes() :: pos_integer()
   def max_bytes, do: @max_address_bytes
+
+  @doc """
+  The DOMAIN of an address: the part after the `@`, lowercased.
+
+  The domain is what the per-tenant outbound allow-list holds (T-2597, pilot
+  gap G14): a tenant's list names the recipient DOMAINS it may reach, never
+  the addresses of the persons who receive there (INV-4).
+
+  `:error` for a value that is not an address with exactly one `@` and a
+  non-empty domain. The byte bound and the UTF-8 check come first (SF-01).
+  """
+  @spec domain(term()) :: {:ok, String.t()} | :error
+  def domain(address) when is_binary(address) do
+    if byte_size(address) <= @max_address_bytes and String.valid?(address) do
+      case String.split(address, "@") do
+        [_local, domain] when domain != "" -> {:ok, String.downcase(domain)}
+        _other -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  def domain(_address), do: :error
 end
