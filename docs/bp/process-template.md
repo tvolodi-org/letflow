@@ -39,9 +39,11 @@ what from a definition), and the pilot design `docs/platform-register-tenant-v2.
    catalogue functions to the step dispatcher: a new direct caller fails CI (the no-bypass rule).
 6. **Make it editable in the designer.** The function picker, argument mapping rows and notification fields are
    fed by the catalogue, so a new entry appears without screen code. Activation and the designer's validate
-   refuse an unknown function, a bad mapping and a destination that is not on the tenant's outbound allow-list
-   (deny by default; atom `OutboundDestinationsManage`, TENANT_ADMIN and PLATFORM_ADMIN only), at activation and
-   again at dispatch.
+   refuse an unknown function and a bad mapping. The outbound allow-list is deny by default (atom
+   `OutboundDestinationsManage`, TENANT_ADMIN and PLATFORM_ADMIN only) and is checked in two places that see
+   different things: at activation, a literal HTTP host and the channel of a notification step (the designer's
+   validate does not run it); at dispatch, the recipient domain of a notification step, because the recipient
+   comes from an instance variable and is known only then.
 7. **Log every step.** The step log shows who, when, result, duration and attempts. A failed step lands in the
    dead-letter queue and can be retried. No secret appears in any event, DLQ row or answer (INV-4).
 8. **Write the runner process file.** Readable JSON in `test/uat/processes/` (pilot:
