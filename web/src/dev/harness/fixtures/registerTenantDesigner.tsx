@@ -20,6 +20,11 @@
 import { useIntl } from 'react-intl'
 import type { ReactElement } from 'react'
 import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
+import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
+import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { accessState } from '@/auth/access/fixtures'
+import DefinitionEditorPage from '@/pages/definitions/DefinitionEditorPage'
+import type { UserSession } from '@/types/api'
 import { DiagramEditPane, type DiagramEditPaneProps } from '@/components/diagram/DiagramEditPane'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -37,7 +42,7 @@ const call = (
   writes: Record<string, string>,
 ) => ({ platform_call: { function: fn, args, reads, writes } })
 
-const GRAPH: DefinitionGraph = {
+export const GRAPH: DefinitionGraph = {
   nodes: [
     n('start', 'START', null),
     // tenant.validate -- the slug and the name of the start form; it reads the tenant registry and writes nothing.
@@ -75,7 +80,7 @@ const GRAPH: DefinitionGraph = {
   ],
 }
 
-const DEF: ProcessDefinition = {
+export const DEF: ProcessDefinition = {
   id: 'def-harness-register-tenant',
   name: 'platform.register_tenant',
   version: '1',
@@ -89,7 +94,7 @@ const DEF: ProcessDefinition = {
 
 /** The registered notification templates (`Letflow.NotificationTemplates.Registry`): the key and the NAMES of
  *  the placeholders it accepts. */
-const TEMPLATES = {
+export const TEMPLATES = {
   items: [
     { template_key: 'tenant_registered', placeholders: ['tenant_name', 'tenant_slug', 'registered_by'] },
     { template_key: 'task_assigned', placeholders: ['task_name', 'process_name', 'assignee_name'] },
@@ -97,7 +102,7 @@ const TEMPLATES = {
 }
 
 /** The platform function catalogue of the tenant family (`Letflow.PlatformFunctions.TenantFamily`). */
-const PLATFORM_FUNCTIONS = {
+export const PLATFORM_FUNCTIONS = {
   items: [
     {
       name: 'tenant.validate',
@@ -137,6 +142,11 @@ const ROUTES: FixtureRoute[] = [
   { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/platform-functions'), reply: () => ({ status: 200, body: PLATFORM_FUNCTIONS }) },
 ]
 
+const PAGE_AUTH = {
+  session: { token: 'harness', tenant_id: 'harness-platform', tenant_type: 'platform' } as unknown as UserSession,
+  isAuthenticated: true,
+} as unknown as AuthContextValue
+
 function HarnessHeader({ title }: { title: string }): ReactElement {
   const intl = useIntl()
   return <PageHeader eyebrow={intl.formatMessage({ id: 'processDiagram.edit.pageEyebrow' })} title={title} lede={intl.formatMessage({ id: 'processDiagram.edit.pageLede' })} />
@@ -158,4 +168,18 @@ function frame(title: string, props: Partial<DiagramEditPaneProps> & { def?: Pro
 export const registerTenantDesignerScreens: HarnessScreen[] = [
   // The registration definition in the designer, as the seed leaves it: a version that runs.
   { name: 'pd-register-tenant', routes: ROUTES, render: () => frame(DEF.name, {}) },
+  // T-2738: the same definition through the REAL page (the route the operator opens from the list).
+  {
+    name: 'pd-register-tenant-page',
+    initialPath: `/definitions/${DEF.id}`,
+    routePattern: '/definitions/:id',
+    routes: ROUTES,
+    render: () => (
+      <AuthContext.Provider value={PAGE_AUTH}>
+        <AccessStateProvider state={accessState('platformAdmin')}>
+          <DefinitionEditorPage />
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
 ]
