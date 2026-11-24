@@ -48,7 +48,7 @@ The platform operator creates a tenant record with its schema, lists all tenants
 1. **PLATFORM_ADMIN**: screen `admin/tenants`, `platform-dashboard`, call `GET /api/v1/tenants`, function `Letflow.Identity.list_tenants`
    Result: the paginated list of all tenants
 2. **PLATFORM_ADMIN**: call `POST /api/v1/tenants`, function `Letflow.PlatformProcesses.start_register_tenant`
-   Result: 202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; a failed provisioning step shows as instance ERROR, not as a 5xx
+   Result: 202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; provisioning runs as steps of the instance, a failed step shows as instance ERROR on the timeline, not as a 5xx
 3. **PLATFORM_ADMIN**: screen `admin/tenants/:slug/edit`, call `GET /api/v1/tenants/:slug`, `PATCH /api/v1/tenants/:slug`, function `Letflow.Identity.patch_tenant`
    Result: 200 with the tenant record; unknown slug 404
 
