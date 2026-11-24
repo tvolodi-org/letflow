@@ -1,0 +1,4 @@
+# QA tenants that get the safe module upgrade chain after each QA deploy (scripts/qa_upgrade_chain.sh, T-2746).
+# One slug per line. Retired (do not add): qoimeks-qa, qoimeks-client1-qa. Unused (out): sss-rehearsal.
+qoimeks-qa2
+sss-rehearsal2

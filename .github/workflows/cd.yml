@@ -192,6 +192,20 @@ jobs:
             echo "cd-qa: main moved during deploy (verified $TIP, deployed $q)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # T-2746: QA ONLY. Apply the safe module upgrade chain (plan, apply, plan) to the tenants of
+      # deploy/qa-upgrade-tenants.txt. Never sends ack_destructive: a class B/C plan fails the step.
+      - name: Apply module upgrade chain to QA tenants
+        if: steps.decide.outputs.deploy == 'true'
+        env:
+          BASE_URL: ${{ env.QA_URL }}
+          ACCESS_TOKEN: ${{ secrets.QA_UPGRADE_TOKEN }}
+        run: |
+          set -o pipefail
+          bash scripts/qa_upgrade_chain.sh 2>&1 | tee "$RUNNER_TEMP/qa_chain.log"
+          rc=${PIPESTATUS[0]}
+          grep -E 'QA tenants behind the build|REFUSED' "$RUNNER_TEMP/qa_chain.log" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
+
   # Runs exactly when `deploy` is skipped by its job `if:` and logs why. The `${{ }}` wrapper
   # is REQUIRED: a bare `if:` value starting with `!` is a YAML tag, and cd.yml is never run
   # by PR CI, so a broken file would silently stop CD. No secrets, no permissions, no checkout,

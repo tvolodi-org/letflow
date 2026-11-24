@@ -99,7 +99,7 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
   end
 
   test "deploy steps: checkout main without credentials, inputs, decide, SSH, verify, in order" do
-    [checkout, inputs, decide, ssh, verify] = steps("deploy")
+    [checkout, inputs, decide, ssh, verify, _qa_chain] = steps("deploy")
 
     assert checkout["uses"] == "actions/checkout@v4"
 
@@ -167,7 +167,9 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
              "script" => "bash /opt/apps/letflow-qa/deploy/redeploy-qa.sh"
            }
 
-    assert length(Regex.scan(~r/secrets\./, src())) == 3
+    # 3 deploy secrets + QA_UPGRADE_TOKEN of the post-deploy chain step (T-2746)
+    assert length(Regex.scan(~r/secrets\./, src())) == 4
+    assert src() =~ "secrets.QA_UPGRADE_TOKEN"
   end
 
   test "verify step: fetch, then rev-parse of the deployed sha, then is-ancestor TIP Q" do
