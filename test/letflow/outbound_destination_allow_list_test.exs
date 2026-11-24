@@ -216,6 +216,45 @@ defmodule Letflow.OutboundDestinationAllowListTest do
                )
     end
 
+    test "S6-h a FILE-channel step is refused at dispatch while the file channel is not on the list",
+         ctx do
+      # the mail channel is open; the FILE channel is not: the shared gate refuses
+      allow(ctx, "email", nil)
+
+      file_declaration = %{
+        "channel" => "file",
+        "template_key" => "tenant_registered",
+        "file_name" => "registration-notice",
+        "values" => %{
+          "tenant_name" => %{"var" => "tenant_name"},
+          "tenant_slug" => %{"const" => "acme"}
+        }
+      }
+
+      assert {:error, :notify_destination_not_allowed} =
+               Dispatcher.run(
+                 file_declaration,
+                 variables(),
+                 prefix: ctx.prefix,
+                 trigger_ref: Ecto.UUID.generate(),
+                 labels: %{}
+               )
+
+      # the same step passes the allow-list once the channel is opened
+      allow(ctx, "file", nil)
+
+      refute match?(
+               {:error, :notify_destination_not_allowed},
+               Dispatcher.run(
+                 file_declaration,
+                 variables(),
+                 prefix: ctx.prefix,
+                 trigger_ref: Ecto.UUID.generate(),
+                 labels: %{}
+               )
+             )
+    end
+
     test "S6-f a recipient domain that IS on the list is let through to the send", ctx do
       allow(ctx, "email", nil)
       allow(ctx, "email", "example.com")

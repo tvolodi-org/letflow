@@ -113,6 +113,12 @@ value.
    `:outbound_channel_not_allowed`, `:outbound_destination_not_allowed` or
    `:outbound_allow_list_unavailable`.
 
+   Over HTTP every one of those paths answers **422** with
+   `{"error": "outbound_destinations_invalid", "violations": [{"node_id", "index",
+   "code"}]}` (the body shape of `notify_calls_invalid`; never the submitted value),
+   and nothing is activated or promoted. For a promotion apply the list that counts
+   is the TARGET tenant's.
+
    A **notification** step sends on the channel its declaration names; its recipient
    is read from a *variable* of the running instance, so the destination is not
    known at activation time and only the channel is checked there. An **inline HTTP**
