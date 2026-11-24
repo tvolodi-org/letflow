@@ -1533,6 +1533,11 @@ defmodule Letflow.Api.Authorization do
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
 
+  # T-2600 (pilot gap G5b): the COMPILED catalogue of registered template keys the designer's
+  # template picker reads. Platform data (a key and its placeholder names), no tenant text: the
+  # read permission of a definition is enough, the same one the validation route uses.
+  def endpoint_policy_key("GET", "/notification-templates/catalogue"), do: :DefinitionsRead
+
   def endpoint_policy_key("PUT", "/notification-templates/:template_key"),
     do: :NotificationTemplatesManage
 

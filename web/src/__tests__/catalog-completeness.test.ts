@@ -295,6 +295,8 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'org:org.common.code': 'loanword, same spelling in Kazakh',
   'processDiagram:processDiagram.details.script': 'loanword, same spelling in Kazakh',
   'processDiagram:processDiagram.type.TIMER': 'loanword, same spelling in Kazakh',
+  'processDiagram:processDiagram.edit.notify.channel.file':
+    'loanword, same spelling in Kazakh',
   'processDiagram:processDiagram.edit.platform.function':
     'loanword, same spelling in Kazakh',
   'reference:docType.stock_reversal':

@@ -41,6 +41,8 @@ import { codesPagedScreens } from './fixtures/codesPaged'
 import { docLayoutScreens } from './fixtures/docLayouts'
 import { companySettingsScreens } from './fixtures/companySettings'
 import { platformCallPickerScreens } from './fixtures/platformCallPicker'
+import { notifyStepPickerScreens } from './fixtures/notifyStepPicker'
+import { registerTenantDesignerScreens } from './fixtures/registerTenantDesigner'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
@@ -122,6 +124,7 @@ import { myProblemReportsScreens } from './fixtures/myProblemReports'
 import { assetCardPhotosScreens } from './fixtures/assetCardPhotos'
 import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 import { quickCountFormatScreens } from './fixtures/quickCountFormats'
+import { canvasPropertyPanelScreens } from './fixtures/canvasPropertyPanel'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -441,5 +444,8 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...quickCountFormatScreens,
     ...companySettingsScreens,
     ...platformCallPickerScreens,
+    ...notifyStepPickerScreens,
+    ...registerTenantDesignerScreens,
+    ...canvasPropertyPanelScreens,
   ].map(s => [s.name, s]),
 )
