@@ -45,10 +45,11 @@ defmodule Letflow.Instances.StepRetry do
 
   ## What it never does
 
-  It never raises: every failure is an error tuple (INV-8). It never resumes
-  the instance: the engine's own advance path owns that (a platform step is
-  run by the engine slice that arms it), so this module answers with the
-  OUTCOME of the step and leaves the instance's own state to its owner.
+  It never raises: every failure is an error tuple (INV-8). A platform
+  step that ran again hands its outputs to the engine
+  (`Letflow.Engine.apply_platform_step_result/3`), which merges them, lifts the
+  instance's ERROR and continues it off the node exactly once (T-2703); the
+  engine owns every write of the instance itself.
   """
 
   import Ecto.Query
@@ -57,6 +58,7 @@ defmodule Letflow.Instances.StepRetry do
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Dlq.Entry
+  alias Letflow.Engine
   alias Letflow.Engine.Reconstruction
   alias Letflow.EventStore
   alias Letflow.NotificationSteps.Dispatcher, as: NotifyDispatcher
@@ -212,22 +214,45 @@ defmodule Letflow.Instances.StepRetry do
   defp run_platform(row, node_id, prefix) do
     case Dispatcher.retry_failed_step(row.id, prefix) do
       {:ok, %{status: :advanced, outputs: outputs}} ->
-        {:ok, %{kind: :platform, node_id: node_id, status: "advanced", outputs: outputs}}
+        with :ok <- resume_instance(row, prefix) do
+          {:ok, %{kind: :platform, node_id: node_id, status: "advanced", outputs: outputs}}
+        end
 
       {:ok, %{status: :already_final, outputs: outputs}} ->
-        {:ok,
-         %{
-           kind: :platform,
-           node_id: node_id,
-           status: "already_final",
-           outputs: outputs,
-           reason: nil
-         }}
+        with :ok <- resume_instance(row, prefix) do
+          {:ok,
+           %{
+             kind: :platform,
+             node_id: node_id,
+             status: "already_final",
+             outputs: outputs,
+             reason: nil
+           }}
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # T-2703: the step ran, so the instance CONTINUES off its node (the engine's apply merges the
+  # outputs and lifts the ERROR). The apply's completion key is the dispatch id, so a retry that
+  # finds the work done resumes nothing a second time (`:already_final`).
+  defp resume_instance(row, prefix) do
+    case Engine.apply_platform_step_result(row.id, prefix, resume: true) do
+      {:ok, _outcome} -> :ok
+      # A row with no instance behind it (armed by a caller that is not the engine) has nothing to
+      # resume: the step's own outcome is the whole answer.
+      {:error, :instance_not_found} -> :ok
+      {:error, reason} -> {:error, resume_code(reason)}
+    end
+  end
+
+  # The code is a closed atom, never a term that could carry tenant data (INV-4).
+  defp resume_code(:platform_step_not_found), do: :platform_step_not_found
+
+  defp resume_code({:instance_not_active, _status}), do: :instance_not_active
+  defp resume_code(_reason), do: :platform_step_resume_failed
 
   # The dispatch row of the step: the most recent one of that node. The call
   # key is unique per call, so a node visited twice with other arguments has

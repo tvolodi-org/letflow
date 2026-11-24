@@ -373,14 +373,40 @@ caller must be in the platform tenant AND hold `PLATFORM_ADMIN` there. The route
 `:DlqOperate` permission is wider (it is held by `:PROCESS_OPERATOR` too), so that check is
 what keeps a process operator from running a platform function.
 
+### The engine runs a platform step (T-2703, gap G1 remainder)
+
+A SERVICE_TASK node that carries a `platform_call` is run by the engine:
+
+1. **Arm.** When a token enters the node, the engine resolves the step's arguments from the
+   instance variables (`{"var": name}` or `{"const": value}`; a variable that carries a label
+   never goes into the row) and calls `Dispatcher.arm/1` INSIDE its own transaction
+   (`Letflow.Engine`, `build_service_task_dispatch_multi/5`, the same place every hop chain arms
+   an HTTP or script step). The instance waits on the node. The call key is the catalogue
+   entry's idempotency key, so a re-entry of the same node is the same call; a key that belongs
+   to ANOTHER instance's call is refused and the start writes nothing.
+2. **Run.** `Letflow.Engine.PlatformStepRunner` (ticked by `PlatformStepRunner.Poller`, config
+   key `:start_platform_step_runner`, default off; on in dev config; in a release only by the env variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, exactly `true`) runs the due rows of the PLATFORM tenant's
+   schema only, OUTSIDE every transaction, through `Dispatcher.attempt_dispatch/2`: the lease
+   and the claim token, and the authority fence of decision 0094 at EVERY attempt.
+3. **Continue.** A row that advanced is handed to `Letflow.Engine.apply_platform_step_result/3`:
+   the declared outputs are merged into the instance variables and the instance continues off
+   the node. The completion key is the dispatch id, so a second apply moves nothing; a result
+   that was written but never applied (a crash between the two commits) is applied by the
+   runner's sweep.
+4. **Fail.** A row that gave up (a refusal of the body or of the fence, or the attempt cap after
+   crashes) goes through `Letflow.Engine.fail_platform_step/2`: the instance is in ERROR with an
+   EXECUTION_ERROR event (no variable is copied into it) and a DLQ entry of type
+   `Letflow.Instances.StepRetry.platform_step_entry_type/0` whose `reference_id` is the node.
+5. **Retry.** The DLQ retry (G7) re-runs the step; when it succeeds the engine applies the
+   outputs, lifts the ERROR and continues the instance exactly once.
+
+The dispatcher gives a call up on its first refusal; what is retried by itself is a CRASH (a
+`running` row whose lease expired is taken over, up to the attempt cap).
+
 ### What is not built yet
 
-The engine slice that RUNS a platform step (the one that arms the row, polls it and puts the
-instance in ERROR when the step fails) is not built yet: it is the remaining part of gap G1.
-That slice is also the one that LANDS the DLQ entry of a failed step -- this page delivers the
-RETRY side of the entry, and the entry types it listens to are exported
-(`Letflow.Instances.StepRetry.platform_step_entry_type/0` and `notify_step_entry_type/0`) so
-that the landing and the retry cannot drift apart.
+The routes (`POST /onboarding` and the other four) still call the tenant code directly; making
+them START the definition is gap G17.
 
 It is also the slice that gap G17 waits for: until the engine arms and runs a platform step, the
 tenant-creating routes cannot start the definition, so they keep calling the code (see "Gap G17

@@ -157,7 +157,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   ## What it does NOT do
 
   It does not advance the instance and it does not merge the outputs into the
-  instance variables: the engine picks the result up (gap G1's engine slice).
+  instance variables: `Letflow.Engine.PlatformStepRunner` calls this module and hands
+  the result to `Letflow.Engine.apply_platform_step_result/3` (T-2703).
   It does not write an audit row of its own (gap G6 owns the step log), and it
   never raises: every failure is an error tuple (INV-8).
   """
