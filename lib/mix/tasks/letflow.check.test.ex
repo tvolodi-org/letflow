@@ -124,6 +124,16 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   says something as it goes (ExUnit writes a dot per finished test, and the
   runs print their own progress), while a hung one says nothing at all.
 
+  The report names the LAST TEST STARTED as well, read from the marker the
+  child's own ExUnit run publishes (test/support/file_timeout_marker.ex -- the
+  same marker `scripts/test_parallel.sh`'s partitions publish). Every watched
+  child is handed a marker directory of its own, so a hang inside a GROUP of
+  tests is named by the test that was running: the `:lua_wallclock_race` tail
+  runs eleven tests in ONE subprocess, and that subprocess's output carries
+  ExUnit's dots and no names, so without the marker such a hang could only be
+  reported as "the group". A child that publishes no marker is reported as
+  "unknown" -- the report never guesses.
+
   ## Exit-code contract
 
     * Exits `0` only if the parallel runner's own aggregated result is a real pass
@@ -178,6 +188,13 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # with nothing said. 0 disables the watch.
   @tail_output_timeout_env "TEST_TAIL_OUTPUT_TIMEOUT_S"
   @tail_output_timeout_default_s 480
+
+  # T-2692: the env var a watched child publishes its running test to. It is
+  # the suite's OWN marker (test/support/file_timeout_marker.ex) -- the same
+  # one scripts/test_parallel.sh's partitions use. The children run the same
+  # ExUnit suite, so the same formatter installs itself there; this task only
+  # has to hand each child a directory of its own to publish into.
+  @tail_marker_env "TEST_PARALLEL_FILE_MARKER_DIR"
 
   # ISS-0697 (design doc iss0697-check-test-executable-resolver-fix.md): the injectable
   # override seam for this module's subprocess-executable resolution. Reads
@@ -267,7 +284,8 @@ defmodule Mix.Tasks.Letflow.Check.Test do
         bash,
         ["scripts/test_parallel.sh"],
         [{"TEST_PARALLEL_KEEP_LOGS", "1"} | extra_env],
-        :none
+        :none,
+        nil
       )
 
     # ORDERING RULE (design doc section 1.2 step 1): if the runner exited nonzero,
@@ -927,13 +945,17 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   # TEST_TAIL_OUTPUT_TIMEOUT_S seconds is killed and reported by name); `:none`
   # leaves the subprocess unwatched.
   #
+  # `marker_dir` is the directory a watched child publishes its running test
+  # to (nil for an unwatched one): the report reads it to name the last test
+  # started, which is the only way to name a test inside a GROUP run.
+  #
   # The MAIN SUITE call is deliberately NOT watched: `scripts/test_parallel.sh`
   # prints its own progress at the start and then stays SILENT for the whole
   # partition run (the partitions write to their own logs), so a silence bound
   # there would kill a healthy backend gate. The isolated tails are the ones
   # that had no bound of their own -- push CI run 45184714218 (2026-11-23) lost
   # the isolated-tails job to the 30-minute job timeout with nothing named.
-  defp stream_and_capture(cmd, args, env, watch) do
+  defp stream_and_capture(cmd, args, env, watch, marker_dir) do
     executable = resolve_executable(cmd) || raise "executable not found: #{cmd}"
 
     port_opts = [
@@ -960,27 +982,79 @@ defmodule Mix.Tasks.Letflow.Check.Test do
 
     watchdog =
       case watch do
-        :tails -> tail_watchdog(label)
-        :none -> %{label: label, limit_s: 0, last_data_at: System.monotonic_time(:second)}
+        :tails ->
+          tail_watchdog(label, marker_dir)
+
+        :none ->
+          %{
+            label: label,
+            limit_s: 0,
+            last_data_at: System.monotonic_time(:second),
+            marker_dir: nil
+          }
       end
 
     collect(port, [], watchdog)
   end
 
   # T-2692: the isolated tails' own subprocesses, watched for silence.
+  #
+  # The child is handed a MARKER DIRECTORY OF ITS OWN (TEST_PARALLEL_FILE_MARKER_DIR),
+  # so its ExUnit run publishes the test it is running into a file this task
+  # owns and can read when the child goes silent. Without it a hang inside a
+  # GROUP of tests can only be named as the group: the `:lua_wallclock_race`
+  # tail runs eleven tests in ONE subprocess, and that subprocess's output
+  # carries ExUnit's dots and no names.
+  #
+  # The directory is removed when the child is done, on EVERY exit path --
+  # including the kill path, which raises (the report is built BEFORE the
+  # kill, so the marker is still there when it is read).
+  #
+  # A marker directory that cannot be created is NOT a failure of the task:
+  # the watchdog itself is the valuable part, and a report without a marker
+  # says "unknown" for the test name instead of naming it.
   defp stream_and_capture_tail(cmd, args) do
-    stream_and_capture(cmd, args, [], :tails)
+    marker_dir = create_tail_marker_dir()
+    env = if marker_dir, do: [{@tail_marker_env, marker_dir}], else: []
+
+    try do
+      stream_and_capture(cmd, args, env, :tails, marker_dir)
+    after
+      if marker_dir, do: File.rm_rf(marker_dir)
+    end
+  end
+
+  # T-2692: a marker directory for one watched child. It lives in the system
+  # temp dir and is removed by the caller when the child is done. `nil` when
+  # the directory cannot be created.
+  defp create_tail_marker_dir do
+    dir =
+      Path.join(
+        System.tmp_dir(),
+        "letflow_tail_marker_#{System.unique_integer([:positive])}"
+      )
+
+    case File.mkdir_p(dir) do
+      :ok -> dir
+      {:error, _reason} -> nil
+    end
+  rescue
+    # A temp dir that cannot even be determined is not a failure of the task:
+    # the watchdog itself is the valuable part.
+    _ -> nil
   end
 
   # T-2692: the silence watchdog's parameters for one subprocess. The limit
   # comes from TEST_TAIL_OUTPUT_TIMEOUT_S (default 480 s = 8 minutes); 0
   # disables the watch (the subprocess then runs as before, unbounded, exactly
-  # as it did before this change).
-  defp tail_watchdog(label) do
+  # as it did before this change). `marker_dir` is where the child publishes
+  # the test it is running (nil when the child publishes none).
+  defp tail_watchdog(label, marker_dir) do
     %{
       label: label,
       limit_s: tail_output_timeout_s(),
-      last_data_at: System.monotonic_time(:second)
+      last_data_at: System.monotonic_time(:second),
+      marker_dir: marker_dir
     }
   end
 
@@ -1006,10 +1080,10 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   end
 
   # T-2692: the report a silent subprocess produces. It names WHAT was
-  # running (the command, and the test file:line the isolated run addressed),
-  # the ExUnit seed that run used (so the hang can be reproduced), and the
-  # runner's load at that moment -- the three facts a reader of a hung CI job
-  # needs and does not get from a job timeout.
+  # running (the command, the test file:line the isolated run addressed, and
+  # the last test STARTED inside it), the ExUnit seed that run used (so the
+  # hang can be reproduced), and the runner's load at that moment -- the facts
+  # a reader of a hung CI job needs and does not get from a job timeout.
   defp silent_subprocess_report(watchdog, output) do
     seed =
       case Regex.run(~r/seed:?\s+(\d+)/, output) do
@@ -1023,6 +1097,8 @@ defmodule Mix.Tasks.Letflow.Check.Test do
         _ -> "unknown"
       end
 
+    marker = read_tail_marker(watchdog.marker_dir)
+
     tail =
       output
       |> String.split("\n")
@@ -1034,10 +1110,73 @@ defmodule Mix.Tasks.Letflow.Check.Test do
     #{watchdog.limit_s}s and was killed (TEST_TAIL_OUTPUT_TIMEOUT_S=#{watchdog.limit_s}s).
 
     ExUnit seed: #{seed}
+    last test started: #{marker.last_test}
+    running test file: #{marker.file}
     runner load: #{load}
     last output:
     #{tail}
     """
+  end
+
+  # T-2692: the marker the child published, if any. The marker's file name
+  # carries the partition index (MIX_TEST_PARTITION, which the child
+  # inherits); this task's marker directory holds THIS child's marker and
+  # nothing else, so the file found in it is the child's.
+  #
+  # A child that published no marker (it hung before its first test started,
+  # or it is not an ExUnit run at all) is reported as "unknown" -- the report
+  # names what it knows and never guesses.
+  defp read_tail_marker(nil), do: %{file: "unknown", last_test: "unknown"}
+
+  defp read_tail_marker(dir) do
+    case marker_files(dir) do
+      [] ->
+        %{file: "unknown", last_test: "unknown"}
+
+      [path | _] ->
+        values =
+          case File.read(path) do
+            {:ok, content} -> marker_values(content)
+            {:error, _reason} -> %{}
+          end
+
+        %{
+          file: Map.get(values, "file", "unknown"),
+          last_test: last_started_test(Map.get(values, "tests"))
+        }
+    end
+  end
+
+  defp marker_files(dir) do
+    dir
+    |> Path.join("current-*.txt")
+    |> Path.wildcard()
+    |> Enum.sort()
+  end
+
+  # T-2692: the marker's key=value lines (see test/support/file_timeout_marker.ex).
+  # Only the FIRST "=" splits a line, so a value may contain one.
+  defp marker_values(content) do
+    content
+    |> String.split("\n")
+    |> Enum.reduce(%{}, fn line, acc ->
+      case String.split(line, "=", parts: 2) do
+        [key, value] -> Map.put(acc, key, value)
+        _ -> acc
+      end
+    end)
+  end
+
+  # T-2692: the marker's `tests=` line holds the last started test names,
+  # NEWEST FIRST, separated by " | " (test/support/file_timeout_marker.ex) --
+  # so the first name is the test that was running when the child went silent.
+  defp last_started_test(nil), do: "unknown"
+
+  defp last_started_test(names) do
+    case names |> String.split(" | ") |> Enum.find(&(&1 != "")) do
+      nil -> "unknown"
+      name -> String.trim(name)
+    end
   end
 
   defp collect(port, acc, watchdog) do
