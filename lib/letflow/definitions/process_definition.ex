@@ -152,6 +152,21 @@ defmodule Letflow.Definitions.ProcessDefinition do
     # see it, nor that a tenant has exactly one definition per key.
     field(:start_permission, :string)
 
+    # T-2604 (pilot gap G16): the DECLARED TEST CASES of this version -- the
+    # guardrail that runs them before the version may be activated (owner
+    # decision D-176's "automatic test run before activation").
+    #
+    # NULL means "no declared case": the version activates exactly as it did
+    # before this guardrail existed. The value is a JSON array of case
+    # objects; `Letflow.Definitions.TestCases` owns the shape, the bounds and
+    # the runner. It is authored by the definition's author, like the graph.
+    #
+    # D-180 EXTENSION POINT (not built here): the later fork/binding slice
+    # adds the lineage of a tenant's own copy of a standard definition (a
+    # `custom` marker and a `based_on: <standard key>@<version>` reference) to
+    # THIS table, as further NULLABLE columns beside this one.
+    field(:test_cases, {:array, :map})
+
     timestamps(inserted_at: :created_at, type: :utc_datetime_usec)
   end
 
@@ -171,7 +186,8 @@ defmodule Letflow.Definitions.ProcessDefinition do
       :stage,
       :graph,
       :created_by,
-      :start_permission
+      :start_permission,
+      :test_cases
     ])
     |> validate_required([:name, :version, :graph, :created_by])
     |> validate_common()
@@ -191,7 +207,15 @@ defmodule Letflow.Definitions.ProcessDefinition do
   @spec update_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
   def update_changeset(definition, attrs) do
     definition
-    |> cast(attrs, [:name, :version, :description, :stage, :graph, :start_permission])
+    |> cast(attrs, [
+      :name,
+      :version,
+      :description,
+      :stage,
+      :graph,
+      :start_permission,
+      :test_cases
+    ])
     |> validate_required([:name, :version, :graph])
     |> validate_common()
   end

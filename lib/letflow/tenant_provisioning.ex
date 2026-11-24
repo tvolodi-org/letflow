@@ -1084,7 +1084,13 @@ defmodule Letflow.TenantProvisioning do
     # live in the tenant's own schema, so there is no file-system path at all.
     # The table starts empty: no existing row is altered.
     {20_261_123_100_004, Letflow.Repo.Migrations.CreateNotificationFiles,
-     "20261123100004_create_notification_files.exs"}
+     "20261123100004_create_notification_files.exs"},
+    # T-2604 (pilot gap G16): process_definitions.test_cases -- the DECLARED TEST
+    # CASES of a definition version, the guardrail that runs them before the
+    # version may be activated. NULL for every existing row (a definition that
+    # declares no case activates exactly as it did before).
+    {20_261_124_100_001, Letflow.Repo.Migrations.AddTestCasesToProcessDefinitions,
+     "20261124100001_add_test_cases_to_process_definitions.exs"}
   ]
 
   @doc """

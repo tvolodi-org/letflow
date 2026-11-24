@@ -20,7 +20,7 @@ defmodule Letflow.CreateNotificationFilesTest do
     schema = fx.schema_name
 
     assert {@version, CreateNotificationFiles} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -1)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, CreateNotificationFiles,

@@ -904,6 +904,19 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.step_mappings_invalid(conn, violations)
 
+  # T-2604 (pilot gap G16): the declared test cases of the promoted version failed or are malformed.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_failed, failures}}}
+       ),
+       do: Response.test_cases_failed(conn, failures)
+
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_invalid, reason}}}
+       ),
+       do: Response.test_cases_invalid(conn, reason)
+
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)
 
