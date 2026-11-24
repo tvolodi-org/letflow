@@ -70,6 +70,7 @@ defmodule Letflow.Engine.RegulatoryReviewTimerPathTest do
                prefix: schema
              )
 
+    Letflow.OutboundAllowFixture.allow_definition!(schema, definition.id)
     assert {:ok, %{definition: active}} = Definitions.activate(definition.id, prefix: schema)
 
     assert {:ok, result} =

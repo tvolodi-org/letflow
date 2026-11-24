@@ -198,13 +198,12 @@ defmodule Letflow.Engine.PlatformCallCompleterRefusedTest do
 
     # the KEY rule does not fire: the body carried no read key of the call.
     #
-    # The completion itself is still refused, but for a DIFFERENT reason: the
-    # step library of gap G1 does not dispatch the platform call yet, so the
-    # SERVICE_TASK has no endpoint to parse (`missing_url_and_service_id`: a
-    # platform_call node carries no endpoint, no service_id and no script_key).
-    # The instance therefore stops at the platform call -- a step failure, not a
-    # refusal of the completion body. The test says exactly that: the key rule
-    # is not what stopped it.
-    assert {:error, {:config_parse_failed, "call", :missing_url_and_service_id}} = result
+    # The completion is ACCEPTED: since the G1 engine slice (T-2703) the
+    # platform_call node parses as a platform route, the engine arms the
+    # dispatch row inside its own transaction and the instance waits on the
+    # call node. The test says exactly that: the key rule is not what stopped it.
+    assert {:ok, completed} = result
+    assert completed.current_nodes == ["call"]
+    assert completed.instance_status == :active
   end
 end

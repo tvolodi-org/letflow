@@ -26,7 +26,7 @@ defmodule Letflow.AllowZeroCountSetLegsTest do
     schema = fx.schema_name
 
     assert {@version, AllowZeroCountSetLegs} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -7)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -9)
 
     assert constraints(schema) == []
 

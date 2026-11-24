@@ -187,6 +187,8 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
 
         assert %{valid: true, violations: []} = result
 
+        Letflow.OutboundAllowFixture.allow_definition!(schema, definition.id)
+
         assert {:ok, %{definition: %{status: :active}}} =
                  Definitions.activate(definition.id, prefix: schema)
       end

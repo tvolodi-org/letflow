@@ -641,7 +641,10 @@ defmodule Letflow.Routers.Definitions do
     %FieldConstraint{name: "graph", required: true, type: :object},
     %FieldConstraint{name: "stage", required: false, type: :string},
     %FieldConstraint{name: "variable_schemas", required: false, type: :array},
-    %FieldConstraint{name: "copy_variable_schemas_from", required: false, type: :string}
+    %FieldConstraint{name: "copy_variable_schemas_from", required: false, type: :string},
+    # T-2604 (pilot gap G16): the DECLARED TEST CASES of the version -- they run
+    # before it may be activated.
+    %FieldConstraint{name: "test_cases", required: false, type: :array}
   ]
 
   defp handle_create(conn) do
@@ -661,7 +664,9 @@ defmodule Letflow.Routers.Definitions do
         description: Map.get(attrs, "description"),
         graph: Map.fetch!(attrs, "graph"),
         stage: Map.get(attrs, "stage"),
-        created_by: actor_id
+        created_by: actor_id,
+        # T-2604 (pilot gap G16): the declared test cases of this version.
+        test_cases: Map.get(attrs, "test_cases")
       }
 
       render_write(
@@ -678,6 +683,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
 
       {:error, :copy_and_schemas} ->
         Response.unprocessable(
@@ -746,7 +756,10 @@ defmodule Letflow.Routers.Definitions do
           version: Map.fetch!(attrs, "version"),
           description: description,
           graph: Map.fetch!(attrs, "graph"),
-          stage: stage
+          stage: stage,
+          # T-2604 (pilot gap G16): PUT replaces the declaration, like the other
+          # optional columns -- an omitted key clears the declared cases.
+          test_cases: Map.get(body, "test_cases")
         }
         |> maybe_put_variable_schemas(entries)
 
@@ -763,6 +776,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
     end
   end
 
@@ -797,6 +815,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
     end
   end
 
@@ -813,6 +836,9 @@ defmodule Letflow.Routers.Definitions do
     |> maybe_put_present(:graph, attrs, "graph")
     |> maybe_put_present(:description, body, "description")
     |> maybe_put_present(:stage, body, "stage")
+    # T-2604 (pilot gap G16): PATCH touches the declared test cases only when
+    # the key is present (an explicit null clears them).
+    |> maybe_put_present(:test_cases, body, "test_cases")
   end
 
   defp maybe_put_present(map, atom_key, source, string_key) do
@@ -859,6 +885,11 @@ defmodule Letflow.Routers.Definitions do
   # T-2591 (pilot gap G3): the declared start permission of a definition is unknown.
   defp render_write(conn, {:error, {:start_permission_invalid, violation}}, _success_status),
     do: Response.start_permission_invalid(conn, violation)
+
+  # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+  # write, with the same stable code the activation fence uses.
+  defp render_write(conn, {:error, {:invalid_test_cases, reason}}, _success_status),
+    do: Response.test_cases_invalid(conn, reason)
 
   defp render_write(conn, {:error, :not_found}, _success_status), do: Response.not_found(conn)
 
@@ -1090,8 +1121,20 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
 
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_reactivate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
   defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
+
+  # T-2604 (pilot gap G16): the declared test cases of the version run before
+  # it is (re)activated -- see render_activate/2's own clause.
+  defp render_reactivate(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_reactivate(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
 
   defp render_reactivate(conn, {:error, {:start_permission_invalid, violation}}),
     do: Response.start_permission_invalid(conn, violation)
@@ -1181,8 +1224,21 @@ defmodule Letflow.Routers.Definitions do
   defp render_activate(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
 
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_activate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
   defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
+
+  # T-2604 (pilot gap G16): a declared test case of the version failed, so the
+  # version may not be activated. The body names the case and a closed reason
+  # code -- never a variable value (INV-4).
+  defp render_activate(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_activate(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
 
   defp render_activate(conn, {:error, {:start_permission_invalid, violation}}),
     do: Response.start_permission_invalid(conn, violation)
@@ -1357,7 +1413,10 @@ defmodule Letflow.Routers.Definitions do
       # its authority. The reason is a closed code, never an id.
       "activation_state" => activation_state(definition),
       "needs_reactivation_reason" => definition.needs_reactivation_reason,
-      "needs_reactivation_at" => optional_iso8601(definition.needs_reactivation_at)
+      "needs_reactivation_at" => optional_iso8601(definition.needs_reactivation_at),
+      # T-2604 (pilot gap G16): the DECLARED TEST CASES of this version -- they run
+      # before it may be activated. Null for a version that declares none.
+      "test_cases" => definition.test_cases
     }
   end
 
@@ -1460,8 +1519,18 @@ defmodule Letflow.Routers.Definitions do
   defp render_rollback(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
 
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_rollback(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
   defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_rollback(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
 
   defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
     do: Response.start_permission_invalid(conn, violation)

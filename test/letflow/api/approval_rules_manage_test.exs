@@ -21,7 +21,7 @@ defmodule Letflow.Api.ApprovalRulesManageTest do
   @perm :ApprovalRulesManage
 
   test "P1 fifth to last core permission (OfficialFormTemplatesManage, LedgerSettingsManage, PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, both routes carry the key" do
-    assert Enum.at(Authorization.core_permissions(), -5) == @perm
+    assert Enum.at(Authorization.core_permissions(), -6) == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
     assert Authorization.endpoint_policy_key("GET", "/approval-rules") == @perm

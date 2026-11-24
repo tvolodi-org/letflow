@@ -140,7 +140,9 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
 
     resp = call(:post, "/", ctx, ["TENANT_ADMIN"], request)
     assert resp.status == 201, resp.resp_body
-    body(resp)["id"]
+    id = body(resp)["id"]
+    Letflow.OutboundAllowFixture.allow_definition!(ctx.schema, id)
+    id
   end
 
   defp stored(schema, id), do: Repo.get!(ProcessDefinition, id, prefix: schema)

@@ -433,6 +433,7 @@
 9 test/letflow/routers/solution_packs_update_overrides_test.exs 58013.77
 9 test/letflow/routers/tenant_modules_upgrade_plan_test.exs 78791.40
 9 test/letflow/security_probe/g02_writer_start_inventory_test.exs 6400.00
+9 test/letflow/security_probe/g11_route_inventory_probe_test.exs 10000.00
 9 test/letflow/tenant_provisioning/backfill_test.exs 9425.57
 9 test/mix/tasks/letflow_check_uat_scenario_schema_test.exs 7707.60
 9 test/support/tenant_schema_reaper_test.exs 307.10
@@ -906,6 +907,7 @@
 19 test/letflow/routers/tenant_modules_rollback_test.exs 88512.08
 19 test/letflow/routers/tenant_modules_uninstall_test.exs 10744.02
 19 test/letflow/secrets/log_filter_test.exs 1.32
+19 test/letflow/security_probe/g11_secret_scan_probe_test.exs 60000.00
 19 test/letflow/simulation/runner_template_and_outcomes_test.exs 21130.19
 19 test/letflow/simulation/seed_idempotency_test.exs 9156.64
 19 test/mix/tasks/letflow.check_boundaries_test.exs 14026.21

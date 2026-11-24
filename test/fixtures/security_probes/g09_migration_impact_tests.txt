@@ -33,6 +33,7 @@ test/letflow/migrations/create_entity_scope_declarations_test.exs
 test/letflow/migrations/create_entity_type_extensions_test.exs
 test/letflow/migrations/create_negative_balance_settings_test.exs
 test/letflow/migrations/create_notification_files_test.exs
+test/letflow/migrations/create_outbound_destinations_test.exs
 test/letflow/migrations/create_pending_tenant_admin_grants_test.exs
 test/letflow/migrations/create_problem_report_images_test.exs
 test/letflow/migrations/create_shared_stock_access_test.exs

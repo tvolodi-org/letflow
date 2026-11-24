@@ -124,7 +124,9 @@ defmodule Letflow.Routers.DefinitionsTest do
                  # GH #2692 / REQ-515: the second activation axis (status is unchanged)
                  "activation_state",
                  "needs_reactivation_reason",
-                 "needs_reactivation_at"
+                 "needs_reactivation_at",
+                 # T-2604 (pilot gap G16): the declared test cases of the version
+                 "test_cases"
                ])
     end
 

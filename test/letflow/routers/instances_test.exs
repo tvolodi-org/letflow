@@ -736,6 +736,10 @@ defmodule Letflow.Routers.InstancesTest do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2595-recon")
       schema_name = tenant.schema_name
 
+      # T-2597 (pilot gap G14): the local listener this test's HTTP service
+      # task reaches -- the tenant's outbound allow-list is empty by default.
+      TenantFixture.open_outbound_http!(schema_name, ["127.0.0.1"])
+
       graph = %{
         "nodes" => [
           %{"id" => "start", "node_type" => "START"},

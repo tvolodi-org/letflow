@@ -13,8 +13,15 @@ defmodule Letflow.Test.FileTimeoutMarker do
 
   The marker is published only when `TEST_PARALLEL_FILE_MARKER_DIR` is set, which
   `scripts/test_parallel.sh` exports for its own partitions. A plain `mix test`
-  (local dev, the isolated `:wasm_hang`/`:lua_wallclock_race` tails, a nested
-  `mix test` subprocess) publishes nothing and pays nothing.
+  (local dev, a nested `mix test` subprocess) publishes nothing and pays nothing.
+
+  T-2692: the isolated `:wasm_hang`/`:lua_wallclock_race` tails publish it too.
+  `mix letflow.check.test` hands each watched tail subprocess a marker
+  directory of its OWN and reads it back when the subprocess goes silent, so a
+  hang inside a GROUP of tests -- the `:lua_wallclock_race` tail runs eleven of
+  them in one subprocess, whose output carries dots and no names -- can be
+  reported by the test that was running. The marker dir is per subprocess, so
+  the tails' markers never collide with a partition's.
 
   Marker file format (one `key=value` per line, rewritten in place):
 
