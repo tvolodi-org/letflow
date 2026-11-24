@@ -2150,13 +2150,25 @@ defmodule Letflow.Engine do
         {:error, :instance_not_found}
 
       %InstanceProjection{definition_id: definition_id} ->
+        # A loop back to this node is a new visit and a call of its own (the first visit's row
+        # is `advanced` and would be replayed, leaving the instance parked for good).
+        visit =
+          repo.aggregate(
+            from(d in PlatformStepDispatch,
+              where: d.instance_id == ^arm_attrs.instance_id and d.node_id == ^node_id
+            ),
+            :count,
+            prefix: prefix
+          )
+
         opts = [
           prefix: prefix,
           instance_id: arm_attrs.instance_id,
           definition_id: definition_id,
           node_id: node_id,
           function: arm_attrs.function,
-          inputs: arm_attrs.inputs
+          inputs: arm_attrs.inputs,
+          visit: visit
         ]
 
         case PlatformDispatcher.arm(opts) do
@@ -6124,7 +6136,10 @@ defmodule Letflow.Engine do
   end
 
   defp apply_platform_outputs(row, projection, completion_key, resume?, prefix) do
-    with {:ok, graph} <- fetch_graph(row.instance_id, prefix) do
+    # The platform route plans no entity writes: a node that declares lines is refused fail-closed
+    # (the S4 guard of the HTTP and script routes).
+    with {:ok, graph} <- fetch_graph(row.instance_id, prefix),
+         :ok <- check_service_lines_planned(graph, row.node_id, nil) do
       active_token_records = load_active_tokens(Repo, row.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
 

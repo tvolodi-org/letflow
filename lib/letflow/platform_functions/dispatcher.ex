@@ -254,7 +254,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # The options `arm/1` accepts. An option outside this list is REFUSED, not
   # ignored: a caller must not believe that an option the dispatcher does not
   # read (`:tenant_id` above all) is honoured.
-  @arm_options [:prefix, :instance_id, :definition_id, :node_id, :function, :inputs]
+  @arm_options [:prefix, :instance_id, :definition_id, :node_id, :function, :inputs, visit: 0]
 
   defmodule StepDispatch do
     @moduledoc """
@@ -480,14 +480,16 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     node_id = Keyword.get(opts, :node_id)
     function = Keyword.get(opts, :function)
     inputs = Keyword.get(opts, :inputs) || %{}
+    visit = Keyword.get(opts, :visit, 0)
 
     with :ok <- check_node_id(node_id),
+         :ok <- check_visit(visit),
          {:ok, tenant_id} <- derive_tenant_id(prefix),
          :ok <- check_tenant_schema(prefix),
          {:ok, entry} <- fetch_entry(function),
          :ok <- check_inputs(entry, inputs),
          {:ok, _mfa} <- fetch_implementation(function) do
-      call_key = call_key(entry, inputs)
+      call_key = call_key(entry, inputs, visit)
       fingerprint = fingerprint(inputs)
 
       upsert(prefix, %{
@@ -901,14 +903,22 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # a caller passes can overflow the key column (`varchar(255)` under a
   # unique index). A collision is safe -- the fingerprint check below refuses
   # a different call that carries the same key.
-  defp call_key(%Entry{name: name, idempotency_key: key_inputs}, inputs) do
+  #
+  # `visit` is the count of earlier visits of the same node by the same instance (a loop back to a
+  # completed platform_call node): visit 0 keeps the plain key, a later visit is a new call of its
+  # own, so the first visit's replayed result never parks the instance.
+  defp call_key(%Entry{name: name, idempotency_key: key_inputs}, inputs, visit) do
     composition =
       Enum.map_join(key_inputs, "|", fn key ->
         "#{key}=#{Map.get(inputs, key)}"
       end)
 
-    "#{name}|#{sha256_hex(composition)}"
+    base = "#{name}|#{sha256_hex(composition)}"
+    if visit == 0, do: base, else: "#{base}|v#{visit}"
   end
+
+  defp check_visit(visit) when is_integer(visit) and visit >= 0 and visit < 1_000_000, do: :ok
+  defp check_visit(_visit), do: {:error, :platform_call_arg_unknown}
 
   # The FINGERPRINT of the whole argument set: same key + same fingerprint is
   # the same call; same key + a different fingerprint is a key reuse.

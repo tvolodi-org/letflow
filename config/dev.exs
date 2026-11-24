@@ -32,8 +32,9 @@ end
 # config/prod.exs's own comment that runtime-dependent values belong there.
 config :letflow, start_http: true, http_port: 4000
 
-# T-2703: the platform step runner is default-off; dev opts in explicitly.
-config :letflow, start_platform_step_runner: true
+# T-2703: the platform step runner is default-off in every environment; the
+# env variable LETFLOW_START_PLATFORM_STEP_RUNNER (config/runtime.exs, which is
+# evaluated after this file) is its single switch.
 
 # Deliberately not 5432 — R-Co's own docker-compose stack already uses 5432
 # (dev) and 5433 (test), so Letflow gets its own ports and can run alongside

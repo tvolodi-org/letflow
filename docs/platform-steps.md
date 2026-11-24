@@ -383,16 +383,21 @@ A SERVICE_TASK node that carries a `platform_call` is run by the engine:
    (`Letflow.Engine`, `build_service_task_dispatch_multi/5`, the same place every hop chain arms
    an HTTP or script step). The instance waits on the node. The call key is the catalogue
    entry's idempotency key, so a re-entry of the same node is the same call; a key that belongs
-   to ANOTHER instance's call is refused and the start writes nothing.
+   to ANOTHER instance's call is refused and the start writes nothing. A LOOP back to a node that
+   already ran is a new visit: the engine passes the count of earlier visits (`visit:`) and the call key
+   of a later visit carries a `|v<n>` suffix, so it is a call of its own and never the first visit's replay.
+   A node that declares `entity_writes` / `module_writes` is refused fail-closed on this route
+   (the S4 guard; the platform route plans no entity writes).
 2. **Run.** `Letflow.Engine.PlatformStepRunner` (ticked by `PlatformStepRunner.Poller`, config
-   key `:start_platform_step_runner`, default off; on in dev config; in a release only by the env variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, exactly `true`) runs the due rows of the PLATFORM tenant's
+   key `:start_platform_step_runner`, default off in every environment; switched on only by the env variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, exactly `true`, dev included) runs the due rows of the PLATFORM tenant's
    schema only, OUTSIDE every transaction, through `Dispatcher.attempt_dispatch/2`: the lease
    and the claim token, and the authority fence of decision 0094 at EVERY attempt.
 3. **Continue.** A row that advanced is handed to `Letflow.Engine.apply_platform_step_result/3`:
    the declared outputs are merged into the instance variables and the instance continues off
    the node. The completion key is the dispatch id, so a second apply moves nothing; a result
    that was written but never applied (a crash between the two commits) is applied by the
-   runner's sweep.
+   runner's sweep. The sweep also lands the failure of a `given_up` row whose instance is still
+   active (a death between the dispatcher's give-up commit and the engine's landing).
 4. **Fail.** A row that gave up (a refusal of the body or of the fence, or the attempt cap after
    crashes) goes through `Letflow.Engine.fail_platform_step/2`: the instance is in ERROR with an
    EXECUTION_ERROR event (no variable is copied into it) and a DLQ entry of type

@@ -17,6 +17,9 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   | R6 | a foreign (company) tenant schema never runs; a company tenant cannot hold a call |
   | R7 | the key of another instance's call is refused, never resumed |
   | R8 | the config parse: route kind and conflicting routes |
+  | R9 | a `given_up` row whose failure landing never ran is landed by the sweep, once |
+  | R10 | a node that declares entity lines is refused fail-closed on the platform route |
+  | R11 | a loop back to a completed platform_call node runs it again and completes |
 
   `async: false`: the platform tenant pin is application configuration, which is VM-global.
   """
@@ -328,5 +331,153 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
              ServiceTask.parse_config_from_node_attributes(
                node.(%{"platform_call" => %{"function" => "f"}, "endpoint" => "http://x"})
              )
+  end
+
+  # ── R9 ────────────────────────────────────────────────────────────────────
+
+  test "R9: a given_up row whose landing never ran is landed by the sweep, once", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-landing")
+    [row] = rows(ctx, instance_id)
+
+    lose_permission(ctx)
+
+    # The dispatcher gave the row up and committed; the engine's landing never ran (a death
+    # between the two commits).
+    assert {:error, _reason} =
+             Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row.id, ctx.prefix)
+
+    assert [%StepDispatch{status: :given_up}] = rows(ctx, instance_id)
+    assert projection(ctx, instance_id).status == :active
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 0
+
+    assert %{failed: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert projection(ctx, instance_id).status == :error
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+
+    # A second cycle moves nothing: one event, one DLQ entry.
+    assert %{failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+  end
+
+  # ── R10 ───────────────────────────────────────────────────────────────────
+
+  test "R10: a platform_call node that declares entity lines is refused fail-closed", ctx do
+    Letflow.EntityWritesFixture.define_type!(ctx.prefix, "stock_move", %{})
+    lines = [Letflow.EntityWritesFixture.line("stock_move", %{"label" => %{"const" => "x"}})]
+
+    draft =
+      Fx.definition!(
+        ctx.prefix,
+        Fx.graph(call(), %{"entity_writes" => lines}),
+        "t2703-lines-#{System.unique_integer([:positive])}"
+      )
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, _activated} =
+             Definitions.activate(draft.id, prefix: ctx.prefix, activator: activator)
+
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, draft, "acme-lines")
+    [row] = rows(ctx, instance_id)
+
+    assert {:ok, {:advanced, _outputs}} =
+             Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row.id, ctx.prefix)
+
+    assert {:error, {:entity_write_failed, 0, :not_planned}} =
+             Engine.apply_platform_step_result(row.id, ctx.prefix)
+
+    # Nothing moved: the instance still waits on the node, no completion event.
+    assert %{status: :active, current_nodes: ["call"]} = projection(ctx, instance_id)
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+  end
+
+  # ── R11 ───────────────────────────────────────────────────────────────────
+
+  test "R11: a loop that passes the platform_call node twice completes", ctx do
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "call",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{"platform_call" => call()}
+        },
+        %{"id" => "ht", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "REVIEWER"}},
+        %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "call"},
+        %{"id" => "e2", "source" => "call", "target" => "ht"},
+        %{"id" => "e3", "source" => "ht", "target" => "xg"},
+        %{
+          "id" => "e4",
+          "source" => "xg",
+          "target" => "call",
+          "condition" => "variables.again == true"
+        },
+        %{"id" => "e5", "source" => "xg", "target" => "end", "is_default" => true}
+      ]
+    }
+
+    step = call()
+
+    schemas =
+      (Map.to_list(step["reads"]) ++ Map.to_list(step["writes"]) ++ [{"again", "boolean"}])
+      |> Enum.map(fn {key, type} -> %{variable_key: key, json_schema: %{"type" => type}} end)
+
+    draft =
+      Fx.definition_with_schemas!(
+        ctx.prefix,
+        graph,
+        "t2703-loop-#{System.unique_integer([:positive])}",
+        schemas
+      )
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, %{already_active: false}} =
+             Definitions.activate(draft.id, prefix: ctx.prefix, activator: activator)
+
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, draft, "acme-loop")
+
+    complete_task = fn again ->
+      task =
+        Repo.one!(
+          from(t in Letflow.Engine.Task,
+            where: t.instance_id == ^instance_id and t.status == :pending
+          ),
+          prefix: ctx.prefix
+        )
+
+      assert {:ok, _result} =
+               Engine.complete_task(
+                 task.id,
+                 %{
+                   output_variables: %{"again" => again},
+                   actor_id: ctx.admin.id,
+                   idempotency_key: "t2703-loop-#{Ecto.UUID.generate()}"
+                 },
+                 prefix: ctx.prefix
+               )
+    end
+
+    # first visit
+    assert %{advanced: 1, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert %{current_nodes: ["ht"]} = projection(ctx, instance_id)
+    complete_task.(true)
+
+    # second visit: a row of its own, parked on the node, then run and applied
+    assert %{current_nodes: ["call"], status: :active} = projection(ctx, instance_id)
+    assert length(rows(ctx, instance_id)) == 2
+    assert %{claimed: 1, advanced: 1, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert %{current_nodes: ["ht"]} = projection(ctx, instance_id)
+    complete_task.(false)
+
+    assert projection(ctx, instance_id).status == :completed
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 2
   end
 end

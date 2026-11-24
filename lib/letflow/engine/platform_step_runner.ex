@@ -160,7 +160,33 @@ defmodule Letflow.Engine.PlatformStepRunner do
       )
       |> Repo.all(prefix: prefix)
 
-    Enum.reduce(ids, counts, fn id, acc -> apply_result(id, prefix, acc) end)
+    counts = Enum.reduce(ids, counts, fn id, acc -> apply_result(id, prefix, acc) end)
+    sweep_given_up(prefix, limit, cutoff, counts)
+  rescue
+    _exception -> counts
+  end
+
+  # The dispatcher's give-up and the engine's failure landing are two commits. A death between
+  # them leaves a `given_up` row whose instance is still ACTIVE: nothing else reads such a row.
+  # The landing is idempotent (its idempotency key is the row id and the attempt index).
+  defp sweep_given_up(prefix, limit, cutoff, counts) do
+    ids =
+      from(d in StepDispatch,
+        join: p in InstanceProjection,
+        on: p.instance_id == d.instance_id,
+        where: d.status == :given_up and d.dispatched_at > ^cutoff and p.status == :active,
+        order_by: [asc: d.dispatched_at],
+        limit: ^limit,
+        select: d.id
+      )
+      |> Repo.all(prefix: prefix)
+
+    Enum.reduce(ids, counts, fn id, acc ->
+      case Engine.fail_platform_step(id, prefix) do
+        {:ok, :error_set} -> %{acc | failed: acc.failed + 1}
+        _other -> acc
+      end
+    end)
   rescue
     _exception -> counts
   end
