@@ -192,6 +192,29 @@ authority is not a role, holds no permission atom, and cannot be reached from a 
 pin keeps its constructor and its start function inside `Letflow.TenantProvisioner`. The design, with the step table
 (failure and repeat per step), the start key and the 202 + poll consumer, is `docs/platform-register-tenant-v2.md`.
 
+## Update 2026-11-25: the system-authority start is built (T-2727, gap G17c)
+
+The five conditions of the amendment above are code now. This is an Update of the amendment, not a new decision.
+
+* **C1 -- one definition.** `Letflow.PlatformProcesses.SystemStart` is a struct with ONE constructor, `for_route/1`, over the
+  closed list `[:admin_v1_tenants_create, :signup_provisioning]`. `Letflow.Definitions.StartPermission.check/4` admits it only
+  when ALL hold: the definition's name is `platform.register_tenant`; the start prefix is the platform prefix; the derived
+  permission atoms are exactly `[:TenantsManage]` and so is the declared one; the definition starts no SUB_PROCESS child; the
+  definition declares the v2 variables `requested_tenant_id`, `tenant_type` and `notify_admin`. Anything else, and any value
+  that is not a `%SystemStart{}`, answers as an unknown definition and writes nothing.
+* **C2 -- audit.** The `instance.create` audit row of a system start carries `actor_id: nil`, `actor_kind: "system"` and
+  `started_via` (the route) in `after_state`. The engine start opt is `system_start:`; only the start gate and the audit row read it.
+* **C3 -- no trusted value.** The start variables are chosen by `PlatformProcesses.register_tenant_system_variables/1`; no request key
+  names an actor, a role or a route. `admin_email` is data (the grant stays pending until the first sign-in).
+* **C4 -- limits in front.** The front gate (demo cap, both budgets, the `tenant_admissions` reservation) and the route rewire are the
+  consumer half (T-2728, G17d); this change adds the table and the step that reads it, and rewires NO route.
+* **C5 -- gates.** Every touched file is under a `[sensitive]` prefix.
+
+This keeps today's behaviour behind the definition: **no new way to create a tenant.** The tenant row is still written in one place,
+the body of `tenant.create`, reachable only through the dispatcher for a node of an active `platform.register_tenant` version in
+the platform tenant. A source-scan pin (`system_start_callers_test.exs`) keeps `SystemStart` and `start_register_tenant_system/3`
+inside the allowed files.
+
 ## Residual risks, stated plainly
 
 * A stolen `PLATFORM_ADMIN` session can do everything the platform admin can, now also through a definition. The audit actor and the

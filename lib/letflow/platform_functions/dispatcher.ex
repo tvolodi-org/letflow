@@ -219,13 +219,17 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_function_mismatch
     platform_call_function_unknown
     platform_call_grant_failed
+    platform_call_hostname_mismatch
+    platform_call_hostname_taken
     platform_call_invalid_display_name
     platform_call_invalid_email
     platform_call_invalid_slug
     platform_call_mapping_not_declared
+    platform_call_lifecycle_failed
     platform_call_needs_reactivation
     platform_call_node_missing
     platform_call_node_not_declared
+    platform_call_onboarding_failed
     platform_call_permission_required
     platform_call_provision_failed
     platform_call_realm_already_bound

@@ -586,7 +586,12 @@ defmodule Letflow.Engine do
   # pilot gap G2): a definition that calls a platform function may be started
   # only by a holder of the entry's permission, and the check needs the
   # caller's roles and tenant.
-  @type opts :: [prefix: String.t(), module_start: boolean(), auth_context: map() | nil]
+  @type opts :: [
+          prefix: String.t(),
+          module_start: boolean(),
+          auth_context: map() | nil,
+          system_start: Letflow.PlatformProcesses.SystemStart.t() | nil
+        ]
 
   @type create_error ::
           {:error, :tenant_id_not_accepted}
@@ -698,6 +703,7 @@ defmodule Letflow.Engine do
          :ok <- validate_scope_node(attrs, prefix),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
+      attrs = put_system_start(attrs, opts)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
     end
   end
@@ -705,6 +711,18 @@ defmodule Letflow.Engine do
   # ---------------------------------------------------------------------
   # Pre-transaction phase (design doc §4) -- zero DB writes attempted.
   # ---------------------------------------------------------------------
+
+  # T-2727: the system start's own audit marker travels with the attrs to the
+  # `instance.create` audit row; only the start path reads it.
+  defp put_system_start(attrs, opts) do
+    case Keyword.get(opts, :system_start) do
+      %Letflow.PlatformProcesses.SystemStart{} = system_start ->
+        Map.put(attrs, :system_start, system_start)
+
+      _none ->
+        Map.delete(attrs, :system_start)
+    end
+  end
 
   defp reject_tenant_id(attrs) do
     if Map.has_key?(attrs, :tenant_id) or Map.has_key?(attrs, "tenant_id") do
@@ -945,7 +963,13 @@ defmodule Letflow.Engine do
     children =
       SubProcess.child_definitions(definition.graph, Keyword.get(opts, :prefix))
 
-    case StartPermission.check(definition, Keyword.get(opts, :auth_context), children) do
+    case StartPermission.check(
+           definition,
+           Keyword.get(opts, :auth_context),
+           children,
+           system_start: Keyword.get(opts, :system_start),
+           prefix: Keyword.get(opts, :prefix)
+         ) do
       :ok ->
         found
 
@@ -2712,17 +2736,38 @@ defmodule Letflow.Engine do
     Audit.append_multi(
       Multi.new(),
       :audit,
-      %{
-        actor_id: Map.get(attrs, :actor_id),
-        action: "instance.create",
-        resource_type: "instance",
-        resource_id: instance_id,
-        before_state: nil,
-        after_state: Audit.struct_state(finalized),
-        trace_id: nil
-      },
+      create_audit_attrs(attrs, instance_id, Audit.struct_state(finalized)),
       prefix
     )
+  end
+
+  # T-2727 (C2): a system start has no person: actor nil, kind "system", and
+  # the calling route named in the after-state.
+  defp create_audit_attrs(attrs, instance_id, after_state) do
+    base = %{
+      action: "instance.create",
+      resource_type: "instance",
+      resource_id: instance_id,
+      before_state: nil,
+      trace_id: nil
+    }
+
+    case Map.get(attrs, :system_start) do
+      %Letflow.PlatformProcesses.SystemStart{} = system_start ->
+        Map.merge(base, %{
+          actor_id: nil,
+          actor_kind: "system",
+          after_state:
+            Map.put(
+              after_state,
+              :started_via,
+              Letflow.PlatformProcesses.SystemStart.started_via(system_start)
+            )
+        })
+
+      _none ->
+        Map.merge(base, %{actor_id: Map.get(attrs, :actor_id), after_state: after_state})
+    end
   end
 
   # req062 design doc §3.3 -- resolves each prepared child's own parent

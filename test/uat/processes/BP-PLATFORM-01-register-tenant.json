@@ -2,10 +2,10 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: step A, the shipped definition is active and complete (read-only)",
-  "description": "Step A of the pilot scenario (T-2744, first part of G10 / T-2608). The platform administrator reads the platform tenant and checks that the definition platform.register_tenant is SHIPPED: active, version 1 or later (A1); its graph has the eight nodes with the function name of every service step (validate, create, provision, bind_realm, grant_first_admins) and the notify node with a template AND a recipient (A2); the designer's own reads answer the registry entry of each function and the template options of the notify step, the data the pickers show (A3). A4 is the one browser check, the designer page opens with eight nodes and a click opens the panel: the runner cannot drive a browser, so it is the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. The spec selects the edit view before it counts the eight nodes and clicks one to open its panel. Step A is READ-ONLY: nothing is created, no throwaway tenant, no cleanup. A3 reads the sorted catalogues by position (platform functions sorted by name: platform.validate_registration, tenant.bind_realm, tenant.create, tenant.grant_first_admins, tenant.install_default_modules, tenant.provision, tenant.validate; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it. Steps B..n are added by T-2608 (see later_steps).",
+  "description": "Step A of the pilot scenario (T-2744, first part of G10 / T-2608). The platform administrator reads the platform tenant and checks that the definition platform.register_tenant is SHIPPED: active, version 2 or later (the v2 document of T-2727) (A1); its graph has the twelve nodes with the function name of every service step (validate, create, provision, record_lifecycle, record_onboarding, bind_realm, grant_first_admins, install_default_modules), the notify gateway and and the notify node with a template AND a recipient (A2); the designer's own reads answer the registry entry of each function and the template options of the notify step, the data the pickers show (A3). A4 is the one browser check, the designer page opens with twelve nodes and a click opens the panel: the runner cannot drive a browser, so it is the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. The spec selects the edit view before it counts the twelve nodes and clicks one to open its panel. Step A is READ-ONLY: nothing is created, no throwaway tenant, no cleanup. A3 reads the sorted catalogues by position (platform functions sorted by name: platform.validate_registration, tenant.bind_realm, tenant.create, tenant.grant_first_admins, tenant.install_default_modules, tenant.provision, tenant.record_lifecycle, tenant.record_onboarding, tenant.validate; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it. Steps B..n are added by T-2608 (see later_steps).",
   "later_steps": [
     "B: start a registration from the screen (needs T-2704); the answer is 202 with an instance id; throwaway tenants are uat-tmp-* only",
-    "C: the instance runs to its end; the step log lists the six steps in order (T-2727)",
+    "C: the instance runs to its end; the step log lists the steps in order (T-2727)",
     "D: the mail of the notify step is in Mailpit (wait_mail)",
     "E: a forced failure of one step, then the retry from the dead-letter list (T-2728)",
     "F: the designer edit through the API (new draft, validate, activate), a start after it, then the rollback in one step",
@@ -29,7 +29,7 @@
     {
       "id": "A1",
       "actor": "admin",
-      "says": "The platform administrator reads the active definition platform.register_tenant of the platform tenant: it exists, it is ACTIVE, version 1 or later.",
+      "says": "The platform administrator reads the active definition platform.register_tenant of the platform tenant: it exists, it is ACTIVE, version 2 or later.",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/active/platform.register_tenant"
@@ -39,7 +39,9 @@
         "json": {
           "$.name": "platform.register_tenant",
           "$.status": "ACTIVE",
-          "$.version": {"regex": "^[1-9][0-9]*$"}
+          "$.version": {
+            "regex": "^([2-9]|[1-9][0-9]+)$"
+          }
         }
       },
       "save": {
@@ -49,7 +51,7 @@
     {
       "id": "A2",
       "actor": "admin",
-      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node carries a template and a recipient variable.",
+      "says": "The graph the designer page loads: twelve nodes, every service step carries its function name, the notify gateway sits in front of the notify node, which carries a template and a recipient variable.",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/${definition_id}"
@@ -57,8 +59,10 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.graph.nodes[7].node_type": "END",
-          "$.graph.nodes[8]": {"absent": true},
+          "$.graph.nodes[11].node_type": "END",
+          "$.graph.nodes[12]": {
+            "absent": true
+          },
           "$.graph.nodes[0].node_type": "START",
           "$.graph.nodes[1].id": "validate",
           "$.graph.nodes[1].attributes.platform_call.function": "tenant.validate",
@@ -66,16 +70,26 @@
           "$.graph.nodes[2].attributes.platform_call.function": "tenant.create",
           "$.graph.nodes[3].id": "provision",
           "$.graph.nodes[3].attributes.platform_call.function": "tenant.provision",
-          "$.graph.nodes[4].id": "bind_realm",
-          "$.graph.nodes[4].attributes.platform_call.function": "tenant.bind_realm",
-          "$.graph.nodes[5].id": "grant_first_admins",
-          "$.graph.nodes[5].attributes.platform_call.function": "tenant.grant_first_admins",
-          "$.graph.nodes[6].id": "notify",
-          "$.graph.nodes[6].attributes.notify.template_key": "tenant_registered",
-          "$.graph.nodes[6].attributes.notify.recipient.var": "admin_email"
+          "$.graph.nodes[4].id": "record_lifecycle",
+          "$.graph.nodes[4].attributes.platform_call.function": "tenant.record_lifecycle",
+          "$.graph.nodes[5].id": "record_onboarding",
+          "$.graph.nodes[5].attributes.platform_call.function": "tenant.record_onboarding",
+          "$.graph.nodes[6].id": "bind_realm",
+          "$.graph.nodes[6].attributes.platform_call.function": "tenant.bind_realm",
+          "$.graph.nodes[7].id": "grant_first_admins",
+          "$.graph.nodes[7].attributes.platform_call.function": "tenant.grant_first_admins",
+          "$.graph.nodes[8].id": "install_default_modules",
+          "$.graph.nodes[8].attributes.platform_call.function": "tenant.install_default_modules",
+          "$.graph.nodes[9].id": "notify_gate",
+          "$.graph.nodes[9].node_type": "EXCLUSIVE_GATEWAY",
+          "$.graph.nodes[10].id": "notify",
+          "$.graph.nodes[10].attributes.notify.template_key": "tenant_registered",
+          "$.graph.nodes[10].attributes.notify.recipient.var": "admin_email"
         }
       },
-      "requires": ["definition_id"]
+      "requires": [
+        "definition_id"
+      ]
     },
     {
       "id": "A3a",
@@ -92,9 +106,15 @@
           "$.items[2].name": "tenant.create",
           "$.items[3].name": "tenant.grant_first_admins",
           "$.items[5].name": "tenant.provision",
-          "$.items[6].name": "tenant.validate",
-          "$.items[1].inputs[0].name": {"exists": true},
-          "$.items[2].outputs[0].name": {"exists": true}
+          "$.items[6].name": "tenant.record_lifecycle",
+          "$.items[1].inputs[0].name": {
+            "exists": true
+          },
+          "$.items[2].outputs[0].name": {
+            "exists": true
+          },
+          "$.items[7].name": "tenant.record_onboarding",
+          "$.items[8].name": "tenant.validate"
         }
       }
     },
@@ -110,7 +130,9 @@
         "status": 200,
         "json": {
           "$.items[7].template_key": "tenant_registered",
-          "$.items[7].placeholders": {"contains": "tenant_name"}
+          "$.items[7].placeholders": {
+            "contains": "tenant_name"
+          }
         }
       }
     }

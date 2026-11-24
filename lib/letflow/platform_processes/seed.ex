@@ -9,9 +9,19 @@ defmodule Letflow.PlatformProcesses.Seed do
   (`Letflow.PlatformProcesses.Definition` holds the document), and it never
   overwrites a version an administrator already made.
 
-  ## The three answers
+  ## v2 (T-2727)
 
-  `seed/1` answers one of three things, and it says which:
+  The seed now writes `Letflow.PlatformProcesses.DefinitionV2` (version "2"). Over the seed's own v1
+  it writes v2 and switches it on (`:created`); v1 is deprecated by the activation and instances that
+  run on it finish on their snapshot. A version "2" that carries another document is answered
+  `:version_taken` and nothing is written.
+
+  ## The answers
+
+  `seed/1` answers one of these, and it says which:
+
+    * `:version_taken` -- a row of the seed's version exists with a graph that is not the shipped
+      document (an administrator's own);
 
     * `:created` -- the definition did not exist and was written and switched
       on;
@@ -106,11 +116,11 @@ defmodule Letflow.PlatformProcesses.Seed do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Identity
   alias Letflow.OutboundDestinations
-  alias Letflow.PlatformProcesses.Definition
+  alias Letflow.PlatformProcesses.DefinitionV2, as: Definition
   alias Letflow.PlatformTenant
 
   @typedoc "What the seed did."
-  @type outcome :: :created | :already_present | :newer_version_kept
+  @type outcome :: :created | :already_present | :newer_version_kept | :version_taken
 
   @typedoc "The answer of the seed."
   @type result :: %{
@@ -246,6 +256,11 @@ defmodule Letflow.PlatformProcesses.Seed do
           # alone -- the seed never touches what it did not write.
           unfinished_switch_on?(row) ->
             activate(row, prefix, activator)
+
+          # T-2727: a row of the seed's version that carries ANOTHER document (an administrator's own
+          # v2) is never mistaken for the shipped one: nothing is written.
+          row != nil and row.graph != Definition.graph() ->
+            {:ok, %{outcome: :version_taken, definition: row, version: Definition.version()}}
 
           row != nil ->
             {:ok, %{outcome: :already_present, definition: row, version: Definition.version()}}

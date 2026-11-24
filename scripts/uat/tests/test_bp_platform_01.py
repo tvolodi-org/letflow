@@ -20,8 +20,11 @@ CALLS = [
     ("validate", "tenant.validate"),
     ("create", "tenant.create"),
     ("provision", "tenant.provision"),
+    ("record_lifecycle", "tenant.record_lifecycle"),
+    ("record_onboarding", "tenant.record_onboarding"),
     ("bind_realm", "tenant.bind_realm"),
     ("grant_first_admins", "tenant.grant_first_admins"),
+    ("install_default_modules", "tenant.install_default_modules"),
 ]
 FUNCTIONS = [
     "platform.validate_registration",
@@ -30,6 +33,8 @@ FUNCTIONS = [
     "tenant.grant_first_admins",
     "tenant.install_default_modules",
     "tenant.provision",
+    "tenant.record_lifecycle",
+    "tenant.record_onboarding",
     "tenant.validate",
 ]
 
@@ -38,10 +43,11 @@ def definition():
     nodes = [{"id": "start", "node_type": "START"}]
     for node_id, fn in CALLS:
         nodes.append({"id": node_id, "node_type": "SERVICE_TASK", "attributes": {"platform_call": {"function": fn}}})
+    nodes.append({"id": "notify_gate", "node_type": "EXCLUSIVE_GATEWAY"})
     nodes.append({"id": "notify", "node_type": "SERVICE_TASK", "attributes": {
         "notify": {"template_key": "tenant_registered", "recipient": {"var": "admin_email"}}}})
     nodes.append({"id": "end", "node_type": "END"})
-    return {"id": "d1", "name": "platform.register_tenant", "version": "1", "status": "ACTIVE", "graph": {"nodes": nodes}}
+    return {"id": "d1", "name": "platform.register_tenant", "version": "2", "status": "ACTIVE", "graph": {"nodes": nodes}}
 
 
 def registry():
@@ -97,13 +103,13 @@ class StepA(unittest.TestCase):
 
     def test_a2_notify_without_recipient_or_template_fails(self):
         d = definition()
-        del d["graph"]["nodes"][6]["attributes"]["notify"]["recipient"]
+        del d["graph"]["nodes"][10]["attributes"]["notify"]["recipient"]
         self.assertFalse(self.verdict("A2", d))
         d = copy.deepcopy(definition())
-        d["graph"]["nodes"][6]["attributes"]["notify"]["template_key"] = None
+        d["graph"]["nodes"][10]["attributes"]["notify"]["template_key"] = None
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_node_count_is_eight(self):
+    def test_a2_node_count_is_twelve(self):
         d = definition()
         d["graph"]["nodes"].append({"id": "extra", "node_type": "END"})
         self.assertFalse(self.verdict("A2", d))
