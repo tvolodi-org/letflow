@@ -22,12 +22,16 @@ test.describe('BP-PLATFORM-01 A4: the designer page of platform.register_tenant 
   test('opens without an error boundary, shows eight nodes, a node click opens the panel', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(url as string)
-    await expect(page.getByTestId('diagram-editor')).toBeVisible()
-    await expect(page.getByTestId('page-header')).toContainText('platform.register_tenant')
-    await expect(page.getByText(/something went wrong/i)).toHaveCount(0)
-    const nodes = page.locator('.react-flow__node')
-    await expect(nodes).toHaveCount(8)
-    await nodes.nth(1).click()
-    await expect(page.getByTestId('edit-node-panel').or(page.getByTestId('node-panel'))).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'platform.register_tenant', exact: true })).toBeVisible()
+    await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)
+
+    // An ACTIVE definition opens on its read-only diagram. The editable diagram is mounted only after this switch.
+    await page.getByTestId('definition-view-edit').click()
+    const editor = page.getByTestId('diagram-editor')
+    await expect(editor).toBeVisible()
+    await expect(editor.locator('.react-flow__node')).toHaveCount(8)
+    await editor.getByTestId('rf__node-validate').click()
+    await expect(page.getByTestId('edit-node-panel')).toBeVisible()
+    await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)
   })
 })

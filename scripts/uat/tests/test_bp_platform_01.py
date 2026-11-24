@@ -50,7 +50,7 @@ def registry():
 
 def templates():
     keys = ["asset_expiry_reminder", "exam_assigned", "exam_reminder", "exam_result", "password_reset_hint",
-            "tenant_registered"]
+            "problem_report_status", "task_assigned", "tenant_registered"]
     return {"items": [{"template_key": k, "placeholders": ["tenant_name", "tenant_slug", "registered_by"]} for k in keys]}
 
 
@@ -72,6 +72,8 @@ class StepA(unittest.TestCase):
         self.assertNotIn("qoimeks", FILE.read_text())
         self.assertEqual("bpm-default", self.process["dry_run"]["actors"]["admin"]["tenant"])
         self.assertTrue(self.process["later_steps"])
+        self.assertIn("web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts", self.process["description"])
+        self.assertNotIn("pilot-register-tenant-designer.e2e.spec.ts", self.process["description"])
 
     def test_a1_active_definition(self):
         self.assertTrue(self.verdict("A1", definition()))
@@ -115,7 +117,7 @@ class StepA(unittest.TestCase):
         self.assertFalse(self.verdict("A3a", {"items": []}))
         self.assertFalse(self.verdict("A3b", {"items": []}))
         t = templates()
-        t["items"][5]["placeholders"] = []
+        t["items"][7]["placeholders"] = []
         self.assertFalse(self.verdict("A3b", t))
 
 
