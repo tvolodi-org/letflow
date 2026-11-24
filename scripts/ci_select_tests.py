@@ -165,6 +165,22 @@ ROUTE_DECLARATION_RE = re.compile(r"\b(?:authz_\w+|route_policies|role_grants|pe
 # Directory prefixes whose full contents are always added in single-module mode (floor).
 SINGLE_MODULE_PIN_PREFIXES = ("test/letflow/engine/", "test/letflow/record_triggers/")
 
+# T-2737: a change to the activation checks (outbound destinations, validators, authority) reaches
+# every test that activates a definition, usually through a shipped-definition helper the textual
+# module graph does not see (24 Nov: the G14 outbound allow-list turned 90 tests red in the extended
+# CI only). The reviewed list below is mandatory; every test that calls the activation API
+# directly is also nominated as a high-risk candidate (deferrable by budget, never silently).
+ACTIVATION_SOURCE_RE = re.compile(
+    r"^lib/letflow/(outbound_destinations(\.ex$|/)|definitions(\.ex$|/)|routers/definitions\.ex$|"
+    r"engine/service_task_dispatcher\.ex$|notifications\.ex$)"
+)
+ACTIVATION_CALL_RE = re.compile(r"Definitions\.activate|/activate\"|activate_definition")
+ACTIVATION_TESTS_FIXTURE = "test/fixtures/ci_selection/activation_tests.txt"
+# T-2737 (covers the Repo.query/SQL.query rule of T-2691): raw SQL needs the dynamic-SQL scan and the
+# whole security probe set; the probes are already mandatory on every bounded run (safety_tests).
+RAW_SQL_RE = re.compile(r"\b(?:Repo|SQL)\.query!?\(")
+RAW_SQL_TESTS = ["test/letflow/entities/managed_types/stamp_opener_scan_test.exs"]
+
 TOKEN_RE = re.compile(r"[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*")
 DEFMODULE_RE = re.compile(r"^\s*defmodule\s+([A-Z][A-Za-z0-9_.]*)", re.M)
 SCANNER_RE = re.compile(r"lib/[A-Za-z0-9_/.-]*\*\*|lib_files\(")
@@ -538,7 +554,25 @@ def inventory_tests(changed, all_tests, root):
         # whole suite). It is a mandatory check, not a candidate: it may not be deferred to the nightly run.
         if path.startswith("scripts/uat/"):
             required.add("test/scripts/uat_tooling_test.exs")
+        if path.startswith("lib/") and path.endswith(".ex") and RAW_SQL_RE.search(
+            read(os.path.join(root, path)) or ""
+        ):
+            required.update(RAW_SQL_TESTS)
+    if any(ACTIVATION_SOURCE_RE.search(p) for p in changed):
+        required.update(activation_tests(root))
     return required & set(all_tests)
+
+
+def activation_tests(root):
+    """The reviewed list of test files that activate definitions (T-2737)."""
+    text = read(os.path.join(root, ACTIVATION_TESTS_FIXTURE))
+    if text is None:
+        raise Full("activation test list %s unreadable" % ACTIVATION_TESTS_FIXTURE)
+    return [
+        line.strip()
+        for line in text.replace("\r", "").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
 
 def migration_impact_tests(root):
@@ -569,12 +603,20 @@ def risk_tests(changed, all_tests, root):
             groups.extend(("engine", "record_triggers", "modules"))
         elif p.startswith(("config/", "mix.", "test/support/")):
             groups.extend(("identity", "engine", "ledger"))
+    if any(ACTIVATION_SOURCE_RE.search(p) for p in changed):
+        selected_calls = {
+            t for t in all_tests
+            if ACTIVATION_CALL_RE.search(read(os.path.join(root, t)) or "")
+        }
+    else:
+        selected_calls = set()
     # Family labels use hyphens; source paths use underscores. Include root-level
     # family variants as well as the main test and nested test directory.
     selected = {t for t in all_tests if any(
         t.startswith(("test/letflow/%s/" % g, "test/letflow/%s_" % g))
         for g in (label.replace("-", "_") for label in dict.fromkeys(groups))
     )}
+    selected |= selected_calls
     config_modules = set()
     for p in changed:
         if p.startswith("config/"):
