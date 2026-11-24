@@ -60,8 +60,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib/seed_service_task_base.sh"
 # shellcheck source=lib/seed_token_check.sh
 source "${SCRIPT_DIR}/lib/seed_token_check.sh"
-# shellcheck source=lib/seed_outbound_open.sh
-source "${SCRIPT_DIR}/lib/seed_outbound_open.sh"
 
 echo "=== seed_meridian_definition.sh ==="
 echo "QA_URL: ${QA_URL}"
@@ -143,8 +141,6 @@ seed_definition() {
   echo "  Created (DRAFT) — ID: ${definition_id}"
   echo "  Status: $(echo "${create_response}" | jq -r '.status')"
 
-  # G14: demo tenant -- open the http channel and host first (docs/outbound-destinations.md).
-  seed_open_outbound_http
   echo "--- ${display_name}: activating definition ---"
   local activate_response
   activate_response=$(curl -sf \
