@@ -55,11 +55,14 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+// Public sign-up routes carry no session token, so they bypass the authenticated client on purpose.
+const rawRequest = (input: string, init?: RequestInit): Promise<Response> => window.fetch.call(window, input, init)
+
 const SLUG_STATUSES: readonly SlugStatus[] = ['available', 'taken', 'reserved', 'invalid']
 
 export async function fetchSignupConfig(): Promise<SignupConfig | null> {
   try {
-    const res = await window.fetch(`${BASE_URL}/api/signup/config`, { headers: { Accept: 'application/json' } })
+    const res = await rawRequest(`${BASE_URL}/api/signup/config`, { headers: { Accept: 'application/json' } })
     if (res.status !== 200) return null
     const b = await readJson(res)
     return {
@@ -76,7 +79,7 @@ export async function fetchSignupConfig(): Promise<SignupConfig | null> {
 /** `null` when the check itself failed (network, 429, malformed): the form then keeps the field neutral. */
 export async function checkSlug(slug: string): Promise<SlugStatus | null> {
   try {
-    const res = await window.fetch(`${BASE_URL}/api/signup/slug?slug=${encodeURIComponent(slug)}`, {
+    const res = await rawRequest(`${BASE_URL}/api/signup/slug?slug=${encodeURIComponent(slug)}`, {
       headers: { Accept: 'application/json' },
     })
     if (res.status !== 200) return null
@@ -88,7 +91,7 @@ export async function checkSlug(slug: string): Promise<SlugStatus | null> {
 }
 
 function postJson(path: string, body: unknown): Promise<Response> {
-  return window.fetch(`${BASE_URL}${path}`, {
+  return rawRequest(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),

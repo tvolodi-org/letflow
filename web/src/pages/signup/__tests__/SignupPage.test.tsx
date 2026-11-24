@@ -94,8 +94,8 @@ describe('SignupPage', () => {
 
   it('suggests a slug from the company name until the visitor edits it', async () => {
     await renderPage()
-    fireEvent.change(input(/company name/i), { target: { value: 'Acme Trading' } })
-    expect(input(/workspace address/i).value).toBe('acme-trading')
+    fireEvent.change(input(/company name/i), { target: { value: 'Zeta Trading' } })
+    expect(input(/workspace address/i).value).toBe('zeta-trading')
     fireEvent.change(input(/workspace address/i), { target: { value: 'mine' } })
     fireEvent.change(input(/company name/i), { target: { value: 'Other Name' } })
     expect(input(/workspace address/i).value).toBe('mine')

@@ -76,6 +76,6 @@ describe('signupApi', () => {
     expect(isStrongPassword('correct-horse-9')).toBe(true)
     expect(isStrongPassword('short1')).toBe(false)
     expect(isStrongPassword('onlyletterslong')).toBe(false)
-    expect(suggestSlug('Acme  Trading, Ltd.')).toBe('acme-trading-ltd')
+    expect(suggestSlug('Zeta  Trading, Ltd.')).toBe('zeta-trading-ltd')
   })
 })
