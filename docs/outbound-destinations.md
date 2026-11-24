@@ -113,7 +113,7 @@ value.
    `:outbound_channel_not_allowed`, `:outbound_destination_not_allowed` or
    `:outbound_allow_list_unavailable`.
 
-   Over HTTP every one of those paths answers **422** with
+   Over HTTP every one of those paths (and the solution-pack override activation) answers **422** with
    `{"error": "outbound_destinations_invalid", "violations": [{"node_id", "index",
    "code"}]}` (the body shape of `notify_calls_invalid`; never the submitted value),
    and nothing is activated or promoted. For a promotion apply the list that counts
