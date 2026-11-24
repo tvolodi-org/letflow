@@ -49,7 +49,15 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   # ── fixtures ────────────────────────────────────────────────────────────────────────────────
 
-  defp tenant(prefix), do: TenantFixture.provisioned_tenant!(slug_prefix: prefix)
+  defp tenant(prefix) do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: prefix)
+
+    # T-2597 (pilot gap G14): the local listener this file's dispatch tests
+    # reach -- the tenant's outbound allow-list is empty by default.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["127.0.0.1"])
+
+    tenant
+  end
 
   defp uniq(prefix), do: "#{prefix}-#{System.unique_integer([:positive, :monotonic])}"
 

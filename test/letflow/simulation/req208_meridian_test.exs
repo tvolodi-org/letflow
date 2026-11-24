@@ -668,6 +668,12 @@ defmodule Letflow.Simulation.Req208MeridianTest do
     {:ok, %{tenant: tenant}} = Seed.seed_company(company)
     {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(tenant.id)
 
+    # T-2597 (pilot gap G14): this simulation's graphs carry an inline HTTP
+    # step, and the tenant's outbound allow-list is empty by default -- so the
+    # door is opened for the hosts they reach (the fixture graph's host and
+    # the local listener the service-task test starts).
+    Letflow.TenantFixture.open_outbound_http!(schema_name, ["httpbin.org", "127.0.0.1"])
+
     {:ok, org_structure} =
       YamlElixir.read_from_file(Path.join(@fixtures_dir, "org_structure.yaml"))
 

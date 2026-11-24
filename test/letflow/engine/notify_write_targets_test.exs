@@ -28,13 +28,26 @@ defmodule Letflow.Engine.NotifyWriteTargetsTest do
   alias Letflow.Engine
   alias Letflow.Engine.Task, as: EngineTask
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.OutboundDestinations
   alias Letflow.TenantFixture
 
   defp provisioned_tenant do
-    TenantFixture.provisioned_tenant!(
-      slug_prefix: "t2592-notify-keys",
-      display_name: "T-2592 notify keys"
-    )
+    tenant =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: "t2592-notify-keys",
+        display_name: "T-2592 notify keys"
+      )
+
+    # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST -- the mail
+    # channel. The list is empty by default, and a definition that carries a
+    # notification step is refused at the activation while the channel is
+    # closed (the guardrail task's own test file covers the refusal). Only the
+    # CHANNEL is opened here: the recipient's domain is a runtime variable, so
+    # no destination is known at activation time.
+    {:ok, _entry} =
+      OutboundDestinations.add(tenant.schema_name, nil, "email", nil)
+
+    tenant
   end
 
   defp unique_name,

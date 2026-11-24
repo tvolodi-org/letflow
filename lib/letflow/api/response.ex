@@ -545,6 +545,22 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- an outbound destination (channel, recipient domain, HTTP host) of the graph
+  is not on the tenant's allow-list (T-2597, pilot gap G14). The same body shape as
+  `notify_calls_invalid/2`: the node, the index and a stable code; never a value.
+  """
+  @spec outbound_destinations_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def outbound_destinations_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "outbound_destinations_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
   HTTP 422 -- a DECLARED TEST CASE of the version failed (T-2604, pilot gap G16: the
   automatic test run before an activation).
 

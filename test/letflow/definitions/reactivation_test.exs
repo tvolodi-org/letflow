@@ -289,6 +289,65 @@ defmodule Letflow.Definitions.ReactivationTest do
              "activator_lost_entities_records_write"
   end
 
+  test "RA-OD: a reactivation onto a host the outbound list no longer allows is refused (T-2597)" do
+    ctx = case!()
+    alias Letflow.OutboundDestinations
+
+    assert {:ok, _} = OutboundDestinations.add(ctx.schema, ctx.user.id, "http", nil)
+    assert {:ok, _} = OutboundDestinations.add(ctx.schema, ctx.user.id, "http", "api.example.com")
+
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "step",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{
+            "endpoint" => "https://api.example.com/hook",
+            "method" => "POST",
+            "timeout_ms" => 30_000
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "step"},
+        %{"id" => "e2", "source" => "step", "target" => "end"}
+      ]
+    }
+
+    definition = Fx.activate!(ctx.schema, ctx.user, graph)
+
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^definition.id),
+        [set: [needs_reactivation_at: DateTime.utc_now(), needs_reactivation_reason: "test"]],
+        prefix: ctx.schema
+      )
+
+    # the host leaves the list after the definition was active
+    assert {:ok, _} =
+             OutboundDestinations.remove(ctx.schema, ctx.user.id, "http", "api.example.com")
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.user.id, roles: ["TENANT_ADMIN"]}, false)
+
+    assert {:error, {:outbound_destinations_invalid, violations}} =
+             Definitions.reactivate(definition.id, prefix: ctx.schema, activator: activator)
+
+    assert :outbound_destination_not_allowed in Enum.map(violations, & &1.code)
+    # nothing changed: the flag is still set
+    assert reload!(ctx.schema, definition).needs_reactivation_at != nil
+
+    # the same reactivation passes once the list allows the host again
+    assert {:ok, _} = OutboundDestinations.add(ctx.schema, ctx.user.id, "http", "api.example.com")
+
+    assert {:ok, _} =
+             Definitions.reactivate(definition.id, prefix: ctx.schema, activator: activator)
+
+    assert reload!(ctx.schema, definition).needs_reactivation_at == nil
+  end
+
   test "RA-T6: every authority-removing writer calls Reactivation, exempt ones are named" do
     registered = [
       {"lib/letflow/identity.ex", "Reactivation.reconcile_user(updated.id, prefix)"},

@@ -58,6 +58,11 @@ defmodule Letflow.EngineTest do
         display_name: "REQ-045 Test Tenant"
       )
 
+    # T-2597 (pilot gap G14): this file's graphs carry an inline HTTP step
+    # (`https://example.test/svc`), and the tenant's outbound allow-list is
+    # empty by default -- so the door is opened for that host here.
+    Letflow.TenantFixture.open_outbound_http!(schema_name, ["example.test"])
+
     %{tenant_id: tenant_id, schema_name: schema_name}
   end
 

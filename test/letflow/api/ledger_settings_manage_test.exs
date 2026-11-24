@@ -21,7 +21,7 @@ defmodule Letflow.Api.LedgerSettingsManageTest do
   @perm :LedgerSettingsManage
 
   test "P1 third to last core permission (PhotosAdd and PhotosDelete follow), tenant scope, resolves to itself, both routes carry the key" do
-    assert Enum.at(Authorization.core_permissions(), -3) == @perm
+    assert Enum.at(Authorization.core_permissions(), -4) == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
     assert Authorization.endpoint_policy_key("GET", "/ledger-settings") == @perm

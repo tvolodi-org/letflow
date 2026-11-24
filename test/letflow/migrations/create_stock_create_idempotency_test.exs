@@ -15,7 +15,7 @@ defmodule Letflow.CreateStockCreateIdempotencyTest do
     schema = fx.schema_name
 
     assert {@version, CreateStockCreateIdempotency} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -13)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -14)
 
     assert :ok =
              Ecto.Migrator.down(Repo, @version, CreateStockCreateIdempotency,
