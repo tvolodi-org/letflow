@@ -129,6 +129,34 @@
 #   test/support/file_timeout_marker.ex), and TEST_PARALLEL_FILE_MARKER_DIR is
 #   exported for the partitions so the marker formatter is installed.
 #
+# T-2692 (CI partition watchdog): one more bound, on the PARTITION's OUTPUT
+# rather than on the suite's own progress marker:
+#   TEST_PARALLEL_OUTPUT_TIMEOUT_S (default 480) -- a partition whose log has
+#       not grown for this many seconds is killed, and the kill is reported BY
+#       NAME: the last test that started, the ExUnit seed that run used, and
+#       the runner's load at that moment. Why this exists: push CI run
+#       45184714218 (2026-11-23) lost a job to the 30-minute job timeout in
+#       the isolated tails, and extended run 45221672326 (attempt 1, shard
+#       6/8, partition 23) hung with a Postgrex "owner timed out ... owned the
+#       connection for longer than 120000ms" on letflow_test23 and nothing
+#       named the test that was running. A partition that says nothing for
+#       eight minutes is not making progress, and the job timeout is a far
+#       worse way to learn that than a named, bounded kill.
+#       The signal is the partition LOG's byte count, not its line count:
+#       ExUnit's CLI formatter writes one "." per finished test and NO
+#       newline (see ex_unit/lib/ex_unit/cli_formatter.ex), so a healthy
+#       partition grows its log without ever adding a line -- counting lines
+#       would fire on every healthy partition. The byte count is flushed per
+#       write (verified: a redirected `IO.write(".")` lands in the file
+#       immediately), so it is an honest progress signal.
+#       The limit is a bound on SILENCE, and a partition's boot (the schema
+#       preflight and the tenant-template build in test/test_helper.exs) is
+#       silent by nature -- a host whose boot is slower than the limit should
+#       raise it. The default is four times the per-file stall limit above,
+#       which the suite has shipped since T-2652, so the margin here is the
+#       more generous of the two.
+#       0 disables the limit.
+#
 # Overridable knob: TEST_PER_PARTITION_HEADROOM=<non-negative integer>
 # (default 0, a deliberate no-op -- N*0=0 leaves Step 1.5's formula
 # unchanged) -- ISS-0287 §4.1, adds an N-scaling connection-budget margin
@@ -672,6 +700,12 @@ cleanup_tmp_dir() {
     kill -- "-${file_watchdog_pids[$_idx]}" 2>/dev/null
     kill "${file_watchdog_pids[$_idx]}" 2>/dev/null
   done
+  # T-2692: the per-partition output-silence watchdogs must not outlive this
+  # script either -- same reasoning as the file watchdogs above.
+  for _idx in "${!output_watchdog_pids[@]}"; do
+    kill -- "-${output_watchdog_pids[$_idx]}" 2>/dev/null
+    kill "${output_watchdog_pids[$_idx]}" 2>/dev/null
+  done
   # Signal delivery is asynchronous: the subshell's TERM trap (which kills its sleep) runs
   # only after we return. Give the watchdogs up to ~5 s to finish so the sleeps are gone
   # before this script exits (GH #2457); bounded, never waits on a watchdog that ignored it.
@@ -704,6 +738,11 @@ _tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT expor
 # the trap's own pid capture here).
 create_deadline_pid=""
 declare -A file_watchdog_pids=()
+# T-2692: the per-partition OUTPUT-silence watchdogs (Step 2). Declared here,
+# next to the file watchdogs, so the EXIT trap below can reap them on every
+# exit path (a watchdog that outlives the script would keep the CI job's
+# stdout pipe open).
+declare -A output_watchdog_pids=()
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
 
@@ -726,6 +765,15 @@ fi
 create_timeout_s="${TEST_PARALLEL_CREATE_TIMEOUT_S:-300}"
 if ! printf '%s' "$create_timeout_s" | grep -Eq '^[0-9]+$'; then
   echo "test_parallel: ERROR TEST_PARALLEL_CREATE_TIMEOUT_S='$create_timeout_s' is not a non-negative integer" >&2
+  exit 1
+fi
+
+# T-2692: per-partition OUTPUT-silence limit (seconds). 0 disables it.
+# The header explains the signal (the partition log's byte count) and why a
+# line count would be wrong (ExUnit writes dots without newlines).
+output_timeout_s="${TEST_PARALLEL_OUTPUT_TIMEOUT_S:-480}"
+if ! printf '%s' "$output_timeout_s" | grep -Eq '^[0-9]+$'; then
+  echo "test_parallel: ERROR TEST_PARALLEL_OUTPUT_TIMEOUT_S='$output_timeout_s' is not a non-negative integer" >&2
   exit 1
 fi
 
@@ -1238,6 +1286,59 @@ test_parallel_watchdog_diag() {
   return 0
 }
 
+# T-2692: the ONE report a stalled partition produces, shared by the per-file
+# watchdog and the per-partition output watchdog below, so that both name a
+# hang the same way: WHICH test was running, WHICH ExUnit seed that run used,
+# and HOW loaded the runner was when it stopped. A hang that shows its test
+# instead of only costing a job timeout is the whole point of the bound.
+#
+# $1 partition index
+# $2 reason, already worded (e.g. "no new output for 481s
+#    (TEST_PARALLEL_OUTPUT_TIMEOUT_S=480s)")
+# $3 the partition log the seed and the tail are read from
+test_parallel_stall_report() {
+  local idx="$1" reason="$2" log="$3"
+  local pfx seed marker_file last_test load blk
+  pfx="test_parallel: ERROR partition $idx: "
+  blk="$tmp_dir/stall-block-$idx.txt"
+  {
+    echo "${pfx}${reason} -- killing the partition"
+    # The ExUnit seed: "Running ExUnit with seed: 424242, max_cases: 8" on
+    # this toolchain ("Randomized with seed 424242" on older ones) -- both
+    # shapes are matched, so the report names the seed that reproduces the
+    # very run that hung.
+    seed=$(grep -oE 'seed:? [0-9]+' "$log" 2>/dev/null | head -n 1 | grep -oE '[0-9]+')
+    echo "${pfx}ExUnit seed: ${seed:-unknown}"
+    # The last test that started: the suite's own marker (see
+    # test/support/file_timeout_marker.ex), which names the running file and
+    # the tests that had started in it.
+    if [ -f "$marker_dir/current-$idx.txt" ]; then
+      marker_file=$(sed -n 's/^file=//p' "$marker_dir/current-$idx.txt" 2>/dev/null | head -n 1)
+      last_test=$(sed -n 's/^tests=//p' "$marker_dir/current-$idx.txt" 2>/dev/null | head -n 1)
+    fi
+    echo "${pfx}running test file: ${marker_file:-unknown}"
+    echo "${pfx}last test started: ${last_test:-unknown}"
+    # The runner's load at the moment of the kill: a hang under load and a
+    # hang on an idle machine are different bugs, and the load is the first
+    # thing a reader of a hung shard asks for.
+    if [ -r /proc/loadavg ]; then
+      load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)
+    else
+      load=$(uptime 2>/dev/null | sed -e 's/.*load average[s]*: *//')
+    fi
+    echo "${pfx}runner load: ${load:-unknown}"
+    echo "${pfx}last 40 lines of the partition log:"
+    tail -n 40 "$log" 2>/dev/null | cut -c1-300 | sed "s/^/${pfx}  /"
+  } > "$blk" 2>/dev/null || true
+  if [ -s "$blk" ]; then
+    test_parallel_diag_emit "$blk"
+  else
+    rm -f -- "$blk"
+    echo "${pfx}stall report unavailable: could not write $blk" >&2
+  fi
+  return 0
+}
+
 i="$FIRST"
 while [ "$i" -le "$LAST" ]; do
   # ISS-0917 §1.3 step 3: admission control -- blocks here (bounded, never
@@ -1373,8 +1474,10 @@ while [ "$i" -le "$LAST" ]; do
           # The partition may have finished between the marker write and this
           # poll; a partition that already reported is never killed.
           if grep -q '^Result: ' "$_plog" 2>/dev/null; then break; fi
-          echo "test_parallel: ERROR partition $i: test file $_file has not completed a test for ${_stall}s (TEST_PARALLEL_FILE_TIMEOUT_S=${file_timeout_s}s) -- killing the partition" >&2
-          sed 's/^/test_parallel: ERROR partition '"$i"': /' "$_marker" 2>/dev/null | cut -c1-300 >&2
+          # T-2692: the report is the shared one, so a stalled FILE and a
+          # silent PARTITION are reported the same way -- with the seed and
+          # the runner load next to the file's name.
+          test_parallel_stall_report "$i" "test file $_file has not completed a test for ${_stall}s (TEST_PARALLEL_FILE_TIMEOUT_S=${file_timeout_s}s)" "$_plog"
           kill -TERM -- "-$_part_pid" 2>/dev/null
           sleep "$partition_kill_grace_s"
           if kill -0 "$_part_pid" 2>/dev/null; then
@@ -1385,6 +1488,61 @@ while [ "$i" -le "$LAST" ]; do
       done
     ) &
     file_watchdog_pids[$i]=$!
+  fi
+
+  # T-2692: per-partition OUTPUT-silence watchdog. The per-file watchdog above
+  # can only see a hang the suite's marker knows about: it needs a marker file
+  # with a `progress=` clock, i.e. a test module that actually started. A
+  # partition that hangs BEFORE any test starts (a boot-time deadlock, a
+  # blocked DB call in test_helper.exs) or that hangs while the suite itself
+  # is wedged publishes no progress at all -- and then the only signal left is
+  # the partition's own silence, which is what this watchdog watches.
+  #
+  # The signal is the log's BYTE count, not its line count: ExUnit's CLI
+  # formatter writes one "." per finished test and no newline, so a healthy
+  # partition grows its log without ever adding a line (counting lines would
+  # fire on every healthy partition). The bytes are flushed per write, so the
+  # count is an honest "the suite is still saying something" signal.
+  #
+  # The kill is reported BY NAME through the shared report: the last test that
+  # started, the ExUnit seed, and the runner's load.
+  if [ "$output_timeout_s" -gt 0 ]; then
+    (
+      _part_pid=${pids[$i]}
+      _plog="$tmp_dir/partition-$i.log"
+      _last_size=-1
+      _last_change=$(date +%s)
+      _term=
+      trap '_term=1' TERM
+      while [ -z "$_term" ]; do
+        sleep 1
+        [ -n "$_term" ] && break
+        kill -0 "$_part_pid" 2>/dev/null || break
+        _size=$(wc -c < "$_plog" 2>/dev/null | tr -d '[:space:]')
+        [ -n "$_size" ] || _size=0
+        if [ "$_size" != "$_last_size" ]; then
+          # The partition said something: restart the silence clock.
+          _last_size="$_size"
+          _last_change=$(date +%s)
+          continue
+        fi
+        _now=$(date +%s)
+        _silent=$((_now - _last_change))
+        if [ "$_silent" -gt "$output_timeout_s" ]; then
+          # A partition that already reported is never killed (it may have
+          # finished between this poll and the check).
+          if grep -q '^Result: ' "$_plog" 2>/dev/null; then break; fi
+          test_parallel_stall_report "$i" "no new output for ${_silent}s (TEST_PARALLEL_OUTPUT_TIMEOUT_S=${output_timeout_s}s)" "$_plog"
+          kill -TERM -- "-$_part_pid" 2>/dev/null
+          sleep "$partition_kill_grace_s"
+          if kill -0 "$_part_pid" 2>/dev/null; then
+            kill -KILL -- "-$_part_pid" 2>/dev/null
+          fi
+          break
+        fi
+      done
+    ) &
+    output_watchdog_pids[$i]=$!
   fi
 
   i=$((i + 1))
@@ -1410,6 +1568,19 @@ while [ "$i" -le "$LAST" ]; do
     kill -- "-${watchdog_pids[$i]}" 2>/dev/null
     kill "${watchdog_pids[$i]}" 2>/dev/null
     wait "${watchdog_pids[$i]}" 2>/dev/null
+  fi
+  # T-2692: the same for this partition's file-stall and output-silence
+  # watchdogs -- a watchdog that outlives its partition would keep polling a
+  # finished log and could report a stall that never happened.
+  if [ -n "${file_watchdog_pids[$i]:-}" ]; then
+    kill -- "-${file_watchdog_pids[$i]}" 2>/dev/null
+    kill "${file_watchdog_pids[$i]}" 2>/dev/null
+    wait "${file_watchdog_pids[$i]}" 2>/dev/null
+  fi
+  if [ -n "${output_watchdog_pids[$i]:-}" ]; then
+    kill -- "-${output_watchdog_pids[$i]}" 2>/dev/null
+    kill "${output_watchdog_pids[$i]}" 2>/dev/null
+    wait "${output_watchdog_pids[$i]}" 2>/dev/null
   fi
   i=$((i + 1))
 done
