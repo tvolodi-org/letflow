@@ -407,6 +407,28 @@ A SERVICE_TASK node that carries a `platform_call` is run by the engine:
 The dispatcher gives a call up on its first refusal; what is retried by itself is a CRASH (a
 `running` row whose lease expired is taken over, up to the attempt cap).
 
+#### The switch that starts the runner: `LETFLOW_START_PLATFORM_STEP_RUNNER`
+
+The runner is OFF in every environment by default (a new flag defaults off). Its only
+switch is the environment variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, read once at boot
+by `config/runtime.exs`: **exactly `true`** turns the runner on; unset, empty or any other
+word leaves it off. `config/test.exs` keeps it off explicitly; everywhere else (dev
+included) the variable alone decides.
+
+**The trap.** With the runner off, a definition that reaches a `platform_call` node STARTS
+and NEVER RUNS: the engine arms the dispatch row inside its own transaction (the row is
+`pending`) and no worker claims it. The instance waits at the node for ever -- no error,
+no retry, no DLQ entry, nothing in the log that says why. No screen fails; the instance
+simply never leaves the step. A pilot that waits like this looks like a stuck process, not
+like a missing setting.
+
+So the variable belongs to the DEPLOYMENT, not to the build:
+
+| Where | What |
+|---|---|
+| QA host | `LETFLOW_START_PLATFORM_STEP_RUNNER=true` in BOTH host-local files: `$APP_DIR/qa.env` (the file `deploy/redeploy-qa.sh` sources) and `$APP_DIR/deploy/.env` (the compose `env_file` of `deploy/docker-compose.qa.yml`, the file the app container boots with). `qa.env` alone does not reach the container. `deploy/redeploy-qa.sh` refuses to deploy when either file does not carry it exactly `true`; the runbook is `docs/runbooks/qa-platform-step-runner.md`. |
+| Production | Unset means off, and the row in `docs/runbooks/production-readiness.md` §Settings says so, so an install that forgot it does not start with the runner off unnoticed. Turning it on in production is the owner's decision. |
+
 ### What is not built yet
 
 The engine now arms and runs a platform step (T-2703). What remains is the rewiring: the routes
