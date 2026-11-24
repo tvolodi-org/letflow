@@ -95,6 +95,12 @@ defmodule Letflow.Application do
         id: :platform_tenant_registration_check,
         restart: :temporary
       ),
+      # T-2739: one-shot idempotent seed of the platform definitions; no-op unless
+      # :seed_platform_definitions_on_boot is true (QA / runner only).
+      Supervisor.child_spec({Task, &Letflow.PlatformProcesses.BootSeed.run/0},
+        id: :platform_definitions_boot_seed,
+        restart: :temporary
+      ),
       Supervisor.child_spec(Letflow.Supervisor.Pollers, restart: :temporary),
       Letflow.Supervisor.PollersBreaker,
       Letflow.Supervisor.Http
