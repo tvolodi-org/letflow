@@ -36,7 +36,11 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
     * the closed set of SIDE-EFFECT CLASSES is read from the same module
       (`@type class :: ...`);
     * the ROUTE ATTRIBUTES a platform-call node may not carry beside its call
-      come from the shipped rule module (`@conflicting_route_attributes`);
+      come from the shipped rule module (`@conflicting_route_attributes`), and
+      the LINE ATTRIBUTES it may not carry either (`entity_writes`,
+      `module_writes`: the platform route plans no lines, T-2703) from the same
+      module (`@platform_call_line_attributes`); both feed the `dual_route`
+      family, only the route attributes feed the `foreign_source` family;
     * the node types that merge a value from outside the graph's own trusted
       inputs come from the same module (`@foreign_source_types`);
     * the ENTRIES are the compiled catalogue
@@ -194,6 +198,17 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # The route attributes a platform-call node may not carry beside its call.
   defp conflicting_route_attributes,
     do: module_attribute(@rule_module, :conflicting_route_attributes)
+
+  # The line attributes a platform-call node may not carry either: the platform
+  # route plans no lines, so `entity_writes` / `module_writes` are refused beside
+  # the call with the same code (T-2703). They route nothing by themselves, so
+  # they are a dual_route cell, never a foreign source.
+  defp platform_call_line_attributes,
+    do: module_attribute(@rule_module, :platform_call_line_attributes)
+
+  # Every attribute the dual_route family places beside the call.
+  defp dual_route_attributes,
+    do: conflicting_route_attributes() ++ platform_call_line_attributes()
 
   # The node types that merge a value from outside the graph's own trusted inputs.
   defp foreign_source_node_types, do: module_attribute(@rule_module, :foreign_source_types)
@@ -392,7 +407,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
   # route code even for a write-like entry, whose graph also carries a foreign
   # source (the T-2588 finding).
   defp dual_route_observations(ctx, subject) do
-    for attribute <- conflicting_route_attributes(),
+    for attribute <- dual_route_attributes(),
         side_effect_class <- side_effect_classes(),
         reduce: [] do
       acc ->
@@ -654,6 +669,7 @@ defmodule Letflow.SecurityProbe.G03SourceProvenanceTest do
       assert source_classes() != []
       assert side_effect_classes() != []
       assert conflicting_route_attributes() != []
+      assert platform_call_line_attributes() != []
       assert foreign_source_node_types() != []
     end
 
