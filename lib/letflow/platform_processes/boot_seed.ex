@@ -68,8 +68,8 @@ defmodule Letflow.PlatformProcesses.BootSeed do
 
       {:ok, _prefix} ->
         case Seed.seed([]) do
-          {:ok, %{outcome: outcome, version: version}} ->
-            Logger.info("platform definitions seed: #{@key} v#{version} #{outcome}")
+          {:ok, %{outcome: outcome}} ->
+            Logger.info("platform definitions seed: #{@key} #{inspect(outcome)}")
             {:ok, outcome}
 
           {:error, reason} ->

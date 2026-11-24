@@ -7,6 +7,7 @@ defmodule Letflow.PlatformProcesses.BootSeedTest do
   use Letflow.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.PlatformProcesses.BootSeed
@@ -68,5 +69,21 @@ defmodule Letflow.PlatformProcesses.BootSeedTest do
     PlatformFx.unpin!()
     assert {:error, :platform_tenant_not_configured} = BootSeed.run(force: true)
     assert {:error, :platform_tenant_not_configured} = BootSeed.check()
+  end
+
+  test "the log never carries the stored version text", %{tenant: tenant} do
+    assert {:ok, :created} = BootSeed.run(force: true)
+    canary = "canary.person@example.invalid\nFORGED_LOG"
+
+    Repo.update_all(
+      from(d in ProcessDefinition, where: d.name == "platform.register_tenant"),
+      [set: [version: canary]],
+      prefix: tenant.schema_name
+    )
+
+    log = capture_log(fn -> assert {:ok, :newer_version_kept} = BootSeed.run(force: true) end)
+    assert log =~ "platform definitions seed"
+    refute log =~ "canary.person"
+    refute log =~ "FORGED_LOG"
   end
 end

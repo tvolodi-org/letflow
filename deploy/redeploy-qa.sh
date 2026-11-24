@@ -181,7 +181,10 @@ if [[ -z "$APP_CTR" ]]; then
   exit 1
 fi
 docker exec "$APP_CTR" bin/letflow rpc 'IO.inspect(Letflow.PlatformProcesses.BootSeed.run(force: true))' || true
-if ! docker exec "$APP_CTR" bin/letflow rpc 'case Letflow.PlatformProcesses.BootSeed.check() do :ok -> IO.puts("platform.register_tenant: active"); {:error, r} -> IO.puts("platform.register_tenant: " <> inspect(r)); System.halt(1) end'; then
+# The check only RETURNS a result (never halts the VM): the deploy fails on the client side.
+SMOKE_OUT=$(docker exec "$APP_CTR" bin/letflow rpc 'IO.puts(case Letflow.PlatformProcesses.BootSeed.check() do :ok -> "SMOKE_OK"; {:error, r} -> "SMOKE_FAIL " <> inspect(r) end)') || SMOKE_OUT=""
+echo "$SMOKE_OUT" | tail -n 1
+if ! grep -qx 'SMOKE_OK' <<<"$SMOKE_OUT"; then
   echo "ERROR: platform.register_tenant is missing or not active in the platform tenant (smoke check)" >&2
   exit 1
 fi
