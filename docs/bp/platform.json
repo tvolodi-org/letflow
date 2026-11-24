@@ -1404,6 +1404,34 @@
         "result": "200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)"
       },
       {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "GET /api/signup/slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:75"
+        ],
+        "result": "200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup/status"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:136"
+        ],
+        "result": "200 pending, ready or failed with a closed reason (the mailed token is the credential)"
+      },
+      {
         "actor": "user",
         "forms": [],
         "functions": [
