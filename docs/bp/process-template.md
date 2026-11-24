@@ -40,8 +40,9 @@ what from a definition), and the pilot design `docs/platform-register-tenant-v2.
 6. **Make it editable in the designer.** The function picker, argument mapping rows and notification fields are
    fed by the catalogue, so a new entry appears without screen code. Activation refuses an unknown
    function (`platform_call_function_unknown`) and the dispatch guard refuses it again at run time; the designer's
-   validate refuses a bad typed mapping and a platform step in a company tenant, but does not look the function up
-   in the catalogue. The outbound allow-list is deny by default (atom
+   validate refuses a bad typed mapping (a declared type that disagrees with the catalogue entry's contract, or a
+   write the entry does not produce) and a platform step in a company tenant, but it does not refuse an unknown
+   function. The outbound allow-list is deny by default (atom
    `OutboundDestinationsManage`, TENANT_ADMIN and PLATFORM_ADMIN only) and is checked in two places that see
    different things: at activation, a literal HTTP host and the channel of a notification step (the designer's
    validate does not run it); at dispatch, the recipient domain of a notification step, because the recipient
