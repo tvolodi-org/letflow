@@ -2986,7 +2986,7 @@ defmodule Letflow.Definitions do
       {:ok, cases} ->
         TestCases.run(graph_map, cases)
 
-      {:error, reason} ->
+      {:error, {:invalid_test_cases, reason}} ->
         {:error, {:definition_test_cases_invalid, reason}}
     end
   end

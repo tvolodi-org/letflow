@@ -169,6 +169,11 @@ defmodule Letflow.Definitions.DefinitionTestCasesActivationTest do
 
       assert rows == []
     end
+
+    test "the fence's parse branch answers a bare ATOM reason (typed 422, never a raise)" do
+      assert {:error, {:definition_test_cases_invalid, :not_a_list}} =
+               Letflow.Definitions.check_test_cases(%{test_cases: "not-a-list", graph: %{}})
+    end
   end
 
   describe "the refusal reaches the caller (route level)" do

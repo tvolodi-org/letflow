@@ -82,7 +82,7 @@ carries no value: the case's name, a closed reason code
 (`status_mismatch`, `variable_mismatch`, `variable_missing`,
 `node_not_visited`, `no_matching_edge`, `hop_limit_exceeded`,
 `sub_process_not_supported`, `node_type_not_supported`, `transition_failed`,
-`reserved_variable_key`, `unknown_node_id`) and, when the reason is about a variable or a
+`reserved_variable_key`, `unknown_node_id`, `no_start_node`) and, when the reason is about a variable or a
 node, its NAME. Never a variable's value, never a stack trace, never a secret
 the case carried (INV-4).
 
