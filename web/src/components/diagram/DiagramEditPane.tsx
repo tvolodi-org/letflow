@@ -113,7 +113,12 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
   }, [seed, def.updated_at, reset])
 
   const live = useValidateDraft(def.id, draft.graph, !editorDirty && !demo?.violations)
-  const check: DraftCheck = demo?.violations ? { phase: 'invalid', violations: demo.violations } : live.check
+  const demoViolations = demo?.violations
+  const liveCheck = live.check
+  const check: DraftCheck = useMemo(
+    () => (demoViolations ? { phase: 'invalid', violations: demoViolations } : liveCheck),
+    [demoViolations, liveCheck],
+  )
   // Memoised: a fresh array on every render made the editor's node list new every render, and React Flow's store
   // answered each one with a state update: maximum update depth (React error 185, T-2738).
   const violations = useMemo(() => {
