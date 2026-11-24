@@ -430,20 +430,21 @@ fence, when the token enters the node (`:conflicting_routes`, nothing is armed o
 |---|---|---|---|
 | (none) + token enters the node | `pending` (armed INSIDE the engine's transaction) | waits on the node | R1/R2 |
 | (none) + node declares `entity_writes`/`module_writes` | refused at activation; at entry `:conflicting_routes`, no row | nothing starts (the start is refused) | R10, R8 |
-| `pending` + duplicate arm (the same visit armed again) | same row (`ON CONFLICT DO NOTHING`), no second run | waits on the node | R2 |
+| `pending` / `running` / `advanced` not yet applied + duplicate arm (the same visit armed again) | same row: the visit is the number of APPLIED earlier visits, so the key is the same and `ON CONFLICT DO NOTHING` replays it; no second row, no second run | waits on the node | R14 |
+| `given_up` + duplicate arm (the same visit armed again) | same row, left `given_up` (the engine does not re-arm it; only the DLQ retry runs a failed step again) | stays ERROR / the landing runs once | R14 |
 | `pending` + another instance's key | refused (`platform_call_key_in_use`), nothing written | the start/advance is refused | R7 |
 | `pending` + runner claims | `running` (lease + claim token) | waits | R1 |
 | `running` + success | `advanced`, then the apply: LANDED | continues off the node with the declared outputs | R1 |
 | `running` + function or authority-fence refusal | `given_up`, then the landing: LANDED | ERROR + EXECUTION_ERROR + DLQ entry (`platform_step`) | R3 |
-| `advanced` + apply refusal (`:not_planned` lines, a variable merge refusal, a downstream node that cannot arm, a graph that cannot be read) | stays `advanced`; the refusal is LANDED as a failure | ERROR + EXECUTION_ERROR (`failure_kind: apply_refused`) + DLQ entry | R13 |
-| `advanced` + an output names a reserved engine variable | refused at activation (`step_mapping_reserved_refused`); a graph that slipped past it ends in the terminal, value-free ERROR the HTTP route gives (no retry: the definition is wrong) | ERROR | step_mapping_activation_test.exs |
+| `advanced` + apply refusal (`:not_planned` lines, a variable merge refusal, a reserved engine variable in the outputs, a hop chain with NO MATCHING EDGE, a downstream node that cannot arm, a graph that cannot be read) | stays `advanced`; the apply rolls back (no SERVICE_TASK_COMPLETED, no completion key) and the refusal is LANDED as the platform failure | ERROR + EXECUTION_ERROR (`failure_kind: apply_refused`, `apply_refusal: <code>`) + DLQ entry (`platform_step`) | R13, R15 |
+| `advanced` + an output names a reserved engine variable, at activation | refused (`step_mapping_reserved_refused`); a graph that slipped past it is the apply refusal above (`reserved_variable_key`) | nothing starts | step_mapping_activation_test.exs |
 | `running` + runner crash BEFORE the result commit | `running` until the lease expires, then taken over (up to the attempt cap, then `given_up`) | waits | R5 |
 | `advanced` + runner crash AFTER the commit, before the apply | outstanding: the sweep applies it, once | continues | R5 (sweep) |
 | `given_up` + runner crash AFTER the commit, before the landing | outstanding: the sweep lands it, once | ERROR + EXECUTION_ERROR + DLQ entry | R9 |
 | outstanding row + runner resumed after ANY age (days) | applied / landed like a fresh one | continues / ERROR + DLQ | R12 |
 | `given_up` (landed) + DLQ retry (G7) | `pending` -> run -> `advanced`, applied with `resume: true` | ERROR lifted, continues exactly once; a second retry moves nothing | R4 |
-| `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13 |
-| `advanced` (landed) + loop back to the node | a NEW row (`visit: n`, key suffix `\|v<n>`) | runs again, continues | R11 |
+| `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13, R15 |
+| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11 |
 | any + foreign (company) tenant or unlisted function | never runs (`run_due/2` refuses the prefix; unknown function refused at arm) | the company tenant cannot hold the call | R6 |
 | outstanding row + instance no longer active (cancelled, terminated) | left as is: no sweep reads it | unchanged | R13 |
 

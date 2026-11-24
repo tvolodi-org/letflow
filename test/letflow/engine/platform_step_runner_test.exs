@@ -22,6 +22,8 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   | R12 | a result older than a day is still applied / landed by the sweep |
   | R11 | a loop back to a completed platform_call node runs it again and completes |
   | R13 | an apply refusal is LANDED (ERROR + EXECUTION_ERROR + DLQ), its retry runs nothing; an outstanding row of a cancelled instance is left alone; the sweep pages past its limit |
+  | R14 | a duplicate arm of the SAME visit (row pending / running / advanced-not-applied / given_up, also two processes at once) is the same row and the function runs once; the visit counts APPLIED visits, not rows |
+  | R15 | a result whose hop chain has no matching edge is landed as the PLATFORM failure (platform_step DLQ entry), and the G7 retry resumes it |
 
   The state x event table these rows prove is in `docs/platform-steps.md` ("The state machine
   of a platform_call dispatch").
@@ -659,5 +661,212 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
     # A limit of one row per page: the three outstanding rows are reached in one cycle.
     assert %{applied: 3} = PlatformStepRunner.run_due(ctx.prefix, 1)
     for id <- ids, do: assert(projection(ctx, id).status == :completed)
+  end
+
+  # ── R14 ───────────────────────────────────────────────────────────────────
+
+  # The engine's own arming entry point, called again for the node the instance waits on: the
+  # shape of a replayed engine transaction or a double entry of the same visit.
+  defp arm_again(ctx, row) do
+    Engine.arm_platform_step(
+      Repo,
+      %{instance_id: row.instance_id, function: row.function_name, inputs: row.inputs},
+      row.node_id,
+      ctx.prefix
+    )
+  end
+
+  # The function's executions: every claim of a row is one run of the function (`attempt_index`).
+  defp executions(ctx, instance_id),
+    do: rows(ctx, instance_id) |> Enum.map(& &1.attempt_index) |> Enum.sum()
+
+  test "R14: a duplicate arm of the same visit is the same row in every state, run once", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup")
+    [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
+
+    # pending: N arms, also from two processes at once.
+    for _ <- 1..3, do: assert({:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row))
+
+    for {:ok, armed} <-
+          Task.await_many(for(_ <- 1..2, do: Task.async(fn -> arm_again(ctx, row) end))),
+        do: assert(armed.id == id)
+
+    assert [%StepDispatch{id: ^id, status: :pending}] = rows(ctx, instance_id)
+
+    # running (a claim whose run is in flight): the same row, nothing new is due.
+    future = DateTime.add(DateTime.utc_now(), 600, :second)
+
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^id),
+      [set: [status: :running, attempt_index: 1, next_attempt_at: future]],
+      prefix: ctx.prefix
+    )
+
+    assert {:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row)
+    assert %{claimed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert length(rows(ctx, instance_id)) == 1
+
+    # advanced but not yet applied: the same row; the sweep applies it once.
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^id),
+      [set: [status: :pending, attempt_index: 0, next_attempt_at: DateTime.utc_now()]],
+      prefix: ctx.prefix
+    )
+
+    assert {:ok, {:advanced, _outputs}} =
+             Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(id, ctx.prefix)
+
+    assert {:ok, %StepDispatch{id: ^id, status: :advanced}} = arm_again(ctx, row)
+
+    for {:ok, armed} <-
+          Task.await_many(for(_ <- 1..2, do: Task.async(fn -> arm_again(ctx, row) end))),
+        do: assert(armed.id == id)
+
+    assert %{claimed: 0, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert [%StepDispatch{id: ^id}] = rows(ctx, instance_id)
+    assert executions(ctx, instance_id) == 1
+    assert projection(ctx, instance_id).status == :completed
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
+  end
+
+  test "R14: a duplicate arm of a given_up row is the same row; nothing runs again", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup-failed")
+    [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
+
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^id),
+      [set: [status: :given_up, attempt_index: 1, last_failure_kind: "function_error"]],
+      prefix: ctx.prefix
+    )
+
+    for _ <- 1..2, do: assert({:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row))
+
+    assert %{claimed: 0, failed: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert [%StepDispatch{id: ^id, status: :given_up}] = rows(ctx, instance_id)
+    assert executions(ctx, instance_id) == 1
+    assert projection(ctx, instance_id).status == :error
+  end
+
+  test "R14: only an applied visit makes the next arm a new visit", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-visit")
+    [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
+
+    assert %{applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+
+    # The first visit was applied: an arrival at the node now is a genuine loop-back, a new call.
+    assert {:ok, %StepDispatch{id: second}} = arm_again(ctx, row)
+    refute second == id
+    assert {:ok, %StepDispatch{id: ^second}} = arm_again(ctx, row)
+    assert length(rows(ctx, instance_id)) == 2
+  end
+
+  # ── R15 ───────────────────────────────────────────────────────────────────
+
+  defp no_edge_graph(default?) do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "call",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{"platform_call" => call()}
+        },
+        %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" =>
+        [
+          %{"id" => "e1", "source" => "start", "target" => "call"},
+          %{"id" => "e2", "source" => "call", "target" => "xg"},
+          %{
+            "id" => "e3",
+            "source" => "xg",
+            "target" => "end",
+            "condition" => "variables.normalized_slug == \"never\""
+          }
+        ] ++
+          if(default?,
+            do: [%{"id" => "e4", "source" => "xg", "target" => "end", "is_default" => true}],
+            else: []
+          )
+    }
+  end
+
+  defp put_pinned_graph(ctx, instance_id, graph) do
+    Letflow.Definitions.InstanceDefinitionSnapshot
+    |> Repo.get!(instance_id, prefix: ctx.prefix)
+    |> Ecto.Changeset.change(graph: graph)
+    |> Repo.update!(prefix: ctx.prefix)
+  end
+
+  test "R15: no matching edge after the step is the platform failure; the retry resumes", ctx do
+    step = call()
+
+    schemas =
+      (Map.to_list(step["reads"]) ++ Map.to_list(step["writes"]))
+      |> Enum.map(fn {key, type} -> %{variable_key: key, json_schema: %{"type" => type}} end)
+
+    draft =
+      Fx.definition_with_schemas!(
+        ctx.prefix,
+        no_edge_graph(true),
+        "t2703-noedge-#{System.unique_integer([:positive])}",
+        schemas
+      )
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, _} = Definitions.activate(draft.id, prefix: ctx.prefix, activator: activator)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, draft, "acme-noedge")
+
+    # Activation refuses a gateway without a default edge (`:no_default_route`), so the pinned
+    # graph loses it after the start: the shape of a graph activated before that rule, and the
+    # path `Transition` still answers `:no_matching_edge` on.
+    put_pinned_graph(ctx, instance_id, no_edge_graph(false))
+
+    assert %{claimed: 1, advanced: 1, applied: 0, failed: 1} =
+             PlatformStepRunner.run_due(ctx.prefix)
+
+    errored = projection(ctx, instance_id)
+    assert errored.status == :error
+    assert errored.error_detail["error_type"] == "platform_step_failed"
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+    # The apply rolled back: no completion recorded, so the retry is not answered `already_final`.
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+
+    error_event =
+      Repo.one!(
+        from(e in Event,
+          where: e.instance_id == ^instance_id and e.event_type == "EXECUTION_ERROR"
+        ),
+        prefix: ctx.prefix
+      )
+
+    assert inspect(error_event.payload) =~ "no_matching_edge"
+    refute inspect(error_event.payload) =~ "admin@acme.test"
+
+    {:ok, %{items: entries}} =
+      Dlq.list(%{instance_id: instance_id, cursor: nil, page_size: 20}, prefix: ctx.prefix)
+
+    # Exactly one DLQ entry, of the platform step's type (never the ordinary "event" type).
+    assert [entry] = entries
+    assert entry.entry_type == StepRetry.platform_step_entry_type()
+    assert entry.reference_id == "call"
+
+    # The operator repairs the graph (a default edge); the G7 retry resumes the instance once,
+    # without running the function again.
+    put_pinned_graph(ctx, instance_id, no_edge_graph(true))
+
+    assert {:ok, %{kind: :platform}} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
+    assert projection(ctx, instance_id).status == :completed
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
+    assert executions(ctx, instance_id) == 1
+
+    assert {:ok, %{status: "already_final"}} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
   end
 end

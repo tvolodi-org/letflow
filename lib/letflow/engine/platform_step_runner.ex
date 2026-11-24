@@ -131,8 +131,13 @@ defmodule Letflow.Engine.PlatformStepRunner do
   # next cycle tries again.
   defp apply_result(id, prefix, acc) do
     case Engine.apply_platform_step_result(id, prefix) do
-      {:ok, outcome} when outcome in [:advanced, :error_set] ->
+      {:ok, :advanced} ->
         %{acc | applied: acc.applied + 1}
+
+      # The platform route lands every apply refusal itself (below); an `:error_set` answer is
+      # counted as the failure it is, never as an applied result.
+      {:ok, :error_set} ->
+        %{acc | failed: acc.failed + 1}
 
       {:ok, _outcome} ->
         acc

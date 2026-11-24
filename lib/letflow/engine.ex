@@ -2140,48 +2140,100 @@ defmodule Letflow.Engine do
 
   defp node_id_of(%{node_id: node_id}), do: node_id
 
-  # The arming of a platform step. The call key is the catalogue entry's own idempotency key, so
-  # a row that ALREADY exists for this node of this instance is the same call (a re-entry): it is
+  # The completion key of a platform step's apply: this prefix and the dispatch id.
+  @platform_step_completion_prefix "platform_step_dispatch:"
+
+  # The visit of a node is the number of its earlier visits that were APPLIED (their completion
+  # key, the dispatch id, is recorded). It is NOT the number of rows: a row that is still pending,
+  # running, or advanced-but-not-applied is the CURRENT visit, so arming it again gives the same
+  # key. Only a loop back that arrives after the previous visit was applied is a new visit (and a
+  # new call): the applied row would otherwise be replayed and leave the instance parked for good.
+  defp platform_step_visit(repo, instance_id, node_id, prefix) do
+    repo.aggregate(
+      from(d in PlatformStepDispatch,
+        as: :d,
+        where: d.instance_id == ^instance_id and d.node_id == ^node_id,
+        where:
+          exists(
+            from(i in IdempotencyRecord,
+              where:
+                i.idempotency_key ==
+                  fragment(
+                    "? || ?::text",
+                    ^@platform_step_completion_prefix,
+                    parent_as(:d).id
+                  ),
+              select: 1
+            )
+          )
+      ),
+      :count,
+      prefix: prefix
+    )
+  end
+
+  # The arming of a platform step. The call key is the catalogue entry's own idempotency key plus
+  # the VISIT of the node, so a second arm of the same visit (a replay, a double entry) computes
+  # the same key and meets the `ON CONFLICT` replay of `Dispatcher.arm/1`: the existing row is
   # accepted and not run twice. A key that belongs to ANOTHER instance or node is refused: the
   # first result is not this instance's to resume.
-  defp arm_platform_step(repo, arm_attrs, node_id, prefix) do
+  @doc false
+  @spec arm_platform_step(module(), map(), String.t(), String.t()) ::
+          {:ok, PlatformStepDispatch.t()} | {:error, term()}
+  def arm_platform_step(repo, arm_attrs, node_id, prefix) do
     case repo.get_by(InstanceProjection, [instance_id: arm_attrs.instance_id], prefix: prefix) do
       nil ->
         {:error, :instance_not_found}
 
       %InstanceProjection{definition_id: definition_id} ->
-        # A loop back to this node is a new visit and a call of its own (the first visit's row
-        # is `advanced` and would be replayed, leaving the instance parked for good).
-        visit =
-          repo.aggregate(
-            from(d in PlatformStepDispatch,
-              where: d.instance_id == ^arm_attrs.instance_id and d.node_id == ^node_id
-            ),
-            :count,
-            prefix: prefix
-          )
-
-        opts = [
-          prefix: prefix,
-          instance_id: arm_attrs.instance_id,
-          definition_id: definition_id,
-          node_id: node_id,
-          function: arm_attrs.function,
-          inputs: arm_attrs.inputs,
-          visit: visit
-        ]
-
-        case PlatformDispatcher.arm(opts) do
-          {:ok, %{dispatch: %{instance_id: iid, node_id: nid} = row}}
-          when iid == arm_attrs.instance_id and nid == node_id ->
+        case given_up_platform_step(repo, arm_attrs.instance_id, node_id, prefix) do
+          %PlatformStepDispatch{} = row ->
+            # The current visit FAILED (`given_up`): a duplicate arm is the same call and never a
+            # second run. `Dispatcher.arm/1` would re-arm a given_up row (its contract for a direct
+            # caller); on the engine route only the DLQ retry (G7) runs a failed step again.
             {:ok, row}
 
-          {:ok, _foreign_row} ->
-            {:error, {:platform_call_unresolved, node_id, :platform_call_key_in_use}}
-
-          {:error, reason} ->
-            {:error, {:platform_call_unresolved, node_id, reason}}
+          nil ->
+            do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix)
         end
+    end
+  end
+
+  # A `given_up` row of this node is always the CURRENT visit: an earlier visit that failed holds
+  # the instance in ERROR until its retry advanced (and applied) it.
+  defp given_up_platform_step(repo, instance_id, node_id, prefix) do
+    repo.one(
+      from(d in PlatformStepDispatch,
+        where: d.instance_id == ^instance_id and d.node_id == ^node_id and d.status == :given_up,
+        limit: 1
+      ),
+      prefix: prefix
+    )
+  end
+
+  defp do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix) do
+    visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix)
+
+    opts = [
+      prefix: prefix,
+      instance_id: arm_attrs.instance_id,
+      definition_id: definition_id,
+      node_id: node_id,
+      function: arm_attrs.function,
+      inputs: arm_attrs.inputs,
+      visit: visit
+    ]
+
+    case PlatformDispatcher.arm(opts) do
+      {:ok, %{dispatch: %{instance_id: iid, node_id: nid} = row}}
+      when iid == arm_attrs.instance_id and nid == node_id ->
+        {:ok, row}
+
+      {:ok, _foreign_row} ->
+        {:error, {:platform_call_unresolved, node_id, :platform_call_key_in_use}}
+
+      {:error, reason} ->
+        {:error, {:platform_call_unresolved, node_id, reason}}
     end
   end
 
@@ -6066,8 +6118,6 @@ defmodule Letflow.Engine do
   # runner's sweep applies an `advanced` row whose instance has not moved yet.
   # =========================================================================
 
-  @platform_step_completion_prefix "platform_step_dispatch:"
-
   @doc false
   @spec apply_platform_step_result(Ecto.UUID.t(), String.t(), keyword()) ::
           {:ok, :advanced | :error_set | :already_final | :not_advanced} | {:error, term()}
@@ -6185,20 +6235,12 @@ defmodule Letflow.Engine do
 
             # A step must never write the reserved engine namespace: a terminal, value-free
             # ERROR instead of a silent stall (the same rule the HTTP route has).
-            {:rejected, unchanged_variables,
-             [{:execution_error, key, _value, :reserved_variable_key, _failures}]} ->
-              if projection.status == :error do
-                {:error, :reserved_variable_key}
-              else
-                persist_service_task_reserved_key_error(
-                  Repo,
-                  projection,
-                  unchanged_variables,
-                  key,
-                  completion_key <> ":reserved",
-                  prefix
-                )
-              end
+            # The refusal is LANDED by the runner as the platform failure
+            # (`fail_platform_step_apply/3`: ERROR + EXECUTION_ERROR + a DLQ entry of the platform
+            # step's type), never as an ordinary event DLQ entry that the G7 retry cannot resume.
+            {:rejected, _unchanged_variables,
+             [{:execution_error, _key, _value, :reserved_variable_key, _failures}]} ->
+              {:error, :reserved_variable_key}
 
             {:rejected, _unchanged_variables, _events} = rejection ->
               {:error, {:variable_merge_rejected, rejection}}
@@ -6224,7 +6266,11 @@ defmodule Letflow.Engine do
       },
       idempotency_key: completion_key,
       on_advanced: &Function.identity/1,
-      on_no_matching_edge: &Function.identity/1
+      on_no_matching_edge: &Function.identity/1,
+      # A hop chain with no matching edge is a REFUSAL of the apply on this route: the whole apply
+      # rolls back (no SERVICE_TASK_COMPLETED, no completion key) and the runner lands it as the
+      # platform failure, so the G7 retry can resume it (`persist_service_task_no_matching_edge/7`).
+      refuse_no_matching_edge: true
     }
   end
 
@@ -6311,6 +6357,7 @@ defmodule Letflow.Engine do
 
   def platform_apply_refusal({:transition_failed, _}), do: {:land, "transition_failed"}
   def platform_apply_refusal(:reserved_variable_key), do: {:land, "reserved_variable_key"}
+  def platform_apply_refusal({:no_matching_edge, _node_id}), do: {:land, "no_matching_edge"}
   def platform_apply_refusal(_other), do: {:land, "apply_refused"}
 
   # No variable is copied into the event: the inputs of a platform step can be personal data (an
@@ -6376,6 +6423,7 @@ defmodule Letflow.Engine do
            required(:idempotency_key) => String.t(),
            required(:on_advanced) => (Multi.t() -> Multi.t()),
            required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
+           optional(:refuse_no_matching_edge) => boolean(),
            optional(:incident_variables) => map(),
            optional(:incident_labels) => map()
          }
@@ -6551,6 +6599,20 @@ defmodule Letflow.Engine do
   # "service_task_dispatch:<id>", unchanged), and `on_no_matching_edge` appends the script
   # route's run record and terminal row status AFTER the ExecutionError steps, in the same
   # transaction (identity for HTTP).
+  # The platform route (T-2703) does not land here: it refuses, and its runner lands the refusal
+  # with the platform step's own DLQ entry type. The conditions are not carried (INV-4).
+  defp persist_service_task_no_matching_edge(
+         _repo,
+         _projection,
+         _state_with_merged_variables,
+         node_id,
+         _evaluated_conditions,
+         %{refuse_no_matching_edge: true},
+         _prefix
+       ) do
+    {:error, {:no_matching_edge, node_id}}
+  end
+
   defp persist_service_task_no_matching_edge(
          repo,
          %InstanceProjection{} = projection,

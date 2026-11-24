@@ -189,9 +189,9 @@ defmodule Letflow.Supervisor.Pollers do
 
   # T-2703 (pilot gap G1 remainder): the platform step runner, a poller of its own (a platform step
   # may run for minutes and must not delay the HTTP or script dispatch). Gated by its own key,
-  # :start_platform_step_runner. A new flag defaults OFF; config/dev.exs and the runtime variable
-  # LETFLOW_START_PLATFORM_STEP_RUNNER (exactly "true", config/runtime.exs) turn it on
-  # explicitly (config/test.exs keeps it false: the same OwnershipError hazard).
+  # :start_platform_step_runner. A new flag defaults OFF; the single switch is the runtime variable
+  # LETFLOW_START_PLATFORM_STEP_RUNNER (exactly "true", config/runtime.exs, dev included)
+  # (config/test.exs keeps it false: the same OwnershipError hazard).
   defp platform_step_runner_children do
     if Application.get_env(:letflow, :start_platform_step_runner, false) do
       [{Letflow.Engine.PlatformStepRunner.Poller, []}]
