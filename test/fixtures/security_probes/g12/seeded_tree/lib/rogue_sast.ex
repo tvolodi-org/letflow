@@ -11,6 +11,11 @@ defmodule SeededTree.RogueSast do
 
   def unsafe_sql(value), do: Repo.query!("SELECT * FROM widgets WHERE name = #{value}")
 
+  # The `alias Ecto.Adapters.SQL` form this repository uses at 22 sites: the call node is `SQL`.
+  alias Ecto.Adapters.SQL
+
+  def unsafe_aliased_sql(value), do: SQL.query!(Repo, "SELECT * FROM t WHERE n = #{value}", [])
+
   def unsafe_term(binary), do: :erlang.binary_to_term(binary)
 
   def weak_digest(value), do: :crypto.hash(:md5, value)

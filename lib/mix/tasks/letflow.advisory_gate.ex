@@ -683,9 +683,13 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
       _ ->
         http = opts[:http] || (&query_osv/1)
 
+        # ONE sorted list feeds both the queries and the zip below: a map of more than 32
+        # keys does not iterate in sorted order, so zipping the answers with the map
+        # would attribute each advisory to the wrong package.
+        sorted_pub = Enum.sort(packages.pub)
+
         queries =
-          packages.pub
-          |> Enum.sort()
+          sorted_pub
           |> Enum.map(fn {package, version} ->
             %{
               package: %{"name" => package, "ecosystem" => "Pub"},
@@ -702,8 +706,7 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
           raise "the OSV advisory source answered #{status}"
         end
 
-        packages.pub
-        |> Enum.map(fn {package, version} -> {package, version} end)
+        sorted_pub
         |> Enum.zip(osv_results(body))
         |> Enum.flat_map(fn {{package, version}, result} ->
           pub_advisories(package, version, result, http)
@@ -1044,8 +1047,9 @@ defmodule Mix.Tasks.Letflow.AdvisoryGate do
       short == "Repo" and function in [:query, :query!] ->
         sql_finding(file, line, args, node)
 
-      module == "Ecto.Adapters.SQL" and function in [:query, :query!] ->
-        sql_finding(file, line, args, node)
+      # SQL.query(repo, sql, params): the SQL string is the SECOND argument.
+      (module == "Ecto.Adapters.SQL" or short == "SQL") and function in [:query, :query!] ->
+        sql_finding(file, line, Enum.drop(args, 1), node)
 
       short == "crypto" and function == :hash ->
         weak_hash_finding(file, line, args, node)

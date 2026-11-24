@@ -406,6 +406,35 @@ defmodule Letflow.SecurityProbe.G12AdvisoryGateTest do
     assert "CVE-2021-31402" in pub_adv.aliases
   end
 
+  test "G12: the SAST scan flags SQL.query! under alias Ecto.Adapters.SQL" do
+    sites =
+      Gate.sast_findings(@seeded_tree)
+      |> Enum.filter(&(&1.rule == "sql_interpolation"))
+
+    # One bare Repo.query! and one aliased SQL.query!: the aliased form must not be invisible.
+    assert length(sites) == 2
+  end
+
+  test "G12: the pub collector attributes an advisory to its own package past 32 packages" do
+    # A map of more than 32 keys does not iterate in sorted order, so a zip of the answers
+    # with the map (instead of the sorted query list) names the wrong package.
+    pub = Map.new(1..40, fn n -> {"pkg_#{String.pad_leading("#{n}", 2, "0")}", "1.0.#{n}"} end)
+    packages = %{hex: %{}, npm: %{}, pub: pub}
+
+    http = fn
+      {:post, ~c"https://api.osv.dev/v1/querybatch", _body} ->
+        results = [%{"vulns" => [%{"id" => "GHSA-test-0001"}]} | List.duplicate(%{}, 39)]
+        {200, Jason.encode!(%{results: results})}
+
+      {:post, ~c"https://api.osv.dev/v1/query", _body} ->
+        {200, ~s({"vulns": []})}
+    end
+
+    assert [adv] = Gate.collect_pub(@seeded_tree, packages, http: http)
+    assert adv.package == "pkg_01"
+    assert adv.version == "1.0.1"
+  end
+
   test "G12: the pub collector reports nothing when OSV answers no advisory at all" do
     packages = Gate.production_packages(@seeded_tree)
 
