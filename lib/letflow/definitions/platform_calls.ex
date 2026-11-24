@@ -106,7 +106,16 @@ defmodule Letflow.Definitions.PlatformCalls do
   @attribute "platform_call"
   @notify_attribute "notify"
   @call_keys ["function", "args", "reads", "writes"]
-  @conflicting_route_attributes ["endpoint", "service_id", "script_key"]
+  # `entity_writes` / `module_writes` count as a second route: the platform route plans no
+  # lines, so a node declaring them would run its function and then be refused when the result
+  # is applied, parking the instance. Refused at activation and at dispatch instead (T-2703).
+  @conflicting_route_attributes [
+    "endpoint",
+    "service_id",
+    "script_key",
+    "entity_writes",
+    "module_writes"
+  ]
 
   # The node types that may declare a `platform_call`: a SERVICE_TASK bound to
   # a platform function instead of an HTTP endpoint or a Lua script.

@@ -37,6 +37,7 @@ defmodule Letflow.Engine.PlatformStepRunner do
   import Ecto.Query
 
   alias Letflow.Engine
+  alias Letflow.Engine.TokenRecord
   alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.PlatformFunctions.Dispatcher
@@ -46,9 +47,8 @@ defmodule Letflow.Engine.PlatformStepRunner do
 
   @default_limit 64
 
-  # The sweep of an `advanced` row whose instance has not moved looks back this far: a result that
-  # is older than a day was settled by a person, not by a crash between two commits.
-  @sweep_window_seconds 86_400
+  # The keyset pages one sweep reads per cycle (each of the cycle's `limit` rows).
+  @sweep_pages 8
 
   @type counts :: %{
           claimed: non_neg_integer(),
@@ -126,68 +126,127 @@ defmodule Letflow.Engine.PlatformStepRunner do
     _exception -> acc
   end
 
+  # A refusal of the apply (the same answer on every try) is LANDED as a failure: ERROR +
+  # EXECUTION_ERROR + a DLQ entry, never a parked instance. A fault (a raise, a lock) is not: the
+  # next cycle tries again.
   defp apply_result(id, prefix, acc) do
     case Engine.apply_platform_step_result(id, prefix) do
-      {:ok, outcome} when outcome in [:advanced, :error_set] -> %{acc | applied: acc.applied + 1}
+      {:ok, outcome} when outcome in [:advanced, :error_set] ->
+        %{acc | applied: acc.applied + 1}
+
+      {:ok, _outcome} ->
+        acc
+
+      {:error, reason} ->
+        case Engine.fail_platform_step_apply(id, prefix, reason) do
+          {:ok, :error_set} -> %{acc | failed: acc.failed + 1}
+          _other -> acc
+        end
+    end
+  end
+
+  # ── the sweeps ──────────────────────────────────────────────────────────────────────────
+  #
+  # The dispatcher's result commit and the engine's apply (or landing) are two commits. A death
+  # between them leaves an OUTSTANDING row: `advanced` with no completion key, or `given_up`,
+  # while its instance is still ACTIVE and still holds a token on the node. Nothing else reads
+  # such a row, so the sweeps recover it WHATEVER ITS AGE (no time window: the persisted state
+  # alone says what is outstanding). They read keyset pages of `limit` rows, oldest first, at most
+  # `@sweep_pages` pages per cycle, so a row whose recovery keeps failing cannot hold back the
+  # rows behind it. Both recoveries are idempotent.
+
+  defp sweep(prefix, limit, counts) do
+    counts = sweep_pages(prefix, limit, :advanced, nil, @sweep_pages, counts)
+    sweep_pages(prefix, limit, :given_up, nil, @sweep_pages, counts)
+  end
+
+  defp sweep_pages(_prefix, _limit, _status, _cursor, 0, counts), do: counts
+
+  defp sweep_pages(prefix, limit, status, cursor, pages_left, counts) do
+    case outstanding_page(prefix, limit, status, cursor) do
+      {:ok, []} ->
+        counts
+
+      {:ok, rows} ->
+        counts =
+          Enum.reduce(rows, counts, fn {id, _at}, acc -> recover(status, id, prefix, acc) end)
+
+        if length(rows) < limit,
+          do: counts,
+          else: sweep_pages(prefix, limit, status, List.last(rows), pages_left - 1, counts)
+
+      :error ->
+        counts
+    end
+  end
+
+  defp recover(:advanced, id, prefix, acc), do: apply_result(id, prefix, acc)
+
+  defp recover(:given_up, id, prefix, acc) do
+    case Engine.fail_platform_step(id, prefix) do
+      {:ok, :error_set} -> %{acc | failed: acc.failed + 1}
       _other -> acc
     end
   end
 
-  # A crash between the dispatcher's result commit and the engine's apply leaves a row that
-  # `advanced` while its instance is still parked on the node. The apply is idempotent (its
-  # completion key is the dispatch id), so the sweep only picks rows that have no completion yet.
-  defp sweep(prefix, limit, counts) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@sweep_window_seconds, :second)
-
-    ids =
+  @doc false
+  # The outstanding rows of one status, as `{id, dispatched_at}` in keyset order after `cursor`.
+  @spec outstanding_page(String.t(), pos_integer(), :advanced | :given_up, nil | {term(), term()}) ::
+          {:ok, [{Ecto.UUID.t(), DateTime.t()}]} | :error
+  def outstanding_page(prefix, limit, status, cursor) do
+    query =
       from(d in StepDispatch,
         as: :d,
         join: p in InstanceProjection,
         on: p.instance_id == d.instance_id,
-        where: d.status == :advanced and d.dispatched_at > ^cutoff and p.status == :active,
+        where: d.status == ^status and p.status == :active,
         where:
-          not exists(
-            from(i in IdempotencyRecord,
+          exists(
+            from(t in TokenRecord,
               where:
-                i.idempotency_key ==
-                  fragment("'platform_step_dispatch:' || ?::text", parent_as(:d).id),
+                t.instance_id == parent_as(:d).instance_id and
+                  t.node_id == parent_as(:d).node_id and t.status == :active,
               select: 1
             )
           ),
-        order_by: [asc: d.dispatched_at],
+        order_by: [asc: d.dispatched_at, asc: d.id],
         limit: ^limit,
-        select: d.id
+        select: {d.id, d.dispatched_at}
       )
-      |> Repo.all(prefix: prefix)
 
-    counts = Enum.reduce(ids, counts, fn id, acc -> apply_result(id, prefix, acc) end)
-    sweep_given_up(prefix, limit, cutoff, counts)
+    query = if status == :advanced, do: not_completed(query), else: query
+
+    query =
+      case cursor do
+        nil ->
+          query
+
+        {cursor_id, cursor_at} ->
+          where(
+            query,
+            [d],
+            d.dispatched_at > ^cursor_at or (d.dispatched_at == ^cursor_at and d.id > ^cursor_id)
+          )
+      end
+
+    {:ok, Repo.all(query, prefix: prefix)}
   rescue
-    _exception -> counts
+    _exception -> :error
   end
 
-  # The dispatcher's give-up and the engine's failure landing are two commits. A death between
-  # them leaves a `given_up` row whose instance is still ACTIVE: nothing else reads such a row.
-  # The landing is idempotent (its idempotency key is the row id and the attempt index).
-  defp sweep_given_up(prefix, limit, cutoff, counts) do
-    ids =
-      from(d in StepDispatch,
-        join: p in InstanceProjection,
-        on: p.instance_id == d.instance_id,
-        where: d.status == :given_up and d.dispatched_at > ^cutoff and p.status == :active,
-        order_by: [asc: d.dispatched_at],
-        limit: ^limit,
-        select: d.id
+  # An `advanced` row is outstanding only while its completion key (the dispatch id) is absent.
+  defp not_completed(query) do
+    where(
+      query,
+      [d],
+      not exists(
+        from(i in IdempotencyRecord,
+          where:
+            i.idempotency_key ==
+              fragment("'platform_step_dispatch:' || ?::text", parent_as(:d).id),
+          select: 1
+        )
       )
-      |> Repo.all(prefix: prefix)
-
-    Enum.reduce(ids, counts, fn id, acc ->
-      case Engine.fail_platform_step(id, prefix) do
-        {:ok, :error_set} -> %{acc | failed: acc.failed + 1}
-        _other -> acc
-      end
-    end)
-  rescue
-    _exception -> counts
+    )
   end
 end

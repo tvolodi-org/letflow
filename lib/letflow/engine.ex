@@ -6237,32 +6237,13 @@ defmodule Letflow.Engine do
            Repo.get(PlatformStepDispatch, id, prefix: prefix) do
       code = row.last_failure_kind || "platform_step_failed"
 
-      # No variable is copied into the event: the inputs of a platform step can be personal
-      # data (an e-mail address), and the failure kind is a CODE of a closed vocabulary.
-      attrs = %{
-        instance_id: row.instance_id,
-        error_type: :platform_step_failed,
-        affected: {:node, row.node_id},
-        reason: "platform step failed (#{code})",
-        variables: %{},
-        details: %{
-          function: row.function_name,
-          failure_kind: code,
-          attempt_index: row.attempt_index
-        },
-        actor_id: EventStore.platform_actor_id(),
-        idempotency_key: "platform_step_failed:#{row.id}:#{row.attempt_index}",
-        dlq_entry_type: Letflow.Instances.StepRetry.platform_step_entry_type(),
-        dlq_reference_id: row.node_id
-      }
-
-      case set_instance_error(attrs, prefix: prefix) do
-        {:ok, %{status: :error}} -> {:ok, :error_set}
-        {:error, {:instance_terminal, _status}} -> {:ok, :error_set}
-        {:error, {:instance_already_error, _detail}} -> {:ok, :error_set}
-        {:error, :idempotency_key_reuse} -> {:ok, :error_set}
-        {:error, reason} -> {:error, reason}
-      end
+      land_platform_failure(
+        row,
+        code,
+        %{},
+        "platform_step_failed:#{row.id}:#{row.attempt_index}",
+        prefix
+      )
     else
       :error -> {:error, :platform_step_not_found}
       nil -> {:error, :platform_step_not_found}
@@ -6272,6 +6253,97 @@ defmodule Letflow.Engine do
     exception ->
       Logger.error("platform step failure landing raised: #{inspect(exception.__struct__)}")
       {:error, :platform_step_fail_landing_failed}
+  end
+
+  @doc false
+  # T-2703: the engine REFUSED to apply an `advanced` row (`apply_platform_step_result/3` answered
+  # one of the refusals `platform_apply_refusal/1` classifies). The step ran, but the instance
+  # cannot continue: it goes to ERROR with an EXECUTION_ERROR (`failure_kind: "apply_refused"`)
+  # and a DLQ entry of the platform step's type, instead of staying parked on the node. The DLQ
+  # retry finds the row `advanced` (it never runs the function again) and tries the apply once
+  # more. Idempotent: the key is the row id, and a row whose apply landed is not touched.
+  @spec fail_platform_step_apply(Ecto.UUID.t(), String.t(), term()) ::
+          {:ok, :error_set | :not_failed} | {:error, term()}
+  def fail_platform_step_apply(dispatch_id, prefix, reason) when is_binary(prefix) do
+    with {:land, refusal} <- platform_apply_refusal(reason),
+         {:ok, id} <- Ecto.UUID.cast(dispatch_id),
+         %PlatformStepDispatch{status: :advanced} = row <-
+           Repo.get(PlatformStepDispatch, id, prefix: prefix),
+         false <-
+           service_completion_key_present?(Repo, @platform_step_completion_prefix <> id, prefix) do
+      land_platform_failure(
+        row,
+        "apply_refused",
+        %{apply_refusal: refusal},
+        "platform_step_apply_refused:#{row.id}",
+        prefix
+      )
+    else
+      :skip -> {:ok, :not_failed}
+      :error -> {:error, :platform_step_not_found}
+      nil -> {:error, :platform_step_not_found}
+      true -> {:ok, :not_failed}
+      %PlatformStepDispatch{} -> {:ok, :not_failed}
+    end
+  rescue
+    exception ->
+      Logger.error("platform step apply landing raised: #{inspect(exception.__struct__)}")
+      {:error, :platform_step_fail_landing_failed}
+  end
+
+  @doc false
+  # Which answers of `apply_platform_step_result/3` are a REFUSAL to land (the same answer comes
+  # back on every try), and which are not: a raise (a database fault: the next cycle tries again),
+  # a row or instance that is gone, an instance that is no longer active, a node that holds no
+  # token of this instance. The refusal is named by a closed code, never by the term (INV-4).
+  @spec platform_apply_refusal(term()) :: {:land, String.t()} | :skip
+  def platform_apply_refusal(:platform_step_apply_failed), do: :skip
+  def platform_apply_refusal(:platform_step_not_found), do: :skip
+  def platform_apply_refusal(:instance_not_found), do: :skip
+  def platform_apply_refusal({:instance_not_active, _status}), do: :skip
+  def platform_apply_refusal({:unknown_token_id, _node_id}), do: :skip
+
+  def platform_apply_refusal({:entity_write_failed, _index, _cause}),
+    do: {:land, "lines_not_planned"}
+
+  def platform_apply_refusal({:variable_merge_rejected, _}),
+    do: {:land, "variable_merge_rejected"}
+
+  def platform_apply_refusal({:transition_failed, _}), do: {:land, "transition_failed"}
+  def platform_apply_refusal(:reserved_variable_key), do: {:land, "reserved_variable_key"}
+  def platform_apply_refusal(_other), do: {:land, "apply_refused"}
+
+  # No variable is copied into the event: the inputs of a platform step can be personal data (an
+  # e-mail address), and the failure kind is a CODE of a closed vocabulary.
+  defp land_platform_failure(row, code, extra_details, idempotency_key, prefix) do
+    attrs = %{
+      instance_id: row.instance_id,
+      error_type: :platform_step_failed,
+      affected: {:node, row.node_id},
+      reason: "platform step failed (#{code})",
+      variables: %{},
+      details:
+        Map.merge(
+          %{
+            function: row.function_name,
+            failure_kind: code,
+            attempt_index: row.attempt_index
+          },
+          extra_details
+        ),
+      actor_id: EventStore.platform_actor_id(),
+      idempotency_key: idempotency_key,
+      dlq_entry_type: Letflow.Instances.StepRetry.platform_step_entry_type(),
+      dlq_reference_id: row.node_id
+    }
+
+    case set_instance_error(attrs, prefix: prefix) do
+      {:ok, %{status: :error}} -> {:ok, :error_set}
+      {:error, {:instance_terminal, _status}} -> {:ok, :error_set}
+      {:error, {:instance_already_error, _detail}} -> {:ok, :error_set}
+      {:error, :idempotency_key_reuse} -> {:ok, :error_set}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   # mirrors ServiceTaskDispatcher.fetch_and_lock_dispatch/2's own FOR UPDATE

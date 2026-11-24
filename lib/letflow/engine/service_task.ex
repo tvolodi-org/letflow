@@ -210,7 +210,7 @@ defmodule Letflow.Engine.ServiceTask do
     #
     # T-2703 (pilot gap G1 remainder): a node carrying a `platform_call` declaration is route
     # :platform_call. One node carries ONE route: a second one (`endpoint`, `service_id`,
-    # `script_key`) is `:conflicting_routes`, the same answer the graph rule gives at activation.
+    # `script_key`, entity or module lines) is `:conflicting_routes`, the same answer the graph rule gives at activation.
     case Map.get(attrs, "platform_call") do
       call when is_map(call) ->
         parse_platform_call_config(node_id, call, attrs)
@@ -228,8 +228,12 @@ defmodule Letflow.Engine.ServiceTask do
   # (`Letflow.PlatformFunctions.Dispatcher`): the engine only arms its row.
   defp parse_platform_call_config(node_id, call, attrs) do
     with {:ok, node_id} <- fetch_node_id(node_id) do
+      # `entity_writes` / `module_writes` count as a second route: the platform route plans no
+      # lines. Activation refuses such a node; this refuses a graph activated before that fence
+      # at entry, before anything is armed or run.
       if ref_id(attrs, "endpoint") != nil or ref_id(attrs, "service_id") != nil or
-           ref_id(attrs, "script_key") != nil do
+           ref_id(attrs, "script_key") != nil or Map.get(attrs, "entity_writes") != nil or
+           Map.get(attrs, "module_writes") != nil do
         {:error, :conflicting_routes}
       else
         {:ok,

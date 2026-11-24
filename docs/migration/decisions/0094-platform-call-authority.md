@@ -178,5 +178,8 @@ come back.
   (default off, env `LETFLOW_START_PLATFORM_STEP_RUNNER`) runs the due rows of the platform schema OUTSIDE every transaction under the
   fence of this record, re-checked at every attempt; the outputs are cut to the node's declared writes; a failure after the retries
   puts the instance in ERROR with an EXECUTION_ERROR event and a DLQ entry of type `platform_step`, whose retry resumes it once.
+  A result the engine refuses to apply is landed the same way, and the runner recovers outstanding rows of any age; every state and
+  event of the dispatch is in the state table of `docs/platform-steps.md`. The decision above is unchanged. The residual risk that
+  remains: the tenant-creating routes still call the code directly until gap G17 (T-2704) makes them start the definition.
 * The start permission is DERIVED from the definition's catalogue calls. An explicit per-definition `start_permission` (a column) comes
   with the screen that starts the pilot's process (gap G3); until then the derived rule is the floor.

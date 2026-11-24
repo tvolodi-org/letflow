@@ -107,11 +107,9 @@ What is NOT delivered (the remainder of gap G17):
   registration path is still a way around the process;
 * the "every route starts an instance" test does not exist yet.
 
-The remainder waits for the engine slice that RUNS a platform step (see "What is not built yet"
-below): nothing in `lib/letflow/engine.ex` arms a `platform_step_dispatches` row, so a definition
-with a `platform_call` node cannot be started at all. Rewiring the routes before that slice would
-answer `202` and create no tenant, and the product's ONLY tenant-registration path would be
-dead. The rewiring task removes the four route entries from the scan's pinned list and THEN adds
+The engine slice that RUNS a platform step now exists (T-2703; see "What is not built yet" below);
+the rewiring is the remaining work (T-2704). It stays a separate step because the runner must be
+switched on (`LETFLOW_START_PLATFORM_STEP_RUNNER`) wherever a route starts the definition. The rewiring task removes the four route entries from the scan's pinned list and THEN adds
 the "every route starts an instance" test.
 
 The "Register tenant" path of the screen (gap G3, T-2591) is not one of the four: it starts an
@@ -386,8 +384,8 @@ A SERVICE_TASK node that carries a `platform_call` is run by the engine:
    to ANOTHER instance's call is refused and the start writes nothing. A LOOP back to a node that
    already ran is a new visit: the engine passes the count of earlier visits (`visit:`) and the call key
    of a later visit carries a `|v<n>` suffix, so it is a call of its own and never the first visit's replay.
-   A node that declares `entity_writes` / `module_writes` is refused fail-closed on this route
-   (the S4 guard; the platform route plans no entity writes).
+   A node that declares `entity_writes` / `module_writes` is refused at activation and at entry
+   (the platform route plans no entity writes); see the state table below.
 2. **Run.** `Letflow.Engine.PlatformStepRunner` (ticked by `PlatformStepRunner.Poller`, config
    key `:start_platform_step_runner`, default off in every environment; switched on only by the env variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, exactly `true`, dev included) runs the due rows of the PLATFORM tenant's
    schema only, OUTSIDE every transaction, through `Dispatcher.attempt_dispatch/2`: the lease
@@ -396,7 +394,8 @@ A SERVICE_TASK node that carries a `platform_call` is run by the engine:
    the declared outputs are merged into the instance variables and the instance continues off
    the node. The completion key is the dispatch id, so a second apply moves nothing; a result
    that was written but never applied (a crash between the two commits) is applied by the
-   runner's sweep. The sweep also lands the failure of a `given_up` row whose instance is still
+   runner's sweep, whatever the row's age. A result the engine REFUSES to apply is landed as a
+   failure (ERROR + EXECUTION_ERROR + DLQ entry), never left parked. The sweep also lands the failure of a `given_up` row whose instance is still
    active (a death between the dispatcher's give-up commit and the engine's landing).
 4. **Fail.** A row that gave up (a refusal of the body or of the fence, or the attempt cap after
    crashes) goes through `Letflow.Engine.fail_platform_step/2`: the instance is in ERROR with an
@@ -410,12 +409,43 @@ The dispatcher gives a call up on its first refusal; what is retried by itself i
 
 ### What is not built yet
 
-The routes (`POST /onboarding` and the other four) still call the tenant code directly; making
-them START the definition is gap G17.
+The engine now arms and runs a platform step (T-2703). What remains is the rewiring: the routes
+(`POST /onboarding` and the other four) still call the tenant code directly until gap G17
+(T-2704) makes them START the definition (see "Gap G17 is PARTIAL" above).
 
-It is also the slice that gap G17 waits for: until the engine arms and runs a platform step, the
-tenant-creating routes cannot start the definition, so they keep calling the code (see "Gap G17
-is PARTIAL" above).
+### The state machine of a platform_call dispatch (T-2703)
+
+The row's states are the dispatcher's (`pending`, `running`, `advanced`, `given_up`); LANDED is
+the instance's side: an `advanced` row is landed when its completion key
+(`platform_step_dispatch:<row id>`) exists, a `given_up` row when the instance went to ERROR for
+it. A row that is not landed while its instance is ACTIVE and still holds a token on the node is
+OUTSTANDING; the runner's sweeps recover outstanding rows of ANY age (there is no time window),
+oldest first, in keyset pages of the cycle's limit (at most `@sweep_pages` pages per cycle), so a
+row that keeps failing cannot starve the rows behind it. A `platform_call` node may not declare
+`entity_writes` / `module_writes` (the platform route plans no lines): the node is refused at
+activation (`conflicting_platform_call_routes`) and, for a graph that was activated before that
+fence, when the token enters the node (`:conflicting_routes`, nothing is armed or run).
+
+| State \ event | What happens next | What the instance sees | Test |
+|---|---|---|---|
+| (none) + token enters the node | `pending` (armed INSIDE the engine's transaction) | waits on the node | R1/R2 |
+| (none) + node declares `entity_writes`/`module_writes` | refused at activation; at entry `:conflicting_routes`, no row | nothing starts (the start is refused) | R10, R8 |
+| `pending` + duplicate arm (the same visit armed again) | same row (`ON CONFLICT DO NOTHING`), no second run | waits on the node | R2 |
+| `pending` + another instance's key | refused (`platform_call_key_in_use`), nothing written | the start/advance is refused | R7 |
+| `pending` + runner claims | `running` (lease + claim token) | waits | R1 |
+| `running` + success | `advanced`, then the apply: LANDED | continues off the node with the declared outputs | R1 |
+| `running` + function or authority-fence refusal | `given_up`, then the landing: LANDED | ERROR + EXECUTION_ERROR + DLQ entry (`platform_step`) | R3 |
+| `advanced` + apply refusal (`:not_planned` lines, a variable merge refusal, a downstream node that cannot arm, a graph that cannot be read) | stays `advanced`; the refusal is LANDED as a failure | ERROR + EXECUTION_ERROR (`failure_kind: apply_refused`) + DLQ entry | R13 |
+| `advanced` + an output names a reserved engine variable | refused at activation (`step_mapping_reserved_refused`); a graph that slipped past it ends in the terminal, value-free ERROR the HTTP route gives (no retry: the definition is wrong) | ERROR | step_mapping_activation_test.exs |
+| `running` + runner crash BEFORE the result commit | `running` until the lease expires, then taken over (up to the attempt cap, then `given_up`) | waits | R5 |
+| `advanced` + runner crash AFTER the commit, before the apply | outstanding: the sweep applies it, once | continues | R5 (sweep) |
+| `given_up` + runner crash AFTER the commit, before the landing | outstanding: the sweep lands it, once | ERROR + EXECUTION_ERROR + DLQ entry | R9 |
+| outstanding row + runner resumed after ANY age (days) | applied / landed like a fresh one | continues / ERROR + DLQ | R12 |
+| `given_up` (landed) + DLQ retry (G7) | `pending` -> run -> `advanced`, applied with `resume: true` | ERROR lifted, continues exactly once; a second retry moves nothing | R4 |
+| `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13 |
+| `advanced` (landed) + loop back to the node | a NEW row (`visit: n`, key suffix `\|v<n>`) | runs again, continues | R11 |
+| any + foreign (company) tenant or unlisted function | never runs (`run_due/2` refuses the prefix; unknown function refused at arm) | the company tenant cannot hold the call | R6 |
+| outstanding row + instance no longer active (cancelled, terminated) | left as is: no sweep reads it | unchanged | R13 |
 
 ## Why the body runs outside the engine's transaction
 

@@ -18,8 +18,13 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   | R7 | the key of another instance's call is refused, never resumed |
   | R8 | the config parse: route kind and conflicting routes |
   | R9 | a `given_up` row whose failure landing never ran is landed by the sweep, once |
-  | R10 | a node that declares entity lines is refused fail-closed on the platform route |
+  | R10 | a node that declares entity lines is refused at activation |
+  | R12 | a result older than a day is still applied / landed by the sweep |
   | R11 | a loop back to a completed platform_call node runs it again and completes |
+  | R13 | an apply refusal is LANDED (ERROR + EXECUTION_ERROR + DLQ), its retry runs nothing; an outstanding row of a cancelled instance is left alone; the sweep pages past its limit |
+
+  The state x event table these rows prove is in `docs/platform-steps.md` ("The state machine
+  of a platform_call dispatch").
 
   `async: false`: the platform tenant pin is application configuration, which is VM-global.
   """
@@ -331,6 +336,14 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
              ServiceTask.parse_config_from_node_attributes(
                node.(%{"platform_call" => %{"function" => "f"}, "endpoint" => "http://x"})
              )
+
+    # Entity or module lines are a second route too: refused at entry, before anything is armed.
+    for key <- ["entity_writes", "module_writes"] do
+      assert {:error, :conflicting_routes} =
+               ServiceTask.parse_config_from_node_attributes(
+                 node.(%{"platform_call" => %{"function" => "f"}, key => [%{}]})
+               )
+    end
   end
 
   # ── R9 ────────────────────────────────────────────────────────────────────
@@ -362,7 +375,7 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
 
   # ── R10 ───────────────────────────────────────────────────────────────────
 
-  test "R10: a platform_call node that declares entity lines is refused fail-closed", ctx do
+  test "R10: a platform_call node that declares entity lines is refused at activation", ctx do
     Letflow.EntityWritesFixture.define_type!(ctx.prefix, "stock_move", %{})
     lines = [Letflow.EntityWritesFixture.line("stock_move", %{"label" => %{"const" => "x"}})]
 
@@ -376,21 +389,49 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
     activator =
       Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
 
-    assert {:ok, _activated} =
+    # Refused at activation: the platform route plans no lines, so the function never runs.
+    assert {:error, {:platform_calls_invalid, [violation]}} =
              Definitions.activate(draft.id, prefix: ctx.prefix, activator: activator)
 
-    assert {:ok, %{instance_id: instance_id}} = start(ctx, draft, "acme-lines")
-    [row] = rows(ctx, instance_id)
+    assert %{code: :conflicting_platform_call_routes} = violation
+  end
+
+  # ── R12 ───────────────────────────────────────────────────────────────────
+
+  test "R12: a result older than a day is still applied and a given_up row still landed", ctx do
+    old = DateTime.add(DateTime.utc_now(), -3 * 86_400, :second)
+
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: applied_id}} = start(ctx, definition, "acme-old-applied")
+    [row] = rows(ctx, applied_id)
 
     assert {:ok, {:advanced, _outputs}} =
              Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row.id, ctx.prefix)
 
-    assert {:error, {:entity_write_failed, 0, :not_planned}} =
-             Engine.apply_platform_step_result(row.id, ctx.prefix)
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^row.id),
+      [set: [dispatched_at: old]],
+      prefix: ctx.prefix
+    )
 
-    # Nothing moved: the instance still waits on the node, no completion event.
-    assert %{status: :active, current_nodes: ["call"]} = projection(ctx, instance_id)
-    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+    assert %{applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert projection(ctx, applied_id).status == :completed
+
+    assert {:ok, %{instance_id: given_up_id}} = start(ctx, definition, "acme-old-given-up")
+    [row2] = rows(ctx, given_up_id)
+    lose_permission(ctx)
+
+    assert {:error, _reason} =
+             Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row2.id, ctx.prefix)
+
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^row2.id),
+      [set: [dispatched_at: old]],
+      prefix: ctx.prefix
+    )
+
+    assert %{failed: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert projection(ctx, given_up_id).status == :error
   end
 
   # ── R11 ───────────────────────────────────────────────────────────────────
@@ -479,5 +520,144 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
 
     assert projection(ctx, instance_id).status == :completed
     assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 2
+  end
+
+  # ── R13 ───────────────────────────────────────────────────────────────────
+
+  # The instance's pinned graph gains entity lines on the call node AFTER the arm: the shape of a
+  # graph that was activated before the activation fence refused such a node.
+  defp add_lines_to_pinned_graph(ctx, instance_id) do
+    snapshot =
+      Repo.get!(Letflow.Definitions.InstanceDefinitionSnapshot, instance_id, prefix: ctx.prefix)
+
+    nodes =
+      Enum.map(snapshot.graph["nodes"], fn
+        %{"id" => "call"} = node ->
+          put_in(node, ["attributes", "entity_writes"], [%{"type" => "stock_move"}])
+
+        node ->
+          node
+      end)
+
+    snapshot
+    |> Ecto.Changeset.change(graph: Map.put(snapshot.graph, "nodes", nodes))
+    |> Repo.update!(prefix: ctx.prefix)
+  end
+
+  test "R13: an apply refusal is landed as a recoverable failure, never a parked instance", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-refused")
+    add_lines_to_pinned_graph(ctx, instance_id)
+
+    assert %{claimed: 1, advanced: 1, applied: 0, failed: 1} =
+             PlatformStepRunner.run_due(ctx.prefix)
+
+    errored = projection(ctx, instance_id)
+    assert errored.status == :error
+    assert errored.error_detail["error_type"] == "platform_step_failed"
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+
+    error_event =
+      Repo.one!(
+        from(e in Event,
+          where: e.instance_id == ^instance_id and e.event_type == "EXECUTION_ERROR"
+        ),
+        prefix: ctx.prefix
+      )
+
+    assert inspect(error_event.payload) =~ "apply_refused"
+    assert inspect(error_event.payload) =~ "lines_not_planned"
+    refute inspect(error_event.payload) =~ "admin@acme.test"
+
+    {:ok, %{items: entries}} =
+      Dlq.list(%{instance_id: instance_id, cursor: nil, page_size: 20}, prefix: ctx.prefix)
+
+    assert [entry] =
+             Enum.filter(entries, &(&1.entry_type == StepRetry.platform_step_entry_type()))
+
+    assert entry.reference_id == "call"
+
+    # Landed: the next cycles read nothing, and nothing lands twice.
+    assert %{claimed: 0, applied: 0, failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+
+    # The retry finds the step done (it never runs the function again), the apply is refused
+    # again with a typed code, and the instance stays in ERROR.
+    [%StepDispatch{attempt_index: attempts}] = rows(ctx, instance_id)
+    assert {:error, code} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
+    assert is_atom(code)
+    assert [%StepDispatch{status: :advanced, attempt_index: ^attempts}] = rows(ctx, instance_id)
+    assert projection(ctx, instance_id).status == :error
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+
+    # The landing itself is idempotent.
+    [row] = rows(ctx, instance_id)
+
+    assert {:ok, :error_set} =
+             Engine.fail_platform_step_apply(row.id, ctx.prefix, {:entity_write_failed, 0, :x})
+
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
+  end
+
+  test "R13: a fault is not a refusal: the closed classification of the apply answers" do
+    for reason <- [
+          :platform_step_apply_failed,
+          :platform_step_not_found,
+          :instance_not_found,
+          {:instance_not_active, :cancelled},
+          {:unknown_token_id, "call"}
+        ] do
+      assert Engine.platform_apply_refusal(reason) == :skip
+    end
+
+    assert {:land, "lines_not_planned"} =
+             Engine.platform_apply_refusal({:entity_write_failed, 0, :not_planned})
+
+    assert {:land, "transition_failed"} =
+             Engine.platform_apply_refusal({:transition_failed, {:any, "term"}})
+
+    # A term never becomes the code (INV-4).
+    assert {:land, "apply_refused"} = Engine.platform_apply_refusal({:other, "admin@acme.test"})
+  end
+
+  test "R13: an outstanding row of a cancelled instance is left alone", ctx do
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-cancelled")
+    [row] = rows(ctx, instance_id)
+
+    assert {:ok, {:advanced, _outputs}} =
+             Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row.id, ctx.prefix)
+
+    assert {:ok, _cancelled} =
+             Engine.cancel_instance(
+               instance_id,
+               %{actor_id: ctx.admin.id, idempotency_key: "t2703-cancel-#{row.id}"},
+               prefix: ctx.prefix
+             )
+
+    assert %{applied: 0, failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert projection(ctx, instance_id).status == :cancelled
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 0
+  end
+
+  test "R13: the sweep pages past its limit, oldest first", ctx do
+    definition = activated(ctx)
+
+    ids =
+      for n <- 1..3 do
+        assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-page-#{n}")
+        [row] = rows(ctx, instance_id)
+
+        assert {:ok, {:advanced, _outputs}} =
+                 Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(row.id, ctx.prefix)
+
+        instance_id
+      end
+
+    # A limit of one row per page: the three outstanding rows are reached in one cycle.
+    assert %{applied: 3} = PlatformStepRunner.run_due(ctx.prefix, 1)
+    for id <- ids, do: assert(projection(ctx, id).status == :completed)
   end
 end
