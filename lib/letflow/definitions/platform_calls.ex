@@ -107,6 +107,12 @@ defmodule Letflow.Definitions.PlatformCalls do
   @notify_attribute "notify"
   @call_keys ["function", "args", "reads", "writes"]
   @conflicting_route_attributes ["endpoint", "service_id", "script_key"]
+  # `entity_writes` / `module_writes` on a platform_call node count as a second route: the
+  # platform route plans no lines, so such a node would run its function and then be refused
+  # when the result is applied. Refused at activation and at dispatch instead (T-2703). Kept
+  # apart from the route list above: they route nothing by themselves, so they are not a
+  # foreign source beside a call and do not cost a `notify` node its exemption.
+  @platform_call_line_attributes ["entity_writes", "module_writes"]
 
   # The node types that may declare a `platform_call`: a SERVICE_TASK bound to
   # a platform function instead of an HTTP endpoint or a Lua script.
@@ -343,7 +349,7 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   defp call_violations(call, node_type, attributes, nodes, activator) do
     cond do
-      conflicting_route_attributes?(attributes) ->
+      platform_call_conflict?(attributes) ->
         [%{index: 0, code: :conflicting_platform_call_routes}]
 
       node_type not in @node_types ->
@@ -500,16 +506,23 @@ defmodule Letflow.Definitions.PlatformCalls do
   defp declares_notify?(_other), do: false
 
   defp conflicting_route?(%Graph.Node{attributes: attributes} = node) do
-    declares_platform_call?(node) and conflicting_route_attributes?(attributes)
+    declares_platform_call?(node) and platform_call_conflict?(attributes)
   end
 
   defp conflicting_route?(_node), do: false
 
+  # Every caller already holds a map (both sit behind an `is_map/1` guard),
+  # so there is no fallback clause: the compiler reports one as unreachable.
   defp conflicting_route_attributes?(attributes) when is_map(attributes) do
     Enum.any?(@conflicting_route_attributes, &(Map.get(attributes, &1) != nil))
   end
 
-  defp conflicting_route_attributes?(_attributes), do: false
+  defp platform_call_conflict?(attributes) when is_map(attributes) do
+    conflicting_route_attributes?(attributes) or
+      Enum.any?(@platform_call_line_attributes, &(Map.get(attributes, &1) != nil))
+  end
+
+  defp platform_call_conflict?(_attributes), do: false
 
   # True when the graph declares a WRITE-LIKE catalogue call.
   defp write_like_call?(nodes) do

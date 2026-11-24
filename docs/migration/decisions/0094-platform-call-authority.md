@@ -2,7 +2,7 @@
 
 Status: accepted. Implements the G2 gap of the "Register a tenant" pilot (the spike of 2026-11-21, decision record
 `docs/decision-record-g2-authority-rule.md` of the team repository, PM ruling D-179 of 2026-11-21: option A of all five
-decisions). The step library that RUNS a platform call (gap G1) is a later change; this record settles who may switch one on,
+decisions). The step library that RUNS a platform call (gap G1) landed later (T-2703, see the amendment of 2026-11-24 at the end of the residual risks); this record settles who may switch one on,
 where it may run, what it may read and who may start the definition that carries it.
 
 ## Problem
@@ -173,7 +173,13 @@ come back.
 * A SUB_PROCESS child that calls a platform function is refused outright until the server-side caller is propagated to the child's own
   activation (gap G3/G17). The parent's start already refuses a caller without the entry's permission, so the child is unreachable for
   the wrong caller; what the refusal costs today is that a platform admin cannot use such a child either.
-* A `platform_call` step runs nowhere yet: the step library (gap G1) owns the dispatcher. A definition that carries one starts, and its
-  instance stops at that step with the ordinary "no route" failure -- no platform code is reached.
+* A `platform_call` step ran nowhere when this record was written. Amendment 2026-11-24 (T-2703, gap G1): the engine now runs it. On
+  entering the node the engine arms the `platform_step_dispatches` row inside its own transaction and parks the instance; a worker
+  (default off, env `LETFLOW_START_PLATFORM_STEP_RUNNER`) runs the due rows of the platform schema OUTSIDE every transaction under the
+  fence of this record, re-checked at every attempt; the outputs are cut to the node's declared writes; a failure after the retries
+  puts the instance in ERROR with an EXECUTION_ERROR event and a DLQ entry of type `platform_step`, whose retry resumes it once.
+  A result the engine refuses to apply is landed the same way, and the runner recovers outstanding rows of any age; every state and
+  event of the dispatch is in the state table of `docs/platform-steps.md`. The decision above is unchanged. The residual risk that
+  remains: the tenant-creating routes still call the code directly until gap G17 (T-2704) makes them start the definition.
 * The start permission is DERIVED from the definition's catalogue calls. An explicit per-definition `start_permission` (a column) comes
   with the screen that starts the pilot's process (gap G3); until then the derived rule is the floor.
