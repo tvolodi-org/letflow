@@ -22,7 +22,11 @@ defmodule Letflow.Scripts.TestParallelOutputTimeoutTest do
       test never returns), which publishes the same marker the suite's own
       marker formatter publishes and prints the ExUnit header with a fixed
       seed, then hangs;
-    * the `pass` mode prints a Result line and exits 0.
+    * the `pass` mode prints a Result line and exits 0;
+    * the `chatty` mode keeps printing a line per second for longer than the
+      limit, and the `dots` mode prints the PRODUCTION shape -- one "." per
+      finished test and NO newline -- so the log grows in bytes and never in
+      lines. The `dots` case is what pins the signal to the byte count.
 
   The per-file limit (`TEST_PARALLEL_FILE_TIMEOUT_S`) is switched OFF in the
   hang case on purpose: the bound under test here is the OUTPUT one, and a test
@@ -88,6 +92,25 @@ defmodule Letflow.Scripts.TestParallelOutputTimeoutTest do
               i=$((i + 1))
             done
             echo "Result: 1 passed"
+            exit 0 ;;
+        esac
+        exit 0 ;;
+      dots)
+        # The PRODUCTION shape of ExUnit's CLI formatter: one "." per finished
+        # test and NO newline (see ex_unit/lib/ex_unit/cli_formatter.ex).
+        # The log grows in BYTES and never in LINES, so a watchdog that counted
+        # lines would kill this healthy partition -- this case is what pins the
+        # signal to the byte count.
+        case "$1" in
+          test)
+            echo "Running ExUnit with seed: 424242, max_cases: 8"
+            i=0
+            while [ "$i" -lt 8 ]; do
+              printf '.'
+              sleep 1
+              i=$((i + 1))
+            done
+            printf '\nResult: 1 passed\n'
             exit 0 ;;
         esac
         exit 0 ;;
@@ -239,6 +262,32 @@ defmodule Letflow.Scripts.TestParallelOutputTimeoutTest do
         tmp,
         [
           {"STUB_MODE", "chatty"},
+          {"TEST_PARALLEL_OUTPUT_TIMEOUT_S", "3"},
+          {"TEST_PARALLEL_FILE_TIMEOUT_S", "0"}
+        ],
+        120_000
+      )
+
+    assert status == 0, out
+    refute out =~ "TEST_PARALLEL_OUTPUT_TIMEOUT_S", out
+    refute out =~ "killing the partition", out
+  end
+
+  test "a partition that grows in bytes but never in lines is not killed", %{tmp_dir: tmp} do
+    # The signal the watchdog rests on is the partition log's BYTE count. A
+    # healthy partition grows that way in CI: ExUnit's CLI formatter writes one
+    # "." per finished test and NO newline, so the log grows without ever
+    # adding a line. A watchdog that counted LINES would therefore kill every
+    # healthy partition in every CI run -- and the other cases in this file
+    # would stay green, because their stubs print newline-terminated lines.
+    # This case is the one that fails if the signal is ever regressed to a
+    # line count: the log here has exactly one line and grows by one byte per
+    # second.
+    {status, out} =
+      run_script(
+        tmp,
+        [
+          {"STUB_MODE", "dots"},
           {"TEST_PARALLEL_OUTPUT_TIMEOUT_S", "3"},
           {"TEST_PARALLEL_FILE_TIMEOUT_S", "0"}
         ],
