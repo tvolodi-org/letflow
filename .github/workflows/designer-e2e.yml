@@ -1,0 +1,48 @@
+# T-2738: the process designer's browser regression as its own cheap job. The real page DefinitionEditorPage opens the
+# pilot definition platform.register_tenant in a real browser (Playwright, Chromium) against the dev-only screen harness:
+# no login, no backend, no database. A render loop (React error 185, "maximum update depth") shows only there, never in
+# jsdom. Own workflow file, not ci.yml: ci.yml's tests pin its job names; not stock-e2e.yml: that job needs the whole stack.
+name: Designer browser e2e
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: designer-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  designer_e2e:
+    name: Designer browser e2e (playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies and the Chromium browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Open platform.register_tenant in the real designer page
+        working-directory: web
+        run: npx playwright test --config=playwright.config.ts tests/e2e/pilot-register-tenant-page.e2e.spec.ts
+
+      - name: Upload screenshots and traces
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: designer-e2e-results
+          path: web/test-results/
+          if-no-files-found: ignore

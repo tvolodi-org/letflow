@@ -166,6 +166,32 @@ come back.
 | "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands; a router path that reaches a writer which writes NO actor (the system class -- module code, a seed task, the reactivation marker) fails the scan, because a person made that request; the scanned ROOT may not shrink either -- every module of the definitions tree that writes a definition audit row is in it, or the scan says so |
 | the start over the route | the caller's authority never reaches the start gate, and the pilot's process can never be started | `test/letflow/routers/platform_call_start_route_test.exs`: over the real `POST /api/v1/instances`, the platform tenant's PLATFORM_ADMIN starts the definition (201); a platform user without the entry's permission and a company tenant's administrator get the answer for an unknown definition, and nothing is written |
 
+## Amendment 2026-11-24: the system-authority start (design T-2734, build T-2727)
+
+Decision (e) refuses every start that has no person behind it (`StartPermission.check/3`: a nil `auth_context` gets the
+answer for an unknown definition). Two of the four tenant-creating paths of gap G17 have no person behind them: the
+provisioner mount `POST /admin/v1/tenants` (decision 0072, QA only) and the self-service signup. The PM ruled on
+2026-11-24 that they start `platform.register_tenant` through a NARROW system authority, under five conditions:
+
+1. it is bound to this ONE definition name (`platform.register_tenant`), in the platform tenant, and only to a version
+   whose catalogue calls need exactly `:TenantsManage`, which starts no SUB_PROCESS child, and which carries the v2
+   start contract. Any other definition, version or tenant gets the answer for an unknown definition, and nothing is
+   written;
+2. its `instance.create` audit row says `actor_kind: system`, with no actor id, and names the calling route
+   (`started_via`);
+3. no value from a request is trusted as identity or permission: the server builds the authority value after its own
+   authentication (the provisioner credential class, or the signup's verified row), from a closed route list, and no
+   request field can make one;
+4. today's rate and abuse limits stay in front of it: the credential limiter, the body cap, the request validation,
+   and the demo cap with the two daily budgets. The cap and the budgets answer 409 before any instance starts. They are
+   kept race-safe by a reservation row (`tenant_admissions`) that is written under the existing cap lock;
+5. the change runs the security and security_deep gates. Every file it touches is already under a sensitive path.
+
+Decision (e) is otherwise unchanged: a PERSON still needs the entry's permission in the platform tenant. The system
+authority is not a role, holds no permission atom, and cannot be reached from a route that has a user. A source-scan
+pin keeps its constructor and its start function inside `Letflow.TenantProvisioner`. The design, with the step table
+(failure and repeat per step), the start key and the 202 + poll consumer, is `docs/platform-register-tenant-v2.md`.
+
 ## Residual risks, stated plainly
 
 * A stolen `PLATFORM_ADMIN` session can do everything the platform admin can, now also through a definition. The audit actor and the

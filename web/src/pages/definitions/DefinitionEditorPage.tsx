@@ -295,9 +295,15 @@ export default function DefinitionEditorPage() {
         dirtyKeys.push('graph')
       }
       if (dirtyKeys.length === 0) return
+      const body = { name: def?.name ?? '', version: def?.version ?? '', description, graph }
+      // T-2738: an unchanged mirror is not written again. `draftStore` is a fresh object after every `setDraft`, so
+      // an unconditional write re-ran this effect for ever (React error 185) on a graph whose canvas round trip
+      // never equals the stored one (a platform_call or notify step).
+      const prev = draftStore.draft
+      if (prev && prev.definitionId === id && JSON.stringify(prev.body) === JSON.stringify(body) && prev.dirtyFieldKeys.join() === dirtyKeys.join()) return
       draftStore.setDraft({
         definitionId: id,
-        body: { name: def?.name ?? '', version: def?.version ?? '', description, graph },
+        body,
         dirtyFieldKeys: dirtyKeys,
         savedAt: draftStore.draft?.savedAt ?? null,
       })
