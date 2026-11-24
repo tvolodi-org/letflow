@@ -327,7 +327,6 @@ defmodule Letflow.CiSelectTestsTest do
     assert Enum.any?(plan, &String.ends_with?(&1, " " <> t))
   end
 
-  @tag timeout: 120_000
   @red_list_24_nov ~w(
     test/letflow/engine/swiftroute_escalation_timer_test.exs
     test/letflow/simulation/req206_swiftroute_test.exs
