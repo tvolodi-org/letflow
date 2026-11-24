@@ -38,8 +38,10 @@ what from a definition), and the pilot design `docs/platform-register-tenant-v2.
    definition's start permission once and answers with the instance id. Add a callers test that limits the
    catalogue functions to the step dispatcher: a new direct caller fails CI (the no-bypass rule).
 6. **Make it editable in the designer.** The function picker, argument mapping rows and notification fields are
-   fed by the catalogue, so a new entry appears without screen code. Activation and the designer's validate
-   refuse an unknown function and a bad mapping. The outbound allow-list is deny by default (atom
+   fed by the catalogue, so a new entry appears without screen code. Activation refuses an unknown
+   function (`platform_call_function_unknown`) and the dispatch guard refuses it again at run time; the designer's
+   validate refuses a bad typed mapping and a platform step in a company tenant, but does not look the function up
+   in the catalogue. The outbound allow-list is deny by default (atom
    `OutboundDestinationsManage`, TENANT_ADMIN and PLATFORM_ADMIN only) and is checked in two places that see
    different things: at activation, a literal HTTP host and the channel of a notification step (the designer's
    validate does not run it); at dispatch, the recipient domain of a notification step, because the recipient
