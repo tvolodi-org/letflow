@@ -53,6 +53,13 @@ defmodule Letflow.Instances.StepRetryTest do
     admin = Fx.user!(tenant.schema_name, "admin")
     Fx.platform_admin!(tenant.schema_name, admin)
 
+    # Pilot gap G14 (#5044): the outbound allow-list is deny by default; the notification
+    # step mails admin@acme.test, so the mail channel and that domain are opened here.
+    {:ok, _channel} = Letflow.OutboundDestinations.add(tenant.schema_name, nil, "email", nil)
+
+    {:ok, _domain} =
+      Letflow.OutboundDestinations.add(tenant.schema_name, nil, "email", "acme.test")
+
     %{tenant: tenant, admin: admin}
   end
 
